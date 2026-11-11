@@ -5,8 +5,10 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `ExactMeshBoolean` / `ExactMeshArrangement`, SafeRounding, boolean performance (fixed-width points,
   predicate compiler, indirect predicates, cheaper constructions), the Exact Boolean 2.0 milestone, external corpora
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
-- **Status (2026-11-08):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
-  active (owner 2026-11-07).
+- **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
+  reached on 2026-11-11: D1 (#513) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
+  run below was made on its head. The full rounding-1..8 run on master follows the merge. Next: Exact Boolean 3.0
+  (T3a culling after #539, range boolean).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -31,6 +33,15 @@ docs/design/LEVY_CLASSIFICATION.md 4.3: -40 to -45 % classification on the tree-
 hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; classification -29 to -42 % on tree-bound open
 ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
 so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
+
+**Sign-off run (2026-11-11, runner; `runs/boolean2-final` f0d5194e, `runs/final/results/SIGNOFF.md`):** target set
+on the D1 head f2245b6f (#513): 5413 models, 16239 ops, 15752 clean, 49 contacts only, 412 empty, 26 unclean (all
+degenerate triangles), 0 failed; control on #385 cd7fb8ab: 15746 clean, 50 contacts, 31 unclean. Rest (not in the
+target set): open 1474 models / 4422 ops (3010 of 3151 unclean are "not closed", expected for open inputs), self-
+intersecting 2920 / 8760 (974 unclean, 843 of them degenerate), unknown 187 / 561 (92 unclean, 3 failed with
+OutOfMemory on 252786 and 376253). Contact checks (4038d8e2): 49 of 49 target self-intersections and 1830 of 1882
+in the rest are contacts; 52 real self-intersections remain in the rest (open 7, selfint 43, unknown 2), unexplained.
+6 models unavailable (81313, 101633, 102610, 242236, 242237, 996816).
 
 **`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
 has merged):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
@@ -100,6 +111,14 @@ measurement shows the gap to the bound is large. T3b, A ∩ Bi each: an additive
 Difference) that computes A's closedness / orientation, self-intersection pairs and box tree once and runs the Bi in
 parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
 Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
+
+**3.0 execution order (owner 2026-11-10):** serial, one 3.0 work item at a time (they share the exact files), each
+one PR per feature with the exact-code review and the mutation shards: (1) T3a after #539 (Antipodal PR 1) merges (Opus,
+the pre-study session); (2) T3b `IntersectEach` (Sonnet: additive, parallel over the bodies outside the exact kernel,
+oracle bit-identical to n separate booleans); (3) T2 memory (Sonnet: data layout, hashes equal); (4) T1 levers one by one
+(Sonnet for the box-tree build, simplify per region and the input orientation sort; an Opus design or review for the
+`merge_points` sort and the classification union-find); (5) T5 Antipodal PR 2 and T1b (after D1) with Opus. Sonnet PRs in
+exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning.
 
 **3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.

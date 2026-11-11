@@ -49,7 +49,7 @@ selectively.
 
 ## Now
 Status on 2026-11-08 (evening, Berlin).
-- **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
+- **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
   one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
@@ -92,6 +92,9 @@ Status on 2026-11-08 (evening, Berlin).
   decision. [hotspots.md](roadmap/hotspots.md#shared-hotspots-across-sessions)
 - **Boolean allocations:** `System.Buffers`' ArrayPool as a new netstandard2.0 dependency, only if step (3) is
   reached. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- **Clipper2 C# sources:** upstream archived 2026-10-28 (C++ only from now on, new maintainer at PolyClipping/Clipper2);
+  integrate the frozen C# 2.0.0 sources into the addon and fix FINDINGS item 5 ourselves, or keep the package? No
+  upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); contact with rms80 for the upstream
   ledger is prepared, not initiated. [platform.md](roadmap/platform.md#open)
 - **Ports from geogram and other permissive libraries:** each port is a decision with an A/B.

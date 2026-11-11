@@ -17,7 +17,9 @@ The invariant, with D(T) the largest drift of the corners of T and S0 the surfac
 The lemma: one edit that satisfies the two-sided bounds (E1) / (E2) keeps I, and d' >= d, and max d' <= L.
 
 CHARGING below is the specification: the obligations are derived from it (edit_formula, obligations), so a change
-of the specification is checked by Z3; source_contract() checks the code against it.
+of the specification is checked by Z3. The code implemented it in Boolean 2.0; since Boolean 2.1 it implements the
+reference rule (drift_reference.py, docs/design/SAFE_ROUNDING_D1_DRIFT.md), and the lemma here is the comparison of
+that note's section 3.3.
 
 Model (README, section 'Pilot 2, step 1'): the distances are real variables, the geometric facts are hypotheses (the
 witness points of (E1), (E2) and of I before the edit, and the triangle inequality); the combinatorics are fixed,
@@ -29,18 +31,14 @@ nearest); the weaker (2.4) model fl(s) = s (1 + eta) cannot prove the chain boun
 Every obligation must be UNSAT, its assumptions SAT with delta > 0 (the model replayed with fractions), every mutant
 SAT with a witness replayed with fractions outside Z3; UNKNOWN never counts.
 
-source_contract() checks the code against CHARGING: the drift accounting of mesh_ops/MeshRoundingRepair.cs
-(improves: M over the vertices of R and A and the apex of A; within_bound: accepted if M + delta <= maxLength;
-apex_of: a vertex of every added triangle; commit_drift: only the apex gets M + delta, else every vertex of R and A).
-The contract compares the text of these methods; the check-mode blocks in improves and commit_drift (between the parts
-it compares) are not covered by it: they are tested by the C# check-mode tests (RoundingDriftApexTests).
+The source contract that compared the code with CHARGING (Boolean 2.0) is retired with the apex rule; see the note
+at the end of this file.
 """
-import re
 from fractions import Fraction
 
 import z3 as z
 
-from filter_rules import QB, ZB, Vars, _check, ROOT
+from filter_rules import QB, ZB, Vars, _check
 
 U = Fraction(1, 2**53)          # unit roundoff of binary64 round to nearest
 
@@ -420,73 +418,10 @@ def run(timeout_ms=120000):
 
 
 
-def _method(text, signature):
-    start = text.index(signature)
-    opening = text.index('{', start)
-    depth = 0
-    for end in range(opening, len(text)):
-        depth += (text[end] == '{') - (text[end] == '}')
-        if depth == 0:
-            return text[start:end + 1]
-    raise ValueError('unterminated method ' + signature)
-
-
-def source_contract():
-    """Fail on code drift: the drift accounting of MeshRoundingRepair must be CHARGING as proved here."""
-    assert CHARGING == dict(with_apex='apex', without_apex='all', M_over='R and A', acceptance='M + delta <= L')
-    text = (ROOT / 'mesh_ops/MeshRoundingRepair.cs').read_text(encoding='utf-8-sig')
-    norm = lambda x: re.sub(r'\s+', '', re.sub(r'//[^\n]*', '', x))
-    improves = norm(_method(text, 'bool improves('))
-    # M over the vertices of R and A, every one of them recorded; then the apex of A
-    drift_part = norm("""editVerts.Clear();
-            double most = 0;
-            foreach (int t in removed) {
-                Index3i tv = Mesh.GetTriangle(t);
-                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
-            }
-            foreach (Index3i tv in added)
-                for (int k = 0; k < 3; ++k) { editVerts.Add(tv[k]); most = Math.Max(most, drift[tv[k]]); }
-            editApex = apex_of(added);""")
-    if drift_part not in improves:
-        raise ValueError('improves: M over R and A, or the apex of A, changed; review drift_apex.py')
-    # the bound is checked before anything else that could apply the edit
-    # (the bound L of the edit's connected component, #420: edits stay within one, so the lemma holds per component)
-    accept = 'if(within_bound(most,step,editVerts.Count>0?maxLength_of(editVerts[0]):double.NaN)==false)'
-    if accept not in improves:
-        raise ValueError('improves: the acceptance against the bound of the edit\'s component changed; review drift_apex.py')
-    if improves.index(drift_part) > improves.index(accept):
-        raise ValueError('improves: the bound is checked before M is complete')
-    within = norm(_method(text, 'bool within_bound('))
-    if 'editDrift=most+step;' not in within or 'if(!(step>=0)||!(editDrift<=bound)){' not in within:
-        raise ValueError('within_bound: the acceptance M + delta <= maxLength changed; review drift_apex.py')
-    apex = norm(_method(text, 'static int apex_of('))
-    apex_expected = norm("""static int apex_of(List<Index3i> tris)
-        {
-            if (tris.Count == 0)
-                return -1;
-            for (int k = 0; k < 3; ++k) {
-                int c = tris[0][k];
-                bool all = true;
-                for (int i = 1; i < tris.Count && all; ++i)
-                    all = tris[i].a == c || tris[i].b == c || tris[i].c == c;
-                if (all)
-                    return c;
-            }
-            return -1;
-        }""")
-    if apex != apex_expected:
-        raise ValueError('apex_of changed: the apex must be a vertex of every added triangle; review drift_apex.py')
-    commit = norm(_method(text, 'void commit_drift('))
-    charge = norm("""if (editApex >= 0) {""")
-    apex_only = norm("""drift[editApex] = editDrift;
-            } else
-                foreach (int v in editVerts)
-                    drift[v] = editDrift;
-            MaxDrift = Math.Max(MaxDrift, editDrift);""")
-    if not commit.startswith(norm('void commit_drift()') + '{' + charge) or not commit.endswith(apex_only + '}'):
-        raise ValueError('commit_drift: only the apex gets M + delta, else every vertex of R and A; review drift_apex.py')
-    if text.count('editApex =') != 1 or text.count('drift[editApex]') != 2:
-        raise ValueError('editApex is set or read elsewhere; review drift_apex.py')
+# source_contract() is retired (Boolean 2.1): the code it compared (the per-vertex drift, apex_of, the charging in
+# improves and commit_drift) was replaced by the reference rule, whose contract is drift_reference.source_contract().
+# The lemma here stays: it is the comparison of SAFE_ROUNDING_D1_DRIFT.md section 3.3 (the reference rule never
+# rejects an edit the apex rule accepts).
 
 
 if __name__ == '__main__':

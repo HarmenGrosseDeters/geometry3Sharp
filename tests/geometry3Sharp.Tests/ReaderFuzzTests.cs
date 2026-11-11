@@ -20,7 +20,8 @@ namespace geometry3Sharp.Tests
     {
         // 150 cases per format in the normal suite (about 2 s); G3_FUZZ_CASES=n runs more, eg in a scheduled job
         static readonly int CasesPerFormat = int.TryParse(Environment.GetEnvironmentVariable("G3_FUZZ_CASES"), out int n) && n > 0 ? n : 150;
-        static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(10);
+        // (a limit per input for a hang, not for speed: the reads take milliseconds; a loaded net48 runner needs the margin)
+        static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(30);
 
         static readonly string[] ExtremeNumbers = {
             "1e400", "-1e400", "NaN", "nan", "inf", "-0", "1,5", "2147483647", "2147483648", "-2147483649",
@@ -42,6 +43,9 @@ namespace geometry3Sharp.Tests
                 case "off": return new OFFFormatReader();
                 case "stl": return new STLFormatReader();
                 case "ply": return new PLYFormatReader();
+                case "ply-points": return new PLYFormatReader();       // a PLY file without faces: a point cloud
+                case "xyz": return new XYZFormatReader();
+                case "xyz-points": return new XYZFormatReader();       // positions only
                 case "3mf": return new ThreeMFFormatReader();
                 case "glb": return new GLTFFormatReader();
                 case "g3mesh": return new BinaryG3FormatReader();
@@ -52,6 +56,20 @@ namespace geometry3Sharp.Tests
         static byte[] Write(string extension, bool binary)
         {
             DMesh3 mesh = MeshFormatTestUtil.AttributeSphere(new Vector3d(1, 2, 3));
+            if (extension == "xyz-points") {
+                DMesh3 plain = new DMesh3();
+                foreach (int vid in mesh.VertexIndices()) plain.AppendVertex(mesh.GetVertex(vid));
+                mesh = plain;
+                extension = "xyz";
+            }
+            if (extension == "ply-points") {
+                // the vertices of the sphere with their normals, no triangles
+                DMesh3 points = new DMesh3(true, false, false, false);
+                foreach (int vid in mesh.VertexIndices())
+                    points.AppendVertex(new NewVertexInfo(mesh.GetVertex(vid), mesh.GetVertexNormal(vid)));
+                mesh = points;
+                extension = "ply";
+            }
             string dir = MeshFormatTestUtil.TempDir();
             try {
                 string path = Path.Combine(dir, "mesh." + extension);
@@ -73,6 +91,10 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "off", false };
             yield return new object[] { "ply", false };
             yield return new object[] { "ply", true };
+            yield return new object[] { "ply-points", false };
+            yield return new object[] { "ply-points", true };
+            yield return new object[] { "xyz", false };
+            yield return new object[] { "xyz-points", false };
         }
 
         /// <summary>One mutation of the input, described for the failure message.</summary>
@@ -297,7 +319,9 @@ namespace geometry3Sharp.Tests
         static string CheckTriangleFile(string kind, string text)
         {
             Exception error = null; int items = 0;
-            var task = System.Threading.Tasks.Task.Run(() => {
+            // (a thread of its own, not Task.Run: with Task.Run the budget also counts the wait for a thread-pool thread, which
+            // starves while other test classes keep the pool busy, see Timed)
+            bool finished = Timed.Finishes(() => {
                 try {
                     if (kind == "poly") {
                         var r = g3cli.TrianglePolyFormat.ReadPoly(text, null, true, out _);
@@ -316,8 +340,8 @@ namespace geometry3Sharp.Tests
                 } catch (Exception e) {
                     error = e;
                 }
-            });
-            if (!task.Wait(TimeBudget)) return "no result within " + TimeBudget.TotalSeconds + " s";
+            }, TimeBudget);
+            if (!finished) return "no result within " + TimeBudget.TotalSeconds + " s";
             if (error != null) return error.GetType().Name + ": " + error.Message;
             // the result is bounded by the input (rings repeat point indices: at most the segments' end points)
             // (each item takes at least two characters: a number and a separator; rings repeat segment end points)

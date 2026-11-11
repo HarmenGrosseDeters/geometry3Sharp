@@ -11,12 +11,13 @@ namespace geometry3Sharp.Tests
     /// The D1 mechanism of SafeRounding, reproduced procedurally, and an audit of the drift certificate
     /// (docs/design/SAFE_ROUNDING_D1_DRIFT.md). A dense patch of tiny, well-shaped triangles on a unit sphere (as
     /// RoundingDenseTessellationTests, here repaired directly, so the surface at the start is the input) is degenerate
-    /// by area and contracted. Each contraction charges its apex the largest drift among its vertices plus its own
-    /// bound, so neighbouring contractions chain, and the budget is used up although the surface has moved by less than
-    /// a thousandth of it. The tests pin that gap (the part marked as the D1 pin changes when the tighter accounting is
-    /// built), show that a clean result within the bound exists (the repair with a wider bound, measured against the
-    /// original one), and check for every similarity that the reported drift bounds the measured distance, which holds
-    /// for any sound accounting.
+    /// by area and contracted. Under the apex rule (before Boolean 2.1) each contraction charged its apex the largest
+    /// drift among its vertices plus its own bound, so neighbouring contractions chained, and the budget was used up
+    /// (0.96 of it, degenerate triangles left) although the surface had moved by less than a thousandth of it. The
+    /// reference rule measures each triangle's displacement from its reference corners instead: the patch is repaired
+    /// with a drift of a fraction of the bound. The tests check that, that the wider bound certifies its result within
+    /// the original one, and for every similarity that the reported drift bounds the measured distance, which holds for
+    /// any sound accounting.
     /// </summary>
     public class RoundingDriftClusterTests
     {
@@ -96,36 +97,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void DensePatch_BudgetUsedUpByTheAccounting_NotByTheDistance()
+        public void DensePatch_CleanWithAFractionOfTheBound()
         {
             DMesh3 start = Patch(), m = new DMesh3(start);
             var r = new MeshRoundingRepair(m);
-            r.Apply();
+            Assert.True(r.Apply(), $"{r.RemainingDegenerate} degenerate left, drift {r.MaxDrift / r.MaxLength} of the bound");
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(m));
             Assert.True(m.IsClosed() && Invariance.AllFinite(m));
             Assert.Equal(0, r.RemainingIntersections);
+            Assert.Equal(0, r.RemainingDegenerate);
             Assert.False(r.EvaluationLimitReached);
             Assert.True(r.InitialDegenerate > 1000, $"initial degenerate {r.InitialDegenerate}");
             Assert.True(r.Collapses > 300, $"{r.Collapses} contractions");
-            // the certificate holds, and far more than that: the surface has moved by less than a thousandth of the bound
+            // the certificate holds, and the surface has moved by less than a thousandth of the bound
             double distance = Measured2(m, start);
-            Assert.True(r.MaxDrift <= r.MaxLength);
             Assert.True(distance <= r.MaxDrift);
             Assert.True(distance < 1e-3 * r.MaxLength, $"measured distance {distance / r.MaxLength} of the bound");
-            // the D1 pin (today's accounting; it changes when the reference rule of the design note is built: the
-            // prototype repairs every triangle here with a drift of 0.14 of the bound): the drift has reached the
-            // bound, the edits left need just over it, and degenerate triangles stay
-            Assert.True(r.MaxDrift > 0.9 * r.MaxLength, $"drift {r.MaxDrift / r.MaxLength} of the bound");
-            Assert.True(r.SmallestRejectedDrift > r.MaxLength && r.SmallestRejectedDrift < 1.05 * r.MaxLength,
-                $"smallest rejected drift {r.SmallestRejectedDrift / r.MaxLength} times the bound");
-            Assert.InRange(r.RemainingDegenerate, 1, 10);
-            Assert.False(r.IsClean);
+            // the D1 fix: the drift is a fraction of the bound (0.14 measured; the apex rule reached 0.96 and left
+            // degenerate triangles, the smallest rejected edit needing just over the bound)
+            Assert.True(r.MaxDrift < 0.5 * r.MaxLength, $"drift {r.MaxDrift / r.MaxLength} of the bound");
         }
 
         [Fact]
         public void DensePatch_WiderBound_CleanWithinTheOriginalBound()
         {
             // an upper bound for any accounting: with four times the bound the same edits repair the patch, and the
-            // result lies within a thousandth of the original bound of the start; only the certificate is missing
+            // result lies within a thousandth of the original bound of the start
             DMesh3 start = Patch(), m = new DMesh3(start);
             var r = new MeshRoundingRepair(m) { MaxDisplacement = 4e-5 };
             Assert.True(r.Apply(), $"{r.RemainingDegenerate} degenerate left");
@@ -135,8 +132,9 @@ namespace geometry3Sharp.Tests
             double distance = Measured2(m, start);
             Assert.True(distance < 1e-3 * original, $"measured distance {distance / original} of the original bound");
             Assert.Equal("", BooleanOracle.SameSolid(m, start, 2, original));
-            // the D1 pin (as above): today's accounting certifies this result only beyond the original bound
-            Assert.True(r.MaxDrift > original, $"certified {r.MaxDrift / original} times the original bound");
+            // the D1 fix: the result is certified within half the original bound (the apex rule certified it only
+            // beyond the original bound)
+            Assert.True(r.MaxDrift < 0.5 * original, $"certified {r.MaxDrift / original} times the original bound");
         }
 
         [Fact]
@@ -167,7 +165,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void DensePatch_SameResultTwice()
+        public void DensePatch_SameResultTwiceAndSerial()
         {
             DMesh3 a = Patch(), b = Patch();
             var ra = new MeshRoundingRepair(a);
@@ -175,6 +173,17 @@ namespace geometry3Sharp.Tests
             ra.Apply(); rb.Apply();
             Assert.Equal(MeshMinimizer.ToObj(a), MeshMinimizer.ToObj(b));
             Assert.Equal(ra.MaxDrift, rb.MaxDrift);
+            // serial equals parallel (the search is parallel, the accounting is not)
+            DMesh3 c = Patch();
+            var rc = new MeshRoundingRepair(c);
+            gParallel.SerialOnThisThread = true;
+            try {
+                rc.Apply();
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+            Assert.Equal("", Invariance.Difference(a, c));
+            Assert.Equal(ra.MaxDrift, rc.MaxDrift);
             // a second repair of the result starts with a fresh budget (docs/design/SAFE_ROUNDING.md section 1)
             var again = new MeshRoundingRepair(a);
             again.Apply();

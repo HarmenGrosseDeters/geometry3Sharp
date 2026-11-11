@@ -72,6 +72,9 @@ namespace gs
     /// WrapReason): a part below alpha is replaced by a blob of that size, which no check sees. Only with MinVolumeIoU > 0, and for at most 64
     /// connected components (a triangle soup is not a set of parts), whatever WrapRelativeAlpha is (a coarse alpha is refused in that mode).
     ///
+    /// Clean parts (PassThroughCleanParts, on by default): a closed component that is clean on its own and whose box meets no other component's box is passed through
+    /// untouched, and only the other components go through the stages (design note, option B, stage 0); see PassThroughCleanParts.
+    ///
     /// Supported input range (docs/QA.md 2.5a): every nonzero coordinate has a magnitude in [2^-200, 2^400], no subnormal coordinates, and the extent of the input is
     /// at least 2^-40 of the largest magnitude. Parts that lie far apart
     /// compared to their size are handled up to the limits of ScaleDisparity (Apply() false beyond, the mesh is kept);
@@ -317,6 +320,8 @@ namespace gs
             frameScale = 1;
             LastFrameScale = 1;
             reset_outputs();
+            PassedThroughTriangles = 0;
+            PassThroughFellBack = false;
             phase_timer.Restart();
             // unused vertices are no part of the solid, but far away they would make every threshold relative to the
             // diagonal (degenerate area, solidify cell size, wrap alpha) meaningless
@@ -407,7 +412,104 @@ namespace gs
             if (SeparatedRounding != null && SeparatedRounding != ExactResolveRounding) SeparatedRounding.AbsoluteTolerance *= s;
         }
 
+        /// <summary>
+        /// Stage 0 of the part handling (docs/design/ROBUST_REPAIR_SCALE_FREE.md, option B), on by default: a closed component of the input that is clean on its own
+        /// (NotCleanReason of the component alone) and whose bounding box meets the box of no other component is passed through untouched, and only
+        /// the other components go through the repair stages (at most 64 components; the result is the union). Where the repair result of the others
+        /// reaches the box of a passed part, or the union is not clean by NotCleanReason (a part far away makes its degenerate area too large), the input is repaired as a whole
+        /// (then, if that fails, the union is returned with ScaleDisparity). Off: the whole input goes through the stages, as before.
+        /// </summary>
+        public bool PassThroughCleanParts = true;
+        /// <summary> triangles of the clean parts the last Apply() passed through untouched (PassThroughCleanParts; 0 if none) </summary>
+        public int PassedThroughTriangles { get; private set; }
+        /// <summary> (tests) the last Apply() split off clean parts, but the result of the others met one of them, so the input was repaired as a whole </summary>
+        internal bool PassThroughFellBack { get; private set; }
+        /// <summary> (tests) called with the result of the others before it is checked against the passed parts (the geometry of the solidify and the wrap grows by about a cell) </summary>
+        internal Action<DMesh3> PassThroughTestHook;
+        bool passThroughOff;
+
         bool apply_checked()
+        {
+            if (passThroughOff == false)
+                PassThroughFellBack = false;
+            PassedThroughTriangles = 0;
+            DMesh3 passed, rest;
+            List<AxisAlignedBox3d> passedBoxes;
+            if (PassThroughCleanParts && passThroughOff == false && RepairF == null && Mesh.TriangleCount > 0
+                && MeshRobustRepairPassThrough.Split(Mesh, MaxFarParts, CheckSelfIntersections, out passed, out rest, out passedBoxes))
+                return apply_passing_through(passed, rest, passedBoxes);
+            return apply_checked_whole();
+        }
+
+        // the parts that pass through are put back into the result of the others
+        bool apply_passing_through(DMesh3 passed, DMesh3 rest, List<AxisAlignedBox3d> passedBoxes)
+        {
+            DMesh3 original = Mesh;
+            int passedTriangles = passed.TriangleCount;
+            bool ok;
+            if (rest.TriangleCount == 0) {
+                // every part is clean: nothing to repair
+                Mesh = passed;
+                ok = true;
+                ResultReason = "";
+            } else {
+                Mesh = rest;
+                bool done = false;
+                try {
+                    ok = apply_checked_whole();
+                    done = true;
+                } finally {
+                    if (done == false)
+                        Mesh = original;        // (an exception: the instance keeps the mesh it was given)
+                }
+                if (ok && PassThroughTestHook != null)
+                    PassThroughTestHook(Mesh);
+                if (MeshRobustRepairPassThrough.MeetsAny(Mesh, passedBoxes) && ok) {
+                    // the result of the others grew into a passed part (the solidify and the wrap change the geometry by about a cell): as a whole
+                    Mesh = original;
+                    reset_outputs();
+                    passThroughOff = true;
+                    PassThroughFellBack = true;
+                    try { return apply_checked_whole(); } finally { passThroughOff = false; }
+                }
+                if (ok == false && Mesh == rest)
+                    Mesh = original;        // (not repaired: Mesh is not replaced)
+                else {
+                    // (a new mesh: the result of the others may be the Result of the solidify or the wrap, which stay as they were)
+                    var union = new DMesh3(Mesh);
+                    MeshEditor.Append(union, passed);
+                    Mesh = union;
+                }
+            }
+            if (rest.TriangleCount == 0 || Mesh != original) {
+                PassedThroughTriangles = passedTriangles;
+                if (ok) {
+                    // the union is judged as a whole: the degenerate area of NotCleanReason is relative to all triangles, which a part far
+                    // away from the rest can make too large (the parts are unchanged, but the union is not clean by that criterion). Then the
+                    // input is repaired as a whole as before; only if that fails too, the union is returned, reported as ScaleDisparity
+                    if (ResultReason == "" && NotCleanReason(Mesh, CheckSelfIntersections) != "") {
+                        DMesh3 union = Mesh;
+                        Mesh = original;
+                        reset_outputs();
+                        passThroughOff = true;
+                        PassThroughFellBack = true;
+                        bool wholeOk;
+                        try { wholeOk = apply_checked_whole(); } finally { passThroughOff = false; }
+                        if (wholeOk) {
+                            PassedThroughTriangles = 0;
+                            return true;
+                        }
+                        Mesh = union;       // (the diagnostics are those of the failed repair as a whole)
+                        PassedThroughTriangles = passedTriangles;
+                        ResultReason = ScaleDisparity;
+                        return false;
+                    }
+                }
+            }
+            return ok;
+        }
+
+        bool apply_checked_whole()
         {
             bool ok;
             try {
@@ -1450,7 +1552,7 @@ namespace gs
         {
             if (mesh.TriangleCount == 0) return "empty";
             if (mesh.IsClosed() == false) return "not closed";
-            if (MeshIterators.BowtieVertices(mesh).Any()) return "bowties";
+            if (any_bowtie_vertex(mesh)) return "bowties";
             if (has_degenerate_triangles(mesh)) return "degenerate triangles";
             if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) return "inconsistent orientation";
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) return "inside-out components";
@@ -1485,7 +1587,7 @@ namespace gs
             if (mesh.TriangleCount == 0) return Defects.Empty;
             Defects d = Defects.None;
             if (mesh.IsClosed() == false) d |= Defects.NotClosed;
-            if (MeshIterators.BowtieVertices(mesh).Any()) d |= Defects.Bowties;
+            if (any_bowtie_vertex(mesh)) d |= Defects.Bowties;
             if (has_degenerate_triangles(mesh)) d |= Defects.DegenerateTriangles;
             if (MeshRepairMetrics.InconsistentlyOrientedEdges(mesh) > 0) d |= Defects.InconsistentOrientation;
             if (MeshPostRepairCleanup.FindInvertedComponents(mesh).Count > 0) d |= Defects.InsideOutComponents;
@@ -1578,6 +1680,38 @@ namespace gs
             return "";
         }
 
+        // MeshIterators.BowtieVertices(mesh).Any(), the vertex ranges in parallel (reads only; the answer is a bool, so
+        // it does not depend on the threads)
+        static bool any_bowtie_vertex(DMesh3 mesh)
+        {
+            return any_in_blocks(mesh.MaxVertexID, (i) => mesh.IsVertex(i) && mesh.IsBowtieVertex(i));
+        }
+
+        // mesh.TriangleIndices().Any(f), the triangle id ranges in parallel (f must only read the mesh)
+        static bool any_triangle(DMesh3 mesh, Func<int, bool> f)
+        {
+            return any_in_blocks(mesh.MaxTriangleID, (t) => mesh.IsTriangle(t) && f(t));
+        }
+
+        // is f(i) true for some i in [0, n)? Blocks of ids in parallel for large n, stopping once one is found
+        static bool any_in_blocks(int n, Func<int, bool> f)
+        {
+            const int Block = 8192;
+            if (n <= 2 * Block) {
+                for (int i = 0; i < n; ++i)
+                    if (f(i)) return true;
+                return false;
+            }
+            int blocks = (n + Block - 1) / Block;
+            int found = 0;
+            gParallel.ForRange(blocks, () => 0, (b, unused) => {
+                if (System.Threading.Volatile.Read(ref found) != 0) return;
+                for (int i = b * Block, e = Math.Min(n, i + Block); i < e; ++i)
+                    if (f(i)) { System.Threading.Volatile.Write(ref found, 1); return; }
+            });
+            return found != 0;
+        }
+
         // a triangle with area below 1e-12 * diagonal^2 (of the bounds of the triangles). Outside an extent of
         // [2^-100, 2^100] the test runs on coordinate differences scaled by a power of two to an extent of about 1
         // (exact, MeshRepairMetrics.unit_scale): the area (the length of a cross product, a fourth power of the edges
@@ -1592,7 +1726,7 @@ namespace gs
             if (s == 1) {
                 double diag = box.DiagonalLength;
                 double areaEps = 1e-12 * diag * diag;
-                return mesh.TriangleIndices().Any(t => mesh.GetTriArea(t) < areaEps);
+                return any_triangle(mesh, t => mesh.GetTriArea(t) < areaEps);
             }
             double d = scaled_difference(box.Max, box.Min, s).Length, eps = 1e-12 * d * d;
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;

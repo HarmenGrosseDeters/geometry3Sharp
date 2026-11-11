@@ -946,6 +946,17 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // the dual contouring of ThinPlates is intersection-free since the face vertices of
+        // docs/design/DC_INTERSECTION_FREE.md (option B); these tests need a contour that still intersects, so the
+        // contour's repair is skipped (a thread-static test seam of DualContouring)
+        // (a procedural search for an input that leaves the adaptive solidify unclean without the seam, after #562 and #572, found none: ThinPlates-like
+        // scenes of 12 rotated boxes, thickness 0.002 .. 0.05, resolution 32 and 48, seeds 0..7, about 55 variants, all clean; so the seam stays)
+        internal static T WithUnrepairedContour<T>(Func<T> f)
+        {
+            DualContouring.SkipResolveForTests = true;
+            try { return f(); } finally { DualContouring.SkipResolveForTests = false; }
+        }
+
         [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_AlphaWrapped()
@@ -954,7 +965,7 @@ namespace geometry3Sharp.Tests
             // self-intersects; the alpha wrap is clean and encloses the input
             Func<bool, MeshRobustRepair> run = (wrap) => {
                 var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, AlphaWrapFallback = wrap };
-                Assert.True(r.Apply());
+                Assert.True(WithUnrepairedContour(() => r.Apply()));
                 return r;
             };
             var without = run(false);
@@ -990,7 +1001,7 @@ namespace geometry3Sharp.Tests
             DMesh3 input = ThinPlates(6);
             var cancelled = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64 };
             cancelled.CancelF = () => cancelled.PhaseMilliseconds.ContainsKey("wrap");
-            Assert.False(cancelled.Apply());
+            Assert.False(WithUnrepairedContour(() => cancelled.Apply()));
             Assert.Same(input, cancelled.Mesh);
             Assert.False(cancelled.AlphaWrapSimplified);
         }
@@ -1059,7 +1070,7 @@ namespace geometry3Sharp.Tests
             // (the same mesh as an independent run, the solidify is deterministic)
             Func<bool, MeshWindingNumberSolidify> run = (stop) => {
                 var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
-                Assert.True(s.Compute());
+                Assert.True(WithUnrepairedContour(() => s.Compute()));
                 return s;
             };
             var full = run(false);
@@ -1085,7 +1096,7 @@ namespace geometry3Sharp.Tests
             var again = run(true);
             Assert.True(again.StoppedOnSelfIntersections);
             again.CellSize = 1e-12;     // too deep an octree
-            Assert.False(again.Compute());
+            Assert.False(WithUnrepairedContour(() => again.Compute()));
             Assert.False(again.StoppedOnSelfIntersections);
         }
 
@@ -1155,7 +1166,7 @@ namespace geometry3Sharp.Tests
                     RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
                     AlphaWrapFallback = wrap, WrapRelativeAlpha = -1
                 };
-                Assert.True(r.Apply());
+                Assert.True(WithUnrepairedContour(() => r.Apply()));
                 return r;
             };
             var without = run(false);
@@ -1184,7 +1195,7 @@ namespace geometry3Sharp.Tests
                 RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
                 CancelF = () => r.AlphaWrap != null
             };
-            Assert.False(r.Apply());
+            Assert.False(WithUnrepairedContour(() => r.Apply()));
             Assert.Equal(MeshAlphaWrap.WrapStatus.Cancelled, r.AlphaWrap.Status);
             Assert.True(r.Solidify.StoppedOnSelfIntersections);
             Assert.False(r.PhaseMilliseconds.ContainsKey("solidify.finish"));
@@ -1197,7 +1208,7 @@ namespace geometry3Sharp.Tests
             // the wrap fails (alpha 0: invalid parameters): the unclean solidify result is used, and why the wrap was
             // not is said
             var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, WrapRelativeAlpha = 0 };
-            Assert.True(r.Apply());
+            Assert.True(WithUnrepairedContour(() => r.Apply()));
             Assert.True(r.UsedSolidify);
             Assert.False(r.UsedAlphaWrap);
             Assert.StartsWith("InvalidParameters", r.WrapReason);

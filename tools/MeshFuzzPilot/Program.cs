@@ -26,11 +26,14 @@ public static partial class Program
         public DMesh3 A = null!, B = null!;
         /// <summary> the queries of the tree, batch and alpha-wrap targets: an origin and a unit direction each </summary>
         public List<(Vector3d origin, Vector3d dir)> Queries = new List<(Vector3d, Vector3d)>();
+        /// <summary> the option bytes of the second-wave targets (remesher, reducer, quality-mesh2, clipper2): four raw bytes after the queries </summary>
+        public byte[] Options = new byte[4];
         public override string ToString() => $"op {Op} ({Ops[Op]}): A {A.VertexCount} v / {A.TriangleCount} t, B {B.VertexCount} v / {B.TriangleCount} t";
     }
 
     public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
-        "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer" };
+        "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer",
+        "remesher", "reducer", "quality-mesh2", "clipper2" };
 
     /// <summary>
     /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
@@ -147,6 +150,8 @@ public static partial class Program
         c.A = DecodeMesh(r);
         c.B = DecodeMesh(r);
         DecodeQueries(r, c);
+        for (int i = 0; i < c.Options.Length; ++i)
+            c.Options[i] = r.Byte();
         return c;
     }
 
@@ -451,8 +456,16 @@ public static partial class Program
             RunAlphaWrap(c, what);
         } else if (c.Op == 11) {
             RunTreeWinding(c, what);
-        } else {
+        } else if (c.Op == 12) {
             RunPartitionedReducer(c, what);
+        } else if (c.Op == 13) {
+            RunRemesher(c, what);
+        } else if (c.Op == 14) {
+            RunReducer(c, what);
+        } else if (c.Op == 15) {
+            RunQualityMesh2(c, what);
+        } else {
+            RunClipper(c, what);
         }
     }
 
@@ -475,6 +488,8 @@ public static partial class Program
                 }
                 for (int q = 0; q < 8; ++q)
                     bytes.AddRange(new byte[] { (byte)q, (byte)(3 * q + 1), (byte)(q + 2), (byte)(5 * q), (byte)q, (byte)(7 * q) });
+                // the option bytes of the second-wave targets: different options for each shape (shape 0: all options at their defaults)
+                bytes.AddRange(new byte[] { (byte)(shape * 37), (byte)(shape * 73 % 64), (byte)(shape * 29), (byte)(shape * 11) });
                 yield return ($"{Ops[op]}-{shape}.bin", bytes.ToArray());
             }
         }
@@ -504,9 +519,36 @@ public static partial class Program
                     Console.WriteLine($"  {v}: {m.GetVertex(v).x:R} {m.GetVertex(v).y:R} {m.GetVertex(v).z:R}");
                 Console.WriteLine(name + " triangles: " + string.Join(" ", m.TriangleIndices().Select(t => $"({m.GetTriangle(t).a},{m.GetTriangle(t).b},{m.GetTriangle(t).c})")));
             }
+            Console.WriteLine("options: " + string.Join(" ", d.Options));
             for (int i = 0; i < d.Queries.Count; ++i)
                 Console.WriteLine($"query {i}: origin {d.Queries[i].origin.x:R} {d.Queries[i].origin.y:R} {d.Queries[i].origin.z:R} direction {d.Queries[i].dir.x:R} {d.Queries[i].dir.y:R} {d.Queries[i].dir.z:R}");
             return 0;
+        }
+        if (args.Length == 3 && args[0] == "random") {
+            // a smoke test without coverage guidance: n pseudo-random inputs (seed s, 40 to 300 bytes) of the selected operations, each run
+            // with a 60 s watchdog; prints the hex of every input that gives a finding or an exception (no libFuzzer needed); MESH_FUZZ_LAST
+            // names a file that gets the hex of the running input first
+            int n = int.Parse(args[1], CultureInfo.InvariantCulture);
+            var rnd = new Random(int.Parse(args[2], CultureInfo.InvariantCulture));
+            int bad = 0;
+            for (int i = 0; i < n; ++i) {
+                var data = new byte[40 + rnd.Next(260)];
+                rnd.NextBytes(data);
+                string text = Convert.ToHexString(data);
+                Exception? error = null;
+                // (the input first, so that a crash that kills the process names it; the stack of libFuzzer's main thread)
+                var lastInput = Environment.GetEnvironmentVariable("MESH_FUZZ_LAST");
+                if (!string.IsNullOrEmpty(lastInput)) File.WriteAllText(lastInput, text);
+                var thread = new Thread(() => { try { Run(Decode(data)); } catch (Exception e) { error = e; } }, 8 * 1024 * 1024) { IsBackground = true };
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                thread.Start();
+                // (a hung thread cannot be stopped: report and end the process, so it does not compete with the following inputs)
+                if (!thread.Join(60000)) { Console.WriteLine($"HANG {text}"); Console.WriteLine($"{i + 1} inputs, {bad + 1} findings (stopped at a hang)"); return 3; }
+                if (error != null) { Console.WriteLine($"{(error is Finding ? "FINDING" : "EXCEPTION " + error.GetType().Name)} {error.Message.Split('\n')[0]} {text}"); ++bad; }
+                else if (watch.ElapsedMilliseconds > 5000) Console.WriteLine($"SLOW {watch.ElapsedMilliseconds} ms {text}");
+            }
+            Console.WriteLine($"{n} inputs, {bad} findings");
+            return bad == 0 ? 0 : 1;
         }
         if (args.Length == 2 && args[0] == "replay") {
             Case c = Decode(File.ReadAllBytes(args[1]));
@@ -515,7 +557,7 @@ public static partial class Program
             return 0;
         }
         if (args.Length != 0) {
-            Console.Error.WriteLine("usage: MeshFuzzPilot [write-seeds <empty dir> | replay <input> | dump <input> | self-test]");
+            Console.Error.WriteLine("usage: MeshFuzzPilot [write-seeds <empty dir> | replay <input> | dump <input> | random <n> <seed> | self-test]");
             return 2;
         }
         Fuzzer.LibFuzzer.Run(data => Run(Decode(data.ToArray())));
@@ -573,6 +615,12 @@ public static partial class Program
         ExpectFinding("a nearest triangle of an empty mesh", () => CheckNearestTriangle("t", 0, 1, 1, 1, false));
         ExpectFinding("a nearest triangle that is not the nearest", () => CheckNearestTriangle("t", 0, 2, 2, 1, true));
         ExpectFinding("a reported distance that is not the minimum", () => CheckNearestTriangle("t", 0, 2, 1, 1, true));
+        ExpectFinding("a nearest triangle off by 1e-9 of the mesh scale", () => CheckNearestTriangle("t", 0, 1 + 1e-9, 1 + 1e-9, 1, true, 1));
+        ExpectFinding("a nearest triangle 6e-8 of the mesh scale away from a query on another triangle", () => CheckNearestTriangle("t", 0, 1e-14, 1e-14, 0, true, 1));
+        ExpectFinding("a NaN distance of the nearest triangle", () => CheckNearestTriangle("t", 0, 1, double.NaN, 1, true, 1));
+        ExpectFinding("a NaN brute force minimum", () => CheckNearestTriangle("t", 0, 1, 1, double.NaN, true, 1));
+        ExpectFinding("a NaN mesh scale", () => CheckNearestTriangle("t", 0, 1, 1, 1, true, double.NaN));
+        ExpectFinding("an absolute 1e-17 against a minimum of 0 on a mesh of scale 1e-30", () => CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1e-60));
         ExpectFinding("no nearest vertex", () => CheckNearestVertex("t", DMesh3.InvalidID, double.NaN, 1));
         ExpectFinding("a nearest vertex that is not the nearest", () => CheckNearestVertex("t", 0, 2, 1));
         ExpectFinding("a nearest hit that is not the brute force one", () => CheckRay("t", 3, 4, new[] { 3, 4 }, new[] { 3, 4 }));
@@ -605,9 +653,33 @@ public static partial class Program
         ExpectFinding("a scaled result that is not the scaled result", () => CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 1), 1));
         ExpectFinding("a result that is open for a closed input", () => CheckPartitionedReduction("t", true, cube, open, open, open, null, 1));
         ExpectFinding("a result with a vertex that is not finite", () => CheckPartitionedReduction("t", false, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube), null, 1));
+        // the second wave: remesher, reducer, 2D mesher, Clipper2
+        ExpectFinding("a remeshed mesh that is open", () => CheckRemesh("t", true, cube, open, open, open), "not closed");
+        ExpectFinding("an empty remeshed mesh", () => CheckRemesh("t", false, cube, new DMesh3(), new DMesh3(), new DMesh3()), "empty");
+        ExpectFinding("a remeshed mesh with more components", () => CheckRemesh("t", true, cube, TwoCubes(cube), TwoCubes(cube), TwoCubes(cube)), "components");
+        ExpectFinding("a reduced mesh that is not finite", () => CheckReduce("t", true, cube, NotFinite(cube), NotFinite(cube), null, 1, 0), "not finite");
+        ExpectFinding("a reduced mesh with another Euler characteristic", () => CheckReduce("t", true, Torus3x3(), cube, cube, null, 1, 0), "Euler");
+        ExpectFinding("a reduced mesh with other components", () => CheckReduce("t", true, TwoCubes(cube), cube, cube, null, 1, 0), "components");
+        ExpectFinding("a remeshed mesh with another Euler characteristic", () => CheckRemesh("t", true, cube, Torus3x3(), Torus3x3(), Torus3x3()), "Euler");
+        ExpectFinding("a remeshed mesh that is not finite", () => CheckRemesh("t", true, cube, NotFinite(cube), NotFinite(cube), NotFinite(cube)));
+        ExpectFinding("a remeshed mesh with another Euler characteristic", () => CheckRemesh("t", true, open, cube, cube, cube));
+        ExpectFinding("parallel smoothing that differs", () => CheckRemesh("t", true, cube, cube, ShiftedBy(cube, 1), cube));
+        ExpectFinding("a second remesh that differs", () => CheckRemesh("t", true, cube, cube, cube, ShiftedBy(cube, 1)));
+        ExpectFinding("a reduced mesh that is open", () => CheckReduce("t", true, cube, open, open, null, 1, 0));
+        ExpectFinding("a reduced mesh with more triangles", () => CheckReduce("t", true, open, cube, cube, null, 1, 0));
+        ExpectFinding("a reduced mesh farther than MaxDeviation", () => CheckReduce("t", true, cube, ScaledBy(cube, 3), ScaledBy(cube, 3), null, 1, 0.1));
+        ExpectFinding("a reduced mesh that is not the scaled one", () => CheckReduce("t", true, cube, cube, cube, ShiftedBy(cube, 1), 1, 0));
+        ExpectFinding("a 2D mesher that Failed", () => CheckMesher2("t", "Failed", "x", false, ""));
+        ExpectFinding("a 2D mesher violation", () => CheckMesher2("t", "Success", "", false, "AngleBelowBound"));
+        ExpectFinding("a Clipper2 status that is not Success", () => CheckClipper("t", "Failed", "x", true, true, 0, ""));
+        ExpectFinding("a Clipper2 vertex that is not finite", () => CheckClipper("t", "Success", "", false, true, 0, ""));
+        ExpectFinding("a Clipper2 ring with the wrong orientation", () => CheckClipper("t", "Success", "", true, false, 0, ""));
+        ExpectFinding("a Clipper2 membership that disagrees", () => CheckClipper("t", "Success", "", true, true, 1, "p"));
         CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 0), 1);
         // and pass on a clean result
         CheckNearestTriangle("t", 0, 1, 1, 1, true);
+        CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1);                    // rounding of the two distance codes at the scale of the mesh
+        CheckNearestTriangle("t", 0, 1 + 1e-15, 1 + 1e-15, 1, true, 1);
         CheckNearestVertex("t", 0, 1, 1);
         CheckRay("t", 3, 3, new[] { 3, 4 }, new[] { 4, 3 });
         CheckInside("t", 1, 1, true, true);
@@ -619,7 +691,47 @@ public static partial class Program
         CheckBoolean("t", true, S, cube, true, 0, 0, 0);
         CheckRepair("t", true, "", cube);
         CheckRounding("t", true, true, cube, 0, 1);
+        CheckRemesh("t", true, cube, cube, cube, cube);
+        CheckReduce("t", true, cube, cube, cube, cube, 1, 0.1);
+        CheckMesher2("t", "Success", "", true, "");
+        CheckClipper("t", "Success", "", true, true, 0, "");
         return 0;
+    }
+
+    // a closed torus of 18 triangles (Euler characteristic 0, one component)
+    static DMesh3 Torus3x3()
+    {
+        var m = new DMesh3();
+        int[,] id = new int[3, 3];
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) {
+                double u = 2 * Math.PI * i / 3, v = 2 * Math.PI * j / 3;
+                id[i, j] = m.AppendVertex(new Vector3d((2 + Math.Cos(v)) * Math.Cos(u), (2 + Math.Cos(v)) * Math.Sin(u), Math.Sin(v)));
+            }
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) {
+                int i1 = (i + 1) % 3, j1 = (j + 1) % 3;
+                m.AppendTriangle(id[i, j], id[i1, j], id[i1, j1]);
+                m.AppendTriangle(id[i, j], id[i1, j1], id[i, j1]);
+            }
+        return m;
+    }
+
+    // two disjoint copies of a mesh (two components, twice the Euler characteristic)
+    static DMesh3 TwoCubes(DMesh3 m)
+    {
+        var n = new DMesh3(m);
+        var far = ScaledBy(m, 1);
+        foreach (int v in far.VertexIndices().ToArray()) far.SetVertex(v, far.GetVertex(v) + new Vector3d(100, 0, 0));
+        new MeshEditor(n).AppendMesh(far);
+        return n;
+    }
+
+    static DMesh3 ScaledBy(DMesh3 m, double k)
+    {
+        var n = new DMesh3(m);
+        foreach (int v in n.VertexIndices().ToArray()) n.SetVertex(v, k * n.GetVertex(v));
+        return n;
     }
 
     static DMesh3 ShiftedBy(DMesh3 m, double dx)
@@ -649,11 +761,14 @@ public static partial class Program
         return m;
     }
 
-    static void ExpectFinding(string what, Action check)
+    static void ExpectFinding(string what, Action check, string? message = null)
     {
         try {
             check();
-        } catch (Finding) {
+        } catch (Finding f) {
+            // (the intended branch fired: its message names it)
+            if (message != null && !f.Message.Contains(message))
+                throw new InvalidOperationException($"the check for '{what}' fired another branch: {f.Message}");
             return;
         }
         throw new InvalidOperationException("the check did not fire: " + what);

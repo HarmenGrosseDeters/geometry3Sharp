@@ -29,7 +29,7 @@ class PilotTests(unittest.TestCase):
             corpus = Path(tmp) / 'corpus'
             self.assertEqual(run('write-seeds', str(corpus)).returncode, 0)
             seeds = sorted(corpus.iterdir())
-            self.assertEqual(len(seeds), 78)
+            self.assertEqual(len(seeds), 102)
             before = {p.name: p.read_bytes() for p in seeds}
             # a directory that is not empty is refused and left as it is
             self.assertNotEqual(run('write-seeds', str(corpus)).returncode, 0)
@@ -41,7 +41,7 @@ class PilotTests(unittest.TestCase):
     def test_short_and_empty_inputs_decode(self):
         with tempfile.TemporaryDirectory() as tmp:
             # empty, and short inputs whose first byte selects each operation (the rest decodes as zeros)
-            for n, data in [(0, b'')] + [(op, bytes([op, 1, 2])) for op in range(13)]:
+            for n, data in [(0, b'')] + [(op, bytes([op, 1, 2])) for op in range(17)]:
                 p = Path(tmp) / f'short{n}-{len(data)}.bin'
                 p.write_bytes(data)
                 r = run('replay', str(p))
@@ -71,6 +71,17 @@ class PilotTests(unittest.TestCase):
             for seed in seeds:
                 r = run('replay', str(seed), ops='tree-nearest,tree-ray')
                 self.assertEqual(r.returncode, 0, seed.name + ': ' + r.stderr)
+
+    def test_tree_nearest_judges_the_raw_tree_in_raw_space(self):
+        # a campaign artifact (110 bytes) the raw-scale judgement used to report ("nearest triangle 14 at squared distance 4.4e-278, the
+        # minimum is 0"): the raw tree is right, the distance of its triangle was recomputed on the normalised copy and compared exactly
+        data = bytes.fromhex('000503fe03fe00000000003000000000000000ffffffff0000000000000000000000000000000000000007040a020e030a050f0315040d06ff000000000000000000000000000000000000ffffffffffffff7300000102000000010403050107ffffffff14041c000203fe03fe00')
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'raw-scale.bin'
+            p.write_bytes(data)
+            r = run('replay', str(p), ops='tree-nearest')
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn('tree-nearest', r.stdout)      # the operation ran (the case was decoded and judged)
 
     def test_dump_prints_the_case_with_round_trip_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:

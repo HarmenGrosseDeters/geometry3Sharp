@@ -17,7 +17,7 @@ namespace geometry3Sharp.Tests
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "int front_winding(" },
-            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
 
@@ -112,7 +112,7 @@ namespace geometry3Sharp.Tests
         public void RoundingParts_SharedTests_FewExtras()
         {
             // every part of the rounding shard runs the same tests; the coverage pass costs about 100-200 minutes per
-            // part with them (README). rounding-7 on the 19-term union of every rounding test (229 tests, 73 s instead
+            // part with them (README). rounding-7 (now rounding-8, since the split of D1) on the 19-term union of every rounding test (229 tests, 73 s instead
             // of 32 s) was still in its coverage pass after 262 minutes (master run 42567558219). Its span (set_vertex
             // to the end) adds the tests of the Exact Boolean 2.0 changes there: the tolerances of the largest
             // component and the ScaleDisparity guard (6913d092) and the exact flag cleared on a position write (4b94d093)
@@ -122,13 +122,13 @@ namespace geometry3Sharp.Tests
             var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-1"]));
             Assert.Equal(8, shared.Count);
             var extras = new Dictionary<string, string[]>() {
-                ["stryker-mesh-rounding-7"] = new[] {
+                ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~ExactBooleanFarComponentTests",
                     "FullyQualifiedName~ExactBooleanScaleDisparityTests",
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
                     "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip" },
             };
-            for (int i = 1; i <= 7; ++i) {
+            for (int i = 1; i <= 8; ++i) {
                 string part = "stryker-mesh-rounding-" + i;
                 var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
                 Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));

@@ -568,6 +568,15 @@ The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, 
 |---|---|
 | [Digital-Production-Aachen/DAPComputationalGeometry](https://github.com/Digital-Production-Aachen/DAPComputationalGeometry) (Boost-1.0), delta `8f185f1`..`158507b` | Nothing: audited 2026-11-01, no bug fix applies to this code ([audit result](design/DAP_BUGFIX_AUDIT.md#audit-result-2026-11-01)). A later port of one of its features is listed here with the DAP commit and file |
 
+## Changed-line coverage gate (test/tool only)
+
+`coverlet.collector` 6.0.4 (MIT, private test dependency) collects Cobertura data in the three Linux test runs;
+no package/runtime dependency is added. Integration follows the [coverlet VSTest documentation](https://github.com/coverlet-coverage/coverlet/blob/v6.0.4/Documentation/VSTestIntegration.md)
+and [.NET coverage guide](https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-code-coverage).
+The original Python gate uses changed/executable-line intersection and union of suite hits, as documented by
+[diff-cover](https://github.com/Bachmann1234/diff_cover) (Apache-2.0), with stricter missing-evidence checks.
+Documentation only was consulted; no external implementation was ported. [Scope and acceptance](../tools/coverage/README.md).
+
 ## SMT verification pilot (test/tool only)
 
 `tools/Z3Pilot` uses `z3-solver` 4.15.4.0 (Z3 4.15.4, MIT), only as a pinned
@@ -655,6 +664,12 @@ Delaunay mesher (`QualityMesh2`), with an exact error scan that follows from the
 vertices; elementary). Context only: greedy insertion for terrain TINs (Garland and Heckbert 1995, see above), constrained Delaunay triangulation with breaklines (Chew 1989), and
 the usual GIS distinction between constrained and conforming TINs with breaklines.
 
+## ASCII XYZ point files (`XYZReader`, `XYZWriter`)
+
+Own implementation of the informal format (one point per line, optional normals); there is no specification or source. The
+column rule (values 4-6 are normals when there are six or more; further columns are ignored) is our decision, documented at
+the reader. The PLY point cloud path is the existing `PLYReader` / `PLYWriter`.
+
 
 ## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
 
@@ -666,4 +681,15 @@ Implemented from the papers below; no code of any of them was read.
 | The wrap of the cloud | `MeshAlphaWrap` (Portaneri et al. 2022, see its entry) |
 | Sign by two probe points against the wrap (outer side = the probe outside the closed wrap) | own construction, not from a paper; the pairing "alpha wrap for normal orientation" was not found in the literature searched (design note section 2) |
 | Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
-| k-nearest neighbours | a uniform grid with ring search; textbook method, own code |
+| k-nearest neighbours | a k-d tree with median splits and bounded-distance pruning; textbook method (J. L. Bentley, Multidimensional binary search trees used for associative searching, CACM 1975, from memory), own code |
+
+
+## Point cloud surface (`PointCloudSurface`, step C1 of the design note)
+
+| Part | Source |
+|---|---|
+| Fast winding number of oriented points with area weights | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast winding numbers for soups and clouds*, ACM TOG 37(4), Article 43, 2018, already in `PointAABBTree3.FastWindingNumber` (see the entry of that class); bibliographic data checked by web search only |
+| Iso-surface of the winding number as the surface of an oriented cloud | the idea of using the winding number field of oriented points as the indicator follows the normal-orientation work of Xu et al. (GCNO 2023) and Barill et al.; this construction (0.5 iso-surface by marching cubes) is the standard use of a winding number field, no code taken |
+| Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
+| Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
+| Marching cubes | the library's `MarchingCubes` |
