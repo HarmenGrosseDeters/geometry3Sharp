@@ -82,7 +82,8 @@ namespace geometry3Sharp.Tests
         public void NearerPart_RepairedAndClean(double far)
         {
             var r = new MeshRobustRepair(Scene(far));
-            Assert.True(r.Apply());
+            bool okk = r.Apply();
+            Assert.True(okk, $"reason '{r.ResultReason}' passed {r.PassedThroughTriangles} clean '{MeshRobustRepair.NotCleanReason(r.Mesh)}'");
             Assert.Equal("", r.ResultReason);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(r.Mesh));
             Assert.False(r.UsedAlphaWrap);

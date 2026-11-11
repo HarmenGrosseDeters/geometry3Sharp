@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FarPart_TheReasonAndTheResolvedMesh()
         {
-            var r = new MeshRobustRepair(RobustRepairFarPartTests.Scene(1e8, 10));
+            var r = new MeshRobustRepair(RobustRepairFarPartTests.Scene(1e8, 10)) { PassThroughCleanParts = false };       // (the far part mode of the whole repair)
             Assert.False(r.Apply());
             Assert.Equal(MeshRobustRepair.ScaleDisparity, r.ResultReason);
             Assert.True(r.UsedExactResolve);
