@@ -129,26 +129,25 @@ Corrections made after the full-text check:
 
 ### 2.5 Fold-over and untangling (local optimisation view)
 
-- Freitag and Plassmann, "Local optimization-based simplicial mesh untangling and improvement" (2000; snippet via
-  search, article not read): maximises the minimum element area in a local submesh; the level sets of the local
-  objective are convex, so the local subproblem converges, and starting from a valid mesh the criterion keeps the mesh
-  valid. This is the strongest guarantee in the results for a local move.
+- Freitag and Plassmann, "Local optimization-based simplicial mesh untangling and improvement" (2000; the article
+  was not retrieved, the convexity claim is taken from Knupp, read in full): the local objective (maximise the
+  minimum element volume around one node) has convex level sets, so each per-node subproblem has a unique maximum.
+  Knupp states the limit of the sweep: looping over all interior nodes in a sequence of local optimisations has no
+  guarantee of convergence or of a non-inverted final mesh. So the per-vertex step has a guarantee, the sweep does not.
+- Relevance: a per-rim-vertex projection solved as a constrained local optimisation would inherit the per-vertex
+  guarantee only. Knupp's global objective (below) is the variant that avoids the sweep problem.
 - Freitag, "Smart Laplacian" smoothing (1997; described in a MyMesh doc, snippet): a move is kept only if the quality of
   the incident elements improves. The description does not mention inversion explicitly, so the protection comes from
   the metric. The same doc warns that plain Laplacian smoothing can invert elements.
 - Shontz and Vavasis, IMR 2003 (read in full, 12 pages): a theorem about mesh invertibility with sufficient conditions
   for a mesh to resist inversion by a transformation (warping by weighted Laplacian smoothing).
-- Knupp, "Hexahedral Mesh Untangling" (Sandia, read in full): an untangling objective whose optimisation produces
-  non-inverted elements when possible; formulated for hexahedral meshes, so it gives the principle only.
+- Knupp, "Hexahedral Mesh Untangling" (Sandia, read in full): one global objective over all interior nodes, the
+  total volume of the ball of elements around each node, which is independent of the node position; optimising it
+  produces non-inverted elements when possible. Formulated for hexahedral meshes; the principle transfers to triangles,
+  the method does not as stated.
 - Agarwal, Sadri and Yu, "Untangling Triangulations through Local Explorations", SCG 2008 (snippet; 2D only): cut out
   a locally removable region around a tangled seed and re-mesh it; output-sensitive. The idea does not transfer to a
   3D surface with a rim unchanged, but the principle (re-mesh a bounded region and accept only if it stays valid) does.
-- Relevance: a local projection of the rim, solved as a constrained optimisation of the minimum area or of the signed
-  distance to the cap plane with the rim's current state as the valid start, would give a convergence argument that the
-  heuristic guards do not. The cost is an optimiser per rim vertex.
-
-### 2.6 Post-hoc local repair
-
 - Attene, "Direct repair of self-intersecting meshes", 2014 (abstract read via [iris.cnr.it](https://iris.cnr.it/handle/20.500.14243/228607)):
   a fast exact algorithm that removes intersections from a triangle mesh. It uses floating point where it can and
   switches to exact arithmetic only when needed; the switches are rare in practice.
@@ -201,7 +200,7 @@ The issue lists three candidates, cheapest first. The literature supports them a
 | B. Side-of-plane test on a rim move, against the cap plane and the side plane | rejects a rim move that crosses either plane | no published rule found; follows from 2.1 and 2.5 | local, exact if the test is exact | low (rim triangles only) | rejects too many moves: the rim may stop smoothing |
 | C. Per-move intersection check restricted to the rim (structurally complex region) | exact check only where it matters | 2.3 (Liu, Ye, Chen 2025; Gumhold 2003) | exact, as `PreventSelfIntersections` | lower than the existing full check; the target 1.1x is still a question | depends on finding the region correctly |
 | D. Batch check, revert per pass | reverts a pass when a pair intersects | 2.4 (PaMO); already in the buffered passes | deterministic | per pass | reverts the whole pass; no rim focus |
-| E. Local optimisation (min area or plane distance) of the rim projection | convergence argument | 2.5 (Freitag and Plassmann 2000) | local convergence from a valid mesh | an optimiser per rim vertex | more code; the convexity claim must be checked for our projection |
+| E. Local optimisation (min area or plane distance) of the rim projection | per-vertex convexity | 2.5 (Freitag and Plassmann 2000; Knupp: sweep not guaranteed) | per-vertex unique maximum; sweep convergence and validity NOT guaranteed | an optimiser per rim vertex | the sweep needs a global objective (Knupp) or a separate argument |
 | F. Post-hoc local repair | repairs after the last pass | 2.6 (Attene 2014; Liu 2025) | depends; floating point with exact fallback | a second pass | can move the rim and add defects (Zheng et al.) |
 
 ## 4. Searches that found nothing
