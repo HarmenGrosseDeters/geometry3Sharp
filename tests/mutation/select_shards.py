@@ -18,7 +18,8 @@ An edit of the workflow runs every config in full, unless every changed line lie
 a shard runs (workflow_edit_forces_full below; checked on the diff between $BASE and $HEAD, which the workflow sets):
 adding a test file to the trigger paths, raising max-parallel or editing a reporting step changes no shard.
 With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding-1 runs only those
-(workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards).
+(workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards). --only also takes
+prefixes (`boolean-*`) and the groups `nightly` (boolean-*, arrangement-*, rounding-*) and `weekly` (everything else).
 """
 import glob
 import json
@@ -284,6 +285,30 @@ def mode_of(config, changed):
     return "tests" if changed & tests else "none"
 
 
+# The scheduled runs of master (3.0 process, README): the big shards of the exact boolean pipeline every night, the rest once a
+# week. `--only nightly` / `--only weekly` name these groups (the other names of --only are shards, or prefixes ending in `-*`).
+NIGHTLY = ("boolean-*", "arrangement-*", "rounding-*")
+
+
+def expand_only(value, names):
+    """the set of shard names that a --only value selects: shard names, prefixes ending in `*`, and the groups `nightly` and
+    `weekly` (every shard that is not nightly); a name that matches nothing is an error"""
+    out = set()
+    for item in (x.strip() for x in value.split(",") if x.strip()):
+        if item == "nightly":
+            out |= expand_only(",".join(NIGHTLY), names)
+        elif item == "weekly":
+            out |= set(names) - expand_only("nightly", names)
+        elif item.endswith("*"):
+            hits = {n for n in names if n.startswith(item[:-1])}
+            if not hits:
+                raise ValueError("no shard matches " + item)
+            out |= hits
+        else:
+            out.add(item)
+    return out
+
+
 def shard_name(config_name):
     """config name -> the name used in --only and in the cache keys: config -> arithmetic, mesh-x -> x"""
     return "arithmetic" if config_name == "config" else config_name[len("mesh-"):]
@@ -319,7 +344,7 @@ if __name__ == "__main__":
     only = None
     if "--only" in args:
         value = args[args.index("--only") + 1].strip()
-        only = None if value in ("", "all") else {x.strip() for x in value.split(",") if x.strip()}
+        only = None if value in ("", "all") else expand_only(value, {shard_name(n) for n in load_configs()})
     paths = [] if run_all else [line.strip() for line in sys.stdin if line.strip()]
     base, head = os.environ.get("BASE"), os.environ.get("HEAD")
     if WORKFLOW in paths and base and head:

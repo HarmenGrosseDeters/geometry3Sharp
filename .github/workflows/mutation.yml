@@ -1,6 +1,6 @@
 name: Mutation tests
 
-# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full nightly on master and on
+# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full on master (nightly / weekly) and on
 # demand, and on ready PRs (not drafts) only incrementally for the configs that the PR touches
 # (tests/mutation/select_shards.py). Exact Boolean 3.0 process (owner 2026-11-11): no full shard run on a PR (a full shard
 # is a 3-6 h runner slot): a shard without a fitting baseline (config or tools changed, split offsets moved, no baseline
@@ -71,21 +71,26 @@ on:
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'
   schedule:
-    # nightly, every config in full on master (it replaces the weekly run, which was a subset of this one); the baselines
-    # of the incremental PR runs come from it. About 25 shards: with max-parallel 12 it takes two to three waves, so it
-    # ends by about noon UTC
-    - cron: '17 1 * * *'        # every night 01:17 UTC
+    # master, in the evening (UTC): the big shards of the exact boolean pipeline (boolean-*, arrangement-*, rounding-*, 18 of
+    # the 26 configs) Monday to Saturday, everything else (envelope, terrain, planar, fixed, generated, arithmetic) on Sunday
+    # (tests/mutation/select_shards.py --only nightly / weekly). Estimate: a shard takes 3 to 6 hours (README), 12 run at a
+    # time, so the 18 big shards need two waves, about 10 to 12 hours: started at 19:17 UTC they end by about 07:00 UTC at
+    # the latest, mostly before the CI of the Berlin working day starts (about 05:30 UTC); a night at 01:17 would end at noon.
+    # The baselines of the incremental PR runs come from these runs.
+    - cron: '17 19 * * 1-6'     # Monday to Saturday 19:17 UTC: nightly group
+    - cron: '17 19 * * 0'       # Sunday 19:17 UTC: weekly group
   workflow_dispatch:
     inputs:
       shards:
         description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
 
-# a new push to the same PR cancels the running run. The runs on master (nightly, dispatch) share one group and queue:
-# cancel-in-progress is only for pull_request events, so a nightly run never cancels a dispatch that is under way, nor the
-# reverse (GitHub keeps one running and one pending run per group: a third one replaces the pending one)
+# a new push to the same PR cancels the running run. The runs on master never cancel: the scheduled runs and the
+# workflow_dispatch runs have a group each (GitHub keeps one running and ONE pending run per group, a third run replaces the
+# pending one), so a nightly run cannot drop a pending dispatch (a gate run) and the reverse; two dispatches in a row do
+# replace a pending one (the later request wins), and a scheduled run queues behind an earlier one that is still running.
 concurrency:
-  group: mutation-${{ github.event_name == 'pull_request' && github.ref || 'full-runs' }}
+  group: mutation-${{ github.event_name == 'pull_request' && github.ref || github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -134,12 +139,17 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           SHARDS: ${{ github.event.inputs.shards }}
+          SCHEDULE: ${{ github.event.schedule }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # a failed git diff must fail this step: empty input would select nothing and skip the runs in green
           set -o pipefail
           if [ "$EVENT" != "pull_request" ]; then
+            if [ "$EVENT" = schedule ]; then
+              # (Sunday: the weekly group, else the nightly one; the cron strings are in the trigger above)
+              if [ "$SCHEDULE" = "17 19 * * 0" ]; then SHARDS=weekly; else SHARDS=nightly; fi
+            fi
             python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
             git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"

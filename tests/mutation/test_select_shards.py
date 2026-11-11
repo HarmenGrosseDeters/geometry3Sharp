@@ -8,7 +8,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_forces_full
+from select_shards import ALWAYS, TESTS, expand_only, load_configs, select, shard_name, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -398,19 +398,47 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(("none", []), select(["tests/mutation/local-results/" + "a" * 40 + "/boolean-1.json"], CONFIGS))
 
     def test_the_30_process_in_the_workflow(self):
-        # 3.0 process (README): nightly full runs on master, no full run on a PR, runs on master queue
+        # 3.0 process (README): scheduled full runs on master in two groups, no full run on a PR, runs on master never cancel
         with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
             wf = f.read()
-        self.assertRegex(wf, r"cron: '\d+ \d+ \* \* \*'")                      # every night
-        self.assertNotRegex(wf, r"cron: '[^']*\* \* [1-7]'")                       # no weekly run beside it
-        self.assertEqual(1, wf.count("cron:"))
-        # one group for the runs on master, and cancel-in-progress only for pull requests
-        self.assertIn("group: mutation-${{ github.event_name == 'pull_request' && github.ref || 'full-runs' }}", wf)
+        self.assertEqual(2, wf.count("cron:"))
+        self.assertIn("cron: '17 19 * * 1-6'", wf)                  # nightly group, Monday to Saturday
+        self.assertIn("cron: '17 19 * * 0'", wf)                    # weekly group, Sunday
+        self.assertIn('if [ "$SCHEDULE" = "17 19 * * 0" ]; then SHARDS=weekly; else SHARDS=nightly; fi', wf)
+        # a group per kind of run on master (a pending dispatch must not be replaced by a scheduled run), cancel only for PRs
+        self.assertIn("group: mutation-${{ github.event_name == 'pull_request' && github.ref || github.event_name }}", wf)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", wf)
         # both Stryker steps tell run_stryker.sh that this is a PR (no full run there)
         self.assertEqual(2, wf.count("NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}"))
         # a PR stores no baseline (it ran no full shard), and a skipped shard has no report to find
         self.assertEqual(2, wf.count("always() && github.event_name != 'pull_request' && ("))
         self.assertEqual(2, wf.count("|| github.event_name == 'pull_request') && 'warn' || 'error'"))
+
+    def test_the_concurrency_groups_of_the_events(self):
+        # the expression of the group, evaluated here for the events: PRs by ref, every other event by its name
+        def group(event, ref):
+            return "mutation-" + (ref if event == "pull_request" else event)
+        self.assertNotEqual(group("schedule", "refs/heads/master"), group("workflow_dispatch", "refs/heads/master"))
+        self.assertNotEqual(group("pull_request", "refs/pull/1/merge"), group("pull_request", "refs/pull/2/merge"))
+
+    def test_only_groups_and_prefixes(self):
+        names = {shard_name(n) for n in CONFIGS}
+        nightly = expand_only("nightly", names)
+        weekly = expand_only("weekly", names)
+        self.assertEqual(set(), nightly & weekly)
+        self.assertEqual(names, nightly | weekly)                  # (every shard runs at least once a week)
+        self.assertEqual(set(BOOLEAN), {n for n in nightly if n.startswith("boolean-")})
+        self.assertTrue({n for n in nightly if n.startswith("arrangement-")} and {n for n in nightly if n.startswith("rounding-")})
+        self.assertIn("arithmetic", weekly)
+        self.assertEqual(set(BOOLEAN), expand_only("boolean-*", names))
+        self.assertEqual({"planar", "boolean-2"}, expand_only("planar, boolean-2", names))
+        with self.assertRaises(ValueError):
+            expand_only("nonexistent-*", names)
+        # the selection of a nightly run: only these shards, all in full
+        arithmetic, mesh = select([], CONFIGS, run_all=True, only=nightly)
+        self.assertEqual("none", arithmetic)
+        self.assertEqual(nightly, {m["shard"] for m in mesh})
+        self.assertTrue(all(m["mode"] == "full" for m in mesh))
 
     def test_the_workflow_keeps_what_the_harmless_regions_rely_on(self):
         # the trigger, the selection job and the `if` of the Stryker jobs count as harmless in select_shards.py, so what

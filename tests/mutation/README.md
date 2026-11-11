@@ -23,7 +23,7 @@ too slow to run against every mutant.
 
 ## Running
 
-The [mutation workflow](../../.github/workflows/mutation.yml) runs every config in full every night on master (01:17 UTC)
+The [mutation workflow](../../.github/workflows/mutation.yml) runs the configs in full on master in the evening (19:17 UTC; the big boolean shards Monday to Saturday, the others on Sunday)
 and on demand through "Run workflow" ([Exact Boolean 3.0 process](#exact-boolean-30-process)). On a pull request, it waits
 until the PR is ready for review (drafts run nothing); **a pull request never runs a shard in full** (3.0: a full shard is a
 3 to 6 hour runner slot), only incrementally where a baseline fits. Then
@@ -122,13 +122,19 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). An
   incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
   no baseline.
-- **Nightly full run on master** (`schedule`, 01:17 UTC): every config in full, which seeds and refreshes the baselines of
-  the incremental PR runs. It replaces the weekly run (which was a subset of it). Survivors are tasks of the area's next PR.
-  About 25 shards at `max-parallel: 12` take two to three waves, so the run ends around noon UTC.
-- **The runs on master queue.** The concurrency group is `mutation-<ref>` for a PR, with `cancel-in-progress` (a new push
-  cancels the old run), and one shared group `full-runs` without cancelling for the nightly and `workflow_dispatch` runs:
-  a nightly run does not cancel a dispatch that is under way, nor the reverse; they run one after the other. (GitHub keeps one
-  running and one pending run per group; a third replaces the pending one.)
+- **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 18 of
+  the 26 configs) and `weekly` (Sunday: envelope, terrain, planar, fixed, generated, arithmetic), chosen by
+  `select_shards.py --only nightly|weekly`. They seed and refresh the baselines of the incremental PR runs; survivors are tasks of
+  the area's next PR. The weekly all-shards run is folded into these. Why a rotation and an evening start: a shard takes 3 to 6
+  hours, 12 run at a time, so the 18 big shards need two waves of about 5 hours (an estimate, to be replaced by the first
+  measured nights): started at 19:17 UTC they end by about 07:00 UTC at the latest, around the time the CI of the Berlin working
+  day starts (about 05:30 UTC); all 26 configs every night would not fit, and a start at 01:17 UTC would end at noon.
+- **The runs on master do not cancel each other.** The concurrency group is `mutation-<ref>` for a PR, with `cancel-in-progress`
+  (a new push cancels the old run), and `mutation-schedule` / `mutation-workflow_dispatch` for the others, never cancelling.
+  GitHub keeps one running and **one pending** run per group and cancels an older pending run when another arrives, so a
+  scheduled run can never drop a pending dispatch (a gate run) and the reverse; two dispatches in a row do replace a pending one
+  (the later request wins), and a scheduled run that finds the previous one still running waits for it. A scheduled and a
+  dispatched run can run at the same time (up to 26 + 26 jobs against the account's 20 at once, which GitHub queues).
 - **The 3.0 completion gate** is a full run of every touched shard above its break threshold on master, on GitHub or run
   locally by the owner (below).
 
