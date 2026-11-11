@@ -80,3 +80,35 @@ The check preserves the tool result as an exact rational, requires it not to exc
 changes to the modeled input, source expressions, or generator rules. The input includes potentially
 subnormal coordinates; no claim is made for an ungated execution of the real filter. The other cross-product
 components, gate, sign decision and complete predicate remain outside this check.
+
+## Further Orient3dLPI components: ny, nz and the denominator d
+
+Issue #625 extends the comparisons to the other cross-product components and the line-plane denominator
+of `Orient3dLPI` (`indirect.spec`). Each model is one expression under the same restricted domain as above:
+`p`, `q`, `s`, `t` coordinates in `[1,2]` and `r` coordinates in `[0,0.5]`, with each operation rounded to
+binary64 as in the spec's leaves.
+
+- `orient3dlpi_ny.txt`, `orient3dlpi_nz.txt`: `ny = uz*wx - ux*wz` and `nz = ux*wy - uy*wx`. Both have
+  the structure of `nx`, so the generator bound is the same `8C` as for `nx`.
+- `orient3dlpi_d.txt`: the full chain `nx, ny, nz`, then `lp = nx*prx + ny*pry + nz*prz`, `lq` likewise with
+  `q - r`, and `d = lq - lp`. Magnitudes over the domain: leaves at most 2, `|nx|,|ny|,|nz| <= 8`, each
+  product of a component and a leaf at most 16, `lp` and `lq` at most 48, `d` at most 96. Applying the
+  generator's relative rules to this tree gives the absolute bound `96 C_d`, where
+  `C_d = 9u + O(u^2)` and `96 C_d` is about `864.0000000000005 u` (`u = 2^-53`).
+
+```sh
+python3 tools/FPTaylorPilot/compare_lpi_components.py "$base" ny nz d
+python3 -m unittest tools/FPTaylorPilot/test_compare_lpi_components.py
+```
+
+| Expression | FPTaylor bound (hex) | FPTaylor (decimal) | Generator bound (decimal) | Ratio | Result |
+|---|---|---|---|---|---|
+| `ny` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
+| `nz` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
+| `d` | `0x1.c480000000001p-46` | 2.51e-14 | 9.59e-14 | 0.262 | pass |
+
+The run was on Linux x86-64 in a Podman container (Ubuntu 24.04), since the owner's machine has no WSL
+distribution; `install.sh` and `run.sh` were run unchanged there. `d` took about 9 minutes in the tool,
+so it is run on demand, not in CI. The leaves `prx`..`qrz` (the `ux` form, same ranges) were not run
+separately. As for the earlier comparisons, each result is a bounded-domain, single-expression check
+(restricted ranges, no gate, no sign decision), not a proof of the filter.
