@@ -79,6 +79,7 @@
     <InternalsVisibleTo Include="DualContouringIntersections" />
     <!-- the exact ray crossings and the partitioned reduction as oracles (tools/MeshFuzzPilot) -->
     <InternalsVisibleTo Include="MeshFuzzPilot" />
+    <InternalsVisibleTo Include="CoreMathBenchmark" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;
