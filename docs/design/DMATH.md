@@ -3,6 +3,42 @@
 Status: design for the owner's review, no library code yet. Context: [DETERMINISM.md](DETERMINISM.md) (cause C1, levels
 L0 / L1 / L2; section 5 for the arm64 result).
 
+## 0. Update 2026-11-11: CoreMathSharp changes the recommendation
+
+The owner pointed to [CoreMathSharp](https://github.com/andanteyk/CoreMathSharp) (NuGet `AndanteSoft.CoreMathSharp` 1.0.0). Read
+on 2026-11-11 (README, `LICENSE.md`, `THIRD-PARTY.md`, `.csproj`, `Binary64/Sin.cs`, `Binary64/Exp.cs`, the NuGet page):
+
+- **Licence**: MIT, "Copyright (c) 2026 Andante". `THIRD-PARTY.md`: the original CORE-MATH is MIT, "Copyright (c) 2023-2025
+  Alexei Sibidanov" (read second-hand through this file; the CORE-MATH repository itself could not be reached), and the
+  `FusedMultiplyAdd` is from musl, MIT, "Copyright (c) 2005-2020 Rich Felker, et al.". The README calls the code a port of
+  CORE-MATH. This fits the rule "port only from MIT / Apache / BSD sources".
+- **Contents**: `StrictMath` with `Sin`, `Cos`, `Atan2`, `Exp`, `Log` (and more) for binary64; the README claims "correctly
+  rounded results". No exhaustive-test statement found; the README says tests use vectors generated from the C sources
+  (`c/`). Caveat of the README: 32-bit / x87 environments may give wrong results (the same limit as C4 here).
+- **Package**: targets `netstandard2.1` and `net10.0`, no dependencies. **Not usable as a package reference**: our library is
+  `netstandard2.0` and the net48 test project cannot load `netstandard2.1`; a new dependency would also change the package.
+- **Source**: `Sin.cs` / `Exp.cs` call `FusedMultiplyAdd` (the musl software port in the package), use `Avx` / `AdvSimd` /
+  `Sse41` rounding intrinsics under `#if NETCOREAPP3_0_OR_GREATER` with a built-in fallback, and helpers (`Polyfill`,
+  `MemoryMarshal`). `Cos`, `Atan2`, `Log` were not read.
+
+**Proposal (replaces the fdlibm method of section 3 as the recommendation)**: copy the five functions with their helpers
+(MIT permits it) into an internal `math/` file set, with the MIT notices of CoreMathSharp, CORE-MATH and musl kept in the
+file headers and listed in `docs/SOURCES.md`; adapt to `netstandard2.0` (no `Math.FusedMultiplyAdd` on net48: the musl
+software FMA is used on every runtime so that the result cannot depend on hardware FMA; the hardware intrinsics paths
+are dropped or compared for equality in a test). Correct rounding makes the result identical to the mathematically correct
+value, hence **bit-identical on every IEEE 754 platform (L2 for the family)** by construction, not just within 1 ulp as
+with fdlibm. The fdlibm route of section 3 stays as the fallback if the port turns out too slow or incorrect.
+
+What the implementation PR must verify itself (the claim of the port is not taken as given):
+1. Correct rounding: for 1e6 SplitMix64 arguments per function plus the hard cases (near multiples of pi/2, powers of two,
+   subnormals, `+-0`, `inf`, `NaN`, the `exp` / `log` boundaries), the result equals a high-precision reference
+   (`BigInteger` fixed point or double-double with a correctness check), zero mismatches.
+2. Pinned bits: a hash over fixed arguments, the same on the net48 job and the Linux / Windows / macOS / arm64 jobs of the
+   determinism workflow.
+3. Cost with software FMA on net48 and net10 (`IntrinsicBenchmark` before / after); CORE-MATH is designed to be about as fast
+   as glibc in C, the C# port with software FMA is expected slower on net48 (to be measured, not assumed).
+4. The three files not read here (`Cos`, `Atan2`, `Log`) and `Helper` / `Polyfill` / the FMA are reviewed line by line.
+
 ## 1. Problem
 
 The geodesic family (intrinsic triangulation, FlipOut paths, geodesic Bézier curves, heat and vector heat methods) calls
@@ -129,9 +165,9 @@ Read on 2026-11-11 (primary sources):
 
 ## 8. Decisions asked of the owner
 
-1. Scope: the five functions of the geodesic family now (recommended), or also `acos` / `asin` / `tan` for the rest of the
-   library in a second group.
-2. Sources: fdlibm (Sun / FreeBSD notice) as above, or wait for a licence check of CORE-MATH (correctly rounded, larger,
-   needs a per-function port).
+1. Scope: the five functions of the geodesic family now (recommended), or also `acos` / `asin` / `tan` (CoreMathSharp has
+   them) for the rest of the library in a second group.
+2. Source: vendor the five functions from CoreMathSharp (MIT, port of MIT CORE-MATH; correctly rounded; recommended) or
+   write the fdlibm versions (section 3; below 1 ulp, rewritten, no third-party code beyond the Sun notice).
 3. Acceptance: bit-identical geodesic cases on all platforms of the harness (L2 for the family), with golden values of the
    geodesic tests moving once.
