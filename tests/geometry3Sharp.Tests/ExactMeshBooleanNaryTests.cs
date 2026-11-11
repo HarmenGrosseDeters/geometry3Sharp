@@ -416,11 +416,17 @@ namespace geometry3Sharp.Tests
             var meshes = new[] { a, b, c };
             foreach (var predicate in new[] { ExactMeshBoolean.AtLeast(1), ExactMeshBoolean.AtLeast(2), ExactMeshBoolean.AtLeast(3) }) {
                 var exact = Check(new ExactMeshBoolean(meshes, predicate));
-                var general = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true };
+                // (both paths: fast winding numbers, and the Antipodal Method, which meshes without boundary take by default)
+                var general = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                var antipodal = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true };
                 Check(general);
+                Check(antipodal);
                 Assert.DoesNotContain(true, general.ExactWinding);
                 Assert.True(exact.ExactWinding.All(e => e));
+                Assert.Equal(0, general.Counts["antipodal_meshes"]);
+                Assert.Equal(3, antipodal.Counts["antipodal_meshes"]);
                 Assert.Equal(Volume(exact.Result), Volume(general.Result), 12);
+                Assert.Equal(Volume(exact.Result), Volume(antipodal.Result), 12);
             }
             // an open box (no top) among closed ones: inside at least two
             DMesh3 open = Box(0, 0, 0, 2, 2, 2);
