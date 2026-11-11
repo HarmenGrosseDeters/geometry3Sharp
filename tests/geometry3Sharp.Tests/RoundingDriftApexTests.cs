@@ -9,13 +9,13 @@ using Family = geometry3Sharp.Tests.SafeRoundingDegenerateInputTests.Family;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// SafeRounding charges an edit's drift to its apex, a vertex of every triangle it adds, instead of to every vertex
-    /// of the triangles it removes and adds (docs/design/ROUNDING_DRIFT_APEX.md; the lemma is checked by Z3,
-    /// tools/Z3Pilot/drift_apex.py). Neighbouring edits that share no apex then do not add up their drifts: needles that
-    /// share only the vertices opposite their short edges are all repaired within a bound of 1.5 times one needle, where
-    /// the old rule chained them through the shared vertices. The check mode asserts that M is the largest drift over the
-    /// removed and added triangles' vertices, that the apex is in every added triangle and every added triangle in the
-    /// mesh after the edit (and, defensively, that the apex's drift does not decrease, which holds by construction).
+    /// Drift cases written for the apex rule of Boolean 2.0 (docs/design/ROUNDING_DRIFT_APEX.md, superseded), kept for
+    /// the reference rule of Boolean 2.1 (docs/design/SAFE_ROUNDING_D1_DRIFT.md), which measures each triangle's
+    /// displacement from its reference corners: needles that share only the vertices opposite their short edges are
+    /// all repaired within a bound of 1.5 times one needle (the rule before the apex rule chained them through the
+    /// shared vertices), chains of contractions through one vertex stay within MaxDrift, and the check mode (the
+    /// references kept through contractions, the ghosts on a vertex or an edge, every bound recomputed after the edits)
+    /// changes nothing. The scripted cases of the rule are in MeshRoundingRepairTestsDriftReference.
     /// </summary>
     public class RoundingDriftApexTests
     {
@@ -75,8 +75,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void CheckMode_EveryEditType_SameResultAsWithout()
         {
-            // contractions, flips, zips, strip zips, moves and vertex removals: with the check, every apex is in every
-            // triangle its edit adds, and the result is the one without the check
+            // contractions, flips, zips, strip zips, moves and vertex removals: with the check (the references and ghosts
+            // of every edit, every bound at the end), the result is the one without the check
             int collapses = 0, flips = 0, zips = 0, strips = 0, moves = 0, removals = 0;
             var inputs = new List<(DMesh3 mesh, bool shared)> { (Needles(S, out _), false) };
             foreach (Family f in new[] { Family.Cluster, Family.FoldedCluster, Family.Collinear, Family.Sliver })
@@ -148,7 +148,7 @@ namespace geometry3Sharp.Tests
                 gParallel.SerialOnThisThread = false;
             }
             Assert.Equal("", Invariance.Difference(serial, parallel));
-            // the same instance on a fresh copy: the drifts start from 0 again
+            // the same instance on a fresh copy: the references start from the new mesh again
             var r = new MeshRoundingRepair(new DMesh3(start)) { MaxDisplacement = Bound };
             Assert.True(r.Apply());
             r.Mesh = new DMesh3(start);
@@ -158,8 +158,8 @@ namespace geometry3Sharp.Tests
 
         // a sphere with chains of needles: every 7th edge split at the given distances from its first end, so that the
         // contractions follow each other along the edge. Farthest first: each needle vertex has a smaller id than the
-        // next nearer one, and the contractions keep the same vertex (one apex charged again and again); nearest first:
-        // the vertex charged by one contraction vanishes in the next (its drift must come with it)
+        // next nearer one, and the contractions keep the same vertex (one vertex kept again and again); nearest first:
+        // the vertex kept by one contraction vanishes in the next (its ghosts must come with it)
         static DMesh3 Chains(bool farthestFirst, params double[] at)
         {
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
@@ -186,11 +186,10 @@ namespace geometry3Sharp.Tests
         [InlineData(false, new double[] { 1e-13, 2e-13, 3e-13, 4e-13 })]
         public void Chains_TheSurfaceWithinMaxDrift(bool farthestFirst, double[] at)
         {
-            // contractions that follow each other through one vertex, each charging its apex: the repaired surface lies
-            // within MaxDrift of the start (vertices against triangles, both ways) and MaxDrift within the bound. The
-            // drifts must add up along the chain: without the apex's charge MaxDrift falls below the distance the
-            // surface moved. (M over the added triangles only is not seen here, the per-edit bounds being about ten
-            // times the displacement: the check mode catches it, CheckMode_EveryEditType_SameResultAsWithout)
+            // contractions that follow each other through one vertex: the repaired surface lies within MaxDrift of the
+            // start (vertices against triangles, both ways) and MaxDrift within the bound. The displacement of a vertex
+            // contracted along the chain is measured from its triangles' reference corners (written for the apex rule,
+            // where the drifts had to add up along the chain)
             DMesh3 start = Chains(farthestFirst, at), m = new DMesh3(start);
             var r = new MeshRoundingRepair(m);
             Assert.True(r.Apply());

@@ -401,6 +401,44 @@ namespace Meshing2Acceptance
                 // keeps its chain there, which this output lacks
                 Must("accept: a point on the collapsed corridor with a segment into the square, unused", !mixedReport.Violations.Any(v => v.Kind == Violation.VertexUnused && v.Detail.StartsWith("input 10 ")), "report: " + mixedReport);
                 Must("reject: that segment's chain missing in the square", mixedReport.Violations.Any(v => v.Kind == Violation.SegmentMissing && v.Detail.StartsWith("input constraint (35, 10) - (10, 10)")), "report: " + mixedReport);
+                // a part of the domain that may vanish beside a real one (the vanishing rule per part): a unit square and, apart from it, a
+                // triangle on (10, 0) - (11, 0) of the given height, rings both. The mesh holds the square only (input points 4..6 unused)
+                {
+                    Mesh2Input SquarePlus(double height)
+                    {
+                        var input = Points(0, 0, 1, 0, 1, 1, 0, 1, 10, 0, 11, 0, 10.5, height);
+                        input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                        input.Rings.Add(new RingInput(new[] { 4, 5, 6 }, false));
+                        return input;
+                    }
+                    Mesh2Output SquareOnly(Mesh2Input input)
+                    {
+                        var tri = new[] { new[] { 0, 1, 2 }, new[] { 0, 2, 3 } };
+                        return new Mesh2Output { Status = Mesh2Status.Success, VX = (double[])input.X.Clone(), VY = (double[])input.Y.Clone(),
+                            InputToVertex = Enumerable.Range(0, input.Count).ToArray(), Triangles = tri, Neighbours = NeighboursOf(tri),
+                            TriangleLabels = new int[2], Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(0, 1), new SubsegmentOutput(1, 2), new SubsegmentOutput(2, 3), new SubsegmentOutput(3, 0) },
+                            BadTriangles = new int[0] };
+                    }
+                    var sliverIn = SquarePlus(1e-13);
+                    var sliver = Oracle.Check(sliverIn, SquareOnly(sliverIn), m3);
+                    Must("accept: a sliver ring far narrower than the tube dropped beside a real square, with its points and edges (the area rule, which a dropped part does not satisfy with unmoved vertices, is a separate verdict)", sliver.Violations.All(v => v.Kind == Violation.AreaMismatch)
+                        && sliver.VanishedPoints == 3 && sliver.VanishedSegments > 0, "report: " + sliver + " / " + sliver.ExcusedSummary());
+                    var realIn = SquarePlus(1e-3);
+                    var real = Oracle.Check(realIn, SquareOnly(realIn), m3);
+                    Must("reject: a triangle ring above the bound dropped beside the square as VertexUnused and SegmentMissing", real.Has(Violation.VertexUnused) && real.Has(Violation.SegmentMissing)
+                        && real.VanishedPoints == 0 && real.VanishedSegments == 0, "report: " + real + " / " + real.ExcusedSummary());
+                    var boxIn = Points(0, 0, 1, 0, 1, 1, 0, 1, 10, 0, 11, 0, 11, 1, 10, 1);
+                    boxIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); boxIn.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, false));
+                    var box = Oracle.Check(boxIn, SquareOnly(boxIn), m3);
+                    Must("reject: a second real square dropped (the first one's area does not excuse it) as VertexUnused", box.Has(Violation.VertexUnused) && box.VanishedPoints == 0, "report: " + box + " / " + box.ExcusedSummary());
+                    var noTube = Oracle.Check(sliverIn, SquareOnly(sliverIn), new OracleExpect { Milestone = Milestone.M3, Tube = Q.Zero });
+                    Must("reject: the sliver dropped with no tolerance at all", noTube.Has(Violation.VertexUnused) && noTube.VanishedPoints == 0, "report: " + noTube + " / " + noTube.ExcusedSummary());
+                    // the same sliver touching the square: one part, the square's area counts, so nothing is excused
+                    var touchIn = Points(0, 0, 1, 0, 1, 1, 0, 1, 2, 0, 1.5, 1e-13);
+                    touchIn.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false)); touchIn.Rings.Add(new RingInput(new[] { 1, 4, 5 }, false));
+                    var touch = Oracle.Check(touchIn, SquareOnly(touchIn), m3);
+                    Must("reject: a sliver that touches the square is part of it and not excused", touch.Has(Violation.VertexUnused) && touch.VanishedPoints == 0 && touch.VanishedSegments == 0, "report: " + touch + " / " + touch.ExcusedSummary());
+                }
                 // a dumbbell: two 20 squares joined by a corridor 0.25 wide from x 20 to 50, a segment from the middle of one to the
                 // middle of the other, either way. Its chain must be there in both squares, up to the corridor's mouths at (20, 10) and
                 // (50, 10), whose hot pixels the chain reaches before the collapsed stretch's first pixel boundary; it may be missing in

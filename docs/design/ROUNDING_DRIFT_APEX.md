@@ -1,8 +1,10 @@
 # SafeRounding: drift charged to the apex of an edit (D1 cause 1, the lemma for Z3 pilot 2 step 1)
 
-Status: implemented (`MeshRoundingRepair.commit_drift`, `apex_of`; tests `RoundingDriftApexTests`), after Z3 checked
-the lemma below (#416, `tools/Z3Pilot/drift_apex.py`, which also holds the source contract of the code against the
-rule) and the review of the note (#415).
+Status: superseded in Boolean 2.1 by the reference rule (docs/design/SAFE_ROUNDING_D1_DRIFT.md), which replaces the
+per-vertex drift and the apex in `MeshRoundingRepair`. The apex rule was implemented (Boolean 2.0) after Z3 checked the
+lemma below (#416, `tools/Z3Pilot/drift_apex.py`) and the review of the note (#415); the lemma stays as the comparison
+of the D1 note's section 3.3 (the reference rule never rejects an edit the apex rule accepts), and `drift_apex.py`'s
+source contract is retired (the code it compared is gone; `drift_reference.source_contract()` holds the rule's).
 
 ## 1. Problem (Exact Boolean 2.0 finding D1, cause 1)
 

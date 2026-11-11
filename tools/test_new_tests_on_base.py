@@ -94,6 +94,66 @@ class Parsing(unittest.TestCase):
         self.assertEqual(n.parse_trx(self.TRX % ("", "Aborted")), ({}, "Aborted"))
 
 
+class Projects(unittest.TestCase):
+    CLIPPER2 = "tests/geometry3Sharp.Clipper2.Tests"
+
+    def make_tree(self, *projects):
+        import os, tempfile
+        tree = tempfile.TemporaryDirectory()
+        self.addCleanup(tree.cleanup)
+        for project in projects:
+            os.makedirs(os.path.join(tree.name, project))
+            open(os.path.join(tree.name, project, os.path.basename(project) + ".csproj"), "w").close()
+        return tree.name
+
+    def test_a_project_needs_a_project_file(self):
+        import os
+        tree = self.make_tree()
+        os.makedirs(os.path.join(tree, self.CLIPPER2))              # (an empty directory: left by a reset of added files)
+        self.assertEqual(n.projects_of(tree), [])
+        tree = self.make_tree(n.PRIMARY, self.CLIPPER2)
+        self.assertEqual(n.projects_of(tree), list(n.TEST_PROJECTS))
+        self.assertEqual(n.list_tests(tree, "tests/not.There"), set())
+
+    def test_the_clipper2_tests_are_compared_when_the_change_touches_them(self):
+        # a bugfix of the Clipper2 addon has its tests in the Clipper2 test project (#583): the gate must see them
+        tree = self.make_tree(n.PRIMARY, self.CLIPPER2)
+        both = [n.PRIMARY, self.CLIPPER2]
+        self.assertEqual(n.active_projects({"mesh/Reducer.cs": "M", "tests/geometry3Sharp.Tests/A.cs": "A"}, tree), [n.PRIMARY])
+        self.assertEqual(n.active_projects({self.CLIPPER2 + "/B.cs": "A"}, tree), both)
+        self.assertEqual(n.active_projects({"tests/geometry3Sharp.Tests/Harness/Invariance.cs": "M"}, tree), both)
+        self.assertEqual(n.active_projects({"docs/examples/Clipper2/Example.cs": "M"}, tree), both)
+        self.assertEqual(n.active_projects({"addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs": "M"}, tree), [n.PRIMARY])
+        self.assertEqual(n.active_projects({}, self.make_tree(n.PRIMARY)), [n.PRIMARY])
+
+    def test_build_keeps_all_output_and_the_first_failure(self):
+        calls = []
+
+        def fake_run(cmd, cwd=None, check=True):
+            calls.append(cmd[2])
+            code = 1 if "Clipper2" in cmd[2] else 0
+            return type("P", (), {"returncode": code, "stdout": "out of " + cmd[2] + "\n"})()
+        original, n.run = n.run, fake_run
+        try:
+            result = n.build("/t", list(n.TEST_PROJECTS))
+        finally:
+            n.run = original
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("geometry3Sharp.Tests", result.stdout)
+        self.assertIn("Clipper2", result.stdout)
+        original, n.run = n.run, lambda cmd, cwd=None, check=True: type("P", (), {"returncode": 0, "stdout": ""})()
+        try:
+            self.assertEqual(n.build("/t", [n.PRIMARY]).returncode, 0)
+        finally:
+            n.run = original
+
+    def test_the_library_paths_reset_to_the_base_include_the_addon(self):
+        self.assertTrue(n.is_library_path("addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs"))
+        self.assertFalse(n.is_library_path("tests/geometry3Sharp.Clipper2.Tests/Clipper2OffsetTests.cs"))
+        self.assertTrue(all(p.startswith(n.TEST_SOURCE_PREFIXES) for p in n.TEST_PROJECTS))
+
+
 class Decision(unittest.TestCase):
     def test_classify(self):
         new = {"N.C.A", "N.C.T", "N.C.Lost", "N.C.NewApi", "N.C.Skipped", "nice name"}

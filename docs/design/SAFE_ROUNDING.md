@@ -23,13 +23,25 @@ The owner decided:
   well-shaped neighbours (flips, contractions, moves), stays within a **proven bound** of the rounded result.
   `MeshRobustRepair` can run a second repair with a fresh budget: there the total is at most 2 `maxLength`.
 
-**Drift.** Every vertex has a drift d(v), 0 at the start of `Apply`. A proposed edit removes triangles R and adds
-triangles A. Let δ bound how far the edit moves the surface, and M = max over the vertices u of R and A of d(u).
-Applying the edit sets d(c) = M + δ for its apex c, a vertex of every triangle of A, and keeps every other drift; an
-edit without an apex (a zip, a strip zip of a longer loop, an ear contraction, which adds no triangle) sets
-d(v) = M + δ for every vertex v of R and A (since November 2026, docs/design/ROUNDING_DRIFT_APEX.md; before, every edit
-did). An edit is not applied if M + δ would exceed `maxLength` = `MaxDisplacement` (1e-5) times the diagonal.
-`MaxDrift` reports the largest drift reached.
+**Drift (the reference rule, Boolean 2.1; docs/design/SAFE_ROUNDING_D1_DRIFT.md).** Every triangle t has three
+anchors α_t (where its corners were when its bound was last certified) and a carried bound c_t; at the start of
+`Apply` the anchors are its corners and c_t = 0. Its bound is B(t) = c_t + max over its corners k of |pos(v_k) − α_t[k]|.
+A triangle that a contraction collapses becomes a *ghost* with the same record, on the vertex or edge it collapsed
+onto. A proposed edit removes triangles R and adds triangles A; δ bounds how far it moves the surface (the table
+below).
+- A *displacement edit* (a move or slide, a contraction: the same triangles with a vertex moved or renamed) changes no
+  anchor and no carried bound; the collapsed triangles become ghosts, and the ghosts of the vanishing vertex go to the
+  kept one. Its drift is the largest B, at the new positions, of the triangles and ghosts at the moved and the
+  vanishing vertex.
+- Any other edit (a flip, a zip, a strip zip, a vertex removal) has the drift N = max(B over R, B over the ghosts it
+  loses: those on a vertex or an edge that is gone after it) + δ; its added triangles get their corners as anchors
+  and c = N, and the lost ghosts are dropped.
+
+An edit is not applied if its drift would exceed `maxLength` = `MaxDisplacement` (1e-5) times the diagonal.
+`MaxDrift` reports the largest drift an applied edit had. Before Boolean 2.1 every vertex had a drift, an edit added
+its δ to the largest drift among the vertices of R and A and gave it to its apex (docs/design/ROUNDING_DRIFT_APEX.md,
+superseded), so neighbouring edits in a cluster added up their steps although the surface did not move that far (D1);
+the reference rule never rejects an edit the apex rule accepts (in real arithmetic, D1 note section 3.3).
 
 **Scale (2026-11-08, Exact Boolean 2.0, the far-part defect).** The diagonal in the degenerate area and in
 `maxLength` is that of the largest connected component (vertices joined by triangles), not of the box of all
@@ -79,19 +91,21 @@ M per edit, not relative to the distance (the bounds review found a computed seg
 at coordinates near 100). It is negligible against `maxLength` = 1e-5 · diag unless M/diag is large. Relative to the
 exact boolean result, the rounding of the vertices adds at most √3/2 ulp.
 
-*Proof by induction over the edits.* Invariant:
-- every point of a current triangle T lies within max over v in T of d(v) of S0;
-- every point of S0 lies within the drift of the vertices of some current triangle.
+*Proof by induction over the edits* (D1 note section 3.2; the lemma and the accounting checked by Z3,
+`tools/Z3Pilot/drift_reference.py`). Invariant:
+- (J1) every point of the reference triangle (the anchors) of a current triangle t lies within c_t of S0;
+- (J2) every point of S0 lies within c of the reference triangle of some current triangle or ghost;
+- (J3) every ghost lies on a vertex or an edge of the mesh.
 
-Each edit moves every point of the triangles it removes to within δ of the triangles it adds, or of a simplex spanned by
-the edit's vertices, and back; the bounds in the table are two-sided. Every added triangle has a vertex with at least
-the old maximum plus δ (the apex, or with no apex all of them), so drifts never decrease, and untouched triangles
-that share those vertices stay valid (the lemma of ROUNDING_DRIFT_APEX.md section 3, checked by Z3).
-
-Special case, the ear: a contraction of a vertex with a single triangle adds no triangle. That triangle goes to the edge
-across, which lies in an untouched triangle with both ends among the edit's vertices. Edits never create, merge or split
-components, so the theorem holds per component. "Removed components" are the components of S0 whose descendants were
-removed.
+A point of t is within max_k |pos(v_k) − α_t[k]| of the point of its reference triangle with the same barycentric
+coordinates (convexity), and so is a point of a ghost's vertex or edge; so J gives H(S, S0) ≤ max B. A displacement
+edit keeps every reference triangle, and a contraction keeps J3 (the edges of the collapsed triangles are edges of the
+mesh after it). Any other edit moves every point of the triangles it removes to within δ of the triangles it adds, and
+back (the bounds in the table are two-sided), and a lost ghost lies on a face of a removed triangle: its added
+triangles, their own reference triangles, satisfy J1 and J2 with c = N. An ear contraction (a vertex with a single
+triangle) is a displacement edit like any other: that triangle becomes a ghost on the edge across. Edits never create,
+merge or split components, so the theorem holds per component. "Removed components" are the components of S0 whose
+descendants were removed.
 
 **Volume.**
 - *Moves and contractions:* the change is a third of the move times the area vector of the link. Proven: |ΔV| ≤ δ ·
@@ -554,10 +568,12 @@ All cases are generated in code, so no mesh files are needed.
   - Errors are absolute, a few ulps of the largest coordinate per edit, not relative (REVIEW_CHECKLIST §5).
   - A bound that is NaN or infinite must reject the edit (`improves`, `maxLength`).
 - **Drift bookkeeping:**
-  - `improves()` takes the drift from the vertices of the removed ∪ added triangles; `commit_drift()` follows only
+  - `improves()` takes the drift from `proposed_drift()` (the reference rule above); `commit_drift()` follows only
     after the edit is applied.
   - The drift is checked before the evaluation budget is charged.
-  - A new edit must be in `begin_edit`'s removed / added / addedFrom lists, or its vertices miss the drift.
+  - A new edit must be in `begin_edit`'s removed / added / addedFrom lists; a displacement edit (movedV set) lists
+    every triangle of its moved vertex, and a generic edit sets `addedIds` (the ids of its added triangles) before
+    `commit_drift()`, and an undo path restores the records of the triangles it appends again.
   - Every new δ needs the proof in the class comment and in the table of section 1, and a bounds review with exact
     rational fuzzing: the double distance has false ratios.
 - **"Each edit must improve on its own"** (`newI + newB < oldI + oldB`, or `<=` for a contact removal): this blocks

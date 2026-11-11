@@ -49,7 +49,7 @@ selectively.
 
 ## Now
 Status on 2026-11-08 (evening, Berlin).
-- **Exact Boolean 2.0** (milestone, owner 2026-11-07): clean results on closed inputs; speed target revised
+- **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
   one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards

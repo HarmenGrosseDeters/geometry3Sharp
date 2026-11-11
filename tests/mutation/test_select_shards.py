@@ -13,7 +13,7 @@ from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_for
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-RO = ["rounding-%d" % i for i in range(1, 8)]
+RO = ["rounding-%d" % i for i in range(1, 9)]
 ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay"}
 
