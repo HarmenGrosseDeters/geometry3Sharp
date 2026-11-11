@@ -23,12 +23,70 @@ namespace geometry3Sharp.Tests
             Assert.Equal(7, WindingNumberOctree.RequiredDepth(near, 0.011399040556571047));
             var utm = new AxisAlignedBox3d(new Vector3d(632117, 5712043, 100), new Vector3d(632217, 5712143, 150));
             Assert.True(WindingNumberOctree.RequiredDepth(utm, 1e-3) < 20);
-            // the limit itself: 2^-40 of the largest coordinate
-            Assert.Equal(int.MaxValue, WindingNumberOctree.RequiredDepth(utm, 5712143 * Math.Pow(2, -41)));
-            Assert.NotEqual(int.MaxValue, WindingNumberOctree.RequiredDepth(utm, 5712143 * Math.Pow(2, -39)));
+            // a mesh at 1e11 with the default grid (3.5 / 128 = 0.027, 1800 spacings of doubles) worked before and still does
+            var offset = new AxisAlignedBox3d(new Vector3d(1e11 - 1, 1e11 - 1, 1e11 - 1), new Vector3d(1e11 + 1.5, 1e11 + 1, 1e11 + 1));
+            Assert.NotEqual(int.MaxValue, WindingNumberOctree.RequiredDepth(offset, 0.027));
             // not a positive cell
             Assert.Equal(int.MaxValue, WindingNumberOctree.RequiredDepth(near, 0));
+            Assert.Equal(int.MaxValue, WindingNumberOctree.RequiredDepth(near, -1));
             Assert.Equal(int.MaxValue, WindingNumberOctree.RequiredDepth(near, double.NaN));
+        }
+
+        /// <summary> the limit is 2^-46 of the largest coordinate, whichever side and axis it is on </summary>
+        [Theory]
+        [InlineData(0, 1)] [InlineData(0, -1)] [InlineData(1, 1)] [InlineData(1, -1)] [InlineData(2, 1)] [InlineData(2, -1)]
+        public void RequiredDepth_LimitIsTheLargestCoordinate_OnEveryAxisAndSide(int axis, int sign)
+        {
+            const double largest = 1e6;
+            Vector3d lo = new Vector3d(-3, -3, -3), hi = new Vector3d(3, 3, 3);
+            if (sign > 0) { lo[axis] = largest - 2; hi[axis] = largest; } else { lo[axis] = -largest; hi[axis] = -largest + 2; }
+            var box = new AxisAlignedBox3d(lo, hi);
+            double limit = largest * Math.Pow(2, -46);
+            Assert.NotEqual(int.MaxValue, WindingNumberOctree.RequiredDepth(box, limit));             // at the limit: usable
+            Assert.Equal(int.MaxValue, WindingNumberOctree.RequiredDepth(box, limit * 0.999));         // just below: not
+            Assert.NotEqual(int.MaxValue, WindingNumberOctree.RequiredDepth(box, limit * 1.001));
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RequiredDepth_InvariantUnderSimilarity(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            // the box and cell scale by s, the depth does not (a translation moves the largest coordinate: only the scales are compared)
+            if (!s.IsExact) return;
+            var box = new AxisAlignedBox3d(new Vector3d(-2, -1, 0), new Vector3d(5, 3, 4));
+            var scaled = new AxisAlignedBox3d(s.Scale * box.Min, s.Scale * box.Max);
+            Assert.Equal(WindingNumberOctree.RequiredDepth(box, 0.05), WindingNumberOctree.RequiredDepth(scaled, 0.05 * s.Scale));
+        }
+
+        /// <summary>
+        /// A union of two octahedra of radius 1 at 1e11: the grid cell (0.027) is 1800 spacings of doubles there. It worked before the
+        /// representability rule and must still; the rule was first 2^-40 and refused it
+        /// </summary>
+        [Fact]
+        public void Boolean_AtOffsetOf1e11_StillWorks()
+        {
+            var a = Octahedron(new Vector3d(1e11, 1e11, 1e11), 1);
+            var b = Octahedron(new Vector3d(1e11 + 0.5, 1e11, 1e11), 1);
+            var boolean = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union);
+            Assert.True(boolean.Compute());
+            Assert.NotNull(boolean.Result);
+            Assert.True(boolean.Result.TriangleCount > 100);
+        }
+
+        /// <summary>
+        /// Octahedra of radius 1e154 and more: a.Distance(b) of a grid edge squares its components and overflows, the ray direction was
+        /// 0 and the hidden-edge test threw (found by the review of the representability change; also on master)
+        /// </summary>
+        [Theory]
+        [InlineData(1e154)]
+        [InlineData(1e200)]
+        public void Boolean_OfHugeMeshes_DoesNotThrow(double radius)
+        {
+            var a = Octahedron(Vector3d.Zero, radius);
+            var b = Octahedron(new Vector3d(0.5 * radius, 0, 0), radius);
+            var boolean = new MeshWindingNumberBoolean(a, b, MeshWindingNumberBoolean.Operations.Union);
+            boolean.Compute();      // true or false, but no exception
         }
 
         static DMesh3 Octahedron(Vector3d c, double r)
@@ -57,7 +115,9 @@ namespace geometry3Sharp.Tests
             new MeshEditor(soup).AppendMesh(tet);
             var repair = new MeshRobustRepair(soup);
             bool ok = repair.Apply();
-            Assert.True(ok || !string.IsNullOrEmpty(repair.ResultReason));
+            // a defined outcome: either clean, or a named failure reason (today: "not repaired")
+            if (ok) Assert.Equal("", MeshRobustRepair.NotCleanReason(repair.Mesh, false));
+            else Assert.False(string.IsNullOrEmpty(repair.ResultReason));
         }
     }
 }
