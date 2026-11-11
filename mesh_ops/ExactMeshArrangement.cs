@@ -2577,19 +2577,151 @@ namespace g3
                 morton_order(n);
             // Stryker restore all
             // (at most 2 n / LeafSize * 2 + 1 nodes: every inner node splits a range of more than LeafSize in halves)
-            int cap = 4 * (n / LeafSize) + 3;
+            int cap = capacity(n);
             nodeBox = new double[6 * cap];
             nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
-            if (n > 0)
-                build(0, n);
+            if (n > 0) {
+                if (median == false && n >= ParallelBuildFrom)
+                    build_parallel(n);
+                else {
+                    var nodes = new Nodes(nodeBox, nodeStart, nodeSize, nodeLeft, nodeRight);
+                    build(nodes, 0, n);
+                    nodeCount = nodes.Count;
+                }
+            }
             sortedCodes = null;
             leafBox = new double[6 * n];
-            for (int i = 0; i < n; ++i)
-                put(leafBox, i, boxes[order[i]]);
+            if (n >= ParallelBuildFrom && median == false)
+                gParallel.ForRange(blocks(n), (b) => {
+                    for (int i = b * BlockSize; i < Math.Min(n, (b + 1) * BlockSize); ++i)
+                        put(leafBox, i, boxes[order[i]]);
+                });
+            else
+                for (int i = 0; i < n; ++i)
+                    put(leafBox, i, boxes[order[i]]);
             // (queries read leafBox and the nodes only: the list of boxes, 48 bytes per triangle, and the sort keys
             // would live as long as the tree)
             this.boxes = null;
             keys = null;
+        }
+
+        static int capacity(int n) { return 4 * (n / LeafSize) + 3; }
+
+        // from this many boxes on the tree is built (Morton order, codes, sort, nodes) in parallel over fixed blocks and
+        // subtrees, to the same tree as the serial build (tests set it)
+        internal static volatile int ParallelBuildFrom = 262144;
+        const int BlockSize = 4096;
+        static int blocks(int n) { return (n + BlockSize - 1) / BlockSize; }
+        // the top of the tree down to this depth is built serially, the subtrees below it in parallel
+        const int TopDepth = 4;
+
+        // the nodes of a tree or subtree (arrays of the capacity), numbered in the order of construction
+        sealed class Nodes
+        {
+            public readonly double[] Box;
+            public readonly int[] Start, Size, Left, Right;
+            public int Count;
+            public Nodes(int cap) : this(new double[6 * cap], new int[cap], new int[cap], new int[cap], new int[cap]) { }
+            public Nodes(double[] box, int[] start, int[] size, int[] left, int[] right)
+            {
+                Box = box; Start = start; Size = size; Left = left; Right = right;
+            }
+        }
+
+        // a node of the serially built top of the tree: a range split in two top nodes, or a subtree (task) built apart
+        sealed class Top
+        {
+            public int Start, Count, Left = -1, Right = -1, Task = -1;
+        }
+
+        // The tree of the Morton order, built the same as by build(): the top levels serially (only the split points),
+        // the subtrees below TopDepth in parallel, each into its own node arrays, then renumbered in the order of
+        // construction (the root first, each node before its subtrees, left before right) as the serial build numbers them
+        void build_parallel(int n)
+        {
+            var tops = new List<Top>();
+            var tasks = new List<Top>();
+            make_top(tops, tasks, 0, n, 0);
+            var parts = new Nodes[tasks.Count];
+            gParallel.ForRange(tasks.Count, (i) => {
+                parts[i] = new Nodes(capacity(tasks[i].Count));
+                build(parts[i], tasks[i].Start, tasks[i].Count);
+            });
+            var all = new Nodes(nodeBox, nodeStart, nodeSize, nodeLeft, nodeRight);
+            assign(tops, parts, all, 0);
+            nodeCount = all.Count;
+        }
+
+        int make_top(List<Top> tops, List<Top> tasks, int start, int count, int depth)
+        {
+            var t = new Top() { Start = start, Count = count };
+            int id = tops.Count;
+            tops.Add(t);
+            if (depth == TopDepth || count <= LeafSize) {
+                t.Task = tasks.Count;
+                tasks.Add(t);
+                return id;
+            }
+            int half = split(start, count);
+            t.Left = make_top(tops, tasks, start, half, depth + 1);
+            t.Right = make_top(tops, tasks, start + half, count - half, depth + 1);
+            return id;
+        }
+
+        // gives the nodes of top node ti their numbers in `all` (the next free ones, parents first) and returns its number
+        int assign(List<Top> tops, Nodes[] parts, Nodes all, int ti)
+        {
+            Top t = tops[ti];
+            int id = all.Count;
+            if (t.Task >= 0) {
+                Nodes p = parts[t.Task];
+                Array.Copy(p.Box, 0, all.Box, 6 * id, 6 * p.Count);
+                Array.Copy(p.Start, 0, all.Start, id, p.Count);
+                Array.Copy(p.Size, 0, all.Size, id, p.Count);
+                for (int j = 0; j < p.Count; ++j) {
+                    all.Left[id + j] = p.Left[j] < 0 ? -1 : p.Left[j] + id;
+                    all.Right[id + j] = p.Right[j] < 0 ? -1 : p.Right[j] + id;
+                }
+                all.Count += p.Count;
+                return id;
+            }
+            all.Count++;
+            all.Start[id] = t.Start;
+            all.Size[id] = t.Count;
+            int left = assign(tops, parts, all, t.Left);
+            int right = assign(tops, parts, all, t.Right);
+            all.Left[id] = left;
+            all.Right[id] = right;
+            // (the box of a node: that of the boxes of its range, which is the union of its children's)
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            for (int c = 0; c < 2; ++c) {
+                int ch = c == 0 ? left : right;
+                box.Contain(new AxisAlignedBox3d(new Vector3d(all.Box[6 * ch], all.Box[6 * ch + 1], all.Box[6 * ch + 2]),
+                    new Vector3d(all.Box[6 * ch + 3], all.Box[6 * ch + 4], all.Box[6 * ch + 5])));
+            }
+            put(all.Box, id, box);
+            return id;
+        }
+
+        // tests: the same nodes, order and leaf boxes
+        internal bool SameAs(TriangleBoxTree o)
+        {
+            if (nodeCount != o.nodeCount || order.Length != o.order.Length)
+                return false;
+            for (int i = 0; i < nodeCount; ++i) {
+                if (nodeStart[i] != o.nodeStart[i] || nodeSize[i] != o.nodeSize[i] || nodeLeft[i] != o.nodeLeft[i] || nodeRight[i] != o.nodeRight[i])
+                    return false;
+                for (int k = 0; k < 6; ++k)
+                    if (BitConverter.DoubleToInt64Bits(nodeBox[6 * i + k]) != BitConverter.DoubleToInt64Bits(o.nodeBox[6 * i + k]))
+                        return false;
+            }
+            for (int i = 0; i < order.Length; ++i)
+                if (order[i] != o.order[i])
+                    return false;
+            for (int i = 0; i < leafBox.Length; ++i)
+                if (BitConverter.DoubleToInt64Bits(leafBox[i]) != BitConverter.DoubleToInt64Bits(o.leafBox[i]))
+                    return false;
+            return true;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -2599,15 +2731,16 @@ namespace g3
             a[6 * i + 3] = b.Max.x; a[6 * i + 4] = b.Max.y; a[6 * i + 5] = b.Max.z;
         }
 
+        // the node of the range [start, start + count) and, below it, the nodes of the halves, into nd (numbered from nd.Count)
         [MethodImpl(JitHints.Optimize)]
-        int build(int start, int count)
+        int build(Nodes nd, int start, int count)
         {
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
             for (int i = start; i < start + count; ++i)
                 box.Contain(boxes[order[i]]);
-            int node = nodeCount++;
-            put(nodeBox, node, box);
-            nodeStart[node] = start; nodeSize[node] = count; nodeLeft[node] = -1; nodeRight[node] = -1;
+            int node = nd.Count++;
+            put(nd.Box, node, box);
+            nd.Start[node] = start; nd.Size[node] = count; nd.Left[node] = -1; nd.Right[node] = -1;
             if (count <= LeafSize)
                 return node;
             int half = count / 2;
@@ -2619,38 +2752,47 @@ namespace g3
                     keys[i] = boxes[order[i]].Min[axis] + boxes[order[i]].Max[axis];
                 select(start, start + count - 1, start + half);
             }
-            else {
-                // the boxes are in Morton order: split where the highest bit in which the range's codes differ changes,
-                // so that the halves are octree cells and not the two ends of a jump of the curve; equal codes, or a
-                // split that leaves too little on a side: the middle
-                long a = sortedCodes[start], b = sortedCodes[start + count - 1];
-                if (a != b) {
-                    long bit = highest_bit(a ^ b);
-                    int lo = start, hi = start + count - 1;
-                    // (the codes ascend and share the bits above: the first one with the bit set)
-                    while (lo < hi) {
-                        int mid = (lo + hi) >> 1;
-                        if ((sortedCodes[mid] & bit) != 0) hi = mid; else lo = mid + 1;
-                    }
-                    // Stryker restore all
-                    // (not performance only, the safety of the arrays: each side at least LeafSize / 2, so the leaves hold
-                    // 4 or more and the nodes fit the capacity, at most n / 2 - 1; without it a crafted input peels single
-                    // boxes off and overflows it, BoxTreeMortonTests. And an eighth, so the depth stays below
-                    // log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack of 256; the depth is also
-                    // bounded without it, by the 63 bits of the codes (one highest-bit split each per path) plus the
-                    // middle splits of equal codes, so the eighth is balance, and the tests do not see it)
-                    int h = lo - start, least = Math.Max(count / 8, LeafSize / 2);
-                    if (h >= least && count - h >= least)
-                        half = h;
-                    // Stryker disable all
+            else
+                half = split(start, count);
+            // Stryker restore all
+            int left = build(nd, start, half);
+            int right = build(nd, start + half, count - half);
+            nd.Left[node] = left;
+            nd.Right[node] = right;
+            return node;
+        }
+
+        // the size of the left half of a range of Morton-ordered boxes of more than LeafSize
+        int split(int start, int count)
+        {
+            int half = count / 2;
+            // Stryker disable all: the split only decides which boxes share a node (performance, not results)
+            // the boxes are in Morton order: split where the highest bit in which the range's codes differ changes,
+            // so that the halves are octree cells and not the two ends of a jump of the curve; equal codes, or a
+            // split that leaves too little on a side: the middle
+            long a = sortedCodes[start], b = sortedCodes[start + count - 1];
+            if (a != b) {
+                long bit = highest_bit(a ^ b);
+                int lo = start, hi = start + count - 1;
+                // (the codes ascend and share the bits above: the first one with the bit set)
+                while (lo < hi) {
+                    int mid = (lo + hi) >> 1;
+                    if ((sortedCodes[mid] & bit) != 0) hi = mid; else lo = mid + 1;
                 }
+                // Stryker restore all
+                // (not performance only, the safety of the arrays: each side at least LeafSize / 2, so the leaves hold
+                // 4 or more and the nodes fit the capacity, at most n / 2 - 1; without it a crafted input peels single
+                // boxes off and overflows it, BoxTreeMortonTests. And an eighth, so the depth stays below
+                // log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack of 256; the depth is also
+                // bounded without it, by the 63 bits of the codes (one highest-bit split each per path) plus the
+                // middle splits of equal codes, so the eighth is balance, and the tests do not see it)
+                int h = lo - start, least = Math.Max(count / 8, LeafSize / 2);
+                if (h >= least && count - h >= least)
+                    half = h;
+                // Stryker disable all
             }
             // Stryker restore all
-            int left = build(start, half);
-            int right = build(start + half, count - half);
-            nodeLeft[node] = left;
-            nodeRight[node] = right;
-            return node;
+            return half;
         }
 
         // tests: the nodes, their capacity, and the depth of the tree (the root at depth 1)
@@ -2757,10 +2899,16 @@ namespace g3
             Vector3d lo = all.Min, ext = all.Max - all.Min;
             const double cells = 2097151;   // 2^21 - 1
             double sx = ext.x > 0 ? cells / ext.x : 0, sy = ext.y > 0 ? cells / ext.y : 0, sz = ext.z > 0 ? cells / ext.z : 0;
-            for (int i = 0; i < n; ++i) {
-                Vector3d c = boxes[i].Center;
-                codes[i] = spread(quantize((c.x - lo.x) * sx)) << 2 | spread(quantize((c.y - lo.y) * sy)) << 1 | spread(quantize((c.z - lo.z) * sz));
-            }
+            Action<int, int> encode = (from, to) => {
+                for (int i = from; i < to; ++i) {
+                    Vector3d c = boxes[i].Center;
+                    codes[i] = spread(quantize((c.x - lo.x) * sx)) << 2 | spread(quantize((c.y - lo.y) * sy)) << 1 | spread(quantize((c.z - lo.z) * sz));
+                }
+            };
+            if (n >= ParallelBuildFrom)
+                gParallel.ForRange(blocks(n), (b) => encode(b * BlockSize, Math.Min(n, (b + 1) * BlockSize)));    // (per box)
+            else
+                encode(0, n);
             sort_codes(codes, n);
             int distinct = 1;
             for (int k = 1; k < n; ++k)
@@ -2790,12 +2938,64 @@ namespace g3
         // results' order could depend on it, across net48 and net10, not the results; the runs are short)
         void sort_codes(long[] codes, int n)
         {
+            if (n >= ParallelBuildFrom) {
+                sort_codes_parallel(codes, n);
+                return;
+            }
             Array.Sort(codes, order);
-            for (int s0 = 0, s1; s0 < n; s0 = s1) {
-                for (s1 = s0 + 1; s1 < n && codes[s1] == codes[s0]; ++s1) { }
+            fix_ties(codes, 0, n);
+        }
+
+        // the runs of equal codes in [from, to) by box index
+        void fix_ties(long[] codes, int from, int to)
+        {
+            for (int s0 = from, s1; s0 < to; s0 = s1) {
+                for (s1 = s0 + 1; s1 < to && codes[s1] == codes[s0]; ++s1) { }
                 if (s1 - s0 > 1)
                     Array.Sort(order, s0, s1 - s0);
             }
+        }
+
+        // the same order by (code, box index), a total order: SortRuns runs of equal length sorted apart, then merged
+        // pairwise (the result does not depend on the schedule, nor on how the ranges are cut)
+        const int SortRuns = 8;
+        void sort_codes_parallel(long[] codes, int n)
+        {
+            int len = (n + SortRuns - 1) / SortRuns;
+            gParallel.ForRange(SortRuns, (r) => {
+                int from = Math.Min(n, r * len), to = Math.Min(n, from + len);
+                Array.Sort(codes, order, from, to - from);
+                fix_ties(codes, from, to);
+            });
+            long[] sc = codes, dc = new long[n];
+            int[] so = order, dord = new int[n];
+            for (long w = len; w < n; w *= 2) {
+                int width = (int)w;
+                long pairs = (n + 2L * width - 1) / (2L * width);
+                long[] fromC = sc, toC = dc;
+                int[] fromO = so, toO = dord;
+                gParallel.ForRange((int)pairs, (pi) => {
+                    long lo = pi * 2L * width, mid = Math.Min(n, lo + width), hi = Math.Min(n, lo + 2L * width);
+                    merge_runs(fromC, fromO, toC, toO, (int)lo, (int)mid, (int)hi);
+                });
+                long[] tc = sc; sc = dc; dc = tc;
+                int[] to2 = so; so = dord; dord = to2;
+            }
+            if (sc != codes) {
+                Array.Copy(sc, codes, n);
+                Array.Copy(so, order, n);
+            }
+        }
+
+        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        {
+            int i = lo, j = mid, k = lo;
+            while (i < mid && j < hi) {
+                if (c[j] < c[i] || (c[j] == c[i] && o[j] < o[i])) { dc[k] = c[j]; dord[k++] = o[j++]; }
+                else { dc[k] = c[i]; dord[k++] = o[i++]; }
+            }
+            while (i < mid) { dc[k] = c[i]; dord[k++] = o[i++]; }
+            while (j < hi) { dc[k] = c[j]; dord[k++] = o[j++]; }
         }
 
         // a coordinate scaled to the grid; not finite (NaN, an infinite extent): the low end
