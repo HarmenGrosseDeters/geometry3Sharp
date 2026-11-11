@@ -265,8 +265,9 @@ namespace g3
         // the classification time) and lost from 112k (1.05-1.42) and at 1.56M (1.30); for tests
         internal int AntipodalMaxTriangles = 100000;
         // the early-out of Difference and Intersection (T3a; active zones, Rossignac and Voelcker 1989): their result lies
-        // inside the first mesh, so where it is closed, triangles of the other meshes wholly outside it are culled from the
-        // arrangement (ExactMeshArrangement.CullOutsideOf; the same exact solid); for tests
+        // inside the first mesh (Intersection: inside every mesh), so where it is closed, triangles of the other meshes
+        // wholly outside it are culled from the arrangement (ExactMeshArrangement.CullOutsideOf; the same exact solid);
+        // for tests
         internal bool CullOutsideA = true;
         // for tests and benchmarks: per input mesh after Compute, the number of its boundary segments (BoundarySegments),
         // -1 for a mesh with exact winding numbers, -2 for an open mesh with AntipodalMaxTriangles triangles or more (not
@@ -427,11 +428,18 @@ namespace g3
                 FixedWidthPoints = FixedWidthPoints };
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
+            // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
             if (CullOutsideA && WindingPredicate == null && (Operation == Operations.Difference || Operation == Operations.Intersection)
-                && inputs.Count > 1 && ExactWinding[0]) {
-                arr.CullOutsideOf = 0;
-                arr.CullPrepare = () => { BigInteger[] min, max; mesh_bounds(0, out min, out max); };
-                arr.CullTest = cull_outside_a;
+                && inputs.Count > 1) {
+                var against = new List<int>();
+                for (int m = 0; m < inputs.Count && (m == 0 || Operation == Operations.Intersection); ++m)
+                    if (ExactWinding[m])
+                        against.Add(m);
+                if (against.Count > 0) {
+                    arr.CullOutsideOf = against.ToArray();
+                    arr.CullPrepare = () => { foreach (int m in against) { BigInteger[] min, max; mesh_bounds(m, out min, out max); } };
+                    arr.CullTest = cull_outside;
+                }
             }
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
@@ -1591,15 +1599,15 @@ namespace g3
         }
 
         // the cull test of the early-out (ExactMeshArrangement.CullTest): input triangle ti, whose box meets no box of the
-        // first mesh, is wholly outside it (winding number 0 or less: the predicates of Difference and Intersection need
-        // it positive): the exact crossings of a ray from its first corner, which lies on no triangle of the first mesh
-        bool cull_outside_a(int ti)
+        // closed mesh m, is wholly outside it (winding number 0 or less: the predicates of Difference and Intersection need
+        // it positive): the exact crossings of a ray from its first corner, which lies on no triangle of mesh m
+        bool cull_outside(int m, int ti)
         {
             var center = new Center(arr.Exact(arr.Triangles[ti].Corners[0]));
             center.Input = arr.ToInputVector(center.P);
-            var rng = new Random(unchecked(Seed + 1000003 * ti + 7));
+            var rng = new Random(unchecked(Seed + 1000003 * ti + 7919 * m + 7));
             int farIndex;
-            return front_crossings(-1, 0, arr.Trees[0], rng, null, center, true, null, out farIndex) <= 0;
+            return front_crossings(-1, m, arr.Trees[m], rng, null, center, true, null, out farIndex) <= 0;
         }
 
         // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)

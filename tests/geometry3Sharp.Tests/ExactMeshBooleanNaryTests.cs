@@ -236,9 +236,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(27 - 1, Volume(Run(meshes, (w) => w[0] == -1 && w[1] == 0)), 12);
         }
 
-        // the T3a early-out on the golden case: B's triangles outside A culled by Intersection and Difference, the patches
-        // of the arrangement without them
-        const string CulledCounts = "Union: culled 0, patches 4; Intersection: culled 479, patches 5; Difference: culled 479, patches 5";
+        // the T3a early-out on the golden case: B's triangles outside A culled by Intersection and Difference, and A's
+        // outside B by Intersection; the patches of the arrangement without them
+        const string CulledCounts = "Union: culled 0, patches 4; Intersection: culled 1199, patches 5; Difference: culled 479, patches 5";
 
         [Fact]
         public void TwoMeshes_SameCountsAsBeforeTheNaryChange()
