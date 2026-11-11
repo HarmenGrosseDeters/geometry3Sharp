@@ -29,7 +29,6 @@ namespace geometry3Sharp.Tests
             return q.Axx == 0 && q.Axy == 0 && q.Axz == 0 && q.Ayy == 0 && q.Ayz == 0 && q.Azz == 0 && q.bx == 0 && q.by == 0 && q.bz == 0 && q.c == 0;
         }
 
-        // a triangle in the xy plane with legs (sx, sy) at the origin, plus a vertex m above the middle of its hypotenuse-free edge (v0, v1)... see below
         // two triangles: a proper one (v0, v1, v2) and a sliver (v1, m, v0) glued to its edge (v0, v1), m lifted out of the line by `lift`
         static DMesh3 TriangleWithSliver(double scale, double lift, out int vm)
         {
@@ -122,7 +121,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, Reducer.exponent_of(1.0));
             Assert.Equal(1023, Reducer.exponent_of(double.MaxValue));
             for (int e = -1074; e <= -1023; ++e)
-                Assert.Equal(e, Reducer.exponent_of(Math.Pow(2, e / 2) * Math.Pow(2, e - e / 2)));
+                Assert.Equal(e, Reducer.exponent_of(BitConverter.Int64BitsToDouble(1L << (e + 1074))));   // (2^e as a subnormal, exactly)
         }
 
         // a triangle whose cross product is subnormal (legs 2^-500 and 2^-523: 2^-1023): the reduction path calls exponent_of for it; its
