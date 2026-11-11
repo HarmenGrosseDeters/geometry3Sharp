@@ -1,6 +1,7 @@
 # Exact Boolean: the tail case 55928 (design)
 
-Status: design. The owner approved it on 2026-11-11 (roadmap `exact-boolean.md`, the tail-case bullet, d9d760a1).
+Status: design. The owner approved it on 2026-11-11, with the decisions on #626 of the same day (`Cancelled`: yes;
+`MaxOpenWindingEvaluations`: deferred, section 5) (roadmap `exact-boolean.md`, the tail-case bullet, d9d760a1).
 There is no library code yet. It is implemented as one Opus stage after the T1 Sonnet levers, because they touch the same
 files and the stages run serially. The stage's exact-code review is done by a separate fresh agent that sees only the
 diff.
@@ -224,12 +225,15 @@ anyway.
 **API** (`ExactMeshBoolean`; fork-only, not in 1.0.324):
 - `public long MaxPieces` (default 0 = unlimited). When the predicted pieces exceed it: `Status = BooleanStatus.BudgetExceeded`
   (a new enum member at the end), `Result = null`, and `Compute()` returns false.
-- `public long MaxOpenWindingEvaluations` (default 0 = unlimited). A limit on predicted pieces times the open operands
-  that are not decided per patch (with L1, checked once the patches are known). This is optional, to be confirmed with
-  the owner after L1 and L2.
-- `public System.Threading.CancellationToken Cancellation`, checked between the phases and every few thousand items of
-  the long parallel loops (triangulation, classification). Cancellation gives `BooleanStatus.Cancelled` and no result.
-  It never leaves the instance half-updated: a later `Compute()` starts from the inputs.
+- `public System.Threading.CancellationToken Cancellation` (default `CancellationToken.None`; **owner 2026-11-11: yes**,
+  additive, after the precedent of the `Cancelled` statuses of MeshAlphaWrap / TerrainSlopeDesign and the token of
+  `QualityMesh2.Compute`). It is checked between the phases and every few thousand items of the long parallel loops
+  (triangulation, classification). Cancellation gives a new enum member at the end, `BooleanStatus.Cancelled`, with
+  `Result = null`, and `Compute()` returns false. It never leaves the instance half-updated: a later `Compute()` starts
+  from the inputs.
+- **Deferred (owner 2026-11-11):** `MaxOpenWindingEvaluations`, a limit on the open-winding evaluations that L1 does not
+  decide per patch, is not part of the stage. After L1 and L2 the open models of the final run are measured again. It is
+  proposed only if a case remains that `MaxPieces` / `Counts["predicted_pieces"]` does not catch.
 - `Counts["predicted_pieces"]` is always set. Also `Counts["l1_patch_decided"]`, `["l2_traced"]`, `["l2_direct"]`.
 - The n-ary paths (`IntersectEach` / `DifferenceEach`) pass the options through `configure`. A body that exceeds the
   budget gets `BudgetExceeded` in its status slot.
@@ -253,7 +257,7 @@ anyway.
 - **Budget:**
   - predicted = actual pieces on random cases, including degenerate and coplanar ones;
   - `BudgetExceeded` with no result, `Counts` set, the instance reusable;
-  - cancellation before and inside each long phase;
+  - cancellation before and inside each long phase (`Cancelled`, no result, the instance reusable);
   - each test under 5 s.
 - **Benchmark:** 55928 in `benchmarks/BooleanComparison` (the case directory fetched by `runs/final/fetch_thingi.py`,
   not committed), before and after per lever, Difference and Union. A procedural knot workload runs in CI time.
