@@ -142,18 +142,16 @@ sign and of the condition thresholds.
 
 ## 7. Status and follow-ups (2026-11-10)
 
-Built: step A (`AlphaWrapPointCloudTests`, OPERATIONS.md note; #566) and step B (`PointCloudNormals`; #568). The XYZ reader and
-writer (#571, draft) and step C1 follow in the week of 2026-11-16, as does the check of the paper references against the papers
-themselves before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
+Built: step A (`AlphaWrapPointCloudTests`, OPERATIONS.md note; #566), step B (`PointCloudNormals`; #568), the XYZ reader and writer (#571) and,
+in review, the residuals of the review of B (#575) and step C1 (`PointCloudSurface`; #580, section 8 of the version that merges it). Still open:
+the check of the paper references against the papers themselves before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
 
-Residuals of the independent review of `PointCloudNormals` (no code now; a follow-up PR, or an issue, on Monday):
-- A wrap with `WrapStatus == PointLimitReached` is accepted if it is closed. `IsClosed()` does not show that it is manifold or free
-  of self-intersections, which the exact parity test of the probes needs. Reaching the limit takes more than 2M Steiner points,
-  so no input has triggered it. Options: treat `PointLimitReached` as `WrapFailed`, or check `MeshRobustRepair.NotCleanReason`
-  before counting confident points.
-- A cloud with a few degenerate neighbourhoods (for example a short line among surface points) still gets `Success`, with zero
-  normals for those points; only `AxisCount` shows it (`DegenerateInput` needs fewer than `MinConfidentFraction` of the points
-  with an axis). Option: a status or a warning count for the zero normals.
-- Two mutants of defensive paths survive (the closed-wrap check, a probe that is not finite): neither can be reached by a test input.
-- `NoiseSigma` is about 0.6 of the true noise (calibrated by `NoiseFactor` 6.5); a better estimator (larger neighbourhood, or a
-  robust fit) is part of C1 if the Alpha rule needs it.
+Residuals of the independent review of `PointCloudNormals` (fixed in #575: a limited wrap must be clean, `DegenerateCount`, `MaxSteinerPoints`):
+- A wrap with `WrapStatus == PointLimitReached` is used only if it is closed, valid, without bowtie vertices and without self-intersections
+  (`PointCloudNormals.WrapProblem`); if not, a coarser Alpha is tried (only when the class chose Alpha; counted in `Escalations`), then `WrapFailed`.
+  Both branches are tested through an internal seam (`WrapProblemF`), because no input produced such a wrap. Two mutants of defensive
+  paths survive (the closed-wrap check of the first branch, a probe that is not finite).
+- `NoiseSigma` is about 0.6 of the true noise (calibrated by `NoiseFactor` 6.5); a better estimator (larger neighbourhood, or a robust fit) is
+  open if the Alpha rule needs it.
+- Outside this work: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the number of digits with the platform parser; on net48 that parser is not always
+  correctly rounded, so a subnormal could be written with too few digits (the XYZ round-trip test of 5e-320 would show it on the Windows run).

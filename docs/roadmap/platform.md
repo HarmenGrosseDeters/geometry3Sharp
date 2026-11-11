@@ -195,9 +195,10 @@ Tier: S, M. Parallel: up to 2 sessions
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
-  - [ ] Further test tools (owner 2026-11-08, not scheduled; one bounded task each):
-    - Changed-line coverage gate (QA.md item 8) with coverlet (MIT): new or changed lines must be executed by tests;
-      cheap, runs in normal CI, catches part of what the mutation runs find hours later.
+  - [ ] Further test tools (owner 2026-11-08; one bounded task each):
+    - [x] Changed-line coverage gate (QA.md item 8) with coverlet (MIT): core, Clipper2 and CLI changed executable
+      lines require 100% coverage across the Linux test runs, checked nightly on master and on demand (`coverage.yml`, not on PRs: runner cost), each uncovered line named with its PR; missing evidence fails closed. No global
+      threshold or extra test campaign. See [QA.md 2.6](../QA.md#26-coverage-in-ci).
     - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
       the hand derivation (complements Z3, which checks logical rules).
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
@@ -226,7 +227,7 @@ and the test tiers and time limit (#447, the backlog program).
     a replay corpus;
   - every floating-point filter has a tool-checked bound (FPTaylor) and every filter or termination rule a Z3 lemma;
   - every robustness-critical module has a property campaign and a mutation shard;
-  - the changed-line coverage gate is active.
+  - the changed-line coverage gate runs nightly and its findings are worked off.
 - **First results (mesh-ops fuzz pilot, Boolean session, 2026-11-09, 45 min, 3 workers):** two real defects, each
   in a bugfix PR: #451 (`DMeshAABBTree3` top-down build: stack overflow / IndexOutOfRange when extreme centroids are
   adjacent doubles, and every triangle dropped above ~1e154 by an overflowing `LengthSquared`), #452

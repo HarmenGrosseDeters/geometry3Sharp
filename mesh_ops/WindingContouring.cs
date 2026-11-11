@@ -131,6 +131,16 @@ namespace gs
             return CancelF() ? null : octree;
         }
 
+        // the distance of two points without squaring the components (which is zero below 1e-162 and infinity above 1e154)
+        static double EdgeLength(Vector3d a, Vector3d b)
+        {
+            Vector3d d = b - a;
+            double m = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
+            if (!(m > 0) || double.IsInfinity(m))
+                return m;
+            return m * Math.Sqrt((d / m).LengthSquared);
+        }
+
         DualContouring make_dual_contouring(WindingNumberOctree octree)
         {
             DualContouring dc = new DualContouring() {
@@ -142,9 +152,9 @@ namespace gs
             };
             // tolerances relative to the grid edge (coarse or fine)
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
-                Hermite(a.Distance(b), a, b, p, out point, out normal);
-            dc.HiddenGapF = (a, b) => HiddenGap(a.Distance(b), a, b);
-            dc.HiddenWallF = (a, b) => HiddenWall(a.Distance(b), a, b);
+                Hermite(EdgeLength(a, b), a, b, p, out point, out normal);
+            dc.HiddenGapF = (a, b) => HiddenGap(EdgeLength(a, b), a, b);
+            dc.HiddenWallF = (a, b) => HiddenWall(EdgeLength(a, b), a, b);
             return dc;
         }
 
@@ -286,6 +296,7 @@ namespace gs
             List<DualContouring.HiddenEdge> fixableList = classify_hidden(dc);
             GapEdgesPerLevel.Add(dc.HiddenGapEdges + dc.HiddenWallEdges);
 
+            AxisAlignedBox3d meshBounds = WindingNumberOctree.Bounds(Meshes);
             var fineOctrees = new List<WindingNumberOctree>();
             WindingNumberOctree fine = null;
             HashSet<Vector3i> region = new HashSet<Vector3i>();
@@ -299,6 +310,9 @@ namespace gs
                     int need = (int)Math.Ceiling(Math.Log(2 * cur / MinFixableFound, 2));
                     int k = Math.Max(1, Math.Min(need, maxLevels - used));
                     if (octree.MaxDepth + log2F + k > WindingNumberOctree.MaxSupportedDepth)
+                        break;
+                    // (the finer grid must be representable too: its nodes must be separate doubles)
+                    if (WindingNumberOctree.RequiredDepth(meshBounds, coarse / (double)(1L << (log2F + k))) == int.MaxValue)
                         break;
                     log2F += k;
                     used += k;
@@ -533,8 +547,18 @@ namespace gs
         // input surfaces along the segment a-b (extended by margin at both ends), from all meshes, sorted by T
         List<Hit> collect_hits(double cellSize, Vector3d a, Vector3d b, double margin, out Vector3d origin, out Vector3d dir)
         {
-            double len = a.Distance(b);
-            dir = (b - a) / len;
+            // the direction from the largest component down: a.Distance(b) squares the components (zero below 1e-162, infinity above
+            // 1e154), and an edge of two grid nodes that coincide has none; then there is nothing to hit
+            Vector3d d = b - a;
+            double m = Math.Max(Math.Abs(d.x), Math.Max(Math.Abs(d.y), Math.Abs(d.z)));
+            if (!(m > 0) || double.IsInfinity(m)) {
+                origin = a; dir = Vector3d.AxisX;
+                return new List<Hit>();
+            }
+            Vector3d u = d / m;
+            double ul = Math.Sqrt(u.LengthSquared);
+            dir = u / ul;
+            double len = m * ul;
             origin = a - margin * dir;
             double maxT = len + 2 * margin;
             List<Hit> hits = new List<Hit>();

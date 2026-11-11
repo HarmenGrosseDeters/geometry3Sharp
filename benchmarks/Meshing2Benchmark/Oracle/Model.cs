@@ -235,11 +235,17 @@ namespace Meshing2Acceptance
         public double? MaxImageDriftPixels;
         /// <summary> stretches of a chain (LobeChainExcuses) and unused points (LobePointExcuses) excused because the input's rounding collapses them although the full image (with output vertices as hot pixels) does not: the reference is the rounded input (rule (ii'), owner decision B, 2026-11-10) </summary>
         public int LobeChainExcuses, LobePointExcuses;
+        /// <summary>
+        /// unused input points and missing segment pieces inside a part of the domain that may vanish (its area at most tube times its perimeter,
+        /// the bound for a domain with no triangles at all): the mesher may drop a sub-tolerance sliver beside real parts
+        /// </summary>
+        public int VanishedPoints, VanishedSegments;
         public string ExcusedSummary()
         {
             var parts = new List<string>();
             if (CollapsedSegments + CollapsedPoints > 0) parts.Add("on collapsed parts: " + CollapsedSegments + " segment pieces, " + CollapsedPoints + " input points"
                 + (CollapsedViaRefinement > 0 ? " (" + CollapsedViaRefinement + " of them rerouted by output vertices)" : ""));
+            if (VanishedPoints + VanishedSegments > 0) parts.Add("on parts that may vanish: " + VanishedSegments + " segment pieces, " + VanishedPoints + " input points");
             if (KnownViolations.Count > 0) parts.Add(KnownViolations.Count + " known violations (" + string.Join(", ", KnownViolations.GroupBy(k => k.Kind).Select(g => g.Count() + " " + g.Key)) + ")");
             if (MeshMinusSnappedArea != null) parts.Add("mesh area - snapped area " + MeshMinusSnappedArea.Value.ToDecimal(3) + " px2");
             if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
