@@ -134,6 +134,17 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
     without a result, checked right after the merge of the crossings (the exact piece count by Euler from the points per
     touched triangle, about 3 % into this case), `Counts["predicted_pieces"]` always set; optionally a limit on the open
     winding evaluations and a CancellationToken checked between phases.
+  - Measured 2026-11-11 (T3a, one container, 4 cores, Difference): **regression confirmed**: 79a2c1ab 579 s
+    (classification 390 s), master 88342701 973 s (classification 772 s, x1.98), same result hash 61550C3C2F352E72; the
+    old code took the open winding per patch, master per piece (1.45e10 plane sides). Master allocates 534 GB (15 KB per
+    piece in triangulation), 61 s GC pause. Knot predicate statistics: arrangement orient 5.7 % and incircle 1.8 % exact;
+    the classification's 3.88e9 orient3d calls are almost all filtered, so its cost is the number of plane sides.
+    Triangulation is 2.4 us per piece in the knot but 10.4 us on the full case: the cost is in the large triangles
+    that cross the knot (169 with more than 10k pieces) plus allocation (L3 candidates, all bit-identical: fixed-width
+    limbs for implicit points' exact stages, an array-based CDT, the superlinear constraint insertion; estimate
+    172 -> 40-80 s). L1 upper bound: at a variation bound of 0.1, 16.5M instead of 30.2M evaluations (about one per
+    patch), classification about 772 -> 420 s; the rest needs L2. Estimate L1 + L2 + L3: about 150-200 s per op.
+    Runner, 1-core union on master 922c8d62: 4087 s (classification 82 %), peak RSS 9.2 GB (79a2c1ab: 1937 s).
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
