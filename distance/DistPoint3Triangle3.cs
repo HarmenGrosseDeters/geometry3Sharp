@@ -75,7 +75,45 @@ namespace g3
             return best;
         }
 
+        // The products a00, a11 and det of the algorithm below must be normal doubles with a finite reciprocal: for edges shorter than
+        // about 1e-68 or longer than about 1e75 (or a very short edge beside a long one) they under- or overflow, and the division by a
+        // subnormal det gave NaN. Outside this range the triangle is scaled by a power of two (exact) first.
+        internal const double SafeProductMin = 1e-135, SafeProductMax = 1e150;
+
+        /// <summary> the products of the algorithm are in the range where it is accurate (see SafeProductMin) </summary>
+        internal static bool ProductsAreSafe(double a00, double a11)
+        {
+            return a00 >= SafeProductMin && a00 <= SafeProductMax && a11 >= SafeProductMin && a11 <= SafeProductMax;
+        }
+
         public static double DistanceSqr(ref Vector3d point, ref Triangle3d triangle, out Vector3d closestPoint, out Vector3d baryCoords )
+        {
+            Vector3d e0 = triangle.V1 - triangle.V0, e1 = triangle.V2 - triangle.V0;
+            if (!ProductsAreSafe(e0.LengthSquared, e1.LengthSquared)) {
+                double m0 = Math.Max(Math.Abs(e0.x), Math.Max(Math.Abs(e0.y), Math.Abs(e0.z)));
+                double m1 = Math.Max(Math.Abs(e1.x), Math.Max(Math.Abs(e1.y), Math.Abs(e1.z)));
+                double big = Math.Max(m0, m1), small = Math.Min(m0, m1);
+                // an edge 1e60 times shorter than the other (or none): a segment to the precision of a double; the range limits of the
+                // scaling: the nearest of the three edges
+                if (!(small > 1e-60 * big) || !(big > 9.332636185032189e-302) || !(big < 1.0715086071862673e+301))
+                    return degenerate_distance_sqr(ref point, ref triangle, out closestPoint, out baryCoords);
+                int e = ExponentOf(big);
+                double down = PowerOfTwo(-e), up = PowerOfTwo(e);
+                var scaled = new Triangle3d(triangle.V0 * down, triangle.V1 * down, triangle.V2 * down);
+                Vector3d p = point * down;
+                double d2 = DistanceSqrCore(ref p, ref scaled, out Vector3d cp, out baryCoords);
+                closestPoint = cp * up;
+                return d2 * up * up;
+            }
+            return DistanceSqrCore(ref point, ref triangle, out closestPoint, out baryCoords);
+        }
+
+        // the exponent e of a normal positive double m = 1.f * 2^e
+        static int ExponentOf(double m) { return (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF) - 1023; }
+        // 2^e for e in [-1022, 1023], exactly
+        static double PowerOfTwo(int e) { return BitConverter.Int64BitsToDouble((long)(e + 1023) << 52); }
+
+        static double DistanceSqrCore(ref Vector3d point, ref Triangle3d triangle, out Vector3d closestPoint, out Vector3d baryCoords )
         {
             Vector3d diff = triangle.V0 - point;
             Vector3d edge0 = triangle.V1 - triangle.V0;

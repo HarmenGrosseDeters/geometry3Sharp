@@ -231,8 +231,9 @@ namespace g3
             double s = a01 * b1 - a11 * b0;
             double t = a01 * b0 - a00 * b1;
             double sqrDistance;
-            // degenerate (zero area, or nearly): the nearest of the three edges, instead of NaN
-            if (!(det > 1e-12 * a00 * a11) || a00 <= 0 || a11 <= 0) {
+            // degenerate (zero area, or nearly): the nearest of the three edges, instead of NaN; or products outside the range where the
+            // algorithm below is accurate (DistPoint3Triangle3.ProductsAreSafe): the scaled computation there
+            if (!(det > 1e-12 * a00 * a11) || a00 <= 0 || a11 <= 0 || !DistPoint3Triangle3.ProductsAreSafe(a00, a11)) {
                 Triangle3d tri = new Triangle3d(V0, V1, V2);
                 return DistPoint3Triangle3.DistanceSqr(ref point, ref tri, out Vector3d cp, out Vector3d bc);
             }
