@@ -128,6 +128,17 @@ namespace geometry3Sharp.Tests
                 Assert.True(a[i].Equals(b[i]), $"value {i}: {a[i]:R} vs {b[i]:R}");
         }
 
+        // as Run with a tenth of the surface and edge samples and a fifth of the volume samples (the defaults are 50 000, 10 000 and
+        // 100 000; the volume samples are the 81 % of a Compute): for the tests whose subject is not the accuracy of the sampled
+        // estimates, with tolerances that the smaller (fixed-seed, deterministic) sampling meets
+        static MeshFidelityMetrics RunFewSamples(DMesh3 reference, DMesh3 mesh, params double[] thresholds)
+        {
+            var f = new MeshFidelityMetrics(reference, mesh) { SurfaceSamples = 5000, EdgeSamples = 1000, VolumeSamples = 20000 };
+            if (thresholds.Length > 0) f.RelativeThresholds = thresholds;
+            Assert.True(f.Compute());
+            return f;
+        }
+
         static MeshFidelityMetrics Run(DMesh3 reference, DMesh3 mesh, params double[] thresholds)
         {
             var f = new MeshFidelityMetrics(reference, mesh);
@@ -136,6 +147,16 @@ namespace geometry3Sharp.Tests
             return f;
         }
 
+
+        [Fact]
+        public void Defaults_AreTheDocumentedSampleCounts()
+        {
+            // (the tests above use fewer samples where the accuracy of the estimates is not their subject: the defaults stay pinned here)
+            var f = new MeshFidelityMetrics(Cube(), Cube());
+            Assert.Equal(50000, f.SurfaceSamples);
+            Assert.Equal(10000, f.EdgeSamples);
+            Assert.Equal(100000, f.VolumeSamples);
+        }
 
         [Fact]
         public void IdenticalMeshes_PerfectScores()
@@ -242,7 +263,7 @@ namespace geometry3Sharp.Tests
                 zig.AppendTriangle(a, c, d);
             }
             DMesh3 plate = Plate(0, 1, 0, 10);
-            var f = Run(plate, zig, 0.005, 0.02);
+            var f = RunFewSamples(plate, zig, 0.005, 0.02);
             Assert.Equal(f.NormalsMeshToReference.Samples, f.NormalsMeshToReference.MatchedSamples);
             Assert.Equal(0.0, f.NormalsMeshToReference.ReversedFraction);
             Assert.Equal(Math.Cos(angle * MathUtil.Deg2Rad), f.NormalsMeshToReference.MeanAbsCos, 6);
@@ -548,7 +569,7 @@ namespace geometry3Sharp.Tests
             foreach (var part in new[] { inner, shell, finA, finB }) MeshEditor.Append(reference, part);
             // inner face 0.6 x 0.6; shell 0.4 x 0.4 top and bottom, 0.4 x 0.3 sides; fin 2 x 0.5 x 1
             double boxArea = 6, otherArea = 0.36 + (2 * 0.16 + 4 * 0.12) + 1.0;
-            var f = Run(reference, box);
+            var f = RunFewSamples(reference, box);
             Assert.True(f.Recall[2] < 0.9);
             Assert.True(f.MaxDistanceReferenceToMesh * f.Size > 0.2);
             Assert.InRange(f.OuterShare, boxArea / (boxArea + otherArea) - 0.01, boxArea / (boxArea + otherArea) + 0.01);
@@ -559,13 +580,13 @@ namespace geometry3Sharp.Tests
             Assert.True(f.OuterMaxDistanceReferenceToMesh < 1e-6);
             // an open sheet and a cavity wall are outer
             DMesh3 sheet = Plate(0, 1, 0, 10);
-            var fs = Run(sheet, new DMesh3(sheet));
+            var fs = RunFewSamples(sheet, new DMesh3(sheet));
             Assert.Equal(1.0, fs.OuterShare);
             DMesh3 cavity = new DMesh3(box);
             DMesh3 hole = Box(new Vector3d(0.3, 0.3, 0.3), new Vector3d(0.7, 0.7, 0.7));
             foreach (int tid in hole.TriangleIndices().ToArray()) hole.ReverseTriOrientation(tid);
             MeshEditor.Append(cavity, hole);
-            var fc = Run(cavity, new DMesh3(cavity));
+            var fc = RunFewSamples(cavity, new DMesh3(cavity));
             Assert.InRange(fc.OuterShare, 0.995, 1.0);
             // off: the outer measures stay NaN
             var off = new MeshFidelityMetrics(reference, box) { OuterSurface = false };
@@ -601,7 +622,7 @@ namespace geometry3Sharp.Tests
             DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
             DMesh3 twice = new DMesh3(box);
             MeshEditor.Append(twice, box);
-            var f = Run(twice, box);
+            var f = RunFewSamples(twice, box);
             Assert.Equal(1.0, f.OuterShare);
             Assert.Equal(1.0, f.OuterEdgeShare);
             Assert.Equal(1.0, f.OuterRecall[0]);
@@ -620,8 +641,8 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.5), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
             MeshEditor.Append(reference, Quad(new Vector3d(0.1, 0.1, 0.4), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
             Assert.True(MeshAnalysisNormals.TriNormal(reference, reference.TriangleCount - 1).z < -0.99);
-            var withInterior = Run(reference, box);
-            var shellFree = Run(new DMesh3(box), box);
+            var withInterior = RunFewSamples(reference, box);
+            var shellFree = RunFewSamples(new DMesh3(box), box);
             Assert.Equal(1.0, shellFree.VolumeIoU);
             Assert.Equal(1.0, shellFree.OuterVolumeIoU);
             Assert.Equal(1.0, shellFree.OuterFaceShare);
@@ -655,8 +676,8 @@ namespace geometry3Sharp.Tests
             MeshEditor.Append(openInterior, Box(new Vector3d(0.6, 0.6, 0.6), new Vector3d(0.9, 0.9, 0.9)));
             MeshEditor.Append(openInterior, Quad(new Vector3d(0.1, 0.1, 0.5), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
             MeshEditor.Append(openInterior, Quad(new Vector3d(0.1, 0.1, 0.4), new Vector3d(0, 0.8, 0), new Vector3d(0.8, 0, 0), 4, false));
-            var o1 = Run(openInterior, box);
-            var o0 = Run(open, box);
+            var o1 = RunFewSamples(openInterior, box);
+            var o0 = RunFewSamples(open, box);
             Assert.Equal(o0.OuterVolumeIoU, o1.OuterVolumeIoU);
             Assert.True(o1.VolumeIoU < o0.VolumeIoU - 0.005, $"{o1.VolumeIoU} vs {o0.VolumeIoU}");
             Assert.InRange(o0.OuterVolumeIoU, 0.99, 1.0);
@@ -810,7 +831,7 @@ namespace geometry3Sharp.Tests
             DMesh3 sphere = MeshCurvatureTests.Icosphere(1, 3);
             DMesh3 reference = new DMesh3(sphere);
             MeshEditor.Append(reference, Plate(4, 6, 0, 12));
-            var f = Run(reference, new DMesh3(sphere));
+            var f = RunFewSamples(reference, new DMesh3(sphere));
             // (plate area 2 of 2 + 12.5)
             Assert.InRange(f.CurvatureReferenceToMesh.Samples, 0.82 * f.SurfaceSamples, 0.9 * f.SurfaceSamples);
             Assert.Equal(f.SurfaceSamples, f.CurvatureMeshToReference.Samples);
