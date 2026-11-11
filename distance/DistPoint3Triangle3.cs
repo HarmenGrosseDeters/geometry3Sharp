@@ -97,12 +97,17 @@ namespace g3
                 // scaling: the nearest of the three edges
                 if (!(small > 1e-60 * big) || !(big > 9.332636185032189e-302) || !(big < 1.0715086071862673e+301))
                     return degenerate_distance_sqr(ref point, ref triangle, out closestPoint, out baryCoords);
+                // relative to V0 (the vertices themselves may be huge beside the edges), scaled so that the longest edge is about 1
                 int e = ExponentOf(big);
                 double down = PowerOfTwo(-e), up = PowerOfTwo(e);
-                var scaled = new Triangle3d(triangle.V0 * down, triangle.V1 * down, triangle.V2 * down);
-                Vector3d p = point * down;
+                var scaled = new Triangle3d(Vector3d.Zero, e0 * down, e1 * down);
+                Vector3d p = (point - triangle.V0) * down;
                 double d2 = DistanceSqrCore(ref p, ref scaled, out Vector3d cp, out baryCoords);
-                closestPoint = cp * up;
+                // a point so far (more than about 1e154 edge lengths) that a square overflows: the three edges are as good as the
+                // triangle there (the triangle is a point to the precision of a double)
+                if (double.IsNaN(d2) || double.IsInfinity(d2))
+                    return degenerate_distance_sqr(ref point, ref triangle, out closestPoint, out baryCoords);
+                closestPoint = triangle.V0 + cp * up;
                 return d2 * up * up;
             }
             return DistanceSqrCore(ref point, ref triangle, out closestPoint, out baryCoords);
