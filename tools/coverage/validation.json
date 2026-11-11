@@ -1,0 +1,147 @@
+{
+  "base_commit": "3c4d85ff764e509f174de4f99d9c57c3ad748c13",
+  "collector": "coverlet.collector 6.0.4",
+  "test_sdk": "Microsoft.NET.Test.Sdk 17.8.0",
+  "sdk": "10.0.403",
+  "runtime": "10.0.14",
+  "scope": "Filtered core collector sample, full CLI and Clipper2 suites; full core suite remains a GitHub CI check.",
+  "python_tests": 14,
+  "collected_tests": {
+    "core": {
+      "passed": 14,
+      "failed": 0,
+      "trx_sha256": "d40b5c7d4a7d9c322ac5d97d76a6679b22006ce59c8fadf798787d0bc59b5ed3",
+      "cobertura_sha256": "ea9af8f4bbf4ef0ecb333d3272904687498668f7c735036cdedd888f24c19db8"
+    },
+    "cli": {
+      "passed": 121,
+      "failed": 0,
+      "trx_sha256": "44bd8c35bfecc7d24af6b342b794ec1884f659d7dca8d554cd62db146043755a",
+      "cobertura_sha256": "0509a535e00b54a3816be2ae0781d074cb93ce5c2156c9ae925d0c405d3f4d94"
+    },
+    "clipper2": {
+      "passed": 55,
+      "failed": 0,
+      "trx_sha256": "e7a360f5ee039cf2b2e74e75a3737f6d3662f094ca1b8318b2372665d16b9e7f",
+      "cobertura_sha256": "814a54e6875d9b2e1efd8424af299788168ef53a2fc815a93cebdc20e7656e83"
+    }
+  },
+  "builds_and_api_validation": {
+    "library-build": "passed",
+    "net48-core": "passed",
+    "net48-clipper2": "passed",
+    "pack-core": "passed",
+    "pack-clipper2": "passed"
+  },
+  "hand_mutants": [
+    {
+      "name": "baseline",
+      "exit_code": 0,
+      "expected_result": true
+    },
+    {
+      "name": "invert_uncovered",
+      "exit_code": 1,
+      "expected_result": true
+    },
+    {
+      "name": "ignore_missing_file",
+      "exit_code": 1,
+      "expected_result": true
+    },
+    {
+      "name": "intersect_suite_hits",
+      "exit_code": 1,
+      "expected_result": true
+    },
+    {
+      "name": "compare_head_to_itself",
+      "exit_code": 1,
+      "expected_result": true
+    },
+    {
+      "name": "accept_duplicate_reports",
+      "exit_code": 1,
+      "expected_result": true
+    },
+    {
+      "name": "ignore_method_only_records",
+      "exit_code": 1,
+      "expected_result": true
+    },
+    {
+      "name": "always_exit_zero",
+      "exit_code": 1,
+      "expected_result": true
+    }
+  ],
+  "source_sha256": {
+    "tools/changed_line_coverage.py": "62ee3852b0610b0cbcf3dc84dc4088c3f7e34477f211dc4aa3b5fbf2dfb21a9c",
+    "tools/test_changed_line_coverage.py": "b0505ff3726d95fbe81cc54a1caa13262bee819b52dd71ebf8c48a9c24c13601",
+    "tools/coverage/check_mutants.py": "85da2aa7c233dfb7e948e29a3443b815d05367d8b347af7b97a61bf6aa6d6a30",
+    "tests/coverage.runsettings": "c47cc33ec7a91e51c67f40a54a7db153e5d66e1fa3b4f8ff3a0daf465e9ce60e",
+    ".github/workflows/ci.yml": "3830fac92159608eb850352f28af2b379ff4f16063e74bec6b997ef2fad103cd"
+  },
+  "real_collector_sample": {
+    "file": "addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs",
+    "covered_line": 35,
+    "uncovered_line": 167,
+    "covered_evaluation": {
+      "changed_executable_lines": 1,
+      "covered_lines": 1,
+      "uncovered": {},
+      "missing_files": [],
+      "ok": true
+    },
+    "uncovered_evaluation": {
+      "changed_executable_lines": 1,
+      "covered_lines": 0,
+      "uncovered": {
+        "addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs": [
+          167
+        ]
+      },
+      "missing_files": [],
+      "ok": false
+    }
+  },
+  "real_gate": {
+    "changed_executable_lines": 0,
+    "covered_lines": 0,
+    "uncovered": {},
+    "missing_files": [],
+    "ok": true,
+    "head": "8169b1c26e03329d37011ec481706db7edce6090",
+    "merge_base": "3c4d85ff764e509f174de4f99d9c57c3ad748c13",
+    "reports": [
+      "core/3ab1dacd-cd1d-4a0a-b7a8-b06f98260cb8/coverage.cobertura.xml",
+      "cli/5e5b9d30-32d2-480a-a305-1e66848149fa/coverage.cobertura.xml",
+      "clipper2/53f48828-eb6a-4e66-b1c9-6edc47e2209f/coverage.cobertura.xml"
+    ]
+  },
+  "review": {
+    "reviewer": "independent review agent",
+    "finding": "Method-only line records must not pass class-level evidence validation.",
+    "resolution": "Class-level records required and checked against method records; regression and hand mutation added.",
+    "delta_review": "no remaining findings; actual core attachment and TRX duplicate handling verified"
+  },
+  "commands": [
+    "python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v",
+    "python3 tools/coverage/check_mutants.py --output <mutants.json>",
+    "dotnet test tests/geometry3Sharp.Tests -c Release --filter 'FullyQualifiedName~PrimitiveFitTests' --collect:'XPlat Code Coverage' --settings tests/coverage.runsettings --results-directory <results>/core --logger 'trx;LogFileName=core.trx' -m:1 -nr:false",
+    "dotnet test tests/g3cli.Tests -c Release --collect:'XPlat Code Coverage' --settings tests/coverage.runsettings --results-directory <results>/cli --logger 'trx;LogFileName=cli.trx' -m:1 -nr:false",
+    "dotnet test tests/geometry3Sharp.Clipper2.Tests -c Release --collect:'XPlat Code Coverage' --settings tests/coverage.runsettings --results-directory <results>/clipper2 --logger 'trx;LogFileName=clipper2.trx' -m:1 -nr:false",
+    "dotnet build geometry3Sharp_netstandard.csproj -c Release -m:1 -nr:false",
+    "dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true -m:1 -nr:false",
+    "dotnet build tests/geometry3Sharp.Clipper2.Tests -c Release -f net48 -p:TestNet48=true -m:1 -nr:false",
+    "dotnet pack geometry3Sharp_netstandard.csproj -c Release -o <packages> -p:Version=1.0.0-ci.1 -m:1 -nr:false",
+    "dotnet pack addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj -c Release -o <packages> -p:Version=1.0.0-ci.1 -m:1 -nr:false",
+    "python3 tools/changed_line_coverage.py --base origin/master --coverage-dir <results> --json <gate.json>",
+    "CI=true dotnet test tests/g3cli.Tests -c Release --filter 'FullyQualifiedName~Help' --collect:'XPlat Code Coverage' --settings tests/coverage.runsettings --results-directory <ci-probe>/cli -m:1 -nr:false"
+  ],
+  "ci_environment_probe": {
+    "ci": true,
+    "resolved_files": 426,
+    "ok": true
+  }
+}
