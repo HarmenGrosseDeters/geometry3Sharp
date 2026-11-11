@@ -184,6 +184,7 @@ namespace geometry3Sharp.Tests
             string expected = Signature(reference, 1);
             var exponents = new System.Collections.Generic.List<int>();
             for (int e = 26; e <= 32; e++) { exponents.Add(e); exponents.Add(-e - 3); }     // extent 8 * 2^e: from 2^29 to 2^35, and 2^-32 to 2^-26
+            exponents.Add(-36); exponents.Add(-37);                                          // and below the band: 2^-33, 2^-34
             foreach (int e in exponents) {
                 double s = Math.Pow(2, e);
                 DMesh3 m = Grid(8, s);
@@ -318,8 +319,10 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        // the top of the range: the reduction is closed and finite (DMesh3.CheckValidity itself overflows from about 1e160, also on the input)
+        // the top of the range: where the cross products overflow (an edge length above 1e154) a collapse is refused (never accepted
+        // blindly: a NaN metric was taken for "no flip"), so the mesh may be left as it is; it stays closed, finite and on the sphere
         [Theory]
+        [InlineData(1e150)]
         [InlineData(1e160)]
         [InlineData(1e200)]
         [InlineData(1e300)]
@@ -327,7 +330,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Sphere(scale);
             new Reducer(m).ReduceToTriangleCount(486);
-            Assert.True(m.TriangleCount <= 486);
+            Assert.True(m.TriangleCount <= (scale <= 1e150 ? 486 : 972));
             Assert.True(m.IsClosed());
             foreach (int v in m.VertexIndices()) {
                 Vector3d p = m.GetVertex(v);

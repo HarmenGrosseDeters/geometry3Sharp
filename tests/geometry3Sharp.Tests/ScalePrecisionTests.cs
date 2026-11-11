@@ -1188,7 +1188,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> ReducerScales()
         {
-            foreach (double s in new[] { 1e-150, 1e-100, 1e-90, 1e-80, 1e-70, 1e-60, 1e-50, 1e-30, 1e-10, 1, 1e10, 1e30, 1e35, 1e40, 1e43, 1e45, 1e50, 1e51, 1e52, 3e52, 1e53, 1e55, 1e60, 1e70, 1e100 })
+            foreach (double s in new[] { 1e-150, 1e-100, 1e-90, 1e-80, 1e-70, 1e-60, 1e-50, 1e-30, 1e-10, 1, 1e10, 1e30, 1e35, 1e40, 1e43, 1e45, 1e50, 1e51, 1e52, 3e52, 1e53, 1e55, 1e60, 1e70, 1e100, 1e120, 1e150 })
                 yield return new object[] { s };
         }
 

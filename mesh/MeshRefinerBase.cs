@@ -158,7 +158,8 @@ namespace g3
         {
             double m0 = Math.Max(Math.Abs(n0.x), Math.Max(Math.Abs(n0.y), Math.Abs(n0.z)));
             double m1 = Math.Max(Math.Abs(n1.x), Math.Max(Math.Abs(n1.y), Math.Abs(n1.z)));
-            if (m0 < 1e-145 || m0 > 1e145 || m1 < 1e-145 || m1 > 1e145) {
+            // (written so that a NaN component, from a cross product of infinities, takes the branch: the old arithmetic accepted every flip then)
+            if (!(m0 >= 1e-145 && m0 <= 1e145 && m1 >= 1e-145 && m1 <= 1e145)) {
                 if (!(m0 > 0) || !(m1 > 0) || double.IsInfinity(m0) || double.IsInfinity(m1))
                     return 0;
                 Vector3d u0 = n0 / m0, u1 = n1 / m1;
