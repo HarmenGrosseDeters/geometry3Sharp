@@ -236,6 +236,22 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void EdgeVertexFan_WhoseTriangleCannotBeAdded_IsTakenBackAndTheQuadAddedPlain()
+        {
+            // 4 ulp cells (found by a search over seeds 0..3999, origins 0.1, 2^-20, 1024, 3.7 and 1 to 8 ulp cells: one hit): the
+            // fan around an edge vertex of a quad runs into an edge that is used up. The triangles added so far and the edge
+            // vertex are taken back (no stray auxiliary vertex: AssertSane), and the quad is added with a diagonal instead
+            DualContouring dc = Uniform(3313, 0.1, 2, 6);
+            AssertSane(dc, "3313");
+            Assert.Equal(4, dc.NonManifoldTriangles);
+            Assert.Equal(4, dc.EdgeVertices);
+            Assert.Equal(2, dc.FaceVertices);
+            Assert.Equal(312, dc.Mesh.TriangleCount);
+            Assert.Equal(6, dc.Mesh.BoundaryEdgeIndices().Count());
+            Assert.Equal(6, dc.NonManifoldCells.Count);
+        }
+
+        [Fact]
         public void EdgeVertex_OnAnEdgeOfFewUlps_IsStrictlyInsideTheEdge()
         {
             // 4 ulp cells: the margin from the end nodes (1 % of the edge) is below half an ulp, the clamped point is a
