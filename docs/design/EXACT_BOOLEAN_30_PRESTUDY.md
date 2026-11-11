@@ -98,12 +98,19 @@ first the arrangement alone (retained heap after `Compute`, points by representa
 | GC pauses | 7.5 % of the summed time (2-2.6 s on 26-38 s ops; 11-15 % on 519511, up to 14 % on single ops of 1230687) |
 | GC knobs (upper bound of less allocation) | 512 MB gen0 -0.9 %, server GC -3.7 % of the summed time (single runs, noise about ±3 %) |
 
+**Correction (T2, #619).** The count of fixed-width points above (almost all input vertices) came from the probe's own
+`IsExactFixed()`, which computes the exact point lazily after the retained heap was measured. `FixedPointStore.Count` at the
+retention point is 7,096 of 369,322 points on a procedural sphere pair of 717,600 input triangles (1.6 B per triangle; 18.6 k of
+115 k on a pair that crosses everywhere, 17 B), and the full boolean forces no more. The retained arrangement is dominated by the box
+trees (the input list of boxes, 48 B per triangle, and the trees themselves, about 80 B), the `InputTriangle` objects (88 B plus a slot of 8)
+and the per-triangle input coordinates (72 B); T2 removes those (`benchmarks/Boolean30Prestudy/README.md`, "T2").
+
 Estimated layout per point: approximation 24 B, error 8 B, key 32 B, reference 4 B, fixed-width point about 160 B, index
 entry about 48 B (about 275 B); per input triangle: the `InputTriangle` object about 88 B plus 72 B of coordinates.
 
 | lever | bound | time |
 |---|---|---|
-| input points without a `FixedPoint3` (they are doubles: the coordinates are already in `inputCoords`) | about -80 B per input triangle, about 20 % of the retained arrangement | about 0 |
+| input points without a `FixedPoint3` (they are doubles: the coordinates are already in `inputCoords`) | **corrected (T2, #619): 2-17 B per input triangle, not 80; dropped** | about 0 |
 | `InputTriangle` as struct-of-arrays (fields in arrays, the lazily allocated lists in side tables) | about -70 B per triangle, about 17 % | about 0, maybe less GC copying |
 | reuse of the largest buffers / own pools | at most the GC share, 4-8 %; the knobs reached -1 to -4 % | below the 10 % bar of the open "Boolean allocations" item |
 | O(n) bottom-up fast-winding coefficients (LEVY_CLASSIFICATION 4.1 item 3; owner decision: the FWN values change) | removes the largest single allocation on huge open inputs (3.5 GB of 12.9 GB) | part of the classification time |

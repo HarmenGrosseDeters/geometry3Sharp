@@ -80,6 +80,8 @@ Add both: `using g3; using gs;`.
 tolerance (`VertexSnapTol`, 1e-5) is absolute: with the default it throws at millimetre scale and can hang or give
 other results at UTM coordinates.
 
+`ExactMeshArrangement` is internal. Its `Trees` (the box trees of the winding queries) are null after `ExactMeshBoolean.Compute`: the boolean releases them after the classification to save memory (about 80 bytes per input triangle).
+
 `ExactMeshBoolean` also takes open meshes (`AllowOpenMeshes`, default true): their solid is where the generalized
 winding number is above 1/2 (`ExactWinding[i]` false), and the result is generally open (`IsClosed()` false,
 `MeshRobustRepair.NotCleanReason` "not closed"). It is consistently oriented, also where an open boundary of an

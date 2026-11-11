@@ -537,6 +537,9 @@ namespace g3
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
             clock.Lap("classification");
+            // (the box trees are read by the winding queries of the classification only: about 80 bytes per input
+            // triangle that the simplification, assembly and rounding would otherwise carry)
+            arr.Trees = null;
             Counts["winding_plane_sides"] = windingSides;
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Counts["antipodal_meshes"] = antipodalSegments.Count;
@@ -1280,7 +1283,8 @@ namespace g3
             // (i < 0: the crossings at the point itself, a point on no triangle of the mesh: no source triangle to skip and
             // no front side, t3a_cull)
             int source = i >= 0 ? arr.Output[i].Source : -1;
-            var src = i >= 0 ? arr.Triangles[source] : null;
+            bool hasSrc = i >= 0;
+            ExactMeshArrangement.InputTriangle src = hasSrc ? arr.Triangles[source] : default(ExactMeshArrangement.InputTriangle);
             List<int> tris = arr.MeshTriangles[mesh];
 
             BigInteger[] min, max;
@@ -1322,7 +1326,7 @@ namespace g3
                 }
                 // the segment must start into the front side of the piece: the sign of n . (R - P), in doubles where the
                 // error bound decides (R is far: almost always), else exact
-                if (src != null) {
+                if (hasSrc) {
                     int frontSign = DisableFilters ? 2 : front_side_filtered(src.PlaneApprox, rx, ry, rz, gx, gy, gz);
                     if (frontSign == 2) {
                         BigInteger front = src.NX * (Rp.X * P.W - P.X) + src.NY * (Rp.Y * P.W - P.Y) + src.NZ * (Rp.Z * P.W - P.Z);
