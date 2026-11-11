@@ -1,7 +1,7 @@
 # Bit-for-bit determinism across runtimes: measurement and causes
 
 Hard problem 11 ([research.md](../roadmap/research.md#open-research-questions)): the same input should give the same
-result bit for bit on net48 and net10, serial and parallel, on x64 (ARM: what could differ). This note is the result of
+result bit for bit on net48 and net10, serial and parallel, on x64 (ARM: measured, section 5). This note is the result of
 steps 1 and 2 (harness, measurement, cause classification) and step 3 (fix proposals with cost). No library code was
 changed. The harness is `tools/DeterminismHarness`, the runs are `.github/workflows/determinism.yml` (PR #545).
 
@@ -120,13 +120,36 @@ in the allow list. Not covered: loops not switchable by `gParallel.SerialOnThisT
 all configurations. Not audited: the library's use of unstable sorts where ties decide the output, and iteration order of
 hash sets after removals.
 
-## 5. What could differ on ARM (no runs; GitHub offers arm64 runners, they would settle it)
+## 5. ARM: what could differ, and the arm64 runs (2026-11-10)
+
+Predictions before the runs:
 
 - C1 again, with a third libm (glibc aarch64, Apple libm, Windows ARM CRT): expect the same class of 1 ulp differences.
 - Fused multiply-add: the arm64 JIT contracts `a * b + c` only through explicit `Math.FusedMultiplyAdd` / vector
   intrinsics as far as we know (to verify with `probe.arith-chain` on arm64). In the exact code both are banned.
 - `Vector128` / `Vector<T>` paths and `Math.Sqrt` are exactly rounded; `Math.Round`, `Floor` are exact.
 - Denormal handling (flush to zero) differs only if a process sets it; not set by the library.
+
+Result (workflow run of PR #574; GitHub-hosted runners `ubuntu-24.04-arm` (Ubuntu 24.04, glibc aarch64) and
+`macos-latest` (macOS 26, Apple silicon), .NET 10.0.15; the x64 side is the existing linux x64 run on Ubuntu 26.04):
+
+| comparison | cases identical / different |
+|---|---|
+| linux arm64 serial vs linux x64 serial (net10.0) | **50 / 0**: every case bit-identical, including all `libm.*` functions over 8192 arguments each, the geodesic family and the text I/O |
+| linux arm64: parallel vs parallel2, parallel vs serial, serial vs 1 and 3 processors | 50 / 0 each (level L0 holds on arm64) |
+| macOS arm64: parallel vs parallel2, parallel vs serial, serial vs 1 and 3 processors | 50 / 0 each (level L0 holds) |
+| macOS arm64 serial vs linux x64 serial | 27 / 23: the differences are the libm functions (acos, asin, atan, atan2, cos, cosh, exp, log10, pow, sin, sinh, tan, tanh: Apple's libm differs from glibc by 1 ulp for 7 to 1607 of 8192 arguments) and, through them, `geodesic.*`, `param.arap` / `param.tutte`, `remesher.libm-input`, `boolean.union.libm-input`, `dualcontouring.blob.libm-input` |
+| macOS arm64 vs linux arm64 | 27 / 23, the same cases |
+| windows net48 x64 vs linux / macOS arm64 | the same 23 to 28 cases as net48 vs linux x64 (libm and text format, C2 and C3 before their fixes) |
+
+Reading: the arm64 JIT does not contract `a * b + c` (no case outside the libm functions and their consumers differs, so
+`probe.arith-chain` and every pure-input operation, the exact predicates and all Boolean / mesh cases without libm
+input are bit-identical to x64), and the exact code is unaffected. The only dependency is the platform libm: **glibc on
+aarch64 gives the same bits as glibc on x86-64 for all 12 288 sampled arguments of each function** (the same
+algorithms, correctly rounded or not, run in the same arithmetic), so L1 extends to linux arm64 without work; Apple's
+libm and the Windows CRT are the other two libms, and C1 (portable `DMath`) removes the remaining dependency. Windows
+arm64 was not run (no net48 there, and its CRT is the one already measured on x64). One run per configuration, so
+this is a measurement and not a proof; the compare job reruns on every harness change.
 
 ## 6. Limits of this measurement
 
@@ -149,7 +172,7 @@ SLIM, BFF when the input is libm-free). L2, everything, including ARM and all I/
 | C3 format | writers use `"G17"` (equal on both x64 runtimes, exact round trip) or a shortest-round-trip formatter (Ryu, Apache-2.0 / Boost) written from the paper; OBJ, PLY, OFF, STL text, HeightGrid | small PR, tier M; files get longer with `G17` (17 digits) | file contents change on net10 (shortest form today); round trip exactness is the gain |
 | C4 x86 | state in the docs that bit identity is for x64 (and later arm64) processes; no work | none | none |
 | C5 / C7 | keep the determinism tests; add `DOTNET_PROCESSOR_COUNT` runs (done here) to the scheduled tier; audit unstable sorts with ties and hash set iteration after removals (one grep-and-read pass) | small | none |
-| ARM | one workflow run of the harness on an arm64 runner; compare with linux x64 | minutes | none |
+| ARM | done (section 5): linux arm64 is bit-identical to linux x64; macOS arm64 differs only through Apple's libm | done | none |
 
 **Order of value**: C3 and C2 first (small, and the OBJ round trip on net48 is a plain data-loss defect today), then the
 ARM run, then C1 for the geodesic family if the owner wants L2 for it.
