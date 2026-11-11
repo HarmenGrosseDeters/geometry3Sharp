@@ -54,11 +54,19 @@ integer operation. On x64 (SSE2) and arm64 these give the same bits on every run
 into an FMA on either (shown by `probe.arith-chain` on x64 and, in section 5 of DETERMINISM.md, by every pure-input case
 on arm64). Not covered: 32-bit x87 processes (net48 x86), as already stated for C4.
 
-**Error.** fdlibm documents less than 1 ulp for `sin`, `cos`, `atan2`, `exp`, `log` on all arguments. The PR measures it
-instead of quoting it: over a fixed set of 1e6 SplitMix64 arguments per function against a double-double (or `BigInteger`
-based) reference, maximum error in ulp, pinned as a test (`<= 1 ulp`; expected observed maximum about 0.8 ulp). So the new
-results are not bit-identical to `Math.*` but as close as `Math.*` is to the truth (the platform libms are within 1 ulp as
-well, which is where the 1 ulp spread between them comes from).
+**Error per function** (what the fdlibm sources state, read in FreeBSD `lib/msun/src` on 2026-11-11; the PR measures instead of quoting):
+
+| function | stated by the source | measured in the PR |
+|---|---|---|
+| `exp` | `e_exp.c`: "the error is always less than 1 ulp"; polynomial bounded by 2^-59 | maximum error in ulp against a double-double / `BigInteger` reference, 1e6 SplitMix64 arguments, pinned as a test |
+| `log` | `e_log.c`: "the error is always less than 1 ulp"; polynomial bounded by 2^-58.45 | same |
+| `sin`, `cos` | `k_sin.c`, `k_cos.c`: kernel approximation error about 2^-58 on [-pi/4, pi/4]; **no ulp claim in the comments** | same, including near multiples of pi/2 |
+| `atan2` | `s_atan.c`, `e_atan2.c`: **no error bound in the comments** (the fdlibm documentation lists atan below 1 ulp, not confirmed here) | same, including the quadrant boundaries and the `y / x` underflow / overflow cases |
+
+So the "< 1 ulp" claim is confirmed from the source only for `exp` and `log`; for `sin`, `cos`, `atan2` it is a
+hypothesis the PR must test (acceptance: maximum observed error stays below 1 ulp, otherwise the function gets a
+correction step or the owner is told). The new results are not bit-identical to `Math.*`; the platform libms are within
+1 ulp of the truth as well, which is where the 1 ulp spread between them comes from.
 
 ## 4. Cost
 
@@ -98,16 +106,27 @@ One PR (the same area), one commit per function group, each with its own tests:
 API: `DMath` is `internal` (upstream 1.0.324 API unchanged). Mutation tests apply (new file under `math/`); it is not
 exact code (no entry in `ExactCodeAllowList`, FMA and `float` bans do not apply, but the file uses neither).
 
-## 7. Sources and licence
+## 7. Sources, prior art and licences
 
-fdlibm (`e_exp.c`, `e_log.c`, `k_sin.c`, `k_cos.c`, `e_rem_pio2.c`, `k_rem_pio2.c`, `s_atan.c`, `e_atan2.c`): Copyright (C)
-1993 by Sun Microsystems, "Permission to use, copy, modify, and distribute this software is freely granted, provided that
-this notice is preserved", the same text in FreeBSD msun (BSD-2) and in Java's `StrictMath`. This is permissive and fits
-the rule "port only from MIT / Apache / BSD sources"; the implementation is rewritten in C# from the algorithms and the
-published constants, the Sun notice goes into the file header and the sources into `docs/SOURCES.md`. To be confirmed by
-the owner before the build: that the Sun / FreeBSD notice counts as BSD for the repository's rule. Not used: glibc
-(LGPL), CORE-MATH (correctly rounded, but its licence and a per-function review are needed first; the better option if the
-owner wants bit-exact against the true value rather than against fdlibm).
+Read on 2026-11-11 (primary sources):
+
+- **fdlibm via FreeBSD msun** (`e_exp.c`, `e_log.c`, `k_sin.c`, `k_cos.c`, `s_atan.c`, `e_atan2.c`): "Copyright (C) 1993 by Sun
+  Microsystems, Inc. All rights reserved." (`e_exp.c`: 2004), "Permission to use, copy, modify, and distribute this
+  software is freely granted, provided that this notice is preserved." The same text is in Java's `StrictMath`. FreeBSD
+  ships it in a BSD-licensed tree; the notice itself is the permissive part. We rewrite the algorithms in C# from the
+  descriptions and constants, keep the notice in the file header and list the files in `docs/SOURCES.md`. Open: the
+  owner confirms that this notice counts as "BSD" for the rule "port only from MIT / Apache / BSD sources".
+- **CRlibm** (correctly rounded, INRIA): the GitHub mirror lists "GPL-2.0, LGPL-2.1" (`COPYING`, `COPYING.LIB`). Not
+  usable for porting under our rule (GPL / LGPL).
+- **CORE-MATH** (correctly rounded binary64 functions, INRIA): licence, per-function coverage and error claims **not
+  verified**. `gitlab.inria.fr` and `core-math.gitlabpages.inria.fr` do not resolve from this session (not in the allowed
+  network hosts), the GitHub URL tried returned 404, the HAL paper is behind a bot check. It stays unusable until its
+  licence and the per-function files are read; if the owner allows the host or provides the files, that check is a
+  small task and CORE-MATH would be the better option (correct rounding is a stronger contract than fdlibm's below
+  1 ulp: bit-identical to the mathematically correct result, not just across platforms).
+- Not used: glibc / musl code (LGPL / MIT respectively: musl's `exp`, `log`, `sin`, `cos`, `atan2` are derived from ARM
+  Optimized Routines (MIT / Apache-2.0 with LLVM exception) and FreeBSD; not read for this note, listed as a possible
+  second source after a licence read, because their `exp` / `log` are faster and below 1 ulp by their own claim).
 
 ## 8. Decisions asked of the owner
 
