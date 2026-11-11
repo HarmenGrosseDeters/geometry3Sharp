@@ -569,6 +569,36 @@ public static partial class Program
             throw new Finding($"{what}: the result for the copy scaled by {scale} is not the scaled result");
     }
 
+    /// <summary>
+    /// the domain of the scale claim of the Reducer (and so of the PartitionedReducer): a mesh of normal size (box diagonal in [1, 2)) with a nonzero
+    /// coordinate, or a nonzero coordinate difference along an edge, below 2^-200. The quadric terms are products of up to four such components (a
+    /// squared area); below 2^-200 these products leave the normal doubles in one of the two copies (2^-800 and less, 2^-1022 is the limit; a
+    /// component of 1e-170 squared twice is 1e-680), where the 2^40 copy rounds differently or not at all, so the collapse decisions differ. Measured
+    /// on the 17 saved artifacts of the T13 campaign: every one has a coordinate at 1e-170 (2^-565) or below, the 5 that still differ at 1e-280 to 1e-290
+    /// (FINDINGS item 6). The other claims of the PartitionedReducer (valid, closed, compact, threads and runs bit for bit) are judged for them as
+    /// always
+    /// </summary>
+    public static bool HasTinyComponents(DMesh3 m)
+    {
+        double limit = Pow2(-200);
+        foreach (int v in m.VertexIndices()) {
+            Vector3d p = m.GetVertex(v);
+            for (int d = 0; d < 3; ++d)
+                if (p[d] != 0 && Math.Abs(p[d]) < limit)
+                    return true;
+        }
+        foreach (int e in m.EdgeIndices()) {
+            Index2i ev = m.GetEdgeV(e);
+            Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
+            for (int d = 0; d < 3; ++d) {
+                double diff = Math.Abs(a[d] - b[d]);
+                if (diff != 0 && diff < limit)
+                    return true;
+            }
+        }
+        return false;
+    }
+
     static void RunPartitionedReducer(Case c, string what)
     {
         Setup? s = MakeSetup(c);
@@ -589,7 +619,7 @@ public static partial class Program
         double k = Pow2(40);
         DMesh3 big = new DMesh3(fine);
         foreach (int v in big.VertexIndices()) big.SetVertex(v, k * big.GetVertex(v));
-        DMesh3? scaled = Reduce(big, error * k * k, 4);
+        DMesh3? scaled = HasTinyComponents(s.Norm) ? null : Reduce(big, error * k * k, 4);
         CheckPartitionedReduction(what, fine.IsClosed(), fine, r1, r4, again, scaled, k);
     }
 

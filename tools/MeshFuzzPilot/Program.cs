@@ -676,6 +676,53 @@ public static partial class Program
         ExpectFinding("a Clipper2 ring with the wrong orientation", () => CheckClipper("t", "Success", "", true, false, 0, ""));
         ExpectFinding("a Clipper2 membership that disagrees", () => CheckClipper("t", "Success", "", true, true, 1, "p"));
         CheckPartitionedReduction("t", true, cube, cube, cube, cube, ShiftedBy(cube, 0), 1);
+        // the domain of the scale claim of the PartitionedReducer: a nonzero coordinate or edge difference below 2^-200 of a normal-size mesh
+        // is out (a coordinate at the limit is in; zero is no component), a unit tetrahedron is in
+        DMesh3 unitTet = FlatTetrahedron(1);
+        if (HasTinyComponents(unitTet))
+            throw new InvalidOperationException("a tetrahedron of unit size has no tiny component");
+        foreach (double tiny in new[] { Math.Pow(2, -201), Math.Pow(2, -565), 1e-280, 3.4e-319 }) {
+            DMesh3 moved = new DMesh3(unitTet);
+            moved.SetVertex(0, new Vector3d(tiny, 0, 0));        // (a coordinate; the edge differences of the vertex are tiny too)
+            if (!HasTinyComponents(moved))
+                throw new InvalidOperationException("a coordinate of " + tiny + " is not a tiny component");
+        }
+        // the edge difference alone: both coordinates are 2^-150 (above the limit), their difference 2^-202 is below it; a coordinate at the limit is in
+        DMesh3 edgeOnly = new DMesh3(unitTet);
+        edgeOnly.SetVertex(0, new Vector3d(Math.Pow(2, -150), 0, 0));
+        edgeOnly.SetVertex(2, new Vector3d(Math.Pow(2, -150) + Math.Pow(2, -202), 0, 0));
+        if (!HasTinyComponents(edgeOnly))
+            throw new InvalidOperationException("an edge difference of 2^-202 between coordinates of 2^-150 is not a tiny component");
+        DMesh3 atLimit = new DMesh3(unitTet);
+        atLimit.SetVertex(0, new Vector3d(Math.Pow(2, -200), 0, 0));
+        atLimit.SetVertex(2, new Vector3d(Math.Pow(2, -199), 0, 0));
+        atLimit.SetVertex(3, new Vector3d(Math.Pow(2, -199), 1, 1));
+        atLimit.SetVertex(1, new Vector3d(Math.Pow(2, -198), 0, 0));
+        if (HasTinyComponents(atLimit))
+            throw new InvalidOperationException("a coordinate and differences of 2^-200 and above are tiny");
+        // two of the saved artifacts of the T13 campaign (coordinates 1e-174 .. 1e-290 of the extent; the 2^40 copy differs from the scaled
+        // result there): they are out of the domain, and the whole target runs on them without a finding (before, "not the scaled result")
+        var artifact29 = new DMesh3();
+        foreach (var v in new[] { new Vector3d(0, 0, 0), new Vector3d(2.407412430484045E-35, 0, 0), new Vector3d(0, 2.407412430484045E-35, 0),
+            new Vector3d(0, 0, 2.407412430484045E-35), new Vector3d(8.2890456E-317, 0, 0),
+            new Vector3d(1.0147467319612079E-173, 5.016812944271831E-217, 1.2635703280135613E-308),
+            new Vector3d(7.222237291452134E-35, 2.407412430484045E-35, 0), new Vector3d(1.0532429383367696E-34, 0, 2.407412430484045E-35) })
+            artifact29.AppendVertex(v);
+        foreach (var t in new[] { (0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3), (4, 6, 5), (4, 5, 7), (4, 7, 6), (5, 6, 7) })
+            artifact29.AppendTriangle(t.Item1, t.Item2, t.Item3);
+        var artifact04 = new DMesh3();
+        foreach (var v in new[] { new Vector3d(0, 0, 7.571533991467358E-270), new Vector3d(1.936405462784621E-260, 3.94691217122E-312, 0),
+            new Vector3d(2.407412430484045E-35, 2.407412430484045E-35, 7.571533991467358E-270), new Vector3d(0, 2.407412430484045E-35, 7.571533991467358E-270),
+            new Vector3d(0, 0, 2.407412430484045E-35), new Vector3d(2.407412430484045E-35, 0, 2.407412430484045E-35),
+            new Vector3d(3.21256E-319, 1.854324713764299E-207, 1.6996128203652254E-231), new Vector3d(0, 2.407412430484045E-35, 2.407412430484045E-35) })
+            artifact04.AppendVertex(v);
+        foreach (var t in new[] { (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7) })
+            artifact04.AppendTriangle(t.Item1, t.Item2, t.Item3);
+        foreach (DMesh3 artifact in new[] { artifact29, artifact04 }) {
+            if (!HasTinyComponents(NormalizeWhole(artifact, out _)))
+                throw new InvalidOperationException("an artifact of the campaign is inside the domain of the scale claim");
+            Run(new Case { Op = Array.IndexOf(Ops, "partitioned-reducer"), A = artifact, B = new DMesh3() });
+        }
         // and pass on a clean result
         CheckNearestTriangle("t", 0, 1, 1, 1, true);
         CheckNearestTriangle("t", 0, 1e-17, 1e-17, 0, true, 1);                    // rounding of the two distance codes at the scale of the mesh
