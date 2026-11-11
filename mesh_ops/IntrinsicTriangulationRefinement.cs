@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -306,15 +307,15 @@ namespace gs
             for (int k = 0; k < 3; ++k) {
                 int href = 3 * f + k, c = hV[href];
                 Vector2d qc = q[k], e = q[(k + 1) % 3] - qc;
-                double a0 = Math.Atan2(e.y, e.x);
+                double a0 = CoreMath.Atan2(e.y, e.x);
                 int h0 = vHe[c], g = h0, guard = 0;
                 do {
                     double delta = hAngle[g] - hAngle[href];
                     if (vBoundary[c] == false) delta = wrap(delta);
                     double ag = a0 + delta / vScale[c];
                     double ap = ag + CornerAngle(g);
-                    Vector2d P1 = qc + hLen[g] * new Vector2d(Math.Cos(ag), Math.Sin(ag));
-                    Vector2d P2 = qc + hLen[Prev(g)] * new Vector2d(Math.Cos(ap), Math.Sin(ap));
+                    Vector2d P1 = qc + hLen[g] * new Vector2d(CoreMath.Cos(ag), CoreMath.Sin(ag));
+                    Vector2d P2 = qc + hLen[Prev(g)] * new Vector2d(CoreMath.Cos(ap), CoreMath.Sin(ap));
                     if (hTwin[g] < 0 && (p - qc).Dot(p - P1) < 0) return g;
                     if (hTwin[Next(g)] < 0 && (p - P1).Dot(p - P2) < 0) return Next(g);
                     if (hTwin[Prev(g)] < 0 && (p - P2).Dot(p - qc) < 0) return Prev(g);
@@ -343,7 +344,7 @@ namespace gs
             if (v >= 0) {
                 double hi = Math.Max(di, dj);
                 // (powers of two times a length of the input, not absolute: the shells scale with the mesh)
-                double pw = shellUnit * Math.Pow(2, Math.Round(Math.Log(0.5 * hi / shellUnit, 2)));
+                double pw = shellUnit * CoreMath.Ldexp(1.0, (int)Math.Round(CoreMath.Log(0.5 * hi / shellUnit) / CoreMath.Log(2.0)));
                 if (pw > 0.25 * hi && pw < 0.75 * hi) s = (pw - di) / (dj - di);
             }
             return split_edge(h, s);
@@ -452,7 +453,7 @@ namespace gs
             double l = hLen[h], lki = hLen[hc];
             double lim = s * l, lmj = (1 - s) * l;
             double alpha = CornerAngle(h);
-            double lmk = new Vector2d(lki * Math.Cos(alpha) - lim, lki * Math.Sin(alpha)).Length;
+            double lmk = new Vector2d(lki * CoreMath.Cos(alpha) - lim, lki * CoreMath.Sin(alpha)).Length;
             if (!(lim > 0 && lmj > 0 && lmk > 0)) return -1;
             double phK = add_angle(k, hAngle[hc], vScale[k] * angle_from_lengths(lim, lki, lmk));
             int tb = -1, tc = -1, lv = -1;
@@ -461,7 +462,7 @@ namespace gs
                 tb = Next(ta); tc = Prev(ta); lv = hV[tc];
                 double lil = hLen[tb], llj = hLen[tc];
                 double beta = CornerAngle(tb);
-                lml = new Vector2d(lil * Math.Cos(beta) - lim, lil * Math.Sin(beta)).Length;
+                lml = new Vector2d(lil * CoreMath.Cos(beta) - lim, lil * CoreMath.Sin(beta)).Length;
                 if (!(lml > 0)) return -1;
                 phL = add_angle(lv, hAngle[tc], vScale[lv] * angle_from_lengths(lmj, llj, lml));
             }
@@ -493,7 +494,7 @@ namespace gs
                 Vector2d A = inLayout[ib], B = inLayout[Next(ib)];
                 vInTri[m] = ib / 3;
                 vInPos[m] = A + tm * (B - A);
-                vInRef[m] = Math.Atan2(B.y - A.y, B.x - A.x);
+                vInRef[m] = CoreMath.Atan2(B.y - A.y, B.x - A.x);
                 vInEdge[m] = ib;
                 vInEdgeT[m] = tm;
             } else
@@ -517,7 +518,7 @@ namespace gs
             vInTri[v] = t;
             vInPos[v] = p;
             // the edge back to the tail of hFrom leaves v in direction -d
-            vInRef[v] = Math.Atan2(-d.y, -d.x) - hAngle[hTwin[hFrom]] / vScale[v];
+            vInRef[v] = CoreMath.Atan2(-d.y, -d.x) - hAngle[hTwin[hFrom]] / vScale[v];
         }
 
         // angle sum, scale and signposts of a new vertex from its corner angles, starting at vHe (angle 0)

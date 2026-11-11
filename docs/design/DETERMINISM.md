@@ -135,6 +135,20 @@ ICP, smoothers, `MeshLocalParam`, the Boolean on large inputs, text IO other tha
 `gParallel` and the three per-class flags cannot be switched to serial; core counts other than 4 only on Linux; no
 arm64. Absence of a difference is evidence on these inputs, not a proof.
 
+## 6a. The libm rule (owner 2026-11-11)
+
+Only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`, `Log`, general `Pow`) differ between
+platforms (the harness: macOS arm64 differs from x64 only in libm and its consumers; `+ - * /`, `Sqrt`, `Floor`, `Round`,
+`Abs`, `Min` / `Max` are IEEE-exact everywhere). The correctly rounded `CoreMath` (C1, vendored from CoreMathSharp, a port of
+CORE-MATH, MIT; `docs/SOURCES.md`, design note `DMATH.md`) is used **only where the library promises cross-platform bit
+identity** (first the geodesic family: `IntrinsicTriangulation*`, `IntrinsicCommonSubdivision`, `VectorHeatMethod`,
+`MeshGeodesicDistance`, `MeshGeodesicPath`, `MeshGeodesicBezier` and `SparseCholesky.LogAdd`), not as a global replacement of
+`System.Math` (cost 1.5 to 4 times per call, more with the software FMA on net48; no gain in accuracy that matters to
+geometry tolerances). It is extended to further code only when the determinism harness shows a real difference that the
+result depends on, with a harness case and benchmark numbers. Files using `CoreMath` may not call the `System.Math`
+transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
+tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.
+
 ## 7. Contract and fix proposals
 
 **Levels** (proposal for the owner): L0, same runtime, OS and architecture: serial equals parallel equals repeated runs

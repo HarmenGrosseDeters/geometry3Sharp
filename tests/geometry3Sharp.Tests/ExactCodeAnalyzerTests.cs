@@ -116,6 +116,32 @@ namespace geometry3Sharp.Tests
             Assert.NotEmpty(Member(member, ExactCodeApiAnalyzer.FmaId));
         }
 
+        [Theory]
+        [InlineData("static double M(double x) { return System.Math.Sin(x); }")]
+        [InlineData("static double M(double x) { return System.Math.Cos(x); }")]
+        [InlineData("static double M(double y, double x) { return System.Math.Atan2(y, x); }")]
+        [InlineData("static double M(double x) { return System.Math.Exp(x); }")]
+        [InlineData("static double M(double x) { return System.Math.Log(x); }")]
+        [InlineData("static double M(double x) { return System.Math.Log(x, 2); }")]
+        [InlineData("static double M(double x) { return System.Math.Pow(x, 2); }")]
+        [InlineData("static double M(double x) { return System.Math.Acos(x) + System.Math.Asin(x) + System.Math.Tan(x) + System.Math.Atan(x); }")]
+        [InlineData("static double M(double x) { return System.Math.Sinh(x) + System.Math.Cosh(x) + System.Math.Tanh(x) + System.Math.Log10(x); }")]
+        [InlineData("static double M(double x) { return double.Sin(x); }")]
+        [InlineData("static float M(float x) { return System.MathF.Sin(x); }")]
+        [InlineData("static System.Func<double, double> M() { return System.Math.Sin; }")]
+        public void PlatformLibm_IsReported(string member)
+        {
+            Assert.NotEmpty(Member(member, ExactCodeApiAnalyzer.LibmId));
+        }
+
+        [Fact]
+        public void ExactOperations_AreNotReportedAsLibm()
+        {
+            Assert.Empty(Member("static double M(double a, double b) { return System.Math.Sqrt(a) + System.Math.Floor(a) + System.Math.Ceiling(b) + System.Math.Round(a) + System.Math.Truncate(b) + System.Math.Abs(a) + System.Math.Max(a, b) + System.Math.Min(a, b) + a * b; }",
+                ExactCodeApiAnalyzer.LibmId));
+            Assert.Empty(Member("static double M(double x) { return g3.CoreMathPort.CoreMath.Sin(x) + g3.CoreMathPort.CoreMath.Atan2(x, 1.0); }", ExactCodeApiAnalyzer.LibmId));
+        }
+
         [Fact]
         public void MultiplyAndAdd_IsNotReported()
         {
@@ -233,6 +259,23 @@ namespace geometry3Sharp.Tests
                                          "core/ExactCodeAllowList.cs" })
                 foreach (string id in Rules)
                     Assert.True(Severity(set, root, f, id) == ReportDiagnostic.Suppress, f + " " + id);
+        }
+
+        // the libm rule G3E0004 is an error in the geodesic family and in the CoreMath port, and off everywhere else
+        [Fact]
+        public void EditorConfig_MakesTheLibmRuleAnErrorInTheGeodesicFamilyOnly()
+        {
+            string root = RepoRoot();
+            Assert.NotNull(root);
+            AnalyzerConfigSet set = EditorConfig(root);
+            foreach (string f in new[] { "mesh_ops/IntrinsicTriangulation.cs", "mesh_ops/IntrinsicTriangulationRefinement.cs", "mesh_ops/IntrinsicCommonSubdivision.cs",
+                                         "mesh_ops/VectorHeatMethod.cs", "mesh_ops/MeshGeodesicDistance.cs", "mesh_ops/MeshGeodesicPath.cs", "mesh_ops/MeshGeodesicBezier.cs",
+                                         "solvers/SparseCholesky.cs", "math/CoreMath/CoreMathSin.cs", "math/CoreMath/CoreMathExp.cs" }) {
+                Assert.True(File.Exists(Path.Combine(root, f)), f);
+                Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Error, f);
+            }
+            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs" })
+                Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Suppress, f);
         }
 
         // the library build runs the analyzers: a project file without them would make every rule a no-op

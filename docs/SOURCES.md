@@ -694,3 +694,29 @@ Implemented from the papers below; no code of any of them was read.
 | Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
 | Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
 | Marching cubes | the library's `MarchingCubes` |
+
+
+## Correctly rounded sin, cos, atan2, exp, log (`math/CoreMath`, internal; C1 of `docs/design/DETERMINISM.md`)
+
+**Vendored third-party source (MIT)**, not implemented from a paper: the files `math/CoreMath/CoreMath{Sin,Cos,Atan2,Exp,Log,Fma}.cs`
+carry the MIT notices in their headers. Chain of sources:
+
+| Part | Source | Licence |
+|---|---|---|
+| The algorithms (correctly rounded binary64 `sin`, `cos`, `atan2`, `exp`, `log`) | CORE-MATH, https://core-math.gitlabpages.inria.fr/ (repository https://gitlab.inria.fr/core-math/core-math, `LICENSE`: "MIT license"; read at commit `018fa97`, 2026-11-10); Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN | MIT |
+| The C# code | CoreMathSharp, https://github.com/andanteyk/CoreMathSharp, commit `77505b1bdb34c73655740b7d08947654d8b7eb63` (version 1.0.0, 2026-02-06); Copyright (c) 2026 Andante; a port of an earlier state of CORE-MATH (the `Dint` / `Tint` based paths; not the 2026 `cos.c` / `sin.c` rewrite) | MIT |
+| Software fused multiply-add (the integer algorithm and the exponent handling) | musl libc `fma.c`, Copyright (c) 2005-2020 Rich Felker, et al., as ported in CoreMathSharp | MIT |
+| Fast FMA emulation by error-free transformations and rounding to odd | S. Boldo, G. Melquiond (and co-authors), https://hal.science/hal-04575249, as used in CoreMathSharp's `FusedMultiplyAdd` | paper |
+
+Changes to the vendored code: namespace and `internal` visibility; tables as `static readonly` arrays instead of `ReadOnlySpan`
+(netstandard2.0 has no `Span`); no hardware intrinsics (`Math.Round` for the nearest-even rounding; `Math.FusedMultiplyAdd` on
+.NET Core 3.0 and later behind one helper, the software version elsewhere: both are correctly rounded and give the same bits,
+pinned by a test); own `IsNormal` / `IsFinite` / `Ldexp` / `BigMul` / bit-count helpers; and two defects of the port fixed
+(`Tint.Lshift` lost the bits of the low limb for shifts of 64 to 127; `Dint.Mul21` returned a product twice too large,
+which doubled the highest polynomial term of the accurate `sin` / `cos` paths), both found by the verification below.
+
+Verification (tests, independent of the vendored code): `CoreMathReference` computes the five functions and the FMA with
+`System.Numerics.BigInteger` fixed point (1600 fractional bits); `CoreMathTests` compares bit for bit on random arguments and
+on evenly spread hard-to-round arguments taken from the CORE-MATH worst-case lists (`CoreMathHardCases`, inputs only, MIT);
+`CoreMathTintTests` / `CoreMathDintTests` pin the 192-bit and 128-bit helper types; `CoreMathCampaignTests` (Nightly tier) runs
+the large comparison (1 000 000 random arguments and up to 30 000 worst cases per function for the PR).

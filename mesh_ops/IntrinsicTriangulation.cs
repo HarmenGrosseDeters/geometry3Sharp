@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -176,7 +177,7 @@ namespace gs
             q0 = Vector2d.Zero;
             q1 = new Vector2d(hLen[h], 0);
             double l2 = hLen[h + 2];
-            q2 = new Vector2d(l2 * Math.Cos(a0), l2 * Math.Sin(a0));
+            q2 = new Vector2d(l2 * CoreMath.Cos(a0), l2 * CoreMath.Sin(a0));
         }
 
         /// <summary> smallest triangle angle (radians) </summary>
@@ -392,8 +393,8 @@ namespace gs
             double aJ1 = CornerAngle(hb), aJ2 = CornerAngle(ta);        // angles at j
             if (aI1 + aI2 >= Math.PI - 1e-12 || aJ1 + aJ2 >= Math.PI - 1e-12)
                 return false;
-            Vector2d pk = hLen[hc] * new Vector2d(Math.Cos(aI1), Math.Sin(aI1));
-            Vector2d pl = hLen[tb] * new Vector2d(Math.Cos(aI2), -Math.Sin(aI2));
+            Vector2d pk = hLen[hc] * new Vector2d(CoreMath.Cos(aI1), CoreMath.Sin(aI1));
+            Vector2d pl = hLen[tb] * new Vector2d(CoreMath.Cos(aI2), -CoreMath.Sin(aI2));
             double lkl = pk.Distance(pl);
             if (!(lkl > 0)) return false;
 
@@ -498,7 +499,7 @@ namespace gs
                 t = vInTri[i];
                 p = vInPos[i];
                 double a = vInRef[i] + phi / vScale[i];
-                d = new Vector2d(Math.Cos(a), Math.Sin(a));
+                d = new Vector2d(CoreMath.Cos(a), CoreMath.Sin(a));
                 return;
             }
             // the input corner at i that contains the direction
@@ -515,8 +516,8 @@ namespace gs
             int c = best % 3;
             p = inLayout[best];
             Vector2d e = inLayout[3 * t + (c + 1) % 3] - p;
-            double a0 = Math.Atan2(e.y, e.x) + Math.Max(0, bestOff) / vScale[i];
-            d = new Vector2d(Math.Cos(a0), Math.Sin(a0));
+            double a0 = CoreMath.Atan2(e.y, e.x) + Math.Max(0, bestOff) / vScale[i];
+            d = new Vector2d(CoreMath.Cos(a0), CoreMath.Sin(a0));
         }
 
         internal enum WalkEnd { Reached, Boundary, OutOfSteps }
@@ -716,18 +717,25 @@ namespace gs
             double theta = world[0];
             for (int k = 0; k < world.Count; ++k) world[k] -= theta;
             world[0] = 0;
-            e1 = Math.Cos(theta) * b1 + Math.Sin(theta) * b2;
+            e1 = CoreMath.Cos(theta) * b1 + CoreMath.Sin(theta) * b2;
             e1 /= e1.Length;
             e2 = n.Cross(e1);
         }
 
         static Vector3d projected(Vector3d d, Vector3d n) => d - d.Dot(n) * n;
 
+        /// <summary> acos(c) for c clamped to [-1, 1] through the correctly rounded atan2 (sqrt and the products are exact IEEE operations) </summary>
+        static double AcosDeterministic(double c)
+        {
+            c = Math.Max(-1.0, Math.Min(1.0, c));
+            return CoreMath.Atan2(Math.Sqrt((1.0 - c) * (1.0 + c)), c);
+        }
+
         double CornerAngle_input(int h)
         {
             int t = h / 3, c = h % 3;
             Vector2d a = inLayout[h], b = inLayout[3 * t + (c + 1) % 3], d = inLayout[3 * t + (c + 2) % 3];
-            return Vector2d.AngleR(b - a, d - a);
+            return AcosDeterministic((b - a).Dot(d - a));       // (as Vector2d.AngleR, with a portable acos)
         }
 
         int hV_input_head(int h)
@@ -784,7 +792,7 @@ namespace gs
             for (int k = 0; k < K; ++k) {
                 Vector3d d = dirs[k];
                 if (projected(d, n).Length < 1e-300) { world.Add(double.NaN); continue; }
-                double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
+                double w = CoreMath.Atan2(d.Dot(e2), d.Dot(e1));
                 if (first < 0) { raw0 = w; w = 0; first = k; }
                 else {
                     // the first edge is at 0 by definition, its own Atan2 (raw0) only about 0: an edge in the same
@@ -857,8 +865,8 @@ namespace gs
             tangent_wedges(vid, out sign, out world, out e1, out e2);
             double len = v.Length;
             if (len == 0) return Vector3d.Zero;
-            double a = map_angle(Math.Atan2(v.y, v.x), sign, world);
-            return len * (Math.Cos(a) * e1 + Math.Sin(a) * e2);
+            double a = map_angle(CoreMath.Atan2(v.y, v.x), sign, world);
+            return len * (CoreMath.Cos(a) * e1 + CoreMath.Sin(a) * e2);
         }
 
         /// <summary> 3D vector projected into the tangent plane of a vertex, in its signpost coordinates (inverse of ToWorld) </summary>
@@ -870,8 +878,8 @@ namespace gs
             Vector2d t = new Vector2d(w.Dot(e1), w.Dot(e2));
             double len = t.Length;
             if (len == 0) return Vector2d.Zero;
-            double a = map_angle(Math.Atan2(t.y, t.x), world, sign);
-            return new Vector2d(len * Math.Cos(a), len * Math.Sin(a));
+            double a = map_angle(CoreMath.Atan2(t.y, t.x), world, sign);
+            return new Vector2d(len * CoreMath.Cos(a), len * CoreMath.Sin(a));
         }
 
 
@@ -906,7 +914,7 @@ namespace gs
         {
             double A4 = 4 * area_from_lengths(a, b, c);
             double x = b * b + c * c - a * a;           // 2 b c cos
-            return Math.Atan2(A4, x);                   // tan = 4A / (b^2 + c^2 - a^2)
+            return CoreMath.Atan2(A4, x);                   // tan = 4A / (b^2 + c^2 - a^2)
         }
 
         internal static double cotan_from_lengths(double a, double b, double c)

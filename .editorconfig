@@ -5,12 +5,14 @@
 #   G3E0001  float (tools/analyzers/G3ExactCodeAnalyzers)
 #   G3E0002  parallel loops outside the allow-list core/ExactCodeAllowList.cs
 #   G3E0003  fused multiply-add
+#   G3E0004  platform libm (Math.Sin, Cos, Atan2, Exp, Log, ...) in code that promises cross-platform bit identity
 # off in general ...
 [*.cs]
 dotnet_diagnostic.RS0030.severity = none
 dotnet_diagnostic.G3E0001.severity = none
 dotnet_diagnostic.G3E0002.severity = none
 dotnet_diagnostic.G3E0003.severity = none
+dotnet_diagnostic.G3E0004.severity = none
 
 # ... and errors in the exact-arithmetic code: the predicates (also the generated ones), the exact points (also in fixed width), the exact
 # mesh pipeline and the exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection,
@@ -22,3 +24,9 @@ dotnet_diagnostic.RS0030.severity = error
 dotnet_diagnostic.G3E0001.severity = error
 dotnet_diagnostic.G3E0002.severity = error
 dotnet_diagnostic.G3E0003.severity = error
+
+# The libm rule (docs/design/DETERMINISM.md): code that promises cross-platform bit identity calls the correctly rounded
+# g3.CoreMathPort.CoreMath, not the platform's Math.Sin, Cos, Atan2, Exp, Log, ... (G3E0004). First the geodesic family;
+# extended only where the determinism harness shows a difference that the result depends on.
+[{mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,solvers/SparseCholesky.cs,math/CoreMath/*.cs}]
+dotnet_diagnostic.G3E0004.severity = error
