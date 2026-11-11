@@ -106,6 +106,10 @@ namespace g3
     /// degenerate area).
     /// Cost: one global exact self-intersection check (two or more if there are intersections), plus local
     /// work per defect.
+    /// Supported input range (docs/QA.md 2.5a): the largest coordinate magnitude of the triangles is in [2^-200, 2^200] (about 6e-61 to
+    /// 2e60) and no coordinate is subnormal. A single coordinate far smaller than the largest (a result coordinate that cancels toward 0) is in range.
+    /// Components far apart in size are not a range matter (remove_tiny_components, ScaleDisparity). ExactMeshBoolean judges its result, not its inputs.
+    /// Outside, Apply() returns false with OutsideRange and the mesh is not touched.
     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
     /// </summary>
     public class MeshRoundingRepair
@@ -240,10 +244,16 @@ namespace g3
         /// </summary>
         public bool ScaleNotFinite;
         /// <summary>
-        /// no self-intersections, no degenerate triangles and no contacts made by the rounding remain, no component was
-        /// kept for ScaleDisparity, and the scale is finite (ScaleNotFinite)
+        /// a coordinate of a triangle is outside the supported range (class comment): nonzero with a magnitude outside
+        /// [2^-200, 2^200], subnormal numbers included. Apply() returns false at once and leaves the mesh as it is; the repair is
+        /// not clean (before, the rounding removed whole meshes below 2^-280 as tiny and reported them clean)
         /// </summary>
-        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false; } }
+        public bool OutsideRange;
+        /// <summary>
+        /// no self-intersections, no degenerate triangles and no contacts made by the rounding remain, no component was
+        /// kept for ScaleDisparity, the scale is finite (ScaleNotFinite) and the coordinates are in the supported range (OutsideRange)
+        /// </summary>
+        public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false && OutsideRange == false; } }
 
         public MeshRoundingRepair(DMesh3 mesh)
         {
@@ -386,6 +396,25 @@ namespace g3
         HashSet<Index2i> inputBoundaryEdges = new HashSet<Index2i>();
         Dictionary<int, int> slidTowards = new Dictionary<int, int>();
 
+        // the supported range (class comment): the largest coordinate magnitude in [2^-200, 2^200] (about 6e-61 to 2e60), no subnormal coordinate
+        static bool coordinates_in_range(DMesh3 mesh)
+        {
+            double max = 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                Index3i tv = mesh.GetTriangle(tid);
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d p = mesh.GetVertex(tv[k]);
+                    for (int c = 0; c < 3; ++c) {
+                        double a = Math.Abs(p[c]);
+                        if (a != 0 && a < 2.2250738585072014e-308)
+                            return false;
+                        if (a > max) max = a;
+                    }
+                }
+            }
+            return max == 0 || (max >= 6.2230152778611417e-61 && max <= 1.6069380442589903e60);       // (all zero: degenerate, not a range matter)
+        }
+
         /// <summary> repair (see class comment); returns IsClean </summary>
         [MethodImpl(JitHints.Optimize)]
         public bool Apply()
@@ -416,6 +445,7 @@ namespace g3
             anyCoarse = false;
             ScaleDisparity = 0;
             ScaleNotFinite = false;
+            OutsideRange = false;
             InitialFalseContacts = RemainingFalseContacts = 0;
             EvaluationLimitReached = false;
             if (SharedPositionsTouch == false)
@@ -443,6 +473,12 @@ namespace g3
                     ScaleNotFinite = true;
                     return false;
                 }
+            }
+            // the supported range (class comment): outside it the tolerances (absolute parts, squares of tiny lengths) are meaningless
+            if (coordinates_in_range(Mesh) == false) {
+                InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                OutsideRange = true;
+                return false;
             }
             if (SharedPositionsTouch) {
                 atPosition = new Dictionary<Vector3d, List<int>>();

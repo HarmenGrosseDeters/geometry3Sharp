@@ -568,13 +568,14 @@ namespace g3
                 Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
                 Counts["rounding_scale_disparity"] = Rounding.ScaleDisparity;
                 Counts["rounding_scale_not_finite"] = Rounding.ScaleNotFinite ? 1 : 0;
+                Counts["rounding_outside_range"] = Rounding.OutsideRange ? 1 : 0;
                 if (StrictRounding && Rounding.IsClean == false) {
                     Error = string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {7} contacts made by the rounding left, eg at {3:R} {4:R} {5:R}; the smallest edit rejected by the bound needed {6:G3}; {8} components kept that the bound took as thin (scale disparity){9}",
                         Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate,
                         Rounding.RemainingDefectAt.x, Rounding.RemainingDefectAt.y, Rounding.RemainingDefectAt.z, Rounding.SmallestRejectedDrift,
                         Rounding.RemainingFalseContacts, Rounding.ScaleDisparity,
-                        Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "");
+                        (Rounding.ScaleNotFinite ? "; the scale is not finite (a diagonal overflows), every edit rejected" : "") + (Rounding.OutsideRange ? "; the coordinates are outside the supported range (2^-200 .. 2^200), the rounding did not run" : ""));
                     Result = null;
                     Status = BooleanStatus.RoundingNotClean;
                     return false;
