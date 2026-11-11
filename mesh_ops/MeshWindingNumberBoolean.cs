@@ -102,6 +102,66 @@ namespace gs
         /// </returns>
         public bool Compute()
         {
+            // Outside an extent of [2^-32, 2^32] the computation runs on copies scaled by a power of two to an extent in [1, 2) (exact), as
+            // MeshWindingNumberSolidify does: the winding-number field overflows (the extent to the 4th power: no surface was found from about
+            // 1e79 to 1e103 and above 1e153, and Compute() succeeded with an empty mesh) and its float and absolute tolerances degrade below
+            // about 1e-12. A 2^k scale then gives the unit-scale result times 2^k. Inside the band nothing changes.
+            double s = unit_scale();
+            if (s == 1 || MathUtil.IsFinite(CellSize) == false)
+                return compute_unit();
+            DMesh3 a = new DMesh3(MeshA), b = new DMesh3(MeshB);
+            MeshRepairMetrics.ScaleVertices(a, s);
+            MeshRepairMetrics.ScaleVertices(b, s);
+            var inner = new MeshWindingNumberBoolean(a, b, Operation) {
+                CellSize = CellSize * s, GridResolution = GridResolution, CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance,
+                FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels, MinRefineEdges = MinRefineEdges,
+                LocalRefinement = LocalRefinement, CancelF = CancelF
+            };
+            bool ok = inner.compute_unit();
+            Result = inner.Result;
+            if (Result != null)
+                MeshRepairMetrics.ScaleVertices(Result, 1 / s);
+            NonManifoldTriangles = inner.NonManifoldTriangles;
+            WindingEvaluations = inner.WindingEvaluations;
+            HiddenGapEdges = inner.HiddenGapEdges; HiddenWallEdges = inner.HiddenWallEdges;
+            HiddenSamples = new List<KeyValuePair<Vector3d, double>>();
+            foreach (var kv in inner.HiddenSamples)
+                HiddenSamples.Add(new KeyValuePair<Vector3d, double>(kv.Key * (1 / s), kv.Value / s));
+            GapEdgesPerLevel = inner.GapEdgesPerLevel;
+            UsedCellSize = inner.UsedCellSize / s;
+            RefinedCells = inner.RefinedCells; RefineFactor = inner.RefineFactor;
+            PhaseMilliseconds = inner.PhaseMilliseconds;
+            return ok;
+        }
+
+        // The power of two that brings the extent of both inputs' triangles to [1, 2) if it is outside [2^-32, 2^32], else 1. Also 1 if the
+        // scaling is not exact for a used vertex (a coordinate that would be subnormal after it) or a coordinate would exceed 1e300.
+        double unit_scale()
+        {
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            if (MeshA.TriangleCount > 0) box.Contain(MeshRepairMetrics.TriangleBounds(MeshA));
+            if (MeshB.TriangleCount > 0) box.Contain(MeshRepairMetrics.TriangleBounds(MeshB));
+            double s = MeshRepairMetrics.unit_scale(box, -32, 32);
+            if (s == 1)
+                return 1;
+            foreach (DMesh3 mesh in new DMesh3[] { MeshA, MeshB }) {
+                foreach (int v in mesh.VertexIndices()) {
+                    Vector3d p = mesh.GetVertex(v);
+                    bool used = mesh.GetVtxEdgeCount(v) > 0;
+                    for (int k = 0; k < 3; ++k) {
+                        double x = Math.Abs(p[k]);
+                        if (!(x * s <= 1e300))
+                            return 1;
+                        if (used && x != 0 && x * s < 2.2250738585072014e-308)
+                            return 1;
+                    }
+                }
+            }
+            return s;
+        }
+
+        bool compute_unit()
+        {
             Result = null;      // set only on success, below
             UsedCellSize = 0;
             NonManifoldTriangles = 0;
