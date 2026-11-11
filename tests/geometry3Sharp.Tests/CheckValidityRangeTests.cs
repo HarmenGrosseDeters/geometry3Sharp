@@ -33,6 +33,17 @@ namespace geometry3Sharp.Tests
             Assert.True(Sphere(scale).CheckValidity(false, FailMode.ReturnOnly));
         }
 
+        [Fact]
+        public void ANonFiniteCoordinate_AtAHugeScale_AndMixedNaNAndInfinity_IsInvalid()
+        {
+            DMesh3 m = Sphere(1e200);
+            m.SetVertex(3, new Vector3d(double.NaN, double.PositiveInfinity, 1e200));
+            Assert.False(m.CheckValidity(false, FailMode.ReturnOnly));
+            DMesh3 n = Sphere(1e200);
+            n.SetVertex(3, new Vector3d(1e200, 1e200, double.NegativeInfinity));
+            Assert.False(n.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
         [Theory]
         [InlineData(double.NaN)]
         [InlineData(double.PositiveInfinity)]
