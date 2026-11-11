@@ -127,6 +127,26 @@ namespace geometry3Sharp.Tests
         const string IntersectionCounts = "24 1";
 
         [Fact]
+        public void Intersection_ThreeOperands_EachTriangleCulledOnce()
+        {
+            // an Intersection of three closed meshes: the inner box lies inside B but above A, so it is culled in A's pass
+            // (it misses A's box) and skipped in B's pass, where its triangles would be free (they meet no box of B) and
+            // cost an exact ray; the counts pinned
+            DMesh3 a = Box(0, 0, 0, 4, 4, 1), b = Box(1, 1, 0.5, 2, 2, 3), far = Box(1.2, 1.2, 2.0, 1.8, 1.8, 2.5);
+            var meshes = new List<DMesh3> { a, b, far };
+            ExactMeshBoolean culled = Run(meshes, Ops.Intersection, true), reference = Run(meshes, Ops.Intersection, false);
+            Assert.Equal(ThreeOperandCounts, $"{culled.Counts["t3a_culled"]} {culled.Counts["t3a_cull_tests"]}");
+            Assert.Equal(0, culled.Result.TriangleCount);
+            Assert.Equal("", Invariance.Difference(reference.Result, culled.Result));
+            // without the far box: A ∩ B is the part of B inside A
+            ExactMeshBoolean two = Run(new List<DMesh3> { a, b }, Ops.Intersection, true);
+            Assert.True(two.Result.TriangleCount > 0);
+            Assert.Equal("", Invariance.Difference(Run(new List<DMesh3> { a, b }, Ops.Intersection, false).Result, two.Result));
+        }
+
+        const string ThreeOperandCounts = "36 1";
+
+        [Fact]
         public void CulledTriangles_NoPairs_NotTriangulated()
         {
             // the work the early-out saves, visible: the upper box (wholly above A) as a mesh of its own, before and after

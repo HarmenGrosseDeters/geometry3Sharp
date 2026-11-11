@@ -142,6 +142,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Exceptions_RethrownAfterTheLoop_LowestIndex()
+        {
+            // configure throws for two bodies: the call throws that of the lower index, on both paths (in parallel over
+            // more bodies than cores, and one after the other over two)
+            DMesh3 a = A();
+            foreach (int n in new[] { Math.Max(2 * Environment.ProcessorCount, 6), 2 }) {
+                List<DMesh3> bodies = Bodies(n, 7);
+                int first = 1, second = bodies.Count - 1;
+                Action<ExactMeshBoolean> configure = (b) => {
+                    int k = bodies.IndexOf(b.MeshB);
+                    if (k == first || k == second)
+                        throw new InvalidOperationException($"body {k}");
+                };
+                var e = Assert.Throws<InvalidOperationException>(() => ExactMeshBoolean.IntersectEach(a, bodies, configure));
+                Assert.Equal($"body {first}", e.Message);
+                var d = Assert.Throws<InvalidOperationException>(() => ExactMeshBoolean.DifferenceEach(a, bodies, configure));
+                Assert.Equal($"body {first}", d.Message);
+            }
+        }
+
+        [Fact]
         public void SerialEqualsParallel_Repeated_AndSimilarities()
         {
             DMesh3 a = A();

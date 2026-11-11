@@ -325,10 +325,15 @@ namespace g3
         /// A ∩ B_i for every body B_i, each a separate boolean of a and bodies[i] (the same result, bit for bit, as
         /// new ExactMeshBoolean(a, bodies[i], Operations.Intersection).Compute() with the same configuration), computed in
         /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
-        /// fails (status[i], if given, says why). configure, if given, is applied to every boolean before it is computed
-        /// (eg SafeRounding); it runs in parallel and must not depend on the order. For a terrain or part against many
-        /// small bodies most of a lies outside each body and is left out of its arrangement (Counts["t3a_culled"]).
+        /// fails (status[i], if given, says why; a null a fails every boolean with InvalidInput, as a separate boolean
+        /// would). configure, if given, is applied to every boolean before it is computed (eg SafeRounding); it runs in
+        /// parallel and must not depend on the order. For a terrain or part against many small bodies most of a lies
+        /// outside each body and is left out of its arrangement (Counts["t3a_culled"]).
         /// </summary>
+        /// <exception cref="ArgumentNullException">bodies is null</exception>
+        /// <exception cref="ArgumentException">status is shorter than bodies</exception>
+        /// <exception cref="Exception">an exception thrown by a boolean (or by configure) is rethrown after all booleans
+        /// ran, the one of the lowest index; no results are returned then</exception>
         public static DMesh3[] IntersectEach(DMesh3 a, IReadOnlyList<DMesh3> bodies, Action<ExactMeshBoolean> configure = null,
             BooleanStatus[] status = null)
         {
@@ -339,9 +344,13 @@ namespace g3
         /// A − B_i for every body B_i, each a separate boolean of a and bodies[i] (the same result, bit for bit, as
         /// new ExactMeshBoolean(a, bodies[i], Operations.Difference).Compute() with the same configuration), computed in
         /// parallel over the bodies; a's input check and orientation are done once. Result i is null where that boolean
-        /// fails (status[i], if given, says why); configure as in IntersectEach. Each result holds all of a outside the
-        /// body, so the work per body does not shrink with the body's size as it does for IntersectEach.
+        /// fails (status[i], if given, says why); configure, a null a and exceptions as in IntersectEach. Each result holds
+        /// all of a outside the body, so the work per body does not shrink with the body's size as it does for
+        /// IntersectEach.
         /// </summary>
+        /// <exception cref="ArgumentNullException">bodies is null</exception>
+        /// <exception cref="ArgumentException">status is shorter than bodies</exception>
+        /// <exception cref="Exception">an exception of a boolean (or of configure), rethrown as in IntersectEach</exception>
         public static DMesh3[] DifferenceEach(DMesh3 a, IReadOnlyList<DMesh3> bodies, Action<ExactMeshBoolean> configure = null,
             BooleanStatus[] status = null)
         {
@@ -366,6 +375,9 @@ namespace g3
                     var b = new ExactMeshBoolean(a, bodies[i], op) { PreparedFirst = first };
                     configure?.Invoke(b);
                     b.Compute();
+                    // (not kept on an instance that configure may have kept: a later Compute after a changed a must not
+                    // use this preparation)
+                    b.PreparedFirst = null;
                     results[i] = b.Result;
                     if (status != null)
                         status[i] = b.Status;
@@ -838,7 +850,11 @@ namespace g3
 
             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
-            // closed); the winding numbers of the closed meshes are the same on the front sides of all pieces of a patch
+            // closed); the winding numbers of the closed meshes are the same on the front sides of all pieces of a patch,
+            // except where the early-out culled triangles (cull): a patch can then run across a culled triangle of
+            // another mesh without an intersection curve, but only outside the mesh it was culled against, where the
+            // result's indicator is 0 on both sides whatever the other winding numbers are, so the patch's decision, from
+            // the exact ray at one piece, is right for all of it
             long[] edgeKeys; int[] edgeTri;
             group_edges(n, (i) => new Index3i(output[i].A, output[i].B, output[i].C), out edgeKeys, out edgeTri);
             int[] parent = new int[n];

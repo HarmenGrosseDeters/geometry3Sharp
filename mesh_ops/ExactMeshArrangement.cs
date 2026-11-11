@@ -1682,7 +1682,6 @@ namespace g3
                 foreach (AxisAlignedBox3d bx in boxes[m0])
                     meshBox.Contain(bx);
                 Array.Clear(free, 0, free.Length);
-                int direct = 0;
                 for (int m = 0; m < Meshes.Count; ++m) {
                     if (m == m0)
                         continue;
@@ -1695,14 +1694,13 @@ namespace g3
                         // (closed boxes: touching counts as meeting)
                         bool missesMeshBox = meshBox.Max.x < bx.Min.x || bx.Max.x < meshBox.Min.x || meshBox.Max.y < bx.Min.y
                             || bx.Max.y < meshBox.Min.y || meshBox.Max.z < bx.Min.z || bx.Max.z < meshBox.Min.z;
-                        if (missesMeshBox) {
+                        // (no shared counter: the culled triangles are counted once, at the end)
+                        if (missesMeshBox)
                             Culled[ti] = true;
-                            System.Threading.Interlocked.Increment(ref direct);
-                        } else
+                        else
                             free[ti] = tree.Any(bx) == false;
                     });
                 }
-                culled += direct;
                 // connected sets by common corners (union-find, the smaller triangle index as the root)
                 for (int ti = 0; ti < parent.Length; ++ti)
                     parent[ti] = ti;
@@ -1738,12 +1736,13 @@ namespace g3
                 int mesh = m0;
                 gParallel.ForRange(roots.Count, (k) => outside[roots[k]] = CullTest(mesh, roots[k]));
                 for (int ti = 0; ti < Triangles.Count; ++ti)
-                    if (free[ti] && outside[find(ti)]) {
+                    if (free[ti] && outside[find(ti)])
                         Culled[ti] = true;
-                        culled++;
-                    }
                 tests += roots.Count;
             }
+            for (int ti = 0; ti < Triangles.Count; ++ti)
+                if (Culled[ti])
+                    culled++;
             CulledCount = culled;
             CullTests = tests;
         }
