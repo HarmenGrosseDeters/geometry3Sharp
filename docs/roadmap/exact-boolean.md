@@ -111,6 +111,9 @@ measurement shows the gap to the bound is large. T3b, A ∩ Bi each: an additive
 Difference) that computes A's closedness / orientation, self-intersection pairs and box tree once and runs the Bi in
 parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
 Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
+Deviation (coordinator 2026-11-11, T3b PR): the targets hold for `IntersectEach`; `DifferenceEach` keeps all of A outside
+each body, so A cannot be left out of its arrangements, and its target is "faster than separate booleans, by the
+parallelism over the bodies (and shared preparation where measured)", not the numbers above.
 
 **3.0 execution order (owner 2026-11-10):** serial, one 3.0 work item at a time (they share the exact files), each
 one PR per feature with the exact-code review and the mutation shards: (1) T3a after #539 (Antipodal PR 1) merges (Opus,
