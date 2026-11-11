@@ -207,7 +207,8 @@ namespace gs
             if (fraction <= 0) return seg_tail(segs[0]);
             if (fraction >= 1) return seg_head(segs[segs.Count - 1]);
             double target = fraction * path_length(), done = 0;
-            for (int k = 0; k < segs.Count; ++k) {
+            // (no bound: segs.Count > 0 here, and at k == segs.Count - 1 the branch below is taken, which returns in every case)
+            for (int k = 0; ; ++k) {
                 int s = segs[k];
                 double l = seg_length(s), local = target - done;
                 if (!(l > 0)) return seg_tail(s);
@@ -220,7 +221,6 @@ namespace gs
                 }
                 done += l;
             }
-            return -1;
         }
 
 
