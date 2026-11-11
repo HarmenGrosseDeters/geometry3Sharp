@@ -1,7 +1,10 @@
 name: Mutation tests
 
-# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and
-# on ready PRs (not drafts) only for the configs that the PR touches (tests/mutation/select_shards.py). Two jobs:
+# Stryker.NET (Apache-2.0), tests/mutation, docs/QA.md 2.2: too slow for every PR, so in full weekly and on demand, and on ready PRs (not drafts) only incrementally for the configs that the PR touches
+# (tests/mutation/select_shards.py). Exact Boolean 3.0 process (owner 2026-11-11): no full shard run on a PR (a full shard
+# is a 3-6 h runner slot): a shard without a fitting baseline (config or tools changed, split offsets moved, no baseline
+# in the cache) runs nothing on the PR and says "full run on master" in its summary; the nightly run seeds the baselines.
+# Two jobs:
 # - exact-arithmetic: math/ExactPredicates.cs, ExactPoint3.cs, AdaptivePredicates.cs (about 50 minutes);
 # - exact-mesh: the exact mesh pipeline (mesh_ops/ExactMesh*.cs, ExactPlanarSimplify.cs, ExactTriangulation2.cs,
 #   MeshRoundingRepair.cs, math/FixedPoint3.cs, the arrangement's fixed-width points, and math/Generated/*.cs, the
@@ -104,6 +107,7 @@ jobs:
           python3 test_baseline.py
           python3 test_incremental.py
           python3 test_suggest_split.py
+          python3 test_run_stryker.py
       - id: select
         env:
           EVENT: ${{ github.event_name }}
@@ -146,6 +150,7 @@ jobs:
         env:
           MODE: ${{ needs.changes.outputs.arithmetic }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}
           G3_LIMIT_SECONDS: '9000'                # the job's timeout-minutes (150) in seconds, for the early stop
         run: bash run_stryker.sh stryker-config.json
       - name: Summary
@@ -157,7 +162,7 @@ jobs:
           name: mutation-report
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
-          if-no-files-found: ${{ (needs.changes.outputs.arithmetic == 'tests' || needs.changes.outputs.arithmetic == 'source') && 'warn' || 'error' }}
+          if-no-files-found: ${{ (needs.changes.outputs.arithmetic == 'tests' || needs.changes.outputs.arithmetic == 'source' || github.event_name == 'pull_request') && 'warn' || 'error' }}
       - name: Upload the Stryker logs
         # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
         if: always()
@@ -170,7 +175,7 @@ jobs:
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
-        if: always() && (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'source')
+        if: always() && github.event_name != 'pull_request' && (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'source')
         run: |
           if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
             python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
@@ -225,6 +230,7 @@ jobs:
           DOTNET_GCHeapHardLimit: '0x180000000'   # 6 GB
           MODE: ${{ matrix.mode }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: bash run_stryker.sh stryker-mesh-${{ matrix.shard }}.json
       - name: Summary
         if: always()
@@ -242,7 +248,7 @@ jobs:
           name: mutation-report-mesh-${{ matrix.shard }}
           path: tests/mutation/StrykerOutput/*/reports/
           # (tests: a --since run may have nothing to test; source: a shard with no changed line runs no Stryker)
-          if-no-files-found: ${{ (matrix.mode == 'tests' || matrix.mode == 'source') && 'warn' || 'error' }}
+          if-no-files-found: ${{ (matrix.mode == 'tests' || matrix.mode == 'source' || github.event_name == 'pull_request') && 'warn' || 'error' }}
       - name: Upload the Stryker logs
         # (so that a shard cancelled at the job's limit still shows what ran: the test runs and Stryker's own log)
         if: always()
@@ -255,7 +261,7 @@ jobs:
       - name: Prepare the baseline
         id: store
         # (after a full run, also a source run that ran in full for want of a baseline: run_stryker.sh marks it)
-        if: always() && (matrix.mode == 'full' || matrix.mode == 'source')
+        if: always() && github.event_name != 'pull_request' && (matrix.mode == 'full' || matrix.mode == 'source')
         run: |
           if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
             python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline

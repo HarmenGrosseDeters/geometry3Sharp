@@ -382,6 +382,15 @@ class SelectShards(unittest.TestCase):
         arithmetic, mesh = select(["tests/mutation/run_stryker.sh"], CONFIGS, run_all=True, only={"planar"})
         self.assertEqual([{"shard": "planar", "mode": "full"}], mesh)
 
+    def test_no_full_run_on_a_pull_request_in_the_workflow(self):
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        # both Stryker steps tell run_stryker.sh that this is a PR (no full run there)
+        self.assertEqual(2, wf.count("NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}"))
+        # a PR stores no baseline (it ran no full shard), and a skipped shard has no report to find
+        self.assertEqual(2, wf.count("always() && github.event_name != 'pull_request' && ("))
+        self.assertEqual(2, wf.count("|| github.event_name == 'pull_request') && 'warn' || 'error'"))
+
     def test_the_workflow_keeps_what_the_harmless_regions_rely_on(self):
         # the trigger, the selection job and the `if` of the Stryker jobs count as harmless in select_shards.py, so what
         # they must keep doing is checked here

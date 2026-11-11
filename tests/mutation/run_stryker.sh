@@ -6,7 +6,11 @@
 #           these results with the baseline's for the unchanged code, and the break threshold applies to it.
 #           Without a usable baseline the whole config runs, as in full (and StrykerOutput/full-run marks that)
 #   tests   --since: the mutants covered by the changed tests, report only
-# Usage (in tests/mutation): MODE=... BASE=<base sha> [BASELINE_DIR=<dir>] bash run_stryker.sh <config file>
+# Pull requests (NO_FULL=1, set by the workflow for pull_request events): no full run during 3.0 (README, "3.0 process"). A
+# shard that would run in full (its config or the tools changed, or no baseline in the cache fits) runs nothing, says
+# "full run on master" in the job summary and succeeds; the nightly run on master measures it and seeds the baseline.
+# Incremental (source) runs and --since (tests) runs are not affected.
+# Usage (in tests/mutation): MODE=... BASE=<base sha> [NO_FULL=1] [BASELINE_DIR=<dir>] bash run_stryker.sh <config file>
 set -euo pipefail
 config="$1"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -88,7 +92,24 @@ stryker() {
   return $rc
 }
 
+# a full run that a pull request does not make: the reason goes to the log and the job summary, the job succeeds
+skip_full() {
+  mkdir -p StrykerOutput
+  echo "::notice::$config: full run on master ($1)"
+  {
+    echo "### $config: full run on master"
+    echo
+    echo "No full run on a pull request during 3.0: $1. The nightly run on master measures this shard in full and seeds its baseline (tests/mutation/README.md)."
+  } >> "$summary"
+  touch StrykerOutput/skipped-full
+}
+
+# usage: full <why a full run is needed>
 full() {
+  if [ "${NO_FULL:-}" = 1 ]; then
+    skip_full "${1:-a full run is needed}"
+    return 0
+  fi
   mkdir -p StrykerOutput
   touch StrykerOutput/full-run
   echo "dotnet stryker --config-file $config"
@@ -106,7 +127,7 @@ case "${MODE:-full}" in
   source)
     if [ ! -f "$baseline" ]; then
       echo "::notice::no baseline in the cache for $config: running it in full"
-      full
+      full "no baseline in the cache fits this config"
       exit $?
     fi
     echo "baseline: $(cat "$(dirname "$baseline")/source.txt" 2>/dev/null || echo unknown)"
@@ -126,10 +147,10 @@ case "${MODE:-full}" in
       none)
         python3 "$here/incremental.py" merge "$config" "$baseline" - "$summary" ;;
       *)
-        full ;;
+        full "the baseline does not fit the changed lines (plan: $plan)" ;;
     esac ;;
   full)
-    full ;;
+    full "the config or the tools changed" ;;
   *)
     echo "unknown mode $MODE" >&2
     exit 2 ;;
