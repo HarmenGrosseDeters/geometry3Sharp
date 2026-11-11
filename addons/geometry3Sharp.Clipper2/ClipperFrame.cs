@@ -258,8 +258,9 @@ namespace g3.Clipper2
         /// <summary>
         /// The path lies in the holder: every vertex is on it or inside (the even-odd test, or a non-zero winding for a self-overlapping
         /// holder), and some vertex or edge midpoint is strictly inside, so that a path spanning a notch with its corners on the
-        /// holder's boundary is not taken for a hole. Exact: the holder's coordinates are doubled (they are below 2^52) so that an edge
-        /// midpoint is a grid point. The cost is the product of the vertex counts, with the bounding boxes as the only prefilter; it is
+        /// holder's boundary is not taken for a hole. The holder's coordinates are doubled (they are below 2^52) so that an edge
+        /// midpoint is a grid point and no integer division moves it; the winding number uses double cross products, exact up to 2^53, so
+        /// it can misjudge a point one grid unit outside an edge only for a frame set explicitly near the limit of 2^52. The cost is the product of the vertex counts, with the bounding boxes as the only prefilter; it is
         /// paid only for a negative path at the top level of the tree, which Clipper2 reports for degenerate input only
         /// </summary>
         static bool Contains(Path64 holder, Path64 path)

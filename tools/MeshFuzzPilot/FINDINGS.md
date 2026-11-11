@@ -96,6 +96,13 @@ judges them):
      ring with a negative area of -1.7e-16 (5 vertices, one spike vertex at 1.2e-4 beside vertices at 1e-12) and another of -2.6e-25; the grid orientation
      is positive. Not analysed further. The pilot's `OrientationSlack` no longer flags the second one (area below the slack) and still flags the first
      (artifacts: `crash-bf45adc8`, `crash-d4e84c7e` of the 2026-11-11 campaign; the check is relaxed, not the cause understood).
+   - Open, pre-existing (found by the third review of #583, not by the campaign; not a regression of the conversion): a single ring of the
+     tree that touches itself at a repeated vertex and has lobes of opposite winding is converted as one polygon, so its net area is the signed sum
+     (A - |B|) where the filled region (NonZero) is A + |B|. Hand-built tree, frame scale 1: `Grid(2,1, 1,3, 1,1, 0,3, 1,3, 0,4, 0,0)` (lobes 4.5 and
+     -1; the conversion gives 3.5, the filled region is 5.5). Through Clipper2: Difference, NonZero, subject (4,2) (0,0) (0,4), clip (0,3) (1,1)
+     (1,4) (4,0) (4,4). About 25 results with `Outer.SignedArea <= 0` and about 230 mixed-lobe rings in 48 000 random degenerate lattice combinations (0..4,
+     all four operations and fill rules). Part of the gap in such cases is Clipper2's own error. A fix would split every ring at its repeated vertices
+     into simple cycles and orient and classify each by its own sign; not done here.
    - **Clipper2 2.0.0 itself (open, 16 crashes, not reported upstream):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
