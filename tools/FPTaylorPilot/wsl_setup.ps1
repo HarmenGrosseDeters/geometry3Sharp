@@ -35,8 +35,10 @@ if ($LASTEXITCODE -ne 0) {
 
 Invoke-InDistro 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq build-essential curl ca-certificates python3 m4 coreutils'
 
-$wslRepo = (& wsl.exe -d $Distro -- wslpath -a $repo).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $wslRepo) { throw "cannot map $repo into $Distro" }
+# Map the drive path to /mnt/<drive>/... here: backslashes do not survive a call through wsl.exe.
+if ($repo -notmatch '^([A-Za-z]):(.*)$') { throw "repository path is not a drive path: $repo" }
+$wslRepo = '/mnt/' + $Matches[1].ToLower() + $Matches[2].Replace([string][char]92, '/')
+Invoke-InDistro ('test -f ''' + $wslRepo + '/tools/FPTaylorPilot/wsl_run.sh'' || { echo ''repository not visible in the distribution: ' + $wslRepo + ''' >&2; exit 1; }')
 
 Invoke-InDistro ('rm -rf /root/fptaylor-src && mkdir -p /root/fptaylor-src && cp -r ''' + $wslRepo + '/tools'' /root/fptaylor-src/ && find /root/fptaylor-src/tools -type f \( -name ''*.sh'' -o -name ''*.txt'' -o -name ''*.spec'' -o -name ''*.cs'' -o -name ''*.py'' \) -exec sed -i ''s/\r$//'' {} +')
 
