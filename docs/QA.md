@@ -303,7 +303,7 @@ non-finite values (always outside). The default is derived from what the exact k
 the range (with a bias toward its edges, where the scale-disparity bugs were found), and add a separate small
 out-of-range sample for property 2. Fuzz harnesses report out-of-range findings in their own class.
 
-**The ranges (2026-11-10).** "Magnitude" is the absolute value of each nonzero coordinate (zero is always fine);
+**The ranges (2026-11-10).** "Magnitude" is the absolute value of each nonzero coordinate (zero is always fine; the rounding repair and the exact boolean's rounding test the largest coordinate of the triangles and subnormals, and the boolean judges its result, not its inputs);
 "disparity" is the ratio of the largest to the smallest part or component of one input. Measured with a scale sweep
 (a standard input scaled by 2^e, e from -1000 to 1000, 20 s budget per run; see the table notes), then set inside the
 measured range with margin. Subnormal coordinates (below 2.2e-308) are outside for every module, and out of the 2^k
@@ -312,7 +312,7 @@ scale checks of the campaigns (the scaling is not exact there).
 | Module | Magnitude (nonzero) | Disparity | Measured | Outside: status |
 |---|---|---|---|---|
 | `ExactMeshBoolean`, SafeRounding | 2^-200 .. 2^200 | 2^60 | cubes: ok 2^-250 .. 2^500; empty `Success` below 2^-280; invalid rounding above 2^700 | `Failed` / range status (PR per module) |
-| `MeshRoundingRepair` | 2^-200 .. 2^200 | 2^60 | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
+| `MeshRoundingRepair` | 2^-200 .. 2^200 (the largest coordinate; no subnormal; `OutsideRange`) | 2^60 (`ScaleDisparity`, not a range) | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
 | `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
 | `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
 | `Reducer` | 1e-150 .. 1e150 (the extent to the 4th must not matter: a power-of-two frame) | -- | sphere: the same relative result at every power-of-two scale; below about 1e-160 the cross products of the flip test underflow: nothing is collapsed, the mesh is left unchanged; above 1e150 the cross products of the flip test overflow and it decides as before the frame (closed and finite; `DMesh3.CheckValidity` itself overflows from about 1e160, also on the input) | not guaranteed (documented limit) |
