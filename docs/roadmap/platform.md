@@ -4,9 +4,9 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** the CLI / MCP server `g3cli`, analysis building blocks and evaluation metrics, verifiable agent work
   (machine checks, mutation shards, property tests), the CLI / MCP docs for the new operations, the Clipper2 adapter,
-  the DAP audit, the upstream ledger, the test suite on other locales, and the release.
+  the DAP audit, the test suite on other locales, and the release.
 - **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
-  issue-tracker fix list is complete (2026-11-03). Open: the upstream ledger, the release, a few small items.
+  issue-tracker fix list is complete (2026-11-03). Open: the release, a few small items.
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
@@ -52,7 +52,7 @@ Part of the [roadmap](../ROADMAP.md).
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
-  [design/UPSTREAM_LEDGER_PLAN.md](../design/UPSTREAM_LEDGER_PLAN.md), [tools/g3cli](../../tools/g3cli/README.md).
+  [tools/g3cli](../../tools/g3cli/README.md).
 
 ### Open
 
@@ -78,8 +78,6 @@ Part of the [roadmap](../ROADMAP.md).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
   P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept). Follow-ups: the ray batch API
   ([research.md](research.md#later)), the regressions a remesher flip-guard default would cause, the P1 collapse.
-- **Upstream deviation ledger** (task 6, E.5): open, see [below](#plans-fact-checked-2026-10-30). Contact with rms80
-  is prepared, not initiated.
 - **Verifiable agent work** (QA.md 4a): the parent item is still open; the other items go with the modules they touch
   (status unclear, check).
 - **Two wall-clock tests** (`QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap`,
@@ -95,7 +93,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 #### Stage 8: planned follow-ups
 
-Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list.
+Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list.
 
 Done: property tests, DAP audit (nothing to adopt), Clipper2 adapter (#243). The CLI / MCP docs session waits until quadtree, mesher M2 / M3, n-ary and SafeRounding are merged, so that it documents the finished state in one pass. **CLI / MCP done 2026-11-02** (#284, #291, #299: mesh2d, query2d, xor, Triangle .poly/.node/.ele, snap and SafeRounding options, Meshing2Benchmark `mesh`). Parked: the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only (Triangle nodes them first), and a vertex with d segments costs about d² comparisons (20k: about 6 s); mesh2d report areas underflow to 0 below coordinates of about 1e-160
 
@@ -273,10 +271,11 @@ Tasks 4 to 6 can start independently once those are made; for task 4 they are ma
 
 Task 5 (honest terrain metrics) is on [terrain.md](terrain.md#task-5-honest-terrain-metrics).
 
-- [ ] **6. Upstream deviation ledger (E.5):** [documentation plan](../design/UPSTREAM_LEDGER_PLAN.md). Create
-  `docs/UPSTREAM.md` with pinned baselines, implemented additions, behavior/API differences and source/test/commit
-  evidence. Complement the existing [migration notes](../UPSTREAM_CHANGES.md); do not include uncommitted work as
-  shipped. Prepare, but do not initiate, later contact with rms80.
+- **6. Upstream deviation ledger (E.5): dropped (owner 2026-11-11).** The fork differs too much for a per-file
+  inventory to stay useful, and there is no package or upstream contact to serve. What users of 1.0.324 need stays in
+  [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md): every changed semantics of an inherited class gets a row there, and
+  `dotnet pack` validates the API against 1.0.324. If a release or upstream contact comes, write only a short list of
+  separable fixes.
 
 #### Release: when it's done
 

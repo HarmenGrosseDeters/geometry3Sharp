@@ -103,8 +103,7 @@ Status on 2026-11-11 (evening, Berlin).
 - **Clipper2 C# sources:** upstream archived 2026-10-28 (C++ only from now on, new maintainer at PolyClipping/Clipper2);
   integrate the frozen C# 2.0.0 sources into the addon and fix FINDINGS item 5 ourselves, or keep the package? No
   upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
-- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); contact with rms80 for the upstream
-  ledger is prepared, not initiated. [platform.md](roadmap/platform.md#open)
+- **Release:** package ID and publishing (the nuget.org ID belongs to upstream). [platform.md](roadmap/platform.md#open)
 - **Ports from geogram and other permissive libraries:** each port is a decision with an A/B.
   [sources-surveys.md](roadmap/sources-surveys.md#open)
 - **Phase 5 research items:** one that is not small goes back to the owner (owner 2026-11-03).
@@ -133,7 +132,6 @@ Planned, not started.
 - Alpha wrap: the remaining pinch caps and the p01 gap (now in Alpha Wrap 2.0). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Parameterization: AffineLocal log-map follow-up with estimated normals and far field (low), integer
   coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
-- Platform: the upstream deviation ledger (task 6). [platform.md](roadmap/platform.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
 
 ## Later / research
