@@ -27,7 +27,7 @@ class Decisions(unittest.TestCase):
 
     def test_only_changed_executable_lines_and_union_of_hits(self):
         self.assertEqual(c.evaluate({"math/A.cs": {2, 3, 4}}, {"math/A.cs": {1: 0, 2: 1, 4: 0}}),
-                         {"changed_executable_lines": 2, "covered_lines": 1, "covered_only_by_slow": {},
+                         {"changed_executable_lines": 2, "covered_lines": 1, "covered_only_by_slow": {}, "excused_unmeasurable": {},
                           "uncovered": {"math/A.cs": [4]}, "files_without_executable_lines": [], "unmeasured_lines": {"math/A.cs": [3]}, "ok": False})
         self.assertTrue(c.evaluate({"math/A.cs": {3}}, {"math/A.cs": {1: 0}})["ok"])
         r = c.evaluate({"math/New.cs": {1}}, {})
@@ -142,6 +142,19 @@ class Repository(unittest.TestCase):
         code, result = self.invoke("--expect-shards", "core=2")
         self.assertEqual(code, 2)
         self.assertIn("shards", result["error"])
+
+    def test_main_excuses_a_listed_line_and_fails_on_a_stale_entry(self):
+        listing = self.root / "unmeasurable.json"
+        entry = {"file": "math/A.cs", "text": "new2();", "reason": "a probe", "approved_in": "#1"}
+        listing.write_text(json.dumps([entry]))
+        code, result = self.invoke("--unmeasurable", str(listing))
+        self.assertEqual((code, result["excused_unmeasurable"], result["stale_unmeasurable"]), (0, {"math/A.cs": [4]}, []))
+        listing.write_text(json.dumps([entry, dict(entry, text="new1();")]))      # line 2 is covered: the entry is stale
+        code, result = self.invoke("--unmeasurable", str(listing))
+        self.assertEqual(code, 1)
+        self.assertIn("covered now", result["stale_unmeasurable"][0])
+        listing.write_text("[]")
+        self.assertEqual(self.invoke("--unmeasurable", str(listing))[0], 1)       # without the entry the line fails again
 
     def test_core_shards_are_merged_by_maximum(self):
         (self.results / "core/run/coverage.cobertura.xml").unlink()
@@ -329,6 +342,60 @@ class ShardFilter(unittest.TestCase):
             self.assertTrue(f.startswith("(Category!=Slow)&("))
             seen += [c for c in ("A.B.", "A.C.", "A.D.") if "~" + c in f]
         self.assertEqual(sorted(seen), ["A.B.", "A.C.", "A.D."])
+
+
+class Unmeasurable(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "io").mkdir()
+        (self.root / "io/A.cs").write_text("class A {\n  void F() {\n    try { G(); }\n    catch (X) {\n      return false;\n    }\n    return false;\n  }\n}\n")
+        self.entry = {"file": "io/A.cs", "text": "catch (X) {", "reason": "a probe", "approved_in": "#1"}
+
+    def resolve(self, entries, coverage):
+        return c.resolve_unmeasurable(self.root, entries, coverage)
+
+    def test_a_listed_uncovered_line_is_excused_and_only_that_line(self):
+        exempt, stale = self.resolve([self.entry], {"io/A.cs": {4: 0, 5: 0, 7: 0}})
+        self.assertEqual((exempt, stale), ({"io/A.cs": {4}}, []))
+        r = c.evaluate({"io/A.cs": {4, 5}}, {"io/A.cs": {4: 0, 5: 0}}, exempt=exempt)
+        self.assertEqual((r["uncovered"], r["excused_unmeasurable"], r["ok"]), ({"io/A.cs": [5]}, {"io/A.cs": [4]}, False))
+        r = c.evaluate({"io/A.cs": {4}}, {"io/A.cs": {4: 0}}, exempt=exempt)
+        self.assertTrue(r["ok"])
+
+    def test_the_occurrence_picks_one_of_several_equal_lines(self):
+        twice = dict(self.entry, text="return false;")
+        exempt, stale = self.resolve([twice], {"io/A.cs": {5: 0, 7: 0}})
+        self.assertEqual(exempt, {})                                       # two lines, no occurrence: ambiguous
+        self.assertIn("give the occurrence", stale[0])
+        exempt, stale = self.resolve([dict(twice, occurrence=2)], {"io/A.cs": {5: 0, 7: 0}})
+        self.assertEqual((exempt, stale), ({"io/A.cs": {7}}, []))
+        self.assertIn("found 2 such lines", self.resolve([dict(twice, occurrence=3)], {"io/A.cs": {5: 0, 7: 0}})[1][0])
+
+    def test_a_stale_entry_fails_the_gate(self):
+        # covered now
+        self.assertIn("covered now", self.resolve([self.entry], {"io/A.cs": {4: 2}})[1][0])
+        # no longer an executable line of the reports
+        self.assertIn("not an executable line", self.resolve([self.entry], {"io/A.cs": {5: 0}})[1][0])
+        # the text is gone, the file is gone
+        self.assertIn("found 0 such lines", self.resolve([dict(self.entry, text="catch (Y) {")], {"io/A.cs": {4: 0}})[1][0])
+        self.assertIn("file is gone", self.resolve([dict(self.entry, file="io/B.cs")], {})[1][0])
+
+    def test_entries_need_a_reason_and_an_approval(self):
+        path = self.root / "list.json"
+        path.write_text(json.dumps([self.entry]))
+        self.assertEqual(len(c.load_unmeasurable(path)), 1)
+        for field in ("reason", "approved_in", "text", "file"):
+            path.write_text(json.dumps([dict(self.entry, **{field: " "})]))
+            with self.assertRaisesRegex(ValueError, field):
+                c.load_unmeasurable(path)
+
+    def test_the_list_of_this_repository_is_well_formed(self):
+        entries = c.load_unmeasurable(Path(__file__).resolve().parent / "coverage/unmeasurable_lines.json")
+        self.assertGreater(len(entries), 0)
+        for entry in entries:
+            self.assertTrue(c.in_scope(entry["file"]), entry)
 
 
 class Shards(unittest.TestCase):
