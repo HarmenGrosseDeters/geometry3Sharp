@@ -166,7 +166,9 @@ the pre-study session); (2) T3b `IntersectEach` (Sonnet: additive, parallel over
 oracle bit-identical to n separate booleans); (3) T2 memory (Sonnet: data layout, hashes equal); (4) T1 levers one by one
 (Sonnet for the box-tree build, simplify per region and the input orientation sort; an Opus design or review for the
 `merge_points` sort and the classification union-find); (5) T5 Antipodal PR 2 and T1b (after D1) with Opus. Sonnet PRs in
-exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning.
+exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning. Owner
+2026-11-11: that review comes from an existing Opus session that knows the area and did not write the PR (for T2 and
+later Sonnet stages: the T3a session); the Sonnet session starts no review subagent of its own.
 
 **3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
