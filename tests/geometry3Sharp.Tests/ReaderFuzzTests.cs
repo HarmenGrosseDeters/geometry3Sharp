@@ -20,7 +20,8 @@ namespace geometry3Sharp.Tests
     {
         // 150 cases per format in the normal suite (about 2 s); G3_FUZZ_CASES=n runs more, eg in a scheduled job
         static readonly int CasesPerFormat = int.TryParse(Environment.GetEnvironmentVariable("G3_FUZZ_CASES"), out int n) && n > 0 ? n : 150;
-        static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(10);
+        // (a limit per input for a hang, not for speed: the reads take milliseconds; a loaded net48 runner needs the margin)
+        static readonly TimeSpan TimeBudget = TimeSpan.FromSeconds(30);
 
         static readonly string[] ExtremeNumbers = {
             "1e400", "-1e400", "NaN", "nan", "inf", "-0", "1,5", "2147483647", "2147483648", "-2147483649",
@@ -318,7 +319,9 @@ namespace geometry3Sharp.Tests
         static string CheckTriangleFile(string kind, string text)
         {
             Exception error = null; int items = 0;
-            var task = System.Threading.Tasks.Task.Run(() => {
+            // (a thread of its own, not Task.Run: with Task.Run the budget also counts the wait for a thread-pool thread, which
+            // starves while other test classes keep the pool busy, see Timed)
+            bool finished = Timed.Finishes(() => {
                 try {
                     if (kind == "poly") {
                         var r = g3cli.TrianglePolyFormat.ReadPoly(text, null, true, out _);
@@ -338,7 +341,7 @@ namespace geometry3Sharp.Tests
                     error = e;
                 }
             });
-            if (!task.Wait(TimeBudget)) return "no result within " + TimeBudget.TotalSeconds + " s";
+            if (!finished) return "no result within " + TimeBudget.TotalSeconds + " s";
             if (error != null) return error.GetType().Name + ": " + error.Message;
             // the result is bounded by the input (rings repeat point indices: at most the segments' end points)
             // (each item takes at least two characters: a number and a separator; rings repeat segment end points)
