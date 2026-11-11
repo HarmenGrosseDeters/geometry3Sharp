@@ -113,9 +113,19 @@ namespace gs
             return bounds;
         }
 
-        /// <summary> octree depth needed for leaf cells of the given size over the bounds </summary>
+        /// <summary>
+        /// Octree depth needed for leaf cells of the given size over the bounds; int.MaxValue if there is none: the cell is not a
+        /// positive number, or the grid cannot be represented: the nodes origin + i * cell must be separate doubles, so the cell has
+        /// to be at least 2^-46 of the largest coordinate (64 spacings of doubles; below that, neighbouring nodes coincide or are a few
+        /// units apart, and the edge between them has no direction: a flat mesh at x = 1.7e69 with a cell of 0.01 gave NaN directions and
+        /// an exception in the hidden-edge test)
+        /// </summary>
         public static int RequiredDepth(AxisAlignedBox3d bounds, double cellSize, int paddingCells = 2)
         {
+            double largest = Math.Max(Math.Max(Math.Abs(bounds.Min.x), Math.Abs(bounds.Max.x)),
+                Math.Max(Math.Max(Math.Abs(bounds.Min.y), Math.Abs(bounds.Max.y)), Math.Max(Math.Abs(bounds.Min.z), Math.Abs(bounds.Max.z))));
+            if (!(cellSize > 0) || !(cellSize >= largest * 1.4210854715202004e-14))
+                return int.MaxValue;
             double maxDim = Math.Max(bounds.MaxDim, MathUtil.Epsilon);
             double n = maxDim / cellSize + 2 * paddingCells;
             if (!(n < (double)(1 << 30)))
@@ -133,7 +143,7 @@ namespace gs
             if (TargetLeafCellSize > 0)
                 depth = RequiredDepth(bounds, TargetLeafCellSize, PaddingCells);
             if (depth > MaxSupportedDepth)
-                throw new ArgumentException("WindingNumberOctree: depth " + depth + " is too large (cell size too small for the bounds)");
+                throw new ArgumentException("WindingNumberOctree: depth " + depth + " is too large (cell size too small for the bounds, or a grid whose nodes cannot be separate doubles: see RequiredDepth)");
             if (TargetLeafCellSize <= 0 && (1 << depth) <= 2 * PaddingCells)
                 throw new ArgumentException("WindingNumberOctree: MaxDepth too small for the padding");
             MaxDepth = depth;
