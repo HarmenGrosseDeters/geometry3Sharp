@@ -26,7 +26,7 @@
 //
 // Software version: vendored from CoreMathSharp (https://github.com/andanteyk/CoreMathSharp, commit
 // 77505b1bdb34c73655740b7d08947654d8b7eb63, MIT, Copyright (c) 2026 Andante): a fast emulation with error-free
-// transformations and rounding to odd (Boldo, Muller; https://hal.science/hal-04575249) and, when that gives up, the
+// transformations (as referenced in CoreMathSharp: https://hal.science/hal-04575249) and, when that gives up, the
 // integer algorithm of musl's fma.c (MIT, Copyright (c) 2005-2020 Rich Felker, et al.). Changes: no intrinsics, own
 // IsNormal / IsFinite for .NET Framework, Ldexp from CoreMathBase.cs. See docs/SOURCES.md.
 using System;

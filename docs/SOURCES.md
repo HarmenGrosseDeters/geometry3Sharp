@@ -706,7 +706,7 @@ carry the MIT notices in their headers. Chain of sources:
 | The algorithms (correctly rounded binary64 `sin`, `cos`, `atan2`, `exp`, `log`) | CORE-MATH, https://core-math.gitlabpages.inria.fr/ (repository https://gitlab.inria.fr/core-math/core-math, `LICENSE`: "MIT license"; read at commit `018fa97`, 2026-11-10); Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN | MIT |
 | The C# code | CoreMathSharp, https://github.com/andanteyk/CoreMathSharp, commit `77505b1bdb34c73655740b7d08947654d8b7eb63` (version 1.0.0, 2026-02-06); Copyright (c) 2026 Andante; a port of an earlier state of CORE-MATH (the `Dint` / `Tint` based paths; not the 2026 `cos.c` / `sin.c` rewrite) | MIT |
 | Software fused multiply-add (the integer algorithm and the exponent handling) | musl libc `fma.c`, Copyright (c) 2005-2020 Rich Felker, et al., as ported in CoreMathSharp | MIT |
-| Fast FMA emulation by error-free transformations and rounding to odd | S. Boldo, G. Melquiond (and co-authors), https://hal.science/hal-04575249, as used in CoreMathSharp's `FusedMultiplyAdd` | paper |
+| Fast FMA emulation by error-free transformations (`isNot1Or3TimesPowerOf2`, Dekker product) | the paper referenced in CoreMathSharp's `FusedMultiplyAdd.cs`: https://hal.science/hal-04575249 (authors and title not checked here; the code is validated against an exact reference by `CoreMathFmaTests`) | paper |
 
 Changes to the vendored code: namespace and `internal` visibility; tables as `static readonly` arrays instead of `ReadOnlySpan`
 (netstandard2.0 has no `Span`); no hardware intrinsics (`Math.Round` for the nearest-even rounding; `Math.FusedMultiplyAdd` on
