@@ -48,37 +48,49 @@ namespace g3
             public Segment(int p, int q, int line) { P = p; Q = q; Line = line; }
         }
 
-        public class InputTriangle
+        /// <summary>
+        /// A handle on an input triangle (the arrangement and its index in Triangles): the data live in arrays of the
+        /// arrangement, about 37 bytes per triangle instead of an object of 88 and a slot of 8 (the triangles live through
+        /// the whole computation, every byte of them is copied by the GC). Copies are the same triangle.
+        /// </summary>
+        public readonly struct InputTriangle
         {
-            public int Mesh, Tid;
-            public Index3i Corners;                 // point ids
-            // (a field, not an array of its own, and the input coordinates in an array of the arrangement: the
-            // triangles live through the whole computation, every object and byte of them is copied by the GC)
-            internal int Index;                     // in Triangles
+            internal readonly ExactMeshArrangement arr;
+            internal readonly int Index;            // in Triangles
+            internal InputTriangle(ExactMeshArrangement arr, int index) { this.arr = arr; Index = index; }
+
+            public int Mesh { get { return arr.triMesh[Index]; } }
+            public int Tid { get { return arr.triTid[Index]; } }
+            public Index3i Corners { get { return arr.triCorners[Index]; } }
             /// <summary> input coordinates of the corners </summary>
             public Vector3d V0 { get { return arr.triangleCoords[3 * Index]; } }
             public Vector3d V1 { get { return arr.triangleCoords[3 * Index + 1]; } }
             public Vector3d V2 { get { return arr.triangleCoords[3 * Index + 2]; } }
-            public bool Degenerate;
+            public bool Degenerate { get { return arr.triDegenerate[Index]; } }
+            /// <summary> mutual exclusion for adding to this triangle (a handle is a value: one of the arrangement's stripes) </summary>
+            internal object Lock { get { return arr.triLocks[Index & (arr.triLocks.Length - 1)]; } }
             // (allocated when the triangle is touched: most are not; the shared empty ones must not be changed, not
             // even sorted)
-            List<Segment> segments;
-            HashSet<int> points;
-            List<int> coplanar;
+            internal sealed class Touch
+            {
+                public List<Segment> Segments;
+                public HashSet<int> Points;
+                public List<int> Coplanar;
+            }
             static readonly List<Segment> noSegments = new List<Segment>();
             static readonly HashSet<int> noPoints = new HashSet<int>();
             static readonly List<int> noCoplanar = new List<int>();
-            public List<Segment> Segments { get { return segments ?? noSegments; } set { segments = value; } }
-            public HashSet<int> Points { get { return points ?? noPoints; } set { points = value; } }
+            Touch touch() { return arr.triTouch[Index] ?? (arr.triTouch[Index] = new Touch()); }
+            public List<Segment> Segments { get { return arr.triTouch[Index]?.Segments ?? noSegments; } set { touch().Segments = value; } }
+            public HashSet<int> Points { get { return arr.triTouch[Index]?.Points ?? noPoints; } set { touch().Points = value; } }
             /// <summary> input triangles of other meshes in the same plane, intersecting </summary>
-            public List<int> Coplanar { get { return coplanar ?? noCoplanar; } }
-            internal void AddSegment(Segment s) { (segments ?? (segments = new List<Segment>())).Add(s); }
-            internal void AddPoint(int p) { (points ?? (points = new HashSet<int>())).Add(p); }
-            internal void AddCoplanar(int t) { (coplanar ?? (coplanar = new List<int>())).Add(t); }
+            public List<int> Coplanar { get { return arr.triTouch[Index]?.Coplanar ?? noCoplanar; } }
+            internal void AddSegment(Segment s) { Touch t = touch(); (t.Segments ?? (t.Segments = new List<Segment>())).Add(s); }
+            internal void AddPoint(int p) { Touch t = touch(); (t.Points ?? (t.Points = new HashSet<int>())).Add(p); }
+            internal void AddCoplanar(int c) { Touch t = touch(); (t.Coplanar ?? (t.Coplanar = new List<int>())).Add(c); }
 
             // planes are computed when first needed (most triangles are far from all intersections), in an object of
             // their own (published at once: other threads may compute and read them at the same time)
-            internal ExactMeshArrangement arr;
             internal sealed class PlaneData
             {
                 public Plane P;
@@ -89,8 +101,6 @@ namespace g3
                 public double[] PlaneApprox;
                 public int Axis, Sign;
             }
-            PlaneData planes;
-
             public Plane P { get { return ensure().P; } }
             /// <summary> edge k: Corners[k] -> Corners[k+1], plane through the edge perpendicular to the triangle </summary>
             public Plane[] EdgePlanes
@@ -112,7 +122,7 @@ namespace g3
 
             PlaneData ensure()
             {
-                return System.Threading.Volatile.Read(ref planes) ?? compute_planes();
+                return System.Threading.Volatile.Read(ref arr.triPlanes[Index]) ?? compute_planes();
             }
 
             [MethodImpl(JitHints.Optimize)]
@@ -123,7 +133,7 @@ namespace g3
                 PlaneData fd = compute_planes_fixed();
                 if (fd != null) {
                     // (another thread may store the same values)
-                    System.Threading.Volatile.Write(ref planes, fd);
+                    System.Threading.Volatile.Write(ref arr.triPlanes[Index], fd);
                     return fd;
                 }
                 ExactPoint3 a = arr.Exact(Corners[0]), b = arr.Exact(Corners[1]), c = arr.Exact(Corners[2]);
@@ -142,7 +152,7 @@ namespace g3
                 }
                 // (another thread may store the same values)
                 var d = new PlaneData() { P = tp, Axis = ta, Sign = ts, PlaneApprox = pa };
-                System.Threading.Volatile.Write(ref planes, d);
+                System.Threading.Volatile.Write(ref arr.triPlanes[Index], d);
                 return d;
             }
 
@@ -200,8 +210,32 @@ namespace g3
 
         public List<DMesh3> Meshes;
         public int ScaleExp;        // input coordinate = integer coordinate * 2^ScaleExp
-        public List<InputTriangle> Triangles = new List<InputTriangle>();
+        public readonly TriangleList Triangles;
+        // the input triangles, per index (InputTriangle is a handle on these)
+        int triangleCount;
+        int[] triMesh, triTid;
+        Index3i[] triCorners;               // point ids
+        bool[] triDegenerate;
+        InputTriangle.PlaneData[] triPlanes;
+        InputTriangle.Touch[] triTouch;
+        readonly object[] triLocks = make_locks(4096);
         Vector3d[] triangleCoords;          // per input triangle: the input coordinates of its corners
+        static object[] make_locks(int n) { var l = new object[n]; for (int i = 0; i < n; ++i) l[i] = new object(); return l; }
+
+        /// <summary> the input triangles as a list of handles </summary>
+        public sealed class TriangleList : IReadOnlyList<InputTriangle>
+        {
+            readonly ExactMeshArrangement arr;
+            internal TriangleList(ExactMeshArrangement arr) { this.arr = arr; }
+            public int Count { get { return arr.triangleCount; } }
+            public InputTriangle this[int index] { get { return new InputTriangle(arr, index); } }
+            public IEnumerator<InputTriangle> GetEnumerator()
+            {
+                for (int i = 0; i < arr.triangleCount; ++i)
+                    yield return new InputTriangle(arr, i);
+            }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
         public List<OutputTriangle> Output = new List<OutputTriangle>();
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
@@ -223,6 +257,7 @@ namespace g3
         public ExactMeshArrangement(List<DMesh3> meshes)
         {
             Meshes = meshes;
+            Triangles = new TriangleList(this);
         }
 
         public static long EdgeKey(int a, int b)
@@ -1198,34 +1233,43 @@ namespace g3
         void build_triangles()
         {
             MeshTriangles = new List<int>[Meshes.Count];
-            int total = Triangles.Count;
+            int have = triangleCount, total = have;
             foreach (DMesh3 mesh in Meshes)
                 total += mesh.TriangleCount;
-            Vector3d[] earlier = triangleCoords;
-            triangleCoords = new Vector3d[3 * total];
-            if (earlier != null)
-                Array.Copy(earlier, triangleCoords, 3 * Triangles.Count);
+            triangleCoords = grown(triangleCoords, 3 * have, 3 * total);
+            triMesh = grown(triMesh, have, total);
+            triTid = grown(triTid, have, total);
+            triCorners = grown(triCorners, have, total);
+            triDegenerate = grown(triDegenerate, have, total);
+            triPlanes = grown(triPlanes, have, total);
+            triTouch = grown(triTouch, have, total);
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
                 var tids = new List<int>(mesh.TriangleIndices());
-                var built = new InputTriangle[tids.Count];
-                int first = Triangles.Count;
-                gParallel.ForRange(tids.Count, (k) => built[k] = input_triangle(mi, mesh, tids[k], first + k));
-                MeshTriangles[mi] = new List<int>(built.Length);
-                foreach (InputTriangle it in built) {
-                    MeshTriangles[mi].Add(Triangles.Count);
-                    Triangles.Add(it);
-                }
+                int first = triangleCount;
+                gParallel.ForRange(tids.Count, (k) => input_triangle(mi, mesh, tids[k], first + k));
+                MeshTriangles[mi] = new List<int>(tids.Count);
+                for (int k = 0; k < tids.Count; ++k)
+                    MeshTriangles[mi].Add(first + k);
+                triangleCount = first + tids.Count;
             }
         }
 
+        static T[] grown<T>(T[] earlier, int used, int size)
+        {
+            T[] a = new T[size];
+            if (earlier != null)
+                Array.Copy(earlier, a, used);
+            return a;
+        }
+
         [MethodImpl(JitHints.Optimize)]
-        InputTriangle input_triangle(int mi, DMesh3 mesh, int tid, int index)
+        void input_triangle(int mi, DMesh3 mesh, int tid, int index)
         {
             Index3i t = mesh.GetTriangle(tid);
-            InputTriangle it = new InputTriangle() { Mesh = mi, Tid = tid, Index = index };
-            it.Corners = new Index3i(VertexPoints[mi][t.a], VertexPoints[mi][t.b], VertexPoints[mi][t.c]);
-            it.arr = this;
+            triMesh[index] = mi;
+            triTid[index] = tid;
+            triCorners[index] = new Index3i(VertexPoints[mi][t.a], VertexPoints[mi][t.b], VertexPoints[mi][t.c]);
             Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
             triangleCoords[3 * index] = a; triangleCoords[3 * index + 1] = b; triangleCoords[3 * index + 2] = c;
             // degenerate iff the corners are collinear, ie collinear in all three coordinate projections (exact); the
@@ -1235,13 +1279,13 @@ namespace g3
             Vector3d n = (b - a).Cross(c - a);
             double nx = Math.Abs(n.x), ny = Math.Abs(n.y), nz = Math.Abs(n.z);
             int first = (nz >= nx && nz >= ny) ? 2 : (nx >= ny) ? 0 : 1;
-            it.Degenerate = true;
-            for (int k = 0; k < 3 && it.Degenerate; ++k) {
+            bool degenerate = true;
+            for (int k = 0; k < 3 && degenerate; ++k) {
                 int axis = (first + k) % 3;     // projection dropping this axis
                 int i = (axis + 1) % 3, j = (axis + 2) % 3;
-                it.Degenerate = ExactPredicates.Orient2d(new Vector2d(a[i], a[j]), new Vector2d(b[i], b[j]), new Vector2d(c[i], c[j])) == 0;
+                degenerate = ExactPredicates.Orient2d(new Vector2d(a[i], a[j]), new Vector2d(b[i], b[j]), new Vector2d(c[i], c[j])) == 0;
             }
-            return it;
+            triDegenerate[index] = degenerate;
         }
 
 
@@ -1975,11 +2019,11 @@ namespace g3
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
             if (c == 0) {
-                lock (T) T.AddPoint(lo);
-                lock (U) U.AddPoint(lo);
+                lock (T.Lock) T.AddPoint(lo);
+                lock (U.Lock) U.AddPoint(lo);
             } else {
-                lock (T) T.AddSegment(new Segment(lo, hi, 4 * ui));
-                lock (U) U.AddSegment(new Segment(lo, hi, 4 * ti));
+                lock (T.Lock) T.AddSegment(new Segment(lo, hi, 4 * ui));
+                lock (U.Lock) U.AddSegment(new Segment(lo, hi, 4 * ti));
             }
         }
 
@@ -2046,8 +2090,8 @@ namespace g3
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
-                lock (T) T.AddCoplanar(ui);
-                lock (U) U.AddCoplanar(ti);
+                lock (T.Lock) T.AddCoplanar(ui);
+                lock (U.Lock) U.AddCoplanar(ti);
             }
         }
 
@@ -2075,7 +2119,7 @@ namespace g3
                 return false;
             int lo, hi;
             min_max(cands, d, out lo, out hi);
-            lock (t) {
+            lock (t.Lock) {
                 if (compare_along(d, lo, hi) == 0)
                     t.AddPoint(lo);
                 else

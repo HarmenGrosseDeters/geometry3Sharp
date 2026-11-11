@@ -98,5 +98,66 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.GeometricDifference(first, boolean.Result) ?? "");
             Assert.Equal("", MeshRobustRepair.NotCleanReason(boolean.Result) ?? "");
         }
+
+        static ExactMeshArrangement Arranged(Vector3d shift)
+        {
+            var arr = new ExactMeshArrangement(new List<DMesh3> { Sphere(Vector3d.Zero), Sphere(shift) }) { SelfIntersections = true };
+            arr.Compute();
+            return arr;
+        }
+
+        // InputTriangle is a handle on arrays of the arrangement (T2 B): a copy is the same triangle, untouched triangles
+        // share the empty lists, the data are those of the mesh triangles
+        [Fact]
+        public void InputTriangle_IsAHandle_WithTheDataOfItsMeshTriangle()
+        {
+            Assert.True(typeof(ExactMeshArrangement.InputTriangle).IsValueType);
+            ExactMeshArrangement arr = Arranged(new Vector3d(0.6, 0.2, 0.1));
+            int touched = 0, untouched = 0;
+            ExactMeshArrangement.InputTriangle firstEmpty = default(ExactMeshArrangement.InputTriangle);
+            for (int ti = 0; ti < arr.Triangles.Count; ++ti) {
+                ExactMeshArrangement.InputTriangle t = arr.Triangles[ti], copy = t;
+                Assert.Equal(ti, t.Index);
+                Assert.Same(arr, copy.arr);
+                DMesh3 mesh = arr.Meshes[t.Mesh];
+                Assert.True(mesh.IsTriangle(t.Tid));
+                Index3i m = mesh.GetTriangle(t.Tid);
+                Assert.Equal(arr.VertexPoints[t.Mesh][m.a], copy.Corners.a);
+                Assert.Equal(mesh.GetVertex(m.b), copy.V1);
+                Assert.Contains(ti, arr.MeshTriangles[t.Mesh]);
+                if (t.Segments.Count > 0 || t.Points.Count > 0) {
+                    touched++;
+                    Assert.Same(t.Segments, copy.Segments);
+                } else {
+                    untouched++;
+                    if (untouched == 1) firstEmpty = t;
+                    else Assert.Same(firstEmpty.Segments, t.Segments);        // (the shared empty list)
+                }
+            }
+            Assert.True(touched > 0 && untouched > touched);
+        }
+
+        // threads adding to the same triangle (the lock is a stripe of the arrangement, as a handle cannot be locked)
+        [Fact]
+        public void InputTriangle_ParallelAdds_AreNotLost()
+        {
+            ExactMeshArrangement arr = Arranged(new Vector3d(5, 5, 5));         // (far apart: nothing is touched)
+            ExactMeshArrangement.InputTriangle a = arr.Triangles[0], b = arr.Triangles[1];
+            Assert.Empty(a.Coplanar);
+            const int threads = 8, per = 2000;
+            var tasks = new System.Threading.Tasks.Task[threads];
+            for (int k = 0; k < threads; ++k) {
+                int kk = k;
+                tasks[k] = System.Threading.Tasks.Task.Run(() => {
+                    for (int i = 0; i < per; ++i) {
+                        var t = (i % 2 == 0) ? a : b;
+                        lock (t.Lock) t.AddCoplanar(kk * per + i);
+                    }
+                });
+            }
+            System.Threading.Tasks.Task.WaitAll(tasks);
+            Assert.Equal(threads * per / 2, a.Coplanar.Count);
+            Assert.Equal(threads * per / 2, b.Coplanar.Count);
+        }
     }
 }
