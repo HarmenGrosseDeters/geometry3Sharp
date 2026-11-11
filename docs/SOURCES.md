@@ -682,3 +682,14 @@ Implemented from the papers below; no code of any of them was read.
 | Sign by two probe points against the wrap (outer side = the probe outside the closed wrap) | own construction, not from a paper; the pairing "alpha wrap for normal orientation" was not found in the literature searched (design note section 2) |
 | Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
 | k-nearest neighbours | a k-d tree with median splits and bounded-distance pruning; textbook method (J. L. Bentley, Multidimensional binary search trees used for associative searching, CACM 1975, from memory), own code |
+
+
+## Point cloud surface (`PointCloudSurface`, step C1 of the design note)
+
+| Part | Source |
+|---|---|
+| Fast winding number of oriented points with area weights | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast winding numbers for soups and clouds*, ACM TOG 37(4), Article 43, 2018, already in `PointAABBTree3.FastWindingNumber` (see the entry of that class); bibliographic data checked by web search only |
+| Iso-surface of the winding number as the surface of an oriented cloud | the idea of using the winding number field of oriented points as the indicator follows the normal-orientation work of Xu et al. (GCNO 2023) and Barill et al.; this construction (0.5 iso-surface by marching cubes) is the standard use of a winding number field, no code taken |
+| Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
+| Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
+| Marching cubes | the library's `MarchingCubes` |

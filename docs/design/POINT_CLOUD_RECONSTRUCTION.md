@@ -142,8 +142,8 @@ sign and of the condition thresholds.
 
 ## 7. Status and follow-ups (2026-11-10)
 
-Built: step A (`AlphaWrapPointCloudTests`, OPERATIONS.md note; #566), step B (`PointCloudNormals`; #568), the XYZ reader and writer (#571) and,
-in review, the residuals of the review of B (#575) and step C1 (`PointCloudSurface`; #580, section 8 of the version that merges it). Still open:
+Built: step A (`AlphaWrapPointCloudTests`, OPERATIONS.md note; #566), step B (`PointCloudNormals`; #568), the XYZ reader and writer (#571) the residuals of the review of B (#575) and,
+in review, step C1 (`PointCloudSurface`; #580, section 8). Still open:
 the check of the paper references against the papers themselves before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
 
 Residuals of the independent review of `PointCloudNormals` (fixed in #575: a limited wrap must be clean, `DegenerateCount`, `MaxSteinerPoints`):
@@ -155,3 +155,31 @@ Residuals of the independent review of `PointCloudNormals` (fixed in #575: a lim
   open if the Alpha rule needs it.
 - Outside this work: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the number of digits with the platform parser; on net48 that parser is not always
   correctly rounded, so a subnormal could be written with too few digits (the XYZ round-trip test of 5e-320 would show it on the Windows run).
+
+
+## 8. Step C1 as built (2026-11-10): `PointCloudSurface`
+
+Owner decision: C1 with a relaxed gate. The gate rows, measured on the five torus scenes (6000 points, cube = spacing / 2.5 = 0.047-0.063;
+"mean" = mean of the two directional means of the distance to the true torus; "max" = the larger of the two directional maxima; wrap =
+the alpha wrap that oriented the points). Command: scratch program, same samplings as `PointClouds.Torus`; the unit tests
+`PointCloudSurfaceTests` assert the same rows on 2500 points.
+
+| scene | mean: C1 / wrap | max: C1 / wrap (+ cube) | components removed (area) | surface area from the wrap |
+|---|---|---|---|---|
+| clean | 0.0073 / 0.0096 | 0.047 / 0.031 (+0.055) | 0 | 0.1 % |
+| noise 1 % | 0.034 / 0.129 | 0.253 / 0.284 | 362 (2.82 %) | 0.1 % |
+| hole | 0.0116 / 0.0267 | 0.171 / 0.141 (+0.054) | 0 | 2.1 % |
+| non-uniform | 0.0086 / 0.0223 | 0.087 / 0.091 | 0 | 0.1 % |
+| noise + hole + non-uniform | 0.036 / 0.146 | 0.269 / 0.353 | 501 (3.03 %) | 1.3 % |
+
+- (a) mean better than the wrap: met on all rows. (b) max within one cube size of the wrap's: met on all rows (the hole row is the tightest:
+  0.171 against 0.141 + 0.054). (c) a hole is detected and the wrap used there: the wrap decides 2.1 % of the surface in the hole row and 1.3 % in
+  the combined row, against 0.1 % on the rows without a hole. (d) the winding number is evaluated near the data only
+  (`BandNodes`, about 1.5-2.3 evaluations per grid node, where marching cubes asks for each node up to 4 times).
+- The first version used a data zone of 2.5 local spacings; the winding number then sagged into the hole (max 0.242, over the gate). 1.5 meets the
+  gate (0.171), 1.0 meets it better (0.141) but takes 4 % of a clean surface from the wrap and doubles the bubbles on noisy data. 1.5 is the default.
+- Bubbles are removed by area (below 5 % of the largest component), never silently: 2.8-3.0 % of the area on noisy rows, counted in the result. They
+  are not hidden by the filter alone: without it the status is `NotClean` with the component count (tested).
+- Run time on 4 cores: 6-8 s for 1-1.5 M grid nodes (the nodes are remembered: without it 12-17 s).
+- Open: the surface is not guaranteed to enclose the points; sharp features are rounded to the cube size; a narrower band (e.g. only near the wrap) and an
+  adaptive grid are the next lever if the time matters.
