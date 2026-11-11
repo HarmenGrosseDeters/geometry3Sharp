@@ -488,25 +488,36 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void UVOverlap_MixedSizes_NotQuadratic()
+        static double SecondsOfOverlap(Func<int, double> size, int count, out UVOverlap overlap)
         {
-            // 120k tiny and 40k larger triangles: with one grid level the larger ones were tested against all
-            // triangles (about a minute); the levels make it near linear
             var rnd = new Random(5);
             var tris = new List<Vector2d[]>();
-            for (int i = 0; i < 160200; ++i) {
-                // and 200 triangles the size of the domain, which one grid level would put in millions of cells
-                double s = i < 120000 ? 1e-4 : (i < 160000 ? 3e-3 : 0.4);
+            for (int i = 0; i < count; ++i) {
+                double s = size(i);
                 Vector2d c = V(rnd.NextDouble() * 0.4, rnd.NextDouble() * 0.4);
                 tris.Add(new[] { c, c + V(s, 0), c + V(0, s) });
             }
             Vector2d[] uv;
             DMesh3 mesh = TriangleSoup(tris, out uv);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            UVOverlap o = UVOverlap.Compute(mesh, uv);
-            Assert.True(sw.Elapsed.TotalSeconds < 15, "UVOverlap took " + sw.Elapsed.TotalSeconds + " s");
+            overlap = UVOverlap.Compute(mesh, uv);
+            return sw.Elapsed.TotalSeconds;
+        }
+
+        [Fact]
+        public void UVOverlap_MixedSizes_NotQuadratic()
+        {
+            // 120k tiny and 40k larger triangles: with one grid level the larger ones were tested against all
+            // triangles (about a minute); the levels make it near linear. The bound is a ratio to the time of the same
+            // number of equal tiny triangles, measured in this run (a wall-clock budget failed on a loaded runner,
+            // where both times grow together): the quadratic version is more than 20 times slower than that
+            // (and 200 triangles the size of the domain, which one grid level would put in millions of cells)
+            UVOverlap o;
+            double mixed = SecondsOfOverlap(i => i < 120000 ? 1e-4 : (i < 160000 ? 3e-3 : 0.4), 160200, out o);
             Assert.True(o.OverlappingPairs > 0);
+            UVOverlap reference;
+            double uniform = SecondsOfOverlap(i => 1e-4, 160200, out reference);
+            Assert.True(mixed < 12 * uniform + 1.0, $"UVOverlap took {mixed} s for mixed sizes, {uniform} s for equal tiny triangles");
         }
 
         [Fact]
