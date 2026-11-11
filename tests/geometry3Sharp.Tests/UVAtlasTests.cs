@@ -507,17 +507,23 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void UVOverlap_MixedSizes_NotQuadratic()
         {
-            // 120k tiny and 40k larger triangles: with one grid level the larger ones were tested against all
-            // triangles (about a minute); the levels make it near linear. The bound is a ratio to the time of the same
-            // number of equal tiny triangles, measured in this run (a wall-clock budget failed on a loaded runner,
-            // where both times grow together): the quadratic version is more than 20 times slower than that
-            // (and 200 triangles the size of the domain, which one grid level would put in millions of cells)
-            UVOverlap o;
-            double mixed = SecondsOfOverlap(i => i < 120000 ? 1e-4 : (i < 160000 ? 3e-3 : 0.4), 160200, out o);
-            Assert.True(o.OverlappingPairs > 0);
-            UVOverlap reference;
-            double uniform = SecondsOfOverlap(i => 1e-4, 160200, out reference);
-            Assert.True(mixed < 12 * uniform + 1.0, $"UVOverlap took {mixed} s for mixed sizes, {uniform} s for equal tiny triangles");
+            // 30k tiny and 10k larger triangles (and 50 the size of the domain, which one grid level would put in millions of
+            // cells): with one grid level the larger ones were tested against all triangles (about 6 s at this size, 95 s at
+            // four times the size), the levels make it near linear (0.2 s). A wall-clock budget failed on loaded runners, and
+            // so did one ratio of two single runs (2.6 s against 0.13 s on a congested one): the bound is the ratio of the
+            // fastest of three runs of each kind, run alternately, so that a load spike hits at most some of them. The
+            // reference is the same number of equal tiny triangles, which is near linear by construction.
+            const int count = 40050;
+            Func<int, double> mixedSize = i => i < 30000 ? 1e-4 : (i < 40000 ? 3e-3 : 0.4);
+            Func<int, double> uniformSize = i => 1e-4;
+            double mixed = double.MaxValue, uniform = double.MaxValue;
+            for (int run = 0; run < 3; ++run) {
+                UVOverlap o, reference;
+                mixed = Math.Min(mixed, SecondsOfOverlap(mixedSize, count, out o));
+                Assert.True(o.OverlappingPairs > 0);
+                uniform = Math.Min(uniform, SecondsOfOverlap(uniformSize, count, out reference));
+            }
+            Assert.True(mixed < 20 * uniform + 0.5, $"UVOverlap took {mixed} s for mixed sizes, {uniform} s for equal tiny triangles (fastest of 3 each)");
         }
 
         [Fact]
