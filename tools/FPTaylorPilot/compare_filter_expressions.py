@@ -356,13 +356,18 @@ def run_one(name, fptaylor_dir):
     return 0
 
 
+def selected(names):
+    return list(names) if names else list(MODELS)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('fptaylor_dir', type=Path)
-    parser.add_argument('names', nargs='*', default=list(MODELS), choices=list(MODELS))
+    parser.add_argument('names', nargs='*', choices=list(MODELS),
+                        help='expressions to run (default: all); argparse rejects a default list with choices')
     args = parser.parse_args()
     status = 0
-    for name in args.names:
+    for name in selected(args.names):
         status |= run_one(name, args.fptaylor_dir)
     return status
 

@@ -66,5 +66,18 @@ class ModelAndSourceTests(unittest.TestCase):
         self.assertFalse(c.source_contract(spec, compiler.replace('n.A.C * n.B.C', 'n.A.C + n.B.C'), 'd'))
 
 
+class SelectionTests(unittest.TestCase):
+    def test_no_names_selects_every_expression(self):
+        # argparse used to reject the default list (nargs='*' with choices), so 'run all' failed
+        self.assertEqual(c.selected([]), list(c.MODELS))
+        self.assertEqual(c.selected(['d', 'ny']), ['d', 'ny'])
+
+    def test_main_accepts_no_names_on_the_command_line(self):
+        import unittest.mock as mock
+        with mock.patch('sys.argv', ['compare_filter_expressions.py', '/nonexistent']),                 mock.patch.object(c, 'run_one', return_value=0) as run:
+            self.assertEqual(c.main(), 0)
+        self.assertEqual([call.args[0] for call in run.call_args_list], list(c.MODELS))
+
+
 if __name__ == '__main__':
     unittest.main()
