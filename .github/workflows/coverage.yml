@@ -118,6 +118,9 @@ jobs:
           python3 tools/changed_line_coverage.py --base "${{ steps.base.outputs.sha }}" --attribute --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
+          # (the run on a pull request that changes this workflow only tests the workflow; the findings belong to other pull
+          # requests and must not turn this one red)
+          [ "${{ github.event_name }}" = pull_request ] && exit 0
           exit $code
       - uses: actions/upload-artifact@v4
         # exit 0 or 1 is valid evidence: the next run starts where this one ended (not after incomplete evidence, code 2)

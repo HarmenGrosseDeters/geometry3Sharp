@@ -333,7 +333,7 @@ the module outside the range, or "not guaranteed".
   **not on pull requests**: coverlet makes the suites about 3x slower (a first version in the PR jobs took 59 min for
   the core fast tier alone, and eight parallel shards were limited by the runner quota), so the gate runs cyclically
   (owner decision 2026-11-10): every night on master (`schedule`) and on demand (`workflow_dispatch`, optional `ref`
-  input: a branch is then checked against the last evaluated master run) and once on a pull request that changes the workflow or the gate. The existing Microsoft.NET.Test.Sdk 17.8.0
+  input: a branch is then checked against the last evaluated master run) and once on a pull request that changes the workflow or the gate (that run reports but never fails: its findings belong to other pull requests). The existing Microsoft.NET.Test.Sdk 17.8.0
   supplies the integration; Windows/net48 runs do not collect coverage.
 - The `core` jobs run the core suite in four shards by test class (`tools/coverage/shard_filter.py`), **including the
   Slow tier** (nobody waits for this run), without Nightly; the `gate` job runs the CLI and Clipper2 package suites and
