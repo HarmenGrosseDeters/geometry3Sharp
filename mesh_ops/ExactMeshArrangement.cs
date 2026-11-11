@@ -1654,7 +1654,10 @@ namespace g3
                 && p.A * q.D == q.A * p.D && p.B * q.D == q.B * p.D && p.C * q.D == q.C * p.D;
         }
 
-        // the early-out of CullOutsideOf: Culled, CulledCount (each triangle decided on its own: no order dependence)
+        // the early-out of CullOutsideOf: Culled, CulledCount. The triangles of the other meshes whose box meets no box of
+        // CullOutsideOf do not meet its surface, and two of them with a common corner (an exact point) lie on the same
+        // side of it: CullTest is asked once per connected set of them (for its smallest triangle), not per triangle.
+        // Deterministic: the sets and their representatives depend only on the triangles, not on the thread order.
         void cull(List<AxisAlignedBox3d>[] boxes, TriangleBoxTree[] trees)
         {
             Culled = new bool[Triangles.Count];
@@ -1664,7 +1667,7 @@ namespace g3
                 return;
             CullPrepare?.Invoke();
             TriangleBoxTree tree = trees[m0];
-            int culled = 0;
+            var free = new bool[Triangles.Count];
             for (int m = 0; m < Meshes.Count; ++m) {
                 if (m == m0)
                     continue;
@@ -1675,14 +1678,54 @@ namespace g3
                         return;
                     bool meets = false;
                     tree.Query(boxes[m][k], (j) => meets = true);
-                    if (meets == false && CullTest(ti)) {
-                        Culled[ti] = true;
-                        System.Threading.Interlocked.Increment(ref culled);
-                    }
+                    free[ti] = meets == false;
                 });
             }
+            // connected sets by common corners (union-find, the smaller triangle index as the root)
+            var parent = new int[Triangles.Count];
+            for (int ti = 0; ti < parent.Length; ++ti)
+                parent[ti] = ti;
+            Func<int, int> find = null;
+            find = (x) => {
+                while (parent[x] != x) {
+                    parent[x] = parent[parent[x]];
+                    x = parent[x];
+                }
+                return x;
+            };
+            var atPoint = new Dictionary<int, int>();
+            for (int ti = 0; ti < Triangles.Count; ++ti) {
+                if (free[ti] == false)
+                    continue;
+                Index3i c = Triangles[ti].Corners;
+                for (int k = 0; k < 3; ++k) {
+                    int other;
+                    if (atPoint.TryGetValue(c[k], out other)) {
+                        int ra = find(ti), rb = find(other);
+                        if (ra != rb) {
+                            if (ra < rb) parent[rb] = ra; else parent[ra] = rb;
+                        }
+                    } else
+                        atPoint[c[k]] = ti;
+                }
+            }
+            var roots = new List<int>();
+            for (int ti = 0; ti < Triangles.Count; ++ti)
+                if (free[ti] && find(ti) == ti)
+                    roots.Add(ti);
+            var outside = new bool[Triangles.Count];
+            gParallel.ForRange(roots.Count, (k) => outside[roots[k]] = CullTest(roots[k]));
+            int culled = 0;
+            for (int ti = 0; ti < Triangles.Count; ++ti)
+                if (free[ti] && outside[find(ti)]) {
+                    Culled[ti] = true;
+                    culled++;
+                }
             CulledCount = culled;
+            CullTests = roots.Count;
         }
+        // the number of CullTest calls of the last Compute (one per connected set)
+        internal int CullTests;
 
         // the candidate pairs of triangle ka of mesh ma with the triangles of mesh mb (tree) whose boxes overlap box,
         // appended to found (created when needed); hits: a buffer. Returns the number of pairs within one mesh.

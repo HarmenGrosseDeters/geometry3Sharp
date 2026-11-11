@@ -350,25 +350,41 @@ static class PrestudyMany
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
         var op = ExactMeshBoolean.Operations.Difference;
+        int repeat = 1;
         for (int i = 3; i < args.Length; ++i) {
             if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
             else if (args[i] == "--op") op = args[++i] == "intersection" ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
         }
         DMesh3 a; List<DMesh3> bs;
-        Workload(kind, n, seed, size, out a, out bs);
+        if (kind == "spheres") {
+            // a plain binary case: two overlapping spheres (n edge vertices), the second shifted by seed / 10
+            a = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = n }.Generate().MakeDMesh();
+            DMesh3 b = new Sphere3Generator_NormalizedCube() { Radius = 0.8, EdgeVertices = n }.Generate().MakeDMesh();
+            MeshTransforms.Translate(b, new Vector3d(0.1 * seed, 0.3, 0.2));
+            bs = new List<DMesh3> { b };
+        } else
+            Workload(kind, n, seed, size, out a, out bs);
         Warm();
         var meshes = new List<DMesh3> { a };
         meshes.AddRange(bs);
         var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(), ["a_tris"] = a.TriangleCount,
             ["b_tris"] = bs.Sum(b => b.TriangleCount) };
         var results = new Dictionary<bool, DMesh3>();
+        var times = new Dictionary<bool, List<double>> { [false] = new List<double>(), [true] = new List<double>() };
+        // (alternating, so that drift hits both alike; the last run of each is kept for the checks)
+        for (int rep = 0; rep < repeat; ++rep)
         foreach (bool cull in new[] { false, true }) {
             Gc();
             var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
             var sw = Stopwatch.StartNew();
             o.Compute();
             string k = cull ? "cull" : "base";
-            row[k + "_ms"] = sw.ElapsedMilliseconds;
+            times[cull].Add(sw.Elapsed.TotalMilliseconds);
+            var sorted = times[cull].OrderBy(x => x).ToList();
+            row[k + "_ms"] = sorted[sorted.Count / 2];
+            row[k + "_all_ms"] = times[cull].ToArray();
+            row[k + "_phases"] = new Dictionary<string, long>(o.PhaseMilliseconds);
             row[k + "_ok"] = o.Status == ExactMeshBoolean.BooleanStatus.Success;
             row[k + "_pieces"] = o.Arrangement.Output.Count;
             row[k + "_tris"] = o.Result.TriangleCount;

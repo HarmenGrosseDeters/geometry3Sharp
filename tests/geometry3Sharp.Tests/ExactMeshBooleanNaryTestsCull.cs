@@ -111,6 +111,9 @@ namespace geometry3Sharp.Tests
             ExactMeshBoolean reference = Run(meshes, op, false), culled = Run(meshes, op, true);
             // (the upper box's 12 triangles and the lower box's cap above A)
             Assert.Equal(14, culled.Counts["t3a_culled"]);
+            // (one exact ray per connected set of candidates: the upper box and the lower box's cap, culled, and its
+            // bottom inside A, kept)
+            Assert.Equal(3, culled.Counts["t3a_cull_tests"]);
             Assert.True(reference.SelfIntersectingPairs > 0);
             Assert.Equal(0, culled.SelfIntersectingPairs);
             Assert.Equal("", Invariance.Difference(reference.Result, culled.Result));

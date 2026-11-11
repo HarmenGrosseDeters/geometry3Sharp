@@ -435,6 +435,7 @@ namespace g3
                 PhaseAllocatedBytes[kv.Key] = kv.Value;
             Counts["candidate_pairs"] = arr.CandidatePairs;
             Counts["t3a_culled"] = arr.CulledCount;
+            Counts["t3a_cull_tests"] = arr.CullTests;
             Counts["intersecting_pairs"] = arr.IntersectingPairs;
             Counts["points"] = arr.PointCount;
             Counts["merged_points"] = arr.MergedPoints;
