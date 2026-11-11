@@ -138,6 +138,26 @@ measurement shows the gap to the bound is large. T3b, A ∩ Bi each: an additive
 Difference) that computes A's closedness / orientation, self-intersection pairs and box tree once and runs the Bi in
 parallel into fixed slots, bit-identical to separate booleans (A's repeated part is 29-89 % of today's serial time).
 Target: terrain n = 200 <= 1.5 s (today 4.9 s serial / 2.7 s parallel), CAD 100k n = 50 <= 4 s (today 15.0 / 11.4 s).
+Deviation (coordinator 2026-11-11, T3b PR): the targets hold for `IntersectEach`; `DifferenceEach` keeps all of A outside
+each body, so A cannot be left out of its arrangements, and its target is "faster than separate booleans, by the
+parallelism over the bodies (and shared preparation where measured)", not the numbers above.
+Open follow-up S3 (owner 2026-11-11: not now; T3b reached its targets without it): share A's per-boolean preparation
+across the bodies of `IntersectEach` / `DifferenceEach`.
+- What it shares: A's box tree (built from the input doubles, so independent of the grid), its exact points and input
+  triangles (`build_points` / `build_triangles` for mesh 0), its self pairs, its bounds.
+- The grid condition: exact points can only be shared where every boolean has the same grid (`ScaleExp`, `Center`: the
+  smallest coordinate exponent of A and Bi, the centre of their joint box). Measured (t3b-grid): terrain n = 200: 1 and
+  83 of 200 booleans share the first one's grid (seed 1 / 2; 118-120 distinct grids, the bodies reach beyond A's box);
+  CAD 100k n = 50: 29 of 50 (6 grids); CAD 10k n = 500: 309 of 500 (27 grids). So only the tree is shareable in general;
+  points per grid class, with a fallback.
+- The cost it would save, summed over the booleans (serial; about a third of it at 4 cores): CAD 100k n = 50
+  Intersection: input 0.39 s, setup 1.79 s, trees 2.15 s, cull 0.62 s of 6.6 s; terrain n = 200: input 0.03-0.06 s,
+  setup 0.25-0.31 s, trees 0.33 s of 3.5-3.7 s; the tree alone: 2.1 s (CAD) and 0.33 s (terrain).
+- DifferenceEach: the same preparation is 3.8 s of 33.5 s serial on CAD 100k n = 50 (11 %): its time is assembly and
+  rounding of results the size of A, which S3 does not touch.
+- Effort: sharing the tree, about half a day (the arrangement takes a prebuilt mesh-0 tree; bit-identical as the tree
+  depends only on the boxes); points and self pairs per grid class, 1.5-2 days with the fallback and the exact-code
+  review.
 
 **3.0 execution order (owner 2026-11-10):** serial, one 3.0 work item at a time (they share the exact files), each
 one PR per feature with the exact-code review and the mutation shards: (1) T3a after #539 (Antipodal PR 1) merges (Opus,

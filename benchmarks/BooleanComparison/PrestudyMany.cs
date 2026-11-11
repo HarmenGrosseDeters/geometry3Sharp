@@ -441,6 +441,145 @@ static class PrestudyMany
         return 0;
     }
 
+    // T3b S1 upper-bound check: A ∩ Bi for every i; per i the arrangement phases of A' ∩ Bi, A' = A without its triangles
+    // whose box misses Bi's box (the box fast path of culling A outside a closed Bi; A' is open, so only its arrangement
+    // phases are used), plus the later phases of the full boolean. Warm (two warm-up passes over the first booleans).
+    //   t3b-bound <terrain|cad> <n> <seed> [--size k]
+    public static int RunEachBound(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        for (int i = 3; i < args.Length; ++i)
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        string[] arrPhases = { "setup", "intersections", "merge", "triangulation" };
+        string[] later = { "classification", "simplify", "assembly", "rounding", "input" };
+        Func<DMesh3, DMesh3, Dictionary<string, long>> run = (x, y) => {
+            var op = new ExactMeshBoolean(x, y, ExactMeshBoolean.Operations.Intersection);
+            var sw = Stopwatch.StartNew();
+            op.Compute();
+            var ph = new Dictionary<string, long>(op.PhaseMilliseconds) { ["total"] = sw.ElapsedMilliseconds };
+            return ph;
+        };
+        Func<DMesh3, DMesh3> cut = (b) => {
+            var bb = b.CachedBounds;
+            var m = new DMesh3(a);
+            foreach (int t in a.TriangleIndices()) {
+                Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+                a.GetTriVertices(t, ref p0, ref p1, ref p2);
+                var tb = new AxisAlignedBox3d(p0); tb.Contain(p1); tb.Contain(p2);
+                if (tb.Intersects(bb) == false) m.RemoveTriangle(t, true, false);
+            }
+            return m;
+        };
+        for (int w = 0; w < 2; ++w)
+            for (int i = 0; i < Math.Min(n, 5); ++i) { run(a, bs[i]); run(cut(bs[i]), bs[i]); }
+        long full = 0, bound = 0, arrFull = 0, arrCut = 0, keptTris = 0;
+        for (int i = 0; i < n; ++i) {
+            Gc();
+            var f = run(a, bs[i]);
+            DMesh3 ac = cut(bs[i]);
+            keptTris += ac.TriangleCount;
+            var c = run(ac, bs[i]);
+            long af = arrPhases.Sum(k => f.TryGetValue(k, out long v) ? v : 0), acut = arrPhases.Sum(k => c.TryGetValue(k, out long v) ? v : 0);
+            long lt = later.Sum(k => f.TryGetValue(k, out long v) ? v : 0);
+            full += f["total"]; arrFull += af; arrCut += acut; bound += acut + lt;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["a_tris"] = a.TriangleCount,
+            ["serial_full_ms"] = full, ["serial_bound_ms"] = bound, ["arr_full_ms"] = arrFull, ["arr_cut_ms"] = arrCut,
+            ["mean_kept_a_tris"] = (double)keptTris / n }));
+        return 0;
+    }
+
+    // T3b: A ∩ B_i (or A − B_i) for every i: separate booleans one after the other, separate booleans with Parallel.For
+    // over i, and ExactMeshBoolean.IntersectEach / DifferenceEach; warm, alternating, medians; the results of the Each
+    // call compared with the separate serial ones (hashes).
+    //   t3b-each <terrain|cad> <n> <seed> [--size k] [--op intersection|difference] [--repeat r]
+    public static int RunEach(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0, repeat = 3;
+        var op = ExactMeshBoolean.Operations.Intersection;
+        for (int i = 3; i < args.Length; ++i) {
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
+            else if (args[i] == "--op") op = args[++i] == "difference" ? ExactMeshBoolean.Operations.Difference : ExactMeshBoolean.Operations.Intersection;
+        }
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        Func<int, DMesh3> one = (i) => { var b = new ExactMeshBoolean(a, bs[i], op); b.Compute(); return b.Result; };
+        var variants = new Dictionary<string, Func<DMesh3[]>> {
+            ["separate_serial"] = () => Enumerable.Range(0, n).Select(one).ToArray(),
+            ["separate_parallel"] = () => { var r = new DMesh3[n]; Parallel.For(0, n, (i) => r[i] = one(i)); return r; },
+            ["each"] = () => op == ExactMeshBoolean.Operations.Intersection ? ExactMeshBoolean.IntersectEach(a, bs) : ExactMeshBoolean.DifferenceEach(a, bs),
+        };
+        var times = variants.Keys.ToDictionary(k => k, k => new List<long>());
+        var hashes = new Dictionary<string, string[]>();
+        // (a warm-up of each variant)
+        foreach (var kv in variants) kv.Value();
+        for (int rep = 0; rep < repeat; ++rep)
+            foreach (var kv in variants) {
+                Gc();
+                var sw = Stopwatch.StartNew();
+                DMesh3[] r = kv.Value();
+                times[kv.Key].Add(sw.ElapsedMilliseconds);
+                hashes[kv.Key] = r.Select(m => m == null ? "null" : Hash(m)).ToArray();
+            }
+        var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(), ["a_tris"] = a.TriangleCount,
+            ["cores"] = Environment.ProcessorCount };
+        foreach (var kv in times) {
+            var sorted = kv.Value.OrderBy(x => x).ToList();
+            row[kv.Key + "_ms"] = sorted[sorted.Count / 2];
+            row[kv.Key + "_all_ms"] = kv.Value.ToArray();
+        }
+        row["each_equals_separate"] = hashes["each"].SequenceEqual(hashes["separate_serial"]);
+        row["parallel_equals_separate"] = hashes["separate_parallel"].SequenceEqual(hashes["separate_serial"]);
+        Console.WriteLine(JsonSerializer.Serialize(row));
+        return 0;
+    }
+
+    // T3b S3 data (an open follow-up): per i of A ∩ B_i, the arrangement's grid (ScaleExp, Center: the condition for
+    // sharing A's exact points across the booleans) and the per-boolean phases a prepared A would save (input, setup,
+    // intersections.trees, intersections.cull), summed over i; warm.
+    //   t3b-grid <terrain|cad> <n> <seed> [--size k] [--op intersection|difference]
+    public static int RunEachGrid(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        var op = ExactMeshBoolean.Operations.Intersection;
+        for (int i = 3; i < args.Length; ++i) {
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--op") op = args[++i] == "difference" ? ExactMeshBoolean.Operations.Difference : ExactMeshBoolean.Operations.Intersection;
+        }
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        for (int i = 0; i < Math.Min(n, 3); ++i) new ExactMeshBoolean(a, bs[i], op).Compute();
+        string grid0 = null;
+        int same = 0;
+        var grids = new HashSet<string>();
+        string[] keys = { "input", "setup", "intersections.trees", "intersections.cull" };
+        var saved = keys.ToDictionary(k => k, k => 0L);
+        long total = 0;
+        for (int i = 0; i < n; ++i) {
+            var b = new ExactMeshBoolean(a, bs[i], op);
+            var sw = Stopwatch.StartNew();
+            b.Compute();
+            total += sw.ElapsedMilliseconds;
+            var arr = b.Arrangement;
+            string g = $"{arr.ScaleExp} {arr.Center[0]} {arr.Center[1]} {arr.Center[2]}";
+            if (grid0 == null) grid0 = g;
+            if (g == grid0) same++;
+            grids.Add(g);
+            foreach (string k in keys)
+                saved[k] += b.PhaseMilliseconds.TryGetValue(k, out long v) ? v : 0;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(),
+            ["a_tris"] = a.TriangleCount, ["same_grid_as_first"] = same, ["distinct_grids"] = grids.Count, ["serial_total_ms"] = total,
+            ["per_boolean_setup_ms_sum"] = saved }));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;

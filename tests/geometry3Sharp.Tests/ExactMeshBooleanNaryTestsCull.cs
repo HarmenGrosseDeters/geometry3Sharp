@@ -109,11 +109,10 @@ namespace geometry3Sharp.Tests
             DMesh3 b = Join(Box(1, 1, 0.5, 2, 2, 3), Box(1.5, 1.5, 1.5, 2.5, 2.5, 3.5));
             var meshes = new List<DMesh3> { a, b };
             ExactMeshBoolean reference = Run(meshes, op, false), culled = Run(meshes, op, true);
-            // (the upper box's 12 triangles and the lower box's cap above A)
-            Assert.Equal(14, culled.Counts["t3a_culled"]);
-            // (one exact ray per connected set of candidates: the upper box and the lower box's cap, culled, and its
-            // bottom inside A, kept)
-            Assert.Equal(3, culled.Counts["t3a_cull_tests"]);
+            // Difference: the upper box's 12 triangles and the lower box's cap above A, all missing A's whole box (culled
+            // without a ray); one exact ray for the lower box's bottom, which lies inside A (kept). Intersection: also the
+            // triangles of A outside the (closed) B
+            Assert.Equal(op == Ops.Difference ? "14 1" : IntersectionCounts, $"{culled.Counts["t3a_culled"]} {culled.Counts["t3a_cull_tests"]}");
             Assert.True(reference.SelfIntersectingPairs > 0);
             Assert.Equal(0, culled.SelfIntersectingPairs);
             Assert.Equal("", Invariance.Difference(reference.Result, culled.Result));
@@ -124,6 +123,28 @@ namespace geometry3Sharp.Tests
             double vol = MeshMeasurements.VolumeArea(culled.Result, culled.Result.TriangleIndices(), culled.Result.GetVertex).x;
             Assert.Equal(op == Ops.Difference ? 16 - inside : inside, vol, 9);
         }
+
+        const string IntersectionCounts = "24 1";
+
+        [Fact]
+        public void Intersection_ThreeOperands_EachTriangleCulledOnce()
+        {
+            // an Intersection of three closed meshes: the inner box lies inside B but above A, so it is culled in A's pass
+            // (it misses A's box) and skipped in B's pass, where its triangles would be free (they meet no box of B) and
+            // cost an exact ray; the counts pinned
+            DMesh3 a = Box(0, 0, 0, 4, 4, 1), b = Box(1, 1, 0.5, 2, 2, 3), far = Box(1.2, 1.2, 2.0, 1.8, 1.8, 2.5);
+            var meshes = new List<DMesh3> { a, b, far };
+            ExactMeshBoolean culled = Run(meshes, Ops.Intersection, true), reference = Run(meshes, Ops.Intersection, false);
+            Assert.Equal(ThreeOperandCounts, $"{culled.Counts["t3a_culled"]} {culled.Counts["t3a_cull_tests"]}");
+            Assert.Equal(0, culled.Result.TriangleCount);
+            Assert.Equal("", Invariance.Difference(reference.Result, culled.Result));
+            // without the far box: A ∩ B is the part of B inside A
+            ExactMeshBoolean two = Run(new List<DMesh3> { a, b }, Ops.Intersection, true);
+            Assert.True(two.Result.TriangleCount > 0);
+            Assert.Equal("", Invariance.Difference(Run(new List<DMesh3> { a, b }, Ops.Intersection, false).Result, two.Result));
+        }
+
+        const string ThreeOperandCounts = "36 1";
 
         [Fact]
         public void CulledTriangles_NoPairs_NotTriangulated()
@@ -138,7 +159,9 @@ namespace geometry3Sharp.Tests
                 Assert.True(without > 0);
                 foreach (var meshes in new[] { new List<DMesh3> { a, lower, upper }, new List<DMesh3> { a, upper, lower } }) {
                     ExactMeshBoolean culled = Run(meshes, op, true), reference = Run(meshes, op, false);
-                    Assert.Equal(without, culled.IntersectingPairs);
+                    // (Intersection: the upper box lies outside A and A outside it, so everything is culled and the result
+                    // is empty; Difference: the pairs of A and the lower box only)
+                    Assert.Equal(op == Ops.Difference ? without : 0, culled.IntersectingPairs);
                     Assert.True(reference.IntersectingPairs > without);
                     Assert.Equal("", Invariance.GeometricDifference(reference.Result, culled.Result));
                 }
@@ -203,7 +226,11 @@ namespace geometry3Sharp.Tests
             meshes[0] = open;
             foreach (Ops op in new[] { Ops.Difference, Ops.Intersection }) {
                 ExactMeshBoolean culled = Run(meshes, op, true), reference = Run(meshes, op, false);
-                Assert.Equal(0, culled.Counts["t3a_culled"]);
+                // (Difference culls only outside the first mesh: nothing; Intersection still against the closed Bi)
+                if (op == Ops.Difference)
+                    Assert.Equal(0, culled.Counts["t3a_culled"]);
+                else
+                    Assert.True(culled.Counts["t3a_culled"] > 0);
                 Assert.Equal("", Invariance.Difference(reference.Result, culled.Result));
             }
             // a closed A, but a union (its result is not inside A) or a predicate of one's own

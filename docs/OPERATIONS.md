@@ -170,7 +170,23 @@ triangles and orientations at the same coordinates, numbered differently. Code t
 (rather than its geometry) has to compare geometry instead. The diagnostic counts `IntersectingPairs`, `SelfIntersectingPairs` and `Patches`
 describe the arrangement, so they leave out the skipped triangles: a self-intersection of an operand wholly outside the
 first mesh is not counted by `Difference` and `Intersection` (it cannot change the result); to check an input for
-self-intersections, use a `Union` or `MeshRobustRepair`.
+self-intersections, use a `Union` or `MeshRobustRepair`. `Intersection` skips, in the same way, the triangles of any
+mesh that lie wholly outside another closed one (its result lies inside every operand): for A ∩ B, the parts of A
+outside B.
+
+One body against many, each result on its own (A ∩ Bi or A − Bi for every i: the terrain inside each construction body,
+a part with each tool removed), is `IntersectEach` / `DifferenceEach`. Each result is the same, bit for bit, as the
+separate boolean of A and Bi. The booleans run in parallel over the bodies, and A's input check and orientation are done
+once:
+
+```csharp
+var status = new ExactMeshBoolean.BooleanStatus[bodies.Count];
+DMesh3[] inside = ExactMeshBoolean.IntersectEach(terrain, bodies, b => b.SafeRounding = true, status);   // null where status[i] != Success
+DMesh3[] cut = ExactMeshBoolean.DifferenceEach(part, tools);
+```
+
+`IntersectEach` is fast where each body covers a small part of A (only that part enters each arrangement).
+`DifferenceEach` keeps all of A outside the body in every result, so its work per body does not shrink in the same way.
 
 One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
 once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
