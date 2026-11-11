@@ -273,6 +273,76 @@ static class PrestudyMany
 
     // ------------------------------------------------------------------ T3a
 
+    // T3a step 1 (upper-bound check): the share of the Bi triangles that a triangle-level early-out drops (box meets no
+    // box of A, and a vertex outside the closed A) and an upper bound of the time it saves: a one pass without those
+    // triangles (its Bi are no longer closed, so only its arrangement phases are used) and the full one pass's
+    // classification scaled by the share of the pieces that remain.
+    //   t3a-cull-share <terrain|cad> <n> <seed> [--size k]
+    public static int RunCullShare(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        for (int i = 3; i < args.Length; ++i)
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        var aBoxes = new List<AxisAlignedBox3d>();
+        foreach (int t in a.TriangleIndices()) {
+            Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+            a.GetTriVertices(t, ref p0, ref p1, ref p2);
+            var bx = new AxisAlignedBox3d(p0); bx.Contain(p1); bx.Contain(p2);
+            aBoxes.Add(bx);
+        }
+        var aTree = new TriangleBoxTree(aBoxes);
+        var wTree = new DMeshAABBTree3(a, true);
+        long total = 0, culled = 0, noOverlapInside = 0;
+        var kept = new List<DMesh3>();
+        foreach (DMesh3 b in bs) {
+            var keep = new DMesh3(b);
+            foreach (int t in b.TriangleIndices()) {
+                total++;
+                Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+                b.GetTriVertices(t, ref p0, ref p1, ref p2);
+                var bx = new AxisAlignedBox3d(p0); bx.Contain(p1); bx.Contain(p2);
+                bool hit = false;
+                aTree.Query(bx, (k) => hit = true);
+                if (hit) continue;
+                if (wTree.FastWindingNumber(p0) > 0.5) { noOverlapInside++; continue; }
+                culled++;
+                keep.RemoveTriangle(t, true, false);
+            }
+            kept.Add(keep);
+        }
+        var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["a_tris"] = a.TriangleCount, ["b_tris"] = total,
+            ["culled"] = culled, ["culled_share"] = (double)culled / total, ["no_overlap_inside"] = noOverlapInside };
+        Func<List<DMesh3>, ExactMeshBoolean> run = (list) => {
+            var meshes = new List<DMesh3> { a };
+            meshes.AddRange(list);
+            Gc();
+            var op = new ExactMeshBoolean(meshes, ExactMeshBoolean.Operations.Difference);
+            var sw = Stopwatch.StartNew();
+            op.Compute();
+            op.PhaseMilliseconds["total"] = sw.ElapsedMilliseconds;
+            return op;
+        };
+        ExactMeshBoolean full = run(bs), cut = run(kept);
+        long T(ExactMeshBoolean o, string k) { long v; return o.PhaseMilliseconds.TryGetValue(k, out v) ? v : 0; }
+        // (the arrangement's top-level phases; their sub-phases, "intersections.pairs" etc., are parts of them)
+        string[] arrPhases = { "setup", "intersections", "merge", "triangulation" };
+        long arrFull = arrPhases.Sum(k => T(full, k)), arrCut = arrPhases.Sum(k => T(cut, k));
+        double pieceShare = (double)cut.Arrangement.Output.Count / full.Arrangement.Output.Count;
+        double saved = (arrFull - arrCut) + T(full, "classification") * (1 - pieceShare);
+        row["total_ms"] = T(full, "total");
+        row["phases_full"] = full.PhaseMilliseconds;
+        row["phases_cut"] = cut.PhaseMilliseconds;
+        row["pieces_full"] = full.Arrangement.Output.Count;
+        row["pieces_cut"] = cut.Arrangement.Output.Count;
+        row["saved_upper_ms"] = (long)saved;
+        row["saved_upper_share"] = saved / T(full, "total");
+        Console.WriteLine(JsonSerializer.Serialize(row));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
