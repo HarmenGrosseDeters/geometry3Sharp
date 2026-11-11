@@ -91,8 +91,30 @@ namespace g3
             /// StrictRounding: the rounded result is not clean within the relative bound (see Error: the defects
             /// left, where, and the drift the smallest rejected edit needed); Result is null
             /// </summary>
-            RoundingNotClean = 4
+            RoundingNotClean = 4,
+            /// <summary>
+            /// MaxPieces: the arrangement would have more pieces than that (Counts["predicted_pieces"]); found before its
+            /// triangulation, Result is null
+            /// </summary>
+            BudgetExceeded = 5,
+            /// <summary> Cancellation was cancelled during Compute(); Result is null </summary>
+            Cancelled = 6
         }
+
+        /// <summary>
+        /// budget: the largest number of pieces (triangles of the arrangement, Counts["pieces"]) that Compute() takes on;
+        /// with more, it stops before the triangulation with Status BudgetExceeded instead of running on (the count is
+        /// exact and known after the intersections are computed, a few percent into the work). 0 (the default): no limit.
+        /// The time of the classification grows with the pieces, about one exact ray per piece per open input mesh.
+        /// </summary>
+        public long MaxPieces;
+
+        /// <summary>
+        /// Compute() checks it between its phases and within the long ones (intersections, triangulation,
+        /// classification) and stops with Status Cancelled and no Result once it is cancelled; the instance can be
+        /// computed again. Default: none.
+        /// </summary>
+        public System.Threading.CancellationToken Cancellation;
 
         /// <summary> the input meshes of A op B (not modified); unused if Meshes is set </summary>
         public DMesh3 MeshA, MeshB;
@@ -440,7 +462,8 @@ namespace g3
         /// <summary>
         /// Compute the boolean into Result. Returns false (and sets Error and Status) if there is no input, an
         /// input is null, has non-finite coordinates, or is open while AllowOpenMeshes is false, or if the result is not
-        /// clean with StrictRounding (Status RoundingNotClean); otherwise true
+        /// clean with StrictRounding (Status RoundingNotClean), if the arrangement would have more than MaxPieces pieces
+        /// (Status BudgetExceeded), or if Cancellation was cancelled (Status Cancelled); otherwise true
         /// (Status Success). An empty result (for example the intersection of disjoint meshes) is a success with
         /// an empty Result mesh.
         /// </summary>
@@ -498,8 +521,10 @@ namespace g3
                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
 
             inputClock.Lap("input");
+            if (Cancellation.IsCancellationRequested)
+                return cancelled();
             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
-                FixedWidthPoints = FixedWidthPoints };
+                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation };
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
@@ -528,6 +553,12 @@ namespace g3
             Counts["intersecting_pairs"] = arr.IntersectingPairs;
             Counts["points"] = arr.PointCount;
             Counts["merged_points"] = arr.MergedPoints;
+            Counts["predicted_pieces"] = arr.PredictedPieces;
+            if (arr.Stopped == ExactMeshArrangement.StopReason.Cancelled)
+                return cancelled();
+            if (arr.Stopped == ExactMeshArrangement.StopReason.Budget)
+                return fail(BooleanStatus.BudgetExceeded, string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "the arrangement would have {0} pieces, more than MaxPieces = {1}", arr.PredictedPieces, MaxPieces));
             Counts["pieces"] = arr.Output.Count;
 
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
@@ -535,6 +566,8 @@ namespace g3
             windingSides = windingExactSides = 0;
             classify(out keep, out flip);
             clock.Lap("classification");
+            if (Cancellation.IsCancellationRequested)
+                return cancelled();
             // (the box trees are read by the winding queries of the classification only: about 80 bytes per input
             // triangle that the simplification, assembly and rounding would otherwise carry)
             arr.Trees = null;
@@ -545,6 +578,8 @@ namespace g3
             Counts["antipodal_snapped"] = antipodalSnapped;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
+            if (Cancellation.IsCancellationRequested)
+                return cancelled();
             Counts["removed_vertices"] = RemovedVertices;
             if (SafeRounding) {
                 bool[] fixedV = resultFixed;
@@ -560,6 +595,8 @@ namespace g3
                 };
                 Rounding.Apply();
                 clock.Lap("rounding");
+                if (Cancellation.IsCancellationRequested)
+                    return cancelled();
                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
                 Counts["rounding_degenerate"] = Rounding.InitialDegenerate;
                 Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips + Rounding.VertexRemovals;
@@ -731,6 +768,13 @@ namespace g3
             Status = status;
             Error = error;
             return false;
+        }
+
+        // Compute stopped by Cancellation: no result
+        bool cancelled()
+        {
+            Result = null;
+            return fail(BooleanStatus.Cancelled, "cancelled");
         }
 
 
@@ -1031,10 +1075,16 @@ namespace g3
             // (the closed meshes per patch: their winding numbers are integers, the same in front of every piece of a
             // patch)
             var noOpen = new List<int>();
+            // (Cancellation: the loops skip their work, and classify returns before the winding numbers are read; Compute
+            // then stops)
             gParallel.ForRange(firsts.Count, () => new List<int>(), (k, candidates) => {
+                if (Cancellation.IsCancellationRequested)
+                    return;
                 int i = firsts[k];
                 patchWinding[find_const(parent, i)] = patch_winding(i, stack[i], closedTree, noOpen, candidates);
             });
+            if (Cancellation.IsCancellationRequested)
+                return;
             // the open meshes per piece: their generalized winding numbers vary continuously, also within a patch (a
             // patch of one mesh can reach from inside an open mesh to outside it through a hole of that mesh, around the
             // end of an intersection curve that the hole cuts off), so the threshold at 1/2 is taken at every piece
@@ -1042,9 +1092,11 @@ namespace g3
             if (openMeshes.Count > 0) {
                 openWinding = new int[n][];
                 gParallel.ForRange(n, (i) => {
-                    if (representative[i])
+                    if (representative[i] && Cancellation.IsCancellationRequested == false)
                         openWinding[i] = open_winding(i, stack[i], openMeshes);
                 });
+                if (Cancellation.IsCancellationRequested)
+                    return;
             }
             OpenWindingPerPiece = RecordOpenWinding ? openWinding : null;
 

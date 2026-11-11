@@ -1087,31 +1087,88 @@ namespace g3
         /// <summary> bytes allocated per phase (by all threads; 0 on netstandard2.0), for profiling </summary>
         internal Dictionary<string, long> PhaseAllocatedBytes = new Dictionary<string, long>();
 
+        /// <summary>
+        /// the budget of Compute: when the pieces of its triangulation (PredictedPieces, known before it) would be more,
+        /// Compute stops before the triangulation (Stopped is Budget, Output gets nothing); 0: no limit
+        /// </summary>
+        internal long MaxPieces;
+        /// <summary> Compute stops at the next phase or block of work once this is cancelled (Stopped is Cancelled) </summary>
+        internal System.Threading.CancellationToken Cancellation;
+        /// <summary> why the last Compute stopped early (None: it ran to the end) </summary>
+        internal StopReason Stopped;
+        internal enum StopReason { None, Budget, Cancelled }
+        /// <summary>
+        /// the number of pieces the triangulation of the last Compute adds to Output, computed before it (exact): a
+        /// touched input triangle with i points inside it and e on its edges (its corners not counted) is triangulated into
+        /// 2 i + e + 1 triangles (Euler's formula, whatever the constraints: the triangulation has exactly these
+        /// vertices); an untouched one is one piece, a degenerate or culled one none
+        /// </summary>
+        public long PredictedPieces;
+
+        // the cancellation as a stop (true: stop now)
+        bool cancelled()
+        {
+            if (Cancellation.IsCancellationRequested == false)
+                return false;
+            Stopped = StopReason.Cancelled;
+            return true;
+        }
+
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
+            Stopped = StopReason.None;
+            PredictedPieces = 0;
+            if (cancelled())
+                return;
             build_points();
             clock.Lap("setup.points");
             build_triangles();
             clock.Lap("setup.triangles");
             total.Lap("setup");
+            if (cancelled())
+                return;
             find_intersections(clock);
             total.Lap("intersections");
+            if (cancelled())
+                return;
             merge_points();
             clock.Lap("merge.points");
             int before = PointCount;
-            gParallel.ForRange(Triangles.Count, (ti) => prepare_triangle(ti));
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    prepare_triangle(ti);
+            });
             clock.Lap("merge.crossings");
+            if (cancelled())
+                return;
             if (PointCount > before)
                 merge_points();
             clock.Lap("merge.points2");
+            PredictedPieces = predict_pieces();
+            clock.Lap("merge.predict");
             total.Lap("merge");
+            if (cancelled()) {
+                touchedPoints = null;
+                return;
+            }
+            if (MaxPieces > 0 && PredictedPieces > MaxPieces) {
+                Stopped = StopReason.Budget;
+                touchedPoints = null;
+                return;
+            }
             var pieces = new List<OutputTriangle>[Triangles.Count];
             var constraints = new List<long>[Triangles.Count];
             // (a culled triangle has no pairs, so it is not split: it stays one piece, which the output leaves out)
-            gParallel.ForRange(Triangles.Count, (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    triangulate(ti, out pieces[ti], out constraints[ti]);
+            });
+            touchedPoints = null;
+            if (cancelled())
+                return;
             int pieceCount = 0;
             TriangulatedTriangles = 0;
             for (int ti = 0; ti < Triangles.Count; ++ti) {
@@ -1136,6 +1193,61 @@ namespace g3
         }
 
 
+
+        // the points of each touched input triangle as triangulate_touched inserts them (touched_points), from
+        // predict_pieces to the triangulation, which releases them
+        int[][] touchedPoints;
+
+        // the points of a touched input triangle that its triangulation inserts: the canonical ids of its points without
+        // its corners, in the order of ComparePoints (deterministic: point ids are not, they are assigned in parallel)
+        [MethodImpl(JitHints.Optimize)]
+        int[] touched_points(InputTriangle t)
+        {
+            var set = new HashSet<int>();
+            foreach (int p in t.Points)
+                set.Add(Canonical(p));
+            for (int k = 0; k < 3; ++k)
+                set.Remove(t.Corners[k]);
+            var ordered = new int[set.Count];
+            set.CopyTo(ordered);
+            Array.Sort(ordered, ComparePoints);
+            return ordered;
+        }
+
+        // PredictedPieces: the pieces of each input triangle as the triangulation will give them (Euler), summed in index order
+        [MethodImpl(JitHints.Optimize)]
+        long predict_pieces()
+        {
+            touchedPoints = new int[Triangles.Count][];
+            var per = new int[Triangles.Count];
+            gParallel.ForRange(Triangles.Count, (ti) => per[ti] = predicted_pieces(ti));
+            long sum = 0;
+            for (int ti = 0; ti < per.Length; ++ti)
+                sum += per[ti];
+            return sum;
+        }
+
+        // the pieces of input triangle ti: those of triangulate (its points as triangulate_touched takes them, the corners
+        // left out; a point on an edge has orientation 0 to it, in the projection that the triangulation uses)
+        [MethodImpl(JitHints.Optimize)]
+        int predicted_pieces(int ti)
+        {
+            InputTriangle t = Triangles[ti];
+            if (Culled[ti] || t.Degenerate)
+                return 0;
+            if (t.Points.Count == 0 && t.Segments.Count == 0)
+                return 1;
+            int[] pts = touched_points(t);
+            touchedPoints[ti] = pts;
+            int inner = 0, onEdge = 0;
+            foreach (int p in pts) {
+                bool edge = false;
+                for (int k = 0; k < 3 && edge == false; ++k)
+                    edge = Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], p) == 0;
+                if (edge) onEdge++; else inner++;
+            }
+            return 2 * inner + onEdge + 1;
+        }
 
         [MethodImpl(JitHints.Optimize)]
         void build_points()
@@ -2228,13 +2340,14 @@ namespace g3
         void triangulate_touched(int ti, InputTriangle t, out List<OutputTriangle> output, out List<long> constraints)
         {
             constraints = null;
-            var pts = new HashSet<int>();
-            foreach (int p in t.Points)
-                pts.Add(Canonical(p));
-            for (int k = 0; k < 3; ++k)
-                pts.Remove(t.Corners[k]);
+            // (the points from predict_pieces, released here)
+            int[] pts = touchedPoints != null ? touchedPoints[ti] : null;
+            if (pts == null)
+                pts = touched_points(t);
+            else
+                touchedPoints[ti] = null;
             output = new List<OutputTriangle>();
-            if (pts.Count == 0 && t.Segments.Count == 0) {
+            if (pts.Length == 0 && t.Segments.Count == 0) {
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 return;
             }
@@ -2242,14 +2355,13 @@ namespace g3
 
             var tri = new ExactTriangulation2(t.Corners[0], t.Corners[1], t.Corners[2],
                 (a, b, c) => Orient(t, a, b, c), (a, b, c, d) => InCircle(t, a, b, c, d));
-            var ordered = new List<int>(pts);
-            ordered.Sort(ComparePoints);    // deterministic (point ids are not, they are assigned in parallel)
+            int[] ordered = pts;
             foreach (int p in ordered)
                 tri.InsertPoint(p);
             tri.MakeDelaunay();
 
             // segments split at the points on them (the points whose boxes overlap the segment's, from a grid)
-            var grid = new BoxGrid2(this, t, ordered.Count);
+            var grid = new BoxGrid2(this, t, ordered.Length);
             foreach (int p in ordered)
                 grid.Add(p, p);
             var candidates = new List<int>();
