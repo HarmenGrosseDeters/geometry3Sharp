@@ -3,80 +3,80 @@
     "file": "io/MeshIOUtil.cs",
     "text": "} catch (Exception) {",
     "reason": "a platform probe: the parse of a constant valid string never throws on a real runtime; the catch keeps a static initializer from failing on an exotic runtime (Unity/Mono), which would make the whole class unusable",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 1
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "return false;",
     "reason": "a platform probe: the parse of a constant valid string never throws on a real runtime; the catch keeps a static initializer from failing on an exotic runtime (Unity/Mono), which would make the whole class unusable",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 1
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "} catch (Exception) {",
     "reason": "a platform probe: the parse of a constant valid string never throws on a real runtime; the catch keeps a static initializer from failing on an exotic runtime (Unity/Mono), which would make the whole class unusable",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 2
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "return false;",
     "reason": "a platform probe: the parse of a constant valid string never throws on a real runtime; the catch keeps a static initializer from failing on an exotic runtime (Unity/Mono), which would make the whole class unusable",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 2
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "return FormatDoubleByDigits(v);",
     "reason": "runs on .NET Framework only (net48): the coverage run is net10.0, where \"R\" is the shortest round-trip form",
-    "approved_in": "#TBD"
+    "approved_in": "#594"
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "return FormatFloatByDigits(v);",
     "reason": "runs on .NET Framework only (net48): the coverage run is net10.0, where \"R\" is the shortest round-trip form",
-    "approved_in": "#TBD"
+    "approved_in": "#594"
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "} catch (OverflowException) {",
     "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 2
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "return false;",
     "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 3
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "} catch (OverflowException) {",
     "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 3
   },
   {
     "file": "io/MeshIOUtil.cs",
     "text": "return false;",
     "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#TBD",
+    "approved_in": "#594",
     "occurrence": 4
   },
   {
     "file": "mesh_ops/ExactMeshBoolean.cs",
     "text": "wm = threshold_generalized(front_generalized_winding(i, m, stack));",
     "reason": "invariant guard, unreachable through the public API (patch_winding is called with an empty list of open meshes, windingTrees holds every open mesh before any lookup); kept: deleting it needs the exact-code review and the 6 h Boolean shards",
-    "approved_in": "#TBD"
+    "approved_in": "#594"
   },
   {
     "file": "mesh_ops/ExactMeshBoolean.cs",
     "text": "windingTrees[mesh] = tree = new_winding_tree(mesh);",
     "reason": "invariant guard, unreachable through the public API (patch_winding is called with an empty list of open meshes, windingTrees holds every open mesh before any lookup); kept: deleting it needs the exact-code review and the 6 h Boolean shards",
-    "approved_in": "#TBD"
+    "approved_in": "#594"
   }
 ]
