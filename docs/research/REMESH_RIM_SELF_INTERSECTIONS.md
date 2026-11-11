@@ -4,9 +4,49 @@ Scope: a literature search for ways to stop `Remesher` (with `MinTriangleQuality
 pairs at the bottom rim, where the flat cap meets the side of a cone or taper. No code was changed. This document
 maps what the literature offers onto the diagnosis in the issue and onto the code paths in `mesh/Remesher.cs`.
 
-Status of the sources: "read" means the abstract or an article page was read; "snippet" means only a search result
-or a secondary description was seen; "not read" means the work is named by a secondary source and was not checked.
-Every claim below that rests on a snippet is marked as such. Nothing here has been verified by an experiment yet.
+Status of the sources: "read in full" means the full text was extracted and the claims cited here were checked
+against it (section 0); "snippet" means only a search result or a secondary description was seen; "not read" means
+the work is named by a secondary source and was not checked. Nothing here has been verified by an experiment yet.
+
+## 0. Readability of the sources
+
+Checked in this session (full-text extraction with pypdf from the PDFs the fetch tool saved):
+
+| Source | Full text | Used for |
+|---|---|---|
+| Ghyselincks, UBC report, "Isotropic Remeshing with Boundary and Feature Preservation" (5 pages) | yes | 2.1, 2.7 |
+| Yao, "Adaptive Feature-Preserving Isotropic Remeshing", ACM TOG 2019 (4 pages, UBC-hosted PDF) | yes | 2.1, 2.5 |
+| Hu, Yan, Bommes, Alliez, Benes, TVCG 2017 (arXiv 1611.02147, 14 pages) | yes | 2.8 |
+| Skorkovska, Kolingerova, Benes, "A Simple and Robust Approach to Computation of Meshes Intersection" (8 pages) | yes | 2.6 |
+| Shontz and Vavasis, "A mesh warping algorithm based on weighted Laplacian smoothing", IMR 2003 (12 pages) | yes | 2.5 |
+| Knupp, "Hexahedral Mesh Untangling" (Sandia, 12 pages) | yes | 2.5 (principle only, hexahedral) |
+| Liu, Ye, Chen, TVCG 2025 (DOI 10.1109/TVCG.2025.3569926) | no: IEEE page returned an empty 202 | 2.3, abstract only via search snippet |
+| PaMO, arXiv 2509.05595 | no: PDF above the 10 MB fetch limit | 2.4, snippet only |
+| Liu et al. 2025, local repair (ScienceDirect) | no: 403 | 2.6, snippet only |
+| Attene 2014, direct repair (iris.cnr.it) | no: 403 | 2.6, abstract snippet only |
+| Zheng et al., "Visual-Guided Mesh Repair", arXiv 2309.00134 | no: above the 10 MB limit | 2.6, snippet only |
+| Soboleva et al., PRS, arXiv 2311.18494 | no: above the 10 MB limit | 2.9, snippet only |
+| Jacobson et al. 2013 (robust inside-outside) | no: above the 10 MB limit | 2.6, snippet only |
+| Agarwal, Sadri, Yu, SCG 2008 | landing page only; the PDF link was not fetched | 2.5, snippet only |
+| Gumhold, Borodin, Klein 2003 | not retrieved (academic copies only seen) | 2.3, snippet only |
+| Freitag and Plassmann 2000 | not retrieved | 2.5, snippet only |
+| Freitag 1997 (smart Laplacian) | not retrieved; only a MyMesh description | 2.5, snippet only |
+| Botsch and Kobbelt 2004 | not retrieved | 2.8, not read |
+| Freitag, Lori 1999 (OSTI 1230612) | software record only | not used |
+
+Corrections made after the full-text check:
+- Ghyselincks (2.1): the report says feature vertices (two incident feature edges) move along feature lines only,
+  tangential relaxation is along feature lines only, and corner vertices are fixed. The averaging of non-feature
+  neighbours concerns the sizing of feature vertices, not their placement. The report does not describe projection
+  of a rim vertex onto a feature curve; option A's projection step is therefore our extension, not theirs.
+- Yao 2019 (2.1): the tangent-plane constraint of the tangential relaxation is confirmed.
+- Skorkovska (2.6): confirmed that intersections are repaired "locally, usually one at a time".
+- Shontz and Vavasis (2.5): the paper proves a theorem about mesh invertibility with sufficient conditions for a mesh to
+  resist inversion; the statement in 2.5 holds.
+- Knupp (2.5, new): the objective "automatically produces non-inverted elements when possible" (abstract). It is
+  for hexahedral meshes; the principle transfers, the method does not.
+- Hu et al. (2.8): confirmed that the method "preserves geometric features like sharp creases and ridges" without
+  specifying them in advance.
 
 ## 1. The problem as the code and the benchmark describe it
 
@@ -36,14 +76,14 @@ Every claim below that rests on a snippet is marked as such. Nothing here has be
 
 ### 2.1 Constrain rim vertices to the rim curve (the most direct match to the diagnosis)
 
-- Ghyselincks, "Isotropic Remeshing with Boundary and Feature Preservation" (UBC course report; snippet via
-  [chipnbits.github.io](https://chipnbits.github.io/blog/posts/isotropic-remeshing/index.html)): follows Botsch and
-  Kobbelt and treats boundaries and creases explicitly. Tangential relaxation is performed along the feature lines
-  only; boundary and feature vertices are placed from their feature neighbours, not from all neighbours.
-- Yao, "Adaptive Feature-Preserving Isotropic Remeshing", ACM TOG 36(4), 2019 (snippet via search; the full text was
-  not read): builds on Botsch and Kobbelt (2004); feature edges and vertices are identified at the start and kept
-  through the pipeline. Its tangential relaxation is constrained to the vertex's tangent plane, which the source
-  states stabilises the following projection.
+- Ghyselincks, "Isotropic Remeshing with Boundary and Feature Preservation" (UBC report, read in full, section 2.2):
+  feature vertices (two incident feature edges) move along feature lines only; corner vertices (more than two, or
+  exactly one feature edge) are fixed; tangential relaxation is along feature lines only. The sizing of feature
+  vertices is the average of their non-feature neighbours. No projection onto a feature curve is described.
+- Yao, "Adaptive Feature-Preserving Isotropic Remeshing", ACM TOG 36(4), 2019 (read in full, 4 pages): builds on
+  Botsch and Kobbelt (2004); feature edges and vertices are identified at the start and kept through the pipeline.
+  Its tangential relaxation is constrained to the vertex's tangent plane, which the source states stabilises the
+  following projection.
 - FOSSIL isotropic remesh guide (read, [szaghi.github.io](https://szaghi.github.io/FOSSIL/guide/advanced/isotropic-remesh)):
   edges with a dihedral angle above 30 degrees are flagged, and their endpoints are locked, so collapses and
   relaxation leave them alone. The guide notes that a hard threshold also smooths subtle creases.
@@ -96,7 +136,10 @@ Every claim below that rests on a snippet is marked as such. Nothing here has be
 - Freitag, "Smart Laplacian" smoothing (1997; described in a MyMesh doc, snippet): a move is kept only if the quality of
   the incident elements improves. The description does not mention inversion explicitly, so the protection comes from
   the metric. The same doc warns that plain Laplacian smoothing can invert elements.
-- Shontz and Vavasis, IMR 2003 (snippet): a sufficient condition for a local warping to resist inversion.
+- Shontz and Vavasis, IMR 2003 (read in full, 12 pages): a theorem about mesh invertibility with sufficient conditions
+  for a mesh to resist inversion by a transformation (warping by weighted Laplacian smoothing).
+- Knupp, "Hexahedral Mesh Untangling" (Sandia, read in full): an untangling objective whose optimisation produces
+  non-inverted elements when possible; formulated for hexahedral meshes, so it gives the principle only.
 - Agarwal, Sadri and Yu, "Untangling Triangulations through Local Explorations", SCG 2008 (snippet; 2D only): cut out
   a locally removable region around a tangled seed and re-mesh it; output-sensitive. The idea does not transfer to a
   3D surface with a rim unchanged, but the principle (re-mesh a bounded region and accept only if it stays valid) does.
@@ -112,8 +155,8 @@ Every claim below that rests on a snippet is marked as such. Nothing here has be
 - Liu et al., "Robust and Fast Local Repair for Intersecting Triangle Meshes" (2025, ScienceDirect
   [S0010448525001241](https://www.sciencedirect.com/science/article/abs/pii/S0010448525001241); snippet): repairs each
   intersecting region locally, stitches it back, then remeshes locally.
-- Skorkovská et al., GRAPP 2018, "A Simple and Robust Approach to Computation of Meshes Intersection" (snippet): finds
-  intersections one at a time and repairs locally, leaving the rest unchanged.
+- Skorkovská et al., GRAPP 2018, "A Simple and Robust Approach to Computation of Meshes Intersection" (read in full,
+  8 pages): intersections are found and repaired locally, "usually one at a time", leaving the rest unchanged.
 - Zheng et al., "Visual-Guided Mesh Repair", arXiv [2309.00134](https://arxiv.org/pdf/2309.00134) (snippet): checks
   face intersections before each collapse; the authors say local approaches often lack guarantees and can introduce
   new self-intersections during repair.
@@ -136,8 +179,9 @@ Every claim below that rests on a snippet is marked as such. Nothing here has be
 - Botsch and Kobbelt, isotropic remeshing (2004): split, collapse, flip, tangential relaxation, projection. Not read
   here; the loop is confirmed by the implementations above.
 - Hu, Yan, Bommes, Alliez and Benes, "Error-Bounded and Feature Preserving Surface Remeshing with Minimal Angle
-  Improvement", IEEE TVCG 2017, DOI [10.1109/tvcg.2016.2632720](https://doi.org/10.1109/tvcg.2016.2632720) (snippet):
-  preserves sharp creases within an error bound; a broader method, not a rim fix.
+  Improvement", IEEE TVCG 2017, DOI [10.1109/tvcg.2016.2632720](https://doi.org/10.1109/tvcg.2016.2632720) (read in full,
+  arXiv 1611.02147): features are kept without specifying them in advance; sharp creases and ridges are preserved within
+  an error bound. A broader method, not a rim fix.
 - Dunyach, Barthe and Botsch, Eurographics 2013 (snippet): modifies the tangential relaxation barycentre to keep relative
   edge sizing.
 
