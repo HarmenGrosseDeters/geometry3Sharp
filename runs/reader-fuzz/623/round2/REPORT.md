@@ -21,9 +21,28 @@ Seconds include build, seeds and instrumentation. No artifacts; every run exited
 | ele | 20 | 48 | 225 | 0 |
 | mcp | 21 | 275 | 490 | 0 |
 
-Growth from 100k to 200k iterations is small (the DONE counter rose by about 1 to 15 percent on most targets; the 3mf
-and g3mesh counters moved by less than the iteration doubling would suggest), so the stop rule's "ft stopped growing" holds
-approximately, not exactly. The round-1 table above is the same campaign at 100k.
+ft growth from 100k to 200k (the last libFuzzer line at or before 100k, and the DONE line):
+
+| Target | ft at <=100k | ft at end | growth |
+|---|---:|---:|---:|
+| stl | 5507 | 5934 | +8 % |
+| obj | 5219 | 5346 | +2 % |
+| off | 2597 | 2719 | +5 % |
+| ply | 4696 | 4796 | +2 % |
+| 3mf | 934 | 1061 | +14 % |
+| glb | 4353 | 4474 | +3 % |
+| g3mesh | 1542 | 1814 | +18 % |
+| minijson | 768 | 869 | +13 % |
+| esri | 389 | 409 | +5 % |
+| xyz | 590 | 624 | +6 % |
+| poly | 2889 | 3209 | +11 % |
+| node | 323 | 333 | +3 % |
+| ele | 225 | 225 | 0 % |
+| mcp | 364 | 490 | +35 % |
+
+Every target except `ele` still grew between 100k and 200k, so the doubling rule would call for a further round on those
+targets. The stop rule ("two rounds over all targets") ends the campaign after round 2, as planned; the growth is recorded
+here for the owner's decision on a third round.
 
 Validation before the campaign: the pilot's six Python tests pass; `verify_crash_path.py` needed the anchor update of #630
 (the synthetic crash was saved and reproduced). The run used the branch `local/623-reader-fuzz` with that update, not master.
