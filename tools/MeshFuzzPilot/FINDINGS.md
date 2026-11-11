@@ -92,14 +92,34 @@ judges them):
    - Pilot judgement: rings of a few grid cells of area, whose area in doubles is 0 or of either sign (the vertices are converted from the grid, where the ring
      is oriented), are not judged for orientation below `OrientationSlack` (16 squared grid units plus the rounding of a double area): the representation limit
      already documented for far-from-origin coordinates (18 crashes).
+   - Open, minor (2 crashes, Offset of the union of a ring of 1e-12 extent with a ring 1.7 away, frame resolution 1e-23): an Offset result has an outer
+     ring with a negative area of -1.7e-16 (5 vertices, one spike vertex at 1.2e-4 beside vertices at 1e-12) and another of -2.6e-25; the grid orientation
+     is positive. Not analysed further; the Offset target at extreme dynamic range is judged only for these two inputs (artifacts: `crash-bf45adc8`,
+     `crash-d4e84c7e` of the 2026-11-11 campaign).
    - **Clipper2 2.0.0 itself (open, 16 crashes, not reported upstream):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
-     neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). It depends on the grid
-     scale: with `PrecisionBits` 24 to 36 and 44 the same input is consistent, with 38 and the default 40 it is not (area of A|B 0.2210 against
-     0.2000 = A + B - A&B). No adapter code is involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
+     neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
+     involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
      A = (0,0) (0.125,0) (0.125,0.125) (0,0.125) (0.5703125,0.5703125) (0.6953125,0.5703125) (0.125,0.125) (0,0.125);
      B = (0.33984375,0.08984375) (-0.58984375,-0.58984375) (0.22265625,0.21484375) (0.48828125,-0.02734375) (0.21484375,0.08984375) (0.78515625,0.66015625);
-     `Clipper2Polygons.BooleanPaths(ClipType.Union, {A}, {B})`, probe point (0.25463542, 0.20286458). Likely the cross products of large grid
-     coordinates in Clipper2's double arithmetic; a lower default `PrecisionBits` would avoid this class, at a coarser grid (owner decision).
+     `Clipper2Polygons.BooleanPaths(ClipType.Union, {A}, {B})`, probe point (0.25463542, 0.20286458).
+     **Measured (2026-11-11), the class does not depend on `PrecisionBits` and needs exact coincidences, not grid size:**
+     - The repro alone: consistent at `PrecisionBits` 24, 32, 36 and 44, inconsistent at 38 and 40 (the default): a coincidence of this one case.
+     - Random pairs of self-intersecting rings (seeded, `A|B` against `A + B - A&B` on the flat Clipper2 paths; failures per 3000 pairs):
+
+       | PrecisionBits | 24 | 32 | 36 | 38 | 40 | 44 | 48 |
+       |---|---|---|---|---|---|---|---|
+       | 8-gons, coordinates k/64 in [-1,1] | 2 | 1 | 1 | 1 | 1 | 2 | 1 |
+       | 16-gons, coordinates k/64 in [-1,1] | 1 | 2 | 2 | 1 | 1 | 2 | 1 |
+
+       The failing pairs are mostly the same at every precision (e.g. cases 459, 1700, 2038, 2354, 2877 of one 16-gon seed fail at all of 24 to 50).
+       Lowering the default `PrecisionBits` does not avoid the class.
+     - By coordinate step (16-gons, 6000 pairs, `PrecisionBits` 24 / 40): step 1/64: 3 / 4 failures; 1/1024, 1e-6 and 1e-9: 0 / 0. With generic
+       coordinates (no vertex on another edge, no collinear overlap) no failure was seen.
+     - The repro translated (dyadic or random) or scaled by 2^k still fails (200/200 translated, 154/200 scaled, `PrecisionBits` 40), perturbed by 1e-9 or
+       1e-3 it never fails (0/200 each): it needs the exact degeneracy (vertices on edges, collinear overlaps), not a grid position.
+     - Clipper2's documentation (angusj.com) could not be read from this environment (the host is not reachable). The C# source (`Clipper.Core.cs`) computes
+       `CrossProduct` and `GetLineIntersectPt` in double ("typecast to double to avoid potential int overflow") and has exact 128-bit paths only for
+       `ProductsAreEqual` / `CrossProductSign`; the source states no precision limit for self-touching input. Not verified against the 2.0.0 tag.
 `ArgumentException` for coordinates above 1e70 is the documented contract: the target judges it (the normalized copy keeps the case's offset, so it is reached; accepted
 input beyond 1e70 would be a finding).
 The reducer's 2^40 scale check is judged only inside the Reducer's range (nonzero coordinates 2^-200 .. 2^150, QA.md 2.5a); two inputs with a vertex of magnitude 1e-235

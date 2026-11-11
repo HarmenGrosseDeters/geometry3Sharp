@@ -333,9 +333,9 @@ public static partial class Program
         finite = true; oriented = true;
         foreach (GeneralPolygon2d g in r.Polygons) {
             finite &= g.Outer.Vertices.All(v => v.IsFinite) && g.Holes.All(h => h.Vertices.All(v => v.IsFinite));
-            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) < -OrientationSlack(r, g.Outer.Vertices)) oriented = false;
+            if (g.Outer.VertexCount >= 3 && SignedArea2D(g.Outer.Vertices) < -OrientationSlack(r, g.Outer.Vertices)) { oriented = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"inspect: outer area {SignedArea2D(g.Outer.Vertices):R}, {g.Outer.VertexCount} vertices, slack {OrientationSlack(r, g.Outer.Vertices):R}, resolution {r.Frame.Resolution:R}: " + string.Join(" ", g.Outer.Vertices.Select(v => $"({v.x:R},{v.y:R})"))); }
             foreach (Polygon2d h in g.Holes)
-                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) > OrientationSlack(r, h.Vertices)) oriented = false;
+                if (h.VertexCount >= 3 && SignedArea2D(h.Vertices) > OrientationSlack(r, h.Vertices)) { oriented = false; if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1") Console.Error.WriteLine($"inspect: hole area {SignedArea2D(h.Vertices):R}, {h.VertexCount} vertices, slack {OrientationSlack(r, h.Vertices):R}"); }
         }
     }
 

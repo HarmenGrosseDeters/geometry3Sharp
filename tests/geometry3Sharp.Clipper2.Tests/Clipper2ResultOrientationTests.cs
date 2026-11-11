@@ -113,5 +113,41 @@ namespace geometry3Sharp.Clipper2.Tests
             Assert.Equal(flat.Sum(p => Clipper.Area(p)) / (r.Frame.Scale * r.Frame.Scale), r.Area, 9);
             Assert.Contains(r.Polygons, g => g.Holes.Count > 0);
         }
+
+        static Polygon2d Square(double x0, double y0, double x1, double y1, bool ccw) =>
+            ccw ? Ring(x0, y0, x1, y0, x1, y1, x0, y1) : Ring(x0, y0, x0, y1, x1, y1, x1, y0);
+
+        [Fact]
+        public void BooleanPaths_HoleTouchingItsOuterRingAtAVertex_IsAHole()
+        {
+            var r = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { Square(0, 0, 10, 10, true), Ring(5, 0, 3, 5, 7, 5) }, new Polygon2d[0]);
+            AssertOriented(r);
+            Assert.Single(r.Polygons);
+            Assert.Single(r.Polygons[0].Holes);
+            Assert.Equal(90, r.Area, 9);
+        }
+
+        [Fact]
+        public void BooleanPaths_IslandInsideAHole_IsAPolygonOfItsOwn()
+        {
+            var r = Clipper2Polygons.BooleanPaths(ClipType.Union,
+                new[] { Square(0, 0, 30, 30, true), Square(5, 5, 25, 25, false), Square(10, 10, 20, 20, true) }, new Polygon2d[0]);
+            AssertOriented(r);
+            Assert.Equal(2, r.Polygons.Count);
+            Assert.Single(r.Polygons[0].Holes);
+            Assert.Empty(r.Polygons[1].Holes);
+            Assert.Equal(900 - 400 + 100, r.Area, 9);
+        }
+
+        [Fact]
+        public void BooleanPaths_EvenOdd_NestedSameOrientationRings_AlternateHoleAndIsland()
+        {
+            var r = Clipper2Polygons.BooleanPaths(ClipType.Union,
+                new[] { Square(0, 0, 30, 30, true), Square(5, 5, 25, 25, true), Square(10, 10, 20, 20, true) }, new Polygon2d[0],
+                new Clipper2Options { FillRule = FillRule.EvenOdd });
+            AssertOriented(r);
+            Assert.Equal(2, r.Polygons.Count);
+            Assert.Equal(900 - 400 + 100, r.Area, 9);
+        }
     }
 }
