@@ -10,6 +10,7 @@ namespace g3
     /// Writes various mesh file formats. Format is determined from extension. Currently supports:
     ///   * .obj : Wavefront OBJ Format https://en.wikipedia.org/wiki/Wavefront_.obj_file
     ///   * .stl : ascii and binary STL formats https://en.wikipedia.org/wiki/STL_(file_format) 
+    ///   * .xyz : ascii point cloud (vertices and vertex normals only)
     ///   * .off : OFF format https://en.wikipedia.org/wiki/OFF_(file_format)
     ///   * .g3mesh : internal binary format for packed DMesh3 objects
     ///   * .ply : ascii and binary (little endian) PLY format http://paulbourke.net/dataformats/ply/
@@ -112,6 +113,8 @@ namespace g3
                 writeFunc = Write_STL;
             else if (sExtension.Equals(".off", StringComparison.OrdinalIgnoreCase))
                 writeFunc = Write_OFF;
+            else if (sExtension.Equals(".xyz", StringComparison.OrdinalIgnoreCase))
+                writeFunc = Write_XYZ;
             else if (sExtension.Equals(".g3mesh", StringComparison.OrdinalIgnoreCase))
                 writeFunc = Write_G3Mesh;
             else if (sExtension.Equals(".ply", StringComparison.OrdinalIgnoreCase))
@@ -184,6 +187,24 @@ namespace g3
             try {
                 StreamWriter w = new StreamWriter(stream);
                 OFFWriter writer = new OFFWriter();
+                var result = writer.Write(w, vMeshes, options);
+                w.Flush();
+                return result;
+            } finally {
+                CloseStreamF(stream);
+            }
+        }
+
+
+        IOWriteResult Write_XYZ(string sFilename, List<WriteMesh> vMeshes, WriteOptions options)
+        {
+            Stream stream = OpenStreamF(sFilename);
+            if (stream == null)
+                return new IOWriteResult(IOCode.FileAccessError, "Could not open file " + sFilename + " for writing");
+
+            try {
+                StreamWriter w = new StreamWriter(stream);
+                XYZWriter writer = new XYZWriter();
                 var result = writer.Write(w, vMeshes, options);
                 w.Flush();
                 return result;

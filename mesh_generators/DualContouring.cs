@@ -204,6 +204,8 @@ namespace g3
             CoveredTriangles = CheckedTriangles = ForcedDiagonals = EdgeVertices = 0;
             coveredTriangles = new HashSet<int>();
             edgeVertexIds = new HashSet<int>();
+            faceVertexIds = new HashSet<int>();
+            FaceVertices = ClampedFaceVertices = 0;
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -381,6 +383,11 @@ namespace g3
             Cell[] polyCells = new Cell[4];
             int[] poly = new int[4];
             HashSet<int> transitionVertices = new HashSet<int>();
+            genMass = vertexMass; genPlane = vertexPlane; genCell = vertexCell; genLast = vertexLast; genPatches = vertexPatches;
+            faceVertices = new Dictionary<EdgeKey, int>();
+            crossingIndex = new Dictionary<EdgeKey, int>(NC);
+            for (int c = 0; c < NC; ++c) crossingIndex[edge_key(crossings[c])] = c;
+            genPoints = hpoints; genNormals = hnormals;
             for (int ci = 0; ci < NC; ++ci) {
                 GridEdge e = crossings[ci];
                 bool valid = true, anyFine = false, anyCoarse = false;
@@ -398,6 +405,17 @@ namespace g3
                     continue;
                 if (Diagnostics != null)
                     diagnose_polygon(e, poly, polyCells, anyFine && anyCoarse, vertexPatches);
+                // faces around e that need a face vertex (between cells of different size or with several patches,
+                // or ambiguous): the polygon becomes a fan around an edge vertex on e (Ju & Udeshi 2006)
+                bool fanCovered = false;
+                List<int> cycle = polygon_cycle(e, poly, polyCells, out fanCovered);
+                if (cycle != null) {
+                    if (anyFine && anyCoarse)
+                        for (int q = 0; q < 4; ++q) transitionVertices.Add(poly[q]);
+                    if (emit_fan(e, ci, cycle, fanCovered, hpoints, polyCells[0]) == false)
+                        add_non_manifold_cells(nonManifoldCells, polyCells);
+                    continue;
+                }
                 // Wang's envelope criterion on a quad of four single-patch cells of one size, before the
                 // orientation swap (it needs the counter-clockwise order): which triangulation stays inside the
                 // envelope of e, so that no other covered triangle can intersect it
@@ -435,6 +453,14 @@ namespace g3
             nmc.Sort((x, y) => x.Key.CompareTo(y.Key));
             NonManifoldCells = new List<Vector3i>();
             foreach (var kv in nmc) NonManifoldCells.Add(kv.Value);
+            // face vertices left without triangles (their only fans failed): removed, not counted
+            foreach (int v in new List<int>(faceVertexIds)) {
+                if (Mesh.IsVertex(v) && Mesh.GetVtxEdgeCount(v) == 0) {
+                    Mesh.RemoveVertex(v, false, false);
+                    faceVertexIds.Remove(v);
+                    FaceVertices--;
+                }
+            }
 
             Vector3d[] qefPositions = null;
             if (Diagnostics != null) {
@@ -454,7 +480,7 @@ namespace g3
             }
             SelfIntersectionsFound = SelfIntersectionsLeft = 0;
             Func<int, Vector3d> fallback = (v) => vertexMass[v];
-            if (ResolveSelfIntersections) {
+            if (ResolveSelfIntersections && !SkipResolveForTests) {
                 // Polygons where fine and coarse cells meet can fold (the coarse cell spans more than a quadrant
                 // around a fine edge inside its face). Fallback for their vertices: the centroid of their
                 // neighbours (recomputed in each round), on their dominant plane (so they stay on the
@@ -1634,12 +1660,8 @@ namespace g3
             }
             // edge vertex: on the grid edge (the coordinates across the edge are the nodes', so it is exactly on
             // the segment), at the surface point along it, strictly between the end nodes
-            Vector3d a = node_pos(e.Start), b = node_pos(e.End(F));
-            Vector3d ve = a;
-            double lo = a[e.Axis], hi = b[e.Axis], t = hpoints[ci][e.Axis];
-            double margin = QEFCellMargin * (hi - lo);
-            ve[e.Axis] = (t > lo + margin && t < hi - margin) ? t : 0.5 * (lo + hi);
-            if (!(ve[e.Axis] > lo && ve[e.Axis] < hi))
+            Vector3d ve;
+            if (edge_point(e, edge_surface_t(e, hpoints[ci], genNormals != null ? genNormals[ci] : Vector3d.Zero), out ve) == false)
                 return append_quad(poly[0], poly[1], poly[2], poly[3]);   // (the edge is too short to split in double)
             int vid = Mesh.AppendVertex(ve);
             // (per-vertex lists are indexed by vertex id; a rolled back edge vertex can leave its id free for reuse)
@@ -1662,6 +1684,399 @@ namespace g3
             return true;
         }
         int forcedVertex;
+
+        // where along e (its axis coordinate) the surface crosses it: the edge line cut with the tangent plane of
+        // the Hermite data (exact for a planar surface; the Hermite point can lie off the edge, eg projected onto
+        // an input mesh), or the Hermite point's coordinate if the plane is nearly parallel to the edge
+        double edge_surface_t(GridEdge e, Vector3d hp, Vector3d hn)
+        {
+            Vector3d a = node_pos(e.Start);
+            if (Math.Abs(hn[e.Axis]) > 0.1 * hn.Length) {
+                double t = a[e.Axis] + hn.Dot(hp - a) / hn[e.Axis];
+                if (double.IsNaN(t) == false && double.IsInfinity(t) == false) return t;
+            }
+            return hp[e.Axis];
+        }
+
+        // a point on the grid edge e: the coordinates across it are the nodes' (exactly on the segment), along it t
+        // clamped to the edge shrunk by the cell margin (the midpoint if t is not finite); false if that is not
+        // strictly inside the edge
+        bool edge_point(GridEdge e, double t, out Vector3d p)
+        {
+            Vector3d a = node_pos(e.Start), b = node_pos(e.End(F));
+            p = a;
+            double lo = a[e.Axis], hi = b[e.Axis];
+            double margin = Math.Max(QEFCellMargin, 0.01) * (hi - lo);
+            p[e.Axis] = double.IsNaN(t) || double.IsInfinity(t) ? 0.5 * (lo + hi) : MathUtil.Clamp(t, lo + margin, hi - margin);
+            if (!(p[e.Axis] > lo && p[e.Axis] < hi))
+                p[e.Axis] = 0.5 * (lo + hi);
+            return p[e.Axis] > lo && p[e.Axis] < hi;
+        }
+
+        // ---- face vertices (option B of docs/design/DC_INTERSECTION_FREE.md) ----
+        List<Vector3d> genMass, genPlane, genLast;
+        List<Cell> genCell;
+        internal List<int> genPatches;
+        Dictionary<EdgeKey, int> crossingIndex;
+        Vector3d[] genPoints, genNormals;
+        // per (face, segment): the face vertex, or -1 if none could be placed (the face then stays dual)
+        Dictionary<EdgeKey, int> faceVertices = new Dictionary<EdgeKey, int>();
+        /// <summary>
+        /// face vertices of the last Generate(): on faces between cells of different size (refinement transitions)
+        /// and on ambiguous faces between two single-patch cells, where the dual quads would leave out a
+        /// non-manifold quad. With an edge vertex on the grid edge, their polygons become fans whose triangles stay
+        /// inside one cell each (Ju and Udeshi 2006)
+        /// </summary>
+        public int FaceVertices;
+        /// <summary>
+        /// face vertices not placed at the in-face QEF point of their segment (it was outside the region that keeps
+        /// the fans of the face apart, or the Hermite data was missing): the sharpness there is not kept
+        /// </summary>
+        public int ClampedFaceVertices;
+
+        internal HashSet<int> faceVertexIds = new HashSet<int>();
+        /// test seam (the thread that calls Generate): skip the self-intersection repair, for tests that need a
+        /// contour that still intersects (eg the not-clean paths of MeshRobustRepair)
+        [ThreadStatic] internal static bool SkipResolveForTests;
+
+        int append_aux_vertex(Vector3d p, Cell cell)
+        {
+            int vid = Mesh.AppendVertex(p);
+            while (genMass.Count <= vid) {
+                genMass.Add(p); genPlane.Add(Vector3d.Zero); genCell.Add(cell); genLast.Add(p); genPatches.Add(0);
+            }
+            genMass[vid] = p; genPlane[vid] = Vector3d.Zero; genCell[vid] = cell; genLast[vid] = p; genPatches[vid] = 0;
+            return vid;
+        }
+
+        // the face between the consecutive cells A and B around e: the face of the smaller cell (it lies in the
+        // other's face), as its min corner, normal axis and size
+        bool shared_face(Cell A, Cell B, GridEdge e, out Vector3i fmin, out int normal, out int fsize)
+        {
+            int sa = cell_size(A), sb = cell_size(B);
+            Cell small = sa <= sb ? A : B;
+            fsize = Math.Min(sa, sb);
+            fmin = small.Min;
+            normal = -1;
+            for (int k = 0; k < 3; ++k) {
+                if (k == e.Axis) continue;
+                if (A.Min[k] + sa == B.Min[k]) { normal = k; fmin[k] = B.Min[k]; break; }
+                if (B.Min[k] + sb == A.Min[k]) { normal = k; fmin[k] = A.Min[k]; break; }
+            }
+            return normal >= 0;
+        }
+
+        // the cycle of vertices around e (counter-clockwise around +axis): the cell vertices, each once, with the
+        // face vertex between two cells where their face needs one. null if no face needs one (a plain dual
+        // polygon). covered: every cell vertex has one patch and is strictly inside its cell, so each fan triangle
+        // lies in its tetrahedron (cell vertex, face point, e) inside one cell (or Wang's (v_p, v_q, e) for a
+        // dual face)
+        List<int> polygon_cycle(GridEdge e, int[] poly, Cell[] cells, out bool covered)
+        {
+            covered = true;
+            // fast path (no allocation): most polygons need no face vertex
+            bool any = false;
+            for (int q = 0; q < 4 && !any; ++q) {
+                Cell A = cells[q], B = cells[(q + 1) % 4];
+                if (cell_key(A) != cell_key(B) && face_may_need_vertex(e, A, B, poly[q], poly[(q + 1) % 4]))
+                    any = true;
+            }
+            if (!any)
+                return null;
+            // the distinct cells around e in order (a coarse cell can fill two neighbouring quadrants)
+            var cq = new List<int>(4);
+            for (int q = 0; q < 4; ++q)
+                if (cq.Count == 0 || cell_key(cells[cq[cq.Count - 1]]) != cell_key(cells[q]))
+                    cq.Add(q);
+            if (cq.Count > 1 && cell_key(cells[cq[cq.Count - 1]]) == cell_key(cells[cq[0]]))
+                cq.RemoveAt(cq.Count - 1);
+            if (cq.Count < 2)
+                return null;
+            var cycle = new List<int>(8);
+            bool anyFace = false;
+            for (int i = 0; i < cq.Count; ++i) {
+                int qa = cq[i], qb = cq[(i + 1) % cq.Count];
+                cycle.Add(poly[qa]);
+                if (genPatches[poly[qa]] != 1 || strictly_in_cell(poly[qa], cells[qa]) == false) covered = false;
+                int fv = face_vertex(e, cells[qa], cells[qb], poly[qa], poly[qb]);
+                if (fv >= 0) { cycle.Add(fv); anyFace = true; }
+                else if (fv == FaceVertexFailed) covered = false;
+            }
+            return anyFace ? cycle : null;
+        }
+        const int FaceDual = -1, FaceVertexFailed = -2;
+
+        // the crossing on the grid edge between two face corners: the edge itself, or one of its fine sub-edges
+        // (a coarse edge subdivided between refined and unrefined cells)
+        bool face_edge_crossing(Vector3i c0, Vector3i c1, out int ci)
+        {
+            Vector3i d = c1 - c0;
+            int axis = d.x != 0 ? 0 : d.y != 0 ? 1 : 2;
+            Vector3i start = d[axis] > 0 ? c0 : c1;
+            int len = Math.Abs(d[axis]);
+            if (len == F && F > 1 && crossingIndex.TryGetValue(edge_key(new GridEdge(start, axis, true)), out ci)) return true;
+            for (int k = 0; k < len; ++k)
+                if (crossingIndex.TryGetValue(edge_key(new GridEdge(start + axis_vec(axis, k), axis, false)), out ci)) return true;
+            ci = -1;
+            return false;
+        }
+        // is the grid node n on the axis-parallel segment from a to b
+        static bool on_segment(Vector3i n, Vector3i a, Vector3i b)
+        {
+            for (int k = 0; k < 3; ++k)
+                if (n[k] < Math.Min(a[k], b[k]) || n[k] > Math.Max(a[k], b[k])) return false;
+            return true;
+        }
+
+        // false if the face between A and B around e is certainly dual (the same size, and a multi-patch cell or
+        // not ambiguous); e's end nodes have different signs, so the face is ambiguous only if the two corners
+        // across it continue the alternation
+        bool face_may_need_vertex(GridEdge e, Cell A, Cell B, int vA, int vB)
+        {
+            int sa = cell_size(A), sb = cell_size(B);
+            if (sa != sb) return true;
+            if (genPatches[vA] != 1 || genPatches[vB] != 1) return false;
+            if ((e.Coarse ? F : 1) != sa) return true;     // a fine edge on a coarse face: the full test
+            // the in-plane axis across the face from e: the one along which A and B are not separated
+            int w = -1;
+            for (int k = 0; k < 3; ++k) {
+                if (k == e.Axis) continue;
+                if (A.Min[k] == B.Min[k]) { w = k; break; }
+            }
+            if (w < 0) return true;
+            int d = (A.Min[w] < e.Start[w]) ? -sa : sa;
+            Vector3i s0 = e.Start, s1 = e.End(F), t1 = s1, t0 = s0;
+            t1[w] += d; t0[w] += d;
+            bool i1 = is_inside(node_value(s1)), j1 = is_inside(node_value(t1)), j0 = is_inside(node_value(t0)), i0 = is_inside(node_value(s0));
+            return i1 != j1 && j1 != j0 && j0 != i0;
+        }
+
+        bool strictly_in_cell(int vid, Cell c)
+        {
+            Vector3d lo = node_pos(c.Min), hi = node_pos(c.Min + cell_size(c) * Vector3i.One);
+            Vector3d p = Mesh.GetVertex(vid);
+            for (int k = 0; k < 3; ++k)
+                if (!(p[k] > lo[k] && p[k] < hi[k])) return false;
+            return true;
+        }
+
+        // the face vertex of the segment of e on the face between A and B, or -1 if the face is dual (two cells
+        // of one size with one patch each, a face that is not ambiguous) or no face vertex could be placed
+        int face_vertex(GridEdge e, Cell A, Cell B, int vA, int vB)
+        {
+            Vector3i fmin; int normal, fsize;
+            if (shared_face(A, B, e, out fmin, out normal, out fsize) == false)
+                return FaceVertexFailed;
+            int a1 = (normal + 1) % 3, a2 = (normal + 2) % 3;
+            Vector3i[] corner = { fmin, fmin + axis_vec(a1, fsize), fmin + axis_vec(a1, fsize) + axis_vec(a2, fsize), fmin + axis_vec(a2, fsize) };
+            bool[] inside = new bool[4];
+            int changes = 0;
+            for (int i = 0; i < 4; ++i) inside[i] = is_inside(node_value(corner[i]));
+            for (int i = 0; i < 4; ++i) if (inside[i] != inside[(i + 1) % 4]) changes++;
+            bool ambiguous = changes == 4;
+            // a face vertex where the dual polygons cannot stay manifold (an ambiguous face between two single-patch
+            // cells: both segments would join the same two vertices) or cannot be covered (cells of different
+            // size). Not next to multi-patch cells: they already have a vertex per segment, and face vertices
+            // there cost sharpness (the in-face QEF point is often outside the allowed region) for no guarantee,
+            // since the fans of different patches in one cell are checked anyway
+            bool singleA = genPatches[vA] == 1, singleB = genPatches[vB] == 1;
+            bool dual = cell_size(A) == cell_size(B) && (!ambiguous || !(singleA && singleB));
+            if (dual)
+                return FaceDual;
+            // the segment of e: on an ambiguous face, each segment cuts off one inside corner (the face rule of
+            // cell_patches: inside corners stay apart), the one at e's inside end
+            int seg = 0;
+            if (ambiguous) {
+                // e is on the face edge from corner i to i+1 (a fine edge on a subdivided coarse face edge, whose
+                // signs are equivalent to the coarse ones, or the face edge itself): the segment is the one
+                // around that face edge's inside corner
+                seg = -1;
+                for (int i = 0; i < 4 && seg < 0; ++i) {
+                    int j = (i + 1) % 4;
+                    if (on_segment(e.Start, corner[i], corner[j]) && on_segment(e.End(F), corner[i], corner[j]))
+                        seg = inside[i] ? i : inside[j] ? j : -1;
+                }
+                if (seg < 0) return FaceVertexFailed;
+            }
+            EdgeKey key = new EdgeKey() { Node = node_key(fmin), Code = (normal * 2 + (fsize > 1 ? 1 : 0)) * 8 + seg };
+            int vid;
+            if (faceVertices.TryGetValue(key, out vid))
+                return vid;
+            Vector3d p;
+            bool atQef;
+            vid = place_face_vertex(corner, inside, normal, ambiguous, seg, Mesh.GetVertex(vA), Mesh.GetVertex(vB), out p, out atQef)
+                ? append_aux_vertex(p, A) : FaceVertexFailed;
+            if (vid >= 0) { FaceVertices++; faceVertexIds.Add(vid); if (!atQef) ClampedFaceVertices++; }
+            faceVertices[key] = vid;
+            return vid;
+        }
+
+        // strictly inside the face, and on an ambiguous face strictly on the side of its segment's corner of the
+        // diagonal through the two neighbouring corners, so the fans of the two segments are disjoint: the point
+        // where the segment pA-pB crosses the face (as dual contouring would place it) if that is allowed, else the
+        // midpoint of the segment's two edge points, else the centroid of the allowed triangle / the face center
+        bool place_face_vertex(Vector3i[] corner, bool[] inside, int normal, bool ambiguous, int seg, Vector3d pA, Vector3d pB, out Vector3d p, out bool atQef)
+        {
+            atQef = false;
+            int a1 = (normal + 1) % 3, a2 = (normal + 2) % 3;
+            Vector3d[] c = new Vector3d[4];
+            for (int i = 0; i < 4; ++i) c[i] = node_pos(corner[i]);
+            double plane = c[0][normal];
+            Func<Vector3d, bool> allowed = (x) => {
+                if (!(x[a1] > c[0][a1] && x[a1] < c[2][a1] && x[a2] > c[0][a2] && x[a2] < c[2][a2])) return false;
+                if (!ambiguous) return true;
+                Vector3d b = c[(seg + 1) % 4], d = c[(seg + 3) % 4];
+                int sx = AdaptivePredicates.Orient2d(b[a1], b[a2], d[a1], d[a2], x[a1], x[a2]);
+                int sc = AdaptivePredicates.Orient2d(b[a1], b[a2], d[a1], d[a2], c[seg][a1], c[seg][a2]);
+                return sx != 0 && sx == sc;
+            };
+            // the segment's edges: around the corner seg (ambiguous), else the two edges with a sign change
+            var segEdges = new List<int>(2);
+            for (int i = 0; i < 4; ++i) {
+                int j = (i + 1) % 4;
+                if (inside[i] == inside[j]) continue;
+                if (ambiguous && i != seg && j != seg) continue;
+                segEdges.Add(i);
+            }
+            // 1. dual contouring in the face: the point of the face plane closest (least squares) to the tangent
+            // lines of the Hermite data of the segment's edges, projected into the plane (on the surface at a
+            // crease through the face)
+            {
+                var pts2 = new List<Vector2d>(2); var nrm2 = new List<Vector2d>(2);
+                foreach (int i in segEdges) {
+                    int ci;
+                    if (face_edge_crossing(corner[i], corner[(i + 1) % 4], out ci) == false) continue;
+                    Vector3d hp = genPoints[ci], hn = genNormals[ci];
+                    Vector2d n2 = new Vector2d(hn[a1], hn[a2]);
+                    if (n2.Length < 1e-6) continue;
+                    pts2.Add(new Vector2d(hp[a1], hp[a2])); nrm2.Add(n2.Normalized);
+                }
+                if (pts2.Count == 2) {
+                    Vector2d m = 0.5 * (pts2[0] + pts2[1]);
+                    double det = nrm2[0].x * nrm2[1].y - nrm2[0].y * nrm2[1].x;
+                    Vector2d x = m;
+                    if (Math.Abs(det) > 0.1) {
+                        // the two tangent lines meet: n_k . x = n_k . p_k
+                        double r0 = nrm2[0].Dot(pts2[0] - m), r1 = nrm2[1].Dot(pts2[1] - m);
+                        x = m + new Vector2d((r0 * nrm2[1].y - r1 * nrm2[0].y) / det, (nrm2[0].x * r1 - nrm2[1].x * r0) / det);
+                    } else {
+                        // nearly parallel: the mean line through the mass point
+                        Vector2d n = (nrm2[0].Dot(nrm2[1]) >= 0 ? nrm2[0] + nrm2[1] : nrm2[0] - nrm2[1]).Normalized;
+                        x = m + (0.5 * (n.Dot(pts2[0] - m) + n.Dot(pts2[1] - m))) * n;
+                    }
+                    p = Vector3d.Zero;
+                    p[normal] = plane; p[a1] = x.x; p[a2] = x.y;
+                    if (allowed(p)) { atQef = true; return true; }
+                    // the QEF point clamped into the face (shrunk by the cell margin); if that is still not
+                    // allowed, the allowed point closest to it on the way to the mass point of the segment's
+                    // surface points (bisection), so the vertex stays near the crease
+                    Vector3d mp = Vector3d.Zero;
+                    mp[normal] = plane; mp[a1] = m.x; mp[a2] = m.y;
+                    double m1 = Math.Max(QEFCellMargin, 0.01) * (c[2][a1] - c[0][a1]), m2 = Math.Max(QEFCellMargin, 0.01) * (c[2][a2] - c[0][a2]);
+                    Vector3d q = p;
+                    q[a1] = MathUtil.Clamp(q[a1], c[0][a1] + m1, c[2][a1] - m1);
+                    q[a2] = MathUtil.Clamp(q[a2], c[0][a2] + m2, c[2][a2] - m2);
+                    if (allowed(q)) { p = q; return true; }
+                    // on an ambiguous face: the QEF minimum on the diagonal that bounds the allowed triangle, moved
+                    // into it by the cell margin (the constrained minimum lies on that boundary for a convex QEF)
+                    if (ambiguous) {
+                        Vector2d cs = new Vector2d(c[seg][a1], c[seg][a2]);
+                        Vector2d b2 = new Vector2d(c[(seg + 1) % 4][a1], c[(seg + 1) % 4][a2]), d2 = new Vector2d(c[(seg + 3) % 4][a1], c[(seg + 3) % 4][a2]);
+                        double w = Math.Max(QEFCellMargin, 0.01);
+                        Vector2d P0 = b2 + w * (cs - 0.5 * (b2 + d2)), D = d2 - b2;
+                        double num = 0, den = 0;
+                        for (int k = 0; k < 2; ++k) {
+                            double nd = nrm2[k].Dot(D);
+                            num += nd * nrm2[k].Dot(P0 - pts2[k]);
+                            den += nd * nd;
+                        }
+                        double t = den > 1e-20 * D.LengthSquared ? MathUtil.Clamp(-num / den, w, 1 - w) : 0.5;
+                        Vector2d y = P0 + t * D;
+                        Vector3d r = Vector3d.Zero;
+                        r[normal] = plane; r[a1] = y.x; r[a2] = y.y;
+                        if (allowed(r)) { p = r; return true; }
+                    }
+                    if (allowed(mp)) {
+                        double lo = 0, hi = 1;   // q + t (mp - q): t = hi is allowed
+                        for (int it = 0; it < 30; ++it) {
+                            double mid = 0.5 * (lo + hi);
+                            Vector3d r = Vector3d.Lerp(q, mp, mid);
+                            r[normal] = plane;
+                            if (allowed(r)) hi = mid; else lo = mid;
+                        }
+                        p = Vector3d.Lerp(q, mp, hi);
+                        p[normal] = plane;
+                        if (allowed(p)) return true;
+                        p = mp;
+                        return true;
+                    }
+                }
+            }
+            double da = pA[normal] - plane, db = pB[normal] - plane;
+            if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+                double t = da / (da - db);
+                p = pA + t * (pB - pA);
+                p[normal] = plane;
+                if (allowed(p)) return true;
+            }
+            var pts = new List<Vector3d>(2);
+            foreach (int i in segEdges) {
+                int j = (i + 1) % 4;
+                double fi = node_value(corner[i]), fj = node_value(corner[j]);
+                double t = (Math.Abs(fj - fi) > MathUtil.Epsilon) ? MathUtil.Clamp((IsoValue - fi) / (fj - fi), 0.25, 0.75) : 0.5;
+                pts.Add(Vector3d.Lerp(c[i], c[j], t));
+            }
+            if (pts.Count == 2) {
+                p = 0.5 * (pts[0] + pts[1]);
+                p[normal] = plane;
+                if (allowed(p)) return true;
+            }
+            p = ambiguous ? (c[seg] + c[(seg + 1) % 4] + c[(seg + 3) % 4]) / 3 : 0.25 * (c[0] + c[1] + c[2] + c[3]);
+            p[normal] = plane;
+            return allowed(p);
+        }
+
+        // the cycle as a fan around an edge vertex on e (in output orientation); covered if the cycle is
+        bool emit_fan(GridEdge e, int ci, List<int> cycle, bool covered, Vector3d[] hpoints, Cell cell)
+        {
+            if (is_inside(node_value(e.Start)) == false)
+                cycle.Reverse();
+            int before = Mesh.MaxTriangleID;
+            Vector3d ve;
+            int n = cycle.Count;
+            var tris = new List<int>(n);
+            int center;
+            bool onEdge = edge_point(e, edge_surface_t(e, hpoints[ci], genNormals != null ? genNormals[ci] : Vector3d.Zero), out ve);
+            if (onEdge) {
+                center = append_aux_vertex(ve, cell);
+                for (int i = 0; i < n; ++i) {
+                    int t = Mesh.AppendTriangle(cycle[i], cycle[(i + 1) % n], center);
+                    if (t < 0) {
+                        foreach (int r in tris) Mesh.RemoveTriangle(r, false, false);
+                        Mesh.RemoveVertex(center, false, false);
+                        NonManifoldTriangles += n;
+                        return false;
+                    }
+                    tris.Add(t);
+                }
+                EdgeVertices++;
+                edgeVertexIds.Add(center);
+                if (covered) mark_covered(before);
+                return true;
+            }
+            // (the edge too short to split in double) a fan from the first vertex, not covered
+            for (int i = 1; i + 1 < n; ++i) {
+                int t = Mesh.AppendTriangle(cycle[0], cycle[i], cycle[i + 1]);
+                if (t < 0) {
+                    foreach (int r in tris) Mesh.RemoveTriangle(r, false, false);
+                    NonManifoldTriangles += n - 2;
+                    return false;
+                }
+                tris.Add(t);
+            }
+            return true;
+        }
+
         void mark_covered(int fromTid)
         {
             for (int t = fromTid; t < Mesh.MaxTriangleID; ++t)
