@@ -159,6 +159,15 @@ if (two.Compute() == false)
     Console.WriteLine(two.Status + ": " + two.Error);
 ```
 
+Subtracting many bodies from one (A − (B1 ∪ … ∪ Bn): terrain minus pits, trenches and roads; a part minus tools) is one
+`Difference` over all of them, not a chain of binary ones (2.5-16x slower, up to 5x more triangles;
+`docs/design/EXACT_BOOLEAN_30_PRESTUDY.md` section 9). `Difference` and `Intersection` with a closed first mesh skip the
+triangles of the other meshes that lie wholly outside it: they take no part in the arrangement, since the result lies
+inside the first mesh (`Counts["t3a_culled"]`). The result is the same solid. **From this release the vertex and
+triangle order of `Difference` and `Intersection` results can differ from earlier releases**: the same vertices,
+triangles and orientations at the same coordinates, numbered differently. Code that relied on the ids of a result
+(rather than its geometry) has to compare geometry instead.
+
 One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
 once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
 pass ([BooleanComparison](../benchmarks/BooleanComparison/README.md#many-meshes-in-one-operation)).
