@@ -26,7 +26,7 @@ if (!free.Ok)
   scaling of the input gives the same result bit for bit; UTM coordinates work. `Clipper2Options.Frame` sets a fixed
   grid instead.
 - Known limitation (Clipper2 2.0.0 itself): a Union of self-intersecting rings with exact degeneracies (a vertex on another edge, a collinear
-  overlap) can return a wrong area, about 1 in 3000 random pairs of such rings on a coarse coordinate grid; generic coordinates were never seen to
-  fail, and the grid precision (`PrecisionBits`) makes no difference. A repro is in
+  overlap) can return a wrong area, about 1 in 3000 random pairs of such rings on a coarse coordinate grid (1 to 2 failures in 3000 pairs); no failure was
+  seen in 6000 pairs of 16-gons with generic coordinates (steps of 1/1024 and finer), and the grid precision (`PrecisionBits`) makes no difference. A repro is in
   [tools/MeshFuzzPilot/FINDINGS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/tools/MeshFuzzPilot/FINDINGS.md) (item 5).
 - The full description is in [docs/OPERATIONS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).

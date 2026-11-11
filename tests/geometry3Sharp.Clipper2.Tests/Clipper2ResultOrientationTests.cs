@@ -179,6 +179,7 @@ namespace geometry3Sharp.Clipper2.Tests
             var polygons = Convert(tree);
             Assert.Equal(2, polygons.Count);
             Assert.All(polygons, g => Assert.True(g.Outer.SignedArea > 0));
+            Assert.Equal(9e6 - 4e6 + 1e6, Net(polygons), 6);
         }
 
         [Fact]
@@ -235,6 +236,43 @@ namespace geometry3Sharp.Clipper2.Tests
             Assert.Equal(2, polygons.Count);
             Assert.All(polygons, g => Assert.Empty(g.Holes));
             Assert.Equal(10000 + 3600, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_LobeOnASlantedWallOfTheNotchWithOddCoordinates_IsNotAHole()
+        {
+            // every vertex on the holder's boundary; an edge midpoint of the lobe truncated to the grid would fall inside the holder
+            var tree = new PolyTree64();
+            tree.AddChild(Grid(0, 0, 30, 0, 30, 30, 21, 30, 20, 10, 11, 10, 10, 30, 0, 30));
+            tree.AddChild(Grid(10, 30, 20, 10, 11, 10));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.All(polygons, g => Assert.Empty(g.Holes));
+        }
+
+        [Fact]
+        public void Tree_LobeWithAllCornersOnTheHolderButItsDiagonalThroughTheInterior_IsAHole()
+        {
+            // the clockwise triangle (0,0) (10,10) (10,0) on three corners of a square: only the midpoint of its diagonal is strictly inside
+            var tree = new PolyTree64();
+            tree.AddChild(Sq(0, 10, true));
+            tree.AddChild(Grid(0, 0, 10, 10, 10, 0));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Single(polygons[0].Holes);
+            Assert.Equal(100 - 50, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_LobeInTheDoublyWoundPartOfASelfOverlappingHolder_IsAHole()
+        {
+            // the holder runs twice round the square: the even-odd test calls its inside outside, the winding number is 2
+            var tree = new PolyTree64();
+            tree.AddChild(Grid(0, 0, 100, 0, 100, 100, 0, 100, 0, 0, 100, 0, 100, 100, 0, 100));
+            tree.AddChild(Grid(40, 40, 40, 60, 60, 50));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Single(polygons[0].Holes);
         }
     }
 }
