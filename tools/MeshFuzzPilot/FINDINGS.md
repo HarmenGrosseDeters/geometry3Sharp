@@ -190,3 +190,11 @@ Ranked (a wrong result that claims to be right first):
 8. **MeshRobustRepair slow inputs** (robust-repair, 6; 2.7 to 10.8 s on this machine, over the 5 s target, no wrong result). The slowest, 62 bytes (10.8 s): `000103fe03fe00000000000000000000000000000011002000002c0000000000100000000000000000000000000002030203fe03000000000300002c0000`.
 
 Not found in 10 minutes: alpha-wrap, remesher, tree-ray, tree-winding. reducer and batch-queries ran only 18 600 and 2 300 executions (7 and 3 per second): a longer run is needed before they count as clean.
+## Judgement notes
+
+- **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with
+  `DistPoint3Triangle3`, the pilot's brute force with the inline copy in `MeshQueries.TriDistanceSqr`. Both are legitimate and differ by rounding
+  (about one ulp, or 1e-17 where the minimum is 0 on a mesh of scale 1). Unifying them would change the bits of `TriDistanceSqr` results for no gain in
+  correctness, so the pilot compares up to `4 * eps * (meshDiagonal^2 + distance)` (`NearestTolerance`): an absolute 1e-17 against 0 passes only
+  relative to the mesh scale. Measured on the 997 `tree-nearest` artifacts of the T13 campaign: 99 reports before, 0 after; a mutant that returns
+  the wrong triangle is still caught (43 of the first 60 artifacts at k = 4; the rest have one triangle or equally near ones).
