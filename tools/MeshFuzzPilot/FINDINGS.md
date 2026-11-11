@@ -84,18 +84,18 @@ judges them):
    against the documented orientation of results ("outer rings counterclockwise, holes clockwise"). Clipper2 reports a lobe of negative winding as a clockwise path
    even where it is an outer boundary; `ClipperFrame.ToGeneralPolygons` now orients every outer ring and hole by its grid area (`Clipper2ResultOrientationTests`).
    Input: `MESH_FUZZ_OPS=clipper2 MeshFuzzPilot random 4000 24` (0 findings after the fix; the target no longer gates it).
-5. (clipper2, libFuzzer 10 min, 2 fork jobs, 1.3M execs: 70 crashes in 4 classes; 3 fixed in the adapter or the pilot's judgement, 1 is Clipper2 itself)
+5. (clipper2, libFuzzer 10 min, 2 fork jobs, 1.3M execs: 70 crashes; by the replay messages: 27 a filled region missing from the union, 26 a region in the union that neither input fills, 18 orientation; the groups sum to 71, one artifact is probably counted twice)
    - Fixed in the adapter (`ToGeneralPolygons`): Clipper2's `PolyTree64` nests by containment, which a self-touching outer ring fools, in both directions.
      A filled region of the same orientation as the outer ring that the tree nests as its hole had its area subtracted (27 crashes: a filled region
      missing from the union); a clockwise path inside a counterclockwise one that the tree reports at the top level was reoriented into an outer ring and
-     its area added. Hole or outer is now decided by orientation and geometric containment (`Clipper2ResultOrientationTests`).
+     its area added (10 of the 26 'region in the union' crashes; the other 16 are Clipper2 itself, below). The tree stays the default; a same-sign hole is a region of its own, and a negative top-level path is a hole of the smallest positive path that holds it, else a filled lobe (`Clipper2ResultOrientationTests`).
    - Pilot judgement: rings of a few grid cells of area, whose area in doubles is 0 or of either sign (the vertices are converted from the grid, where the ring
      is oriented), are not judged for orientation below `OrientationSlack` (16 squared grid units plus the rounding of a double area): the representation limit
-     already documented for far-from-origin coordinates (18 crashes).
-   - Open, minor (2 crashes, Offset of the union of a ring of 1e-12 extent with a ring 1.7 away, frame resolution 1e-23): an Offset result has an outer
+     already documented for far-from-origin coordinates (16 of the 18 orientation crashes).
+   - Open, minor (the other 2 orientation crashes, Offset of the union of a ring of 1e-12 extent with a ring 1.7 away, frame resolution 1e-23): an Offset result has an outer
      ring with a negative area of -1.7e-16 (5 vertices, one spike vertex at 1.2e-4 beside vertices at 1e-12) and another of -2.6e-25; the grid orientation
-     is positive. Not analysed further; the Offset target at extreme dynamic range is judged only for these two inputs (artifacts: `crash-bf45adc8`,
-     `crash-d4e84c7e` of the 2026-11-11 campaign).
+     is positive. Not analysed further. The pilot's `OrientationSlack` no longer flags the second one (area below the slack) and still flags the first
+     (artifacts: `crash-bf45adc8`, `crash-d4e84c7e` of the 2026-11-11 campaign; the check is relaxed, not the cause understood).
    - **Clipper2 2.0.0 itself (open, 16 crashes, not reported upstream):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):

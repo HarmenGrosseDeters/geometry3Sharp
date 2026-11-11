@@ -312,11 +312,11 @@ public static partial class Program
             throw new Finding($"{what}: {membershipMismatches} sample points disagree with the winding numbers, first {firstMismatch}");
     }
 
-    /// <summary> all vertices (outer rings and holes) finite; outer rings counterclockwise and holes clockwise </summary>
     /// <summary>
     /// The area below which the orientation of a ring is not judged: the ring is oriented on the grid, but its vertices are converted to
     /// doubles, whose spacing at the coordinates' magnitude can exceed the grid; so 16 squared grid units plus the rounding of a double
-    /// area (8 times 2^-52 times the largest coordinate times the ring's extent). A real wrong orientation (a lobe of 1e-5) is far above
+    /// area (8 times 2^-52 times the largest coordinate times the ring's extent). A real wrong orientation (a lobe of 1e-5) is far above it.
+    /// Zero-area rings and rings below it are therefore not flagged (the check was area &lt;= 0 before)
     /// </summary>
     static double OrientationSlack(Clipper2Result r, IReadOnlyList<Vector2d> ring)
     {
@@ -328,6 +328,7 @@ public static partial class Program
         return 16 * r.Frame.Resolution * r.Frame.Resolution + 8 * Math.Pow(2, -52) * maxAbs * Math.Max(x1 - x0, y1 - y0);
     }
 
+    /// <summary> all vertices (outer rings and holes) finite; outer rings counterclockwise and holes clockwise (below <see cref="OrientationSlack"/>: not judged) </summary>
     static void Inspect(Clipper2Result r, out bool finite, out bool oriented)
     {
         finite = true; oriented = true;

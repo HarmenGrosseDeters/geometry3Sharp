@@ -149,5 +149,92 @@ namespace geometry3Sharp.Clipper2.Tests
             Assert.Equal(2, r.Polygons.Count);
             Assert.Equal(900 - 400 + 100, r.Area, 9);
         }
+
+        // ---- hand-built trees: each rule and clause of ClipperFrame.ToGeneralPolygons on its own (the frame maps the grid to itself)
+
+        static Path64 Grid(params long[] xy)
+        {
+            var path = new Path64();
+            for (int i = 0; i < xy.Length; i += 2) path.Add(new Point64(xy[i], xy[i + 1]));
+            return path;
+        }
+
+        static Path64 Sq(long a, long b, bool ccw) => ccw ? Grid(a, a, b, a, b, b, a, b) : Grid(a, a, a, b, b, b, b, a);
+
+        static double Net(System.Collections.Generic.List<GeneralPolygon2d> polygons) =>
+            polygons.Sum(g => g.Outer.SignedArea + g.Holes.Sum(h => h.SignedArea));
+
+        static System.Collections.Generic.List<GeneralPolygon2d> Convert(PolyTree64 tree) =>
+            new ClipperFrame(new Vector2d(0, 0), 1).ToGeneralPolygons(tree);
+
+        [Fact]
+        public void Tree_NegativeTopLevelPathInsideAHoleHolder_DoesNotThrow_AndIsAnOuterRing()
+        {
+            // k clockwise at the top level, j counterclockwise nested in it as a hole, i clockwise at the top level inside j: i's holder j
+            // is itself a hole of k, so i is an outer ring (a reviewer's synthetic tree: KeyNotFoundException before)
+            var tree = new PolyTree64();
+            PolyPath64 k = (PolyPath64)tree.AddChild(Sq(0, 3000, false));
+            k.AddChild(Sq(500, 2500, true));
+            tree.AddChild(Sq(1000, 2000, false));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.All(polygons, g => Assert.True(g.Outer.SignedArea > 0));
+        }
+
+        [Fact]
+        public void Tree_NegativeIslandInsideAHole_IsAFilledIsland()
+        {
+            // p counterclockwise, h its clockwise hole, i clockwise inside h as the tree's island: winding p + h = 0, then i = -1: filled
+            var tree = new PolyTree64();
+            PolyPath64 p = (PolyPath64)tree.AddChild(Sq(0, 4000, true));
+            PolyPath64 h = (PolyPath64)p.AddChild(Sq(500, 3500, false));
+            h.AddChild(Sq(1000, 3000, false));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.Single(polygons[0].Holes);
+            Assert.Empty(polygons[1].Holes);
+            Assert.Equal(16e6 - 9e6 + 4e6, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_LobeSpanningANotchWithItsCornersOnTheBoundary_IsNotAHole()
+        {
+            // a U-shaped outer ring (area 700) and a clockwise triangle (area 100) in its notch, every vertex on the U's boundary
+            var tree = new PolyTree64();
+            tree.AddChild(Grid(0, 0, 30, 0, 30, 30, 20, 30, 20, 10, 10, 10, 10, 30, 0, 30));
+            tree.AddChild(Grid(10, 30, 20, 30, 15, 10));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.All(polygons, g => Assert.Empty(g.Holes));
+            Assert.Equal(800, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_NegativeTopLevelPath_IsAHoleOfTheSmallestPositivePathThatHoldsIt()
+        {
+            // P1 with its hole H and the island P2 in it (the tree's nesting); a clockwise lobe N at the top level inside P2 (and P1)
+            var tree = new PolyTree64();
+            PolyPath64 p1 = (PolyPath64)tree.AddChild(Sq(0, 1000, true));
+            PolyPath64 h = (PolyPath64)p1.AddChild(Sq(100, 900, false));
+            h.AddChild(Sq(200, 800, true));
+            tree.AddChild(Sq(300, 400, false));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.Single(polygons[0].Holes);        // P1 comes first and keeps H only
+            Assert.Single(polygons[1].Holes);        // P2 holds N
+            Assert.Equal(1e6 - 640000 + 360000 - 10000, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_HoleOfTheSameOrientationAsItsParent_IsARegionOfItsOwn_AlsoWhenTheParentIsClockwise()
+        {
+            var tree = new PolyTree64();
+            PolyPath64 p = (PolyPath64)tree.AddChild(Sq(0, 100, false));
+            p.AddChild(Sq(20, 80, false));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.All(polygons, g => Assert.Empty(g.Holes));
+            Assert.Equal(10000 + 3600, Net(polygons), 6);
+        }
     }
 }
