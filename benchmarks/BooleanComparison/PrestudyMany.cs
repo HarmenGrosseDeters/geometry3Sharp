@@ -441,6 +441,57 @@ static class PrestudyMany
         return 0;
     }
 
+    // T3b S1 upper-bound check: A ∩ Bi for every i; per i the arrangement phases of A' ∩ Bi, A' = A without its triangles
+    // whose box misses Bi's box (the box fast path of culling A outside a closed Bi; A' is open, so only its arrangement
+    // phases are used), plus the later phases of the full boolean. Warm (two warm-up passes over the first booleans).
+    //   t3b-bound <terrain|cad> <n> <seed> [--size k]
+    public static int RunEachBound(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        for (int i = 3; i < args.Length; ++i)
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        string[] arrPhases = { "setup", "intersections", "merge", "triangulation" };
+        string[] later = { "classification", "simplify", "assembly", "rounding", "input" };
+        Func<DMesh3, DMesh3, Dictionary<string, long>> run = (x, y) => {
+            var op = new ExactMeshBoolean(x, y, ExactMeshBoolean.Operations.Intersection);
+            var sw = Stopwatch.StartNew();
+            op.Compute();
+            var ph = new Dictionary<string, long>(op.PhaseMilliseconds) { ["total"] = sw.ElapsedMilliseconds };
+            return ph;
+        };
+        Func<DMesh3, DMesh3> cut = (b) => {
+            var bb = b.CachedBounds;
+            var m = new DMesh3(a);
+            foreach (int t in a.TriangleIndices()) {
+                Vector3d p0 = Vector3d.Zero, p1 = Vector3d.Zero, p2 = Vector3d.Zero;
+                a.GetTriVertices(t, ref p0, ref p1, ref p2);
+                var tb = new AxisAlignedBox3d(p0); tb.Contain(p1); tb.Contain(p2);
+                if (tb.Intersects(bb) == false) m.RemoveTriangle(t, true, false);
+            }
+            return m;
+        };
+        for (int w = 0; w < 2; ++w)
+            for (int i = 0; i < Math.Min(n, 5); ++i) { run(a, bs[i]); run(cut(bs[i]), bs[i]); }
+        long full = 0, bound = 0, arrFull = 0, arrCut = 0, keptTris = 0;
+        for (int i = 0; i < n; ++i) {
+            Gc();
+            var f = run(a, bs[i]);
+            DMesh3 ac = cut(bs[i]);
+            keptTris += ac.TriangleCount;
+            var c = run(ac, bs[i]);
+            long af = arrPhases.Sum(k => f.TryGetValue(k, out long v) ? v : 0), acut = arrPhases.Sum(k => c.TryGetValue(k, out long v) ? v : 0);
+            long lt = later.Sum(k => f.TryGetValue(k, out long v) ? v : 0);
+            full += f["total"]; arrFull += af; arrCut += acut; bound += acut + lt;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["a_tris"] = a.TriangleCount,
+            ["serial_full_ms"] = full, ["serial_bound_ms"] = bound, ["arr_full_ms"] = arrFull, ["arr_cut_ms"] = arrCut,
+            ["mean_kept_a_tris"] = (double)keptTris / n }));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
