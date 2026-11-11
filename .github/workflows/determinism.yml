@@ -11,6 +11,11 @@ on:
       - 'benchmarks/CoreMathBenchmark/**'
       - '.github/workflows/determinism.yml'
   workflow_dispatch:
+    inputs:
+      macos:
+        description: 'Also run macos-arm64 (not in the default set: GitHub macOS arm64 runner capacity)'
+        type: boolean
+        default: false
 
 jobs:
   linux:
@@ -39,14 +44,13 @@ jobs:
           name: traces-linux
           path: out
 
-  # arm64: the same harness on GitHub-hosted arm64 runners (Linux and macOS); compared with the x64 traces in `compare`
+  # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is
+  # opt-in (workflow_dispatch input `macos`): its runners queue for a long time and the job was cancelled in the queue.
   arm64:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: linux-arm64, os: ubuntu-24.04-arm }
-          - { name: macos-arm64, os: macos-latest }
+        include: ${{ fromJSON(inputs.macos && '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"},{"name":"macos-arm64","os":"macos-latest"}]' || '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -135,13 +139,14 @@ jobs:
           # processor counts, and 32-bit
           for n in 1 2 3 8; do cmp linux-net10-serial linux-net10-cpu$n; done
           cmp windows-net48-serial windows-net48x86-serial
-          # arm64 (Linux, macOS) against x64, and inside arm64
+          # arm64 (Linux; macOS only when it was run) against x64, and inside arm64
           for a in linux-arm64 macos-arm64; do
+            if [ ! -d traces/$a-net10-serial ]; then echo "$a skipped (not run)"; continue; fi
             cmp $a-net10-parallel $a-net10-parallel2
             cmp $a-net10-parallel $a-net10-serial
             for n in 1 3; do cmp $a-net10-serial $a-net10-cpu$n; done
             cmp linux-net10-serial $a-net10-serial
             cmp windows-net48-serial $a-net10-serial
           done
-          cmp linux-arm64-net10-serial macos-arm64-net10-serial
+          if [ -d traces/macos-arm64-net10-serial ]; then cmp linux-arm64-net10-serial macos-arm64-net10-serial; fi
           for d in traces/*/; do echo "--- $d"; head -5 "$d/summary.txt"; done

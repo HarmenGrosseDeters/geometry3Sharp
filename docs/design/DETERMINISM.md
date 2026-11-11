@@ -130,6 +130,12 @@ Predictions before the runs:
 - `Vector128` / `Vector<T>` paths and `Math.Sqrt` are exactly rounded; `Math.Round`, `Floor` are exact.
 - Denormal handling (flush to zero) differs only if a process sets it; not set by the library.
 
+Gate (owner 2026-11-11): the determinism workflow checks bit identity in CI on linux x64, windows x64 (net10, net48, and net48 as a
+32-bit process) and linux arm64. macOS arm64 is **not** checked in CI because of the capacity of GitHub's macOS arm64 runners; it is
+an opt-in of the workflow (`workflow_dispatch`, input `macos`), and `compare` prints "macos-arm64 skipped (not run)" without it.
+Linux arm64 covers the same arm64 code generation of RyuJIT, and `CoreMath` does not depend on the platform libm. The macOS results
+below are from the one-time run of PR #574.
+
 Result (workflow run of PR #574; GitHub-hosted runners `ubuntu-24.04-arm` (Ubuntu 24.04, glibc aarch64) and
 `macos-latest` (macOS 26, Apple silicon), .NET 10.0.15; the x64 side is the existing linux x64 run on Ubuntu 26.04):
 

@@ -189,7 +189,8 @@ FMA is too high (then net48 would still be exact, only slower), or if a defect i
 ## 9. Decisions of the owner (2026-11-11) and open point
 
 1. Scope: the five functions only (decided).
-2. Acceptance: `geodesic.*` bit-identical on Windows net10 / net48, Linux x64 / arm64 and macOS arm64; the golden values of the
+2. Acceptance: `geodesic.*` bit-identical on Windows net10 / net48, Linux x64 / arm64 (checked in CI) and macOS arm64 (not in the CI gate because of GitHub runner
+   capacity: opt-in `workflow_dispatch` input `macos`; owner decision 2026-11-11); the golden values of the
    geodesic tests move once, justified in the PR (decided).
 3. Source: CORE-MATH checked first (this section); the decision between CoreMathSharp-based CORE-MATH and fdlibm is open
    (recommendation above).
