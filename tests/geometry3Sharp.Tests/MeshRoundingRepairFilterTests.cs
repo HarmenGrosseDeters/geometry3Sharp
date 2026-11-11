@@ -220,19 +220,26 @@ namespace geometry3Sharp.Tests
             ExactMeshBoolean checkedRun = Run(a, b, Ops.Union, check: true);
             AssertClean(checkedRun, "grid union");
             Assert.True(2 * checkedRun.Rounding.FilterDecisions > checkedRun.Rounding.PairTestsChecked, "the filter decided few pairs");
+            string serial = Print(Run(a, b, Ops.Union, serial: true).Result);
+            Assert.Equal(serial, Print(checkedRun.Result));
             // (that the checks also run on worker threads, not only the calling one: whether the loop spreads over threads is the
-            // scheduler's decision and a loaded machine can run it all on one thread, so more runs may be needed to see a
-            // spread; the repeat is bounded by count and by 5 s, and a missing spread fails with the numbers, never passes silently)
+            // scheduler's decision and a loaded machine can run it all on one thread, so more checked runs may be needed to see
+            // a spread. Each of them is compared with the serial result as well. The repeat is bounded by count and by 4 s
+            // including the run in progress, and a missing spread fails with the numbers, never passes silently)
             int threads = checkedRun.Rounding.CheckedThreads, runs = 1;
             var spreadClock = System.Diagnostics.Stopwatch.StartNew();
-            while (Environment.ProcessorCount > 1 && threads <= 1 && runs < 11 && spreadClock.Elapsed.TotalSeconds < 5) {
-                threads = Math.Max(threads, Run(a, b, Ops.Union, check: true).Rounding.CheckedThreads);
+            double lastRun = 0;
+            while (Environment.ProcessorCount > 1 && threads <= 1 && runs < 11 && spreadClock.Elapsed.TotalSeconds + lastRun < 4) {
+                double before = spreadClock.Elapsed.TotalSeconds;
+                ExactMeshBoolean again = Run(a, b, Ops.Union, check: true);
+                lastRun = spreadClock.Elapsed.TotalSeconds - before;
+                AssertClean(again, "grid union, repeated");
+                Assert.True(serial == Print(again.Result), $"checked run {runs} differs from the serial run");
+                threads = Math.Max(threads, again.Rounding.CheckedThreads);
                 ++runs;
             }
             if (Environment.ProcessorCount > 1)
                 Assert.True(threads > 1, $"the pair tests ran on one thread only, in {runs} checked runs ({spreadClock.Elapsed.TotalSeconds:F1} s)");
-            string serial = Print(Run(a, b, Ops.Union, serial: true).Result);
-            Assert.Equal(serial, Print(checkedRun.Result));
             for (int run = 0; run < 3; ++run)
                 Assert.True(serial == Print(Run(a, b, Ops.Union).Result), $"parallel run {run} differs from the serial run");
         }

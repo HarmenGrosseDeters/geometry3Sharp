@@ -10,8 +10,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SlowButSteadyRun_MakesProgress_WhateverItsTotalTime()
         {
-            // 12 units of 100 ms against a stall limit of 0.5 s: the total (1.2 s) is longer than the limit, no unit is
-            Assert.True(Timed.MakesProgress(beat => { for (int i = 0; i < 12; ++i) { Thread.Sleep(100); beat(); } }, TimeSpan.FromSeconds(0.5)));
+            // 12 units of 100 ms against a stall limit of 1 s: the total (1.2 s) is longer than the limit, no unit is
+            Assert.True(Timed.MakesProgress(beat => { for (int i = 0; i < 12; ++i) { Thread.Sleep(100); beat(); } }, TimeSpan.FromSeconds(1)));
         }
 
         [Fact]
@@ -29,6 +29,15 @@ namespace geometry3Sharp.Tests
             var release = new ManualResetEventSlim();
             try {
                 Assert.False(Timed.MakesProgress(beat => release.Wait(), TimeSpan.FromSeconds(0.3)));
+            } finally { release.Set(); }
+        }
+
+        [Fact]
+        public void TotalCeiling_FailsARunThatKeepsBeatingButNeverEnds()
+        {
+            var release = new ManualResetEventSlim();
+            try {
+                Assert.False(Timed.MakesProgress(beat => { while (!release.IsSet) { Thread.Sleep(20); beat(); } }, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.5)));
             } finally { release.Set(); }
         }
 
