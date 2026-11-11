@@ -716,6 +716,8 @@ pinned by a test); own `IsNormal` / `IsFinite` / `Ldexp` / `BigMul` / bit-count 
 (`Tint.Lshift` lost the bits of the low limb for shifts of 64 to 127; `Dint.Mul21` returned a product twice too large,
 which doubled the highest polynomial term of the accurate `sin` / `cos` paths), both found by the verification below.
 
+Not re-derived: the error bounds of the accurate (128-bit `Dint`) paths of the port; its `Add` truncates a shifted operand and its `Mul` drops the low cross terms, where the C code rounds (the independent review). The campaign below and the hard cases are the evidence, not a proof. Dead code of the port (`Mul11`, `MulPow`, `Add11`, `MulInt64`, `Mul21Tan` and the 128-bit division, used by none of the five functions) was removed.
+
 Verification (tests, independent of the vendored code): `CoreMathReference` computes the five functions and the FMA with
 `System.Numerics.BigInteger` fixed point (1600 fractional bits); `CoreMathTests` compares bit for bit on random arguments and
 on evenly spread hard-to-round arguments taken from the CORE-MATH worst-case lists (`CoreMathHardCases`, inputs only, MIT);

@@ -344,7 +344,9 @@ namespace gs
             if (v >= 0) {
                 double hi = Math.Max(di, dj);
                 // (powers of two times a length of the input, not absolute: the shells scale with the mesh)
-                double pw = shellUnit * CoreMath.Ldexp(1.0, (int)Math.Round(CoreMath.Log(0.5 * hi / shellUnit) / CoreMath.Log(2.0)));
+                double lg = Math.Round(CoreMath.Log(0.5 * hi / shellUnit) / CoreMath.Log(2.0));
+                // 2^round(log2 .): exact; the clamp keeps the cast defined (-inf / +inf: 0 / inf as Math.Pow did), NaN stays NaN
+                double pw = shellUnit * (double.IsNaN(lg) ? double.NaN : CoreMath.Ldexp(1.0, (int)Math.Max(-3000.0, Math.Min(3000.0, lg))));
                 if (pw > 0.25 * hi && pw < 0.75 * hi) s = (pw - di) / (dj - di);
             }
             return split_edge(h, s);

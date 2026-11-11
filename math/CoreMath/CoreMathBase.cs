@@ -119,8 +119,10 @@ namespace g3.CoreMathPort
     }
 }
 
+#if !NET5_0_OR_GREATER
 namespace System.Runtime.CompilerServices
 {
-    // lets the record structs of the port compile for netstandard2.0
+    // lets the record structs of the port compile for netstandard2.0 (the BCL has it from .NET 5)
     internal static class IsExternalInit { }
 }
+#endif

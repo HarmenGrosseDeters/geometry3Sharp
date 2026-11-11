@@ -165,6 +165,37 @@ namespace g3.Tests
             CheckAll("cos", CoreMath.Cos, CoreMathReference.Cos, FromBitList(new ulong[] { 0x7A46B7B71E8AE7C4UL, 0x4901111B0BEB4E46UL }));
         }
 
+        // the reduction of large arguments has a branch per alignment of the exponent with the 64-bit limbs of 1/(2 pi) (shifts
+        // by 0, 1, 63, 64, 65 bits, carries across the limbs): sweep the exponents around every multiple of 64
+        static double[] ExponentSweep()
+        {
+            var list = new List<double>();
+            ulong[] mantissas = { 0x0000000000000UL, 0x5555555555555UL, 0xFFFFFFFFFFFFFUL, 0x8000000000001UL };
+            var exps = new SortedSet<int>();
+            for (int e = 1023; e <= 1060; ++e) exps.Add(e);                       // 1 .. 2^37, around the switch to the large path at 2^31
+            for (int k = 1; k <= 16; ++k)
+                for (int d = -2; d <= 2; ++d) { int e = 1022 + 64 * k + d; if (e >= 1023 && e <= 2046) exps.Add(e); }
+            exps.Add(2046);
+            foreach (int e in exps)
+                foreach (ulong m in mantissas) {
+                    list.Add(FromBits(((ulong)e << 52) | m));
+                    list.Add(FromBits((1UL << 63) | ((ulong)e << 52) | m));
+                }
+            return list.ToArray();
+        }
+
+        [Fact]
+        public void Sin_ExponentSweep_IsCorrectlyRounded()
+        {
+            CheckAll("sin", CoreMath.Sin, CoreMathReference.Sin, ExponentSweep());
+        }
+
+        [Fact]
+        public void Cos_ExponentSweep_IsCorrectlyRounded()
+        {
+            CheckAll("cos", CoreMath.Cos, CoreMathReference.Cos, ExponentSweep());
+        }
+
         // ---------------------------------------------------------------- atan2
 
         static void CheckAtan2(IEnumerable<KeyValuePair<double, double>> pairs)
@@ -205,6 +236,27 @@ namespace g3.Tests
             var pairs = new List<KeyValuePair<double, double>>();
             ulong[] a = CoreMathHardCases.Atan2;
             for (int i = 0; i < a.Length; i += 2) pairs.Add(new KeyValuePair<double, double>(FromBits(a[i]), FromBits(a[i + 1])));
+            CheckAtan2(pairs);
+        }
+
+        [Fact]
+        public void Atan2_ExponentDifferenceSweep_IsCorrectlyRounded()
+        {
+            // the 192-bit significand shifts by the exponent difference of the operands: 0, 1, 63, 64, 65, 127, 128, 129, 191, 192, 193
+            var pairs = new List<KeyValuePair<double, double>>();
+            ulong[] mantissas = { 0x0000000000000UL, 0x5555555555555UL, 0xFFFFFFFFFFFFFUL };
+            int[] diffs = { 0, 1, 2, 53, 54, 63, 64, 65, 127, 128, 129, 191, 192, 193 };
+            foreach (int baseExp in new[] { -300, -30, 0, 20, 400 })
+                foreach (int d in diffs)
+                    foreach (int sign in new[] { 1, -1 })
+                        foreach (ulong m in mantissas)
+                            foreach (int sy in new[] { 0, 1 })
+                                foreach (int sx in new[] { 0, 1 }) {
+                                    int ex = baseExp, ey = baseExp + sign * d;
+                                    double x = FromBits(((ulong)sx << 63) | ((ulong)(ex + 1023) << 52) | m);
+                                    double y = FromBits(((ulong)sy << 63) | ((ulong)(ey + 1023) << 52) | (0xFFFFFFFFFFFFFUL - m));
+                                    pairs.Add(new KeyValuePair<double, double>(y, x));
+                                }
             CheckAtan2(pairs);
         }
 

@@ -127,6 +127,8 @@ namespace geometry3Sharp.Tests
         [InlineData("static double M(double x) { return System.Math.Acos(x) + System.Math.Asin(x) + System.Math.Tan(x) + System.Math.Atan(x); }")]
         [InlineData("static double M(double x) { return System.Math.Sinh(x) + System.Math.Cosh(x) + System.Math.Tanh(x) + System.Math.Log10(x); }")]
         [InlineData("static double M(double x) { return double.Sin(x); }")]
+        [InlineData("static double M(double x) { return double.SinPi(x) + double.CosPi(x) + double.TanPi(x) + double.AsinPi(x); }")]
+        [InlineData("static double M(double x) { return double.ReciprocalEstimate(x) + double.ReciprocalSqrtEstimate(x); }")]
         [InlineData("static float M(float x) { return System.MathF.Sin(x); }")]
         [InlineData("static System.Func<double, double> M() { return System.Math.Sin; }")]
         public void PlatformLibm_IsReported(string member)

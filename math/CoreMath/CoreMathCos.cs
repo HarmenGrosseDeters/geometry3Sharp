@@ -296,84 +296,6 @@ internal static partial class CoreMath
             return new Dint(C.lo, C.hi, rex, sgn);
         }
 
-        internal static int CmpDint11(in Dint a, in Dint b)
-        {
-            int cmp = Cmp(a.ex, b.ex);
-            return cmp != 0 ? cmp : Uint128.Cmpu128(a.r, b.r);
-        }
-
-        internal static Dint Add11(in Dint a, in Dint b)
-        {
-            if (a.hi == 0)
-            {
-                return b;
-            }
-
-            if (b.hi == 0)
-            {
-                return a;
-            }
-
-            int cmp = CmpDint11(a, b);
-            Dint aa, bb;
-            if (cmp == 0)
-            {
-                if ((a.sgn ^ b.sgn) != 0)
-                {
-                    return Zero;
-                }
-
-                return a with { ex = a.ex + 1 };
-            }
-            else if (cmp == -1)
-            {
-                (aa, bb) = (b, a);
-            }
-            else
-            {
-                (aa, bb) = (a, b);
-            }
-
-            ulong A = aa.hi, B = bb.hi;
-            if (aa.ex > bb.ex)
-            {
-                long k = aa.ex - bb.ex;
-                B = (k < 64) ? B >> (int)k : 0;
-            }
-
-            Uint128 C;
-            int sgn = (int)aa.sgn;
-
-            long rex = aa.ex;
-
-            if ((aa.sgn ^ bb.sgn) != 0)
-            {
-                C = A - B;
-                int ex = Polyfill.LeadingZeroCount(C.lo);
-
-                if (ex > 0)
-                {
-                    C = (A << ex) - (B << ex);
-                    rex -= ex;
-                    ex = Polyfill.LeadingZeroCount(C.lo);
-                }
-
-                C <<= ex;
-                rex -= ex;
-            }
-            else
-            {
-                C = A + B;
-                if (C < A)
-                {
-                    C = (1ul << 63) | (C >> 1);
-                    rex++;
-                }
-            }
-
-            return new Dint(0, C.lo, rex, (ulong)sgn);
-        }
-
         internal static Dint Mul(in Dint a, in Dint b)
         {
             Uint128 bh = (Uint128)b.hi, bl = (Uint128)b.lo;
@@ -393,25 +315,6 @@ internal static partial class CoreMath
             return new Dint(rr.lo, rr.hi, rex, sgn);
         }
 
-        internal static Dint MulPow(in Dint a, in Dint b)
-        {
-            Uint128 bh = (Uint128)b.hi, bl = (Uint128)b.lo;
-
-            Uint128 m1 = a.hi * bl;
-            Uint128 m2 = a.lo * bh;
-
-            Uint128 rr = a.hi * bh;
-            rr += (Uint128)m1.hi + m2.hi;
-
-            long ex = (long)(rr.hi >> 63);
-            rr = rr << (1 - (int)ex);
-
-            long rex = a.ex + b.ex + ex;
-            ulong sgn = a.sgn ^ b.sgn;
-
-            return new Dint(rr.lo, rr.hi, rex, sgn);
-        }
-
         internal static Dint Mul21(in Dint a, in Dint b)
         {
             Uint128 bh = (Uint128)b.hi;
@@ -425,24 +328,6 @@ internal static partial class CoreMath
             rr = rr << (1 - (int)ex);
 
             long rex = a.ex + b.ex + ex - 1;       // (the port had "+ ex": the product was twice too large)
-            ulong sgn = a.sgn ^ b.sgn;
-
-            return new Dint(rr.lo, rr.hi, rex, sgn);
-        }
-
-        internal static Dint Mul21Tan(in Dint a, in Dint b)
-        {
-            Uint128 bh = (Uint128)b.hi;
-            Uint128 hi = a.hi * bh;
-            Uint128 lo = a.lo * bh;
-
-            var rr = hi;
-            rr += lo.hi;
-
-            long ex = (long)(rr.hi >> 63);
-            rr = rr << (1 - (int)ex);
-
-            long rex = a.ex + b.ex + ex - 1;
             ulong sgn = a.sgn ^ b.sgn;
 
             return new Dint(rr.lo, rr.hi, rex, sgn);
@@ -501,46 +386,6 @@ internal static partial class CoreMath
             t += (m.lo >> 63);
 
             return new Dint(t.lo, t.hi, a.ex + b.ex - ex + 1, a.sgn ^ b.sgn);
-        }
-
-        internal static Dint Mul11(in Dint a, in Dint b)
-        {
-            Uint128 rr = (Uint128)a.hi * b.hi;
-
-            int ex = (int)(rr.hi >> 63);
-            rr = rr << (1 - ex);
-
-            return new Dint(rr.lo, rr.hi, a.ex + b.ex + ex, a.sgn ^ b.sgn);
-        }
-
-        internal static Dint MulInt64(in Dint a, long b)
-        {
-            if (b == 0)
-            {
-                return Zero;
-            }
-
-            ulong c = (ulong)(b < 0 ? -b : b);
-            ulong rsgn = b < 0 ? a.sgn ^ 1 : a.sgn;
-            long rex = a.ex + 64;
-
-            Uint128 rr = (Uint128)a.hi * c;
-
-            int m = rr.hi != 0 ? Polyfill.LeadingZeroCount(rr.hi) : 64;
-            rr <<= m;
-            rex -= m;
-
-            Uint128 l = (Uint128)a.lo * c;
-            l = (l << (m - 1)) >> 63;
-
-            rr += l;
-            if (rr < l)
-            {
-                rr = (Uint128.One << 127) | (rr >> 1);
-                rex++;
-            }
-
-            return new Dint(rr.lo, rr.hi, rex, rsgn);
         }
 
         internal static Dint FromDouble(double b)
@@ -822,68 +667,6 @@ internal static partial class CoreMath
             return (new Dint(lo, xhi, ex, sgn).Normalize(), i);
         }
 
-        internal static Dint Inv(double a)
-        {
-            Dint q, A;
-            Dint r = FromDoubleLog(4.0 / a);
-            r = r with { ex = r.ex - 2 };
-
-            A = FromDoubleLog(-a);
-            q = MulLog(A, r);
-            q = Add(One, q);
-            q = MulLog(r, q);
-            r = Add(r, q);
-
-            return r;
-        }
-
-        internal static Dint Div(double b, double a)
-        {
-            Dint B;
-            Dint r = Inv(a);
-            B = FromDoubleLog(b);
-            r = MulLog(r, B);
-            return r;
-        }
-
-        public Dint Inv()
-        {
-            ulong[] Tinv = Tbl_Cos_0;
-
-            ulong h = hi;
-
-            int i = (int)(h >> 55) & 0xff;
-            ulong t = Tinv[i];
-
-            Uint128 e = (Uint128.One << 127) - (Uint128)h * t;
-            e = t * (e >> 55);
-            t += (e >> 72).lo;
-
-            e = (Uint128.One << 127) - (Uint128)h * t;
-            e = t * (e >> 47);
-            t += (e >> 80).lo;
-
-            e = (Uint128.One << 127) - (Uint128)h * t;
-            e = t * (e >> 31);
-            t += (e >> 96).lo;
-
-            Dint q, r;
-            r = new Dint(0, t, 1 - ex, 1);
-            q = Mul21Tan(this, r);
-            r = r with { sgn = 0 };
-            q = Add(One with { ex = 1 }, q);
-            q = Mul(r, q);
-            r = Add(r, q);
-
-            return r;
-        }
-
-        internal static Dint Div(Dint b, Dint a)
-        {
-            Dint r = a.Inv();
-            r = Mul(r, b);
-            return r;
-        }
     }
 
 

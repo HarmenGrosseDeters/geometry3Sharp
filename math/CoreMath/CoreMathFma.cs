@@ -57,7 +57,7 @@ namespace g3.CoreMathPort
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static bool IsNaND(double x) { return x != x; }
+        static bool IsNaND(double x) { return double.IsNaN(x); }
 
         internal static double SoftwareFusedMultiplyAdd(double x, double y, double z)
         {

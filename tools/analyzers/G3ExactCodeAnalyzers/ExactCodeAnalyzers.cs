@@ -182,10 +182,12 @@ namespace G3ExactCodeAnalyzers
 
         /// <summary> the transcendental functions whose last bit depends on the platform (docs/design/DETERMINISM.md, libm rule);
         /// + - * / Sqrt Floor Ceiling Round Truncate Abs Min Max CopySign ScaleB are exact everywhere and not listed </summary>
-        public static readonly ImmutableHashSet<string> LibmNames = ImmutableHashSet.Create(
+        public static readonly ImmutableHashSet<string> LibmNames = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
             "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Atan2", "Sinh", "Cosh", "Tanh", "Asinh", "Acosh", "Atanh",
-            "Exp", "Log", "Log2", "Log10", "Pow", "Cbrt", "SinCos", "Exp2", "Exp10", "Hypot", "Sinpi", "Cospi", "Tanpi",
-            "Asinpi", "Acospi", "Atanpi", "Atan2Pi", "ExpM1", "LogP1", "Log2P1", "Log10P1", "Exp2M1", "Exp10M1", "RootN", "Compound");
+            "Exp", "Log", "Log2", "Log10", "Pow", "Cbrt", "SinCos", "Exp2", "Exp10", "Hypot", "SinPi", "CosPi", "TanPi",
+            "AsinPi", "AcosPi", "AtanPi", "Atan2Pi", "ExpM1", "LogP1", "Log2P1", "Log10P1", "Exp2M1", "Exp10M1", "RootN", "Compound",
+            // estimates that differ between x64 and ARM
+            "ReciprocalEstimate", "ReciprocalSqrtEstimate");
 
         /// <summary> a platform libm function of System.Math / MathF / double / float </summary>
         public static bool IsPlatformLibm(IMethodSymbol m)
