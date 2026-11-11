@@ -34,7 +34,8 @@ namespace geometry3Sharp.Tests
             var n = new Vector3d(0.3 * s, -0.4 * s, 0.9 * s);
             Assert.True(p.Metric(n, n) > tol, "parallel normals are not a flip");
             Assert.True(p.Metric(n, -n) <= tol, "opposite normals are a flip");
-            Assert.True(p.Metric(n, new Vector3d(-0.9 * s, 0, 0.3 * s)) <= tol + 1e-12 || tol == 0, "(perpendicular)");
+            if (tol != 0)
+                Assert.True(Math.Abs(p.Metric(n, new Vector3d(-0.9 * s, 0, 0.3 * s))) < 1e-12, "perpendicular: the cosine is 0");
             Assert.True(p.Metric(n, Vector3d.Zero) <= tol, "a zero normal is a flip, as before");
         }
 
@@ -52,6 +53,22 @@ namespace geometry3Sharp.Tests
             foreach (int e in new[] { -490, -600, -700 })
                 Assert.Equal(low, p.Metric(a * Math.Pow(2, e), b * Math.Pow(2, e)));
             Assert.Equal(high, low);
+        }
+
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(0.5)]
+        public void FlipMetric_OfMixedMagnitudesAndInfinity(double tol)
+        {
+            var p = new Probe(tol);
+            var n = new Vector3d(0.3, -0.4, 0.9);
+            // one normal of an ordinary size, the other far outside the range: still parallel / opposite
+            Assert.True(p.Metric(n, n * Math.Pow(2, 500)) > tol);
+            Assert.True(p.Metric(n * Math.Pow(2, -500), n) > tol);
+            Assert.True(p.Metric(n, -n * Math.Pow(2, 500)) <= tol);
+            // an infinite component (a cross product that overflowed) is a flip, as a zero normal
+            Assert.True(p.Metric(n, new Vector3d(double.PositiveInfinity, 0, 0)) <= tol);
         }
 
         static DMesh3 Grid(int n, double s)
@@ -231,6 +248,67 @@ namespace geometry3Sharp.Tests
             var rm = new Remesher(m) { SmoothSpeedT = 0.5 };
             rm.SetTargetEdgeLength(1.3 * s);
             for (int i = 0; i < 3; i++) rm.BasicRemeshPass();
+        }
+
+        // the scale of the frame must be a normal double and its reciprocal too: a mesh of a subnormal extent (which is not reduced, but must
+        // not become NaN: the scale would be infinite) stays unscaled; the same clamp keeps an extent above 2^1000 unscaled
+        [Theory]
+        [InlineData(-1070)]
+        [InlineData(-1030)]
+        public void Reducer_OfASubnormalOrNearlySubnormalExtent_StaysFinite(int e)
+        {
+            DMesh3 m = Grid(8, Math.Pow(2, e));
+            new Reducer(m).ReduceToTriangleCount(30);
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                Assert.True(!double.IsNaN(p.x) && !double.IsNaN(p.y) && !double.IsNaN(p.z), "NaN vertex " + v);
+            }
+            Assert.True(m.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        // "no limit" stays no limit however small the frame scale of a huge mesh is
+        [Theory]
+        [InlineData(-400)]
+        [InlineData(0)]
+        [InlineData(400)]
+        public void ReduceToMaxQuadricError_OfDoubleMaxValue_AcceptsEveryCollapse(int e)
+        {
+            DMesh3 reference = Grid(8, 1);
+            new Reducer(reference).ReduceToMaxQuadricError(double.MaxValue);
+            double s = Math.Pow(2, e);
+            DMesh3 m = Grid(8, s);
+            new Reducer(m).ReduceToMaxQuadricError(double.MaxValue);
+            Assert.Equal(reference.TriangleCount, m.TriangleCount);
+        }
+
+        // an area weighted reduction on four threads at an extent outside the band
+        [Fact]
+        public void PartitionedReducer_AreaWeighted_FourThreads_KeepsItsErrorInTheUnitsOfTheCaller()
+        {
+            DMesh3 reference = Grid(12, 1);
+            DMesh3 expectedMesh = new gs.PartitionedReducer() { MaxThreads = 4, MinTriangles = 0 }.Reduce(reference, 1e-3);
+            Assert.True(expectedMesh.TriangleCount < reference.TriangleCount);
+            string expected = Signature(expectedMesh, 1);
+            foreach (int e in new[] { -60, -40, 40, 60 }) {
+                double s = Math.Pow(2, e);
+                DMesh3 r = new gs.PartitionedReducer() { MaxThreads = 4, MinTriangles = 0 }.Reduce(Grid(12, s), 1e-3 * Math.Pow(s, 4));
+                Assert.Equal(expected, Signature(r, 1.0 / s));
+            }
+        }
+
+        [Fact]
+        public void FrameScale_IsAPowerOfTwoWithANormalReciprocal_AndOneInTheBand()
+        {
+            Func<double, double> scaleOf = ext => Reducer.frame_scale_for(new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(ext, 0.25 * ext, 0.5 * ext)));
+            foreach (int e in new[] { -32, -20, 0, 20, 32 })
+                Assert.Equal(1.0, scaleOf(Math.Pow(2, e)));                // the band: unchanged arithmetic
+            foreach (int e in new[] { -1000, -500, -33, 33, 500, 1000 }) {
+                double ext = Math.Pow(2, e), f = scaleOf(ext);
+                Assert.Equal(Math.Pow(2, -e), f);                           // the extent becomes [1, 2)
+                Assert.True(f > 0 && !double.IsInfinity(f) && 1.0 / f > 0 && !double.IsInfinity(1.0 / f));
+            }
+            foreach (double ext in new[] { Math.Pow(2, -1001), Math.Pow(2, -1067), 5e-324, Math.Pow(2, 1001), 1.7e308, 0.0, double.NaN })
+                Assert.Equal(1.0, scaleOf(ext));                            // out of the range of a usable scale: unscaled
         }
     }
 }

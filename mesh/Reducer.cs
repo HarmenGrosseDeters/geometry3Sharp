@@ -950,13 +950,17 @@ namespace g3
             double ext = Math.Max(bounds.Width, Math.Max(bounds.Height, bounds.Depth));
             if (!(ext > 0 && ext <= double.MaxValue) || (ext >= 2.3283064365386963e-10 && ext <= 4294967296.0))
                 return 1;
-            return pow2(-exponent_of(ext));
+            int e = exponent_of(ext);
+            if (e < -1000 || e > 1000)
+                return 1;           // (the scale and its reciprocal must be normal doubles: a subnormal extent or one near the top of the range stays unscaled)
+            return pow2(-e);
         }
 
         // a limit on an error in the units of the mesh as a limit on the frame error (area weighted: length^4, else length^2)
         double frame_error_limit(double limit)
         {
-            if (quadricScale == 1)
+            // (no limit stays no limit: MaxValue multiplied by a small scale four times would become 0)
+            if (quadricScale == 1 || !(limit < double.MaxValue))
                 return limit;
             int powers = AreaWeightedQuadrics ? 4 : 2;
             for (int i = 0; i < powers; i++)
@@ -1113,8 +1117,9 @@ namespace g3
                     if (doBoundary == false)
                         continue;
                     Vector3d n = tri_normal(et.a);
-                    Vector3d m = (b - a).Cross(n);
-                    if (unit_direction(ref m, MathUtil.Epsilon * (b - a).Length) == 0)
+                    Vector3d fe = (b - a) * quadricScale;       // (in the frame: an edge length above 1e154 or below 1e-154 over- or underflows in Length)
+                    Vector3d m = fe.Cross(n);
+                    if (unit_direction(ref m, MathUtil.Epsilon * fe.Length) == 0)
                         continue;
                     QuadricError q = plane_quadric(m, a);
                     vertQuadrics[ev.a].Add(BoundaryQuadricWeight * w, ref q);
