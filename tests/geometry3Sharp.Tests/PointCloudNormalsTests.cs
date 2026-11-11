@@ -220,6 +220,88 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void FewDegenerateNeighbourhoods_StillSuccess_ButCounted()
+        {
+            // 1000 sphere points and a short line far away: Success, and DegenerateCount tells about the line
+            var pts = PointClouds.Sphere(1000, 8, 1.0, out var truth);
+            for (int i = 0; i < 30; ++i) pts.Add(new Vector3d(10 + i * 0.01, 0, 0));
+            var pn = new PointCloudNormals(pts) { Orient = false };
+            Assert.True(pn.Compute(), pn.Status + pn.Error);
+            Assert.InRange(pn.DegenerateCount, 25, 30);
+            Assert.Equal(pts.Count, pn.AxisCount + pn.DegenerateCount);
+        }
+
+        [Fact]
+        public void PointLimitReached_CleanWrapIsUsed_AndReported()
+        {
+            var pts = PointClouds.Sphere(600, 2, 1.0, out var truth);
+            var pn = new PointCloudNormals(pts) { MaxSteinerPoints = 30, MaxEscalations = 0 };
+            pn.Compute();
+            Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, pn.WrapStatus);
+            Assert.NotEqual(PointCloudNormals.NormalsStatus.WrapFailed, pn.Status);
+            Assert.Equal("", PointCloudNormals.WrapProblem(pn.Wrap));
+            Accuracy(pn, truth, out double right, out _);
+            Assert.True(right > 0.9, $"{right:P1} right");
+        }
+
+        [Fact]
+        public void WrapProblem_NamesWhatTheProbesCannotUse()
+        {
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
+            Assert.Equal("", PointCloudNormals.WrapProblem(sphere));
+            DMesh3 open = new DMesh3(sphere);
+            open.RemoveTriangle(open.TriangleIndices().First(), true);
+            Assert.Equal("not closed", PointCloudNormals.WrapProblem(open));
+            // a closed mesh that passes through itself: a second sphere's shell merged into the first, shifted
+            DMesh3 crossing = new DMesh3(sphere);
+            DMesh3 other = new DMesh3(sphere);
+            MeshTransforms.Translate(other, new Vector3d(0.5, 0, 0));
+            new MeshEditor(crossing).AppendMesh(other);
+            Assert.Equal("self-intersections", PointCloudNormals.WrapProblem(crossing));
+        }
+
+        [Fact]
+        public void PointLimitReached_UncleanWrap_TriesACoarserAlpha_ThenFails()
+        {
+            var pts = PointClouds.Sphere(600, 2, 1.0, out _);
+            // every limited wrap is reported unclean: with the class's own Alpha it is enlarged, MaxEscalations times, then WrapFailed
+            var pn = new PointCloudNormals(pts) { MaxSteinerPoints = 30, MaxEscalations = 2 };
+            int checks = 0;
+            pn.WrapProblemF = (w) => { checks++; return "simulated defect"; };
+            Assert.False(pn.Compute());
+            Assert.Equal(PointCloudNormals.NormalsStatus.WrapFailed, pn.Status);
+            Assert.Contains("(not clean: simulated defect)", pn.Error);
+            Assert.Equal(3, checks);
+            Assert.Equal(2, pn.Escalations);
+            Assert.Null(pn.Wrap);
+            Assert.Equal(0, pn.ConfidentCount);
+            Assert.Equal(pts.Count, pn.Normals.Length);
+            // a first wrap that is used (clean, but too few confident points) and a later one that fails: no stale wrap of the first attempt
+            var late = new PointCloudNormals(pts) { MaxSteinerPoints = 30, MaxEscalations = 2 };
+            int lateCalls = 0;
+            late.WrapProblemF = (w) => ++lateCalls == 1 ? "" : "simulated defect";
+            Assert.False(late.Compute());
+            Assert.Equal(PointCloudNormals.NormalsStatus.WrapFailed, late.Status);
+            Assert.True(lateCalls >= 2, "the first wrap was not enough: " + lateCalls);
+            Assert.Null(late.Wrap);
+            Assert.Equal(0, late.ConfidentCount);
+            // a given Alpha is never changed: fails at once
+            var given = new PointCloudNormals(pts) { MaxSteinerPoints = 30, Alpha = 0.3 };
+            given.WrapProblemF = (w) => "simulated defect";
+            Assert.False(given.Compute());
+            Assert.Equal(PointCloudNormals.NormalsStatus.WrapFailed, given.Status);
+            Assert.Equal(0, given.Escalations);
+            // the first limited wrap unclean, the coarser one clean: used
+            var recovered = new PointCloudNormals(pts) { MaxSteinerPoints = 30, MaxEscalations = 2 };
+            int calls = 0;
+            recovered.WrapProblemF = (w) => ++calls == 1 ? "simulated defect" : "";
+            recovered.Compute();
+            Assert.True(recovered.Escalations >= 1);
+            Assert.NotNull(recovered.Wrap);
+            Assert.NotEqual(PointCloudNormals.NormalsStatus.WrapFailed, recovered.Status);
+        }
+
+        [Fact]
         public void NonFiniteAlpha_IsInvalidInput()
         {
             var pts = PointClouds.Sphere(100, 1, 1.0, out _);
@@ -255,6 +337,8 @@ namespace geometry3Sharp.Tests
             for (int i = 100; i < pts.Count; ++i)
                 Assert.True(Math.Abs(pn.Normals[i].z) > 0.99, "plane point " + i);
             Assert.Equal(pts.Count - pn.Normals.Count(v => v == Vector3d.Zero), pn.AxisCount);
+            Assert.Equal(pts.Count - pn.AxisCount, pn.DegenerateCount);
+            Assert.True(pn.DegenerateCount > 0);
         }
 
         [Fact]
