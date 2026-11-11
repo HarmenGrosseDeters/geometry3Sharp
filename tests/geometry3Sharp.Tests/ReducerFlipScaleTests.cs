@@ -319,8 +319,9 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        // the top of the range: where the cross products overflow (an edge length above 1e154) a collapse is refused (never accepted
-        // blindly: a NaN metric was taken for "no flip"), so the mesh may be left as it is; it stays closed, finite and on the sphere
+        // the top of the range: above an edge length of 1e154 the cross products of the flip test overflow; the flip test then decides as it did
+        // before (infinite normals refuse, a NaN metric does not: existing tests pin the reduction at 1e308), and the result stays closed
+        // and finite and on the sphere (DMesh3.CheckValidity itself overflows from about 1e160, also on the input)
         [Theory]
         [InlineData(1e150)]
         [InlineData(1e160)]
@@ -330,7 +331,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Sphere(scale);
             new Reducer(m).ReduceToTriangleCount(486);
-            Assert.True(m.TriangleCount <= (scale <= 1e150 ? 486 : 972));
+            Assert.True(m.TriangleCount <= 486);
             Assert.True(m.IsClosed());
             foreach (int v in m.VertexIndices()) {
                 Vector3d p = m.GetVertex(v);
