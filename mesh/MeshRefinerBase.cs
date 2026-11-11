@@ -188,7 +188,8 @@ namespace g3
                 return 1.0;
             if (!(m > 0) || double.IsInfinity(m))
                 return 1.0;
-            return 1.0 / m;
+            // (the floor keeps the factor finite for subnormal edges: 1/m would be infinite there and 0 * infinity is NaN)
+            return 1.0 / Math.Max(m, 9.33e-302);
         }
 
         /// <summary>

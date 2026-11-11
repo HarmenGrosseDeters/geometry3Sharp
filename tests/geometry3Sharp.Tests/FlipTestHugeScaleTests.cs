@@ -31,7 +31,7 @@ namespace geometry3Sharp.Tests
 
         public static System.Collections.Generic.IEnumerable<object[]> Scales()
         {
-            foreach (double s in new[] { 1e-3, 1.0, 1e60, 1e80, 1e120, 1e150, 1e154, 1e160, 1e200, 1e250, 1e300 })
+            foreach (double s in new[] { 1e-310, 1e-305, 1e-3, 1.0, 1e60, 1e80, 1e120, 1e150, 1e154, 1e160, 1e200, 1e250, 1e300 })
                 yield return new object[] { s };
         }
 
@@ -72,6 +72,18 @@ namespace geometry3Sharp.Tests
                 if (unit) flips++; else noFlips++;
             }
             Assert.True(flips > 40 && noFlips > 40, flips + " flips, " + noFlips + " no flips");
+        }
+
+        // the collapsed vertex is the b or c corner of its triangle (the other operand orders of the fused cross products)
+        [Theory]
+        [MemberData(nameof(Scales))]
+        public void TheOtherCorners_DecideLikeTheFirst_AtAnyScale(double s)
+        {
+            var p = new Probe(Triangle(s));
+            Assert.False(p.Flips(1, 3, new Vector3d(0.4 * s, 0.1 * s, 0)));
+            Assert.True(p.Flips(1, 3, new Vector3d(-s, -s, 0)));
+            Assert.False(p.Flips(2, 3, new Vector3d(0.1 * s, 0.4 * s, 0)));
+            Assert.True(p.Flips(2, 3, new Vector3d(-s, -s, 0)));
         }
 
         static Vector3d Rand(Random r) { return new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5); }
