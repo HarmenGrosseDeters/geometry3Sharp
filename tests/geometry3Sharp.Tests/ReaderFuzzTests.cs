@@ -340,7 +340,7 @@ namespace geometry3Sharp.Tests
                 } catch (Exception e) {
                     error = e;
                 }
-            });
+            }, TimeBudget);
             if (!finished) return "no result within " + TimeBudget.TotalSeconds + " s";
             if (error != null) return error.GetType().Name + ": " + error.Message;
             // the result is bounded by the input (rings repeat point indices: at most the segments' end points)
