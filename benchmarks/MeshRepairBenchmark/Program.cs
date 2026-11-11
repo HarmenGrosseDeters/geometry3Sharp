@@ -166,6 +166,8 @@ class Program
                     if (absTol) { rep.ToleranceMode = MeshAutoRepair.ToleranceModes.Absolute; rep.RepairTolerance = absRepairTol * tolFactor; rep.MinEdgeLengthTol = absMinEdge * tolFactor; } } };
                 int res = int.Parse(Environment.GetEnvironmentVariable("BENCH_SOLID_RES") ?? "128");
                 robust.SolidifyResolution = res;
+                // BENCH_PASSTHROUGH=0: without stage 0 of the part handling (A/B)
+                robust.PassThroughCleanParts = Environment.GetEnvironmentVariable("BENCH_PASSTHROUGH") != "0";
                 robust.ExactResolveRounds = int.Parse(Environment.GetEnvironmentVariable("BENCH_EXACT_ROUNDS") ?? "4");
                 robust.AlphaWrapFallback = Environment.GetEnvironmentVariable("BENCH_WRAP_FALLBACK") != "0";
                 robust.SimplifyAlphaWrap = Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0";
@@ -246,6 +248,7 @@ class Program
                 r["robust_genus_after"] = robust.GenusAfter;
                 r["robust_exact_reason"] = robust.ExactResolveReason;
                 r["robust_wrap_reason"] = robust.WrapReason;
+                r["robust_passed_through_tris"] = robust.PassedThroughTriangles;
                 r["robust_exact_rounds"] = robust.ExactResolveRoundsUsed;
                 r["robust_exact_selfint"] = robust.ExactResolveSelfIntersections;
                 r["robust_exact_rounding_edits"] = robust.ExactRoundingEdits.ConvertAll(e => new[] { e.a, e.b });

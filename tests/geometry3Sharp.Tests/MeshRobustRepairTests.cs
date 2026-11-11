@@ -949,6 +949,8 @@ namespace geometry3Sharp.Tests
         // the dual contouring of ThinPlates is intersection-free since the face vertices of
         // docs/design/DC_INTERSECTION_FREE.md (option B); these tests need a contour that still intersects, so the
         // contour's repair is skipped (a thread-static test seam of DualContouring)
+        // (a procedural search for an input that leaves the adaptive solidify unclean without the seam, after #562 and #572, found none: ThinPlates-like
+        // scenes of 12 rotated boxes, thickness 0.002 .. 0.05, resolution 32 and 48, seeds 0..7, about 55 variants, all clean; so the seam stays)
         internal static T WithUnrepairedContour<T>(Func<T> f)
         {
             DualContouring.SkipResolveForTests = true;
