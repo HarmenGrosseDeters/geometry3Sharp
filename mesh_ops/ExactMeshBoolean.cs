@@ -300,6 +300,15 @@ namespace g3
         // OpenWindingPerPiece after Compute
         internal bool RecordOpenWinding = false;
         internal int[][] OpenWindingPerPiece;
+        /// <summary>
+        /// L1 of the tail case (docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 2): the open meshes on the Antipodal path
+        /// decided per patch where a certified bound on the winding number's variation over the patch keeps every piece's
+        /// threshold that of the patch's first piece (the same thresholds as per piece; off: per piece, for A/B tests)
+        /// </summary>
+        internal bool PerPatchOpenWinding = true;
+        /// <summary> tests: evaluate the pieces of a patch decided per patch as well and count the differences (PerPatchMismatches, 0) </summary>
+        internal bool VerifyPerPatchOpenWinding = false;
+        internal long PerPatchMismatches;
         // for tests: triangles per batch of the arrangement's candidate pair search
         internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
@@ -493,6 +502,8 @@ namespace g3
             OpenWindingPerPiece = null;
             antipodalUndecided = 0;
             antipodalSnapped = 0;
+            perPatchDecided = perPatchSaved = 0;
+            PerPatchMismatches = 0;
             OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
             if (inputs.Count == 0)
@@ -575,6 +586,8 @@ namespace g3
             Counts["winding_plane_sides_exact"] = windingExactSides;
             Counts["antipodal_meshes"] = antipodalSegments.Count;
             Counts["antipodal_undecided"] = antipodalUndecided;
+            Counts["l1_patch_decided"] = perPatchDecided;
+            Counts["l1_evaluations_saved"] = perPatchSaved;
             Counts["antipodal_snapped"] = antipodalSnapped;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
@@ -982,6 +995,8 @@ namespace g3
             int[] parent = new int[n];
             for (int i = 0; i < n; ++i)
                 parent[i] = i;
+            // (L1: the pairs of pieces without stacks joined across an edge, the adjacency of the patches)
+            List<long> joins = PerPatchOpenWinding && ExactWinding != null && Array.IndexOf(ExactWinding, false) >= 0 ? new List<long>() : null;
             Func<int, int> find = (x) => find_root(parent, x);
             var atEdge = new List<int>();
             for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
@@ -1008,6 +1023,8 @@ namespace g3
                     int a = atEdge[s0], b = atEdge[s0 + 1];
                     if (same_stack(stack[a], stack[b]) == false)
                         continue;
+                    if (joins != null && stack[a] == null)
+                        joins.Add(((long)a << 32) | (uint)b);
                     int ra = find(a), rb = find(b);
                     if (ra != rb)
                         parent[ra] = rb;
@@ -1088,12 +1105,15 @@ namespace g3
             // the open meshes per piece: their generalized winding numbers vary continuously, also within a patch (a
             // patch of one mesh can reach from inside an open mesh to outside it through a hole of that mesh, around the
             // end of an intersection curve that the hole cuts off), so the threshold at 1/2 is taken at every piece
+            // (L1: the Antipodal meshes decided per patch where the bound allows it, open_winding_per_patch; the first
+            // piece of each patch is evaluated there, its values reused)
             int[][] openWinding = null;
             if (openMeshes.Count > 0) {
                 openWinding = new int[n][];
+                PatchOpen po = PerPatchOpenWinding && antipodalSegments.Count > 0 ? open_winding_per_patch(firsts, stack, openMeshes, parent, representative, joins) : null;
                 gParallel.ForRange(n, (i) => {
                     if (representative[i] && Cancellation.IsCancellationRequested == false)
-                        openWinding[i] = open_winding(i, stack[i], openMeshes);
+                        openWinding[i] = po == null ? open_winding(i, stack[i], openMeshes) : open_winding(i, stack[i], openMeshes, po);
                 });
                 if (Cancellation.IsCancellationRequested)
                     return;
@@ -1215,6 +1235,327 @@ namespace g3
                 }
             }
             return sparse.ToArray();
+        }
+
+        // L1: per patch (in the order of firsts) and open mesh (in the order of openMeshes): the thresholded winding number
+        // of the patch's first piece where it was evaluated (Antipodal meshes); per open mesh and piece whether that value
+        // holds for the piece (Decided); Patch: the patch of each piece (an index into firsts, -1 for none)
+        sealed class PatchOpen
+        {
+            public int[] Patch;
+            public int[] First;
+            public int[][] Value;
+            public bool[][] Decided;
+            public bool[] Evaluated;     // per open mesh: on the Antipodal path, so evaluated at the first piece
+        }
+
+        const int NotEvaluated = int.MinValue;
+
+        // L1: the boundary of an Antipodal mesh for the bound (grid coordinates): segment boxes and lengths, their box,
+        // the total length and the coordinates' size
+        sealed class BoundaryBound
+        {
+            public double[] Boxes, Lengths, All;
+            public double Total, Size;
+        }
+
+        /// <summary>
+        /// L1 (docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 2). For a patch (pieces of one mesh joined across edges
+        /// that are not on intersection curves, without coplanar stacks) and an open mesh M on the Antipodal path:
+        /// - off M, the gradient of M's generalized winding number w is the Biot-Savart field of M's boundary: at a point
+        ///   at distance at least d from the box of a boundary segment s, the field of s is at most
+        ///   min(|s| / (4 pi d^2), 1 / (2 pi d)); summed over the segments, G(p) bounds |grad w| on the box of piece p;
+        /// - a path from the first piece's centroid runs through the pieces of the patch (a centroid, the midpoint of the
+        ///   shared edge, the next centroid; just in front of the pieces, where no sheet of M crosses: the edges between
+        ///   them are not on intersection curves), each part inside one piece; along it w changes by at most
+        ///   acc(q) = the sum over the path's pieces p of G(p) diam(p), each piece counted on entering and on leaving
+        ///   (shortest such sums by Dijkstra over the patch, from the first piece);
+        /// - where the first piece's value w0 (bound e0, neither snapped nor undecided) is farther than
+        ///   margin = |w0 - half| - e0 - 2e-6 > acc(q) from the nearest half-integer, the true w at q is farther than 2e-6
+        ///   from every half-integer, and q's own evaluation (bound at most 1e-6) gives the same threshold as w0.
+        /// A piece whose box comes within 1e-3 of the coordinates' size of a segment is not crossed (its evaluation there
+        /// can be undecided); it is evaluated per piece. Deterministic: per patch independent and serial (the heap orders ties
+        /// by piece index); the first piece's values are those open_winding computes for it.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        PatchOpen open_winding_per_patch(List<int> firsts, List<int>[] stack, List<int> openMeshes, int[] parent, bool[] representative, List<long> joins)
+        {
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            int n = output.Count, np = firsts.Count, no = openMeshes.Count;
+            var po = new PatchOpen() { Patch = new int[n], First = firsts.ToArray(), Value = new int[np][], Decided = new bool[no][], Evaluated = new bool[no] };
+            var bb = new BoundaryBound[no];
+            for (int j = 0; j < no; ++j) {
+                po.Evaluated[j] = antipodalSegments.ContainsKey(openMeshes[j]);
+                if (po.Evaluated[j]) {
+                    po.Decided[j] = new bool[n];
+                    bb[j] = boundary_bound(antipodalSegments[openMeshes[j]]);
+                }
+            }
+            var index = new Dictionary<int, int>(np);
+            for (int k = 0; k < np; ++k)
+                index[find_const(parent, firsts[k])] = k;
+            for (int i = 0; i < n; ++i) {
+                int k;
+                po.Patch[i] = (representative[i] && stack[i] == null && index.TryGetValue(find_const(parent, i), out k)) ? k : -1;
+            }
+            // the adjacency of the pieces (both directions, in the order of joins)
+            var start = new int[n + 1];
+            if (joins != null)
+                foreach (long e in joins) {
+                    start[(int)(e >> 32) + 1]++;
+                    start[(int)(uint)e + 1]++;
+                }
+            for (int i = 0; i < n; ++i)
+                start[i + 1] += start[i];
+            var adj = new int[start[n]];
+            var fill = new int[n];
+            if (joins != null)
+                foreach (long e in joins) {
+                    int x = (int)(e >> 32), y = (int)(uint)e;
+                    adj[start[x] + fill[x]++] = y;
+                    adj[start[y] + fill[y]++] = x;
+                }
+            long decided = 0, saved = 0;
+            gParallel.ForRange(np, () => new PatchSearch(), (k, ws) => {
+                if (Cancellation.IsCancellationRequested)
+                    return;
+                int i = po.First[k];
+                po.Value[k] = new int[no];
+                Center center = null;
+                for (int j = 0; j < no; ++j) {
+                    po.Value[k][j] = NotEvaluated;
+                    if (po.Evaluated[j] == false || po.Patch[i] != k)
+                        continue;
+                    if (center == null) {
+                        center = new Center(centroid_point(output[i], false));
+                        center.Input = arr.ToInputVector(center.P);
+                    }
+                    double bound;
+                    double w = antipodal_front_winding(i, openMeshes[j], stack[i], antipodalSegments[openMeshes[j]], center, out bound);
+                    po.Value[k][j] = threshold_generalized(w);
+                    if (bound < 0)
+                        continue;
+                    double margin = Math.Abs(w - (Math.Floor(w) + 0.5)) - bound - 2e-6;
+                    int got = search(ws, k, i, margin, po.Patch, start, adj, bb[j], po.Decided[j]);
+                    if (got > 0) {
+                        System.Threading.Interlocked.Increment(ref decided);
+                        System.Threading.Interlocked.Add(ref saved, got);
+                    }
+                }
+            });
+            perPatchDecided = decided;
+            perPatchSaved = saved;
+            return po;
+        }
+
+        // the work space of one worker's searches: the heap and the sums of the pieces reached
+        sealed class PatchSearch
+        {
+            public readonly List<long> Heap = new List<long>();
+            public readonly List<double> HeapKey = new List<double>();
+            public readonly Dictionary<int, double> Acc = new Dictionary<int, double>();
+            public readonly Dictionary<int, double> Cost = new Dictionary<int, double>();
+        }
+
+        // L1: Dijkstra from the first piece i over the pieces of patch k by acc (each piece's G diam on entering and on
+        // leaving), every piece reached with acc below margin decided (the first piece excluded: its value is its own);
+        // returns how many
+        [MethodImpl(JitHints.Optimize)]
+        int search(PatchSearch ws, int k, int first, double margin, int[] patch, int[] start, int[] adj, BoundaryBound b, bool[] decided)
+        {
+            if (!(margin > 0))
+                return 0;
+            ws.Acc.Clear(); ws.Cost.Clear(); ws.Heap.Clear(); ws.HeapKey.Clear();
+            double c0 = piece_cost(first, b, ws.Cost);
+            if (double.IsInfinity(c0))
+                return 0;
+            ws.Acc[first] = 0;
+            heap_push(ws, 0, first);
+            int count = 0;
+            while (ws.Heap.Count > 0) {
+                double a; int p;
+                heap_pop(ws, out a, out p);
+                if (ws.Acc[p] < a)
+                    continue;
+                if (p != first && decided[p] == false) {
+                    decided[p] = true;
+                    count++;
+                }
+                double cp = piece_cost(p, b, ws.Cost);
+                for (int e = start[p]; e < start[p + 1]; ++e) {
+                    int q = adj[e];
+                    if (patch[q] != k)
+                        continue;
+                    double cq = piece_cost(q, b, ws.Cost);
+                    double aq = (a + cp + cq) * (1 + 1e-12);
+                    if (!(aq < margin))
+                        continue;
+                    double old;
+                    if (ws.Acc.TryGetValue(q, out old) && old <= aq)
+                        continue;
+                    ws.Acc[q] = aq;
+                    heap_push(ws, aq, q);
+                }
+            }
+            return count;
+        }
+
+        // G(p) diam(p) of piece p (grid coordinates; the corners' approximations widened by their error bounds), cached;
+        // +infinity where p's box comes within 1e-3 of the coordinates' size of a segment
+        [MethodImpl(JitHints.Optimize)]
+        double piece_cost(int p, BoundaryBound b, Dictionary<int, double> cache)
+        {
+            double cost;
+            if (cache.TryGetValue(p, out cost))
+                return cost;
+            var ot = arr.Output[p];
+            var box = new double[6];
+            double diam = 0;
+            Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
+            double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
+            for (int q = 0; q < 3; ++q) {
+                box[q] = Math.Min(pa[q], Math.Min(pb[q], pc[q])) - err;
+                box[q + 3] = Math.Max(pa[q], Math.Max(pb[q], pc[q])) + err;
+            }
+            diam = (Math.Max(pa.Distance(pb), Math.Max(pb.Distance(pc), pc.Distance(pa))) + 2 * err) * (1 + 1e-12);
+            double s = b.Size;
+            for (int q = 0; q < 6; ++q)
+                s = Math.Max(s, 3 * Math.Abs(box[q]));
+            double near = 1e-3 * s, slack = 1e-12 * s;
+            double d = box_distance(box, 0, b.All, 0) - slack;
+            double g;
+            if (d >= near) {
+                int ns = b.Lengths.Length;
+                g = Math.Min(b.Total / (4 * Math.PI * d * d), ns / (2 * Math.PI * d));
+            } else {
+                g = 0;
+                for (int t = 0; t < b.Lengths.Length && double.IsInfinity(g) == false; ++t) {
+                    double dt = box_distance(box, 0, b.Boxes, 6 * t) - slack;
+                    g = dt >= near ? g + Math.Min(b.Lengths[t] / (4 * Math.PI * dt * dt), 1 / (2 * Math.PI * dt)) : double.PositiveInfinity;
+                }
+            }
+            cost = g * (1 + 1e-12) * diam;
+            cache[p] = cost;
+            return cost;
+        }
+
+        static BoundaryBound boundary_bound(Vector3d[] g)
+        {
+            int ns = g.Length / 2;
+            var b = new BoundaryBound() { Boxes = new double[6 * ns], Lengths = new double[ns],
+                All = new[] { double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity, double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity } };
+            for (int t = 0; t < ns; ++t) {
+                Vector3d x = g[2 * t], y = g[2 * t + 1];
+                for (int q = 0; q < 3; ++q) {
+                    b.Boxes[6 * t + q] = Math.Min(x[q], y[q]);
+                    b.Boxes[6 * t + q + 3] = Math.Max(x[q], y[q]);
+                    b.All[q] = Math.Min(b.All[q], b.Boxes[6 * t + q]);
+                    b.All[q + 3] = Math.Max(b.All[q + 3], b.Boxes[6 * t + q + 3]);
+                }
+                b.Lengths[t] = x.Distance(y) * (1 + 1e-15);
+                b.Total += b.Lengths[t];
+                b.Size = Math.Max(b.Size, Math.Max(Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z), Math.Abs(y.x) + Math.Abs(y.y) + Math.Abs(y.z)));
+            }
+            return b;
+        }
+
+        // a binary min-heap of (key, piece), ties by piece
+        static bool heap_less(PatchSearch ws, int x, int y)
+        {
+            return ws.HeapKey[x] < ws.HeapKey[y] || (ws.HeapKey[x] == ws.HeapKey[y] && ws.Heap[x] < ws.Heap[y]);
+        }
+
+        static void heap_push(PatchSearch ws, double key, int p)
+        {
+            ws.Heap.Add(p); ws.HeapKey.Add(key);
+            int c = ws.Heap.Count - 1;
+            while (c > 0) {
+                int up = (c - 1) / 2;
+                if (heap_less(ws, c, up) == false)
+                    break;
+                heap_swap(ws, c, up);
+                c = up;
+            }
+        }
+
+        static void heap_pop(PatchSearch ws, out double key, out int p)
+        {
+            key = ws.HeapKey[0]; p = (int)ws.Heap[0];
+            int last = ws.Heap.Count - 1;
+            heap_swap(ws, 0, last);
+            ws.Heap.RemoveAt(last); ws.HeapKey.RemoveAt(last);
+            int c = 0;
+            while (true) {
+                int l = 2 * c + 1, r = l + 1, m = c;
+                if (l < ws.Heap.Count && heap_less(ws, l, m)) m = l;
+                if (r < ws.Heap.Count && heap_less(ws, r, m)) m = r;
+                if (m == c)
+                    break;
+                heap_swap(ws, c, m);
+                c = m;
+            }
+        }
+
+        static void heap_swap(PatchSearch ws, int x, int y)
+        {
+            long t = ws.Heap[x]; ws.Heap[x] = ws.Heap[y]; ws.Heap[y] = t;
+            double u = ws.HeapKey[x]; ws.HeapKey[x] = ws.HeapKey[y]; ws.HeapKey[y] = u;
+        }
+
+        // the distance of two boxes (min x, y, z, max x, y, z at offsets a and b), 0 where they overlap
+        static double box_distance(double[] x, int a, double[] y, int b)
+        {
+            double sum = 0;
+            for (int q = 0; q < 3; ++q) {
+                double gap = Math.Max(0, Math.Max(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
+                sum += gap * gap;
+            }
+            return Math.Sqrt(sum);
+        }
+
+        // open_winding with L1: the open meshes decided for piece i's patch take the patch's value, the first piece of a
+        // patch its values evaluated there; the others as open_winding
+        [MethodImpl(JitHints.Optimize)]
+        int[] open_winding(int i, List<int> stack, List<int> openMeshes, PatchOpen po)
+        {
+            List<int> sparse = null;
+            Center center = null;
+            int k = po.Patch[i];
+            for (int j = 0; j < openMeshes.Count; ++j) {
+                int m = openMeshes[j];
+                int wm;
+                if (k >= 0 && po.Value[k] != null && po.Value[k][j] != NotEvaluated && (po.First[k] == i || po.Decided[j][i])) {
+                    wm = po.Value[k][j];
+                    if (VerifyPerPatchOpenWinding && po.First[k] != i) {
+                        int own = threshold_generalized(open_value(i, m, stack, ref center));
+                        if (own != wm)
+                            System.Threading.Interlocked.Increment(ref PerPatchMismatches);
+                    }
+                } else
+                    wm = threshold_generalized(open_value(i, m, stack, ref center));
+                if (wm != 0) {
+                    if (sparse == null)
+                        sparse = new List<int>();
+                    sparse.Add(m);
+                    sparse.Add(wm);
+                }
+            }
+            return sparse == null ? noWinding : sparse.ToArray();
+        }
+
+        // the generalized winding number of open mesh m in front of piece i, as open_winding evaluates it (center: the
+        // exact centroid, computed once per piece for the Antipodal meshes)
+        double open_value(int i, int m, List<int> stack, ref Center center)
+        {
+            Vector3d[] segments;
+            if (antipodalSegments.TryGetValue(m, out segments)) {
+                if (center == null) {
+                    center = new Center(centroid_point(arr.Output[i], false));
+                    center.Input = arr.ToInputVector(center.P);
+                }
+                return antipodal_front_winding(i, m, stack, segments, center);
+            }
+            return front_generalized_winding(i, m, stack);
         }
 
         // the nonzero thresholded generalized winding numbers of the open meshes in front of piece i (pairs mesh,
@@ -1728,6 +2069,15 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center)
         {
+            double bound;
+            return antipodal_front_winding(i, mesh, stack, segments, center, out bound);
+        }
+
+        // as above; bound: the error bound of the value, or -1 where it was snapped to a half-integer or is undecided
+        [MethodImpl(JitHints.Optimize)]
+        double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center, out double usedBound)
+        {
+            usedBound = -1;
             // (in grid coordinates, relative to the arrangement's centre: their rounding is relative to the model's size,
             // not to its distance from the origin, eg UTM coordinates; the segments are converted once, antipodal_grid)
             Vector3d p = center.GridDouble();
@@ -1798,6 +2148,8 @@ namespace g3
                     double snapped = snap_half(w, bound);
                     if (snapped != w)
                         System.Threading.Interlocked.Increment(ref antipodalSnapped);
+                    else
+                        usedBound = bound;
                     return snapped;
                 }
             }
@@ -1863,6 +2215,8 @@ namespace g3
 
         // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)
         long antipodalUndecided;
+        // L1: the (patch, open mesh) pairs decided per patch, and the per-piece evaluations they saved
+        long perPatchDecided, perPatchSaved;
         // values the Antipodal Method snapped to a half-integer (snap_half)
         long antipodalSnapped;
 
