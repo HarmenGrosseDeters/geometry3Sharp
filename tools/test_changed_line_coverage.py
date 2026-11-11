@@ -424,6 +424,13 @@ class Unmeasurable(unittest.TestCase):
         self.assertGreater(len(entries), 0)
         for entry in entries:
             self.assertTrue(c.in_scope(entry["file"]), entry)
+        # every entry finds exactly one line in the files of this checkout (a copy of the reports in which no line is hit)
+        root = Path(__file__).resolve().parent.parent
+        coverage = {e["file"]: {i + 1: 0 for i in range(len((root / e["file"]).read_text(encoding="utf-8-sig").split("\n")))}
+                    for e in entries}
+        exempt, stale = c.resolve_unmeasurable(root, entries, coverage)
+        self.assertEqual(stale, [])
+        self.assertEqual(sum(len(v) for v in exempt.values()), len(entries))
 
 
 class Shards(unittest.TestCase):

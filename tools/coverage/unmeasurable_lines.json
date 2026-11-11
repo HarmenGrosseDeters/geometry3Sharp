@@ -118,5 +118,55 @@
     ],
     "reason": "invariant guard, unreachable through the public API (patch_winding is called with an empty list of open meshes, windingTrees holds every open mesh before any lookup); kept: deleting it needs the exact-code review and the 6 h Boolean shards",
     "approved_in": "#594"
+  },
+  {
+    "file": "mesh_generators/DualContouring.cs",
+    "text": "return null;",
+    "after": [
+      "if (cq.Count < 2)",
+      "cq.RemoveAt(cq.Count - 1);"
+    ],
+    "reason": "invariant guard in a hot, subtle file, kept on purpose (deleting gains nothing and would turn a broken invariant into a silent wrong result): cq drops consecutive duplicates and the fast path only continues when some adjacent pair of cells has different keys, so cq has at least 2 entries (a first == last removal needs at least 3)",
+    "approved_in": "#594"
+  },
+  {
+    "file": "mesh_generators/DualContouring.cs",
+    "text": "return FaceVertexFailed;",
+    "after": [
+      "if (shared_face(A, B, e, out fmin, out normal, out fsize) == false)",
+      "Vector3i fmin; int normal, fsize;"
+    ],
+    "reason": "invariant guard in a hot, subtle file, kept on purpose (deleting gains nothing and would turn a broken invariant into a silent wrong result): consecutive distinct cells around an edge sit in adjacent quadrants, so one of A.Min[k] + sa == B.Min[k] or B.Min[k] + sb == A.Min[k] holds on the separating axis; it fails only with inconsistent geometry from quadrant_cell",
+    "approved_in": "#594"
+  },
+  {
+    "file": "mesh_generators/DualContouring.cs",
+    "text": "return append_quad(poly[0], poly[1], poly[2], poly[3]);   // (the edge is too short to split in double)",
+    "after": [
+      "if (edge_point(e, edge_surface_t(e, hpoints[ci], genNormals != null ? genNormals[ci] : Vector3d.Zero), out ve) == false)",
+      "Vector3d ve;"
+    ],
+    "reason": "invariant guard in a hot, subtle file, kept on purpose (deleting gains nothing and would turn a broken invariant into a silent wrong result): emit_quad is entered with an envelope only when all four vertices are strictly inside their cells, so the cell has a double strictly inside along the edge axis and the midpoint fallback of edge_point succeeds",
+    "approved_in": "#594"
+  },
+  {
+    "file": "mesh_generators/DualContouring.cs",
+    "text": "p = mp;",
+    "after": [
+      "if (allowed(p)) return true;",
+      "p[normal] = plane;"
+    ],
+    "reason": "invariant guard in a hot, subtle file, kept on purpose (deleting gains nothing and would turn a broken invariant into a silent wrong result): Lerp(q, mp, hi) repeats the expression of the last accepted point and hi = 1 gives exactly mp, which was checked just before; it needs a NaN or infinite q, which a NaN normal does not produce",
+    "approved_in": "#594"
+  },
+  {
+    "file": "mesh_generators/DualContouring.cs",
+    "text": "return true;",
+    "after": [
+      "p = mp;",
+      "if (allowed(p)) return true;"
+    ],
+    "reason": "invariant guard in a hot, subtle file, kept on purpose (deleting gains nothing and would turn a broken invariant into a silent wrong result): same as the previous entry",
+    "approved_in": "#594"
   }
 ]

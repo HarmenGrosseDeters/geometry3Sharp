@@ -352,9 +352,10 @@ the module outside the range, or "not guaranteed".
   is no exemption marker in the code; the only exception is the reviewed list below.
 - **Unmeasurable lines** (`tools/coverage/unmeasurable_lines.json`, owner decision 2026-11-11): the one place where an
   uncovered changed line is excused, for a line that no coverage run (net10.0) can hit: a branch that runs on .NET
-  Framework only, the catch of a platform probe, an invariant guard. Dead code is deleted, not listed; the two guards in
-  `ExactMeshBoolean.cs` are the exception, kept because deleting them needs the exact-code review and the 6 h Boolean
-  shards for no gain. An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
+  Framework only, the catch of a platform probe, an invariant guard. Dead code is deleted, not listed; invariant guards are the
+  exception, kept on purpose: the two in `ExactMeshBoolean.cs` (deleting them needs the exact-code review and the 6 h
+  Boolean shards for no gain) and five in `DualContouring.cs` (a hot, subtle file where deleting a guard would turn a
+  broken invariant into a silent wrong result). An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
   text whose nearest previous non-blank lines are `after` (a list, nearest first), unique in the file, so a new line of
   the same text elsewhere cannot take its place and edits elsewhere do not matter; it excuses that one line only;
   `approved_in` is the PR (`#123`) whose review approved the entry. The list is checked on every run, not only for
