@@ -203,7 +203,12 @@ public static partial class Program
             CheckNearestTriangle(w, id, d2, id == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Norm, id, o), brute, true);
             if (s.RawDistancesRepresentable) {
                 int rid = s.RawTree.FindNearestTriangle(rawO, out double rd2);
-                CheckNearestTriangle(w + " (raw scale)", rid, double.NaN, rid == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Norm, rid, o), brute, true);
+                // judged in raw space: the distances of the raw copy and of the normalised copy differ by rounding, so the exact
+                // equality holds only within one space
+                double rawBrute = double.MaxValue;
+                foreach (int t in s.Raw.TriangleIndices())
+                    rawBrute = Math.Min(rawBrute, MeshQueries.TriDistanceSqr(s.Raw, t, rawO));
+                CheckNearestTriangle(w + " (raw scale)", rid, rd2, rid == DMesh3.InvalidID ? double.NaN : MeshQueries.TriDistanceSqr(s.Raw, rid, rawO), rawBrute, true);
             }
             double bruteV = double.MaxValue;
             foreach (int v in usedVertices)

@@ -72,6 +72,16 @@ class PilotTests(unittest.TestCase):
                 r = run('replay', str(seed), ops='tree-nearest,tree-ray')
                 self.assertEqual(r.returncode, 0, seed.name + ': ' + r.stderr)
 
+    def test_tree_nearest_judges_the_raw_tree_in_raw_space(self):
+        # a campaign artifact (110 bytes) the raw-scale judgement used to report ("nearest triangle 14 at squared distance 4.4e-278, the
+        # minimum is 0"): the raw tree is right, the distance of its triangle was recomputed on the normalised copy and compared exactly
+        data = bytes.fromhex('000503fe03fe00000000003000000000000000ffffffff0000000000000000000000000000000000000007040a020e030a050f0315040d06ff000000000000000000000000000000000000ffffffffffffff7300000102000000010403050107ffffffff14041c000203fe03fe00')
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / 'raw-scale.bin'
+            p.write_bytes(data)
+            r = run('replay', str(p), ops='tree-nearest')
+            self.assertNotIn('raw scale', r.stderr)
+
     def test_dump_prints_the_case_with_round_trip_coordinates(self):
         with tempfile.TemporaryDirectory() as tmp:
             corpus = Path(tmp) / 'corpus'
