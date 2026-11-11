@@ -75,6 +75,8 @@ namespace g3
             return best;
         }
 
+        // Range: squared edge lengths (and squared distances) must be representable, so edges and distances below about 1e150 (the
+        // result may be +Infinity or double.MaxValue beyond, and noise of the algorithm is scaled up with the triangle).
         // The products a00, a11 and det of the algorithm below must be normal doubles with a finite reciprocal: for edges shorter than
         // about 1e-68 or longer than about 1e75 (or a very short edge beside a long one) they under- or overflow, and the division by a
         // subnormal det gave NaN. Outside this range the triangle is scaled by a power of two (exact) first.
@@ -93,19 +95,28 @@ namespace g3
                 double m0 = Math.Max(Math.Abs(e0.x), Math.Max(Math.Abs(e0.y), Math.Abs(e0.z)));
                 double m1 = Math.Max(Math.Abs(e1.x), Math.Max(Math.Abs(e1.y), Math.Abs(e1.z)));
                 double big = Math.Max(m0, m1), small = Math.Min(m0, m1);
-                // an edge 1e60 times shorter than the other (or none): a segment to the precision of a double; the range limits of the
-                // scaling: the nearest of the three edges
-                if (!(small > 1e-60 * big) || !(big > 9.332636185032189e-302) || !(big < 1.0715086071862673e+301))
+                // the range limits of the scaling (edges beyond 2^+-1000, or none): the nearest of the three edges, unscaled; squared
+                // edge lengths and distances do not exist as doubles there, the result may be double.MaxValue
+                if (!(big > 9.332636185032189e-302) || !(big < 1.0715086071862673e+301))
                     return degenerate_distance_sqr(ref point, ref triangle, out closestPoint, out baryCoords);
                 // relative to V0 (the vertices themselves may be huge beside the edges), scaled so that the longest edge is about 1
                 int e = ExponentOf(big);
                 double down = PowerOfTwo(-e), up = PowerOfTwo(e);
                 var scaled = new Triangle3d(Vector3d.Zero, e0 * down, e1 * down);
                 Vector3d p = (point - triangle.V0) * down;
-                double d2 = DistanceSqrCore(ref p, ref scaled, out Vector3d cp, out baryCoords);
-                // a point so far (more than about 1e154 edge lengths) that a square overflows: the three edges are as good as the
-                // triangle there (the triangle is a point to the precision of a double)
-                if (double.IsNaN(d2) || double.IsInfinity(d2))
+                double d2; Vector3d cp;
+                if (!(small > 1e-60 * big)) {
+                    // an edge 1e60 times shorter than the other (or none): a segment to the precision of a double
+                    d2 = degenerate_distance_sqr(ref p, ref scaled, out cp, out baryCoords);
+                } else {
+                    d2 = DistanceSqrCore(ref p, ref scaled, out cp, out baryCoords);
+                    // a point so far (more than about 1e154 edge lengths) that a square overflows: the three edges are as good as the
+                    // triangle there (the triangle is a point to the precision of a double)
+                    if (!(d2 < double.MaxValue))
+                        d2 = degenerate_distance_sqr(ref p, ref scaled, out cp, out baryCoords);
+                }
+                // (the scaled square of a point that far overflows in the nearest-edge answer too: unscaled, the square of the distance is a double)
+                if (!(d2 < double.MaxValue))
                     return degenerate_distance_sqr(ref point, ref triangle, out closestPoint, out baryCoords);
                 closestPoint = triangle.V0 + cp * up;
                 return d2 * up * up;

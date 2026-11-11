@@ -158,6 +158,25 @@ namespace geometry3Sharp.Tests
             Assert.True(d2 >= 0);
         }
 
+        [Fact]
+        public void HugeNeedlesAndCoincidentVertices_GiveTheDistanceToTheirSegment()
+        {
+            // edges of 1e155 and more (squared 1e310: not a double), found by the second review
+            var cases = new (Vector3d a, Vector3d b, Vector3d c, Vector3d p, double expected)[] {
+                (Vector3d.Zero, new Vector3d(1e155, 0, 0), new Vector3d(0, 1e90, 0), new Vector3d(5e154, 0, 1e100), 1e100),
+                (Vector3d.Zero, new Vector3d(1e160, 0, 0), new Vector3d(0, 1e99, 0), new Vector3d(5e159, 1e50, 1e130), 1e130),
+                (Vector3d.Zero, Vector3d.Zero, new Vector3d(1e160, 0, 0), new Vector3d(5e159, 1e130, 0), 1e130) };
+            foreach (var (a, b, c, p, expected) in cases) {
+                double d2 = MeshQueries.TriDistanceSqr(Mesh(a, b, c), 0, p);
+                Assert.True(!double.IsNaN(d2) && !double.IsInfinity(d2) && d2 < double.MaxValue, d2.ToString("R"));
+                Assert.True(Math.Abs(Math.Sqrt(d2) / expected - 1) < 1e-9, "distance " + Math.Sqrt(d2) + " instead of " + expected);
+                var tri = new Triangle3d(a, b, c);
+                Vector3d q = p;
+                double t2 = DistPoint3Triangle3.DistanceSqr(ref q, ref tri, out _, out _);
+                Assert.True(Math.Abs(Math.Sqrt(t2) / expected - 1) < 1e-9);
+            }
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
         public void Distance_InvariantUnderSimilarity(string name)
