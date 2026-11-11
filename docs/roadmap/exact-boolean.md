@@ -100,6 +100,16 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   booleans). Warm medians: terrain n = 200 IntersectEach 1.33 s (target <= 1.5 s), CAD 100k n = 50 2.7 s (target <= 4 s).
   Deviation: `DifferenceEach` gains only the parallelism (terrain 6.3 -> 4.0 s, CAD 32.4 -> 22.6 s). Exact-code review
   done; the parallel loop over the bodies is in `core/ExactCodeAllowList.cs` (`ExactMeshBoolean.each`).
+- **Tail case 55928 (owner 2026-11-11: analyse and optimise; add a fail-fast budget):** an open Thingi10K model of
+  about 88k triangles with about 500k self-intersecting pairs, with its rotated copy (class `thingi10k`), gives 15.1M
+  pieces and takes 514-544 s per operation on 4 cores, 1858-1937 s on 1 core (runs/boolean2-final,
+  `rest.jsonl`, `contacts_check_rest.jsonl`). Classification is 66 % and triangulation 29 %; the intersections are 7 s.
+  The owner's bar: over 5 min is a defect in practice. Steps: (1) analysis by the T3a session (why classification is
+  about 84 us per piece and triangulation superlinear here; an upper bound; levers that keep bit identity); (2) Manifold
+  and CGAL on the same case as black boxes (time or refusal); (3) a check of the 2.15 x slower 1-core union of
+  2026-11-11 (4175 s) against master 79a2c1ab (1937 s): machine load or regression; (4) an additive budget option that
+  returns a status before the arrangement instead of running for an hour (as `ExactResolveMaxPairs` does in the
+  repair). The single runs of 55928 and 252683 are not finished (tail, over 2 h on 1 core).
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
