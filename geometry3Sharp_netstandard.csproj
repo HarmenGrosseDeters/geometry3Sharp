@@ -40,6 +40,8 @@
     <RootNamespace>g3</RootNamespace>
     <AssemblyName>geometry3Sharp</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- the vendored CORE-MATH port (math/CoreMath) uses record structs and static local functions -->
+    <LangVersion>latest</LangVersion>
     <Product>geometry3Sharp</Product>
     <!-- -p:G3PredicateStats=true: count the filter failures of the exact predicates (PredicateStats; profiling only) -->
     <DefineConstants Condition="'$(G3PredicateStats)' == 'true'">$(DefineConstants);G3_PREDICATE_STATS</DefineConstants>
