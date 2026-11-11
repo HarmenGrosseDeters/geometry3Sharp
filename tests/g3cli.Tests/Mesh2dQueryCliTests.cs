@@ -537,13 +537,14 @@ namespace g3cli.Tests
         }
 
         // a sphere with clusters of pokes (fans of slivers and zero-area triangles), turned and moved to UTM coordinates at
-        // millimetre scale: the case of SafeRoundingBoundTests that the relative bound alone cannot repair (#287)
+        // millimetre scale: a case that the relative bound alone cannot repair (#287; seed 3 since Boolean 2.1, whose
+        // reference rule repairs seed 0 within the relative bound)
         string UtmCluster()
         {
             string path = m.Path_("utm_cluster.g3mesh");
             if (File.Exists(path)) return path;
             DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 6 }.Generate().MakeDMesh();
-            var rnd = new Random(0);
+            var rnd = new Random(3);
             foreach (int t0 in mesh.TriangleIndices().Where(t => t % 17 == 0).ToArray()) {
                 int tid = t0;
                 for (int i = 0; i < 4; i++) {
@@ -818,14 +819,14 @@ namespace g3cli.Tests
         [Fact]
         public void Resolve_RoundingMaxDisplacement_SetsTheRelativeBound()
         {
-            // at UTM coordinates the relative bound is the smaller term: raised a hundredfold, the bound follows it
+            // at UTM coordinates the relative bound is the smaller term: raised a thousandfold, the bound follows it
             string input = UtmCluster();
-            var (exit, r) = Run("resolve", input, m.Path_("utm_md.g3mesh"), "--rounding-max-displacement", "1e-3", "--rounding-ulp-factor", "0");
+            var (exit, r) = Run("resolve", input, m.Path_("utm_md.g3mesh"), "--rounding-max-displacement", "1e-2", "--rounding-ulp-factor", "0");
             AssertOk(exit, r);
-            Assert.Equal(1e-3, D(r["boolean"]["rounding_max_displacement"]));
-            Assert.Equal(1e-3, D(r["boolean"]["rounding"]["max_displacement"]));
+            Assert.Equal(1e-2, D(r["boolean"]["rounding_max_displacement"]));
+            Assert.Equal(1e-2, D(r["boolean"]["rounding"]["max_displacement"]));
             double diag = D(r["input_mesh"]["bounds"]["diagonal"]);
-            Assert.InRange(D(r["boolean"]["rounding"]["max_length"]), 1e-3 * diag * 0.5, 1e-3 * diag * 2);
+            Assert.InRange(D(r["boolean"]["rounding"]["max_length"]), 1e-2 * diag * 0.5, 1e-2 * diag * 2);
             Assert.True(B(r["boolean"]["rounding_clean"]));
         }
 
