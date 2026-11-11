@@ -127,7 +127,10 @@ namespace geometry3Sharp.Tests
                 Assert.Contains(ti, arr.MeshTriangles[t.Mesh]);
                 if (t.Segments.Count > 0 || t.Points.Count > 0) {
                     touched++;
-                    Assert.Same(t.Segments, copy.Segments);
+                    // (a segment added through the copy is seen through the original)
+                    int before = t.Segments.Count;
+                    copy.AddSegment(new ExactMeshArrangement.Segment(0, 1, 0));
+                    Assert.Equal(before + 1, t.Segments.Count);
                 } else {
                     untouched++;
                     if (untouched == 1) firstEmpty = t;
@@ -195,12 +198,43 @@ namespace geometry3Sharp.Tests
                     ok[variant] = boolean.Compute();
                     results[variant] = boolean.Result;
                 }
-                Assert.Equal(ok[0], ok[1]);
-                if (ok[0]) {
+                Assert.True(ok[0] && ok[1]);
+                {
                     Assert.Equal("", Invariance.GeometricDifference(results[0], results[1]) ?? "");
                     Assert.Equal(Invariance.Volume(results[0]), Invariance.Volume(results[1]));
                 }
             }
+        }
+
+        // T2 C, the consumers of the corners directly: the exact predicates and the triangle intersection test, and the box,
+        // give the same answers when the zeros of the coordinates have either sign (small integer grids: many touching and
+        // coplanar configurations, and many zeros)
+        [Fact]
+        public void CornerConsumers_AreBlindToTheSignOfAZero()
+        {
+            var rand = new Random(11);
+            Func<Vector3d> corner = () => new Vector3d(rand.Next(-1, 2), rand.Next(-1, 2), rand.Next(-1, 2));
+            Func<Vector3d, Vector3d> flipped = (v) => new Vector3d(v.x == 0 ? -0.0 : v.x, v.y == 0 ? -0.0 : v.y, v.z == 0 ? -0.0 : v.z);
+            int zeros = 0, touching = 0;
+            for (int n = 0; n < 4000; ++n) {
+                Vector3d[] p = { corner(), corner(), corner(), corner(), corner(), corner() };
+                Vector3d[] q = p.Select(flipped).ToArray();
+                Assert.Equal(ExactPredicates.Orient3d(p[0], p[1], p[2], p[3]), ExactPredicates.Orient3d(q[0], q[1], q[2], q[3]));
+                var ia = new Index3i(0, 1, 2); var ib = new Index3i(3, 4, 5);
+                var ta = new Triangle3d(p[0], p[1], p[2]); var tb = new Triangle3d(p[3], p[4], p[5]);
+                var qa = new Triangle3d(q[0], q[1], q[2]); var qb = new Triangle3d(q[3], q[4], q[5]);
+                bool r = ExactTriangleIntersection.IntersectsBeyondShared(ia, ref ta, ib, ref tb);
+                Assert.Equal(r, ExactTriangleIntersection.IntersectsBeyondShared(ia, ref qa, ib, ref qb));
+                var ja = new Index3i(0, 1, 2); var jb = new Index3i(0, 4, 2);
+                Assert.Equal(ExactTriangleIntersection.IntersectsBeyondShared(ja, ref ta, jb, ref tb),
+                    ExactTriangleIntersection.IntersectsBeyondShared(ja, ref qa, jb, ref qb));
+                var bp = new AxisAlignedBox3d(p[0]); bp.Contain(p[1]); bp.Contain(p[2]);
+                var bq = new AxisAlignedBox3d(q[0]); bq.Contain(q[1]); bq.Contain(q[2]);
+                Assert.True(bp.Min == bq.Min && bp.Max == bq.Max);
+                if (p.Any(v => v.x == 0 || v.y == 0 || v.z == 0)) zeros++;
+                if (r) touching++;
+            }
+            Assert.True(zeros > 3000 && touching > 100, $"zeros {zeros}, intersecting {touching}");
         }
     }
 }

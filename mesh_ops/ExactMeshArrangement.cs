@@ -220,7 +220,7 @@ namespace g3
         bool[] triDegenerate;
         InputTriangle.PlaneData[] triPlanes;
         InputTriangle.Touch[] triTouch;
-        readonly object[] triLocks = make_locks(4096);
+        object[] triLocks = new object[0];      // stripes (a power of two), sized by build_triangles before any parallel phase
         static object[] make_locks(int n) { var l = new object[n]; for (int i = 0; i < n; ++i) l[i] = new object(); return l; }
 
         /// <summary> the input triangles as a list of handles </summary>
@@ -1243,6 +1243,11 @@ namespace g3
             triDegenerate = grown(triDegenerate, have, total);
             triPlanes = grown(triPlanes, have, total);
             triTouch = grown(triTouch, have, total);
+            int stripes = 1;
+            while (stripes < 4096 && stripes < total)
+                stripes <<= 1;
+            if (stripes > triLocks.Length)
+                triLocks = make_locks(stripes);
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
                 var tids = new List<int>(mesh.TriangleIndices());
@@ -1526,7 +1531,7 @@ namespace g3
         /// query per triangle (each pair found twice, once dropped): the same pairs, in another order
         /// </summary>
         internal bool SelfJoin = true;
-        /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() </summary>
+        /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() (ExactMeshBoolean releases them after its classification) </summary>
         public TriangleBoxTree[] Trees;
 
         [MethodImpl(JitHints.Optimize)]
