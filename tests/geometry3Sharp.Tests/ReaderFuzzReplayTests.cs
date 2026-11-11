@@ -31,19 +31,23 @@ namespace geometry3Sharp.Tests
             Assert.NotEmpty(seeds);
             var failures = new List<string>();
             int count = 0;
-            bool finished = Timed.Finishes(() => {
+            // (a watchdog for a hang: one input that does not end within 30 s; the whole replay is only as slow as the machine is loaded,
+            // which the net48 job under load showed with 60 s as a total budget)
+            bool finished = Timed.MakesProgress(beat => {
                 foreach (byte[] seed in seeds) {
                     string seedProblem = target.Check(seed);
+                    beat();
                     if (seedProblem != "") { failures.Add("seed: " + seedProblem); continue; }
                     foreach (byte[] input in ReplayMutations.All(seed, target.Text)) {
                         ++count;
                         string problem = target.Check(input);
+                        beat();
                         if (problem != "" && failures.Count < 20)
                             failures.Add($"{input.Length} bytes, first difference at {FirstDifference(seed, input)}: {problem}");
                     }
                 }
-            }, TimeSpan.FromSeconds(60));
-            Assert.True(finished, $"{name}: no result within 60 s after {count} inputs");
+            }, TimeSpan.FromSeconds(30));
+            Assert.True(finished, $"{name}: no progress for 30 s after {count} inputs");
             Assert.True(failures.Count == 0, name + ":\n" + string.Join("\n", failures));
             Assert.True(count > 200, $"{name}: only {count} inputs");
         }

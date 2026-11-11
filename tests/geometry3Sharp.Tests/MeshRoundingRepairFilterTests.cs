@@ -220,8 +220,13 @@ namespace geometry3Sharp.Tests
             ExactMeshBoolean checkedRun = Run(a, b, Ops.Union, check: true);
             AssertClean(checkedRun, "grid union");
             Assert.True(2 * checkedRun.Rounding.FilterDecisions > checkedRun.Rounding.PairTestsChecked, "the filter decided few pairs");
+            // (that the checks also run on worker threads, not only the calling one: whether the loop spreads over threads is the
+            // scheduler's decision and a loaded machine can run it all on one thread, so more runs may be needed to see a spread)
+            int threads = checkedRun.Rounding.CheckedThreads;
+            for (int retry = 0; Environment.ProcessorCount > 1 && threads <= 1 && retry < 10; ++retry)
+                threads = Math.Max(threads, Run(a, b, Ops.Union, check: true).Rounding.CheckedThreads);
             if (Environment.ProcessorCount > 1)
-                Assert.True(checkedRun.Rounding.CheckedThreads > 1, "the pair tests ran on one thread only");
+                Assert.True(threads > 1, "the pair tests ran on one thread only, in 11 runs");
             string serial = Print(Run(a, b, Ops.Union, serial: true).Result);
             Assert.Equal(serial, Print(checkedRun.Result));
             for (int run = 0; run < 3; ++run)
