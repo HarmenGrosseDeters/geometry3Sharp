@@ -87,18 +87,19 @@ namespace g3.Tests
 
         static void Run(string name, Func<double, double> f, Func<double, double> reference, List<double> args)
         {
-            long mismatches = 0;
+            long mismatches = 0, skipped = 0;
             var bad = new System.Collections.Concurrent.ConcurrentQueue<string>();
             Parallel.For(0, args.Count, i => {
                 double x = args[i];
                 double got = f(x), want;
                 try { want = reference(x); }
-                catch (InvalidOperationException) { return; }       // too close to a rounding boundary for the reference: skip
+                catch (InvalidOperationException) { Interlocked.Increment(ref skipped); return; }       // too close to a rounding boundary for the reference: skip (counted)
                 if (BitConverter.DoubleToInt64Bits(got) != BitConverter.DoubleToInt64Bits(want) && !(double.IsNaN(got) && double.IsNaN(want))) {
                     Interlocked.Increment(ref mismatches);
                     if (bad.Count < 8) bad.Enqueue($"{name}({BitConverter.DoubleToInt64Bits(x):X16} = {x:R}): got {got:R}, want {want:R}");
                 }
             });
+            Assert.True(skipped <= args.Count / 1000, $"{name}: {skipped} of {args.Count} arguments skipped by the reference");
             Assert.True(mismatches == 0, $"{name}: {mismatches} of {args.Count} results not correctly rounded\n" + string.Join("\n", bad));
         }
 
@@ -160,18 +161,19 @@ namespace g3.Tests
             if (!string.IsNullOrEmpty(dir))
                 foreach (string[] cols in LoadWc(dir, "atan2", EnvInt("CORE_MATH_WC_N", 20000)))
                     if (cols.Length == 2 && TryHexFloat(cols[0].Trim(), out double y) && TryHexFloat(cols[1].Trim(), out double x)) pairs.Add(new[] { y, x });
-            long mismatches = 0;
+            long mismatches = 0, skipped = 0;
             var bad = new System.Collections.Concurrent.ConcurrentQueue<string>();
             Parallel.For(0, pairs.Count, i => {
                 double y = pairs[i][0], x = pairs[i][1];
                 double got = CoreMath.Atan2(y, x), want;
                 try { want = CoreMathReference.Atan2(y, x); }
-                catch (InvalidOperationException) { return; }
+                catch (InvalidOperationException) { Interlocked.Increment(ref skipped); return; }
                 if (BitConverter.DoubleToInt64Bits(got) != BitConverter.DoubleToInt64Bits(want) && !(double.IsNaN(got) && double.IsNaN(want))) {
                     Interlocked.Increment(ref mismatches);
                     if (bad.Count < 8) bad.Enqueue($"atan2({y:R}, {x:R}): got {got:R}, want {want:R}");
                 }
             });
+            Assert.True(skipped <= pairs.Count / 1000, $"atan2: {skipped} of {pairs.Count} arguments skipped by the reference");
             Assert.True(mismatches == 0, $"atan2: {mismatches} of {pairs.Count} results not correctly rounded\n" + string.Join("\n", bad));
         }
     }

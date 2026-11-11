@@ -1,4 +1,5 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+// `Ldexp` follows the scalbn algorithm of musl libc (MIT, Copyright (c) 2005-2020 Rich Felker, et al.).
 // Helpers of the vendored CORE-MATH port (see CoreMathExp.cs for the sources): bit casts, exact rounding helpers.
 // Everything here is exact (no libm): bit operations, Math.Floor / Math.Truncate / Math.Round (correctly defined),
 // and the leading / trailing zero counts.

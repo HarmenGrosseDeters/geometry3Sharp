@@ -735,7 +735,7 @@ namespace gs
         {
             int t = h / 3, c = h % 3;
             Vector2d a = inLayout[h], b = inLayout[3 * t + (c + 1) % 3], d = inLayout[3 * t + (c + 2) % 3];
-            return AcosDeterministic((b - a).Dot(d - a));       // (as Vector2d.AngleR, with a portable acos)
+            return AcosDeterministic((b - a).Dot(d - a));       // (as Vector2d.AngleR, with a portable acos; the dot of the unnormalized edge vectors is clamped to [-1, 1] as before)
         }
 
         int hV_input_head(int h)

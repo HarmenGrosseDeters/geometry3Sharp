@@ -39,7 +39,7 @@ namespace g3.CoreMathPort
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static double FusedMultiplyAdd(double x, double y, double z)
         {
-#if NETCOREAPP3_0_OR_GREATER
+#if NETCOREAPP3_0_OR_GREATER && !G3_COREMATH_SOFT_FMA     // G3_COREMATH_SOFT_FMA: run the whole port on the software path (tests)
             return Math.FusedMultiplyAdd(x, y, z);
 #else
             return SoftwareFusedMultiplyAdd(x, y, z);

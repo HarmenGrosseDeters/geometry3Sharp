@@ -313,7 +313,7 @@ namespace g3.Tests
             Assert.True(double.IsNaN(CoreMath.Cos(inf))); Assert.True(double.IsNaN(CoreMath.Cos(nan)));
             double sub = FromBits(5);
             Assert.Equal(Bits(sub), Bits(CoreMath.Sin(sub)));       // sin(x) = x for tiny x
-            Assert.Equal(Bits(sub), Bits(CoreMath.Sin(sub)));
+            Assert.Equal(Bits(-sub), Bits(CoreMath.Sin(-sub)));
             Assert.Equal(1.0, CoreMath.Cos(sub));
             Assert.Equal(Bits(CoreMathReference.Log(sub)), Bits(CoreMath.Log(sub)));
             Assert.Equal(Bits(CoreMathReference.Exp(-745.13)), Bits(CoreMath.Exp(-745.13)));

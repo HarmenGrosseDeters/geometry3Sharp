@@ -706,8 +706,8 @@ carry the MIT notices in their headers. Chain of sources:
 |---|---|---|
 | The algorithms (correctly rounded binary64 `sin`, `cos`, `atan2`, `exp`, `log`) | CORE-MATH, https://core-math.gitlabpages.inria.fr/ (repository https://gitlab.inria.fr/core-math/core-math, `LICENSE`: "MIT license"; read at commit `018fa97`, 2026-11-10); Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN | MIT |
 | The C# code | CoreMathSharp, https://github.com/andanteyk/CoreMathSharp, commit `77505b1bdb34c73655740b7d08947654d8b7eb63` (version 1.0.0, 2026-02-06); Copyright (c) 2026 Andante; a port of an earlier state of CORE-MATH (the `Dint` / `Tint` based paths; not the 2026 `cos.c` / `sin.c` rewrite) | MIT |
-| Software fused multiply-add (the integer algorithm and the exponent handling) | musl libc `fma.c`, Copyright (c) 2005-2020 Rich Felker, et al., as ported in CoreMathSharp | MIT |
-| Fast FMA emulation by error-free transformations (`isNot1Or3TimesPowerOf2`, Dekker product) | the paper referenced in CoreMathSharp's `FusedMultiplyAdd.cs`: https://hal.science/hal-04575249 (authors and title not checked here; the code is validated against an exact reference by `CoreMathFmaTests`) | paper |
+| Software fused multiply-add (the integer algorithm and the exponent handling) and `CoreMath.Ldexp` (the scalbn algorithm) | musl libc `fma.c`, Copyright (c) 2005-2020 Rich Felker, et al., as ported in CoreMathSharp | MIT |
+| Fast FMA emulation by error-free transformations (`isNot1Or3TimesPowerOf2`, Dekker product) | the paper referenced in CoreMathSharp's `FusedMultiplyAdd.cs`: https://hal.science/hal-04575249 (title and authors not verified: the site refused automated access; only the algorithm names are taken from it, and the code is validated against an exact reference by `CoreMathFmaTests`) | paper |
 
 Changes to the vendored code: namespace and `internal` visibility; tables as `static readonly` arrays instead of `ReadOnlySpan`
 (netstandard2.0 has no `Span`); no hardware intrinsics (`Math.Round` for the nearest-even rounding; `Math.FusedMultiplyAdd` on
@@ -716,7 +716,7 @@ pinned by a test); own `IsNormal` / `IsFinite` / `Ldexp` / `BigMul` / bit-count 
 (`Tint.Lshift` lost the bits of the low limb for shifts of 64 to 127; `Dint.Mul21` returned a product twice too large,
 which doubled the highest polynomial term of the accurate `sin` / `cos` paths), both found by the verification below.
 
-Not re-derived: the error bounds of the accurate (128-bit `Dint`) paths of the port; its `Add` truncates a shifted operand and its `Mul` drops the low cross terms, where the C code rounds (the independent review). The campaign below and the hard cases are the evidence, not a proof. Dead code of the port (`Mul11`, `MulPow`, `Add11`, `MulInt64`, `Mul21Tan` and the 128-bit division, used by none of the five functions) was removed.
+Not re-derived, so "correctly rounded" is an empirical claim backed by the tests below, not a proof: the error bounds of the accurate (128-bit `Dint`) paths of the port; its `Add` truncates a shifted operand and its `Mul` drops the low cross terms, where the C code rounds (the independent review). The campaign below and the hard cases are the evidence, not a proof. Dead code of the port (`Mul11`, `MulPow`, `Add11`, `MulInt64`, `Mul21Tan` and the 128-bit division, used by none of the five functions) was removed.
 
 Verification (tests, independent of the vendored code): `CoreMathReference` computes the five functions and the FMA with
 `System.Numerics.BigInteger` fixed point (1600 fractional bits); `CoreMathTests` compares bit for bit on random arguments and
