@@ -63,9 +63,11 @@ namespace g3
             public int Tid { get { return arr.triTid[Index]; } }
             public Index3i Corners { get { return arr.triCorners[Index]; } }
             /// <summary> input coordinates of the corners </summary>
-            public Vector3d V0 { get { return arr.triangleCoords[3 * Index]; } }
-            public Vector3d V1 { get { return arr.triangleCoords[3 * Index + 1]; } }
-            public Vector3d V2 { get { return arr.triangleCoords[3 * Index + 2]; } }
+            /// (those of the input points: welded by position, and -0.0 is +0.0 there; every consumer compares or adds
+            /// coordinates, so the sign of a zero changes no result)
+            public Vector3d V0 { get { return arr.inputCoords[arr.triCorners[Index].a]; } }
+            public Vector3d V1 { get { return arr.inputCoords[arr.triCorners[Index].b]; } }
+            public Vector3d V2 { get { return arr.inputCoords[arr.triCorners[Index].c]; } }
             public bool Degenerate { get { return arr.triDegenerate[Index]; } }
             /// <summary> mutual exclusion for adding to this triangle (a handle is a value: one of the arrangement's stripes) </summary>
             internal object Lock { get { return arr.triLocks[Index & (arr.triLocks.Length - 1)]; } }
@@ -219,7 +221,6 @@ namespace g3
         InputTriangle.PlaneData[] triPlanes;
         InputTriangle.Touch[] triTouch;
         readonly object[] triLocks = make_locks(4096);
-        Vector3d[] triangleCoords;          // per input triangle: the input coordinates of its corners
         static object[] make_locks(int n) { var l = new object[n]; for (int i = 0; i < n; ++i) l[i] = new object(); return l; }
 
         /// <summary> the input triangles as a list of handles </summary>
@@ -1236,7 +1237,6 @@ namespace g3
             int have = triangleCount, total = have;
             foreach (DMesh3 mesh in Meshes)
                 total += mesh.TriangleCount;
-            triangleCoords = grown(triangleCoords, 3 * have, 3 * total);
             triMesh = grown(triMesh, have, total);
             triTid = grown(triTid, have, total);
             triCorners = grown(triCorners, have, total);
@@ -1271,7 +1271,6 @@ namespace g3
             triTid[index] = tid;
             triCorners[index] = new Index3i(VertexPoints[mi][t.a], VertexPoints[mi][t.b], VertexPoints[mi][t.c]);
             Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
-            triangleCoords[3 * index] = a; triangleCoords[3 * index + 1] = b; triangleCoords[3 * index + 2] = c;
             // degenerate iff the corners are collinear, ie collinear in all three coordinate projections (exact); the
             // projection along the largest component of the normal (in doubles) first: it is not degenerate for a
             // triangle that is not, so its filter decides without the exact stage (a projection along a direction in

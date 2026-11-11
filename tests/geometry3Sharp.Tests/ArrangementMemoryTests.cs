@@ -159,5 +159,48 @@ namespace geometry3Sharp.Tests
             Assert.Equal(threads * per / 2, a.Coplanar.Count);
             Assert.Equal(threads * per / 2, b.Coplanar.Count);
         }
+
+        static DMesh3 Box(Vector3d min, Vector3d max, bool negativeZeros)
+        {
+            DMesh3 m = new TrivialBox3Generator() { Box = new Box3d((min + max) * 0.5, (max - min) * 0.5) }.Generate().MakeDMesh();
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                // (box corners are computed from centre and extent: snap to the requested ones, with -0.0 for zeros)
+                for (int k = 0; k < 3; ++k) {
+                    double c = p[k] < (min[k] + max[k]) / 2 ? min[k] : max[k];
+                    p[k] = (c == 0 && negativeZeros) ? -0.0 : c;
+                }
+                m.SetVertex(v, p);
+            }
+            return m;
+        }
+
+        // T2 C: the corners of an input triangle are read from the input points (-0.0 is +0.0 there) instead of the
+        // mesh coordinates: -0.0 in the input changes no result (overlapping, face-touching and edge-touching boxes at zero)
+        [Theory]
+        [InlineData(0.5, 0.0, 0.0)]       // overlapping
+        [InlineData(1.0, 0.0, 0.0)]       // sharing a face (coplanar, touching)
+        [InlineData(1.0, 1.0, 0.0)]       // sharing an edge
+        [InlineData(0.0, 0.0, 0.0)]       // equal (everything coplanar)
+        public void NegativeZeroCoordinates_GiveTheSameResult(double dx, double dy, double dz)
+        {
+            foreach (var op in new[] { ExactMeshBoolean.Operations.Union, ExactMeshBoolean.Operations.Intersection, ExactMeshBoolean.Operations.Difference }) {
+                DMesh3[] results = new DMesh3[2];
+                bool[] ok = new bool[2];
+                for (int variant = 0; variant < 2; ++variant) {
+                    bool neg = variant == 1;
+                    DMesh3 a = Box(new Vector3d(-1, -1, -1) + Vector3d.One, new Vector3d(1, 1, 1) + Vector3d.One, neg);   // [0,2]^3
+                    DMesh3 b = Box(new Vector3d(dx, dy, dz), new Vector3d(dx, dy, dz) + new Vector3d(2, 2, 2), neg);
+                    var boolean = new ExactMeshBoolean(a, b, op);
+                    ok[variant] = boolean.Compute();
+                    results[variant] = boolean.Result;
+                }
+                Assert.Equal(ok[0], ok[1]);
+                if (ok[0]) {
+                    Assert.Equal("", Invariance.GeometricDifference(results[0], results[1]) ?? "");
+                    Assert.Equal(Invariance.Volume(results[0]), Invariance.Volume(results[1]));
+                }
+            }
+        }
     }
 }
