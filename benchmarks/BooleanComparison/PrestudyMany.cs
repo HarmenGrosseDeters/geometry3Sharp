@@ -343,6 +343,70 @@ static class PrestudyMany
         return 0;
     }
 
+    // T3a A/B: the one-pass Difference with and without the early-out (ExactMeshBoolean.CullOutsideA): times, culled
+    // triangles, whether the results are bit-identical, volumes.
+    //   t3a-ab <terrain|cad> <n> <seed> [--size k] [--op difference|intersection]
+    public static int RunCullAB(string[] args)
+    {
+        string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
+        var op = ExactMeshBoolean.Operations.Difference;
+        for (int i = 3; i < args.Length; ++i) {
+            if (args[i] == "--size") size = int.Parse(args[++i]);
+            else if (args[i] == "--op") op = args[++i] == "intersection" ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
+        }
+        DMesh3 a; List<DMesh3> bs;
+        Workload(kind, n, seed, size, out a, out bs);
+        Warm();
+        var meshes = new List<DMesh3> { a };
+        meshes.AddRange(bs);
+        var row = new Dictionary<string, object> { ["case"] = $"{kind}_{size}_{n}_{seed}", ["op"] = op.ToString(), ["a_tris"] = a.TriangleCount,
+            ["b_tris"] = bs.Sum(b => b.TriangleCount) };
+        var results = new Dictionary<bool, DMesh3>();
+        foreach (bool cull in new[] { false, true }) {
+            Gc();
+            var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
+            var sw = Stopwatch.StartNew();
+            o.Compute();
+            string k = cull ? "cull" : "base";
+            row[k + "_ms"] = sw.ElapsedMilliseconds;
+            row[k + "_ok"] = o.Status == ExactMeshBoolean.BooleanStatus.Success;
+            row[k + "_pieces"] = o.Arrangement.Output.Count;
+            row[k + "_tris"] = o.Result.TriangleCount;
+            row[k + "_volume"] = Volume(o.Result);
+            row[k + "_clean"] = MeshRobustRepair.NotCleanReason(o.Result);
+            if (cull) row["culled"] = o.Counts["t3a_culled"];
+            results[cull] = o.Result;
+        }
+        row["equal"] = Hash(results[false]) == Hash(results[true]);
+        if ((bool)row["equal"] == false) {
+            // what differs: vertices and triangles (by exact position) in one result only, and their areas
+            Func<DMesh3, HashSet<Vector3d>> verts = (m) => new HashSet<Vector3d>(m.VertexIndices().Select(v => m.GetVertex(v)));
+            Func<DMesh3, Dictionary<string, double>> tris = (m) => {
+                var d = new Dictionary<string, double>();
+                foreach (int t in m.TriangleIndices()) {
+                    Index3i tv = m.GetTriangle(t);
+                    var p = new[] { m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c) };
+                    // (rotation-invariant key: start at the smallest corner, keep the orientation)
+                    int k0 = 0;
+                    for (int k = 1; k < 3; ++k) if (string.CompareOrdinal(p[k].ToString("R"), p[k0].ToString("R")) < 0) k0 = k;
+                    string key = string.Join("|", Enumerable.Range(0, 3).Select(k => { var v = p[(k0 + k) % 3]; return $"{v.x:R},{v.y:R},{v.z:R}"; }));
+                    d[key] = m.GetTriArea(t);
+                }
+                return d;
+            };
+            var vb = verts(results[false]); var vc = verts(results[true]);
+            var tb = tris(results[false]); var tc = tris(results[true]);
+            row["verts_only_base"] = vb.Count(v => vc.Contains(v) == false);
+            row["verts_only_cull"] = vc.Count(v => vb.Contains(v) == false);
+            row["tris_only_base"] = tb.Keys.Count(k => tc.ContainsKey(k) == false);
+            row["tris_only_cull"] = tc.Keys.Count(k => tb.ContainsKey(k) == false);
+            row["area_only_base"] = tb.Where(kv => tc.ContainsKey(kv.Key) == false).Sum(kv => kv.Value);
+            row["area_only_cull"] = tc.Where(kv => tb.ContainsKey(kv.Key) == false).Sum(kv => kv.Value);
+        }
+        Console.WriteLine(JsonSerializer.Serialize(row));
+        return 0;
+    }
+
     public static int RunA(string[] args)
     {
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;

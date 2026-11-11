@@ -244,11 +244,15 @@ namespace geometry3Sharp.Tests
             var expected = new Dictionary<Ops, int[]> {
                 { Ops.Union, new[] { 1660, 832 } }, { Ops.Intersection, new[] { 836, 420 } }, { Ops.Difference, new[] { 1448, 726 } } };
             foreach (var kv in expected) {
-                var boolean = Check(new ExactMeshBoolean(a, b, kv.Key));
+                // (without the T3a early-out, which splits patches where it culls triangles outside A)
+                var boolean = Check(new ExactMeshBoolean(a, b, kv.Key) { CullOutsideA = false });
                 Assert.Equal(kv.Value[0], boolean.Result.TriangleCount);
                 Assert.Equal(kv.Value[1], boolean.Result.VertexCount);
                 Assert.Equal(4, boolean.Patches);
                 Assert.Equal(149, boolean.IntersectingPairs);
+                // with it: the same result
+                var culled = Check(new ExactMeshBoolean(a, b, kv.Key));
+                Assert.Equal("", Invariance.Difference(boolean.Result, culled.Result));
             }
         }
 

@@ -1074,13 +1074,20 @@ namespace g3
             total.Lap("merge");
             var pieces = new List<OutputTriangle>[Triangles.Count];
             var constraints = new List<long>[Triangles.Count];
-            gParallel.ForRange(Triangles.Count, (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
+            // (a culled triangle is not triangulated: points of crossings on an edge it shares with a kept triangle lie
+            // outside CullOutsideOf, like all of it)
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Culled[ti] == false)
+                    triangulate(ti, out pieces[ti], out constraints[ti]);
+            });
             int pieceCount = 0;
             for (int ti = 0; ti < Triangles.Count; ++ti)
                 pieceCount += (pieces[ti] != null) ? pieces[ti].Count : 1;
             Output.Capacity = Math.Max(Output.Capacity, Output.Count + pieceCount);
             for (int ti = 0; ti < Triangles.Count; ++ti) {
                 InputTriangle t = Triangles[ti];
+                if (Culled[ti])
+                    continue;
                 if (pieces[ti] != null)
                     Output.AddRange(pieces[ti]);
                 else if (t.Degenerate == false)
@@ -1456,6 +1463,19 @@ namespace g3
         public bool SelfIntersections = false;
         /// <summary> triangles per batch of the candidate pair search (bounds its memory; smaller for tests) </summary>
         internal long CandidateBatchSize = 1 << 24;
+
+        // Operation-aware early-out (active zones, Rossignac and Voelcker 1989): with CullOutsideOf = m and CullTest set
+        // (ExactMeshBoolean, for a result inside the closed mesh m), a triangle of another mesh whose box meets no box of
+        // mesh m lies wholly inside or wholly outside m; CullTest(triangle) is asked, in parallel, after CullPrepare, and a
+        // triangle outside is culled: it takes part in no candidate pair (with any mesh, also its own) and gives no output
+        // piece. It stays in MeshTriangles and Trees, so winding number queries still see it (its mesh stays closed). The
+        // segments it would have added to other triangles lie outside m, so they only split pieces outside m.
+        internal int CullOutsideOf = -1;
+        internal Func<int, bool> CullTest;
+        internal Action CullPrepare;
+        // per input triangle, after Compute: culled by the early-out; and their number
+        internal bool[] Culled;
+        internal int CulledCount;
         public int SelfIntersectingPairs;
         /// <summary>
         /// for tests: the candidate pairs within a mesh by one self-join of its box tree (each pair once), else by a
@@ -1479,6 +1499,8 @@ namespace g3
                 trees[mi] = new TriangleBoxTree(boxes[mi]);
             });
             clock.Lap("intersections.trees");
+            cull(boxes, trees);
+            clock.Lap("intersections.cull");
             // the pairs of meshes to intersect (their boxes overlap; with many meshes most pairs are far apart),
             // in the order (ma, mb), mb >= ma (> ma without self-intersections)
             var meshBoxes = new List<AxisAlignedBox3d>();
@@ -1632,13 +1654,43 @@ namespace g3
                 && p.A * q.D == q.A * p.D && p.B * q.D == q.B * p.D && p.C * q.D == q.C * p.D;
         }
 
+        // the early-out of CullOutsideOf: Culled, CulledCount (each triangle decided on its own: no order dependence)
+        void cull(List<AxisAlignedBox3d>[] boxes, TriangleBoxTree[] trees)
+        {
+            Culled = new bool[Triangles.Count];
+            CulledCount = 0;
+            int m0 = CullOutsideOf;
+            if (m0 < 0 || m0 >= Meshes.Count || CullTest == null)
+                return;
+            CullPrepare?.Invoke();
+            TriangleBoxTree tree = trees[m0];
+            int culled = 0;
+            for (int m = 0; m < Meshes.Count; ++m) {
+                if (m == m0)
+                    continue;
+                List<int> tris = MeshTriangles[m];
+                gParallel.ForRange(tris.Count, (k) => {
+                    int ti = tris[k];
+                    if (Triangles[ti].Degenerate)
+                        return;
+                    bool meets = false;
+                    tree.Query(boxes[m][k], (j) => meets = true);
+                    if (meets == false && CullTest(ti)) {
+                        Culled[ti] = true;
+                        System.Threading.Interlocked.Increment(ref culled);
+                    }
+                });
+            }
+            CulledCount = culled;
+        }
+
         // the candidate pairs of triangle ka of mesh ma with the triangles of mesh mb (tree) whose boxes overlap box,
         // appended to found (created when needed); hits: a buffer. Returns the number of pairs within one mesh.
         [MethodImpl(JitHints.Optimize)]
         int candidates(int ma, int ka, int mb, AxisAlignedBox3d box, TriangleBoxTree tree, List<int> hits, ref List<long> found)
         {
             InputTriangle T = Triangles[MeshTriangles[ma][ka]];
-            if (T.Degenerate)
+            if (T.Degenerate || Culled[MeshTriangles[ma][ka]])
                 return 0;
             int self = 0;
             hits.Clear();
@@ -1647,7 +1699,7 @@ namespace g3
                 if (ma == mb && kb <= ka)
                     continue;
                 InputTriangle U = Triangles[MeshTriangles[mb][kb]];
-                if (U.Degenerate)
+                if (U.Degenerate || Culled[MeshTriangles[mb][kb]])
                     continue;
                 if (ma == mb) {
                     if (touch_only(T, U))
@@ -1683,7 +1735,7 @@ namespace g3
                     foreach (Index2i bp in boxPairs) {
                         int ka = Math.Min(bp.a, bp.b), kb = Math.Max(bp.a, bp.b);
                         InputTriangle T = Triangles[tris[ka]], U = Triangles[tris[kb]];
-                        if (T.Degenerate || U.Degenerate || touch_only(T, U))
+                        if (T.Degenerate || U.Degenerate || Culled[tris[ka]] || Culled[tris[kb]] || touch_only(T, U))
                             continue;
                         (list ?? (list = new List<long>())).Add(((long)tris[ka] << 32) | (uint)tris[kb]);
                     }

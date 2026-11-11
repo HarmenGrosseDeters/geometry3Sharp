@@ -257,6 +257,10 @@ namespace g3
         // (benchmarks/BooleanComparison/perf, #539) the Antipodal Method won up to 68k triangles per mesh (0.22-0.77 of
         // the classification time) and lost from 112k (1.05-1.42) and at 1.56M (1.30); for tests
         internal int AntipodalMaxTriangles = 100000;
+        // the early-out of Difference and Intersection (T3a; active zones, Rossignac and Voelcker 1989): their result lies
+        // inside the first mesh, so where it is closed, triangles of the other meshes wholly outside it are culled from the
+        // arrangement (ExactMeshArrangement.CullOutsideOf; the same exact solid); for tests
+        internal bool CullOutsideA = true;
         // for tests and benchmarks: per input mesh after Compute, the number of its boundary segments (BoundarySegments),
         // -1 for a mesh with exact winding numbers, -2 for an open mesh with AntipodalMaxTriangles triangles or more (not
         // counted: it goes to fast winding numbers whatever its boundary)
@@ -414,6 +418,14 @@ namespace g3
             inputClock.Lap("input");
             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
                 FixedWidthPoints = FixedWidthPoints };
+            // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
+            // the first mesh closed, so that the exact ray decides inside and outside)
+            if (CullOutsideA && WindingPredicate == null && (Operation == Operations.Difference || Operation == Operations.Intersection)
+                && inputs.Count > 1 && ExactWinding[0]) {
+                arr.CullOutsideOf = 0;
+                arr.CullPrepare = () => { BigInteger[] min, max; mesh_bounds(0, out min, out max); };
+                arr.CullTest = cull_outside_a;
+            }
             arr.Compute();
             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
             SelfIntersectingPairs = arr.SelfIntersectingPairs;
@@ -422,6 +434,7 @@ namespace g3
             foreach (var kv in arr.PhaseAllocatedBytes)
                 PhaseAllocatedBytes[kv.Key] = kv.Value;
             Counts["candidate_pairs"] = arr.CandidatePairs;
+            Counts["t3a_culled"] = arr.CulledCount;
             Counts["intersecting_pairs"] = arr.IntersectingPairs;
             Counts["points"] = arr.PointCount;
             Counts["merged_points"] = arr.MergedPoints;
@@ -1127,8 +1140,10 @@ namespace g3
             FarPoints far, out int farIndex, int firstAttempt = 0)
         {
             farIndex = -1;
-            var ot = arr.Output[i];
-            var src = arr.Triangles[ot.Source];
+            // (i < 0: the crossings at the point itself, a point on no triangle of the mesh: no source triangle to skip and
+            // no front side, t3a_cull)
+            int source = i >= 0 ? arr.Output[i].Source : -1;
+            var src = i >= 0 ? arr.Triangles[source] : null;
             List<int> tris = arr.MeshTriangles[mesh];
 
             BigInteger[] min, max;
@@ -1170,13 +1185,15 @@ namespace g3
                 }
                 // the segment must start into the front side of the piece: the sign of n . (R - P), in doubles where the
                 // error bound decides (R is far: almost always), else exact
-                int frontSign = DisableFilters ? 2 : front_side_filtered(src.PlaneApprox, rx, ry, rz, gx, gy, gz);
-                if (frontSign == 2) {
-                    BigInteger front = src.NX * (Rp.X * P.W - P.X) + src.NY * (Rp.Y * P.W - P.Y) + src.NZ * (Rp.Z * P.W - P.Z);
-                    frontSign = front.Sign;
+                if (src != null) {
+                    int frontSign = DisableFilters ? 2 : front_side_filtered(src.PlaneApprox, rx, ry, rz, gx, gy, gz);
+                    if (frontSign == 2) {
+                        BigInteger front = src.NX * (Rp.X * P.W - P.X) + src.NY * (Rp.Y * P.W - P.Y) + src.NZ * (Rp.Z * P.W - P.Z);
+                        frontSign = front.Sign;
+                    }
+                    if (frontSign <= 0)
+                        continue;
                 }
-                if (frontSign <= 0)
-                    continue;
                 if (far == null)
                     rv = arr.ToInputVector(Rp);
                 Vector3d gp = new Vector3d(gx, gy, gz), gr = new Vector3d(rx, ry, rz);
@@ -1188,7 +1205,7 @@ namespace g3
                     if (degenerate) return;
                     int ti = tris[k];
                     var U = arr.Triangles[ti];
-                    if (U.Degenerate || ti == ot.Source || (stack != null && stack.Contains(ti))) return;
+                    if (U.Degenerate || ti == source || (stack != null && stack.Contains(ti))) return;
                     // sides of the plane: in doubles where the error bound decides, else exact
                     sides++;
                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
@@ -1563,6 +1580,18 @@ namespace g3
                 a = Math.PI - a;
             // (the sign bit of y, as Math.Atan2: atan2(-0, -1) is -pi)
             return BitConverter.DoubleToInt64Bits(y) < 0 ? -a : a;
+        }
+
+        // the cull test of the early-out (ExactMeshArrangement.CullTest): input triangle ti, whose box meets no box of the
+        // first mesh, is wholly outside it (winding number 0 or less: the predicates of Difference and Intersection need
+        // it positive): the exact crossings of a ray from its first corner, which lies on no triangle of the first mesh
+        bool cull_outside_a(int ti)
+        {
+            var center = new Center(arr.Exact(arr.Triangles[ti].Corners[0]));
+            center.Input = arr.ToInputVector(center.P);
+            var rng = new Random(unchecked(Seed + 1000003 * ti + 7));
+            int farIndex;
+            return front_crossings(-1, 0, arr.Trees[0], rng, null, center, true, null, out farIndex) <= 0;
         }
 
         // pieces whose Antipodal value could not be decided (the centroid on or next to a boundary segment, or no usable ray)
