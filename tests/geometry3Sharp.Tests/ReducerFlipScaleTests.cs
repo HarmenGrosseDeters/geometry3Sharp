@@ -310,5 +310,44 @@ namespace geometry3Sharp.Tests
             foreach (double ext in new[] { Math.Pow(2, -1001), Math.Pow(2, -1067), 5e-324, Math.Pow(2, 1001), 1.7e308, 0.0, double.NaN })
                 Assert.Equal(1.0, scaleOf(ext));                            // out of the range of a usable scale: unscaled
         }
+
+        static DMesh3 Sphere(double scale)
+        {
+            DMesh3 mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            foreach (int v in mesh.VertexIndices()) mesh.SetVertex(v, scale * mesh.GetVertex(v));
+            return mesh;
+        }
+
+        // the top of the range: the reduction is closed and finite (DMesh3.CheckValidity itself overflows from about 1e160, also on the input)
+        [Theory]
+        [InlineData(1e160)]
+        [InlineData(1e200)]
+        [InlineData(1e300)]
+        public void Reducer_OfAHugeSphere_StaysClosedAndFinite(double scale)
+        {
+            DMesh3 m = Sphere(scale);
+            new Reducer(m).ReduceToTriangleCount(486);
+            Assert.True(m.TriangleCount <= 486);
+            Assert.True(m.IsClosed());
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+                double r = (p / scale).Length;
+                Assert.InRange(r, 0.9, 1.1);
+            }
+        }
+
+        // the bottom of the range (documented in QA.md): below about 1e-200 the cross products of the flip test are not representable, nothing
+        // is collapsed and the mesh is left as it is (valid), not damaged
+        [Theory]
+        [InlineData(1e-250)]
+        [InlineData(1e-300)]
+        public void Reducer_OfATinySphereBelowTheRange_LeavesTheMeshUnchanged(double scale)
+        {
+            DMesh3 m = Sphere(scale);
+            string before = Signature(m, 1);
+            new Reducer(m).ReduceToTriangleCount(486);
+            Assert.Equal(before, Signature(m, 1));
+        }
     }
 }
