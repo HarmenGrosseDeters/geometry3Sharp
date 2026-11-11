@@ -105,7 +105,7 @@ judges them):
      there came from the inputs, where Clipper2's own output is wrong). The signed sum stays; the split was not merged. On the same data #583 changes
      none of the 64 000 results (it acts on the rarer degenerate rings the fuzzer found); 1.7% of the results of both versions differ from the sampled
      truth by more than 0.25 (Clipper2 itself or the sampling; not analysed).
-   - **Clipper2 2.0.0 itself (open, 16 crashes, not reported upstream):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
+   - **Clipper2 2.0.0 itself (open, 16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
      A = (0,0) (0.125,0) (0.125,0.125) (0,0.125) (0.5703125,0.5703125) (0.6953125,0.5703125) (0.125,0.125) (0,0.125);
@@ -180,7 +180,9 @@ Ranked (a wrong result that claims to be right first):
 3. **DualContouring.find_crossings throws on finite input** (robust-repair-soup, 2 artifacts): `DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized`,
    an `AggregateException` from the parallel loop at `DualContouring.cs:1122`. The crash input (79 bytes): `000103fe03fe0004034848484848484848484848484848484848484848484848480000ffffffff000000000000abffff00000000000002fe03fe000000000000000000000000000002fe03fe000300`; the timeout input (51 bytes, 146 s before the same throw): `000103fe15001103fe03fe0000000000000000000000000000000100000000040d061403fe0614030000000000010000000004`.
 4. **Clipper2 2.0.0 itself** (item 5): a Union of degenerate self-intersecting rings returns an area that neither input fills; independent of `PrecisionBits`;
-   whether to report it upstream is an owner decision.
+   not reported upstream (owner 2026-11-11): AngusJohnson/Clipper2 was archived on 2026-10-28 and its C# port is no longer
+   developed; Clipper2 continues as a C++ only library at PolyClipping/Clipper2 (maintainer Seth Hillibrand). Whether to
+   integrate the C# sources and fix it ourselves is an open roadmap item ([platform.md](../../docs/roadmap/platform.md#open)).
 5. **AABB tree queries at tiny coordinates** (tree-nearest 997 crashes: the nearest triangle is not the nearest, e.g. at squared distance 4.5e-277 where the minimum is 0, or the brute force minimum is NaN;
    tree-inside 1: "2 crossings, brute force 0" at raw scale). Smallest tree-nearest, 20 bytes: `000503fe0700fe0000000000000000ffffffff05` (a cube of edge 2.4e-35 with a vertex at 7.6e-321 and one at -3.2e-173).
    Cause found and fixed in #586: not the tree but the point-triangle distance arithmetic (`a00`, `a11` and `det` leave the accurate range for tiny or sliver triangles). The "(raw scale)" messages with squared distance 4.5e-277 against minimum 0 are a false positive of the pilot (exact equality on the normalised copy); the raw tree answer is right. The tree-inside artifact (133 bytes): `000403fe030100080000ffffffff3f03fe03fe00010000000000000002000000000000000000000000010000800000000000ffffff3f03fe03fe0001000000000000000203fe03fe0203040000005400000000000000000300000000fe03fe0203040000000000000000000000020300000a0403ff240f0000000104030500000015000000`.

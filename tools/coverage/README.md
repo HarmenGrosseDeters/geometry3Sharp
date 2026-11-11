@@ -8,7 +8,7 @@ FPTaylor and SharpFuzz. No clean-room restricted code was consulted.
 Interface: `python3 tools/changed_line_coverage.py --base <commit> --coverage-dir <results> --json <output>`
 [`--slow-coverage-dir <dir>`: the core report of the Category=Slow run; a changed line only it hits is reported as
 `covered_only_by_slow` and does not fail; the workflow does not use it, it collects the Slow tier with the rest;
-`--attribute` names the PR per line; `--expect-shards core=4` requires a report in each shard directory].
+`--attribute` names the PR per line; `--unmeasurable <json>` (default `tools/coverage/unmeasurable_lines.json`) is the reviewed list of lines no run can hit, stale entries fail; `--expect-shards core=4` requires a report in each shard directory].
 The tested HEAD and its merge base are recorded. One collector attachment at
 `<suite>/<attachment-id>/coverage.cobertura.xml` in each of `cli/` and `clipper2/`, and one per shard at
 `core/<shard>/<attachment-id>/coverage.cobertura.xml`, is mandatory. TRX's
