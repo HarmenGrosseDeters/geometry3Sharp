@@ -7,8 +7,8 @@ Part of the [roadmap](../ROADMAP.md).
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
-  run below was made on its head. The full rounding-1..8 run on master follows the merge. Next: Exact Boolean 3.0
-  (T3a culling after #539, range boolean).
+  run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
+  progress (see [3.0 progress](#30-progress)): T3a merged, T3b in draft #616.
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -88,6 +88,23 @@ master (survivors are tasks of the area's next PR); the 3.0 completion gate is a
 threshold on master, on GitHub or run locally by the owner (a script under `tests/mutation` writes a result JSON with the head
 sha, a CI check validates it). The boolean and arrangement shards are split finer so that each stays well under the 6 h job
 limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per step (CLAUDE.md).
+
+### 3.0 progress
+
+- **T3a: merged 2026-11-11** (#612, 4af5fcd3). Operation-aware cull for `Difference` / `Intersection` with a closed first
+  mesh: Bi triangles whose box meets no A triangle are culled per connected set by one exact ray if outside A; no new API.
+  Warm medians off -> on: CAD 10k n = 500 40.0 -> 7.3 s (target <= 30 s), CAD 100k n = 100 1.78 -> 1.22 s, terrain n = 200
+  1.64-1.85 -> 1.49-1.63 s (target <= 2.7 s, already met by master before T3a); never slower on small cases. Result ids of
+  Difference / Intersection may be permuted (same geometry and volume bits), documented in OPERATIONS.md.
+- **T3b: draft #616** (`IntersectEach` / `DifferenceEach`, additive, parallel over the Bi, bit-identical to separate
+  booleans). Warm medians: terrain n = 200 IntersectEach 1.33 s (target <= 1.5 s), CAD 100k n = 50 2.7 s (target <= 4 s).
+  Deviation: `DifferenceEach` gains only the parallelism (terrain 6.3 -> 4.0 s, CAD 32.4 -> 22.6 s). Exact-code review
+  and the full local list before ready.
+- **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
+  the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
+  CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
+  for the tree, 1.5-2 days for the points per grid class.
+- **T3 (#593)** merges after T3a; then T2 memory, T1 levers, T5 / T1b per the execution order below.
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
