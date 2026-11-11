@@ -351,9 +351,11 @@ static class PrestudyMany
         string kind = args[0]; int n = int.Parse(args[1]), seed = int.Parse(args[2]), size = 0;
         var op = ExactMeshBoolean.Operations.Difference;
         int repeat = 1;
+        bool serialCheck = false;
         for (int i = 3; i < args.Length; ++i) {
             if (args[i] == "--size") size = int.Parse(args[++i]);
             else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
+            else if (args[i] == "--serial") serialCheck = true;
             else if (args[i] == "--op") op = args[++i] == "intersection" ? ExactMeshBoolean.Operations.Intersection : ExactMeshBoolean.Operations.Difference;
         }
         DMesh3 a; List<DMesh3> bs;
@@ -372,6 +374,8 @@ static class PrestudyMany
             ["b_tris"] = bs.Sum(b => b.TriangleCount) };
         var results = new Dictionary<bool, DMesh3>();
         var times = new Dictionary<bool, List<double>> { [false] = new List<double>(), [true] = new List<double>() };
+        // (determinism of each mode on its own: the distinct result hashes over the repeats, and with --serial one serial run)
+        var hashes = new Dictionary<bool, HashSet<string>> { [false] = new HashSet<string>(), [true] = new HashSet<string>() };
         // (alternating, so that drift hits both alike; the last run of each is kept for the checks)
         for (int rep = 0; rep < repeat; ++rep)
         foreach (bool cull in new[] { false, true }) {
@@ -381,6 +385,7 @@ static class PrestudyMany
             o.Compute();
             string k = cull ? "cull" : "base";
             times[cull].Add(sw.Elapsed.TotalMilliseconds);
+            hashes[cull].Add(Hash(o.Result));
             var sorted = times[cull].OrderBy(x => x).ToList();
             row[k + "_ms"] = sorted[sorted.Count / 2];
             row[k + "_all_ms"] = times[cull].ToArray();
@@ -394,6 +399,19 @@ static class PrestudyMany
             results[cull] = o.Result;
         }
         row["equal"] = Hash(results[false]) == Hash(results[true]);
+        row["base_distinct_hashes"] = hashes[false].Count;
+        row["cull_distinct_hashes"] = hashes[true].Count;
+        if (serialCheck)
+            foreach (bool cull in new[] { false, true }) {
+                gParallel.SerialOnThisThread = true;
+                try {
+                    var o = new ExactMeshBoolean(meshes, op) { CullOutsideA = cull };
+                    o.Compute();
+                    row[(cull ? "cull" : "base") + "_serial_equal"] = Hash(o.Result) == Hash(results[cull]);
+                } finally {
+                    gParallel.SerialOnThisThread = false;
+                }
+            }
         if ((bool)row["equal"] == false) {
             // what differs: vertices and triangles (by exact position) in one result only, and their areas
             Func<DMesh3, HashSet<Vector3d>> verts = (m) => new HashSet<Vector3d>(m.VertexIndices().Select(v => m.GetVertex(v)));
