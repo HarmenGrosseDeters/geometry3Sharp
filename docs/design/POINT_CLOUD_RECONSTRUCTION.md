@@ -147,8 +147,10 @@ in review, the residuals of the review of B (#575) and step C1 (`PointCloudSurfa
 the check of the paper references against the papers themselves before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
 
 Residuals of the independent review of `PointCloudNormals` (fixed in #575: a limited wrap must be clean, `DegenerateCount`, `MaxSteinerPoints`):
-- A wrap with `WrapStatus == PointLimitReached` is used only if `MeshRobustRepair.NotCleanReasons` is empty. The not-clean branch has no test
-  (no input produced such a wrap). Two mutants of defensive paths survive for the same reason (the closed-wrap check, a probe that is not finite).
+- A wrap with `WrapStatus == PointLimitReached` is used only if it is closed, valid, without bowtie vertices and without self-intersections
+  (`PointCloudNormals.WrapProblem`); if not, a coarser Alpha is tried (only when the class chose Alpha; counted in `Escalations`), then `WrapFailed`.
+  Both branches are tested through an internal seam (`WrapProblemF`), because no input produced such a wrap. Two mutants of defensive
+  paths survive (the closed-wrap check of the first branch, a probe that is not finite).
 - `NoiseSigma` is about 0.6 of the true noise (calibrated by `NoiseFactor` 6.5); a better estimator (larger neighbourhood, or a robust fit) is
   open if the Alpha rule needs it.
 - Outside this work: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the number of digits with the platform parser; on net48 that parser is not always
