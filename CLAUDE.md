@@ -95,7 +95,11 @@ the mutated files, the incremental mutation run (`tests/mutation`: the changed l
 stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
 changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
 (workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
-a revert only for a real defect (owner 2026-11-09).
+a revert only for a real defect (owner 2026-11-09). During Exact Boolean 3.0 (owner 2026-11-11): no full shard runs on
+PRs (the incremental run where a baseline fits, otherwise none); the full shards of the exact mesh pipeline run nightly on
+master, and their survivors become tasks of the area's next PR, not merge blockers; 3.0 is complete only after a full run of
+every touched shard above its threshold on master, on GitHub or run locally by the owner (`tests/mutation`, result checked by
+CI against the head sha). 3.0 steps are bundled per stage, one commit per step.
 
 Performance or quality claims are backed by a benchmark (`benchmarks/`), with before/after numbers in the
 benchmark README or the PR.
