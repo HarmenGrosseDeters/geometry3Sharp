@@ -38,6 +38,11 @@ rather than an app. That puts some things first:
 5. **Licenses.** Keep the Boost license. Port only from MIT / Apache / BSD sources (eg Manifold,
    geometry-central), never from GPL code (CGAL, parts of TetWild). Sources are listed in [SOURCES.md](SOURCES.md).
 
+**Depth over breadth (owner 2026-11-10):** round off the existing features first; a new topic only with a synergy
+with an existing one. Must-win hard problems (stronger-model investigations): scale-free robust repair, rounding cost
+on large results (with the 3D snap-rounding leads), a proof method for determinism
+([research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)).
+
 Relation to upstream: stay API compatible with 1.0.324, which existing users depend on. Upstream's
 `dotnet8` branch has breaking changes (it removes the float types); useful parts (eg USD) can be taken over
 selectively.
@@ -127,7 +132,7 @@ Planned, not started.
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
   [research.md](roadmap/research.md#open-research-questions)
-- Intersection-free dual contouring (owner 2026-11-09: later, priority 4 of the Phase 5 list, after tet meshing):
+- Intersection-free dual contouring (owner 2026-11-10: moved up, next Phase 5 item, ahead of collision detection and tet meshing):
   [research.md](roadmap/research.md#open)
 - Hard open problems, candidates for a selective investigation with the stronger Fable model (owner 2026-11-09):
   [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)

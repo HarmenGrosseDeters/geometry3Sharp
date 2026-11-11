@@ -53,39 +53,46 @@ namespace gs
             return self_intersection_pairs(mesh, 1).Count > 0;
         }
 
-        // stop once maxPairs pairs are found (then at least maxPairs pairs are returned if there are as many)
+        // stop once maxPairs pairs are found (then at least maxPairs pairs are returned if there are as many).
+        // The candidates are the pairs of overlapping (closed) boxes of the non-degenerate triangles, from the self-join of
+        // a box tree (the one of the exact boolean): every intersecting pair has overlapping closed boxes, so none is
+        // missed, and the exact test decides. The work items of the join run in parallel, each into its own list; the
+        // pairs are sorted at the end, so with maxPairs = int.MaxValue the result does not depend on the threads
+        // (with a smaller maxPairs the pairs found first are kept, which thread timing decides).
         static List<Index2i> self_intersection_pairs(DMesh3 mesh, int maxPairs)
         {
-            var tree = new DMeshAABBTree3(mesh, true);
+            var tids = new List<int>(mesh.TriangleCount);
+            var boxes = new List<AxisAlignedBox3d>(mesh.TriangleCount);
+            foreach (int t in mesh.TriangleIndices()) {
+                Triangle3d T = triangle(mesh, t);
+                if (ExactTriangleIntersection.IsDegenerate(ref T)) continue;
+                AxisAlignedBox3d box = new AxisAlignedBox3d(T.V0); box.Contain(T.V1); box.Contain(T.V2);
+                tids.Add(t); boxes.Add(box);
+            }
             var pairs = new List<Index2i>();
-            object lockObj = new object();
-            int found = 0;
-            int[] tris = new List<int>(mesh.TriangleIndices()).ToArray();
-            gParallel.ForEach(Interval1i.Range(tris.Length), (k) => {
-                if (System.Threading.Volatile.Read(ref found) >= maxPairs) return;
-                int ta = tris[k];
-                Triangle3d A = triangle(mesh, ta);
-                if (ExactTriangleIntersection.IsDegenerate(ref A)) return;
-                AxisAlignedBox3d box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
-                Index3i ia = mesh.GetTriangle(ta);
+            if (tids.Count < 2)
+                return pairs;
+            var tree = new TriangleBoxTree(boxes);
+            List<Index2i> tasks = tree.SelfPairTasks(256);
+            var found = new List<Index2i>[tasks.Count];
+            int count = 0;
+            gParallel.ForRange(tasks.Count, () => 0, (k, unused) => {
+                if (System.Threading.Volatile.Read(ref count) >= maxPairs) return;
                 List<Index2i> local = null;
-                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                    NextBoxDF = (b, depth) => b.Intersects(box) && (local == null || local.Count < maxPairs),
-                    NextTriangleF = (tb) => {
-                        if (tb <= ta || (local != null && local.Count >= maxPairs)) return;
-                        Triangle3d B = triangle(mesh, tb);
-                        if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
-                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, mesh.GetTriangle(tb), ref B)) {
-                            if (local == null) local = new List<Index2i>();
-                            local.Add(new Index2i(ta, tb));
-                        }
+                tree.SelfPairs(tasks[k], (i, j) => {
+                    int ta = Math.Min(tids[i], tids[j]), tb = Math.Max(tids[i], tids[j]);
+                    Triangle3d A = triangle(mesh, ta), B = triangle(mesh, tb);
+                    if (Remesher.pair_intersects(mesh.GetTriangle(ta), ref A, mesh.GetTriangle(tb), ref B)) {
+                        (local ?? (local = new List<Index2i>())).Add(new Index2i(ta, tb));
+                        // (stop this work item once the limit is reached anywhere)
+                        if (maxPairs != int.MaxValue && System.Threading.Interlocked.Increment(ref count) >= maxPairs) return false;
                     }
+                    return true;
                 });
-                if (local != null) {
-                    lock (lockObj) pairs.AddRange(local);
-                    System.Threading.Interlocked.Add(ref found, local.Count);
-                }
+                found[k] = local;
             });
+            foreach (var local in found)
+                if (local != null) pairs.AddRange(local);
             pairs.Sort((x, y) => x.a != y.a ? x.a.CompareTo(y.a) : x.b.CompareTo(y.b));
             return pairs;
         }
@@ -339,28 +346,33 @@ namespace gs
 
         /// <summary>
         /// The power of two that brings the extent of the triangles of mesh into [1, 4) when it lies outside
-        /// [2^-100, 2^100] (where the squares of lengths and the products of areas overflow or underflow, and an
-        /// absolute threshold like 1e-12 * diagonal^2 is infinite or 0), else 1. Also 1 if scaling the coordinates would
+        /// [2^lowExp, 2^highExp] (default [2^-100, 2^100]: where the squares of lengths and the products of areas overflow or underflow, and an
+        /// absolute threshold like 1e-12 * diagonal^2 is infinite or 0), else 1. With (0, 0) every extent but 1 is scaled, into [1, 2):
+        /// the canonical scale (MeshWindingNumberSolidify). Also 1 if scaling the coordinates would
         /// overflow or leave the normal range (a tiny extent far from the origin, subnormal coordinates): then the
         /// caller works on the mesh as it is. A 2^k scale of the vertices is exact, so an operation run on the scaled
         /// mesh and scaled back (ScaleVertices) gives the unit-scale result, times 2^k, bit for bit.
         /// </summary>
-        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false)
+        internal static double unit_scale_for_mesh(DMesh3 mesh, bool readOnly = false, int lowExp = -100, int highExp = 100)
         {
             AxisAlignedBox3d box = TriangleBounds(mesh);
-            double s = unit_scale(box, -100, 100);
+            double s = unit_scale(box, lowExp, highExp);
             if (s == 1)
                 return 1;
             double largest = Math.Max(box.Min.MaxAbs, box.Max.MaxAbs);
             if (!(largest * s <= 1e300))
                 return 1;
-            // (exact both ways only if no non-zero coordinate is subnormal before or after scaling)
             foreach (int v in mesh.VertexIndices()) {
                 Vector3d p = mesh.GetVertex(v);
+                bool used = !readOnly || mesh.GetVtxEdgeCount(v) > 0;
                 for (int k = 0; k < 3; ++k) {
                     double x = Math.Abs(p[k]);
-                    // (readOnly: the caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
-                    if (x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
+                    // (an unused vertex far away is scaled with the others: it must not overflow)
+                    if (!(x * s <= 1e300))
+                        return 1;
+                    // (exact both ways only if no non-zero coordinate of a used vertex is subnormal before or after scaling; readOnly: the
+                    // caller works on a scaled copy and only maps lengths back, so subnormal coordinates are fine: scaling them up is exact)
+                    if (used && x != 0 && ((readOnly == false && x < 2.2250738585072014e-308) || x * s < 2.2250738585072014e-308))
                         return 1;
                 }
             }

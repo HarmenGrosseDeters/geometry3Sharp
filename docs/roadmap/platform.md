@@ -139,15 +139,59 @@ Tier: S, M. Parallel: up to 2 sessions
        scale invariance.
     2. 2D mesher (`QualityMesh2`) against the independent oracle (fast since #411 / #427): random polygons with
        holes, near-parallel and near-touching segments; properties: input segments are unions of output edges,
-       angle bounds, conformity. **Done 2026-11-10 (QA 2.0 T5):** `QualityMesh2PropertyCampaign.CsCheck.cs` (six families: polygon with
-       holes, touching, wedge, soup, grid, extreme scales; 25 to 50 seeded samples each in CI, category `Campaign`), cases and
+       angle bounds, conformity. **Done 2026-11-10 (QA 2.0 T5):** `QualityMesh2PropertyCampaign.CsCheck.cs` (seven families: polygon with
+       holes, touching, wedge, soup, near contact, grid, extreme scales; 8 to 50 seeded samples each in CI, category `Campaign`), cases and
        properties in `QualityMesh2PropertyCase.cs`, fixed examples in `QualityMesh2PropertyExamplesTests.cs`. Large runs:
        `G3_PROPERTY_SAMPLES=10000` (about 60 000 samples). Findings: #496 (input angles below 60 degrees are small pairs), #499
        (oracle rule O-G, the grid tube); `TrianglesOnDegenerate` was fixed by #512; fine-grid `AngleBelowBound` was an oracle gap (hull edges taken whole on the grid, #534); the spike case (`VertexUnused` / `SegmentMissing`, a lobe of 5.5 px²) was settled by owner decision B (the reference is the rounded input, the oracle's lobe bounds are gone). The 10k strict grid run has no finding left; the filter for open grid classes (`G3_PROPERTY_STRICT=1` turns it off) stays for new ones.
     3. Alpha wrap on random soups: closed, manifold, no self-intersection, encloses the input, distance band,
-       deterministic; shrinking to minimal pinch / cap cases.
-    4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions; terrain metamorphic relations
-       (never steeper, cut + fill consistent).
+       deterministic; shrinking to minimal pinch / cap cases. **Campaign done 2026-11-10 (QA 2.0 T6):**
+       `AlphaWrapCampaignTests.CsCheck.cs` (nine scene kinds: points, box, sphere, sheet, two boxes, coplanar points, collinear points,
+       clustered duplicates, sliver tetrahedron; sizes 2^-30 .. 2^6, moved up to 2^14 sizes, relative alpha 5 .. 40, relative offset 100 ..
+       2000; the guarantees of `AlphaWrapTests.CheckWrap`, repeat on the same and on a new instance and the 2^k scaled input bit-identical;
+       20 seeded samples in CI, category `Campaign`). First run, 1 500 samples: one finding, `Status = Failed` ('result box corners on
+       the result') for flat input at relative alpha 5 to 8 (13 % of 299 seeds of 30 coplanar points at 5, 11 % at 6, 4 % at 8, none at
+       10 and at the default 20). **Fixed** (bugfix PR): a flat input gives huge cells with box corners above and below a plane of Steiner points;
+       a pinch at such a point made the manifold step move them inside. The refinement at non-manifold spots could not place a point for
+       them (its depth guard), and with `RefineNonManifold` off nothing refined at all. On the retry, a pinched cell with a box corner gets the
+       projected circumcenter if it lies strictly inside the circumsphere (without the depth), and the retry of `Compute` after box corners on
+       the result refines at non-manifold spots whatever `RefineNonManifold` says. 150 seeds at relative alpha 5 and 8, both settings: 0 failed (before: 17 and 7 of 150 with the setting off, 3 and 0 on).
+    4. Smaller: `MarchingCubes` `LinearEdges` enclosure on random SDF compositions (QA 2.0 T11, done 2026-11-10,
+       `MarchingCubesCampaignTests.CsCheck.cs`: random unions and subtractions of 1-Lipschitz sphere, box, torus and capsule SDFs;
+       LinearEdges at the normalized recipe of CONSERVATIVE_MC_AUDIT.md: no exception, closed, valid, every sampled point of {f <= 0}
+       enclosed (winding > 0.99); all four root modes of `MarchingCubes`: parallel equals serial, a repeated run agrees, and `MarchingCubesPro` (LinearEdges only) has the same vertices and triangles by coordinates; the
+       field, bounds, cell size and level scaled by 2^-9 and 2^11 give the same mesh bit for bit; 20 samples in CI. 4 000 samples: no
+       finding; scenes whose shape reaches the extraction boundary (6 of 4 000) are outside the recipe and keep only the determinism and
+       scale checks). Terrain metamorphic relations (never steeper, cut + fill consistent) are still open.
+    5. Reducer and Remesher (QA 2.0 T7, done 2026-11-10): `RemeshReduceCampaignTests.CsCheck.cs` (sphere, noisy sphere, torus, noisy torus,
+       two spheres, open terrain; sizes 2^-30 .. 2^6; Reducer: valid, finite, closed stays closed, Euler characteristic and components,
+       no bowtie, positive volume, MaxDeviation on vertices and centroids also over a second call on the same instance, `PreventFoldOver`
+       on terrain, repeated run and 2^-9 / 2^11 scaled input bit-identical; Remesher: the same topology checks, parallel smoothing equals
+       serial, repeated and scaled bit-identical; 12 (Reducer) and 20 (Remesher) samples in CI; scaling by 2^k only, the other similarities are covered by the invariance tests). Known deferred item R13 (`MeshIterativeSmooth`, non-finite input) is out of scope by construction (finite meshes); R14 (Reducer below scale 2^-25) was fixed by #549, so the sizes reach 2^-30 (and 2^-39 scaled). 1 500 Reducer (terrain noise as above) and 4 000 Remesher samples: Remesher
+       no finding; Reducer one open finding (partial effect known from S1): on a noisy terrain (input a height field) `PreventFoldOver` still leaves a triangle slightly past vertical (normal z -0.01 .. -0.13). 200 seeds, 17 x 17 cells, 35 % kept, with the guard (without): vertical noise step 0: 0 (0), 1: 7 (46), 2: 6 (66), 3: 6 (71), 4: 29 (104); the guard needs only a positive dot with the absorbed reference normal. Counted by the campaign, `G3_PROPERTY_STRICT=1` fails on it.
+    6. Terrain slope design (QA 2.0 T11, terrain relations, done 2026-11-10): `TerrainSlopeCampaignTests.CsCheck.cs` (a closed polygonal
+       toe with cut, fill or Auto, on the outside or inside, ratios 1 to 3, wavy terrains with jitter, flipped grids, 0 to 3 no-data
+       triangles at a corner; after a result: `MaxSlopeRatio` at most 1, the catch-line and composite oracles of `TerrainSlopeCatchLineTests`,
+       the design's cut and fill volumes against `TerrainVolumeDifference` of terrain and composite, a second Compute on the same instance
+       and a new instance equal bit for bit, 2^-9 and 2^11 scaled equal bit for bit, translated to UTM the same status and catch lines
+       and close volumes; 5 samples in CI, 4 s). 1 800 samples: one open finding: a closed toe with the slope on its inside (a cone to an apex
+       of needle triangles) is certified only after retries of the exact check (4 attempts, slope margin from 1e-6 to 5e-4) and ended once
+       in about 500 such designs with `SlopeViolation` (a safe failure: fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671); the same
+       design on the outside is certified at once. Second open finding: `Direction.Auto` on a terrain that tilts through the toe plane ends, with the failing catch point at a toe edge, with `SlopeViolation` ("the composite is not certified: its catch points moved ... changed the surface by up to 0.23, where at most 0.0127 fits into Tolerance", a safe failure; 1 of 700 designs, tilt 0 and 1 certified). Both counted by the campaign (`G3_PROPERTY_STRICT=1` fails on them) and pinned as fixed examples; not fixed.
+    7. Clipper2 addon (QA 2.0 T10, done 2026-11-10): `Clipper2CampaignTests.CsCheck.cs` in `tests/geometry3Sharp.Clipper2.Tests` (CsCheck added
+       there for net10.0, with its own small runner and the same environment variables): random sets of stars, rectangles, stars with holes,
+       disjoint pairs and finely sampled circles, placed freely, as an identical copy, nested at 0.3 size, with a shared rectangle edge, or apart, at scales 2^-10 .. 2^10 and far from the origin,
+       against `Oracle.cs`: union, intersection, difference and xor well formed and equal to the Boolean operation on the memberships of the
+       inputs away from the boundaries, the area identities, round offsets both ways by the distance to the input, `Simplify` within epsilon,
+       `Simplify` also the other way (every input vertex within 3 epsilon of the result: SimplifyPaths measures against the neighbours' line, so removals drift, 1.04 epsilon seen), `ClipPolyLines` (intersection and difference: the pieces lie on the input lines on the kept side, no kept part missing), a repeated call and the 2^-9 / 2^11 scaled input bit-identical; 20 samples in CI. 8 000 samples: no finding. (Minkowski sums
+       and polyline offsets are not covered yet.)
+    8. Fuzz targets, second wave (QA 2.0 T13; targets done 2026-11-10, libFuzzer campaigns still to run): `tools/MeshFuzzPilot` got `remesher`, `reducer`,
+       `quality-mesh2` (judged by the acceptance oracle of the mesher) and `clipper2` (Boolean on raw rings against a winding check, offset,
+       simplify), each with self-test contradictions (the branch each check takes), seeds, the replay tests, option bytes after the queries, and a
+       `random <n> <seed>` smoke command that needs no libFuzzer; `run.sh` also instruments the Clipper2 dlls. Smoke runs after the independent
+       review (about 10 000 inputs per target): remesher and reducer no finding, clipper2 one open class (a self-intersecting input ring gives an outer ring of
+       negative area), quality-mesh2 two open classes (`AngleBelowBound` in every quality mode, about 1 in 700; `VertexUnused` / `SegmentMissing` at far or tiny coordinates). All pinned in
+       FINDINGS.md and gated in the targets (`MESH_FUZZ_STRICT=1`), none fixed.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).

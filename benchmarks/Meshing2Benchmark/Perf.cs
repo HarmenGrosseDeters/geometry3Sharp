@@ -116,8 +116,56 @@ namespace Meshing2Acceptance
             return 0;
         }
 
+        /// <summary> a side x side grid of square rings sharing their borders, the inner corners jittered by a quarter of a cell (a fixed seed):
+        /// the parcels of a cadastre, the proxy for the Herne tiles (which are not in the repository) </summary>
+        static ConstrainedMesh2Input JitteredParcels(int side)
+        {
+            var rnd = new Random(7);
+            var input = new ConstrainedMesh2Input();
+            for (int i = 0; i <= side; ++i)
+                for (int j = 0; j <= side; ++j) {
+                    bool edge = i == 0 || j == 0 || i == side || j == side;
+                    input.Points.Add(new Vector2d(i + (edge ? 0 : (rnd.NextDouble() - 0.5) * 0.5), j + (edge ? 0 : (rnd.NextDouble() - 0.5) * 0.5)));
+                }
+            for (int i = 0; i < side; ++i)
+                for (int j = 0; j < side; ++j) {
+                    int a = i * (side + 1) + j;
+                    input.Rings.Add(new Mesh2Ring(new[] { a, a + side + 1, a + side + 2, a + 1 }, false, i * side + j));
+                }
+            return input;
+        }
+
+        /// <summary> the quality mesher on jittered parcels, with and without a snap pixel of 1/64 cell (--quality; sides in --sizes) </summary>
+        static int RunQuality(string[] args, Func<string[], string, string> arg)
+        {
+            var sides = (arg(args, "--sizes") ?? "30,60,120").Split(',').Select(t => int.Parse(t, CultureInfo.InvariantCulture)).ToArray();
+            int repeats = Math.Max(1, int.Parse(arg(args, "--repeats") ?? "1", CultureInfo.InvariantCulture));
+            double angle = double.Parse(arg(args, "--angle") ?? "30", CultureInfo.InvariantCulture);
+            Console.WriteLine("runtime " + System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription + ", " + Environment.ProcessorCount + " cores");
+            Console.WriteLine("producer,kind,side,triangles,median_ms,min_ms,status");
+            foreach (var snap in new[] { 1.0 / 64, 0.0 })
+                foreach (int side in sides) {
+                    var input = JitteredParcels(side);
+                    var times = new List<double>();
+                    ConstrainedTriangulation2Result result = null;
+                    for (int r = 0; r < repeats + 1; ++r) {
+                        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+                        var sw = Stopwatch.StartNew();
+                        result = new QualityMesh2 { MinAngle = angle, SnapTolerance = snap, SteinerLimit = 3000000 }.Compute(input);
+                        sw.Stop();
+                        if (r > 0) times.Add(sw.Elapsed.TotalMilliseconds);
+                    }
+                    times.Sort();
+                    Console.WriteLine(string.Join(",", "g3-quality", snap > 0 ? "parcels-snap" : "parcels", side.ToString(CultureInfo.InvariantCulture),
+                        (result.Mesh?.TriangleCount ?? 0).ToString(CultureInfo.InvariantCulture),
+                        times[times.Count / 2].ToString("F0", CultureInfo.InvariantCulture), times[0].ToString("F0", CultureInfo.InvariantCulture), result.Status));
+                }
+            return 0;
+        }
+
         internal static int Run(string[] args, Func<string[], string, string> arg)
         {
+            if (args.Contains("--quality")) return RunQuality(args, arg);
             if (args.Contains("--m2")) return RunConstrained(args, arg);
             var sizes = (arg(args, "--sizes") ?? "1000,4096,65536,1000000").Split(',').Select(t => int.Parse(t, CultureInfo.InvariantCulture)).ToArray();
             var kinds = (arg(args, "--kinds") ?? "uniform,grid,utm,clustered").Split(',');

@@ -10,7 +10,7 @@ No mesh files, corpus files or instrumented binaries are committed (owner decisi
 
 | Bytes | Meaning |
 |---|---|
-| 1 | the operation, a number n selecting `n % (number of selected operations)` of: `union`, `intersection`, `difference` (ExactMeshBoolean A op B), `robust-repair` (MeshRobustRepair of A), `robust-repair-soup` (of A and B appended), `rounding-repair` (MeshRoundingRepair of A and B appended), `tree-nearest`, `tree-ray`, `tree-inside`, `tree-winding` (DMeshAABBTree3 queries on A against brute force), `batch-queries` (MeshBatchQueries on A against the single calls), `alpha-wrap` (MeshAlphaWrap of A and B appended), `partitioned-reducer` (PartitionedReducer on A subdivided three times, 256 to 1536 triangles) |
+| 1 | the operation, a number n selecting `n % (number of selected operations)` of: `union`, `intersection`, `difference` (ExactMeshBoolean A op B), `robust-repair` (MeshRobustRepair of A), `robust-repair-soup` (of A and B appended), `rounding-repair` (MeshRoundingRepair of A and B appended), `tree-nearest`, `tree-ray`, `tree-inside`, `tree-winding` (DMeshAABBTree3 queries on A against brute force), `batch-queries` (MeshBatchQueries on A against the single calls), `alpha-wrap` (MeshAlphaWrap of A and B appended), `partitioned-reducer` (PartitionedReducer on A subdivided three times, 256 to 1536 triangles), and the second wave (QA 2.0 T13): `remesher`, `reducer`, `quality-mesh2`, `clipper2` (below) |
 | per mesh: 1 | a base shape: tetrahedron, octahedron, cube (closed, consistently oriented), two disjoint tetrahedra (two components), a cube without its bottom face (open), two cubes shifted by half an edge (closed, self-intersecting) |
 | 2 + 2 | the exponents e and f of a scale 2^e and of an offset unit 2^f: each a big-endian 16-bit number n, e = n % 2046 - 1022, in [-1022, 1023] |
 | 3 | the offset, three signed bytes times 2^f |
@@ -67,6 +67,37 @@ squared diagonal of the largest component, or exactly collinear corners.
   `InvalidInput` only for input that is not finite or whose box does not fit; a `Success` or `PointLimitReached`
   result is finite, valid, closed, without bowties, and every input vertex is inside it.
 
+**Second wave (QA 2.0 T13).** The four targets run on the power-of-two normalized copy of A (box diagonal in [1, 2)); their options come
+from the three components of the first query's direction (bytes 0, 1, 2).
+- `remesher`: A subdivided once, three passes with a target edge length of 0.45 to 1.6 mean edges; flips, collapses, splits, smoothing,
+  parallel smoothing and `PreventNormalFlips` on or off. Valid, finite, a closed input stays closed with the same Euler characteristic and
+  number of components, parallel and serial smoothing and a second run equal bit for bit.
+- `reducer`: A subdivided twice, `ReduceToTriangleCount` to 25 / 50 / 75 %; quadric or midpoint position, area weights, `PreventFoldOver`
+  and a `MaxDeviation` of 0.02 diagonals. Valid, finite, no larger than the input, a closed input stays closed with the same topology, every
+  vertex within `MaxDeviation` of the input, a second run and (inside the Reducer's range, nonzero coordinates 2^-200 .. 2^150) the copy scaled by 2^40 equal bit for bit.
+- `quality-mesh2`: the projection of A to xy, its corners as points and its triangle edges as segments (they cross), no minimum angle or
+  20 / 25 degrees, constrained or conforming mode, Steiner limit 1500. The status is not Failed and the acceptance oracle of the mesher
+  (milestone M3) reports no violation. Coordinates are judged at any distance from the origin (the mesher's range is up to 1e70, QA.md 2.5a). Coordinates above 1e70 must raise the `ArgumentException` of the contract. Two open
+  classes are gated (`MESH_FUZZ_STRICT=1` judges them): `AngleBelowBound` alone, and `VertexUnused` / `SegmentMissing` alone (FINDINGS.md).
+- `clipper2`: `BooleanPaths` of the rings of A's and B's corners (in index order, so simple, self-intersecting or degenerate; B moved onto
+  A) with one of the four operations, then `Offset` (round or miter, both signs) and `Simplify` of the union. The status is Success, vertices
+  finite, outer rings counterclockwise and holes clockwise, and on a 12 x 12 grid of points beyond four grid resolutions from every ring the
+  result contains the point exactly if the operation on the windings of the rings does. Domain: coordinates at most 2^16 extents from the origin
+  (the grid of the adapter, 2^-40 of the extent, must be representable at the coordinates' magnitude; beyond that, rings collapse when rounded to doubles).
+
+`MeshFuzzPilot random <n> <seed>` runs n pseudo-random inputs of the selected operations in one process with a 60 s watchdog and prints the hex
+of every input that gives a finding or an exception: a smoke test without coverage guidance and without libFuzzer, for a first look at a target
+(`MESH_FUZZ_TRACE=1` prints some internals of the 2D mesher and Clipper2 targets).
+
+**Range domains (QA.md 2.5a, 2026-11-10).** The decoder takes the scale 2^e and the offset exponent 2^f three times in four inside
++-150 (one in eight of those at the edges, +-100 .. +-150) and one time in four anywhere in [-1022, 1023]. Inside a module's
+supported range every claim applies. Outside it only the second property is judged, by the operation's own range (the table
+in QA.md 2.5a): `robust-repair` (outside [2^-200, 2^400] or an extent below 2^-40 of the largest magnitude) must return false,
+`alpha-wrap` (outside [2^-128, 2^128], or an extent below
+2^-40 of the largest magnitude) must return `InvalidInput`; `rounding-repair` and the Boolean operations are judged as always (the rounding repair's range check follows in its own PR) (the exact arrangement has
+no range; `RoundingClean` must not be claimed where the rounding result is not clean). Inputs recorded before this change decode
+to other cases: the hex reproducers of FINDINGS.md belong to the earlier decoder (`dump` of an old file shows what it was).
+
 `tree-ray` at a raw diagonal beyond about 2^110 needs DMeshAABBTree3 to take double.MaxValue as no limit (it took float.MaxValue until the fix of the ray-queries PR). The query targets judge a power-of-two normalized copy of the whole mesh (their domain: coordinates up to 2^1000,
 an exact copy, no triangle below 2^-50 of the mesh, queries within 2^20 diagonals of the mesh; for `tree-ray` also no
 sliver below 2^-30 of the longest edge squared: its ray parameter is not comparable with the boxes). The raw tree is
@@ -93,7 +124,7 @@ bash tools/MeshFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet 
 ```
 
 `run.sh` refuses an existing work directory. It publishes a clean `replay/` build, runs its self-test, writes the
-78 seeds (every operation on each of the six shapes), copies the build into `bin/` and instruments only the copy of
+102 seeds (every operation on each of the six shapes), copies the build into `bin/` and instruments only the copy of
 `geometry3Sharp.dll`. The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
 wrap of a flat input with the default alpha takes about 4 s uninstrumented and more than 10 s instrumented: slow,
 not hung), a libFuzzer-side 3 GiB RSS limit (it covers the libFuzzer process, not the .NET child: use an external limit for
