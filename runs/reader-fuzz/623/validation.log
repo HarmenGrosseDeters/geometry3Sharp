@@ -1,0 +1,48 @@
+  Determining projects to restore...
+  Restored /workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj (in 491 ms).
+  Restored /workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj (in 493 ms).
+  Restored /workspace/geometry3Sharp-fuzz-623/tools/g3cli/g3cli.csproj (in 9 ms).
+  Restored /workspace/geometry3Sharp-fuzz-623/tools/ReaderFuzzPilot/ReaderFuzzPilot.csproj (in 22 ms).
+  Restored /workspace/geometry3Sharp-fuzz-623/tools/analyzers/G3ExactCodeAnalyzers/G3ExactCodeAnalyzers.csproj (in 87 ms).
+  G3ExactCodeAnalyzers -> /workspace/geometry3Sharp-fuzz-623/tools/analyzers/G3ExactCodeAnalyzers/bin/Release/netstandard2.0/G3ExactCodeAnalyzers.dll
+/workspace/geometry3Sharp-fuzz-623/mesh_ops/MeshStitchLoops.cs(37,16): warning CS8981: The type name 'span' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/solvers/PackedSparseMatrix.cs(23,23): warning CS8981: The type name 'nonzero' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/solvers/SparseMatrix.cs(304,16): warning CS8981: The type name 'mval' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+  geometry3Sharp_netstandard -> /workspace/geometry3Sharp-fuzz-623/bin/Release/net10.0/geometry3Sharp.dll
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(82,31): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Status' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(95,21): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Ok' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(100,32): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.ToString()' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/ClipperFrame.cs(299,32): warning CS1591: Missing XML comment for publicly visible type or member 'ClipperFrame.ToString()' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+  geometry3Sharp.Clipper2 -> /workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/bin/Release/net10.0/geometry3Sharp.Clipper2.dll
+/workspace/geometry3Sharp-fuzz-623/tools/g3cli/CommandSpec.cs(56,50): warning CS0108: 'CommandException.Data' hides inherited member 'Exception.Data'. Use the new keyword if hiding was intended. [/workspace/geometry3Sharp-fuzz-623/tools/g3cli/g3cli.csproj]
+  g3cli -> /workspace/geometry3Sharp-fuzz-623/tools/g3cli/bin/Release/net10.0/g3cli.dll
+  ReaderFuzzPilot -> /workspace/geometry3Sharp-fuzz-623/tools/ReaderFuzzPilot/bin/Release/net10.0/ReaderFuzzPilot.dll
+
+Build succeeded.
+
+/workspace/geometry3Sharp-fuzz-623/mesh_ops/MeshStitchLoops.cs(37,16): warning CS8981: The type name 'span' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/solvers/PackedSparseMatrix.cs(23,23): warning CS8981: The type name 'nonzero' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/solvers/SparseMatrix.cs(304,16): warning CS8981: The type name 'mval' only contains lower-cased ascii characters. Such names may become reserved for the language. [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/mesh_ops/MeshMeshCut.cs(606,13): warning CS0162: Unreachable code detected [/workspace/geometry3Sharp-fuzz-623/geometry3Sharp_netstandard.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(82,31): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Status' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(95,21): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.Ok' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/Clipper2Polygons.cs(100,32): warning CS1591: Missing XML comment for publicly visible type or member 'Clipper2Result.ToString()' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/ClipperFrame.cs(299,32): warning CS1591: Missing XML comment for publicly visible type or member 'ClipperFrame.ToString()' [/workspace/geometry3Sharp-fuzz-623/addons/geometry3Sharp.Clipper2/geometry3Sharp.Clipper2.csproj::TargetFramework=net10.0]
+/workspace/geometry3Sharp-fuzz-623/tools/g3cli/CommandSpec.cs(56,50): warning CS0108: 'CommandException.Data' hides inherited member 'Exception.Data'. Use the new keyword if hiding was intended. [/workspace/geometry3Sharp-fuzz-623/tools/g3cli/g3cli.csproj]
+    9 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:42.66
+test_every_target_has_valid_seeds (test_pilot.PilotTests.test_every_target_has_valid_seeds) ... ok
+test_seed_is_valid_and_is_not_overwritten (test_pilot.PilotTests.test_seed_is_valid_and_is_not_overwritten) ... ok
+test_seeds_command_writes_new_files_only (test_pilot.PilotTests.test_seeds_command_writes_new_files_only) ... ok
+test_short_binary_is_rejected_as_seed_but_replay_accepts_parse_error (test_pilot.PilotTests.test_short_binary_is_rejected_as_seed_but_replay_accepts_parse_error) ... ok
+test_swallowed_exception_is_not_accepted (test_pilot.PilotTests.test_swallowed_exception_is_not_accepted) ... ok
+test_targets_are_listed (test_pilot.PilotTests.test_targets_are_listed) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 1.716s
+
+OK
+source drift: cannot inject the synthetic crash
