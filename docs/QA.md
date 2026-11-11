@@ -315,7 +315,8 @@ scale checks of the campaigns (the scaling is not exact there).
 | `MeshRoundingRepair` | 2^-200 .. 2^200 | 2^60 | invalid at 4e176 (FINDINGS 6) | not clean, honest (documented limit) |
 | `MeshRobustRepair` | 2^-200 .. 2^400, extent >= 2^-40 of the largest magnitude | any, reported: `ScaleDisparity` / `LostFarPart` (`Apply()` false) | spheres: ok 2^-250 .. 2^500, hang at 1e176 (FINDINGS 3) | `Apply()` false with a reason |
 | `MeshAlphaWrap` | 2^-128 .. 2^128, extent >= 2^-40 of the largest magnitude | 2^40 | ok 2^-160 .. 2^160; hang at 2^+-180/200; `Failed`/`InvalidParameters` from 2^+-220 | `InvalidInput` |
-| `Reducer`, `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 | -- | sphere: ok 2^-250 .. 2^500; no reduction below 2^-300; invalid mesh above 2^700 | not guaranteed (documented limit) |
+| `Reducer` | 1e-150 .. 1e150 (the extent to the 4th must not matter: a power-of-two frame) | -- | sphere: the same relative result at every power-of-two scale; below about 1e-160 the cross products of the flip test underflow: nothing is collapsed, the mesh is left unchanged; above 1e150 the cross products of the flip test overflow and it decides as before the frame (closed and finite; `DMesh3.CheckValidity` itself overflows from about 1e160, also on the input) | not guaranteed (documented limit) |
+| `Remesher`, `PartitionedReducer` | 2^-200 .. 2^200 (`PartitionedReducer` also in the Reducer's range) | -- | sphere: ok 2^-250 .. 2^500 | not guaranteed (documented limit) |
 | `DMeshAABBTree3` ray, `IsInside`, winding numbers | up to 2^1000 | -- | fuzzed to 2^1000 | not guaranteed above |
 | `DMeshAABBTree3` nearest (squared distance) | extent 2^-450 .. 2^450 | -- | squared distance representable | not guaranteed outside |
 | 2D mesher (`DelaunayMesh2` and the constrained variants) | up to 1e70, any small magnitude | -- | exact predicates | `ArgumentException` |
@@ -348,9 +349,20 @@ the module outside the range, or "not guaranteed".
   code 0 and 1, not after incomplete evidence), else the master of 24 hours ago. With `--attribute` the report names, per
   file, the pull request that introduced each uncovered line (git blame, then the first-parent merge that brought the
   commit in, else the `(#N)` of a squash subject, else the short hash). The job summary lists them and the scheduled run
-  fails when there are any. **There is no exemption mechanism** and a nightly report blocks no pull request: uncovered
-  lines become follow-up work (a test) for the owning session. A line that cannot be hit by a test (defensive code) is
-  discussed in that follow-up, not excluded by a marker.
+  fails when there are any. A nightly report blocks no pull request: uncovered lines become follow-up work (a test) for the owning session. There
+  is no exemption marker in the code; the only exception is the reviewed list below.
+- **Unmeasurable lines** (`tools/coverage/unmeasurable_lines.json`, owner decision 2026-11-11): the one place where an
+  uncovered changed line is excused, for a line that no coverage run (net10.0) can hit: a branch that runs on .NET
+  Framework only, the catch of a platform probe, an invariant guard. Dead code is deleted, not listed; invariant guards are the
+  exception, kept on purpose: the two in `ExactMeshBoolean.cs` (deleting them needs the exact-code review and the 6 h
+  Boolean shards for no gain) and five in `DualContouring.cs` (a hot, subtle file where deleting a guard would turn a
+  broken invariant into a silent wrong result). An entry is `{file, text, after, reason, approved_in}`: the line is the one with that stripped
+  text whose nearest previous non-blank lines are `after` (a list, nearest first), unique in the file, so a new line of
+  the same text elsewhere cannot take its place and edits elsewhere do not matter; it excuses that one line only;
+  `approved_in` is the PR (`#123`) whose review approved the entry. The list is checked on every run, not only for
+  changed lines: an entry whose line is gone or not unique, is not an executable line of the reports any more, or is covered
+  now **fails the gate** (exit 1, no stale entries). A malformed list, or an explicitly given list that does not exist, is
+  exit 2. The summary counts the excused lines next to the covered ones.
 - Limits, stated so that nobody reads more into a green run than it says: (1) only lines with a sequence point are
   measured; changed lines without one (continuation lines of a statement, code in a conditional-compilation branch the
   test build does not compile such as `#if NETSTANDARD2_0`, methods with `[ExcludeFromCodeCoverage]`) are listed as

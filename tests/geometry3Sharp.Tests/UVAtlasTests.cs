@@ -488,25 +488,42 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        [Fact]
-        public void UVOverlap_MixedSizes_NotQuadratic()
+        static double SecondsOfOverlap(Func<int, double> size, int count, out UVOverlap overlap)
         {
-            // 120k tiny and 40k larger triangles: with one grid level the larger ones were tested against all
-            // triangles (about a minute); the levels make it near linear
             var rnd = new Random(5);
             var tris = new List<Vector2d[]>();
-            for (int i = 0; i < 160200; ++i) {
-                // and 200 triangles the size of the domain, which one grid level would put in millions of cells
-                double s = i < 120000 ? 1e-4 : (i < 160000 ? 3e-3 : 0.4);
+            for (int i = 0; i < count; ++i) {
+                double s = size(i);
                 Vector2d c = V(rnd.NextDouble() * 0.4, rnd.NextDouble() * 0.4);
                 tris.Add(new[] { c, c + V(s, 0), c + V(0, s) });
             }
             Vector2d[] uv;
             DMesh3 mesh = TriangleSoup(tris, out uv);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            UVOverlap o = UVOverlap.Compute(mesh, uv);
-            Assert.True(sw.Elapsed.TotalSeconds < 15, "UVOverlap took " + sw.Elapsed.TotalSeconds + " s");
-            Assert.True(o.OverlappingPairs > 0);
+            overlap = UVOverlap.Compute(mesh, uv);
+            return sw.Elapsed.TotalSeconds;
+        }
+
+        [Fact]
+        public void UVOverlap_MixedSizes_NotQuadratic()
+        {
+            // 30k tiny and 10k larger triangles (and 50 the size of the domain, which one grid level would put in millions of
+            // cells): with one grid level the larger ones were tested against all triangles (about 6 s at this size, 95 s at
+            // four times the size), the levels make it near linear (0.2 s). A wall-clock budget failed on loaded runners, and
+            // so did one ratio of two single runs (2.6 s against 0.13 s on a congested one): the bound is the ratio of the
+            // fastest of three runs of each kind, run alternately, so that a load spike hits at most some of them. The
+            // reference is the same number of equal tiny triangles, which is near linear by construction.
+            const int count = 40050;
+            Func<int, double> mixedSize = i => i < 30000 ? 1e-4 : (i < 40000 ? 3e-3 : 0.4);
+            Func<int, double> uniformSize = i => 1e-4;
+            double mixed = double.MaxValue, uniform = double.MaxValue;
+            for (int run = 0; run < 3; ++run) {
+                UVOverlap o, reference;
+                mixed = Math.Min(mixed, SecondsOfOverlap(mixedSize, count, out o));
+                Assert.True(o.OverlappingPairs > 0);
+                uniform = Math.Min(uniform, SecondsOfOverlap(uniformSize, count, out reference));
+            }
+            Assert.True(mixed < 20 * uniform + 0.5, $"UVOverlap took {mixed} s for mixed sizes, {uniform} s for equal tiny triangles (fastest of 3 each)");
         }
 
         [Fact]

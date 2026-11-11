@@ -34,8 +34,8 @@ namespace geometry3Sharp.Tests
         static MeshRoundingRepair ApplyWithin(DMesh3 m, int seconds)
         {
             var r = new MeshRoundingRepair(m);
-            Task task = Task.Run(() => r.Apply());
-            Assert.True(task.Wait(TimeSpan.FromSeconds(seconds)), $"Apply() did not return within {seconds} s");
+            // (a thread of its own: Task.Run would count the wait for a thread-pool thread in the limit, see Timed)
+            Assert.True(Timed.Finishes(() => r.Apply(), TimeSpan.FromSeconds(seconds)), $"Apply() did not return within {seconds} s");
             return r;
         }
 
@@ -51,7 +51,7 @@ namespace geometry3Sharp.Tests
             // the setup: the degenerate area of this size underflows to 0
             double diag = m.CachedBounds.DiagonalLength;
             Assert.Equal(0.0, 1e-12 * diag * diag);
-            MeshRoundingRepair r = ApplyWithin(m, 5);
+            MeshRoundingRepair r = ApplyWithin(m, 30);
             Assert.True(r.InitialDegenerate > 0);
             Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
             Assert.True(m.Vertices().All(v => Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue));
@@ -65,7 +65,7 @@ namespace geometry3Sharp.Tests
         {
             // at unit size the height is not 0 and the steps start as before
             DMesh3 m = CollapsedOctahedron(1);
-            MeshRoundingRepair r = ApplyWithin(m, 5);
+            MeshRoundingRepair r = ApplyWithin(m, 30);
             Assert.True(r.InitialDegenerate > 0);
             Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
         }

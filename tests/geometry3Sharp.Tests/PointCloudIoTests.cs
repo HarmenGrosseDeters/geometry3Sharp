@@ -199,6 +199,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Xyz_NormalBeyondTheFloatRange_IsReadAsInfinity_NotAnError()
+        {
+            // (the reader no longer has a catch for OverflowException: the parser reads a value beyond the range as infinity)
+            Assert.Equal(IOCode.Ok, ReadText("1 2 3 1e40 -1e40 0\n", out DMesh3 mesh).code);
+            Vector3f n = mesh.GetVertexNormal(0);
+            Assert.True(float.IsPositiveInfinity(n.x));
+            Assert.True(float.IsNegativeInfinity(n.y));
+            Assert.Equal(0f, n.z);
+            Assert.Equal(new Vector3d(1, 2, 3), mesh.GetVertex(0));
+        }
+
+        [Fact]
         public void Xyz_IsCultureIndependent()
         {
             DMesh3 mesh = Cloud(true);
