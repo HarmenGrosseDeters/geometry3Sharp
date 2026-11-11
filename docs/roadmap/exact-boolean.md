@@ -144,7 +144,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
     limbs for implicit points' exact stages, an array-based CDT, the superlinear constraint insertion; estimate
     172 -> 40-80 s). L1 upper bound: at a variation bound of 0.1, 16.5M instead of 30.2M evaluations (about one per
     patch), classification about 772 -> 420 s; the rest needs L2. Estimate L1 + L2 + L3: about 150-200 s per op.
-    Runner, 1-core union on master 922c8d62: 4087 s (classification 82 %), peak RSS 9.2 GB (79a2c1ab: 1937 s).
+    Runner, 1-core union on master 922c8d62: 4087 s (classification 82 %), peak RSS 9.2 GB (79a2c1ab: 1937 s); 4 cores 1111 s,
+    9.7 GB, same hash. Design note: #626 (EXACT_BOOLEAN_TAIL_55928.md). **Owner 2026-11-11:** a `Cancelled` status via an
+    optional CancellationToken (yes); `MaxOpenWindingEvaluations` deferred until after L1/L2 are measured.
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
