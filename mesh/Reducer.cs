@@ -842,11 +842,12 @@ namespace g3
                     return true;        // invalid nbrhood for collapse
                 mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
                 // (as collapse_creates_flip_or_invalid)
-                Vector3d ncur = (vb - va).Cross(vc - va);
+                double f = flip_edge_scale(ref va, ref vb, ref vc);
+                Vector3d ncur = ((vb - va) * f).Cross((vc - va) * f);
                 Vector3d nnew;
-                if (curt.a == vid) nnew = (vb - newv).Cross(vc - newv);
-                else if (curt.b == vid) nnew = (newv - va).Cross(vc - va);
-                else if (curt.c == vid) nnew = (vb - va).Cross(newv - va);
+                if (curt.a == vid) nnew = ((vb - newv) * f).Cross((vc - newv) * f);
+                else if (curt.b == vid) nnew = ((newv - va) * f).Cross((vc - va) * f);
+                else if (curt.c == vid) nnew = ((vb - va) * f).Cross((newv - va) * f);
                 else throw new Exception("should never be here!");
                 if (edge_flip_metric(ref ncur, ref nnew) <= edge_flip_tol)
                     return true;

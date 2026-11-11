@@ -305,9 +305,8 @@ namespace geometry3Sharp.Tests
             return mesh;
         }
 
-        // the top of the range: above an edge length of 1e154 the cross products of the flip test overflow; the flip test then decides as it did
-        // before (infinite normals refuse, a NaN metric does not: existing tests pin the reduction at 1e308), and the result stays closed
-        // and finite and on the sphere (DMesh3.CheckValidity itself overflows from about 1e160, also on the input)
+        // the top of the range: above an edge length of 1e154 the cross products of the flip test would overflow; the edges are scaled by one factor
+        // there (no more NaN metric that accepted a flip blindly), and the result is closed, finite and on the sphere
         [Theory]
         [InlineData(1e150)]
         [InlineData(1e160)]
@@ -327,17 +326,22 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // the bottom of the range (documented in QA.md): below about 1e-200 the cross products of the flip test are not representable, nothing
-        // is collapsed and the mesh is left as it is (valid), not damaged
+        // the bottom of the range: the flip test scales the edges of a triangle by one factor outside [1e-70, 1e70] (#595 left a zero normal below
+        // 1e-160 as a flip: nothing was collapsed there), so a tiny sphere reduces too, closed, finite and on the sphere
         [Theory]
         [InlineData(1e-250)]
         [InlineData(1e-300)]
-        public void Reducer_OfATinySphereBelowTheRange_LeavesTheMeshUnchanged(double scale)
+        public void Reducer_OfATinySphere_Reduces(double scale)
         {
             DMesh3 m = Sphere(scale);
-            string before = Signature(m, 1);
             new Reducer(m).ReduceToTriangleCount(486);
-            Assert.Equal(before, Signature(m, 1));
+            Assert.True(m.TriangleCount <= 486);
+            Assert.True(m.IsClosed());
+            foreach (int v in m.VertexIndices()) {
+                Vector3d p = m.GetVertex(v);
+                Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z));
+                Assert.InRange((p / scale).Length, 0.9, 1.1);
+            }
         }
     }
 }

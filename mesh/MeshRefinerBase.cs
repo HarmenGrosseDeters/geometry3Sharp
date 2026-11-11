@@ -177,6 +177,20 @@ namespace g3
         }
 
 
+        // 1 for a triangle whose longest edge component is in [1e-70, 1e70] (and for a degenerate or non-finite one: the old arithmetic), else
+        // the reciprocal of it, so that the cross products of its edges neither underflow nor overflow
+        protected static double flip_edge_scale(ref Vector3d a, ref Vector3d b, ref Vector3d c)
+        {
+            Vector3d e1 = b - a, e2 = c - a;
+            double m = Math.Max(Math.Max(Math.Abs(e1.x), Math.Max(Math.Abs(e1.y), Math.Abs(e1.z))),
+                                Math.Max(Math.Abs(e2.x), Math.Max(Math.Abs(e2.y), Math.Abs(e2.z))));
+            if (m >= 1e-70 && m <= 1e70)
+                return 1.0;
+            if (!(m > 0) || double.IsInfinity(m))
+                return 1.0;
+            return 1.0 / m;
+        }
+
         /// <summary>
         /// check if edge collapse will create a face-normal flip. 
         /// Also checks if collapse would violate link condition, since
@@ -195,16 +209,20 @@ namespace g3
                 if (curt.a == vother || curt.b == vother || curt.c == vother)
                     return true;		// invalid nbrhood for collapse
                 mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
-                Vector3d ncur = (vb - va).Cross(vc - va);
+                // (the edges are scaled by one factor for the old and the new normal, 1 for ordinary sizes: above an edge length of
+                // 1e154 the cross products overflow, an infinite normal refuses the collapse but inf - inf is NaN, and a NaN metric accepted
+                // a flip blindly; the factor is a reciprocal of the longest edge component, so a 2^k scaled mesh gives the same normals)
+                double f = flip_edge_scale(ref va, ref vb, ref vc);
+                Vector3d ncur = ((vb - va) * f).Cross((vc - va) * f);
                 double sign = 0;
                 if (curt.a == vid) {
-                    Vector3d nnew = (vb - newv).Cross(vc - newv);
+                    Vector3d nnew = ((vb - newv) * f).Cross((vc - newv) * f);
                     sign = edge_flip_metric(ref ncur, ref nnew);
                 } else if (curt.b == vid) {
-                    Vector3d nnew = (newv - va).Cross(vc - va);
+                    Vector3d nnew = ((newv - va) * f).Cross((vc - va) * f);
                     sign = edge_flip_metric(ref ncur, ref nnew);
                 } else if (curt.c == vid) {
-                    Vector3d nnew = (vb - va).Cross(newv - va);
+                    Vector3d nnew = ((vb - va) * f).Cross((newv - va) * f);
                     sign = edge_flip_metric(ref ncur, ref nnew);
                 } else
                     throw new Exception("should never be here!");
