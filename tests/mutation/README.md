@@ -23,19 +23,21 @@ too slow to run against every mutant.
 
 ## Running
 
-The [mutation workflow](../../.github/workflows/mutation.yml) runs in full every Monday and on demand through "Run
-workflow". On a pull request, it waits until the PR is ready for review (drafts run nothing), then
+The [mutation workflow](../../.github/workflows/mutation.yml) runs the configs in full on master in the evening (19:17 UTC; the big boolean shards Monday to Saturday, the others on Sunday)
+and on demand through "Run workflow" ([Exact Boolean 3.0 process](#exact-boolean-30-process)). On a pull request, it waits
+until the PR is ready for review (drafts run nothing); **a pull request never runs a shard in full** (3.0: a full shard is a
+3 to 6 hour runner slot), only incrementally where a baseline fits. Then
 [select_shards.py](select_shards.py) picks the configs from the changed files, using the `mutate` and
 `test-case-filter` of each config:
 
 | The PR changes | Runs | Fails below `break`? |
 |---|---|---|
-| a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
-| the config | the whole shard | yes |
+| a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache that fits: nothing, the summary says "full run on master" | yes, on the combined score |
+| the config (also moved split offsets) | nothing: the summary says "full run on master"; the nightly run measures the shard and seeds its baseline | |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
-| `.config/dotnet-tools.json` | every config in full | yes |
-| the workflow | every config in full if the edit touches a line that can change how a shard runs; an edit that stays in the regions below runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
-| anything else, including `geometry3Sharp.Tests.csproj` | nothing (the weekly run covers it) | |
+| `.config/dotnet-tools.json` | nothing on the PR (every config is selected in full, which a PR does not run): "full run on master" | |
+| the workflow | as above if the edit touches a line that can change how a shard runs; an edit that stays in the regions below selects nothing by itself (`select_shards.py` checks the diff by line position) | |
+| anything else, including `geometry3Sharp.Tests.csproj` | nothing (the nightly run covers it) | |
 
 "Run workflow" (workflow_dispatch) runs every config in full, or only the ones named in its `shards` input
 (`arithmetic`, `rounding-1`, `boolean-1`, ...).
@@ -45,8 +47,8 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 Every full run stores its JSON report as the baseline of its config in the Actions cache
 ([baseline.py](baseline.py) `store`: only the files with tested mutants, keyed by relative paths; cache key
 `mutation-baseline-<config>-<hash of the config, the tools and `BASELINE_FORMAT`>-<run id>`). A PR that changes a mutated file restores
-the newest baseline of its config: its own from an earlier full run of the PR, else the one of its base branch (on
-master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
+the newest baseline of its config, which is the one of the base branch (on master the nightly run; a PR runs no full shard,
+so it has none of its own). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
 
 1. `plan`: a line diff of each mutated file against its source in the baseline report gives the changed lines; the run
    config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
@@ -66,7 +68,7 @@ the next PR ran in full for 4-6 hours. The FORMAT of a baseline is what `baselin
 which files, under which keys, with which fields of Stryker's report), how `incremental.py` finds its file in it
 (`baseline_file`), and the fields `plan` and `merge` read of it (`source`, and `status` and `location` lines per mutant).
 Bump the file (and nothing else) when an OLD stored baseline would give other results through the new code, i.e. when
-one of these changes: then every shard runs in full once and stores a new baseline (the next weekly or dispatched run on
+one of these changes: then every shard runs in full once and stores a new baseline (the next nightly or dispatched run on
 master seeds them). `test_baseline.py` fingerprints the first two and `baseline_file` (as ASTs: comments and docstrings
 do not count) and fails when one changes; `test_incremental.test_plan_and_merge_read_only_these_baseline_fields` pins
 the fields read (a new field fails it). Decide, bump the file if needed, and set `FORMAT_FINGERPRINT` to the value in the
@@ -104,11 +106,93 @@ Limits:
   full run. The summary counts the baseline mutants on changed lines.
 - A baseline result is reused even if a test or another file changed in the same PR: a test the PR weakens or removes
   keeps its kills, and a change in a called file is not seen. So a PR that changes a mutated file and weakens its
-  tests can pass where a full run would fail. The weekly full run is the check of record, and the review checks test
+  tests can pass where a full run would fail. The nightly full run is the check of record, and the review checks test
   changes in such PRs.
 
 The HTML report is uploaded as an artifact, and a summary appears in the job summary. Tests of the selection:
 `python3 tests/mutation/test_select_shards.py`.
+
+## Exact Boolean 3.0 process
+
+(Owner 2026-11-11; CLAUDE.md "Review before every merge", docs/roadmap/exact-boolean.md "3.0 process".) The per-PR full
+shards cost a 6 hour runner slot each and were cancelled at the limit (#539) without a result, so during 3.0:
+
+- **No full shard run on a pull request.** A shard that would run in full there (its config or the tools changed, split
+  offsets moved, or no baseline in the cache fits) runs nothing; its job summary says "full run on master" and the job
+  succeeds (`run_stryker.sh` with `NO_FULL=1`, set by the workflow for `pull_request` events; `test_run_stryker.py`). An
+  incremental run (a mutated file changed, a baseline fits) and a `--since` run (only tests changed) are unchanged. A PR stores
+  no baseline.
+- **Scheduled full runs on master** (19:17 UTC): `nightly` (Monday to Saturday: `boolean-*`, `arrangement-*`, `rounding-*`, 18 of
+  the 26 configs) and `weekly` (Sunday: envelope, terrain, planar, fixed, generated, arithmetic), chosen by
+  `select_shards.py --only nightly|weekly`. They seed and refresh the baselines of the incremental PR runs; survivors are tasks of
+  the area's next PR. The weekly all-shards run is folded into these. Why a rotation and an evening start: a shard takes 3 to 6
+  hours, 12 run at a time, so the 18 big shards need two waves of about 5 hours (an estimate, to be replaced by the first
+  measured nights): started at 19:17 UTC they end by about 07:00 UTC at the latest, around the time the CI of the Berlin working
+  day starts (about 05:30 UTC); all 26 configs every night would not fit, and a start at 01:17 UTC would end at noon.
+- **The runs on master do not cancel each other.** The concurrency group is `mutation-<ref>` for a PR, with `cancel-in-progress`
+  (a new push cancels the old run), and `mutation-schedule` / `mutation-workflow_dispatch` for the others, never cancelling.
+  GitHub keeps one running and **one pending** run per group and cancels an older pending run when another arrives, so a
+  scheduled run can never drop a pending dispatch (a gate run) and the reverse; two dispatches in a row do replace a pending one
+  (the later request wins), and a scheduled run that finds the previous one still running waits for it. A scheduled and a
+  dispatched run can run at the same time (up to 26 + 26 jobs against the account's 20 at once, which GitHub queues).
+- **The 3.0 completion gate** is a full run of every touched shard above its break threshold on master, on GitHub or run
+  locally by the owner (below).
+
+### Local runs
+
+`run_local.sh` (Linux, macOS, Git Bash) and `run_local.ps1` (Windows PowerShell or PowerShell 7) run one or more shards in
+full with exactly the CI configuration: the Stryker version of `.config/dotnet-tools.json` (`dotnet tool restore`), the
+`stryker-*.json` of the shard (break threshold included) and the heap limit of the mesh shards. They need the dotnet SDK,
+Python 3 and git, a **clean working tree** (the result is valid for one commit) and several hours per shard.
+
+```
+bash tests/mutation/run_local.sh boolean-3 boolean-4            # named shards
+bash tests/mutation/run_local.sh --touched origin/master        # the shards select_shards.py picks for the PR
+pwsh tests/mutation/run_local.ps1 -Touched origin/master        # the same on Windows
+```
+
+Each shard writes `tests/mutation/local-results/<head sha>/<shard>.json` (the exit code is 1 when a shard is below its break
+threshold: the file is written anyway). The fields: `sha` (HEAD), `shard`, `config` and `config_sha256` (the config file,
+LF line breaks), `stryker_version`, `mode` ("full"), `clean_tree`, `score`, `break`, `counts` (killed, timeout, survived,
+nocoverage), `survivors` (`Survived|NoCoverage File.cs:line Mutator`), `finished_utc`, `platform`.
+
+**Handing a result in:** commit the file(s) to the PR branch (a commit that adds only `local-results/` files; the code must
+not change after the run, or the result is for another commit). The `changes` job of the workflow checks the result files
+that the PR adds (`local_result.py check`; also runnable by hand: `python3 tests/mutation/local_result.py check --head <sha>
+<file>...`). A result is valid when
+
+- its `sha` is the head of the PR, or an ancestor of it from which the head differs only by files under
+  `tests/mutation/local-results/` (and its directory is named after the sha),
+- `config_sha256` and `break` are those of the shard's config at the head and `stryker_version` is the one of the tools file,
+- the counts give the `score` (killed and timeouts over killed, timeouts, survived and no coverage), and `score >= break`,
+- `mode` is "full" and the tree was clean.
+
+A valid result counts as the shard passing for the 3.0 completion gate (the job summary says so); an invalid one fails the
+check and says why. Attaching the JSON as a PR comment is fine for the reviewers to read, but only the committed file is
+checked. Tests: `test_local_result.py` (the validator, including mutants of its checks) and `test_run_local.py` (the script
+with a stub `dotnet`).
+
+### Coverage pass (why the boolean shards are not split further yet)
+
+The two `ExactMeshBoolean.cs` parts of the #539 run (42989781506, 11 November 2026) were cancelled at the 6 hour limit **in the
+coverage pass**: `boolean-2` had its initial test run (225 tests) in 6 minutes and was still capturing coverage 5 h 43 min
+later; `boolean-1` finished the capture after 5 h 44 min, found 579 mutants to test and was cancelled at 5 h 50 min. The
+capture instruments the suite and costs about 60 times its uninstrumented run (rounding: 200 minutes for a 32 s suite), and it is
+repeated in every part. A finer split of the file therefore only helps if the capture cost follows the span; a probe on a span of
+8000 characters of `boolean-1` (almost no code, 4 cores like the runner) was still in the capture after more than 30 minutes, so it
+does not (the probe's final number is in the PR that introduced this section). The levers are then the test filter per part
+(only the tests that reach the part's methods, from the coverage report of a full run) and faster boolean tests, not more parts.
+`suggest_split.py` plans the parts from a full run's report (its 60 minute overhead is a floor, not the capture of a 225-test
+boolean suite), so no new boolean split is committed before such a report exists.
+
+### Splits that survive edits
+
+The offsets of a split file move with every edit before them, but the table `SplitMethod` in
+`tests/geometry3Sharp.Tests/MutationConfigTests.cs` names the method each split is at. `python3 tests/mutation/resplit.py
+check` says which configs' offsets are not at their method any more, `resplit.py apply` rewrites them (an offset that is
+anywhere from a method's first attribute or comment line to its signature stays as it is). A rewritten config has no baseline
+until the next nightly run: re-split only when `check` asks for it. To add a part: add the method to `SplitMethod`, copy a
+neighbour's config (same test filter and break threshold), run `apply`. `test_resplit.py` tests the tool.
 
 To run it locally, from the repository root:
 
@@ -212,7 +296,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 | Shard | Mutated | Tests |
 |---|---|---|
 | `rounding-1` .. `rounding-8` | `mesh_ops/MeshRoundingRepair.cs`, split at `position_add`, `degenerate_triangles`, `ghost_add`, `segments_distance`, `strip_around`, `ulp` and `set_vertex` (since the Exact Boolean 2.0 integration; character offsets, as `boolean-1/2`; since 10 November 2026 eight parts: the reference rule of the drift (D1, Boolean 2.1, #513) doubled the old third part, 13.2k to 26.5k characters, so it is split at `ghost_add` and the later parts are renumbered (the old `rounding-4` .. `rounding-7` are `rounding-5` .. `rounding-8`); since 8 November 2026 seven parts: the file has about 1350 mutants, the coverage pass costs about 200 minutes in every part (a CI measurement: 201 min for 147 tests, 196 min for the other half, with 23-26 s per mutant after it) and one half alone needed about 340 and 570 minutes, past the job's 350. The cuts balance an estimated mutant count per method (calibrated on the two halves' 497 and 849 mutants), about 130 to 220 mutants per part, an estimated 265 to 300 minutes each: a margin of about 14 % on a slow runner. Every part keeps the break threshold 59 of the whole shard until its own full run gives a reason to change it. Why not `coverage-analysis` all or off: `all` was still capturing after 45 minutes on a 53 s suite, `off` had 32 timeouts in 47 mutants (the timeout window comes from the uninstrumented initial run, shorter than the instrumented suite), so every survivor became a "killed" timeout) | `MeshRoundingRepairTests`, `MeshRoundingRepairStrategyTests`, `ExactMeshBooleanTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`, `SafeRoundingBoundTests`, `ExactBooleanPropertyFindings` (the displacement bound); `rounding-8` (until #513 `rounding-7`) also the tests of the Exact Boolean 2.0 changes in its span (`set_vertex` to the end): `ExactBooleanFarComponentTests` and `ExactBooleanScaleDisparityTests` (the tolerances of the largest component, the `ScaleDisparity` guard of `remove_tiny_components`) and two `RoundingExactPairsTests` (the exact flag a position write clears), without the `FoldedCluster` case (9 s of the 11 s), 184 tests, about 42 s of suite time instead of 32 s (not `RoundingTinyComponentTests`: its `Task.Run` with a time limit would leave a mutant that hangs spinning in Stryker's shared test host). Until 9 November 2026 `rounding-7` ran the 19-term union of every rounding test (229 tests, 73 s): its coverage pass was still running after 262 minutes and the job never reached its mutants (master run 42567558219); `MutationConfigTests` pins the shared filter and these extras) |
-| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-2` also `ExactBooleanFilterTests` |
+| `boolean-1`, `boolean-2` | `mesh_ops/ExactMeshBoolean.cs`, split at `front_winding` (a finer split waits for the measurement of the coverage pass, see "Coverage pass" below) | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-2` also `ExactBooleanFilterTests` |
 | `arrangement-1` .. `arrangement-4` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles`, `candidates` and `triangulate_touched` (since 8 November 2026 `arrangement-2` is three shards: on #403 it had 1375 mutants, its coverage pass took 71 min and the job was cancelled after 350 minutes, 272 of them testing; each part keeps the break threshold 72 until its own full runs give a reason to change it) | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
 | `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) | `ExactPoint3FixedWidthTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |

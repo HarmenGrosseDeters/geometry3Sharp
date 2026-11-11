@@ -8,12 +8,13 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_forces_full
+from select_shards import ALWAYS, TESTS, expand_only, load_configs, select, shard_name, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
 RO = ["rounding-%d" % i for i in range(1, 9)]
+BOOLEAN = ["boolean-1", "boolean-2"]
 ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay"}
 
@@ -48,7 +49,7 @@ class SelectShards(unittest.TestCase):
 
     def test_source_runs_only_its_shards_incrementally(self):
         self.assertEqual(("none", {r: "source" for r in RO}), run("mesh_ops/MeshRoundingRepair.cs"))
-        self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
+        self.assertEqual(("none", {b: "source" for b in BOOLEAN}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
@@ -62,7 +63,7 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
-        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-2": "tests"}, **{r: "tests" for r in RO})),
+        self.assertEqual(("none", dict({b: "tests" for b in BOOLEAN}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
         self.assertEqual(("none", {"boolean-2": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
@@ -372,7 +373,7 @@ class SelectShards(unittest.TestCase):
     def test_the_scripts_of_the_runs_run_a_representative_shard_in_full(self):
         # a change to run_stryker.sh, incremental.py or baseline.py can break every shard's real run (the fake-dotnet tests
         # cannot see Stryker itself): the cheapest mesh shard runs in full, the others by their own rules
-        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py"):
+        for path in ("tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"):
             self.assertEqual(("none", {"fixed": "full"}), run(path), path)
         self.assertEqual(("none", dict({r: "source" for r in RO}, fixed="full")),
                          run("tests/mutation/run_stryker.sh", "mesh_ops/MeshRoundingRepair.cs"))
@@ -381,6 +382,64 @@ class SelectShards(unittest.TestCase):
         # (not when everything runs in full anyway, and --only keeps its list)
         arithmetic, mesh = select(["tests/mutation/run_stryker.sh"], CONFIGS, run_all=True, only={"planar"})
         self.assertEqual([{"shard": "planar", "mode": "full"}], mesh)
+
+    def test_the_workflow_checks_local_results(self):
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertIn("      - 'tests/mutation/local-results/**'", wf)        # (a result-only commit starts the check)
+        self.assertIn("python3 test_local_result.py", wf)
+        self.assertIn("python3 test_run_local.py", wf)
+        self.assertIn("python3 test_resplit.py", wf)
+        self.assertIn("python3 test_exclude_other_sources.py", wf)
+        step = wf[wf.index("Check the local results of this PR"):wf.index("      - id: select")]
+        self.assertIn("github.event_name == 'pull_request'", step)
+        self.assertIn("local_result.py check", step)
+        self.assertIn('--head "$HEAD"', step)
+        # a result file alone selects no shard (the check is all it starts)
+        self.assertEqual(("none", []), select(["tests/mutation/local-results/" + "a" * 40 + "/boolean-1.json"], CONFIGS))
+
+    def test_the_30_process_in_the_workflow(self):
+        # 3.0 process (README): scheduled full runs on master in two groups, no full run on a PR, runs on master never cancel
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        self.assertEqual(2, wf.count("cron:"))
+        self.assertIn("cron: '17 19 * * 1-6'", wf)                  # nightly group, Monday to Saturday
+        self.assertIn("cron: '17 19 * * 0'", wf)                    # weekly group, Sunday
+        self.assertIn('if [ "$SCHEDULE" = "17 19 * * 0" ]; then SHARDS=weekly; else SHARDS=nightly; fi', wf)
+        # a group per kind of run on master (a pending dispatch must not be replaced by a scheduled run), cancel only for PRs
+        self.assertIn("group: mutation-${{ github.event_name == 'pull_request' && github.ref || github.event_name }}", wf)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", wf)
+        # both Stryker steps tell run_stryker.sh that this is a PR (no full run there)
+        self.assertEqual(2, wf.count("NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}"))
+        # a PR stores no baseline (it ran no full shard), and a skipped shard has no report to find
+        self.assertEqual(2, wf.count("always() && github.event_name != 'pull_request' && ("))
+        self.assertEqual(2, wf.count("|| github.event_name == 'pull_request') && 'warn' || 'error'"))
+
+    def test_the_concurrency_groups_of_the_events(self):
+        # the expression of the group, evaluated here for the events: PRs by ref, every other event by its name
+        def group(event, ref):
+            return "mutation-" + (ref if event == "pull_request" else event)
+        self.assertNotEqual(group("schedule", "refs/heads/master"), group("workflow_dispatch", "refs/heads/master"))
+        self.assertNotEqual(group("pull_request", "refs/pull/1/merge"), group("pull_request", "refs/pull/2/merge"))
+
+    def test_only_groups_and_prefixes(self):
+        names = {shard_name(n) for n in CONFIGS}
+        nightly = expand_only("nightly", names)
+        weekly = expand_only("weekly", names)
+        self.assertEqual(set(), nightly & weekly)
+        self.assertEqual(names, nightly | weekly)                  # (every shard runs at least once a week)
+        self.assertEqual(set(BOOLEAN), {n for n in nightly if n.startswith("boolean-")})
+        self.assertTrue({n for n in nightly if n.startswith("arrangement-")} and {n for n in nightly if n.startswith("rounding-")})
+        self.assertIn("arithmetic", weekly)
+        self.assertEqual(set(BOOLEAN), expand_only("boolean-*", names))
+        self.assertEqual({"planar", "boolean-2"}, expand_only("planar, boolean-2", names))
+        with self.assertRaises(ValueError):
+            expand_only("nonexistent-*", names)
+        # the selection of a nightly run: only these shards, all in full
+        arithmetic, mesh = select([], CONFIGS, run_all=True, only=nightly)
+        self.assertEqual("none", arithmetic)
+        self.assertEqual(nightly, {m["shard"] for m in mesh})
+        self.assertTrue(all(m["mode"] == "full" for m in mesh))
 
     def test_the_workflow_keeps_what_the_harmless_regions_rely_on(self):
         # the trigger, the selection job and the `if` of the Stryker jobs count as harmless in select_shards.py, so what
@@ -396,7 +455,7 @@ class SelectShards(unittest.TestCase):
         self.assertNotIn("paths-ignore", on)
         self.assertIn("schedule:", on)
         self.assertIn("workflow_dispatch:", on)
-        self.assertIn("cancel-in-progress: true", wf)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", wf)     # (a nightly run must not cancel a dispatch on master)
         jobs = wf[wf.index("\njobs:"):]
         changes = jobs[jobs.index("\n  changes:"):jobs.index("\n  exact-arithmetic:")]
         self.assertIn("set -o pipefail", changes)
