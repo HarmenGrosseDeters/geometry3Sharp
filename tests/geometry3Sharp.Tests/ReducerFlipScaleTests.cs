@@ -147,7 +147,7 @@ namespace geometry3Sharp.Tests
             new Reducer(reference) { AreaWeightedQuadrics = areaWeighted }.ReduceToTriangleCount(40);
             string expected = Signature(reference, 1);
             Assert.True(reference.TriangleCount <= 40);
-            foreach (int e in new[] { -400, -300, -270, -100, -40, 40, 100, 200, 260, 300, 400, 480 }) {
+            foreach (int e in new[] { -400, -300, -270, -100, -40, 40, 100, 200, 260, 300, 400, 480, 600, 800 }) {
                 double s = Math.Pow(2, e);
                 DMesh3 m = Grid(9, s);
                 new Reducer(m) { AreaWeightedQuadrics = areaWeighted }.ReduceToTriangleCount(40);
