@@ -286,6 +286,14 @@ Problems where the library already has a head start and that could be researched
   kernels as black boxes (without porting their code).
 - **Bit-for-bit determinism across platforms.** net48 / net10, x64 / ARM, FMA, parallel paths: reproducible geometry
   for CAD and certification (eg medical devices).
+  **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,
+  `Log`, general `Pow`) differ between platforms (harness: macOS arm64 differs only in libm and its consumers; `+ - * /`,
+  `Sqrt`, `Floor`, `Round`, `Abs`, `Min`/`Max` are IEEE-exact everywhere). The correctly rounded `DMath` (C1, from the
+  CoreMathSharp port of CORE-MATH, MIT; #611) is used only where the library promises cross-platform bit identity (first the
+  geodesic family), not as a global replacement of `System.Math` (cost 1.5-4x per call, more with the software FMA on net48;
+  no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
+  shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
+  call the `System.Math` transcendentals (analyzer check).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean
