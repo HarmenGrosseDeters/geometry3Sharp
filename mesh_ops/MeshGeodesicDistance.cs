@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -386,7 +387,7 @@ namespace gs
                     if (component[i] >= 0 && hasSource[component[i]] && (fixedZero == null || fixedZero[i] == false)
                         && !(u[i] > 1e-280)) logDomain = true;
                 if (logDomain == false) {
-                    for (int i = 0; i < N; ++i) logU[i] = (u[i] > 0) ? Math.Log(u[i]) : double.NegativeInfinity;
+                    for (int i = 0; i < N; ++i) logU[i] = (u[i] > 0) ? CoreMath.Log(u[i]) : double.NegativeInfinity;
                     return true;
                 }
             }
@@ -466,7 +467,7 @@ namespace gs
                 double[] ud = new double[N];
                 if (log_heat(D, src, hasSource, fixedZero, ref logDomain, ud) == false)
                     return false;
-                for (int i = 0; i < N; ++i) u[i] = SparseCholesky.LogAdd(u[i], ud[i]) - Math.Log(2);
+                for (int i = 0; i < N; ++i) u[i] = SparseCholesky.LogAdd(u[i], ud[i]) - CoreMath.Log(2);
             }
 
             // 2. normalized gradient X = -grad u / |grad u| per triangle, 3. its divergence per vertex
@@ -482,7 +483,7 @@ namespace gs
                 // only its direction is used, so the heat is scaled by its maximum in the triangle
                 double lm = Math.Max(u[ti.a], Math.Max(u[ti.b], u[ti.c]));
                 if (double.IsNegativeInfinity(lm)) continue;
-                double ua = Math.Exp(u[ti.a] - lm), ub = Math.Exp(u[ti.b] - lm), uc = Math.Exp(u[ti.c] - lm);
+                double ua = CoreMath.Exp(u[ti.a] - lm), ub = CoreMath.Exp(u[ti.b] - lm), uc = CoreMath.Exp(u[ti.c] - lm);
                 Vector3d g = (ua * n.Cross(p2 - p1) + ub * n.Cross(p0 - p2) + uc * n.Cross(p1 - p0)) / area2;
                 double gl = g.Length;
                 if (gl < 1e-300) continue;

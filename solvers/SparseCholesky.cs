@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using g3.CoreMathPort;
 
 namespace g3
 {
@@ -189,7 +190,7 @@ namespace g3
                 throw new InvalidOperationException("SparseCholesky.SolveLog: matrix is not factorized");
             if (logAbsL == null) {
                 var la = new double[Lx.Length];
-                for (int k = 0; k < la.Length; ++k) la[k] = Math.Log(Math.Abs(Lx[k]));
+                for (int k = 0; k < la.Length; ++k) la[k] = CoreMath.Log(Math.Abs(Lx[k]));
                 logAbsL = la;
             }
             double[] y = new double[N];
@@ -245,7 +246,7 @@ namespace g3
             if (double.IsNegativeInfinity(a)) return b;
             if (double.IsNegativeInfinity(b)) return a;
             double m = Math.Max(a, b);
-            return m + Math.Log(1 + Math.Exp(-Math.Abs(a - b)));
+            return m + CoreMath.Log(1 + CoreMath.Exp(-Math.Abs(a - b)));
         }
 
 
