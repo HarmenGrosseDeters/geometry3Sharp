@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 
@@ -24,6 +25,34 @@ namespace geometry3Sharp.Tests
             thread.Start();
             if (thread.Join(budget) == false)
                 return false;
+            if (error != null)
+                ExceptionDispatchInfo.Capture(error).Throw();
+            return true;
+        }
+
+        /// <summary>
+        /// true if action keeps making progress: it calls the given beat() after every unit of work, and no more than
+        /// stall passes between two beats (the first one counts from the start). A hang (one unit that does not end) fails,
+        /// a run that is slow because the machine is loaded does not: a total budget cannot tell the two apart (the optional total is only a generous ceiling). An exception
+        /// the action threw is rethrown; a stalled run keeps running in the background.
+        /// </summary>
+        public static bool MakesProgress(Action<Action> action, TimeSpan stall, TimeSpan? total = null)
+        {
+            // (total: an optional generous ceiling for the whole run, so that a run that is uniformly far slower still fails)
+            long started = Stopwatch.GetTimestamp();
+            Exception error = null;
+            long last = Stopwatch.GetTimestamp();
+            var thread = new Thread(() => {
+                try { action(() => Interlocked.Exchange(ref last, Stopwatch.GetTimestamp())); } catch (Exception e) { error = e; }
+            }) { IsBackground = true };
+            thread.Start();
+            while (!thread.Join(100)) {
+                long idle = Stopwatch.GetTimestamp() - Interlocked.Read(ref last);
+                if (idle > stall.TotalSeconds * Stopwatch.Frequency)
+                    return false;
+                if (total.HasValue && Stopwatch.GetTimestamp() - started > total.Value.TotalSeconds * Stopwatch.Frequency)
+                    return false;
+            }
             if (error != null)
                 ExceptionDispatchInfo.Capture(error).Throw();
             return true;

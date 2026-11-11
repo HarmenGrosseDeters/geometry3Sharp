@@ -62,8 +62,12 @@ static class Program
             case "indirect": return IndirectBench.Run(args.Skip(1).ToArray());
             case "envelope": return EnvelopeBench.Run(args.Skip(1).ToArray());
             case "prestudy-fwn": return PrestudyFwn.Run(args.Skip(1).ToArray());
+            case "antipodal-ab": return AntipodalAB.Run(args.Skip(1).ToArray());
             case "prestudy-antipodal": return PrestudyAntipodal.Run(args.Skip(1).ToArray());
             case "prestudy-many-a": return PrestudyMany.RunA(args.Skip(1).ToArray());
+            case "t3a-cull-share": return PrestudyMany.RunCullShare(args.Skip(1).ToArray());
+            case "t3a-ab": return PrestudyMany.RunCullAB(args.Skip(1).ToArray());
+            case "t3a-geom": return T3aGeom.Run(args.Skip(1).ToArray());
             case "prestudy-many-b": return PrestudyMany.RunB(args.Skip(1).ToArray());
             case "prestudy-memory": case "prestudy-exact": case "prestudy-csg": case "prestudy-csg-thingi": return Prestudy.Run(args[0], args.Skip(1).ToArray());
         }

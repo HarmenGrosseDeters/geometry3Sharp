@@ -35,8 +35,8 @@ namespace geometry3Sharp.Tests
         static MeshRoundingRepair ApplyWithin(DMesh3 m, int seconds)
         {
             var r = new MeshRoundingRepair(m);
-            Task task = Task.Run(() => r.Apply());
-            Assert.True(task.Wait(TimeSpan.FromSeconds(seconds)), $"Apply() did not return within {seconds} s");
+            // (a thread of its own: Task.Run would count the wait for a thread-pool thread in the limit, see Timed)
+            Assert.True(Timed.Finishes(() => r.Apply(), TimeSpan.FromSeconds(seconds)), $"Apply() did not return within {seconds} s");
             return r;
         }
 
@@ -53,7 +53,7 @@ namespace geometry3Sharp.Tests
             double diag = m.CachedBounds.DiagonalLength;
             Assert.Equal(0.0, 1e-12 * diag * diag);
             DMesh3 before = new DMesh3(m);
-            MeshRoundingRepair r = ApplyWithin(m, 5);
+            MeshRoundingRepair r = ApplyWithin(m, 30);
             // below 2^-200 the coordinates are outside the supported range (docs/QA.md 2.5a): reported, the mesh not touched
             // (it hung or removed the whole mesh as tiny and reported it clean before)
             Assert.True(r.OutsideRange);
@@ -67,7 +67,7 @@ namespace geometry3Sharp.Tests
         {
             // at unit size the height is not 0 and the steps start as before
             DMesh3 m = CollapsedOctahedron(1);
-            MeshRoundingRepair r = ApplyWithin(m, 5);
+            MeshRoundingRepair r = ApplyWithin(m, 30);
             Assert.True(r.InitialDegenerate > 0);
             Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
         }

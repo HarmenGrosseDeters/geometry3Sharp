@@ -150,8 +150,22 @@ namespace g3
         }
 
 
+        // The metric of two unnormalized face normals (cross products, of the size of an edge length squared): for edge lengths in
+        // [1e-72, 1e72] the old arithmetic, bit for bit. Beyond, the dot product of two of them (or the squares of the components in Length)
+        // underflows to 0 (every collapse was refused as a flip below an edge length of about 2^-269) or overflows (inf - inf is NaN, and
+        // a NaN accepted every flip), so the normals are divided by their largest component first (the same bits for a 2^k scaling).
         protected double edge_flip_metric(ref Vector3d n0, ref Vector3d n1)
         {
+            double m0 = Math.Max(Math.Abs(n0.x), Math.Max(Math.Abs(n0.y), Math.Abs(n0.z)));
+            double m1 = Math.Max(Math.Abs(n1.x), Math.Max(Math.Abs(n1.y), Math.Abs(n1.z)));
+            if (m0 < 1e-145 || m0 > 1e145 || m1 < 1e-145 || m1 > 1e145) {
+                if (!(m0 > 0) || !(m1 > 0) || double.IsInfinity(m0) || double.IsInfinity(m1))
+                    return 0;
+                Vector3d u0 = n0 / m0, u1 = n1 / m1;
+                if (edge_flip_tol == 0)
+                    return u0.Dot(u1);
+                return u0.Dot(u1) / (u0.Length * u1.Length);
+            }
             if (edge_flip_tol == 0) {
                 return n0.Dot(n1);
             } else {

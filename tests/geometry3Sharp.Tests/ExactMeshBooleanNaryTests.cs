@@ -236,6 +236,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(27 - 1, Volume(Run(meshes, (w) => w[0] == -1 && w[1] == 0)), 12);
         }
 
+        // the T3a early-out on the golden case: B's triangles outside A culled by Intersection and Difference, the patches
+        // of the arrangement without them
+        const string CulledCounts = "Union: culled 0, patches 4; Intersection: culled 479, patches 5; Difference: culled 479, patches 5";
+
         [Fact]
         public void TwoMeshes_SameCountsAsBeforeTheNaryChange()
         {
@@ -243,13 +247,22 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Sphere(Vector3d.Zero, 1), b = Sphere(new Vector3d(0.7, 0.3, 0.2), 0.8);
             var expected = new Dictionary<Ops, int[]> {
                 { Ops.Union, new[] { 1660, 832 } }, { Ops.Intersection, new[] { 836, 420 } }, { Ops.Difference, new[] { 1448, 726 } } };
+            var counts = new List<string>();
             foreach (var kv in expected) {
-                var boolean = Check(new ExactMeshBoolean(a, b, kv.Key));
+                // (without the T3a early-out, which splits patches where it culls triangles outside A)
+                var boolean = Check(new ExactMeshBoolean(a, b, kv.Key) { CullOutsideA = false });
                 Assert.Equal(kv.Value[0], boolean.Result.TriangleCount);
                 Assert.Equal(kv.Value[1], boolean.Result.VertexCount);
                 Assert.Equal(4, boolean.Patches);
                 Assert.Equal(149, boolean.IntersectingPairs);
+                // with it: the same result; the counts describe the arrangement without the culled triangles (the
+                // contract from T3a on: fewer patches and pairs where triangles of B outside A are left out)
+                var culled = Check(new ExactMeshBoolean(a, b, kv.Key));
+                Assert.Equal("", Invariance.Difference(boolean.Result, culled.Result));
+                Assert.Equal(149, culled.IntersectingPairs);
+                counts.Add($"{kv.Key}: culled {culled.Counts["t3a_culled"]}, patches {culled.Patches}");
             }
+            Assert.True(CulledCounts == string.Join("; ", counts), string.Join("; ", counts));
         }
 
         [Fact]
@@ -258,7 +271,7 @@ namespace geometry3Sharp.Tests
             // finite coordinates whose sum overflows (5e307 + 5e307 + 5e307): accepted, same result as at scale 1
             var unit = new[] { Box(0, 0, 0, 2, 2, 2), Box(1, 0.5, 0.25, 3, 2.5, 1.75), Box(0.5, 1.25, -1, 1.75, 3, 1) };
             var huge = unit.Select(m => { var c = new DMesh3(m); MeshTransforms.Scale(c, 5e307); return c; }).ToList();
-            // (DMesh3.CheckValidity overflows at these coordinates already for the inputs: checked here directly)
+            // (DMesh3.CheckValidity checked the squared length of a vertex and overflowed at these coordinates already for the inputs; it checks the components now, the inputs are valid)
             Func<ExactMeshBoolean, DMesh3> run = (boolean) => {
                 Assert.True(boolean.Compute(), boolean.Error);
                 Assert.Equal(Status.Success, boolean.Status);
@@ -416,11 +429,17 @@ namespace geometry3Sharp.Tests
             var meshes = new[] { a, b, c };
             foreach (var predicate in new[] { ExactMeshBoolean.AtLeast(1), ExactMeshBoolean.AtLeast(2), ExactMeshBoolean.AtLeast(3) }) {
                 var exact = Check(new ExactMeshBoolean(meshes, predicate));
-                var general = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true };
+                // (both paths: fast winding numbers, and the Antipodal Method, which meshes without boundary take by default)
+                var general = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true, AntipodalMaxBoundarySegments = 0 };
+                var antipodal = new ExactMeshBoolean(meshes, predicate) { ForceGeneralizedWinding = true };
                 Check(general);
+                Check(antipodal);
                 Assert.DoesNotContain(true, general.ExactWinding);
                 Assert.True(exact.ExactWinding.All(e => e));
+                Assert.Equal(0, general.Counts["antipodal_meshes"]);
+                Assert.Equal(3, antipodal.Counts["antipodal_meshes"]);
                 Assert.Equal(Volume(exact.Result), Volume(general.Result), 12);
+                Assert.Equal(Volume(exact.Result), Volume(antipodal.Result), 12);
             }
             // an open box (no top) among closed ones: inside at least two
             DMesh3 open = Box(0, 0, 0, 2, 2, 2);

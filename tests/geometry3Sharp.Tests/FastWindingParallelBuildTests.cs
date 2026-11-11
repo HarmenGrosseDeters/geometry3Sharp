@@ -84,7 +84,9 @@ namespace geometry3Sharp.Tests
             // both inputs open: classify builds their two trees concurrently; each stored tree is the one of its mesh and
             // gives what a tree built afresh from that mesh gives, bit for bit
             DMesh3 a = OpenSphere(Vector3d.Zero, 0.6), b = OpenSphere(new Vector3d(0.6, 0.3, 0.1), 0.5);
-            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), ExactMeshBoolean.Operations.Union);
+            var op = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), ExactMeshBoolean.Operations.Union) {
+                // (the fast-winding path: with few boundary segments the Antipodal Method needs no tree)
+                AntipodalMaxBoundarySegments = 0 };
             Assert.True(op.Compute(), op.Error);
             Assert.False(op.ExactWindingA || op.ExactWindingB);
             DMeshAABBTree3 ta = op.StoredWindingTree(0), tb = op.StoredWindingTree(1);

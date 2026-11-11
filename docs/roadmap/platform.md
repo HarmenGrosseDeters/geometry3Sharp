@@ -56,6 +56,14 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-11, open) AngusJohnson/Clipper2 was
+  archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
+  PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
+  frozen NuGet package Clipper2 2.0.0, so the known Union limitation (FINDINGS item 5, wrong area on degenerate
+  self-intersecting rings) will not be fixed upstream; no upstream report (owner 2026-11-11). Options: (a) keep 2.0.0
+  as is and document the limitation (current state); (b) vendor the C# 2.0.0 sources into the addon (Boost-1.0, allowed;
+  listed in `docs/SOURCES.md`, license file kept) and fix item 5 ourselves; (c) follow a third-party C# port of the new
+  C++ line, if one appears. Decide before the next addon change that needs Clipper2 itself.
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
@@ -195,9 +203,10 @@ Tier: S, M. Parallel: up to 2 sessions
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).
-  - [ ] Further test tools (owner 2026-11-08, not scheduled; one bounded task each):
-    - Changed-line coverage gate (QA.md item 8) with coverlet (MIT): new or changed lines must be executed by tests;
-      cheap, runs in normal CI, catches part of what the mutation runs find hours later.
+  - [ ] Further test tools (owner 2026-11-08; one bounded task each):
+    - [x] Changed-line coverage gate (QA.md item 8) with coverlet (MIT): core, Clipper2 and CLI changed executable
+      lines require 100% coverage across the Linux test runs, checked nightly on master and on demand (`coverage.yml`, not on PRs: runner cost), each uncovered line named with its PR; missing evidence fails closed. No global
+      threshold or extra test campaign. See [QA.md 2.6](../QA.md#26-coverage-in-ci).
     - FPTaylor (MIT, QA.md item 12): new floating-point filter bounds also derived by the tool and compared with
       the hand derivation (complements Z3, which checks logical rules).
     - Coverage-guided fuzzing of the readers with SharpFuzz (MIT) + libFuzzer, beyond the blind `ReaderFuzzTests`;
@@ -226,7 +235,7 @@ and the test tiers and time limit (#447, the backlog program).
     a replay corpus;
   - every floating-point filter has a tool-checked bound (FPTaylor) and every filter or termination rule a Z3 lemma;
   - every robustness-critical module has a property campaign and a mutation shard;
-  - the changed-line coverage gate is active.
+  - the changed-line coverage gate runs nightly and its findings are worked off.
 - **First results (mesh-ops fuzz pilot, Boolean session, 2026-11-09, 45 min, 3 workers):** two real defects, each
   in a bugfix PR: #451 (`DMeshAABBTree3` top-down build: stack overflow / IndexOutOfRange when extreme centroids are
   adjacent doubles, and every triangle dropped above ~1e154 by an overflowing `LengthSquared`), #452

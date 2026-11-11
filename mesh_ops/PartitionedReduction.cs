@@ -64,13 +64,15 @@ namespace gs
         {
             readonly QuadricError[] seed;
             readonly Vector3d origin;
+            readonly double scale;
             public AxisAlignedBox3d Box = AxisAlignedBox3d.Infinite;
             public bool LimitToBox;
-            public SeededReducer(DMesh3 m, QuadricError[] seed, Vector3d origin) : base(m) { this.seed = seed; this.origin = origin; }
+            public SeededReducer(DMesh3 m, QuadricError[] seed, Vector3d origin, double scale) : base(m) { this.seed = seed; this.origin = origin; this.scale = scale; }
 
             protected override void InitializeVertexQuadrics()
             {
                 quadricOrigin = origin;
+                quadricScale = scale;
                 vertQuadrics = new QuadricError[mesh.MaxVertexID];
                 Array.Copy(seed, vertQuadrics, Math.Min(seed.Length, vertQuadrics.Length));
             }
@@ -97,12 +99,13 @@ namespace gs
             public long Collapses;
 
             // the quadrics of a mesh, computed as the base Reducer does (exported for the regions)
-            public static QuadricError[] Compute(DMesh3 m, Action<Reducer> configure, out Vector3d origin)
+            public static QuadricError[] Compute(DMesh3 m, Action<Reducer> configure, out Vector3d origin, out double scale)
             {
-                var r = new SeededReducer(m, null, Vector3d.Zero);
+                var r = new SeededReducer(m, null, Vector3d.Zero, 1);
                 configure?.Invoke(r);
                 r.compute_base_quadrics();
                 origin = r.quadricOrigin;
+                scale = r.quadricScale;
                 return r.vertQuadrics;
             }
 
@@ -121,7 +124,7 @@ namespace gs
         }
 
         // one round: the regions of a partition in parallel, put together; returns the mesh and its vertex quadrics
-        DMesh3 round(DMesh3 m, QuadricError[] q, Vector3d[] rn, double[] rl, Vector3d origin, double maxError, bool shifted,
+        DMesh3 round(DMesh3 m, QuadricError[] q, Vector3d[] rn, double[] rl, Vector3d origin, double scale, double maxError, bool shifted,
             out QuadricError[] resQuadrics, out Vector3d[] resNormals, out double[] resLengths)
         {
             // the partition
@@ -226,7 +229,7 @@ namespace gs
                 var sn = new Vector3d[sub.MaxVertexID];
                 var sl = new double[sub.MaxVertexID];
                 for (int sv = 0; sv < s2g.Count; ++sv) { sq[sv] = q[s2g[sv]]; sn[sv] = rn[s2g[sv]]; sl[sv] = rl[s2g[sv]]; }
-                var r = new SeededReducer(sub, sq, origin) { Box = boxes[k], LimitToBox = true, SeedReferenceNormals = sn, SeedReferenceLengths = sl };
+                var r = new SeededReducer(sub, sq, origin, scale) { Box = boxes[k], LimitToBox = true, SeedReferenceNormals = sn, SeedReferenceLengths = sl };
                 Configure?.Invoke(r);
                 r.PreserveBoundaryShape = false;
                 r.SetExternalConstraints(cons);
@@ -311,7 +314,8 @@ namespace gs
             var sw = System.Diagnostics.Stopwatch.StartNew();
             m = new DMesh3(m, true);
             Vector3d origin;
-            QuadricError[] q = SeededReducer.Compute(m, Configure, out origin);
+            double scale;
+            QuadricError[] q = SeededReducer.Compute(m, Configure, out origin, out scale);
 
             RegionTriangles = FrozenTriangles = 0; RegionCollapses = 0; SerialFallbacks = 0;
             SetupMs = sw.ElapsedMilliseconds; sw.Restart();
@@ -322,7 +326,7 @@ namespace gs
             // (an empty mesh has no partition)
             for (int r = 0; r < Rounds && m.TriangleCount > 0; ++r) {
                 QuadricError[] nq; Vector3d[] nn; double[] nl;
-                DMesh3 next = round(res, resQ, rn, rl, origin, maxError, r % 2 == 1, out nq, out nn, out nl);
+                DMesh3 next = round(res, resQ, rn, rl, origin, scale, maxError, r % 2 == 1, out nq, out nn, out nl);
                 if (next == null) {
                     // (the slabs cannot be kept apart: one serial run on the input)
                     SerialFallbacks++;
@@ -336,7 +340,7 @@ namespace gs
             RegionMs = sw.ElapsedMilliseconds; sw.Restart();
             StitchMs = sw.ElapsedMilliseconds; sw.Restart();
             // the last pass, serial, on the whole mesh, with the carried quadrics
-            var last = new SeededReducer(res, resQ, origin) { SeedReferenceNormals = rn, SeedReferenceLengths = rl };
+            var last = new SeededReducer(res, resQ, origin, scale) { SeedReferenceNormals = rn, SeedReferenceLengths = rl };
             Configure?.Invoke(last);
             last.ReduceToMaxQuadricError(maxError);
             LastCollapses = last.Collapses;

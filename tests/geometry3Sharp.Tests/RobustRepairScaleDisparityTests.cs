@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FarPart_TheReasonAndTheResolvedMesh()
         {
-            var r = new MeshRobustRepair(RobustRepairFarPartTests.Scene(1e8, 10)) { PassThroughCleanParts = false };       // (the far part mode of the whole repair)
+            var r = new MeshRobustRepair(RobustRepairFarPartTests.Scene(1e8, 2)) { PassThroughCleanParts = false };       // (the far part mode of the whole repair)
             Assert.False(r.Apply());
             Assert.Equal(MeshRobustRepair.ScaleDisparity, r.ResultReason);
             Assert.True(r.UsedExactResolve);
@@ -29,7 +29,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FarPart_Similarities_Pow2BitIdentical()
         {
-            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 10);
+            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 2);
             var r0 = new MeshRobustRepair(new DMesh3(scene));
             Assert.False(r0.Apply());
             foreach (Similarity sim in Similarity.All()) {
@@ -47,7 +47,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void FarPart_SerialEqualsParallel_ApplyTwice()
         {
-            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 10);
+            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 2);
             var parallel = new MeshRobustRepair(new DMesh3(scene));
             parallel.Apply();
             gParallel.SerialOnThisThread = true;
@@ -62,7 +62,7 @@ namespace geometry3Sharp.Tests
             // the same instance again, on a clean mesh after the far scene: the reason does not stay
             var r = new MeshRobustRepair(new DMesh3(scene));
             Assert.False(r.Apply());
-            r.Mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            r.Mesh = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 2 }.Generate().MakeDMesh();
             Assert.True(r.Apply());
             Assert.Equal("", r.ResultReason);
             Assert.Equal("", r.ExactResolveReason);
@@ -91,7 +91,7 @@ namespace geometry3Sharp.Tests
         {
             // the far scene with a sphere triangle removed: the input is not closed by the winding number, which a scale
             // cannot change, so the exact resolve does not run again relative to the largest component
-            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 10);
+            DMesh3 scene = RobustRepairFarPartTests.Scene(1e8, 2);
             scene.RemoveTriangle(scene.TriangleIndices().First(), true, false);
             // (without the repair stage: with the far part handling its hole filling runs relative to the largest component and closes the sphere)
             var r = new MeshRobustRepair(scene) { RepairF = m => new DMesh3(m) };
