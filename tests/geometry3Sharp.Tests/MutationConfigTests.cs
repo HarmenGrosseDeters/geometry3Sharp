@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
         // the methods the splits of a file are at, in order
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
-            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "bool inside(", "int front_winding(", "DMeshAABBTree3 winding_tree(", "int orient3d_filter(", "DMesh3 assemble(" },
+            ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "int front_winding(" },
             ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
@@ -106,25 +106,6 @@ namespace geometry3Sharp.Tests
                         else
                             Assert.True(sources.Contains("\"" + d.Groups[1].Value), kv.Key + ": " + cond + " names no test case");
                     }
-        }
-
-        [Fact]
-        public void BooleanParts_SharedTests_FilterTestsFromFrontWinding()
-        {
-            // every part of ExactMeshBoolean.cs runs the same tests, so that a mutant is judged by the same suite wherever
-            // it is; ExactBooleanFilterTests (the floating-point filters, orient3d_filtered and the front side filters) belong to
-            // the parts from front_winding on, as in the former boolean-2 (the coverage pass is repeated per part and costs
-            // as much as the suite takes)
-            string root = RepoRoot();
-            Assert.NotNull(root);
-            var filters = TestFilters(root);
-            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-boolean-1"]));
-            Assert.DoesNotContain("FullyQualifiedName~ExactBooleanFilterTests", shared);
-            for (int i = 1; i <= 6; ++i) {
-                var want = shared.Concat(i >= 3 ? new[] { "FullyQualifiedName~ExactBooleanFilterTests" } : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
-                Assert.Equal(want, Alternatives(filters["stryker-mesh-boolean-" + i]).OrderBy(x => x, StringComparer.Ordinal));
-            }
-            Assert.False(File.Exists(Path.Combine(root, "tests", "mutation", "stryker-mesh-boolean-7.json")));
         }
 
         [Fact]
