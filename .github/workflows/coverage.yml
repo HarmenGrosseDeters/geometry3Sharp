@@ -26,8 +26,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: coverage-${{ inputs.ref || github.ref }}
-  cancel-in-progress: true
+  group: coverage-${{ github.event_name }}-${{ inputs.ref || github.ref }}
+  # (a new push cancels the run of a pull request; a nightly run is never cancelled by a manual one)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
@@ -97,17 +98,21 @@ jobs:
       - name: Base of the comparison
         id: base
         run: |
-          # the HEAD of the last run that evaluated its lines (it uploaded gate-result), else 24 h of master
+          # the HEAD of the last run on master that evaluated its lines (it uploaded gate-result) and is an ancestor of master (a
+          # manual run of another ref on master must not move the base), else 24 h of master
+          git fetch -q origin master
           BASE=""
           for id in $(gh run list --workflow coverage.yml --branch master --limit 20 --json databaseId --jq '.[].databaseId'); do
             rm -rf previous
             if gh run download "$id" -n gate-result -D previous 2>/dev/null; then
-              BASE=$(python3 -c "import json;print(json.load(open('previous/changed-line-coverage.json'))['head'])") && git cat-file -e "$BASE^{commit}" 2>/dev/null && break
+              BASE=$(python3 -c "import json;print(json.load(open('previous/changed-line-coverage.json'))['head'])")
+              if git merge-base --is-ancestor "$BASE" origin/master 2>/dev/null; then break; fi
               BASE=""
             fi
           done
           if [ -z "$BASE" ]; then
             BASE=$(git rev-list -1 --before='24 hours ago' origin/master)
+            [ -n "$BASE" ] || BASE=$(git rev-list --max-parents=0 origin/master | tail -1)
             echo "No earlier evaluated run: comparing with the master of 24 hours ago ($BASE)." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "sha=$BASE" >> "$GITHUB_OUTPUT"
@@ -115,7 +120,7 @@ jobs:
         id: gate
         run: |
           set +e
-          python3 tools/changed_line_coverage.py --base "${{ steps.base.outputs.sha }}" --attribute --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
+          python3 tools/changed_line_coverage.py --base "${{ steps.base.outputs.sha }}" --attribute --expect-shards core=4 --coverage-dir test-results --json test-results/changed-line-coverage.json --summary "$GITHUB_STEP_SUMMARY"
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # (the run on a pull request that changes this workflow only tests the workflow; the findings belong to other pull

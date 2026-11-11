@@ -351,7 +351,19 @@ the module outside the range, or "not guaranteed".
   fails when there are any. **There is no exemption mechanism** and a nightly report blocks no pull request: uncovered
   lines become follow-up work (a test) for the owning session. A line that cannot be hit by a test (defensive code) is
   discussed in that follow-up, not excluded by a marker.
-- Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line records
+- Limits, stated so that nobody reads more into a green run than it says: (1) only lines with a sequence point are
+  measured; changed lines without one (continuation lines of a statement, code in a conditional-compilation branch the
+  test build does not compile such as `#if NETSTANDARD2_0`, methods with `[ExcludeFromCodeCoverage]`) are listed as
+  `unmeasured_lines` in the JSON and counted in the summary, not failed; (2) hits are merged by maximum per file and
+  line over all class records and suites, so a line that several class records list (field initializers copied into each
+  constructor, generic instantiations, iterator state machines) counts as covered when one of them ran; (3) a renamed
+  or moved file is checked as new code (`--no-renames`), its old gaps are reported and attributed by `git blame` to the
+  PRs that wrote them; (4) a finding is reported once: the next run starts at the HEAD of this one, so lines nobody
+  covered do not come back unless the work-list from the artifact is kept; (5) `--expect-shards core=4` makes a core
+  shard without a report incomplete evidence (exit 2), but a test class that matches no shard filter would be missed
+  (it shows as uncovered lines, never as a false pass).
+- The base is only accepted from a run whose HEAD is an ancestor of master (a manual run of a branch on master does not
+  move it). Added files and renames are checked as added lines; deleted lines are ignored. Coverlet's class-level line records
   define executable lines, so comments and whitespace within a measured file need no hits. Missing, malformed or empty suite reports fail the gate (exit 2). A changed source file that no report lists (`files_without_executable_lines` in the JSON; the first run found `core/ExactCodeAllowList.cs`, a data table) has no executable code, because coverlet lists every method of the instrumented assemblies, hit or not: it is reported and does not fail the run. Tests, benchmark code, documentation examples, assembly metadata
   and build tools are outside this gate. The unit tests of the gate run in the `linux` job of `ci.yml`.
 - Optional `--slow-coverage-dir` (a second core report over `Category=Slow` only) reports lines that only the Slow tier

@@ -28,7 +28,7 @@ class Decisions(unittest.TestCase):
     def test_only_changed_executable_lines_and_union_of_hits(self):
         self.assertEqual(c.evaluate({"math/A.cs": {2, 3, 4}}, {"math/A.cs": {1: 0, 2: 1, 4: 0}}),
                          {"changed_executable_lines": 2, "covered_lines": 1, "covered_only_by_slow": {},
-                          "uncovered": {"math/A.cs": [4]}, "files_without_executable_lines": [], "ok": False})
+                          "uncovered": {"math/A.cs": [4]}, "files_without_executable_lines": [], "unmeasured_lines": {"math/A.cs": [3]}, "ok": False})
         self.assertTrue(c.evaluate({"math/A.cs": {3}}, {"math/A.cs": {1: 0}})["ok"])
         r = c.evaluate({"math/New.cs": {1}}, {})
         self.assertEqual((r["files_without_executable_lines"], r["ok"]), (["math/New.cs"], True))
@@ -122,6 +122,26 @@ class Repository(unittest.TestCase):
         self.assertEqual(got["math/A.cs"]["#42"], [7])
         self.assertEqual(list(got["math/A.cs"]).count("#7"), 1)
         self.assertEqual(len(got["math/A.cs"]), 3)             # line 2 is from "head": no PR, its short hash
+
+    def test_file_names_with_glob_characters_are_matched_literally(self):
+        self.write("math/[ab]*.cs", "x();\n")
+        self.write("math/a.cs", "y();\n")
+        self.commit("glob names")
+        _, changes = c.changed_lines(self.root, self.base, "HEAD")
+        self.assertEqual(changes["math/[ab]*.cs"], {1})
+        self.assertEqual(changes["math/a.cs"], {1})
+
+    def test_main_with_attribute_names_the_pull_request(self):
+        code, result = self.invoke("--attribute", "--summary", str(self.root / "summary.md"))
+        self.assertEqual(code, 1)
+        self.assertEqual(list(result["uncovered_by_pr"]["math/A.cs"].values()), [[4]])
+        self.assertIn("`math/A.cs` lines 4 (introduced by", (self.root / "summary.md").read_text())
+        self.assertNotIn("uncovered_by_pr", self.invoke()[1])
+
+    def test_expect_shards_through_main_fails_closed_with_exit_2(self):
+        code, result = self.invoke("--expect-shards", "core=2")
+        self.assertEqual(code, 2)
+        self.assertIn("shards", result["error"])
 
     def test_core_shards_are_merged_by_maximum(self):
         (self.results / "core/run/coverage.cobertura.xml").unlink()
@@ -293,8 +313,7 @@ class Repository(unittest.TestCase):
         self.assertEqual(reports, first_reports)
 
 
-if __name__ == "__main__":
-    unittest.main()
+
 
 
 class ShardFilter(unittest.TestCase):
@@ -310,3 +329,33 @@ class ShardFilter(unittest.TestCase):
             self.assertTrue(f.startswith("(Category!=Slow)&("))
             seen += [c for c in ("A.B.", "A.C.", "A.D.") if "~" + c in f]
         self.assertEqual(sorted(seen), ["A.B.", "A.C.", "A.D."])
+
+
+class Shards(unittest.TestCase):
+    def test_a_missing_or_extra_shard_is_incomplete_evidence(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for shard in ("0", "1", "3"):                     # shard 2 crashed
+                target = root / "core" / shard / "id"
+                target.mkdir(parents=True)
+                (target / "coverage.cobertura.xml").write_text("<coverage/>")
+            with self.assertRaisesRegex(ValueError, "expected one report in each of the shards"):
+                c.read_coverage(root, root, {"core": "geometry3Sharp"}, expect_shards={"core": 4})
+
+
+class Summary(unittest.TestCase):
+    def test_summary_lists_prs_and_stays_small(self):
+        result = {"covered_lines": 3, "changed_executable_lines": 5, "head": "a" * 40, "merge_base": "b" * 40,
+                  "uncovered": {"math/A.cs": [4, 5]}, "uncovered_by_pr": {"math/A.cs": {"#7": [4, 5]}},
+                  "files_without_executable_lines": ["core/T.cs"], "unmeasured_lines": {"math/A.cs": [3]}}
+        text = c.summary_markdown(result)
+        self.assertIn("`math/A.cs` lines 4, 5 (introduced by #7)", text)
+        self.assertIn("`core/T.cs`", text)
+        self.assertIn("1 in 1 files", text)
+        self.assertNotIn("```json", text)
+        self.assertIn("truncated", c.summary_markdown(result, limit=10))
+        self.assertIn("Incomplete evidence", c.summary_markdown({"error": "boom"}))
+
+
+if __name__ == "__main__":
+    unittest.main()

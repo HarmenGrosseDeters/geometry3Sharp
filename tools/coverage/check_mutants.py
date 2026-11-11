@@ -15,6 +15,8 @@ MUTANTS = {
     "intersect_suite_hits": ("max(hits.get(number, 0), count)", "min(hits.get(number, 0), count)"),
     "compare_head_to_itself": ('git(root, "merge-base", base, head)', 'git(root, "rev-parse", head)'),
     "ignore_shard_layout": (' or sorted((directory / suite).glob("*/*/coverage.cobertura.xml"))', ""),
+    "ignore_expected_shards": ("if found != wanted:", "if False:"),
+    "glob_pathspec": ('":(literal)" + path', "path"),
     "merge_counts_as_mainline": (" and not _is_ancestor(root, commit, first)", ""),
     "ignore_method_only_records": ('raise ValueError("incomplete class-level line evidence")', "pass"),
     "slow_hit_excuses_everything": ("slow_hits.get(n, 0) > 0", "slow_hits.get(n, 0) >= 0"),
