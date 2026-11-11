@@ -41,6 +41,7 @@ CGAL refuses inputs that are open or self-intersecting; Manifold refuses non-man
 | `synthetic` | 24 pairs of boxes and spheres | coplanar faces, solids touching at a face, an edge or a vertex, overlaps and gaps of 1e-9, nearly coplanar faces, UTM coordinates (3e5, 5.6e6), coordinates of 1e8, scale differences of 1e6 | `BooleanComparison synth <dir>` |
 | `sequence` | iterated cube grids: n³ overlapping unit cubes (spacing 0.9, so the faces of a layer are coplanar) united one after the other, then a cube of edge 0.5 subtracted at the centre of each (n = 5: 249 booleans, n = 10: 1999) | repeated booleans on results of booleans, exactly coplanar faces | `BooleanComparison synth <dir>`; one pass over all meshes: `BooleanComparison nary` (below) |
 | `nreal` | n-ary unions from real data: 15 multi-component Thingi10K meshes split into their connected components (3-26 inputs each, overlapping shells of one STL), and 8-copy arrays of the CGAL parts `fandisk`, `pinion`, `anchor` | the one-pass n-ary boolean on real inputs (coplanar CAD neighbours, many self-pairs) | `python3 perf/nreal.py <tool dir> <cgal meshes>` (`BooleanComparison components` / `array`); `profile` runs the union of all `N*.off` of a case; `perf/cases-nreal.txt` |
+| `knot` | an open tube wound tightly inside a ball like a ball of yarn (one component, two open ends, many self-intersecting pairs per triangle), with the export's rotated, shifted copy: a procedural stand-in for the knot of Thingi10K 55928 | open operands with a dense self-intersecting region: per-piece open winding and triangulation cost (`docs/design/EXACT_BOOLEAN_TAIL_55928.md`) | `BooleanComparison knot <dir> [--segments s] [--ring m] [--turns t] [--tube r] [--seed k]` ([below](#tail-case-knot-the-55928-stand-in)) |
 | `thingi-pairs` | 1000 pairs of different clean Thingi10K models (1k-100k triangles each) after the EMBER protocol, B randomly rotated and shifted; `thingi-pairs-size`: 100 pairs of models with 100k-1M triangles | the performance and correctness of the three operations on real models at scale, with `NotCleanReason` and the volume identities as the oracle | `python3 data/thingi_pairs.py fetch/filter/manifest` ([below](#thingi10k-pairs-after-the-ember-protocol)); the pair lists are `thingi-pairs/pairs.csv` and `pairs_size.csv` |
 
 `data/fetch.py` downloads the meshes at a fixed commit and writes a case manifest (`cases.jsonl`); nothing of the
@@ -780,4 +781,29 @@ That is far above the noise, so 1b goes ahead. The other lever is the number of 
 | sphere 40 | 0.5 edge | 147.0 / 131.5 | 67.7 / 75.8 | 1.7-2.2× |
 
 The column "LPI µs / segment" of the command still replays the unsplit calls, so after 1b it exceeds the query time.
+
+## Tail case knot (the 55928 stand-in)
+
+`BooleanComparison knot` writes an open tube (`--segments` rings of `--ring` vertices) wound `--turns` times inside a unit
+ball, tube radius `--tube`, with the export's pairing as B. It reproduces the profile of Thingi10K 55928
+(`docs/design/EXACT_BOOLEAN_TAIL_55928.md`): both operands open with few boundary segments (16 here, 133 there), the
+classification dominating, hundreds of plane-side tests per exact ray, a few pieces per patch.
+
+| `knot` options | triangles per mesh | pieces | self pairs per triangle | pieces per patch | plane sides per piece |
+|---|---|---|---|---|---|
+| `--segments 200 --ring 6 --turns 16 --tube 0.4` (test size) | 2,400 | 136,866 | 3.8 | 8.0 | 143 |
+| `--segments 400 --ring 8 --turns 24 --tube 0.6` (benchmark) | 6,400 | 615,682 | 6.2 | 7.2 | 295 |
+
+Before the tail-case stage (4 cores, the benchmark size, `profile --repeat 3`, ms, median; classification and
+triangulation of the fastest run):
+
+| build | Difference | classification | triangulation | Union | hash Difference / Union |
+|---|---|---|---|---|---|
+| 79a2c1ab (open operands per patch, fast winding numbers) | 5,107 | 3,416 | 1,076 | 4,926 | 52258C35170BF15E / 2F867E8DDE54CA6D |
+| master 88342701 (per piece, Antipodal Method) | 15,771 | 13,682 | 1,127 | 15,300 | 52258C35170BF15E / E8871D31AAB24DF1 |
+
+The per-piece classification of open operands (98def50f, d458662c) costs 4 times the per-patch one here, about 2 times on
+55928 itself (classification 390 -> 772 s, 579 -> 973 s per Difference). The Difference results are the same; the Union
+results differ (98def50f changed the classification of open operands on purpose: a patch can reach through a hole from
+inside an open mesh to outside it, so the threshold is taken per piece).
 

@@ -54,6 +54,7 @@ static class Program
             case "thingi-pair": return ThingiPairs.Pair(args.Skip(1).ToArray());
             case "thingi-filter": return ThingiPairs.Filter(args.Skip(1).ToArray());
             case "synth": return Synthetic.Write(args[1]);
+            case "knot": return Knot.Run(args.Skip(1).ToArray());
             case "run": return Run(args[1], args[2], args[3], args[4]);
             case "obb": return ObbRunner.Run(args.Skip(1).ToArray());
             case "eval": return Eval(args[1]);
