@@ -43,6 +43,22 @@ namespace g3.Tests
             Assert.True(count > 1000);
         }
 
+        [Fact]
+        public void NearMultiplesOfLn2_IsCorrectlyRounded()
+        {
+            // the fixed branch is entered wherever the table value is 1, i.e. also for x near every multiple of ln 2
+            // (every 16th multiple, +-12 ulps)
+            int count = 0;
+            for (int k = -1071; k <= 1024; k += 16) // (never 0: no ulps around zero)
+                for (int d = -12; d <= 12; ++d) {
+                    double x = FromBits(Bits(k * Math.Log(2)) + d);
+                    if (x < -745.2 || x > 709.8) continue;
+                    Check(x);
+                    ++count;
+                }
+            Assert.True(count > 1000);
+        }
+
         static void Check(double x)
         {
             double got = CoreMath.Exp(x), want = CoreMathReference.Exp(x);
