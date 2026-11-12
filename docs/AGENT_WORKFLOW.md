@@ -261,4 +261,9 @@ from secret tests, which a public repository cannot keep.
     - Targets are a floor, not a stop (owner 2026-11-09): when a target is met, the remaining levers are still
       measured (upper bound) and every one with a noticeable gain at reasonable effort is built, in order of gain per
       effort, until the bounds show nothing worth building. The stop rule only drops levers without a measurable gain.
+    - Build what is never slower and gains somewhere (owner 2026-11-12): a lever is built, even below a 10 % share, when
+      it is measured never slower (normal stratum and tail separately, median of 5) and gains measurably somewhere (wall
+      time or allocations / GC), unless another lever already covers the same work faster. It is dropped only for no
+      measurable gain or for being dominated, and the report names which. The cost that remains is code and review (for
+      exact code: the exact-code review, mutation shards, a checked bound table), so the gain is stated per effort.
 
