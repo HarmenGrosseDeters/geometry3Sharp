@@ -7,7 +7,7 @@ closedness, edge lengths, error bounds), so the examples cannot silently go stal
 the XML documentation of the classes (shipped in the NuGet package, so IDEs and coding agents see it).
 
 Without writing code: [tools/g3cli](../tools/g3cli/README.md) runs the main operations (measure, repair,
-boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the height grid (DGM) reader and its TIN `dgm` / `dgm_tin`, `geodesic`, the batch queries `query3d`, the polygon booleans and offsets `polygon2d`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
+boolean, resolve, remesh, simplify, uv, convert, the evaluation metrics `fidelity`, `quality`, `curvature`, `deviation`, `thickness` and `fit`, the alpha wrap `wrap`, the height grid (DGM) reader and its TIN `dgm` / `dgm_tin`, the slope design `slope`, the cut and fill per cell `cell_volumes`, `geodesic`, the batch queries `query3d`, the polygon booleans and offsets `polygon2d`, the solid regions of loops `polygon_solids`, the 2D mesher `mesh2d` and the quadtree queries `query2d`) on mesh
 files, with JSON results, and as an MCP server; worked examples in [Command line and MCP](#command-line-and-mcp-g3cli).
 
 Namespaces: most classes are in `g3`; many mesh operations are in `gs` (repair, alpha wrap, solidify, hole
@@ -52,7 +52,7 @@ Add both: `using g3; using gs;`.
 | Nearest point, ray hit, inside test, winding number | `DMeshAABBTree3`, `MeshQueries` | [SpatialQueriesExample](examples/SpatialQueriesExample.cs) |
 | Nearest neighbours among points | `PointHashGrid3d<T>`, `PointAABBTree3` | [PointQueriesExample](examples/PointQueriesExample.cs) |
 | Signed distance field, offset surfaces | `MeshSignedDistanceGrid`, `DenseGridTrilinearImplicit`, `MarchingCubes` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
-| Iso-surface of an implicit field. Which one: `MarchingCubes` for vertices on the iso-surface (on the grid edges), a closed result and output that is deterministic also in parallel; `DualContouring` for sharp edges and corners (QEF vertices), far fewer triangles, sparse mode and local refinement, but ambiguous non-manifold quads are left out (`NonManifoldTriangles`, small holes); `gs.MarchingCubesPro` only for `GenerateContinuation` (surface-following from seed points, cost proportional to the surface, not the volume). `MarchingCubesPro` is maintained, not developed further: bug fixes only, and its parallel vertex ids still follow the thread schedule (geometry unaffected). `RootMode = LinearEdges` (both marching cubes): one linear interpolation of the original samples, without the endpoint nudges and without skipping a triangle; it requires finite samples, no sample on the level and crossings strictly inside their edges, and throws `InvalidOperationException` (`ArgumentException` for non-finite values, and for a `MarchingCubesPro` grid of more than 65535 cells per axis, 65534 for `GenerateContinuation`, or a continuation seed outside that grid), serial and parallel alike, instead of repairing a violation. It is the building block of a conditional conservative enclosure (winding number one at every zero of the field), whose further preconditions are in [CONSERVATIVE_MC_AUDIT](design/CONSERVATIVE_MC_AUDIT.md) | `MarchingCubes`, `DualContouring`, `gs.MarchingCubesPro` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
+| Iso-surface of an implicit field. Which one: `MarchingCubes` for vertices on the iso-surface (on the grid edges), a closed result and output that is deterministic also in parallel; `DualContouring` for sharp edges and corners (QEF vertices), far fewer triangles, sparse mode and local refinement; on an ambiguous face, and between cells of different size, a face vertex turns the polygons into fans whose triangles stay inside one cell each (option B of [DC_INTERSECTION_FREE](design/DC_INTERSECTION_FREE.md)), so a non-manifold quad is left out (`NonManifoldTriangles`, a small hole) only where no face vertex or fan can be built (none in the 412 runs of [DualContouringIntersections](../benchmarks/DualContouringIntersections/README.md)), and `ResolveSelfIntersections` (default on) checks the result exactly for self-intersections (`SelfIntersectionFree`); `gs.MarchingCubesPro` only for `GenerateContinuation` (surface-following from seed points, cost proportional to the surface, not the volume). `MarchingCubesPro` is maintained, not developed further: bug fixes only, and its parallel vertex ids still follow the thread schedule (geometry unaffected). `RootMode = LinearEdges` (both marching cubes): one linear interpolation of the original samples, without the endpoint nudges and without skipping a triangle; it requires finite samples, no sample on the level and crossings strictly inside their edges, and throws `InvalidOperationException` (`ArgumentException` for non-finite values, and for a `MarchingCubesPro` grid of more than 65535 cells per axis, 65534 for `GenerateContinuation`, or a continuation seed outside that grid), serial and parallel alike, instead of repairing a violation. It is the building block of a conditional conservative enclosure (winding number one at every zero of the field), whose further preconditions are in [CONSERVATIVE_MC_AUDIT](design/CONSERVATIVE_MC_AUDIT.md) | `MarchingCubes`, `DualContouring`, `gs.MarchingCubesPro` | [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs) |
 | Hausdorff distance, geodesic distance | `gs.MeshHausdorffDistance`, `gs.MeshGeodesicDistance` | [DistancesExample](examples/DistancesExample.cs) |
 | Intrinsic Delaunay triangulation and refinement: cotan Laplacian without negative weights, geodesics and vector heat on poor meshes, overlay with the input; geodesic paths and loops (FlipOut) | `gs.IntrinsicTriangulation`, `gs.MeshGeodesicDistance.IntrinsicRefine`, `gs.VectorHeatMethod.IntrinsicRefine`, `gs.IntrinsicCommonSubdivision`, `gs.MeshGeodesicPath`, `gs.MeshGeodesicBezier` | [IntrinsicTriangulationExample](examples/IntrinsicTriangulationExample.cs) |
 | Slope design from a toe line to a terrain (open-pit benches, dumps, embankments): cut, fill or mixed cut and fill (`Directions.Auto`, the clamp max(S_fill, min(T, S_cut))), never steeper than the given slope (exact check of every output triangle); catch lines with their accuracy, the composite terrain (or only the replacement of the changed terrain triangles), cut and fill volumes and areas, level lines at target heights (`TargetHeights`, the hook for berms). The result does not depend on the order of the toe pieces. Statuses with a kind (`StatusKind`): invalid input, unsupported by the method, geometrically infeasible (eg `ToeUndercut`, `ToeOvertopped`), not certified. The smallest feature it can guarantee (`UsedMinFeatureSize`) follows from the coordinates' magnitude, about 1.5 cm at UTM with the default `SlopeMargin`; `LocalFrame` computes on the inputs translated to a local origin and returns the outputs in that frame (XY + `UsedOrigin` is the input's; translating them back rounds by up to half an ulp and is not covered by the exact checks). With `LocalFrame` the caller's `Terrain` is translated in place while `Compute` runs and restored bit for bit when it returns (also on an exception; its timestamps do not change, so a spatial index on it stays valid): do not share that terrain with work running concurrently. A copy instead cost 0.2–0.6 s, 167 MB of allocations and 300 MB of peak memory on a 2-million-triangle terrain | `gs.TerrainSlopeDesign`, `SlopeToe`, `SlopeSpec`, `SlopePiece`, `CatchLine`, `TargetHeightLine` | tests: `TerrainSlopeDesignTests`, `TerrainSlopeCatchLineTests`, `TerrainSlopeMixedTests`, `TerrainSlopeTargetHeightTests`, `TerrainSlopeLocalFrameTests`; design: [TERRAIN.md](design/TERRAIN.md); example: [TerrainSlopeExample](examples/TerrainSlopeExample.cs); CLI: `g3cli slope` |
@@ -644,7 +644,7 @@ The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and
 The same operations as [tools/g3cli](../tools/g3cli/README.md) commands, one JSON result per call; with `g3cli mcp`
 they are MCP tools with the same arguments. `g3cli` below stands for
 `dotnet tools/g3cli/bin/Release/net10.0/g3cli.dll` after `dotnet build tools/g3cli -c Release`. The tests are in
-`tests/g3cli.Tests` (`Mesh2dQueryCliTests`, `SlopeCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `WrapPartitionedCliTests`, `GeodesicQueryCliTests`, `PolygonCliTests`, `McpTests`).
+`tests/g3cli.Tests` (eg `Mesh2dQueryCliTests`, `TrianglePolyCliTests`, `SlopeCliTests`, `DgmCliTests`, `CellVolumesCliTests`, `AnalysisCliTests`, `ShapeAnalysisCliTests`, `CurvatureOptionsCliTests`, `WrapPartitionedCliTests`, `GeodesicQueryCliTests`, `Query3dOutputCliTests`, `PolygonCliTests`, `PolygonLinesCliTests`, `PolygonSolidsCliTests`, `ResultFieldsCliTests`, `McpTests`).
 
 **2D quality mesh** (`mesh2d`, `QualityMesh2`): a 100 x 60 field with a building (a hole), a fence across it (a
 segment with a marker) and two labelled regions, the right one finer; the heights given per point are interpolated:
@@ -755,12 +755,19 @@ Detail recovery and normal estimation for point clouds are planned (same note).
 from source vertices (heat method) as statistics and at chosen vertices, geodesic paths by edge flips (`path_status`; a path between
 components is `operation_failed` with `no_path`), and many ray / point queries in one call. Vertex and triangle ids are those of the
 mesh as read. `query3d` answers each query as the single query would (a ray's `t` is in mesh units; the direction is normalized);
-`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh:
+`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh, `auto` takes crossings for a closed
+mesh without boundary and the winding number otherwise (`points.method_used`). `--output hits.csv` (or `.json`) writes every result, not only
+the first `--max-results`, one row per ray or point with its `index` (for rays or for points per call); rays and points may also be JSON
+(`[{"origin": [x,y,z], "direction": [x,y,z]}, ...]`, `[[ox,oy,oz,dx,dy,dz], ...]`, `[[x,y,z], ...]`, inline or `@file`), and
+`--normalize=false` passes the directions as given (a non-unit one gets the status `not_normalized`):
 
 ```
 g3cli geodesic terrain.ply --sources 0 --targets 120,4711
 g3cli geodesic part.ply --through 12,800,3401 --closed
+g3cli geodesic scan.ply --sources 0 --intrinsic-refine --trace-from 4711     # refined triangulation, descent path to the nearest source
+g3cli curvature part.stl --output curvature.csv                # H and K per vertex (MeshCurvature), statistics over the valid ones
 g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
+g3cli query3d part.stl --rays @rays.json --output hits.csv --max-results 10     # every hit in the file, ten in the JSON result
 ```
 
 **Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /
@@ -784,6 +791,29 @@ zero polygons; `invalid_input` of the adapter (an unusable extent) is `operation
 ```
 g3cli polygon2d parcel.geojson building.geojson --op difference --output free.geojson
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
+```
+
+The same command works on lines (GeoJSON `LineString` / `MultiLineString` as the subject, a `MultiLineString` or polygons out): `--op clip_lines`
+with clip polygons keeps the pieces of the lines inside (`--clip-type intersection`, default) or outside (`difference`) them; `--op offset_lines
+--delta d` gives the band of width 2 d around each line (`--end-type round` / `square` / `butt` / `joined`; delta must be > 0);
+`--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
+neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
+invariance are those of the booleans (`frame`).
+
+```
+g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
+g3cli polygon2d route.geojson --op offset_lines --delta 15 --end-type butt --output corridor.geojson
+```
+
+**Solid regions from loops** (`polygon_solids`, `PlanarComplex.FindSolidRegions`): every ring of a GeoJSON `Polygon` / `MultiPolygon` and every closed
+`LineString` is one loop, whatever it was written as; the nesting is found from the containment (a loop inside one other loop is its hole, inside two a
+new solid, ...), so loops from different sources and with any orientation give polygons with holes, as a GeoJSON `MultiPolygon`. The loops are
+simplified first: `--simplify-tolerance` is an absolute deviation in input units, **default 0.1 as in the library**, so loops closer than about that
+distance can lose their nesting (choose a smaller one for small or close loops, 0 for none); `--relative-tolerance` is relative to each loop's own
+bounding box diagonal and the smaller of the two applies. Open lines are counted and ignored, at most 4000 loops (the nesting search is quadratic: 4000 nested loops take about 10 s), identical loops are kept once (`loops.duplicates_removed`):
+
+```
+g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
@@ -850,8 +880,9 @@ largest drift and `max_length`, the bound: 1e-5 of the largest component's diago
 term, `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean, and
 `scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
-`--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
-and `result_reason`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
+`--reject-topology-change`, `--exact-resolve-rounds`, `--wrap-relative-alpha`, `--wrap-relative-offset`, `--alpha-wrap-quality-pass`,
+`--passthrough-clean-parts`, `--separate-fraction`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`,
+`result_reason`, `robust_options` (the values used), `passed_through_triangles`, `exact_resolve_rounds_used` and `phase_milliseconds`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
 area of the clean check (1e-12 of the squared diagonal of all triangles) cover their real triangles: the repair then fails
 with the message "scale disparity: ..." and writes nothing, instead of a coarse wrap (`MeshRobustRepair.Apply()` returns
 false with the exactly resolved mesh, `ResultReason` `ScaleDisparity`):

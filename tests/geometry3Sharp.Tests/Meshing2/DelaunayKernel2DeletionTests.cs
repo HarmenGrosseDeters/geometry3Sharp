@@ -260,7 +260,7 @@ namespace geometry3Sharp.Tests
             AssertSameUpToTies(k, Kernel(pts.Concat(new[] { new Vector2d(4.5, 5.25) }).ToList()), "inserted again");
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> the same insertions and deletions under every similarity: 2^k scales give the same triangulation bit for bit,
         /// the others a valid constrained Delaunay triangulation </summary>

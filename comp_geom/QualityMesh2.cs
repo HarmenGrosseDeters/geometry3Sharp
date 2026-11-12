@@ -20,7 +20,7 @@ namespace g3
     /// make refinement run away. Triangles whose small angle lies between two constrained edges are not refined for their angle.
     /// Split points are computed on the original input segment, so they stay within rounding of it however often a piece is
     /// split (spec O12).</para>
-    /// <para>Without <see cref="Conforming"/> (the default), a subsegment counts as encroached only by a vertex in its diametral lens
+    /// <para>Without <see cref="Conforming"/> (the default), only a vertex inside the diametral lens of a subsegment encroaches on it
     /// (Shewchuk 2002, section 6.4: the points that see it under at least 120 degrees, a narrower region than the diametral circle)
     /// when the angle bound is at most arcsin(sqrt 3 / 4) = 25.65 degrees, the bound the paper proves for lenses; above it the
     /// diametral circle is used. As the paper's rule says (after Chew 1993), before a subsegment is bisected the free vertices (made by
@@ -168,6 +168,9 @@ namespace g3
             /// refinement (a pinch) on or off (null: the default, on) </summary>
             [ThreadStatic] internal static bool? KeepPinchFreeForTests;
             readonly bool keepPinchFree;
+            /// <summary> tests only (per thread): a bad triangle is queued again instead of split, a livelock that does work without progress,
+            /// which the defect cap of the refinement loop must stop (#638) </summary>
+            [ThreadStatic] internal static bool StallForTests;
             readonly Queue<long> segments = new Queue<long>();
             readonly TriangleQueue triangles;
             /// <summary> benchmarks and tests only (per thread): bad triangles split worst first (smallest angle first) or in the order queued
@@ -388,7 +391,8 @@ namespace g3
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 QueueAll();
-                long steps = 0;
+                // steps: dequeues, for the cancellation check; work: the dequeues that split or try to (the defect cap counts these)
+                long steps = 0, work = 0;
                 int sweepStart = k.VertexCount;
                 while (true) {
                     if (segments.Count == 0 && triangles.Count == 0) {
@@ -408,15 +412,19 @@ namespace g3
                     // (at the limit an insertion is refused and reports the limit; the queues then drain without inserting, so the flag
                     // is set only when a bound was left unmet, not on a mesh that needs nothing; review of M3)
                     inserted = k.VertexCount - (k.N + 1);
-                    // every step either inserts, splits or retires an entry; a cap far above that only stops a defect, which is
-                    // reported as one, not as the Steiner limit (review of M3)
-                    if (steps > 64 * (limit + k.TriangleSlots) + 100000)
-                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + steps + " steps");
+                    // every split attempt inserts or retires its entry; a cap far above that only stops a defect, which is reported as
+                    // one, not as the Steiner limit (review of M3). It counts work, not dequeues: a stale entry is retired at once, and
+                    // stale entries are only made by work (Collect queues the triangles an insertion rewrote, once per flip that touched
+                    // them), so they drain. Counting them hit the cap on a channel 2^-38 wide at a small Steiner limit, where splits across
+                    // the channel flip the same triangles many times: a burst of 600k dequeues for 34k entries of distinct triangles (#638)
+                    if (work > 64 * (limit + k.TriangleSlots) + 100000)
+                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + work + " split attempts (" + steps + " dequeues)");
                     if (segments.Count > 0) {
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
                         if (e < 0 || k.Seg[e] < 0 || !Encroached(e)) continue;
                         splitCause = 0;
+                        ++work;
                         var failure = SplitSegment(e);
                         if (failure != null) return failure;
                         continue;
@@ -425,6 +433,8 @@ namespace g3
                     // (a deletion frees triangle slots: an entry past the end is stale; one whose slot was refilled is judged as it is now,
                     // and the triangle that moved out of the last slot was queued under its new slot)
                     if (t0 >= k.TriangleSlots || !InDomain(t0) || !Bad(t0)) continue;
+                    ++work;
+                    if (StallForTests) { triangles.Enqueue(t0); continue; }
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
@@ -1277,15 +1287,26 @@ namespace g3
                             // for ApexExempt (which excuses no triangle): the closed segments meet, decided exactly (the oracle's t in
                             // [0, 1]); the test in doubles below misses a shared endpoint when t rounds to 1 + eps
                             int kind = MeetKind(s1, s2);
+                            // off the grid an end within the tolerance of the other segment is a vertex of its chain (O11, InsertPiece and
+                            // MergeNearPoints), so the chains meet there, at that end, although the input segments miss each other by a
+                            // rounding: a T-junction rotated or scaled into doubles is one (#664: an end 4e-17 beside the other segment, no
+                            // exemption, a cascade along the whole pair to the Steiner limit). The oracle's small-input-angle excuse takes
+                            // the same end as the apex, within its tube (twice this tolerance)
+                            bool nearMeet = false;
+                            Vector2d nearEnd = default(Vector2d);
+                            if (kind == 0 && grid == null && b.EndWithinTolerance(s1, s2, out nearEnd)) { kind = 2; nearMeet = true; }
+                            var apex = nearMeet ? new Vector2d(ExactPoint3.ScaleB(nearEnd.x - s1.AX, -ex), ExactPoint3.ScaleB(nearEnd.y - s1.AY, -ex))
+                                : new Vector2d(t1 * d1x, t1 * d1y);
                             if (kind > 0) {
                                 pair.Meets = true; pair.Kind = kind; pair.Scale = ex;
-                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
+                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = apex;
                             }
                             // for SpansSmallAngle: the apex is on both segments, an input angle, not two lines that would meet far away
-                            // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not)
-                            if (!(t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0)) {
+                            // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not); or the
+                            // chains meet at an end within the tolerance
+                            if (nearMeet || !(t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0)) {
                                 pair.Small = true; pair.Scale = ex;
-                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
+                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = apex;
                             }
                         }
                     }
@@ -1717,9 +1738,11 @@ namespace g3
                     splitCause = 2;
                     var failure = SplitSegment(first);
                     if (failure != null) return failure;
-                    // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
-                    // encroachment of an unsplittable subsegment no longer stops its circumcentre, which may still fit on the grid
-                    if (unsplittable.Contains(key) && grid == null) { exempt.Add(tKey); Note(11); }
+                    // a piece that cannot be split stays, and t is tried again (it is queued): the encroachment of an unsplittable
+                    // subsegment no longer stops its point (EncroachedByPoint skips such pieces), on the grid and off it. Off the grid t was
+                    // given up here until the near-contact fan of #542 left a triangle below a T-junction whose off-centre lay in the
+                    // diametral circle of an O11-unsplittable piece, a case the oracle's O11 exemptions (a circumcentre behind such a
+                    // piece) do not excuse
                     return null;
                 }
                 // (a refused off-centre falls back to the circumcentre's pixel once before t counts as grid-blocked; review)

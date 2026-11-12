@@ -810,7 +810,8 @@ input), the exact resolve, the solidify, or the alpha wrap (last resort, see abo
 strict criterion and why the earlier stages were not used. One row per mesh (category, stage, outcome, reasons,
 Hausdorff, IoU, triangles, time): [`cases/robust_stages_2026-10-25.csv`](cases/robust_stages_2026-10-25.csv).
 The run below is master after #47 (alpha wrap fallback), before #44 (touching edges in the exact resolve),
-#49 (faster checks) and #40 (orientation seams); it will be replaced by the final run.
+#49 (faster checks) and #40 (orientation seams). Update 2026-11-12: this table was not rerun; the path taken on
+master of 2026-10-25 night is in the next section, the stage times of 1 November in "Time per stage" above.
 
 Stage that produced the result, and its outcome ("deviation": Hausdorff ≥ 1 % of the diagonal):
 
@@ -873,7 +874,7 @@ the median, so they rarely meet the strict criterion. Their inputs are mostly me
 take: not closed in the winding number sense, or whose resolved solid differs from the input's.
 
 
-### `robust` on the current master (both selections)
+### `robust` on master of 2026-10-25 night (both selections)
 Master of 2026-10-25 night (`56a8ed5`), with the changes merged since `a66049b`: among them the exact resolve
 before the solidify, the alpha wrap as the last resort (#47) and the faster checks (#49). Before: the holdout run above (build `a66049b`). Same machine, `BENCH_P=2
 TIMEOUT=300`. The large meshes of the first selection were not rerun.
@@ -1604,3 +1605,26 @@ triangle count of about one mesh in seven and, through the later stages, the pat
 (1.00 % instead of 0.99 %), 1505037.stl and 94484.stl are wrapped instead of resolved exactly (IoU 0.993 → 0.926 and
 0.991 → 0.973, neither repaired before), 1368057.stl no longer times out. 57312.stl now gives 36154 triangles every
 run (10 of 10 processes with the final build).
+
+## Alpha Wrap 3.0 L1: oracle pruning (`AlphaWrapOracle`, #681)
+
+Bit-identical to master: the segment query (rule 1) computes the direction's reciprocals once per query, no longer repeats
+the child box test, and tests each triangle's vertex balls once; the touch test skips BVH nodes that a face plane of the
+tetrahedron separates (the last separating face at inner nodes, all four at leaves); nodes as one array of structs.
+
+`BENCH_REPAIR=wrappipe BENCH_FIDELITY=hd TIMEOUT=400`, one process at a time on the 4-core container, master cab88798 and
+the branch alternating per mesh, the 24-mesh list of `runs/alpha-wrap-3` (`aw3/l4/list_ab.txt`; scripts `aw3/l4/ab.sh`,
+`aw3/l1/ab2.py`), sums:
+
+| | master | L1 | ratio |
+|---|---:|---:|---:|
+| pipeline | 242.5 s | 230.2 s | **0.949** (median 0.968) |
+| wrap | 171.5 s | 158.0 s | 0.921 |
+| intersection oracle (`wrap*/intersection`) | 35.2 s | 22.2 s | **0.631** |
+| touch test (`wrap*/touch`) | 25.5 s | 26.5 s | 1.040 |
+| insertion (unchanged code) | 31.3 s | 31.7 s | 1.013 |
+
+Output 24/24 identical (`after_hash`, raw triangles); the 269 meshes of phase 1: 269/269 identical. The face test is a
+tail lever: 48367 (46 % touch) 4.0 s -> 0.57 s of touch; leaf-only face tests (1.6 s there) and all four faces at every
+node (slower on typical meshes) were measured and not taken.
+

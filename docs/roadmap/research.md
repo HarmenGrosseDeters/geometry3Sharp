@@ -7,7 +7,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-12):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
   stopped at its gate (#371). Since then: batch queries stage 2 (#448), intersection-free dual contouring options A and
   B (#552, #572), geodesic Bézier curves (#540), point clouds step C1 (#580) merged; the D1 drift rule (hard problem 2)
-  built in #513. Not started: collision detection, tet meshing, TPMS, the rest of the Later list.
+  built in #513; the batch-query caller switches profiled and closed (#678). Not started: collision detection, tet meshing
+  beyond stage 0 (#487), TPMS, the rest of the Later list.
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -40,7 +41,12 @@ Part of the [roadmap](../ROADMAP.md).
      benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
      (a new session after Lévy phase 2; owner 2026-11-12: queued as a Sonnet session after the dirty-side provenance
      session):
-     - Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
+     - Profile run 2026-11-12 (#678, merged 2026-11-12, 7b128048; docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
+       parallel (`gParallel`), so a switch adds only the sort (0.9-1.4x on the query part for random input, a loss on the
+       callers' coherent order: MeshDeviation 3-12 % slower); no caller reaches the 10 % rule, nothing is switched. The
+       only serial query loop is `TerrainSafety`'s source mapping (below 10 % of a terrain case; not switched).
+       Item 1 is closed unless a new serial caller appears.
+     - (Earlier hand-over text:) Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
        single queries (grep, not profiled): `MeshFidelityMetrics`, `MeshDeviation` (MaxDeviation / IsWithin),
        `WindingContouring`, `WindingNumberOctree`, `RemoveOccludedTriangles`, `MeshSignedDistanceGrid`,
        `TerrainSafety`, `TerrainOffset`, `AlphaWrapQualityPass`, `MeshRepairOrientation` (the ray time of the repair, 6-7 % of its CPU
@@ -89,6 +95,7 @@ Part of the [roadmap](../ROADMAP.md).
      study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
      path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
      `WindingContouring` on the lever 6 set (#498) as the upper bound.
+     Status: options A and B merged (#552, 781729f5, and #572, 2909f3f8, both 2026-11-10); hard problem 13 is done.
      Candidate follow-up (owner 2026-11-10, not scheduled): a topology guarantee for the contouring (the result has the
      topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
@@ -141,7 +148,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
-- **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
+- **Phase 5 table:** #1 Bézier curves done (#540, 2026-11-10); #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
 - **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
@@ -312,9 +319,10 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (after D1 has merged), 11 (the proof part, after the net48 / net10 measurement).
-Useful, not must-win: 10, 12. Running or decided: 2 (D1 build), 13 (DC build, option A then B), 8 (fixed; Antipodal),
-6 (option D, B reopenable). Not now: 1 alone, 4, 5 (tet), 7, 14.
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12), 11 (the proof
+part, after the net48 / net10 measurement). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
+Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
+Not now: 1 alone, 4, 5 (tet), 7, 14.
 
 Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
 solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them
@@ -337,6 +345,9 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
+     (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
+     checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -353,6 +364,8 @@ Ordered by expected value for the library.
      2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
      session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
+   - **Done:** merged 2026-11-11 as 69f13be3 (#513, counted as Boolean 2.1), after its 8 rounding mutation shards passed
+     ([exact-boolean.md](exact-boolean.md)).
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
@@ -366,7 +379,7 @@ Ordered by expected value for the library.
    - Closed without gain:
      - feature quadrics in the Reducer;
      - crease-aware Steiner points.
-   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measurement running) can change it.
+   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measured 2026-11-09, result below) can change it.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
@@ -406,7 +419,7 @@ Ordered by expected value for the library.
    - The open cohort also has 736 ops > 5 s.
    - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
      parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
-     (exact Antipodal Method merged in #539; per-patch evaluation L1 in draft #633).
+     (exact Antipodal Method merged in #539; per-patch evaluation L1 merged in #633, 2026-11-12; T5 PR 2 in draft #675).
    - A stronger-model review of the classification design pays here.
 9. **Robust repair at extreme scale disparity (F1b / F1c).**
    - Problem: cleanups relative to all triangles erode or drop far parts. Design note

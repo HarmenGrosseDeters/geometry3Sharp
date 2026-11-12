@@ -6,7 +6,8 @@ Part of the [roadmap](../ROADMAP.md).
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
 - **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
-  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now)). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
+  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now); L4 #670 and L1 #681 merged,
+  L3, L3b and L2 dropped; the 800 run with a tail report started 2026-11-12). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
   The remesher items of Phase 2 stay open; the Remesher rim folds (#621) are fixed by #640 (merged 2026-11-12).
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -78,6 +79,59 @@ floors, fidelity and determinism unchanged, PRs 1, 3 and 4 bit-identical to mast
 (this), 1 L3 (independent determinism review), 2 L4 (not guaranteed bit-identical: where its output differs, and the
 guarantees there), 3 L1, 4 L3b, 5 L2. Lever 6 re-measured on DC A+B: B clean 20/20 (before 19/20), Chamfer 0.22x, still
 no offset and 17870 triangles > 170 deg at 3.3x time; C3 unchanged (+40 % time); not built now (owner 2026-11-12).
+**L3 dropped (owner 2026-11-12).** The bit-identical spike (gate tests of the queue's top gates precomputed in parallel,
+used only while the stamps of both cells match; output hashes identical) is slower: only 36-40 % of the tests are in the
+window before the carving pops them (the priority flood mostly pops gates it just pushed; a deeper window covers less),
+which bounds it at <= 1.085x at zero overhead (`runs/alpha-wrap-3`, `aw3/L3-SPIKE.md`, the reference). Decision: (A) go on
+with L4, L1, L3b, L2; target (b) lowered to about 1.25x on the 189 against master on 4 cores, (a) and (c) unchanged. (B), a
+deterministic round-based parallel carving (independent gates per round, deterministic reservations; serial = parallel and
+2^k bit-identical, but not master's output), is a future research item: a guarantee argument first, then a probe, then
+an owner decision on (c) for it.
+**L4 (PR 2):** the manifold step faster, bit-identical (no star search for a vertex whose result facets form
+one closed cycle in its link, Jordan; stamp arrays instead of dictionaries in the same order; volumes only when needed;
+stars kept between trials without an insertion), and the first pinch pass leaves its confirming full trial to the
+second (output different only where that trial would find a spot the local ones missed). Measured (4-core container):
+A/B against master alternating on 24 meshes (16 random of the 269, 8 with the most pinch points): 24/24 identical,
+trial + manifold step 0.49x (median), pipeline 0.93x (median and sum); the 269 meshes of phase 1: 269/269 identical
+output (the confirmation skipped on 126), all closed and free of self-intersections, trial + manifold 0.49x.
+**L1 (#681, merged 2026-11-12, 14a27e45):** the intersection oracle and the touch test faster, bit-identical (`AlphaWrapOracle`: the segment query
+computes the direction's reciprocals once, no longer repeats the child box test, tests each triangle's vertex balls once;
+the tetrahedron query skips BVH nodes that a face plane of the tetrahedron separates, proven without a rounding slack by
+monotone rounding and the summation order of `Vector3d.Dot`; nodes as one array of structs). Measured (4-core container):
+A/B against master alternating on the 24 meshes: 24/24 identical, pipeline 0.949 (sum; median 0.968), wrap 0.921,
+intersection oracle 0.631, touch test 1.040 (the face test is a tail lever: 48367 touch 4.0 -> 0.57 s); the 269 meshes:
+269/269 identical. Running product toward target (b): L4 about 1.075x times L1 1.054x, about 1.13x.
+**L3b and L2 dropped (coordinator 2026-11-12, bounds measured on master, no PRs).** L3b (certification): `certified_within`
+is already parallel (MeshHausdorffDistance: vertex queries, per-triangle bounds and refinement batches); only the 0.1
+pass runs; the initial per-triangle bounds are 55-85 % of it (almost all `TriangleDeviationBounds.patch_bound`, about
+12 us per call, 2-4x on 4 cores), the AABB tree of the raw wrap 5-16 %, the refinement 5-25 %. Ceiling 1.07x on the 189
+(certify 6.4 % at zero cost); an allocation-free `patch_bound` (per-thread stamps, same order, same hashes) changed nothing
+measurable (compute, not GC), so <= about 1.02x. L2 (insertion, per insertion): `Delaunay3.Insert` splits into the
+cavity search 45 % (about 38 filtered InSphere per insertion, no exact fallback; the filter is exact code), edge linking
+16 %, new cells 13 %, star check 11 %, vertex checks 10 %, location 4 %; the edge-link dictionary replaced by per-vertex
+chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Probe patches: `runs/alpha-wrap-3`,
+`aw3/l3b_l2/`. With these, target (b) (about 1.25x) is out of reach of the bit-identical levers (about 1.13-1.15x);
+the gap and the round-based parallel carving (B) go to the owner.
+**Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
+come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681 (merged
+2026-11-12), in this order (step (1) started on master 2026-11-12):
+(1) the 800 run (runner) with a tail report: every mesh above 20 s (owner rule 2026-11-12, `docs/roadmap/platform.md`:
+anything above 20 s is a potential defect and gets a diagnosis: pathological input, algorithmic hotspot or size), at least the 20 slowest, raw / final triangles, time, phase split, the share
+already parallel, Amdahl ceilings on 4 and 16 cores, time per raw triangle on the tail against the median (big meshes or
+something pathological?); (2) a black-box competitor comparison as for CGAL 5.6 before (no source read, nothing cloned and
+built) on the 20 tail meshes plus about 30 random ones at the same alpha / offset: wall time (threads stated), triangles,
+min / p01 angle, certified Hausdorff; (3) the (B) probe on the tail meshes: a guarantee note, a round simulation
+(independent-set sizes per round, late rounds especially) and a serial-round prototype for quality against master, with the
+projected tail time on 4 and 16 cores. No PR for (B) before the owner has the results.
+**Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
+on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
+benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
+diagnosis per tail mesh and levers ranked by benefit; measurement only, probe patches never pushed, every table with its
+commit set; the levers are then built one PR each by the AW3 work. Both studies report the shared profile categories
+(exact predicates and constructions, AABB / BVH queries, allocation and GC, rounding, rest), merged into
+[hotspots.md](hotspots.md). A nightly watcher (tools and workflow only) measures the known extreme cases of both studies
+isolated per master commit and reports outliers (regression against the rolling median, or above 20 s). Predicate kernels
+(InCircle limb kernel, filter tuning) only if the profile shows they matter.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
@@ -221,7 +275,7 @@ better; 0.75 is 1.09-1.22x.
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
   `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
   and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
-  (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
+  (`MinTriangleQuality` 0, `PreventSelfIntersections` off; the flip guard is moot: the owner kept the Remesher defaults upstream's, November 2026); (5) settle the
   "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
@@ -240,8 +294,8 @@ better; 0.75 is 1.09-1.22x.
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
-  research), S2 and S3 open, pinned and documented; the regressions a remesher flip-guard default would cause; the
-  P1 collapse.
+  research), S2 and S3 open, pinned and documented. Closed: the P1 collapse (a limitation, [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); the real fix is research); the regressions a remesher flip-guard default
+  would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
 - The slow `exact.resolve` on small inputs (67709, 42327) went to the boolean-performance session
   ([exact-boolean.md](exact-boolean.md#other-open-items)).

@@ -82,8 +82,8 @@ coverage while retaining all old campaign counts; raise it for longer local runs
 [campaigns_2026-11-08.json](results/campaigns_2026-11-08.json) is a compact summary
 of the TRX files (counts, per-campaign durations, original/minimized descriptors of
 the controlled shrink; no paths or logs). Both runs come from pure trees: the
-baseline from master `12ae9276` (this PR's base after merging master), the final
-run from this branch; neither contains the Z3 pilot (#400) tests. An earlier capture
+baseline from master `12ae9276` (the base of #401 after merging master), the final
+run from the branch of #401; neither contains the Z3 pilot (#400) tests. An earlier capture
 (2026-11-07) came from a tree that also compiled the #400 tests and is superseded.
 Baseline: 67 passed, no skips, about 16 s. Final: 124 passed, no skips, about 18 s
 (57 added tests: 8 directed campaigns, 8 + 27 + 8 classifier controls, 2 shrink

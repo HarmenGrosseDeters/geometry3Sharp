@@ -31,8 +31,8 @@ done since and what is open.
   to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
-  "Category=Slow"`). It fails for an untagged test of 60 s or more and only reports below that: durations on a shared
-  runner are noisy, and a gate at 5 s would turn that noise into red CI. Tag a test that shows up in the list.
+  "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
+  b73c151d). Tag a test that shows up in the list.
 - The scheduled tier: `[Trait("Category", "Nightly")]` tests run only in `.github/workflows/nightly.yml` (daily on master, and
   `workflow_dispatch`; `dotnet test --filter "Category=Nightly"`, 90 min budget, durations in the step summary). PR and master CI
   exclude the category (`Category!=Nightly` on Linux and both net48 shards). It holds the rows above 10 s whose run is the check:
@@ -143,6 +143,14 @@ results mapped back to the original frame.
   absolute tolerances that a scale by 1e3 hides in rounding noise.
 - The other similarities compare with a tolerance derived from the coordinate resolution
   (`Similarity.Resolution`), not with a hand-picked constant.
+
+**2D inputs** (`Similarity.All2D()`, `Apply2d`, `Inverse2d`, `Angle2d`): the rotations of `All()` also tilt about x and y, so
+the xy part of their image is a rotation with a squash, not a similarity of the plane. Tests whose input is a set of points,
+segments or polygons in the plane use `All2D()` (tests that map a planar loop into the orthonormal frame of the transformed plane,
+as `PlanarComplexNestingProbeTests` and `PolygonSignedAreaTests` do, keep `All()`: for them the tilted members are valid inputs): the identity, UTM, the scales 2^-10, 2^10, 1e-3 and 1e3, a rotation about z
+by 31 degrees, and a rotation about z by 23 degrees with the scale 1e-3 and the UTM translation. A pinned case that needs the
+squash (`QualityMesh2NearTJunctionTests.RotatedFan`, `QualityMesh2GridRerouteSweepTests`) keeps `ByName("rotated")`. Operations on
+3D points with a height (the quadtree adapters, which project) keep `All()`.
 
 **Permutation of the input** (`Invariance.Permuted`): vertex order, triangle order and the starting corner of
 each triangle.

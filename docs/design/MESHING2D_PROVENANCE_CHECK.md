@@ -248,3 +248,103 @@ G. H. Meisters, *Polygons have ears*, 1975. All are in [SOURCES.md](../SOURCES.m
 
 **No (A) finding.** Everything added or changed since 6b-2 is (B) or (C), and the classes of the first two passes still hold for
 the unchanged routines. No rewrite is needed. One optional comment rewording (D3) is left to the clean side.
+
+## Stage 6b-4: delta after d9006aa
+
+A dirty-side session (2026-11-12, owner exception of 2026-11-12, as in stage 6b) repeated the method of 6b-3 on what changed
+in the 2D mesher and its oracle after `d9006aa`. As above, this section names only our files, routines and lines; the evidence on
+the reference side is kept outside this repository.
+
+- **Our side**: master `01a7e71c48d13e699b7e66af9bafdbd79c55ff1c` (after #666, #661, #663). Changed since `d9006aa`
+  (`git diff d9006aa 01a7e71`):
+  - `comp_geom/QualityMesh2.cs`: +314 / −56 lines. The exact corner choice (#437), the small-angle pair cache and the apex
+    exemption with the 60° pairs (#394, #496; the near meeting of #664 / #666), rule C (#441, #462), `ExactlyWithin` and the
+    subnormal split guard, the `Note` counters, the unsplittable-piece change of #661, the sparse tag check, pair keys (#553).
+  - `comp_geom/ConstrainedDelaunayMesh2.cs`: +97 / −4. The zero-area input (`HullHasNoArea`, `Collinear`, `EmptyResult`), the
+    progress guard of the tolerance splits (`Shortens`, `ScaledLen2`), `EndWithinTolerance` (#664), pair-key comparers.
+  - `comp_geom/ConstrainedMesh2.cs`: +26, `ToDMesh3` (#663).
+  - `comp_geom/PairKeys.cs`: new, 18 lines (#553).
+  - `comp_geom/SnapRounding2.cs`: +4, doc comment only (#526).
+  - The oracle: 10 files of `benchmarks/Meshing2Benchmark/Oracle` (`Oracle.cs`, `SelfCheck.cs`, `BoxPairs.cs`, `Domain.cs`,
+    `Oracle.SourceCoverage.cs`, `StrtreeEdgeSearch.cs`, `StrtreePointSearch.cs`, `ConstrainedGoldenCases.cs`, `Model.cs`, the
+    project file); token comparison and a read of its new error bounds, as before.
+  - Not in scope: `DelaunayKernel2*.cs`, `DelaunayMesh2.cs`, `TriangulationMesh2.cs`, `Triangulation2Result.cs` and
+    `ConstrainedMesh2Types.cs` are unchanged since `d9006aa`; `ConvexHull2.cs` (a comment, two messages and an input check of
+    the upstream hull, not part of the mesher) was looked at and is not mesher code.
+
+  The tool ran on the changed files in full and, separately, on their added lines only (14 files, 165 000 tokens in full).
+- **Reference side read**:
+  - Triangle 1.6, `triangle.zip` from `netlib.org/voronoi`, sha256 `1766327a…f8480` (the archive of 6b-2 and 6b-3, fetched again;
+    the same hash);
+  - Triangle.NET upstream `wo80/Triangle.NET`, commit `fa6f2fdbbbfa9312e92929bd8fbb9c21da0f7769` (2026-06-10, still the upstream
+    head; the version of the earlier passes), all 82 C# files of `src/Triangle`.
+
+  Both hosts were reachable; nothing was refused or circumvented. Nothing of either was built or run.
+- **Tool**: the token comparison of 6b-2 / 6b-3 with the same settings, written again from that description (own Python 3 code,
+  reads files as data): comments, strings and preprocessor lines stripped; identifiers, numbers and type keywords each mapped to one
+  token; `->` mapped to `.`; share of our tokens in shared 12-grams (8-grams as a second setting), longest covered run, shared comment
+  word 6-grams, strings, numbers and identifiers of six or more letters. New in this pass: the share and the run also restricted to
+  the added lines. Calibration before use: the noise floor from the same unrelated upstream files (`Arrangement2d.cs`,
+  `ConvexHull2.cs`, `DMesh3.cs`, `Polygon2d.cs`, at `d9006aa`) and the positive control Triangle.NET (7 core files) against
+  `triangle.c`.
+- **By hand**: every routine added or changed since `d9006aa`, against both references, for data layout, decomposition, control
+  flow, constants, names, comments and messages.
+
+### Tool result
+
+| | against `triangle.c`: share in shared 12-grams (8-grams) | longest run | comment 6-grams | strings |
+|---|---:|---:|---:|---:|
+| `QualityMesh2.cs` (21 185 tokens) | 5.6 % (33.3 %) | 49 (line 783, the exact dot-product sign of 6b-2) | 3 (see P9) | 0 |
+| its added lines (2 978 tokens) | 8.7 % (41.8 %) | 23 | – | 0 |
+| `ConstrainedDelaunayMesh2.cs` (13 650 tokens) | 7.2 % (34.7 %) | 53 (line 428, the barycentric height of 6b-2) | 0 | 0 |
+| its added lines (1 075 tokens) | 18.3 % (51.1 %) | 24 (lines 574-577, see below) | – | 0 |
+| `ConstrainedMesh2.cs` (1 907) / added (152) | 4.2 % (29.5 %) / 0.0 % (29.6 %) | 27 / 0 | 0 | 0 |
+| `PairKeys.cs` (49) | 0.0 % (16.3 %) | 0 | 0 | 0 |
+| `SnapRounding2.cs` (9 757, code unchanged) | 10.3 % (34.8 %) | 31 | 0 | 0 |
+| oracle, 9 changed source files (118 000 tokens) | 3.2 to 12.2 % (18 to 37 %); added lines 1.4 to 12.2 % | 129 (`Oracle.cs` 225-239, the list of check calls of 6b-3); added lines up to 43 | 0 | 1 (`"input"`) |
+| *noise floor: unrelated upstream files* | *5.8 to 13.5 % (31 to 48 %)* | *up to 38* | *1* | *0* |
+| *positive control: Triangle.NET, 7 core files* | *16.3 to 53.7 % (50 to 88 %)* | *27 to 928* | *103 to 1226 per file* | *–* |
+
+| | against Triangle.NET (82 files): share in shared 12-grams, all files / best single file | longest run | comment 6-grams |
+|---|---:|---:|---:|
+| `QualityMesh2.cs` / added lines | 29.0 % / 5.8 %; 30.8 % / 8.4 % | 73 / 60 | 3 (P9) |
+| `ConstrainedDelaunayMesh2.cs` / added lines | 32.1 % / 8.4 %; 40.9 % / 18.3 % | 90 / 32 | 0 |
+| `ConstrainedMesh2.cs` / added lines | 39.6 % / 12.5 %; 53.9 % / 27.6 % (152 tokens) | 82 / 22 | 0 |
+| `PairKeys.cs`, `SnapRounding2.cs` | 0 %, 26.3 % / 5.8 % | 0, 36 | 0 |
+| oracle, 9 files | 16.1 to 40.0 % / 6.6 to 19.0 % | up to 165 (see below) | 0 |
+| *noise floor: the same unrelated upstream files* | *37.7 to 48.8 % / 8.0 to 16.2 %* | *39 to 121* | *1* |
+
+The rewritten tool reproduces the noise floor of 6b-2 exactly (5.8 to 13.5 %) and its positive control within two points (17.9 to
+53.7 % there, 16.3 to 53.7 % here with one different core file, runs up to 928 in both); it separates the known port by a wide margin.
+
+The mesher files stay at or below the noise floor. Two shares of added lines are above the floor of whole files, both on small samples:
+the 1 075 added tokens of `ConstrainedDelaunayMesh2.cs` (18.3 %) and the 152 of `ToDMesh3` (27.6 % against one Triangle.NET file, 0 %
+against `triangle.c`). Their covered runs were inspected: four `if (dist(end, other) <= t2) { end = ...; return true; }` lines of one
+shape in `EndWithinTolerance`, `dx * dx + dy * dy` in `ScaledLen2`, and a `for` loop appending vertices and then triangles; all generic.
+The other runs at or above 30 tokens: in `QualityMesh2.cs` the repeated scaled assignments in `PairOf` (lines 1259-1262, moved
+unchanged from 6b-3's `SpansSmallAngle`), a bounding-box loop (line 1056) and the dot-product sign; in `ConstrainedDelaunayMesh2.cs` a
+min/max loop (line 1137); in the oracle the result classes of `StrtreeEdgeSearch.cs` (lines 252-271, 165 tokens) and
+`StrtreePointSearch.cs` (lines 171-184, 133 tokens), auto-properties and a constructor that assigns its parameters, the kind of run of
+O1 (85 tokens) and of the calibration (121). The shared string is the one word `"input"`. Shared identifiers are the field's vocabulary.
+
+### Findings
+
+| # | Our file : lines (`01a7e71`) | Routine | Class | Category | Note |
+|---|---|---|---|---|---|
+| P1 | `QualityMesh2.cs` 871-925, 967-981 | `MinSin2`, `SmallestAngleCorner`, `ShortestEdgeCorner`, `BelowAngle`, `BadByAngle` | B | control flow | The smallest angle is opposite the shortest edge (elementary geometry). Ours keeps sin² from area² / (l1 l2) (Q3) and picks the corner separately and exactly: a filter on the two shortest squared lengths with a 2^-40 margin and range limits, then integer squared lengths from the exact decomposition, ties to the first. Computed and decomposed differently from the reference. |
+| P2 | `QualityMesh2.cs` 1199-1325 | `SmallPairSin2`, `SmallAngleSlack`, `SmallPair`, `MeetKind`, `PairOf`, `NearSmallAngle`, `SpansSmallAngle` | B | control flow, constant | Not refining a skinny triangle whose shortest edge spans a small input angle is [S02] §4 (Q4). Ours: a per-pair cache, the input angle tested against 60° (owner decision 2026-11-09, [S02] §6.2) with a stated slack, an exact classification of how the closed segments meet (shared end, T-junction or crossing), a meeting within the tolerance (#664), distances to the apex within a factor of 1.5 on the same side. The reference's test, its cases and its constants differ; the decomposition is ours. |
+| P3 | `QualityMesh2.cs` 667-773 | `Encroached` (exemption branch), `ApexExempt`, `Note`, `SmallAngleExemptionForTests`, `ApexLogForTests` | C | – | The exemption of a vertex made on one partner source from splitting a subsegment at a small input angle (MESHING2D_SMALL_ANGLES.md, owner decision 2026-11-06; the figure-eight cycle of [S02] §6.2, quoted in the comment). Neither reference has an encroachment exemption of this kind; their encroachment tests are those of Q2 / D2. |
+| P4 | `QualityMesh2.cs` 690-706 | `LocallyDelaunayAt`, `IsLocallyDelaunay`, rule C's revocation | B | control flow | "d not strictly inside the circumcircle of abc" is the definition of a locally Delaunay edge ([CDS] ch. 2); ours is one exact in-circle test on the subsegment, ghosts count as Delaunay. Rule C (MESHING2D_SMALL_ANGLES_CONFORMING.md) has no counterpart. |
+| P5 | `QualityMesh2.cs` 1446-1456, 1695-1800 | `CircumcentrePixel`, `SplitTriangle` (counters, the unsplittable piece of #661) | C | control flow | Our grid and give-up bookkeeping; the change of #661 (t is queued again instead of exempted) has no counterpart. Q5 holds for the rest. |
+| P6 | `QualityMesh2.cs` 1805-1945 | `MinRoundedSplitExponent`, `ExactlyWithin`, `SplitSegment` (subnormal guard, counters) | B | control flow | Q7 holds. "A split point equal to an end makes no progress" is the problem; ours marks the piece unsplittable, the reference handles it differently. The subnormal guard (an exact on-segment and between-ends test below 2^-1026) has no counterpart. |
+| P7 | `QualityMesh2.cs` 372-430, 549-610 | `Run` (`CheckTagsNow` at the end), `CheckTags`, `CheckTagsNow`, `TagFromPiece` | C | – | Test-only tag checks (sparse above 2000 triangles, the ghost-tag invariant) and our tag propagation (Q8); no counterpart. |
+| P8 | `QualityMesh2.cs` 257, 1228; `ConstrainedDelaunayMesh2.cs` 265, 802; `PairKeys.cs` | pair keys through `PairKeys.Comparer` | C | – | A hash comparer for 64-bit pair keys (#553); the references key nothing this way. |
+| P9 | `QualityMesh2.cs` 23, 116, 895 | wording | B | comment | Three comment 6-grams are shared with both references. Two are 6b-3's D3 ("a vertex in its diametral lens", "of the convex hull of the"; the optional rewording of line 23 was not applied). The new one, "the shortest edge of the triangle" (line 895, "the corner opposite the shortest edge of the triangle abc"), is plain English for the quantity. No rewording needed. |
+| P10 | `ConstrainedDelaunayMesh2.cs` 53-130 | `Compute` (zero-area input), `HullHasNoArea`, `Collinear`, `EmptyResult` | C | control flow | An input without area is decided exactly on the input, before snapping (MESHING2D_HULL_GRID.md). No counterpart in this form in the reference. |
+| P11 | `ConstrainedDelaunayMesh2.cs` 260-300, 520-590, 593-660 | `MergeNearPoints` (comparer), `Shortens`, `ScaledLen2`, `EndWithinTolerance`, `InsertPiece` (the guarded tolerance splits) | C | – | The tolerance splits of O11 / D3 (C4, C8) with a strict length-decrease guard for termination; no tolerance in the reference. C4's class holds for the rest of `InsertPiece`. |
+| P12 | `ConstrainedMesh2.cs` 63-89 | `ToDMesh3` | C | – | Conversion to the library's `DMesh3` (#663); no counterpart. |
+| P13 | `SnapRounding2.cs` 14-16 | doc comment on drift | C | – | Owner decision 2026-11-10; S1 holds. |
+| P14 | oracle, 10 changed files | token comparison, new error bounds | C | – | At or below the floor against both references; the long runs are a list of check calls, an enum and result classes. The new bounds and tubes (subnormal step 2^-1074, 2^-40 / 2^-41 tolerance scales, the 8-ulp zone factor, the 2.5-pixel drift guard) are the oracle's own, in exact rationals, from MESHING2D_FAST_ORACLE.md and the decisions; neither reference has a counterpart. The STR-tree searches and the box-pair sweep have no counterpart in the references. |
+
+**No (A) finding.** Everything changed since `d9006aa` is (B) or (C), and the classes of 6b, 6b-2 and 6b-3 still hold for the routines
+these changes touch. No rewrite is needed.

@@ -5,10 +5,11 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `ExactMeshBoolean` / `ExactMeshArrangement`, SafeRounding, boolean performance (fixed-width points,
   predicate compiler, indirect predicates, cheaper constructions), the Exact Boolean 2.0 milestone, external corpora
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
-- **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
+- **Status (2026-11-12):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage merged (#633, 2026-11-12, d6f6fe9d).
+  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage merged (#633, 2026-11-12, d6f6fe9d);
+  T5 PR 2 in progress (#675, draft).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -76,8 +77,9 @@ was a scratch console app, not committed.
 - Levers, measured: (1) a slab ray-box test instead of `IntrLine3AxisAlignedBox3.DoClipping`: 0.93-0.96x, dropped;
   (2) the orientation rays as an early-out first-hit test: 0.81-0.85x, dropped; (3) the fast-winding cache's per-box
   `HashSet<int>` as a `List<int>` in the same order: 1.27-1.30x on the cache build, bit-identical (no box coefficient
-  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: a bundle candidate for the
-  next PR that touches the fast-winding cache (coordinator 2026-11-12); (4) bottom-up fast-winding moments: the
+  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: done 2026-11-12
+  ([FastWindingCacheBenchmark](../../benchmarks/FastWindingCacheBenchmark/README.md): 1.13-1.42x serial, 1.15-1.31x
+  parallel on 35k to 850k triangles, checksums equal; `FastWindingCacheOrderTests` pins every box coefficient bit for bit); (4) bottom-up fast-winding moments: the
   coefficient passes are 65-75 % of the cache build (bound about 5-9 % of that CPU), not bit-identical, not pursued;
   (5) batch queries for serial loops: the serial tree CPU is at most 4 % per workload and all tree builds, dropped;
   (6) a parallel tree build: the build is 1.5-3.2 % of the CPU, dropped.
@@ -178,8 +180,8 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
     172 -> 40-80 s). L1 upper bound: at a variation bound of 0.1, 16.5M instead of 30.2M evaluations (about one per
     patch), classification about 772 -> 420 s; the rest needs L2. Estimate L1 + L2 + L3: about 150-200 s per op.
     Runner, 1-core union on master 922c8d62: 4087 s (classification 82 %), peak RSS 9.2 GB (79a2c1ab: 1937 s); 4 cores 1111 s,
-    9.7 GB, same hash. Design note: `docs/design/EXACT_BOOLEAN_TAIL_55928.md`, first in #626 (closed unmerged), now part of #633 (draft),
-    which supersedes it. **Owner 2026-11-11:** a `Cancelled` status via an
+    9.7 GB, same hash. Design note: `docs/design/EXACT_BOOLEAN_TAIL_55928.md`, first in #626 (closed unmerged), now part of #633 (merged
+    2026-11-12, d6f6fe9d), which superseded it. **Owner 2026-11-11:** a `Cancelled` status via an
     optional CancellationToken (yes); `MaxOpenWindingEvaluations` deferred until after L1/L2 are measured.
   - **Stage (#633, 2026-11-12), all bit-identical except L2's accepted half-integer band (none seen in the A/B):**
     the budget (`MaxPieces`, `BudgetExceeded`, `Counts["predicted_pieces"]`) and `Cancelled`; L1 per patch (used only
@@ -196,7 +198,30 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   for the tree, 1.5-2 days for the points per grid class.
 - **T3 (#593): merged 2026-11-11** (f92f1c62). `MeshRoundingRepair` returns `OutsideRange` (mesh untouched, not clean)
   outside [2^-200, 2^200] or for subnormal coordinates; the boolean keeps its exact result there but `RoundingClean` is
-  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory merged 2026-11-11 (#619, 5c0be691: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction; the 1.2 KB peak target is not met on cross150, 1.6-1.9 KB, where implicit points and output pieces dominate, out of reach of the layout levers). T1 scaling levers merged 2026-11-11 (#631, 6c5cb9ac; bit-identical, hashes equal; 4-core cloud, median of 5): lever 1, input preparation (open-addressing weld and one edge table, inputs prepared concurrently): flipped soup 1 core 387 -> 185 ms, 4 cores 151 -> 92, open soup 4 cores 91 -> 30; lever 2, parallel `TriangleBoxTree` build from 262144 boxes (same tree node for node): 600k triangles per mesh 138 -> 94 ms; lever 3 (assembly / ExactPlanarSimplify) dropped, at most 3-4 % of the op (`benchmarks/Boolean30Prestudy/results/t1_summary.md`). In progress: the 55928 tail-case stage, draft #633 (budget, cancellation, L1 and L2 done, L3 step 1 pushed: Difference 973 -> 421 s, hash unchanged; open: the classification filter from local corner coordinates, the combinatorial zeros, possibly InCircle limbs, docs and the review), then T5 / T1b per the execution order below.
+  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory merged 2026-11-11 (#619, 5c0be691: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction; the 1.2 KB peak target is not met on cross150, 1.6-1.9 KB, where implicit points and output pieces dominate, out of reach of the layout levers). T1 scaling levers merged 2026-11-11 (#631, 6c5cb9ac; bit-identical, hashes equal; 4-core cloud, median of 5): lever 1, input preparation (open-addressing weld and one edge table, inputs prepared concurrently): flipped soup 1 core 387 -> 185 ms, 4 cores 151 -> 92, open soup 4 cores 91 -> 30; lever 2, parallel `TriangleBoxTree` build from 262144 boxes (same tree node for node): 600k triangles per mesh 138 -> 94 ms; lever 3 (assembly / ExactPlanarSimplify) dropped, at most 3-4 % of the op (`benchmarks/Boolean30Prestudy/results/t1_summary.md`). The 55928 tail-case stage merged 2026-11-12 (#633, d6f6fe9d; see its bullet above; the exact-code review of the new bounds in 22eb5903). Then T5 / T1b per the execution order below.
+- **T5 PR 2 (Antipodal): in progress** (#675, draft, 2026-11-12): carry the open winding across input-triangle edges; the
+  cost count on the slow open models is done (numbers in the PR).
+  Reference check (c) done: with both switches lifted, Antipodal matches the direct GWN sum at every piece where FWN and
+  Antipodal differ and the reference decides (117959: 1818, 122796: 43; FWN right at none); T5 faster on 7 of 10 models
+  (323 vs 595 s), 122796 2x slower (14.7 vs 7.5 s). **Owner 2026-11-12: option (A), lift both switches** in a follow-up PR
+  after #675 merges, with an OPERATIONS.md note on the cost (boundary segments times boundary sums).
+- **Fuzz findings (#624 group a, 2026-11-12), queue after #675, serial:** (1) #710 (bugfix): `ExactMeshBoolean`
+  difference throws in `ExactTriangulation2.InsertConstraint` ("constraint was not inserted") on two cubes at ~3.7e-223
+  with one corner at ~1.8e-284; first, a crash on finite input; (1b) #719 (coverage round 2, #716): the Antipodal
+  open-mesh classification changes when one coordinate moves by 2^-1000 (union 1080 -> 1118 triangles; unit result with
+  `AntipodalMaxBoundarySegments = 0`), diagnosed before (A) since (A) lifts the switches; (2) the (A) follow-up above; (3) #711: 5-47 s on 8-16
+  vertex inputs whose coordinates span ~2^840; a profile first, then a bound, a faster path or a documented range (owner
+  decision). The `RoundingClean` crash of the same group is the known class FINDINGS.md 5a (no new issue).
+- **Snap rounding study (#721, owner 2026-11-12):** (1) option A: a hard stop of the rounding passes at the evaluation
+  limit; meshes bit-identical (33/33 hashes), rounding -33 %, booleans -9 %; on results that report
+  `EvaluationLimitReached`, `SmallestRejectedDrift` is taken over the proposals made before the limit (documented; the
+  drift-only variant was measured and dropped: most post-limit work is try_move, drift-only already); (2) idea 3 approved, simple variant first: a seeded single-vertex position search after the passes,
+  only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
+  clean; plateau steps need a termination lemma and a separate decision); design accepted (owner): deterministic
+  enumeration (26 directions in the defect's local frame, sizes room / 2^j for J = 8, largest first, through try_move /
+  improves()), only on results that are not rounding clean, built after (1), same file;
+  (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
+  further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
@@ -343,10 +368,10 @@ Checked against the owner's decisions and git on 2026-11-12.
 
 Open:
 
-- **Exact Boolean 2.0 leftovers (owner question 2026-11-12):** the speed exceptions over 5 s (519511, 1517923, 519507) were
-  not re-measured after D1 (#513; the sign-off has no timing section), and manifold M2 (`Generic_Twin_7081` union 20 s,
-  self-intersecting inputs, outside the 2.0 target set) not since the 2.0 levers: re-measure on master or close as
-  documented exceptions. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
+- **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
+  and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
+  exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
+  3.0 state. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
 - **Degeneracy criterion (`DegenerateArea` = 1e-12 × diag²):** its motivating cases 119829 / 119830 are clean since D1
   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.

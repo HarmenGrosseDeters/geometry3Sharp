@@ -11,7 +11,7 @@ using static geometry3Sharp.Clipper2.Tests.Oracle;
 namespace geometry3Sharp.Clipper2.Tests
 {
     /// <summary>
-    /// The integer grid (ClipperFrame), invariance over Similarity.All(), determinism, and degenerate and invalid
+    /// The integer grid (ClipperFrame), invariance over Similarity.All2D(), determinism, and degenerate and invalid
     /// inputs.
     /// </summary>
     public class Clipper2RobustnessTests
@@ -92,12 +92,11 @@ namespace geometry3Sharp.Clipper2.Tests
         // ---- invariance ----
 
         /// <summary>
-        /// The 2D part of a Similarity: scale and the xy translation; the rotated ones rotate by 31 degrees in the
-        /// plane (their 3D rotations tilt out of it).
+        /// The 2D part of a member of Similarity.All2D(): scale, the in-plane rotation and the xy translation.
         /// </summary>
         static Func<Vector2d, Vector2d> Map2d(Similarity s, bool inverse = false)
         {
-            double angle = s.IsRotated ? 31 * Math.PI / 180 : 0, c = Math.Cos(angle), sn = Math.Sin(angle);
+            double angle = s.Angle2d, c = Math.Cos(angle), sn = Math.Sin(angle);
             Vector2d t = new Vector2d(s.Translation.x, s.Translation.y);
             if (!inverse)
                 return p => s.Scale * new Vector2d(c * p.x - sn * p.y, sn * p.x + c * p.y) + t;
@@ -128,7 +127,7 @@ namespace geometry3Sharp.Clipper2.Tests
         static double Length(Func<Vector2d, Vector2d> f) => (f(Vector2d.AxisX) - f(Vector2d.Zero)).Length;
 
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        [MemberData(nameof(Similarity.Names2D), MemberType = typeof(Similarity))]
         public void Operations_InvariantUnderSimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);

@@ -110,7 +110,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> SimilarityAndPointSet()
         {
-            foreach (Similarity s in Similarity.All())
+            foreach (Similarity s in Similarity.All2D())
                 foreach (string set in PointSets().Keys)
                     yield return new object[] { s.Name, set };
         }
@@ -245,7 +245,7 @@ namespace geometry3Sharp.Tests
         public void MinCircle_EveryPointIsInside_WithoutAnyTolerance()
         {
             foreach (KeyValuePair<string, Vector2d[]> set in PointSets()) {
-                foreach (Similarity s in Similarity.All()) {
+                foreach (Similarity s in Similarity.All2D()) {
                     var s2 = new Similarity2(s);
                     Vector2d[] points = set.Value.Select(s2.Apply).ToArray();
                     Circle2d result = new ContMinCircle2(points).Result;
@@ -518,7 +518,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        [MemberData(nameof(Similarity.Names2D), MemberType = typeof(Similarity))]
         public void MinCircle_ThreeTightClusters_UnderSimilarity(string name)
         {
             Similarity s = Similarity.ByName(name);
@@ -843,7 +843,7 @@ namespace geometry3Sharp.Tests
         {
             // Without the skip of copies, with a slack of 4 eps: the first set had radius 0.51557, exact 0.42763. The copy was
             // falsely outside by 1e-15, its triple has det = 0, and the circle over the edge dropped the third point.
-            foreach (Similarity s in Similarity.All()) {
+            foreach (Similarity s in Similarity.All2D()) {
                 var s2 = new Similarity2(s);
                 Vector2d[] points = input.Select(s2.Apply).ToArray();
                 double tol = 32 * s.Scale * s.Resolution(2);

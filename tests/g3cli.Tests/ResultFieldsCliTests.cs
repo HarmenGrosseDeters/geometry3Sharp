@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
 using g3;
+using gs;
 using static g3cli.Tests.TestMeshes;
 
 namespace g3cli.Tests
@@ -93,6 +94,131 @@ namespace g3cli.Tests
             Assert.Equal(0, exit);
             Assert.Null(r["result_code"]);
             Assert.Null(r["exact_resolve_code"]);
+        }
+
+        // ---- repair: the options and result fields added with the CLI / MCP update (docs/design/CLI_MCP_UPDATE.md, PR A) ----
+
+        [Fact]
+        public void Repair_NewOptions_ReachTheLibraryAndAreReported()
+        {
+            var (e0, d) = Run("repair", m.Overlapping, m.Path_("rep_defaults.obj"), "--compact");
+            Assert.Equal(0, e0);
+            var o = d["robust_options"];                                        // the library's defaults
+            Assert.Equal(4, I(o["exact_resolve_rounds"]));
+            Assert.Equal(300.0, D(o["wrap_relative_alpha"]));
+            Assert.Equal(3000.0, D(o["wrap_relative_offset"]));
+            Assert.False(B(o["alpha_wrap_quality_pass"]));
+            Assert.True(B(o["passthrough_clean_parts"]));
+            Assert.Equal(1e-4, D(o["separate_fraction"]));
+
+            var (exit, r) = Run("repair", m.Overlapping, m.Path_("rep_opts.obj"), "--compact", "--exact-resolve-rounds", "2",
+                "--wrap-relative-alpha", "150", "--wrap-relative-offset", "1500", "--alpha-wrap-quality-pass",
+                "--no-passthrough-clean-parts", "--separate-fraction", "0.001");
+            Assert.Equal(0, exit);
+            o = r["robust_options"];
+            Assert.Equal(2, I(o["exact_resolve_rounds"]));
+            Assert.Equal(150.0, D(o["wrap_relative_alpha"]));
+            Assert.Equal(1500.0, D(o["wrap_relative_offset"]));
+            Assert.True(B(o["alpha_wrap_quality_pass"]));
+            Assert.False(B(o["passthrough_clean_parts"]));
+            Assert.Equal(1e-3, D(o["separate_fraction"]));
+            Assert.InRange(I(r["exact_resolve_rounds_used"]), 1, 2);
+        }
+
+        [Fact]
+        public void Repair_NewResultFields_AreReported()
+        {
+            var (exit, r) = Run("repair", m.Overlapping, m.Path_("rep_fields.obj"), "--compact");
+            Assert.Equal(0, exit);
+            Assert.True(I(r["exact_resolve_rounds_used"]) >= 1);               // the exact stage ran
+            Assert.Equal(0, I(r["passed_through_triangles"]));
+            Assert.False(B(r["alpha_wrap_quality_improved"]));
+            Assert.Null(r["alpha_wrap_min_angle"]);                            // the result is not an alpha wrap: NaN is null
+            Assert.Null(r["alpha_wrap_max_angle"]);
+            Assert.Null(r["alpha_wrap_share_above_170"]);
+            var phases = r["phase_milliseconds"].AsObject();
+            Assert.True(phases.ContainsKey("repair"));
+            Assert.True(phases.ContainsKey("exact"));
+            Assert.All(phases, kv => Assert.True(kv.Value.GetValue<long>() >= 0));
+        }
+
+        [Fact]
+        public void Repair_PassThroughCleanParts_PassesAFarCleanCubeThrough()
+        {
+            // two overlapping cubes and a clean cube 10 away: the far cube is passed through untouched (12 triangles)
+            DMesh3 mesh = TestMeshes.CubeMesh(Vector3d.Zero);
+            var editor = new MeshEditor(mesh);
+            editor.AppendMesh(TestMeshes.CubeMesh(new Vector3d(1, 0, 0)));
+            editor.AppendMesh(TestMeshes.CubeMesh(new Vector3d(10, 0, 0)));
+            string input = m.Path_("three_cubes.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(input, mesh, WriteOptions.Defaults).code);
+            var (e1, on) = Run("repair", input, m.Path_("three_on.obj"), "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(12, I(on["passed_through_triangles"]));
+            var (e2, off) = Run("repair", input, m.Path_("three_off.obj"), "--compact", "--no-passthrough-clean-parts");
+            Assert.Equal(0, e2);
+            Assert.Equal(0, I(off["passed_through_triangles"]));
+            Assert.True(B(on["mesh"]["clean"]));
+            Assert.True(B(off["mesh"]["clean"]));
+        }
+
+        [Fact]
+        public void Repair_NewOptions_AreValidated()
+        {
+            string[][] bad = {
+                new[] { "--exact-resolve-rounds", "0" }, new[] { "--exact-resolve-rounds", "65" },
+                new[] { "--exact-resolve-rounds", "-1" },
+                new[] { "--wrap-relative-alpha", "0" }, new[] { "--wrap-relative-alpha", "-3" }, new[] { "--wrap-relative-alpha", "0.99" }, new[] { "--wrap-relative-alpha", "1e7" }, new[] { "--wrap-relative-alpha", "NaN" },
+                new[] { "--wrap-relative-offset", "0" }, new[] { "--wrap-relative-offset", "-3" }, new[] { "--wrap-relative-offset", "0.99" }, new[] { "--wrap-relative-offset", "1e7" }, new[] { "--wrap-relative-offset", "NaN" },
+                new[] { "--separate-fraction", "0" }, new[] { "--separate-fraction", "1" }, new[] { "--separate-fraction", "NaN" }, new[] { "--separate-fraction", "-0.1" },
+            };
+            foreach (var a in bad) {
+                string output = m.Path_("rep_bad.obj");
+                var (exit, r) = Run(new[] { "repair", m.Overlapping, output, "--compact" }.Concat(a).ToArray());
+                Assert.Equal(ResultCodes.ExitCode("invalid_arguments"), exit);
+                Assert.Equal("invalid_arguments", S(r["code"]));
+                Assert.False(File.Exists(output));
+            }
+        }
+
+        [Fact]
+        public void Repair_NewOptions_AcceptTheirBoundaries()
+        {
+            foreach (var a in new[] { new[] { "--exact-resolve-rounds", "1" }, new[] { "--exact-resolve-rounds", "64" },
+                new[] { "--wrap-relative-alpha", "1" }, new[] { "--wrap-relative-alpha", "1e6" },
+                new[] { "--wrap-relative-offset", "1" }, new[] { "--wrap-relative-offset", "1e6" }, new[] { "--separate-fraction", "0.999" } }) {
+                var (exit, r) = Run(new[] { "repair", m.Overlapping, m.Path_("rep_ok.obj"), "--compact" }.Concat(a).ToArray());
+                Assert.Equal(0, exit);
+            }
+        }
+
+        [Fact]
+        public void Repair_ReasonCodes_MapEveryScaleReason()
+        {
+            Assert.Null(Commands.ReasonCode(null));
+            Assert.Null(Commands.ReasonCode(""));
+            Assert.Null(Commands.ReasonCode("some other reason"));
+            Assert.Equal("scale_not_finite", S(Commands.ReasonCode(MeshRobustRepair.ScaleNotFinite)));
+            Assert.Equal("scale_disparity", S(Commands.ReasonCode(MeshRobustRepair.ScaleDisparity)));
+            Assert.Equal("outside_range", S(Commands.ReasonCode(MeshRobustRepair.OutsideRange)));
+            Assert.Equal("lost_far_part", S(Commands.ReasonCode(MeshRobustRepair.LostFarPart)));
+            Assert.Equal("wrap_too_coarse", S(Commands.ReasonCode(MeshRobustRepair.WrapTooCoarse)));
+            // (the library appends text to a reason)
+            Assert.Equal("lost_far_part", S(Commands.ReasonCode("x; " + MeshRobustRepair.LostFarPart)));
+        }
+
+        [Fact]
+        public void Repair_OutsideRange_HasItsCodeInTheErrorResult()
+        {
+            // a coordinate beyond 2^400 is not repaired
+            DMesh3 big = TestMeshes.CubeMesh(Vector3d.Zero);
+            MeshTransforms.Scale(big, 1e150, 1e150, 1e150);
+            string input = m.Path_("huge.obj"), output = m.Path_("huge_out.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(input, big, WriteOptions.Defaults).code);
+            var (exit, r) = Run("repair", input, output, "--compact");
+            Assert.Equal(ResultCodes.ExitCode("operation_failed"), exit);
+            Assert.Equal("outside_range", S(r["result_code"]));
+            Assert.False(File.Exists(output));
         }
 
         [Fact]

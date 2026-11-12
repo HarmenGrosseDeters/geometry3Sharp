@@ -51,7 +51,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, "seed " + seed + ": " + report);
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         [Theory]
         [MemberData(nameof(Similarities))]

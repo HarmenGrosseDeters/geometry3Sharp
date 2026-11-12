@@ -10,7 +10,7 @@ namespace geometry3Sharp.Tests
 {
     /// <summary>
     /// What CLAUDE.md asks of an operation, for whatever is registered as the M1 candidate: results checked by the oracle,
-    /// invariance over Similarity.All(), reuse, and determinism. They follow the registered candidate.
+    /// invariance over Similarity.All2D(), reuse, and determinism. They follow the registered candidate.
     /// </summary>
     public class Meshing2CandidateTests
     {
@@ -56,14 +56,14 @@ namespace geometry3Sharp.Tests
         {
             // a set in general position with room to spare (integers on 20 bits), and a tied one
             foreach (var id in new[] { "m1/uniform-int-32", "m1/grid-8x8" })
-                foreach (var s in Similarity.All()) yield return new object[] { id, s.Name };
+                foreach (var s in Similarity.All2D()) yield return new object[] { id, s.Name };
         }
 
         [Theory]
         [MemberData(nameof(InvarianceInputs))]
         public void Similarity_KeepsTheResult(string id, string similarity)
         {
-            var s = Similarity.All().First(x => x.Name == similarity);
+            var s = Similarity.All2D().First(x => x.Name == similarity);
             var c = Find(id);
             var transformed = Apply(s, c.Input);
             var baseOutput = Candidate.Run(c.Input);

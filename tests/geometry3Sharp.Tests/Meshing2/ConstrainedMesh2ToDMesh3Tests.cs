@@ -81,7 +81,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(new Vector3d(2, 2, 4), d.GetVertex(5));   // the crossing, its height along the segment given first
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> under every similarity (xy moved, heights scaled by the scale) the result is the mesher's mesh; at the 2^k scales it is the
         /// scaled mesh bit for bit </summary>

@@ -174,7 +174,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        [MemberData(nameof(Similarity.Names2D), MemberType = typeof(Similarity))]
         public void Invariance_ScalesBitForBit_OthersKeepTheProperties(string name)
         {
             // the grid is anchored at the origin and its pixels are half-open, so rotations and translations change the result by
@@ -238,7 +238,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> MeshInvarianceCases()
         {
-            foreach (var s in Similarity.All()) { yield return new object[] { s.Name, Milestone.M2 }; yield return new object[] { s.Name, Milestone.M3 }; }
+            foreach (var s in Similarity.All2D()) { yield return new object[] { s.Name, Milestone.M2 }; yield return new object[] { s.Name, Milestone.M3 }; }
         }
 
         /// <summary>

@@ -22,7 +22,7 @@ help: specification vs implementation, and implementation vs review and acceptan
 
 | Tier | Examples | Process |
 |---|---|---|
-| **S** | docs, comments, a one-line fix, benchmark README | One session. The author re-reads the diff. No extra review. Code changes run the local CI steps; docs-only changes (only `*.md`) run no CI, locally or on GitHub. |
+| **S** | docs, comments, a one-line fix, benchmark README | One session. The author re-reads the diff. No extra review. Code changes run the local CI steps; docs-only changes (only `*.md`) run no CI, locally or on GitHub, except `docs/design/FIXED_WIDTH_EXACT_POINTS.md` (its bound table is a test input: CI and the generator tests run). |
 | **M** | a bug fix or small feature outside exact code | All of S, plus: tests that fail on the old code (mutation check), the CLAUDE.md tests (invariance / reuse / determinism) and **one** independent review agent. |
 | **L** | exact arithmetic, error bounds, `ExactMesh*`, a new module, spec-driven work | All of M, plus: a design doc or spec first, reviewed by the owner; **acceptance against references** ([strategy](design/ACCEPTANCE_STRATEGY.md): oracle, differential, golden master); a bounds review; mutation runs; benchmark A/B numbers. |
 
@@ -65,7 +65,7 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - The inner loop is fast: filtered `dotnet test` runs and a small benchmark subset. The full local CI steps run
   before a push that changes existing library code; for changes to tools, tests or new files only, run the filtered
   tests, the builds of all targets including net48, and `dotnet pack` (its API validation against 1.0.324). GitHub
-  CI runs the full suite on every push anyway. Docs-only pushes skip all of it.
+  CI runs the full suite on every push anyway (a draft PR skips the tests tagged `Slow`). Docs-only pushes skip all of it.
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).

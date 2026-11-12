@@ -308,7 +308,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
-        public static IEnumerable<object[]> HullAngleSimilarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> HullAngleSimilarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> the same under every similarity: 2^k scales bit for bit, the others pass the oracle </summary>
         [Theory]
@@ -411,7 +411,7 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Similarities))]
         public void SpikeOf084Degrees_Similarity_PassesTheOracle(string name)
         {
-            var s = Similarity.All().First(x => x.Name == name);
+            var s = Similarity.All2D().First(x => x.Name == name);
             var input = SpikeOf084Degrees(25);
             var e = s.Rotation * Vector3d.AxisX;
             double norm = Math.Sqrt(e.x * e.x + e.y * e.y), cos = e.x / norm, sin = e.y / norm;
@@ -478,13 +478,13 @@ namespace geometry3Sharp.Tests
 
         static string[] Canonical(Mesh2Output o) => o.Triangles.Select(t => string.Join(" ", t)).OrderBy(s => s, StringComparer.Ordinal).ToArray();
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         [Theory]
         [MemberData(nameof(Similarities))]
         public void Similarity_KeepsAValidResult(string name)
         {
-            var s = Similarity.All().First(x => x.Name == name);
+            var s = Similarity.All2D().First(x => x.Name == name);
             var input = Sample();
             var e = s.Rotation * Vector3d.AxisX;
             double norm = Math.Sqrt(e.x * e.x + e.y * e.y), cos = e.x / norm, sin = e.y / norm;
