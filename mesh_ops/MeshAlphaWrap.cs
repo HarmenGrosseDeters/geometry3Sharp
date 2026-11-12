@@ -721,6 +721,9 @@ namespace gs
             if (!cc.IsFinite)
                 return fc + side * lim * nrm;
             double t = (cc - fc).Dot(nrm);
+            // (a difference that overflows can make t NaN: then the centre is not trusted either)
+            if (double.IsNaN(t))
+                return fc + side * lim * nrm;
             if (Math.Abs(t) > lim)
                 return fc + Math.Sign(t) * lim * nrm;
             return cc;
