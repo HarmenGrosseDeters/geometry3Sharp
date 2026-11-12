@@ -1,0 +1,128 @@
+diff --git a/comp_geom/Delaunay3.cs b/comp_geom/Delaunay3.cs
+index 5c9d1a5a..cb9207cd 100644
+--- a/comp_geom/Delaunay3.cs
++++ b/comp_geom/Delaunay3.cs
+@@ -250,7 +250,10 @@ namespace g3
+         readonly Dictionary<long, int> edgeLinks = new Dictionary<long, int>();
+         readonly List<int> boundaryVerts = new List<int>();
+         readonly List<int> newCells = new List<int>();
+-        int[] vmark = new int[0];
++        int[] vmark = new int[0], vlocal = new int[0];
++        // the facets through p waiting for their neighbour: per lower boundary vertex (local index) a chain of
++        // (higher vertex, cell << 2 | facet)
++        int[] linkHead = new int[0], linkW = new int[0], linkVal = new int[0], linkNext = new int[0];
+         int vmarkValue = 0;
+ 
+         /// <summary>
+@@ -259,12 +262,15 @@ namespace g3
+         /// vertex is the new vertex id; removed / added (if not null) receive the ids of the removed and new
+         /// cells (ids can be in both).
+         /// </summary>
++        internal static long[] XT = new long[8], XN = new long[8];
+         public InsertResult Insert(Vector3d p, int hint, double minSeparation, out int vertex, List<int> removed = null, List<int> added = null)
+         {
+             vertex = -1;
+             if (!(p.x > Box.Min.x && p.x < Box.Max.x && p.y > Box.Min.y && p.y < Box.Max.y && p.z > Box.Min.z && p.z < Box.Max.z))
+                 return InsertResult.Outside;
++            long x0 = System.Diagnostics.Stopwatch.GetTimestamp();
+             int c0 = Locate(p, hint);
++            long x1 = System.Diagnostics.Stopwatch.GetTimestamp(); XT[0] += x1 - x0; XN[0] += LastWalkSteps; XN[5]++;
+             if (c0 < 0)
+                 return InsertResult.Outside;
+             for (int i = 0; i < 4; ++i)
+@@ -290,6 +296,7 @@ namespace g3
+                     }
+                 }
+             }
++            long x2 = System.Diagnostics.Stopwatch.GetTimestamp(); XT[1] += x2 - x1; XN[1] += cavity.Count;
+             // grow the cavity until p sees every boundary facet strictly from inside (star-shaped); only needed
+             // for cospherical configurations, where the strict conflict region can have facets coplanar with p
+             while (true) {
+@@ -316,9 +323,12 @@ namespace g3
+                 if (!grown)
+                     break;
+             }
++            long x3 = System.Diagnostics.Stopwatch.GetTimestamp(); XT[2] += x3 - x2; XN[2] += boundary.Count;
+             // every vertex of the cavity must stay (on its boundary)
+-            if (vmark.Length < vertices.Count + 1)
++            if (vmark.Length < vertices.Count + 1) {
+                 Array.Resize(ref vmark, Math.Max(vertices.Count + 1, 2 * vmark.Length));
++                Array.Resize(ref vlocal, vmark.Length);
++            }
+             if (++vmarkValue == int.MaxValue) {
+                 Array.Clear(vmark, 0, vmark.Length);
+                 vmarkValue = 1;
+@@ -327,7 +337,7 @@ namespace g3
+             foreach (var bf in boundary)
+                 for (int j = 0; j < 3; ++j) {
+                     int v = cv[4 * bf.cell + FacetIndices[bf.facet, j]];
+-                    if (vmark[v] != vmarkValue) { vmark[v] = vmarkValue; boundaryVerts.Add(v); }
++                    if (vmark[v] != vmarkValue) { vmark[v] = vmarkValue; vlocal[v] = boundaryVerts.Count; boundaryVerts.Add(v); }
+                 }
+             foreach (int c in cavity)
+                 for (int i = 0; i < 4; ++i)
+@@ -337,6 +347,7 @@ namespace g3
+             foreach (int v in boundaryVerts)
+                 if (vertices[v].DistanceSquared(p) <= minSqr) return InsertResult.TooClose;
+ 
++            long x4 = System.Diagnostics.Stopwatch.GetTimestamp(); XT[3] += x4 - x3;
+             vertex = vertices.Count;
+             vertices.Add(p);
+             int nb = boundary.Count;
+@@ -353,25 +364,36 @@ namespace g3
+                 if (n >= 0)
+                     cn[4 * n + FacetTo(n, c)] = nc;
+             }
++            long x5 = System.Diagnostics.Stopwatch.GetTimestamp(); XT[4] += x5 - x4;
+             // facets of the new cells through p: opposite vertex j (0..2) is the edge of the other two
+-            edgeLinks.Clear();
++            int nv = boundaryVerts.Count;
++            if (linkHead.Length < nv) linkHead = new int[Math.Max(nv, 2 * linkHead.Length)];
++            if (linkW.Length < 3 * nb) { int m = Math.Max(3 * nb, 2 * linkW.Length); linkW = new int[m]; linkVal = new int[m]; linkNext = new int[m]; }
++            for (int k = 0; k < nv; ++k) linkHead[k] = -1;
++            int ne = 0;
+             foreach (int nc in newCells) {
+                 for (int j = 0; j < 3; ++j) {
+                     int u = cv[4 * nc + (j + 1) % 3], w = cv[4 * nc + (j + 2) % 3];
+-                    long key = u < w ? ((long)u << 32) | (uint)w : ((long)w << 32) | (uint)u;
+-                    if (edgeLinks.TryGetValue(key, out int other)) {
++                    int lo = u < w ? u : w, hi = u < w ? w : u, lu = vlocal[lo];
++                    int pe = -1, e = linkHead[lu];
++                    while (e >= 0 && linkW[e] != hi) { pe = e; e = linkNext[e]; }
++                    if (e >= 0) {
++                        int other = linkVal[e];
+                         int oc = other >> 2, oj = other & 3;
+                         cn[4 * nc + j] = oc;
+                         cn[4 * oc + oj] = nc;
+-                        edgeLinks.Remove(key);
+-                    } else
+-                        edgeLinks[key] = (nc << 2) | j;
++                        if (pe < 0) linkHead[lu] = linkNext[e]; else linkNext[pe] = linkNext[e];
++                    } else {
++                        linkW[ne] = hi; linkVal[ne] = (nc << 2) | j; linkNext[ne] = linkHead[lu]; linkHead[lu] = ne++;
++                    }
+                 }
+             }
++            long x6 = System.Diagnostics.Stopwatch.GetTimestamp(); XT[5] += x6 - x5;
+             foreach (int c in cavity) {
+                 free_cell(c);
+                 removed?.Add(c);
+             }
++            XT[6] += System.Diagnostics.Stopwatch.GetTimestamp() - x6;
+             if (added != null)
+                 added.AddRange(newCells);
+             lastCell = newCells[0];
+diff --git a/mesh_ops/MeshAlphaWrap.cs b/mesh_ops/MeshAlphaWrap.cs
+index 25761d2b..ea9e15c7 100644
+--- a/mesh_ops/MeshAlphaWrap.cs
++++ b/mesh_ops/MeshAlphaWrap.cs
+@@ -617,6 +617,9 @@ namespace gs
+             PhaseMilliseconds["wrap.intersection"] = ticksIntersection * 1000 / Stopwatch.Frequency;
+             PhaseMilliseconds["wrap.touch"] = ticksTouch * 1000 / Stopwatch.Frequency;
+             PhaseMilliseconds["wrap.insert"] = ticksInsert * 1000 / Stopwatch.Frequency;
++            string[] xn = { "locate", "cavity", "star", "checks", "create", "link", "free" };
++            for (int k = 0; k < 7; ++k) Counts["x_ms_" + xn[k]] = Delaunay3.XT[k] * 1000 / Stopwatch.Frequency;
++            Counts["x_walk"] = Delaunay3.XN[0]; Counts["x_cav"] = Delaunay3.XN[1]; Counts["x_bnd"] = Delaunay3.XN[2]; Counts["x_ins"] = Delaunay3.XN[5];
+             return status;
+         }
+ 

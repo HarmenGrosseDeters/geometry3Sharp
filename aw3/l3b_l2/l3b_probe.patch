@@ -1,0 +1,235 @@
+diff --git a/mesh_ops/MeshHausdorffDistance.cs b/mesh_ops/MeshHausdorffDistance.cs
+index fbf28a75..d078efd7 100644
+--- a/mesh_ops/MeshHausdorffDistance.cs
++++ b/mesh_ops/MeshHausdorffDistance.cs
+@@ -1,3 +1,4 @@
++using System.Diagnostics;
+ // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+ using System;
+ using System.Collections.Generic;
+@@ -32,6 +33,15 @@ namespace gs
+     /// </summary>
+     public class MeshHausdorffDistance
+     {
++        internal static long XVq, XVser, XUb, XLoopSer, XLoopQ, XLoopUb, XBatches, XSub;
++        internal static void XReset() { XVq = XVser = XUb = XLoopSer = XLoopQ = XLoopUb = XBatches = XSub = 0; }
++        internal static void XReport(Dictionary<string, long> ph)
++        {
++            double f = 1000.0 / Stopwatch.Frequency;
++            ph["certify/x_vq"] = (long)(XVq * f); ph["certify/x_vser"] = (long)(XVser * f); ph["certify/x_ub"] = (long)(XUb * f);
++            ph["certify/x_loopser"] = (long)(XLoopSer * f); ph["certify/x_loopq"] = (long)(XLoopQ * f); ph["certify/x_loopub"] = (long)(XLoopUb * f);
++            ph["certify/x_batches"] = XBatches; ph["certify/x_patch_ms"] = (long)(TriangleDeviationBounds.XPatch * f); ph["certify/x_patchn"] = TriangleDeviationBounds.XPatchN; ph["certify/x_calls"] = TriangleDeviationBounds.XCalls; ph["certify/x_sub"] = XSub;
++        }
+         /// <summary> input meshes (not modified). The one-sided distance is from A to B. </summary>
+         public DMesh3 MeshA, MeshB;
+         /// <summary> optional built spatial data structures for MeshA / MeshB (built by Compute() if null; SpatialA only if Symmetric) </summary>
+@@ -186,7 +196,9 @@ namespace gs
+                 Vector3d[] vc = new Vector3d[nv];
+                 foreach (int vid in from.VertexIndices())
+                     if (vmap[vid] >= 0) vp[vmap[vid]] = from.GetVertex(vid);
++                long x0 = Stopwatch.GetTimestamp();
+                 gParallel.ForEach(Interval1i.Range(nv), (i) => query(vp[i], out vd[i], out vt[i], out vc[i]));
++                long x1 = Stopwatch.GetTimestamp(); XVq += x1 - x0;
+                 Lower = 0;
+                 Worst = (nv > 0) ? vp[0] : Vector3d.Zero;
+                 WorstClosest = (nv > 0) ? vc[0] : Vector3d.Zero;
+@@ -200,7 +212,10 @@ namespace gs
+                     tris.Add(new Index3i(vmap[t.a], vmap[t.b], vmap[t.c]));
+                 }
+                 double[] ub = new double[tris.Count];
+-                gParallel.ForEach(Interval1i.Range(tris.Count), (k) => ub[k] = upper_bound(tris[k]));
++                long x2 = Stopwatch.GetTimestamp(); XVser += x2 - x1;
++                if (Environment.GetEnvironmentVariable("UBSERIAL") == "1") { for (int k = 0; k < tris.Count; ++k) ub[k] = upper_bound(tris[k]); }
++                else gParallel.ForEach(Interval1i.Range(tris.Count), (k) => ub[k] = upper_bound(tris[k]));
++                long x3 = Stopwatch.GetTimestamp(); XUb += x3 - x2;
+ 
+                 var heap = new DeviationMaxHeap<Index3i>();
+                 for (int k = 0; k < tris.Count; ++k)
+@@ -212,7 +227,9 @@ namespace gs
+                 Converged = true;
+                 const int BatchSize = 256;
+                 List<Index3i> batch = new List<Index3i>(BatchSize);
++                long xs = Stopwatch.GetTimestamp();
+                 while (heap.Count > 0 && heap.TopKey > threshold() + tol) {
++                    XBatches++;
+                     if (owner.Subdivisions >= owner.MaxSubdivisions || owner.CancelF()) {
+                         Converged = false;
+                         break;
+@@ -232,7 +249,9 @@ namespace gs
+                         mp[3 * b + 1] = 0.5 * (pos[t.b] + pos[t.c]);
+                         mp[3 * b + 2] = 0.5 * (pos[t.c] + pos[t.a]);
+                     }
++                    long y0 = Stopwatch.GetTimestamp();
+                     gParallel.ForEach(Interval1i.Range(3 * nb), (k) => query(mp[k], out md[k], out mt[k], out mc[k]));
++                    long y1 = Stopwatch.GetTimestamp(); XLoopQ += y1 - y0; XSub += nb;
+ 
+                     Index3i[] children = new Index3i[4 * nb];
+                     for (int b = 0; b < nb; ++b) {
+@@ -246,13 +265,16 @@ namespace gs
+                         children[4 * b + 3] = new Index3i(m01, m12, m20);
+                     }
+                     double[] cu = new double[4 * nb];
++                    long y2 = Stopwatch.GetTimestamp();
+                     gParallel.ForEach(Interval1i.Range(4 * nb), (k) => cu[k] = upper_bound(children[k]));
++                    XLoopUb += Stopwatch.GetTimestamp() - y2;
+                     for (int k = 0; k < 4 * nb; ++k)
+                         if (!(cu[k] <= threshold()))
+                             heap.Push(double.IsNaN(cu[k]) ? double.MaxValue : cu[k], children[k]);
+                 }
+                 // dropped triangles were below max(Lower, prune), so for the pruned (second) direction this is
+                 // only an upper bound where it is above prune, which is all the symmetric distance needs
++                XLoopSer += Stopwatch.GetTimestamp() - xs;
+                 Upper = Math.Max(Lower, (heap.Count > 0) ? heap.TopKey : 0);
+             }
+ 
+diff --git a/mesh_ops/MeshRobustRepair.cs b/mesh_ops/MeshRobustRepair.cs
+index e913c45c..44f0ce74 100644
+--- a/mesh_ops/MeshRobustRepair.cs
++++ b/mesh_ops/MeshRobustRepair.cs
+@@ -1032,7 +1032,7 @@ namespace gs
+             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                 return null;
+             lap(phases, "check", timer);
+-            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
++            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions, phases);
+             lap(phases, "certify", timer);
+             return within ? m : null;
+         }
+@@ -1135,15 +1135,21 @@ namespace gs
+         }
+ 
+         // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?
+-        static bool certified_within(DMesh3 m, DMesh3 mesh, double maxDistance, Func<bool> cancelF, ref int hausdorffSubdivisions)
++        static bool certified_within(DMesh3 m, DMesh3 mesh, double maxDistance, Func<bool> cancelF, ref int hausdorffSubdivisions, Dictionary<string, long> phases = null)
+         {
++            var xt = Stopwatch.StartNew();
++            try {
+             // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
+             // distance is close to maxDistance. With the patch bound: the large triangles of the result over the
+             // many small, nearly flat ones of the mesh need few subdivisions (on the alpha wraps of the repair benchmark the check took 16 times less time)
+             var spatial = new DMeshAABBTree3(mesh, true);
++            if (phases != null) phases["certify/tree"] = xt.ElapsedMilliseconds;
++            MeshHausdorffDistance.XReset();
+             foreach (double tol in new double[] { 0.1, 0.01 }) {
+                 var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF, PatchBound = true };
++                long q0 = xt.ElapsedMilliseconds;
+                 bool computed = hd.Compute();
++                if (phases != null) { phases["certify/pass" + (tol == 0.1 ? 1 : 2)] = xt.ElapsedMilliseconds - q0; MeshHausdorffDistance.XReport(phases); }
+                 hausdorffSubdivisions += hd.Subdivisions;
+                 if (computed == false || !(hd.LowerBound <= maxDistance))
+                     return false;
+@@ -1151,6 +1157,7 @@ namespace gs
+                     return true;
+             }
+             return false;
++            } finally { }
+         }
+ 
+         // the solid of the mesh with its self-intersections resolved exactly, or null (ExactResolveReason says why)
+diff --git a/queries/TriangleDeviationBounds.cs b/queries/TriangleDeviationBounds.cs
+index 2c8b2cb1..98792aac 100644
+--- a/queries/TriangleDeviationBounds.cs
++++ b/queries/TriangleDeviationBounds.cs
+@@ -48,9 +48,14 @@ namespace g3
+             double u2 = dmax + covering_radius(e01, e12, e20);
+ 
+             double u = Math.Min(u0, Math.Min(u1, u2));
+-            if (PatchBound && !(u <= threshold))
++            if (PatchBound && !(u <= threshold)) {
++                long xq = System.Diagnostics.Stopwatch.GetTimestamp();
+                 // (never below the largest corner distance, a distance of a point of the triangle)
+                 u = Math.Min(u, Math.Max(dmax, patch_bound(p0, p1, p2, n0, n1, n2)));
++                System.Threading.Interlocked.Add(ref XPatch, System.Diagnostics.Stopwatch.GetTimestamp() - xq);
++                System.Threading.Interlocked.Increment(ref XPatchN);
++            }
++            System.Threading.Interlocked.Increment(ref XCalls);
+             return u;
+         }
+ 
+@@ -59,6 +64,7 @@ namespace g3
+         /// region (eg a coarse mesh against the fine one it was reduced from). Off by default; MeshHausdorffDistance.PatchBound
+         /// </summary>
+         internal bool PatchBound = false;
++        internal static long XPatch, XPatchN, XCalls;
+         /// <summary> the patch bound gives up when the patch has more target triangles </summary>
+         internal int MaxPatchTriangles = 256;
+         /// <summary> the patch bound leaves out target triangles steeper than this (height range / projected size) </summary>
+@@ -113,18 +119,23 @@ namespace g3
+             AxisAlignedBox2d box = new AxisAlignedBox2d(q0); box.Contain(q1); box.Contain(q2);
+             box.Expand(margin);
+ 
+-            // state of the target triangles seen: 1 = in S, 2 = rejected
+-            var state = new Dictionary<int, byte>();
+-            var inS = new List<int>();
+-            var stack = new Stack<int>();
+-            foreach (int s in new int[] { n0, n1, n2 })
+-                if (s >= 0 && Target.IsTriangle(s) && state.ContainsKey(s) == false) { state[s] = 0; stack.Push(s); }
++            // state of the target triangles seen: 1 = in S, 2 = rejected, 0 = queued (valid where seen[tid] == mark)
++            PatchBuffers w = buffers();
++            int mark = w.Next(Target.MaxTriangleID);
++            int[] seen = w.Seen; byte[] state = w.State;
++            List<int> inS = w.InS; inS.Clear();
++            List<int> stack = w.Stack; stack.Clear();
++            int sa0 = n0, sa1 = n1, sa2 = n2;
++            for (int q = 0; q < 3; ++q) {
++                int s = q == 0 ? sa0 : (q == 1 ? sa1 : sa2);
++                if (s >= 0 && Target.IsTriangle(s) && seen[s] != mark) { seen[s] = mark; state[s] = 0; stack.Add(s); }
++            }
+             double hmax = 0, rmax = 0;
+             bool hasHeight = false;
+-            var clipped = new List<Vector3d>(9);
+-            var tmp = new List<Vector3d>(9);
++            List<Vector3d> clipped = w.Clipped, tmp = w.Tmp;
+             while (stack.Count > 0) {
+-                int tid = stack.Pop();
++                int tid = stack[stack.Count - 1];
++                stack.RemoveAt(stack.Count - 1);
+                 Index3i tv = Target.GetTriangle(tid);
+                 Vector3d a = Target.GetVertex(tv.a) - p0, b = Target.GetVertex(tv.b) - p0, c = Target.GetVertex(tv.c) - p0;
+                 // (x, y) in the plane, z = height
+@@ -156,7 +167,7 @@ namespace g3
+                 }
+                 Index3i nb = Target.GetTriNeighbourTris(tid);
+                 for (int k = 0; k < 3; ++k)
+-                    if (nb[k] >= 0 && state.ContainsKey(nb[k]) == false) { state[nb[k]] = 0; stack.Push(nb[k]); }
++                    if (nb[k] >= 0 && seen[nb[k]] != mark) { seen[nb[k]] = mark; state[nb[k]] = 0; stack.Add(nb[k]); }
+             }
+             // (no part of the triangle over S: not covered)
+             if (hasHeight == false)
+@@ -166,10 +177,9 @@ namespace g3
+                 Index3i tv = Target.GetTriangle(tid);
+                 Index3i nb = Target.GetTriNeighbourTris(tid);
+                 for (int k = 0; k < 3; ++k) {
+-                    byte st;
+                     // (an edge between triangles of S of inconsistent orientation counts as a boundary edge: both
+                     // can lie on the same side of it)
+-                    if (nb[k] >= 0 && state.TryGetValue(nb[k], out st) && st == 1 && traverses(Target.GetTriangle(nb[k]), tv[(k + 1) % 3], tv[k]))
++                    if (nb[k] >= 0 && seen[nb[k]] == mark && state[nb[k]] == 1 && traverses(Target.GetTriangle(nb[k]), tv[(k + 1) % 3], tv[k]))
+                         continue;
+                     Vector3d a = Target.GetVertex(tv[k]) - p0, b = Target.GetVertex(tv[(k + 1) % 3]) - p0;
+                     Vector2d sa = new Vector2d(a.Dot(ux), a.Dot(uy)), sb = new Vector2d(b.Dot(ux), b.Dot(uy));
+@@ -183,6 +193,24 @@ namespace g3
+             return hmax + 16 * MaxPatchSlope * shape * MathUtil.Epsilon * (scale + rmax + hmax);
+         }
+ 
++        // per-thread buffers of patch_bound (a bound runs on one thread; MeshHausdorffDistance runs bounds in parallel)
++        sealed class PatchBuffers
++        {
++            public int[] Seen = new int[0];
++            public byte[] State = new byte[0];
++            public readonly List<int> InS = new List<int>(), Stack = new List<int>();
++            public readonly List<Vector3d> Clipped = new List<Vector3d>(9), Tmp = new List<Vector3d>(9);
++            int mark;
++            public int Next(int n)
++            {
++                if (Seen.Length < n) { Seen = new int[n]; State = new byte[n]; mark = 0; }
++                if (++mark == int.MaxValue) { Array.Clear(Seen, 0, Seen.Length); mark = 1; }
++                return mark;
++            }
++        }
++        [ThreadStatic] static PatchBuffers patchBuffers;
++        static PatchBuffers buffers() { return patchBuffers ?? (patchBuffers = new PatchBuffers()); }
++
+         // does the triangle t have the edge a -> b in its order?
+         static bool traverses(Index3i t, int a, int b)
+         {
