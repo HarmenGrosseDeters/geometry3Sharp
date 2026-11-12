@@ -143,6 +143,22 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Query3d_OutputAndInsideAuto_AreToolArguments()
+        {
+            var server = Server();
+            string csv = m.Path_("mcp_q3.csv");
+            JsonObject r = Handle(server, Call(1, "query3d", new JsonObject() { ["input"] = m.Cube, ["points"] = "[[0,0,0],[3,0,0]]", ["inside"] = "auto", ["output"] = csv }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal("crossings", S(sc["points"]["method_used"]));
+            Assert.Equal(2, I(sc["output_rows"]));
+            Assert.Equal(3, System.IO.File.ReadAllLines(csv).Length);
+            r = Handle(server, Call(2, "query3d", new JsonObject() { ["input"] = m.Cube, ["rays"] = "[{\"origin\":[-5,0,0],\"direction\":[1,0,0]}]", ["normalize"] = false }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(4.0, D(r["result"]["structuredContent"]["rays"]["results"][0]["t"]), 9);
+        }
+
+        [Fact]
         public void Repair_NewOptions_AreToolArguments()
         {
             var server = Server();

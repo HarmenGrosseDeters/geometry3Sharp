@@ -753,12 +753,17 @@ Detail recovery and normal estimation for point clouds are planned (same note).
 from source vertices (heat method) as statistics and at chosen vertices, geodesic paths by edge flips (`path_status`; a path between
 components is `operation_failed` with `no_path`), and many ray / point queries in one call. Vertex and triangle ids are those of the
 mesh as read. `query3d` answers each query as the single query would (a ray's `t` is in mesh units; the direction is normalized);
-`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh:
+`--inside crossings` is exact for closed meshes without self-intersections, `winding_number` works for any mesh, `auto` takes crossings for a closed
+mesh without boundary and the winding number otherwise (`points.method_used`). `--output hits.csv` (or `.json`) writes every result, not only
+the first `--max-results`, one row per ray or point with its `index` (for rays or for points per call); rays and points may also be JSON
+(`[{"origin": [x,y,z], "direction": [x,y,z]}, ...]`, `[[ox,oy,oz,dx,dy,dz], ...]`, `[[x,y,z], ...]`, inline or `@file`), and
+`--normalize=false` passes the directions as given (a non-unit one gets the status `not_normalized`):
 
 ```
 g3cli geodesic terrain.ply --sources 0 --targets 120,4711
 g3cli geodesic part.ply --through 12,800,3401 --closed
 g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
+g3cli query3d part.stl --rays @rays.json --output hits.csv --max-results 10     # every hit in the file, ten in the JSON result
 ```
 
 **Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /

@@ -24,7 +24,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
 | `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
-| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings or winding number); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
+| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
@@ -183,6 +183,10 @@ g3cli query3d part.stl --rays "0,0,-10,0,0,1;5,5,-10,0,0,1" --points "0,0,0;50,0
 #   -> "rays": { "hits": 2, "results": [ { "triangle": 31, "t": 9.5, "point": [...] }, ... ] },
 #      "points": { "inside_count": 1, "results": [ { "point": [...], "nearest": {...}, "inside": "inside" }, ... ] }
 g3cli query3d part.stl --rays @rays.txt --any-hit --max-distance 100
+# every result to a file (CSV: index, triangle, t, point_x.. / JSON: the entries), rays as JSON, the inside method chosen by the mesh
+g3cli query3d part.stl --rays @rays.json --output hits.csv
+g3cli query3d part.stl --points @points.json --inside auto --output inside.csv
+#   -> "points": { "method_used": "crossings", "inside_count": 1, ... }, "output": "inside.csv", "output_rows": 50000
 
 # deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
 g3cli deviation simplified.stl original.stl --certified
