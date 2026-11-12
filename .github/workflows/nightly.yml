@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: '23 2 * * *'
   workflow_dispatch:
+    inputs:
+      alkis_only:
+        description: 'Run only the ALKIS job (to time it cold and warm)'
+        type: boolean
+        default: false
 
 env:
   DOTNET_NOLOGO: true
@@ -18,6 +23,7 @@ concurrency:
 
 jobs:
   nightly:
+    if: ${{ !inputs.alkis_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
