@@ -20,15 +20,15 @@ namespace g3cli
                 Name = "hull2d",
                 Description = "Convex hull of points in the plane (ConvexHull2). Give 'points' ('x,y;x,y;...', '@file', or JSON [[x,y],...]) or a mesh file as 'input' (the x and y of its vertices, " +
                     "z ignored; vertex ids as read). query double (default) uses floating point predicates, which are not robust in every case; int64 rounds the points to a 2^20 grid of their " +
-                    "bounding square first (fast, loses precision: the hull is the hull of the rounded points, so indices can differ from double near collinear points). There is no exact mode. " +
+                    "bounding square first (the grid follows the extent: huge extents drop more) (fast, loses precision: the hull is the hull of the rounded points, so indices can differ from double near collinear points). There is no exact mode. " +
                     "The result has the dimension of the hull (2: a polygon, 1: all points on a line, 0: one point or an extent below epsilon), its vertices counterclockwise with their " +
-                    "indices into the input, area and perimeter (a hull of dimension 1 has area 0 and the perimeter twice its length). 'epsilon' (an absolute length, default 1e-8) only decides " +
-                    "whether the points are on a line or at one point. Lists in the result are cut at max_results; the counts are not.",
+                    "indices into the input, area and perimeter (a hull of dimension 1 has area 0 and the perimeter twice its length). 'epsilon' (default 1e-8) only decides " +
+                    "whether the points are on a line or at one point: the extent below epsilon is an absolute length, the deviation from a line is judged relative to the extent. At most 50000 points (the library takes quadratic time when most points are on the hull, eg on a circle). Lists in the result are cut at max_results; the counts are not.",
             };
             c.Params.Add(new Param("input", ParamType.String, "mesh file whose vertices (x, y) are the points (" + string.Join(", ", MeshFiles.ReadFormats) + "); or give points") { Positional = true });
             c.Params.Add(new Param("points", ParamType.String, "points 'x,y;x,y;...', '@file' (one point per line) or JSON [[x,y],...]"));
             c.Params.Add(new Param("query", ParamType.String, "predicates: double (floating point) or int64 (points rounded to a 2^20 grid)") { Default = "double", Enum = new[] { "double", "int64" } });
-            c.Params.Add(new Param("epsilon", ParamType.Number, "absolute length below which the extent counts as one point, and the points as on a line; must be > 0 (the library takes every point set as one point with 0), default 1e-8") { Default = 1e-8 });
+            c.Params.Add(new Param("epsilon", ParamType.Number, "an extent below this absolute length counts as one point; points that deviate from a line by less than epsilon times the extent count as on a line; must be > 0 (the library takes every point set as one point with 0), default 1e-8") { Default = 1e-8 });
             c.Params.Add(new Param("output", ParamType.String, "write the hull as GeoJSON (a Polygon, a LineString or a Point) to this file"));
             c.Params.Add(new Param("return_geojson", ParamType.Boolean, "also return the hull as 'hull_geojson' in the result") { Default = false });
             c.Params.Add(new Param("max_results", ParamType.Integer, "at most this many hull vertices in the lists") { Default = 1000 });
@@ -43,13 +43,19 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_results' must be in 0..100000");
                 var warnings = new List<string>();
                 var pts = new List<Vector2d>();
+                const int MaxHullPoints = 50000;
                 if (args.Has("points")) {
-                    foreach (double[] p in ParseTuples(args.String("points"), "points", 2)) pts.Add(new Vector2d(p[0], p[1]));
+                    var list = ParseTuples(args.String("points"), "points", 2);
+                    if (list.Count > MaxHullPoints)
+                        throw new CommandException(ResultCodes.InvalidArguments, $"'points': at most {MaxHullPoints} points (the hull takes quadratic time when most points are on it)");
+                    foreach (double[] p in list) pts.Add(new Vector2d(p[0], p[1]));
                 } else {
                     DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings, allowEmpty: true);
                     foreach (int v in mesh.VertexIndices()) { Vector3d p = mesh.GetVertex(v); pts.Add(new Vector2d(p.x, p.y)); }
                     if (pts.Count == 0)
                         throw new CommandException(ResultCodes.EmptyMesh, "the input has no vertices");
+                    if (pts.Count > MaxHullPoints)
+                        throw new CommandException(ResultCodes.InvalidArguments, $"the input has {pts.Count} vertices, at most {MaxHullPoints} (the hull takes quadratic time when most points are on it)");
                     if (pts.Any(p => !p.IsFinite))
                         throw new CommandException(ResultCodes.InvalidArguments, "the input has a vertex that is not finite");
                 }
@@ -112,6 +118,8 @@ namespace g3cli
                     }
                     if (args.Bool("return_geojson")) o["hull_geojson"] = feature;
                 }
+                if (!double.IsFinite(area) || !double.IsFinite(perimeter))
+                    warnings.Add("the area or the perimeter exceeds the double range (the value is \"infinity\"); the hull itself is valid");
                 if (query == "int64" && dim == 2)
                     warnings.Add("query int64 rounds the points to a 2^20 grid of their bounding square: the hull is that of the rounded points");
                 o["warnings"] = Warnings(warnings);

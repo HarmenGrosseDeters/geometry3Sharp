@@ -89,6 +89,44 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void TheLineTest_IsRelativeToTheExtent_TheOnePointTestIsAbsolute()
+        {
+            // 1e-9 off the line over an extent of 1: within epsilon * extent (1e-8): a line; with a smaller epsilon: a polygon
+            var (e1, line) = Hull("0,0;1,0;0.5,1e-9");
+            Assert.Equal(0, e1);
+            Assert.Equal(1, I(line["dimension"]));
+            var (e2, poly) = Hull("0,0;1,0;0.5,1e-9", "--epsilon", "1e-12");
+            Assert.Equal(0, e2);
+            Assert.Equal(2, I(poly["dimension"]));
+            // diagonal and shuffled collinear points: the two extreme points, whatever the order
+            foreach (string pts in new[] { "3,3;0,0;2,2;1,1", "1,1;3,3;2,2;0,0", "-1,-2;3,6;1,2;0,0" }) {
+                var (e, r) = Hull(pts);
+                Assert.Equal(0, e);
+                Assert.Equal(1, I(r["dimension"]));
+                var ends = r["polygon"].AsArray().Select(v => (D(v[0]), D(v[1]))).OrderBy(v => v).ToArray();
+                var all = pts.Split(';').Select(t => t.Split(',')).Select(t => (double.Parse(t[0], CultureInfo.InvariantCulture), double.Parse(t[1], CultureInfo.InvariantCulture))).OrderBy(v => v).ToArray();
+                Assert.Equal(all.First(), ends.First());
+                Assert.Equal(all.Last(), ends.Last());
+            }
+        }
+
+        [Fact]
+        public void TooManyPoints_AreRefused_AndAnOverflowingAreaIsWarnedAbout()
+        {
+            string many = string.Join(";", Enumerable.Range(0, 50001).Select(i => $"{i},{i % 7}"));
+            var (e1, r1) = Hull(many);
+            AssertError(e1, r1, "invalid_arguments");
+            Assert.Contains("50000", S(r1["message"]));
+            var (e2, ok) = Hull(string.Join(";", Enumerable.Range(0, 50000).Select(i => $"{i},{i % 7}")));
+            Assert.Equal(0, e2);
+            Assert.Equal(2, I(ok["dimension"]));
+            var (e3, big) = Hull("0,0;1e300,1e300;1e300,0;0,1e300");
+            Assert.Equal(0, e3);
+            Assert.Equal(4, I(big["hull_vertices"]));
+            Assert.Contains(big["warnings"].AsArray(), w => S(w).Contains("double range"));
+        }
+
+        [Fact]
         public void Int64_RoundsToAGrid_AndSaysSo()
         {
             var (exit, r) = Hull("0,0;4,0;4,3;0,3;2,1", "--query", "int64");

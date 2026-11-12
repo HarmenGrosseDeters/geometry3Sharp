@@ -818,7 +818,7 @@ g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relat
 `dimension` of the hull (2 a polygon, 1 all points on a line, 0 one point), its vertices counterclockwise with their `indices` into the input, `area`, `perimeter`
 and, with `--output` or `--return-geojson`, a GeoJSON Polygon, LineString or Point. `--query double` (default) uses floating point predicates (not robust in every case);
 `int64` rounds the points to a 2^20 grid of their bounding square and takes the hull of the rounded points. ConvexHull2 has no exact mode (`QT_RATIONAL` is not
-implemented), so none is offered. `--epsilon` (absolute, default 1e-8, must be > 0) decides whether points are on a line or at one point:
+implemented), so none is offered. `--epsilon` (default 1e-8, must be > 0) decides whether points are on a line or at one point: an extent below it (absolute) is one point, a deviation from a line below epsilon times the extent is a line. At most 50000 points (the library takes quadratic time when most points are on the hull, eg on a circle):
 
 ```
 g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
