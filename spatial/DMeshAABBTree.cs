@@ -1476,7 +1476,9 @@ namespace g3
         /// (Barill et al. 2018, Fast Winding Numbers). Same conventions as WindingNumber(p) (1 inside,
         /// 0 outside for a closed outward-oriented mesh), but the result is approximate (errors of a few
         /// percent up to about 0.1 are normal); accuracy is controlled by FWNBeta and FWNApproxOrder. The cache is built on the first call
-        /// (thread-safe). Much faster than WindingNumber for many queries on large meshes.
+        /// (thread-safe). Much faster than WindingNumber for many queries on large meshes. Scale-free: the expansion of a box
+        /// is used by its centre and radius only (no absolute tolerance), so scaling the mesh and p by a power of two gives
+        /// the same value bit for bit, also for tiny parts or parts far from the origin.
         /// </summary>
         public virtual double FastWindingNumber(Vector3d p)
         {
@@ -1520,8 +1522,7 @@ namespace g3
 
                     // if we have winding cache, we can more efficiently compute contribution of all triangles
                     // below this box. Otherwise, recursively descend tree.
-                    bool contained = box_contains(iChild1, p);
-                    if (contained == false && can_use_fast_winding_cache(iChild1, ref p))
+                    if (use_fast_winding_expansion(iChild1, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild1, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild1, p);
@@ -1530,14 +1531,12 @@ namespace g3
                     iChild1 = iChild1 - 1;
                     int iChild2 = index_list[idx + 1] - 1;
 
-                    bool contained1 = box_contains(iChild1, p);
-                    if (contained1 == false && can_use_fast_winding_cache(iChild1, ref p))
+                    if (use_fast_winding_expansion(iChild1, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild1, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild1, p);
 
-                    bool contained2 = box_contains(iChild2, p);
-                    if (contained2 == false && can_use_fast_winding_cache(iChild2, ref p))
+                    if (use_fast_winding_expansion(iChild2, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild2, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild2, p);
@@ -1545,6 +1544,38 @@ namespace g3
             }
 
             return branch_sum;
+        }
+
+        // the gate of the far-field expansion of a child box (branch_fast_winding_num and the test hook below)
+        bool use_fast_winding_expansion(int iBox, ref Vector3d p)
+        {
+            return box_contains_unpadded(iBox, p) == false && can_use_fast_winding_cache(iBox, ref p);
+        }
+
+        /// <summary> Test hook: the number of triangles FastWindingNumber(p) sums exactly (the rest by expansions); the cache must have been built by a FastWindingNumber call. </summary>
+        internal int FastWindingExactTriangleCount(Vector3d p)
+        {
+            return fast_winding_exact_count(root_index, ref p);
+        }
+        int fast_winding_exact_count(int iBox, ref Vector3d p)
+        {
+            int idx = box_to_index[iBox];
+            if (idx < triangles_end)
+                return index_list[idx];
+            int iChild1 = index_list[idx], count = 0;
+            if (iChild1 < 0) {
+                iChild1 = (-iChild1) - 1;
+                if (use_fast_winding_expansion(iChild1, ref p) == false)
+                    count += fast_winding_exact_count(iChild1, ref p);
+            } else {
+                iChild1 = iChild1 - 1;
+                int iChild2 = index_list[idx + 1] - 1;
+                if (use_fast_winding_expansion(iChild1, ref p) == false)
+                    count += fast_winding_exact_count(iChild1, ref p);
+                if (use_fast_winding_expansion(iChild2, ref p) == false)
+                    count += fast_winding_exact_count(iChild2, ref p);
+            }
+            return count;
         }
 
 
@@ -1581,8 +1612,11 @@ namespace g3
             // (seems to be no benefit to doing this...is holdover from tree-decomposition FWN code)
             int WINDING_CACHE_THRESH = 1;
 
-            //MeshTriInfoCache triCache = null;
-            MeshTriInfoCache triCache = new MeshTriInfoCache(mesh);
+            // (scale-free areas: with the absolute epsilon of GetTriInfo every triangle of a part with edges below about
+            // 1e-8 had area 0, so the centre of every box of it was 0/0 and its expansion never used: a part of size 1e-7
+            // in a unit frame, eg two spheres next to a part 1e8 away, made every query an exact sum over all their
+            // triangles, #693)
+            MeshTriInfoCache triCache = new MeshTriInfoCache(mesh, true);
 
             // the corners of the leaf triangles, in the order of index_list (contiguous for the leaf loop)
             fast_winding_leaf_vertices = new Vector3d[3 * triangles_end];
@@ -2633,6 +2667,20 @@ namespace g3
             return box.DistanceSquared(p);
         }
 
+
+        // the stored (tight) box, without box_eps: the gate of the far-field expansion in branch_fast_winding_num. The
+        // padding (2^-40 of the mesh's distance from the origin) is there so that queries never miss a triangle; here it
+        // only decides whether the expansion of a box may be used, which its centre and radius decide already (with
+        // FWNBeta 2, a point at more than 2 R from the centre is outside the tight box). Padded, the boxes of a small
+        // part far from the origin (a part of size 1 at 1e12: a padding of 1.8) contained the queries near them, and
+        // the expansion was not used (#693).
+        bool box_contains_unpadded(int iBox, Vector3d p)
+        {
+            Vector3d c = box_centers[iBox];
+            Vector3d e = box_extents[iBox];
+            AxisAlignedBox3d box = new AxisAlignedBox3d(ref c, e.x, e.y, e.z);
+            return box.Contains(p);
+        }
 
         protected bool box_contains(int iBox, Vector3d p)
         {
