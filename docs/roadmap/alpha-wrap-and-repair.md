@@ -6,7 +6,7 @@ Part of the [roadmap](../ROADMAP.md).
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
 - **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
-  3.0 started 2026-11-12, phase 1 (measurement) running. Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
+  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now)). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
   The remesher items of Phase 2 stay open; the Remesher rim folds (#621) have a fix in draft #640.
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -41,8 +41,7 @@ slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3
 flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
 until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each. **Closed 2026-11-09** (REDUCER_REMESHER_20.md section 11: #466 T5, #468 T2,
 #469 T1, #470 T3; T4 below).
-**Alpha Wrap 3.0 (owner 2026-11-09; starts once Exact Boolean 2.0 is closed; started 2026-11-12, phase 1, the
-measurement, running; raw data on the branch `runs/alpha-wrap-3`):** speed and parallelism on top of 2.0.
+**Alpha Wrap 3.0 (owner 2026-11-09; starts once Exact Boolean 2.0 is closed):** speed and parallelism on top of 2.0.
 Starting point (final 800 run, the 189 meshes over budget): pinch passes 18 %, reduction 17 %, intersection oracle 14 %,
 Delaunay insertion 13 %, touch test 12 %, certification 7 %. Levers: (1) intersection oracle and touch test through
 batched queries on the input tree (#448), cheap prefilters, per-facet caching; (2) Delaunay insertion in spatial
