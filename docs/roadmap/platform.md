@@ -41,7 +41,7 @@ Part of the [roadmap](../ROADMAP.md).
   Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
   borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
-  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now). Backlog at 171 after TerrainSafety (2 fixed).
+  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now). Backlog at 171 after TerrainSafety (2 fixed). `trx_durations.py --flag-filter/--isolated` judges flagged tests on a re-run alone (contention-free); CI step: see docs/QA.md.
   Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
   4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
   6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
@@ -49,11 +49,18 @@ Part of the [roadmap](../ROADMAP.md).
   artificially. A harness-only scheduler does not work: `Parallel.For` uses `TaskScheduler.Default`, not the current
   one, and a thread-pool cap starved the `Timed` workers (9 failures, 21 min wall). Plan (coordinator, 2026-11-12):
   (A) now, `tools/trx_durations.py` re-runs the flagged tests alone and judges the 5 s / 10 s rule on those times (the
-  CI-speed session adds the workflow step); (D) next, every library `Parallel.For` / `ForEach` goes through an internal
-  `gParallel` options hook (production default unchanged), the test assembly sets one limited-concurrency scheduler at
-  the core count, a scan test keeps loops from bypassing it (exact-code files reviewed if touched), measured against
-  the current run; then Terrain Slope (one scenario per PR, with counters and mutants; reducing coverage only via the
-  owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
+  CI-speed session adds the workflow step); (D) was tried and dropped
+  (measured and dropped, 2026-11-12: every library `Parallel.For` / `ForEach` through an internal `gParallel.Options` hook,
+  9 direct sites plus gParallel, no exact-code file touched, the test assembly sets one limited-concurrency scheduler at the
+  core count, a scan test; full suite, 4 cores, net10.0: wall 16:37 against 15:32 / 15:28, tests >= 5 s 114 against
+  128 / 129, >= 10 s 31 against 38 / 39, sum of durations 3657 s against 3643 / 3529 s. The long parallel-loop tests become serial while all
+  cores are busy and form the tail, e.g. `RobustRepairFarPartTests.FarPart_NotABlob` 260-280 s against 56-68 s in the
+  full run and 52 s alone; the work does not shrink, only who waits. Two findings: `Parallel.For` waits for its queued
+  extra tasks, which sit behind whole tests in a saturated FIFO scheduler, so a `Timed` thread stalled until any thread
+  was allowed to inline a task it waits for; tests that assert real parallelism (eg
+  `MeshRoundingRepairFilterTests.Grid_SerialEqualsParallel_OnSeveralThreads`) would need an opt-out
+  `ThreadBudget.RealParallel()`. Not worth it; the seam is dropped as dead code), then Terrain Slope (one scenario per PR,
+  with counters and mutants; reducing coverage only via the owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
   diagnosis (starvation, hang, pathological input or algorithm): a library operation on one input in a benchmark or
   reference run (first the Alpha Wrap 800 tail, see alpha-wrap-and-repair.md), and a test in any run (the full run
   included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
