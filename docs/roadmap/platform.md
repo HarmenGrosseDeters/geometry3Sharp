@@ -275,8 +275,11 @@ and the test tiers and time limit (#447, the backlog program).
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 - **Rollout status (2026-11-12):** step 0, the status of T1-T15 against their done-when, is
   [design/QA20_STATUS.md](../design/QA20_STATUS.md) (#635). Merged 2026-11-12: #639 (spatial structures, inventory cell K),
-  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations). Open: #627
-  (T12 FPTaylor, draft); bugfix PRs #655 (#647, `VoxelSurfaceGenerator`), #656 (#644, `ConvexHull2`), #657 (#645).
+  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), and the three bugfix PRs they led to: #655 (#647,
+  `VoxelSurfaceGenerator` honours `MaxMeshElementCount`), #656 (#644, `ConvexHull2` is scale free: it works on a copy scaled by a power of
+  two, also for an overflowing extent) and #657 (#645, only `QT_DOUBLE` and `QT_INT64` are supported, said in the comment and the
+  message). Open: #627 (T12 FPTaylor, draft) and #682 (`Similarity.All2D()`: the 2D tests use the similarities of the plane, see
+  QA.md, "Similarities").
   Open `local` issues: #636 (repair time, F2), #637 (F5), #638 (F7). #628 was fixed by #634 (merged).
 
 #### Test suite on German Windows

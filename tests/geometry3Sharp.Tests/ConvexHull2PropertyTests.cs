@@ -253,13 +253,13 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Hull_UnderTheSimilaritiesOfTheHarness_IsTheExactHull()
         {
-            // the similarities without a rotation out of the plane: scale, translation (UTM), power-of-two scales exact
+            // the similarities of the plane (Similarity.All2D): scales, translation (UTM), rotations about z; power-of-two scales exact
             var rng = new Random(2026111802);
             List<Vector2d> pts = Points(Family.Random, 40, rng);
             var reference = new ConvexHull2(pts, 1e-300, QueryNumberType.QT_DOUBLE);
             int checkedSimilarities = 0;
-            foreach (Similarity s in Similarity.All().Where(s => !s.IsRotated)) {
-                List<Vector2d> moved = pts.Select(p => { Vector3d q = s.Apply(new Vector3d(p.x, p.y, 0)); return new Vector2d(q.x, q.y); }).ToList();
+            foreach (Similarity s in Similarity.All2D()) {
+                List<Vector2d> moved = pts.Select(p => s.Apply2d(p)).ToList();
                 var hull = new ConvexHull2(moved, 1e-300, QueryNumberType.QT_DOUBLE);
                 Assert.Equal(2, hull.Dimension);
                 if (s.IsExact)
@@ -267,7 +267,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Extreme(hull.HullIndices.Select(i => moved[i])).SetEquals(Chain(moved)), $"{s.Name}: not the exact hull");
                 ++checkedSimilarities;
             }
-            Assert.True(checkedSimilarities >= 5, "vacuous");
+            Assert.True(checkedSimilarities == 8, "vacuous");
         }
 
         [Fact]
