@@ -48,7 +48,7 @@ namespace geometry3Sharp.Tests
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             TerrainSlopeCatchLineTests.AssertCatchLines(d, false);
             TerrainSlopeCatchLineTests.AssertComposite(d);
-            TerrainSlopeCampaignTests.AssertRegionNeverSteeper(d);
+            TerrainSlopeCatchLineTests.AssertRegionNeverSteeper(d);
             var r = reference.Value;
             Assert.Equal(r.CatchLines.Count, d.CatchLines.Count);
             if (s.IsExact) {
