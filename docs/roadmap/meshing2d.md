@@ -52,6 +52,9 @@ Actionable:
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
   must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
   dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
+- **2.5D output (owner 2026-11-12):** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
+  so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
+  isolated). Additive API; PR of `claude/mesh2-to-dmesh3`. Effort S.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
