@@ -1277,6 +1277,11 @@ namespace g3
                             // for ApexExempt (which excuses no triangle): the closed segments meet, decided exactly (the oracle's t in
                             // [0, 1]); the test in doubles below misses a shared endpoint when t rounds to 1 + eps
                             int kind = MeetKind(s1, s2);
+                            // off the grid an end within the tolerance of the other segment is a vertex of its chain (O11, InsertPiece and
+                            // MergeNearPoints), so the chains meet there although the input segments miss each other by a rounding; a
+                            // T-junction rotated into doubles is one (#664: an end 4e-17 beside the other segment, no exemption, a figure-eight
+                            // cascade along the whole pair to the Steiner limit)
+                            if (kind == 0 && grid == null && b.EndWithinTolerance(s1, s2)) kind = 2;
                             if (kind > 0) {
                                 pair.Meets = true; pair.Kind = kind; pair.Scale = ex;
                                 pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
