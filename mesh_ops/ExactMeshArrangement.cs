@@ -1653,6 +1653,11 @@ namespace g3
             double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
             double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
             bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + Tiny;
+            // (a term overflowed: the terms reach 12 M^4 while the bound's M^4 can still be finite, so for M between about
+            // 8e76 and 1.2e77 the sum is +-infinity or NaN with a finite bound, and its sign says nothing; undecided.
+            // #710: a difference of two cubes near 1e-223 with a corner at 1e-284, grid coordinates near 1e77)
+            if (!(Math.Abs(fdet) <= double.MaxValue))
+                bound = double.PositiveInfinity;
             return fdet;
         }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Numerics;
 using g3;
@@ -143,6 +144,40 @@ namespace geometry3Sharp.Tests
                     }
                 }
             }
+        }
+
+        [Fact]
+        public void InCircle_DecidesOnlyCorrectly_WhereItsTermsOverflow()
+        {
+            // #710: coordinates near 2^255 (about 1e77), where the terms of the determinant (up to 12 M^4) overflow while
+            // the bound's M^4 is still finite; the filter returned the sign of an infinite or NaN sum. Where it decides
+            // now, the sign is the exact one (the doubles exact, e = 0, and with an error); in this band the overflowed
+            // cases are undecided
+            var r = new Random(7);
+            int decided = 0, overflowed = 0;
+            for (int iter = 0; iter < 4000; ++iter) {
+                int k = 252 + r.Next(6);
+                double rad = Math.Pow(2, k), ox = (r.NextDouble() - 0.5) * rad, oy = (r.NextDouble() - 0.5) * rad;
+                var p = new Vector3d[4];
+                for (int m = 0; m < 4; ++m) {
+                    double ang = r.NextDouble() * 2 * Math.PI, rr = rad * (0.5 + r.NextDouble());
+                    p[m] = new Vector3d(ox + rr * Math.Cos(ang), oy + rr * Math.Sin(ang), 0);
+                }
+                double e = iter % 2 == 0 ? 0 : 1e-16 * rad;
+                double bound;
+                double f = ExactMeshArrangement.incircle_approx(p[0], p[1], p[2], p[3], 0, 1, e, out bound);
+                if (!(Math.Abs(f) <= double.MaxValue)) overflowed++;
+                int sign = f > bound ? 1 : -f > bound ? -1 : 0;
+                if (sign == 0)
+                    continue;
+                decided++;
+                BigInteger[] X = p.Select(v => Q(v.x)).ToArray(), Y = p.Select(v => Q(v.y)).ToArray();
+                BigInteger adx = X[0] - X[3], ady = Y[0] - Y[3], bdx = X[1] - X[3], bdy = Y[1] - Y[3], cdx = X[2] - X[3], cdy = Y[2] - Y[3];
+                BigInteger det = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+                    + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+                Assert.True(det.Sign == sign, $"iter {iter} k {k}: filter {sign}, exact {det.Sign} (f {f}, bound {bound})");
+            }
+            Assert.True(decided > 500 && overflowed > 200, $"{decided} decided, {overflowed} overflowed");
         }
 
         [Fact]
