@@ -652,7 +652,8 @@ apart have no common point. R1 (the rounding error of a projection, each operati
 margin computed in doubles covers it), R3 (the decision from the computed bounds) and G1 (the geometry, free real
 coordinates) are UNSAT with satisfiable assumptions; six mutants are SAT (a bound of `2u`, a margin of `2u`, the margin
 of one corner, non-strict comparisons, a corner left out). Bridges by review: monotonic rounding, `fl(|a||x|) =
-|fl(a x)|`, no underflow or overflow in the supported coordinate range of `MeshRoundingRepair`. The rule was measured
+|fl(a x)|`. Assumed: no product of an axis component and a coordinate underflows or overflows (not implied by the
+coordinate range of `MeshRoundingRepair`; a build scales the axes by a power of two). The rule was measured
 and not recommended for building (the note, 5.3); `test_separating_axis.py` holds a source contract on the prototype
 `benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
 `results/separating_axis_2026-11-12.json`.
