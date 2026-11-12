@@ -37,8 +37,21 @@ namespace geometry3Sharp.Tests
         {
             var release = new ManualResetEventSlim();
             try {
-                Assert.False(Timed.MakesProgress(beat => { while (!release.IsSet) { Thread.Sleep(20); beat(); } }, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.5)));
+                Assert.False(Timed.MakesProgress(beat => { while (!release.IsSet) { Thread.Sleep(20); beat(); } }, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(0.5), out string tripped));
+                Assert.Equal("total of 0.5 s exceeded", tripped);
             } finally { release.Set(); }
+        }
+
+        [Fact]
+        public void TheLimitThatTripped_IsReported()
+        {
+            var release = new ManualResetEventSlim();
+            try {
+                Assert.False(Timed.MakesProgress(beat => { beat(); release.Wait(); }, TimeSpan.FromSeconds(0.3), null, out string tripped));
+                Assert.Equal("no progress for 0.3 s", tripped);
+            } finally { release.Set(); }
+            Assert.True(Timed.MakesProgress(beat => beat(), TimeSpan.FromSeconds(5), null, out string none));
+            Assert.Equal("", none);
         }
 
         [Fact]
