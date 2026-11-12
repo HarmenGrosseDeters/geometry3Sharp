@@ -1,0 +1,397 @@
+From fe7c719d91c94ca5a50cb60653b91d909b344383 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 12 Nov 2026 22:55:20 +0000
+Subject: [PATCH 2/2] ExactPredicates: generated kernels instead of BigInteger
+ beyond the expansion range (#711)
+
+Orient2d, Orient3d and InCircle on coordinates outside [2^-100, 2^100] used a BigInteger
+determinant on a common power-of-two scale (1 to 30 us and 1.4 to 12 KB per call for spans of
+hundreds of binary orders). They now call the kernels of DoublePredicates. The *_bigint
+functions stay as the reference of the tests and as InSphere's exact stage.
+
+The 61 fuzz units of issue #711 (master a7693fd, 4 cores): 289.4 -> 51.3 s, median 4.04 ->
+0.61 s, maximum 14.0 -> 2.2 s, none above 5 s (18 before), 243 -> 12 GB allocated; result hash,
+status, RoundingClean and all counts equal in 61 of 61. Normal operations do not change (the
+stage is not reached). benchmarks/PredicateComparison gets the mode 'span'.
+
+ExactPredicatesBeyondRangeTests: no allocation on the fallback, and a unit of #711 with a
+bound on the operation's allocation (43 MB; 1.9 GB before).
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm
+---
+ .../PredicateComparison/ExponentSpan.cs       | 105 ++++++++++++++
+ benchmarks/PredicateComparison/Program.cs     |   4 +
+ docs/PREDICATES.md                            |   5 +
+ docs/roadmap/exact-boolean.md                 |   5 +
+ math/ExactPredicates.cs                       |  14 +-
+ .../ExactPredicatesBeyondRangeTests.cs        | 131 ++++++++++++++++++
+ tests/mutation/stryker-config.json            |   2 +-
+ 7 files changed, 260 insertions(+), 6 deletions(-)
+ create mode 100644 benchmarks/PredicateComparison/ExponentSpan.cs
+ create mode 100644 tests/geometry3Sharp.Tests/ExactPredicatesBeyondRangeTests.cs
+
+diff --git a/benchmarks/PredicateComparison/ExponentSpan.cs b/benchmarks/PredicateComparison/ExponentSpan.cs
+new file mode 100644
+index 0000000..07e0746
+--- /dev/null
++++ b/benchmarks/PredicateComparison/ExponentSpan.cs
+@@ -0,0 +1,105 @@
++// The exact stage of ExactPredicates beyond the range of the expansions (docs/design/EXACT_FALLBACK_MONOMIALS.md):
++// inputs whose filter does not decide and whose coordinates are outside [2^-100, 2^100], so that the stage after the
++// adaptive predicates runs. Per class and predicate: ns per call, bytes allocated per call, and the signs that differ
++// from a BigInteger reference of this file (must be 0).
++//   PredicateComparison span [cases per class]
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++using System.Linq;
++using System.Numerics;
++using g3;
++
++static class ExponentSpan
++{
++    // v as an integer times 2^-1074
++    static BigInteger I(double v)
++    {
++        long bits = BitConverter.DoubleToInt64Bits(v);
++        int e = (int)((bits >> 52) & 0x7FF);
++        BigInteger m = bits & 0xFFFFFFFFFFFFFL;
++        if (e == 0) e = 1; else m += BigInteger.One << 52;
++        m <<= e - 1;
++        return bits < 0 ? -m : m;
++    }
++
++    static int Orient2dRef(double[] p)
++    {
++        BigInteger ux = I(p[2]) - I(p[0]), uy = I(p[3]) - I(p[1]), vx = I(p[4]) - I(p[0]), vy = I(p[5]) - I(p[1]);
++        return (ux * vy - uy * vx).Sign;
++    }
++
++    static int Orient3dRef(double[] p)
++    {
++        BigInteger[] u = { I(p[3]) - I(p[0]), I(p[4]) - I(p[1]), I(p[5]) - I(p[2]) }, v = { I(p[6]) - I(p[0]), I(p[7]) - I(p[1]), I(p[8]) - I(p[2]) },
++            w = { I(p[9]) - I(p[0]), I(p[10]) - I(p[1]), I(p[11]) - I(p[2]) };
++        return (u[0] * v[1] * w[2] + u[1] * v[2] * w[0] + u[2] * v[0] * w[1] - u[2] * v[1] * w[0] - u[1] * v[0] * w[2] - u[0] * v[2] * w[1]).Sign;
++    }
++
++    static int InCircleRef(double[] p)
++    {
++        BigInteger ax = I(p[0]) - I(p[6]), ay = I(p[1]) - I(p[7]), bx = I(p[2]) - I(p[6]), by = I(p[3]) - I(p[7]), cx = I(p[4]) - I(p[6]), cy = I(p[5]) - I(p[7]);
++        BigInteger al = ax * ax + ay * ay, bl = bx * bx + by * by, cl = cx * cx + cy * cy;
++        return (ax * by * cl + ay * bl * cx + al * bx * cy - al * by * cx - ay * bx * cl - ax * bl * cy).Sign;
++    }
++
++    static double Scale(double m, int e)
++    {
++        while (e > 1000) { m *= BitConverter.Int64BitsToDouble((long)(1000 + 1023) << 52); e -= 1000; }
++        while (e < -1000) { m *= BitConverter.Int64BitsToDouble((long)(-1000 + 1023) << 52); e += 1000; }
++        return m * BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
++    }
++
++    static double[] Case(string cls, int n, Random r)
++    {
++        double[] v = new double[n];
++        if (cls == "uniformly tiny, nearly degenerate") {
++            // multiples of a lattice direction, one ulp off, times 2^-600
++            int dim = n == 12 ? 3 : 2;
++            int[] o = { r.Next(-1000, 1000), r.Next(-1000, 1000), r.Next(-1000, 1000) }, d1 = { r.Next(1, 10), r.Next(-9, 10), r.Next(-9, 10) }, d2 = { r.Next(-9, 10), r.Next(1, 10), r.Next(-9, 10) };
++            for (int q = 0; q < n / dim; ++q) {
++                int a = r.Next(-50, 51), b = dim == 3 || n == 8 ? r.Next(-50, 51) : 0;
++                for (int j = 0; j < dim; ++j) v[q * dim + j] = Scale(o[j] + a * d1[j] + b * d2[j], -600);
++            }
++            int k = r.Next(n);
++            v[k] = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(v[k]) + 1);
++        } else if (cls == "three scales (issue #711)") {
++            int[] scales = { -943, -106, -100 };
++            for (int k = 0; k < n; ++k) v[k] = Scale((r.Next(2) == 0) ? r.Next(-3, 4) : (r.NextDouble() + 1) * (r.Next(2) * 2 - 1), scales[r.Next(3)]);
++        } else {
++            for (int k = 0; k < n; ++k) v[k] = Scale((r.Next(2) == 0) ? r.Next(-3, 4) : (r.NextDouble() + 1) * (r.Next(2) * 2 - 1), r.Next(-1074, 1020));
++        }
++        return v;
++    }
++
++    public static void Run(int count)
++    {
++        var preds = new (string name, int n, Func<double[], int> f, Func<double[], int> reference)[] {
++            ("orient2d", 6, p => ExactPredicates.Orient2d(new Vector2d(p[0], p[1]), new Vector2d(p[2], p[3]), new Vector2d(p[4], p[5])), Orient2dRef),
++            ("orient3d", 12, p => ExactPredicates.Orient3d(new Vector3d(p[0], p[1], p[2]), new Vector3d(p[3], p[4], p[5]), new Vector3d(p[6], p[7], p[8]), new Vector3d(p[9], p[10], p[11])), Orient3dRef),
++            ("incircle", 8, p => ExactPredicates.InCircle(new Vector2d(p[0], p[1]), new Vector2d(p[2], p[3]), new Vector2d(p[4], p[5]), new Vector2d(p[6], p[7])), InCircleRef),
++        };
++        Console.WriteLine($"ExactPredicates beyond the range of the expansions, {count} cases per row");
++        Console.WriteLine("| class | predicate | ns / call | B / call | wrong signs | sign 0 |");
++        Console.WriteLine("|---|---|---|---|---|---|");
++        foreach (string cls in new[] { "uniformly tiny, nearly degenerate", "three scales (issue #711)", "any exponent" })
++            foreach (var pr in preds) {
++                var rnd = new Random(77);
++                var cases = Enumerable.Range(0, count).Select(_ => Case(cls, pr.n, rnd)).ToList();
++                int wrong = 0, zeros = 0;
++                foreach (var c in cases) { int e = pr.reference(c); if (pr.f(c) != e) wrong++; if (e == 0) zeros++; }
++                double best = double.MaxValue; long bytes = 0;
++                for (int rep = 0; rep < 7; ++rep) {
++                    long a0 = GC.GetAllocatedBytesForCurrentThread();
++                    var sw = Stopwatch.StartNew();
++                    int sink = 0;
++                    foreach (var c in cases) sink += pr.f(c);
++                    sw.Stop();
++                    bytes = GC.GetAllocatedBytesForCurrentThread() - a0;
++                    if (rep > 0) best = Math.Min(best, sw.Elapsed.TotalMilliseconds * 1e6 / count);
++                    GC.KeepAlive(sink);
++                }
++                Console.WriteLine($"| {cls} | {pr.name} | {best:F0} | {bytes / (double)count:F0} | {wrong} | {100.0 * zeros / count:F1} % |");
++            }
++    }
++}
+diff --git a/benchmarks/PredicateComparison/Program.cs b/benchmarks/PredicateComparison/Program.cs
+index 0868c8b..d74b66a 100644
+--- a/benchmarks/PredicateComparison/Program.cs
++++ b/benchmarks/PredicateComparison/Program.cs
+@@ -227,6 +227,10 @@ static class Program
+             CoplanarTriangles.Run();
+             return;
+         }
++        if (args.Length > 0 && args[0] == "span") {
++            ExponentSpan.Run(args.Length > 1 ? int.Parse(args[1]) : 20000);
++            return;
++        }
+         if (args.Length > 0) Count = int.Parse(args[0]);
+         var impls = implementations();
+         var scales = new[] { 1.0, 1e6, 1e-10, 1e-160, 1e-300, 1e150, 1e200 };
+diff --git a/docs/PREDICATES.md b/docs/PREDICATES.md
+index 54aba1f..436a001 100644
+--- a/docs/PREDICATES.md
++++ b/docs/PREDICATES.md
+@@ -66,6 +66,11 @@ int ExactPredicates.InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+    Sonst `*_bigint`: alle Koordinaten als `m·2^e` auf gemeinsamen Exponenten, Determinante in `BigInteger`.
+ 3. NaN → `ArgumentException` (im exakten Pfad); ±∞ ebenso (Test `InfiniteCoordinates_Throw`).
+ 
++*Update 2026-11:* outside the range of the expansions `Orient2d`, `Orient3d` and `InCircle` no longer use `*_bigint`
++but the generated kernels of `math/Generated/DoublePredicates.cs` (the exact monomials of the determinant added on the
++stack, no allocation; [design/EXACT_FALLBACK_MONOMIALS.md](design/EXACT_FALLBACK_MONOMIALS.md)). The `*_bigint`
++functions remain as the reference of the tests and as the exact stage of `InSphere`.
++
+ `Expansion.TwoProduct` nutzt bewusst kein FMA (`Math.FusedMultiplyAdd` gibt es unter netstandard2.0/net48
+ nicht); Dekker-Splitting mit `2^27+1` ist exakt, solange nichts über-/unterläuft – dafür sorgt `InRange`.
+ 
+diff --git a/docs/roadmap/exact-boolean.md b/docs/roadmap/exact-boolean.md
+index bae3f4d..c0f85d1 100644
+--- a/docs/roadmap/exact-boolean.md
++++ b/docs/roadmap/exact-boolean.md
+@@ -407,6 +407,11 @@ Open:
+   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
+   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
+   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
++  P2 is built (2026-11-12, PR pending): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
++  by the monomial pass ([design](../design/EXACT_FALLBACK_MONOMIALS.md)); on master a7693fd the 61 units of the #711
++  class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
++  shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
++  (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
+ - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
+   coordinates stay open, not scheduled.
+ - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
+diff --git a/math/ExactPredicates.cs b/math/ExactPredicates.cs
+index 3c17379..4a52834 100644
+--- a/math/ExactPredicates.cs
++++ b/math/ExactPredicates.cs
+@@ -10,7 +10,9 @@ namespace g3
+     /// bounds ("Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997)
+     /// decides almost all cases; the uncertain ones go through Shewchuk's adaptive stages B to D
+     /// (AdaptivePredicates, floating-point expansions, exact), or, where products could overflow or underflow,
+-    /// through integer arithmetic (every double is m * 2^e). The sign is always right, also for nearly
++    /// through integer arithmetic (every double is m * 2^e): the generated kernels of DoublePredicates for
++    /// Orient2d, Orient3d and InCircle (the monomials of the determinant, added exactly on the stack; no
++    /// allocation), BigInteger for InSphere. The sign is always right, also for nearly
+     /// degenerate input and coordinates far from the origin, unlike tests with a fixed epsilon.
+     /// </summary>
+     public static class ExactPredicates
+@@ -180,7 +182,9 @@ namespace g3
+ 
+ 
+         // exact versions: when no product can overflow or underflow, Shewchuk's adaptive stages B to D;
+-        // otherwise all coordinates as integers with a common power-of-two scale
++        // otherwise integer arithmetic on the mantissas and exponents (DoublePredicates; docs/design/
++        // EXACT_FALLBACK_MONOMIALS.md). The *_bigint functions below evaluate the same determinants with all coordinates
++        // as BigInteger on a common power-of-two scale: InSphere's exact stage, and the reference of the tests
+ 
+         [MethodImpl(JitHints.Optimize)]
+         static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
+@@ -188,7 +192,7 @@ namespace g3
+             if (a == d || b == d || c == d || a == b || b == c || a == c)
+                 return 0;
+             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false)
+-                return incircle_bigint(a, b, c, d);
++                return DoublePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+             return AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+         }
+ 
+@@ -198,7 +202,7 @@ namespace g3
+             if (a == b || b == c || a == c)
+                 return 0;
+             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false)
+-                return orient2d_bigint(a, b, c);
++                return DoublePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
+             return AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
+         }
+ 
+@@ -211,7 +215,7 @@ namespace g3
+             if (orient3d_int(a, b, c, d, out sign))
+                 return sign;
+             if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
+-                return orient3d_bigint(a, b, c, d);
++                return DoublePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+             // (Shewchuk's orient3d has the opposite sign)
+             return -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
+         }
+diff --git a/tests/geometry3Sharp.Tests/ExactPredicatesBeyondRangeTests.cs b/tests/geometry3Sharp.Tests/ExactPredicatesBeyondRangeTests.cs
+new file mode 100644
+index 0000000..6fd967a
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/ExactPredicatesBeyondRangeTests.cs
+@@ -0,0 +1,131 @@
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using g3;
++using Xunit;
++
++namespace geometry3Sharp.Tests
++{
++    /// <summary>
++    /// ExactPredicates on coordinates outside the range of the expansions ([2^-100, 2^100]), where the exact stage was a
++    /// BigInteger determinant and is now the generated kernels of DoublePredicates (docs/design/
++    /// EXACT_FALLBACK_MONOMIALS.md), through the library's existing entry points only: the stage allocates nothing, and
++    /// an input of issue #711 no longer spends its time there. (The kernels themselves: GeneratedDoublePredicatesTests.)
++    /// </summary>
++    public class ExactPredicatesBeyondRangeTests
++    {
++        // m 2^e (Math.ScaleB is not in .NET Framework)
++        static double Scale(double m, int e)
++        {
++            while (e > 1000) { m *= BitConverter.Int64BitsToDouble((long)(1000 + 1023) << 52); e -= 1000; }
++            while (e < -1000) { m *= BitConverter.Int64BitsToDouble((long)(-1000 + 1023) << 52); e += 1000; }
++            return m * BitConverter.Int64BitsToDouble((long)(e + 1023) << 52);
++        }
++
++        // the pattern of issue #711: small or random mantissas near 2^-943, 2^-106 and 2^-100
++        static double[] ThreeScales(int n, Random rnd)
++        {
++            int[] scales = { -943, -106, -100 };
++            double[] v = new double[n];
++            for (int k = 0; k < n; ++k) {
++                double m = (rnd.Next(2) == 0) ? rnd.Next(-3, 4) : (rnd.NextDouble() + 1) * (rnd.Next(2) * 2 - 1);
++                v[k] = Scale(m, scales[rnd.Next(3)]);
++            }
++            return v;
++        }
++
++        // The fallback allocates nothing (the BigInteger stage took 1.4 to 4.6 KB per call). Inputs of the pattern of
++        // issue #711, whose filters do not decide and whose coordinates are outside the range of the expansions.
++        [Fact]
++        public void ExactPredicates_BeyondTheExpansionRange_DoNotAllocate()
++        {
++            var rnd = new Random(9);
++            var cases3 = new List<Vector3d[]>(); var cases2 = new List<Vector2d[]>();
++            while (cases3.Count < 200) {
++                double[] v = ThreeScales(12, rnd);
++                var pts = new[] { new Vector3d(v[0], v[1], v[2]), new Vector3d(v[3], v[4], v[5]), new Vector3d(v[6], v[7], v[8]), new Vector3d(v[9], v[10], v[11]) };
++                if (pts.Distinct().Count() == 4) cases3.Add(pts);
++            }
++            while (cases2.Count < 200) {
++                double[] v = ThreeScales(8, rnd);
++                var pts = new[] { new Vector2d(v[0], v[1]), new Vector2d(v[2], v[3]), new Vector2d(v[4], v[5]), new Vector2d(v[6], v[7]) };
++                if (pts.Distinct().Count() == 4) cases2.Add(pts);
++            }
++            Func<int> run = () => {
++                int s = 0;
++                foreach (var p in cases3) s += ExactPredicates.Orient3dExact(p[0], p[1], p[2], p[3]);
++                foreach (var p in cases2) s += ExactPredicates.Orient2dExact(p[0], p[1], p[2]) + ExactPredicates.InCircleExact(p[0], p[1], p[2], p[3]);
++                return s;
++            };
++            int first = run();      // (compiles the path)
++            long before = GC.GetAllocatedBytesForCurrentThread();
++            int second = run();
++            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
++            Assert.Equal(first, second);
++            Assert.Equal(0, allocated);
++        }
++
++        // slow-unit-89209633... of the campaign grp-a (runs/mesh-fuzz; union of a 16-vertex and a 6-vertex shape, decoded
++        // by MeshFuzzPilot dump): corners near 1e-303 and 1e-226 next to coordinates near 1e-34 and 1e-31, a span of
++        // about 2^900 inside single predicates. With the BigInteger stage the operation allocated 1.9 GB (2.5 s); with the
++        // kernels 43 MB (0.34 s). The bound is on the allocation of the operation, which does not depend on the machine's
++        // speed.
++        [Fact]
++        public void Issue711_FuzzUnit_UnionWithoutBigIntegerPredicates()
++        {
++            double[,] av = {
++                { 0.0, 0.0, 0.0 },
++                { 2.407412430484045E-35, 0.0, 0.0 },
++                { 1.2789378536946488E-34, 1.2789378536946488E-34, 1.0381966106462443E-34 },
++                { 1.0381966106462443E-34, 1.2789378536946488E-34, 1.0381966106462443E-34 },
++                { 2.1064858766735392E-35, 1.0381966106462443E-34, 1.2789378536946488E-34 },
++                { 1.2789378536946488E-34, 1.0381966106462443E-34, 1.2789378536946488E-34 },
++                { 1.2789378536946488E-34, 1.2789378536946488E-34, 1.2789378536946488E-34 },
++                { 1.0381966106462443E-34, 2.407412430484045E-35, 2.407412430484045E-35 },
++                { 1.2037062152420224E-35, 1.2037062152420224E-35, 1.2037062152420224E-35 },
++                { 3.611118645726067E-35, 1.2037062152420224E-35, 1.2037062152420224E-35 },
++                { 7.787758504775205E-308, 0.0, 3.098726858311469E-303 },
++                { 1.2037062152420224E-35, 3.611118645726067E-35, 1.2037062152420224E-35 },
++                { 1.2037062152420224E-35, 1.2037062152420224E-35, 3.611118645726067E-35 },
++                { 3.611118645726067E-35, 1.2037062152420224E-35, 3.611118645726067E-35 },
++                { 3.611118645726067E-35, 3.611118645726067E-35, 3.611118645726067E-35 },
++                { 1.2037062152420224E-35, 3.611118645726067E-35, 3.611118645726067E-35 } };
++            int[,] at = { { 0, 2, 1 }, { 0, 3, 2 }, { 4, 5, 6 }, { 4, 6, 7 }, { 0, 1, 5 }, { 0, 5, 4 }, { 1, 2, 6 }, { 1, 6, 5 }, { 2, 3, 7 }, { 2, 7, 6 }, { 3, 0, 4 }, { 3, 4, 7 }, { 8, 10, 9 }, { 8, 11, 10 }, { 12, 13, 14 }, { 12, 14, 15 }, { 8, 9, 13 }, { 8, 13, 12 }, { 9, 10, 14 }, { 9, 14, 13 }, { 10, 11, 15 }, { 10, 15, 14 }, { 11, 8, 12 }, { 11, 12, 15 } };
++            double[,] bv = {
++                { 4.319800679949808E-32, 9.307658309358938E-33, 2.1263470292250326E-31 },
++                { 4.307462691243577E-32, 9.181269156758526E-33, 2.126076195326603E-31 },
++                { 3.324251688544512E-280, 3.83046299398303E-274, -1.1087052984336745E-226 },
++                { 4.3140830754274083E-32, 9.196315484449051E-33, 2.1262266586035084E-31 },
++                { 4.3140830754274083E-32, 9.244463733058732E-33, 2.126708141089605E-31 },
++                { 4.3140830754274083E-32, 9.244463733058732E-33, 2.1257451761174116E-31 } };
++            int[,] bt = { { 0, 2, 4 }, { 2, 1, 4 }, { 1, 3, 4 }, { 3, 0, 4 }, { 2, 0, 5 }, { 1, 2, 5 }, { 3, 1, 5 }, { 0, 3, 5 } };
++            DMesh3 a = Build(av, at), b = Build(bv, bt);
++            new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union).Compute();      // (compiles the path)
++            // (the parallel loops on this thread, so that the thread's allocation counter sees the whole operation and
++            // nothing of the tests that run beside this one)
++            bool serial = gParallel.SerialOnThisThread;
++            gParallel.SerialOnThisThread = true;
++            try {
++                long before = GC.GetAllocatedBytesForCurrentThread();
++                var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union);
++                Assert.True(op.Compute());
++                long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
++                Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, op.Status);
++                Assert.True(op.Result.TriangleCount > 0 && op.Result.IsClosed());
++                foreach (Vector3d p in op.Result.Vertices())
++                    Assert.True(p.IsFinite);
++                Assert.True(allocated < 400L << 20, $"allocated {allocated >> 20} MB: the predicates of the rounding went to BigInteger");
++            } finally {
++                gParallel.SerialOnThisThread = serial;
++            }
++        }
++
++        static DMesh3 Build(double[,] v, int[,] t)
++        {
++            var m = new DMesh3();
++            for (int i = 0; i < v.GetLength(0); ++i) m.AppendVertex(new Vector3d(v[i, 0], v[i, 1], v[i, 2]));
++            for (int i = 0; i < t.GetLength(0); ++i) m.AppendTriangle(t[i, 0], t[i, 1], t[i, 2]);
++            return m;
++        }
++    }
++}
+diff --git a/tests/mutation/stryker-config.json b/tests/mutation/stryker-config.json
+index 9b3d39d..3244e34 100644
+--- a/tests/mutation/stryker-config.json
++++ b/tests/mutation/stryker-config.json
+@@ -8,7 +8,7 @@
+       "**/math/ExactPoint3.cs",
+       "**/math/AdaptivePredicates.cs"
+     ],
+-    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests|FullyQualifiedName~ExactOrient3dKernelTests",
++    "test-case-filter": "FullyQualifiedName~ExactPredicatesTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~PredicateDifferentialTests|FullyQualifiedName~ExactPoint3ConversionTests|FullyQualifiedName~ExactOrient3dKernelTests|FullyQualifiedName~GeneratedDoublePredicatesTests|FullyQualifiedName~ExactPredicatesBeyondRangeTests",
+     "ignore-methods": [ "*PredicateStats.*" ],
+     "coverage-analysis": "perTest",
+     "configuration": "Release",
+-- 
+2.43.0
+
