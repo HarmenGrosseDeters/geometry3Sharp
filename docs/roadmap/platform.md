@@ -87,7 +87,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scheduled workflows do not fire reliably** (found 2026-11-12): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
   has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
   2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
-  runs of the 3.0 process (#615) would depend on the same mechanism.
+  runs of the 3.0 process (#615) would depend on the same mechanism. Later on 2026-11-12 both fired, hours late:
+  `nightly.yml` started 09:57 UTC (green), `coverage.yml` its first scheduled run at 11:48 UTC (failed).
 - **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-11, open) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
@@ -105,6 +106,9 @@ Part of the [roadmap](../ROADMAP.md).
   line; seed master baselines for the new / never-seeded shards by workflow_dispatch right after #403. Later, with
   per-mutant data: two-tier tests / dropping test classes without exclusive kills; timeout ratio 1.1 / 5 s only after
   an A/B with identical survivor sets; larger runners are the owner's cost call.
+- **`Vector2d` / `Vector3d.IsFinite` (owner 2026-11-12):** corrected to a component-wise check (today it tests the sum
+  of the components, which overflows to infinity for large finite components); the fix is in work (branch
+  `fix/vector-isfinite-components`).
 - **Release:** no public package until the library "just works"; package ID and publishing open (the nuget.org ID
   `geometry3Sharp` belongs to upstream).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
@@ -293,9 +297,9 @@ and the test tiers and time limit (#447, the backlog program).
   #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), and the three bugfix PRs they led to: #655 (#647,
   `VoxelSurfaceGenerator` honours `MaxMeshElementCount`), #656 (#644, `ConvexHull2` is scale free: it works on a copy scaled by a power of
   two, also for an overflowing extent) and #657 (#645, only `QT_DOUBLE` and `QT_INT64` are supported, said in the comment and the
-  message). Open: #627 (T12 FPTaylor, draft) and #682 (`Similarity.All2D()`: the 2D tests use the similarities of the plane, see
-  QA.md, "Similarities").
-  Open `local` issues: #636 (repair time, F2), #637 (F5), #638 (F7). #628 was fixed by #634 (merged).
+  message), and #682 (37ee4a57, `Similarity.All2D()`: the 2D tests use the similarities of the plane, see QA.md,
+  "Similarities"). Open: #627 (T12 FPTaylor, ready for review) and #686 (MeshFuzzPilot third wave, draft).
+  Open `local` issues, each with a PR: #636 (repair time, F2; #703), #637 (F5; #687), #638 (F7; #688). #628 was fixed by #634 (merged).
 
 #### Test suite on German Windows
 

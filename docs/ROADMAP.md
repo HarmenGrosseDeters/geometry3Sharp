@@ -47,7 +47,7 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-12 (morning, Berlin).
+Status on 2026-11-12 (evening, Berlin).
 - **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3, counted as Exact Boolean 2.1, owner 2026-11-12; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
@@ -93,8 +93,9 @@ Status on 2026-11-12 (morning, Berlin).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #642, #643, #646, #648, #657 (#645), #655 (#647), #656 (#644); open PRs #627 (draft) and #682 (`Similarity.All2D()`, 2D tests on the similarities of the plane); open `local` issues #636-#638;
-  #628 fixed by #634.
+  #641, #642, #643, #646, #648, #657 (#645), #655 (#647), #656 (#644), #682 (37ee4a57, `Similarity.All2D()`, 2D tests on the similarities of the plane);
+  open PRs #627 (T12 FPTaylor, ready) and #686 (fuzz targets, third wave, draft); open `local` issues #636-#638, each with a
+  PR now (#703, #687, #688); #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
@@ -104,8 +105,9 @@ Status on 2026-11-12 (morning, Berlin).
   mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); the fix (only the shard's files are
   mutated) is in #615 (CI-speed session, open), with the 3.0 process (no full shards on PRs, scheduled full runs).
   [platform.md](roadmap/platform.md)
-- **Scheduled runs on GitHub are unreliable:** `coverage.yml` (cron 03:41 UTC) has no scheduled run yet, none on
-  2026-11-12; `nightly.yml` (cron 02:23 UTC) ran once on schedule (2026-11-11, started 09:36 UTC), none on 2026-11-12.
+- **Scheduled runs on GitHub are unreliable:** they fire hours late. `coverage.yml` (cron 03:41 UTC): first scheduled run
+  2026-11-12, started 11:48 UTC (failed); `nightly.yml` (cron 02:23 UTC): 2026-11-11 started 09:36 UTC, 2026-11-12 started
+  09:57 UTC (both green).
   [platform.md](roadmap/platform.md#open)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
@@ -115,7 +117,10 @@ Status on 2026-11-12 (morning, Berlin).
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 2
   merged (#448), intersection-free dual contouring options A and B merged (#552, #572), point clouds step C1 merged (#580);
-  the CLI / MCP update is still queued.
+  the batch-query caller switches closed (#678, nothing switched); the CLI / MCP update in progress (see Next / queued).
+- **Test time:** the backlog session works off SLOW_BACKLOG.txt (#668, #680 merged; #691, #699, #700, #704 open). Owner
+  2026-11-12: a test above 20 s in any run is a potential defect and gets an issue (#692-#698); the 5 s / 10 s rule is
+  judged on the isolated re-run time (#685, open). [platform.md](roadmap/platform.md)
 - **Terrain:** closed out (owner 2026-11-09): DGM reader / writer, grid TIN (#491, #504), `g3cli` `dgm` / `dgm_tin`
   (#506), cell volumes (#507), mutation score (#508); the rest is parked until a use case. [terrain.md](roadmap/terrain.md#open)
 
