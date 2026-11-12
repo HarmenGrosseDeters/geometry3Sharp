@@ -263,20 +263,45 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // the wall-clock timeout itself (Timed.Finishes): a call that blocks past the limit counts, one that ends does not
+        // the wall-clock timeout itself (Timed.Finishes) and the wall-clock budget: a call that blocks past the limit counts, one
+        // that ends does not. Only the call with fewer than 3 triangles blocks, so the count of timeouts is exactly the count of
+        // blocked calls (a fast call counted as timed out on a loaded machine would make Timeouts exceed Hangs: the limit is
+        // generous, 2 s, but the equality is only asserted with MaxTimeouts = 1, where the run stops at the first timeout)
         [Fact]
         public void WallClockTimeout_CountsOnlyTheCallsThatDoNotEnd()
         {
             DMesh3 m = Defects.ByName("open sheet").Make();
             foreach (int t in m.TriangleIndices().Skip(6).ToList()) m.RemoveTriangle(t);
             var release = new ManualResetEventSlim(false);
+            int hangs = 0, smallest = int.MaxValue;
             try {
-                Func<DMesh3, bool> fails = x => { if (x.TriangleCount < 3) release.Wait(); return true; };
-                var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromSeconds(1), MaxTimeouts = 1, SimplifyCoordinates = false };
+                Func<DMesh3, bool> fails = x => {
+                    lock (release) smallest = Math.Min(smallest, x.TriangleCount);
+                    if (x.TriangleCount < 3) { Interlocked.Increment(ref hangs); release.Wait(); }
+                    return true;
+                };
+                var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromSeconds(2), MaxTimeouts = 1, SimplifyCoordinates = false };
                 var r = MeshMinimizer.Minimize(m, fails, options);
                 Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
                 Assert.Equal(1, r.Timeouts);
+                Assert.Equal(1, hangs);             // the one timeout is the blocked call, not a fast one
+                Assert.True(smallest < 3, "the blocking case was reached");
+                Assert.True(r.Mesh.TriangleCount >= 3);
             } finally { release.Set(); }
+        }
+
+        // the default clock of the budget (Stopwatch): each call takes 60 ms, the budget is 100 ms, the run has far more calls
+        // than that. A slower machine only stops it earlier
+        [Fact]
+        public void TimeBudget_DefaultClock_StopsTheRun()
+        {
+            DMesh3 m = SphereWithDuplicate();
+            int calls = 0;
+            var r = MeshMinimizer.Minimize(m, x => { Interlocked.Increment(ref calls); Thread.Sleep(60); return HasCoincidentPair(x); },
+                new MinimizeOptions() { TimeBudget = TimeSpan.FromMilliseconds(100) });
+            Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
+            Assert.InRange(calls, 1, 6);
+            Assert.True(r.Elapsed >= TimeSpan.FromMilliseconds(100), r.Elapsed.ToString());
         }
 
         // the time budget on a clock the test advances: the run stops with a failing, reduced result
