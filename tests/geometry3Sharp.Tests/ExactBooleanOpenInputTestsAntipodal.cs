@@ -20,7 +20,10 @@ namespace geometry3Sharp.Tests
         // TwoOpenSpheres_Similarities, DuplicatesAndFans: 42 of the 51 million terms of this class at 20). The terms grow with
         // the pieces times the boundary segments, about the cube of the resolution, and under Stryker's coverage capture the class
         // took 94 minutes (tests/mutation/README.md, "Coverage pass"); at 8 these tests have 14 to 17 times fewer terms and the
-        // same assertions, rim differences of the two open spheres included.
+        // same assertions, rim differences of the two open spheres included. 8 is a working point, not a monotone parameter: at 10
+        // the three "two open spheres" rows of SameResultAsFastWinding fail "no differing triangle checked", the check that the
+        // comparison is not blind (at that resolution the fast winding numbers happen not to err near the rims, so there is no
+        // differing triangle to compare); AssertDifferencesDecidedAsDirectSum and the other assertions hold there.
         const int Coarse = 8;
 
         // a unit sphere with the cap above capZ (relative to its centre) removed; capZ above 1 keeps it closed
