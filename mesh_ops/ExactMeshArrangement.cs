@@ -264,6 +264,8 @@ namespace g3
         internal long LocalFilterDecided;
         /// <summary> points converted to local coordinates for that filter (LocalPoints) </summary>
         internal long LocalFilterPoints;
+        /// <summary> Orient calls of the triangulation decided 0 by the points' constructions (LocalPoints.CollinearByConstruction) </summary>
+        internal long ConstructionZeros;
         /// <summary> for tests: the local filter of the triangulation (LocalPoints) on; off gives the same results </summary>
         internal bool LocalFilters = true;
         /// <summary> points that were merged because different constructions gave the same point </summary>
@@ -1447,6 +1449,67 @@ namespace g3
             public long Decided;
             /// <summary> points converted </summary>
             public int Count { get { return points == null ? 0 : points.Count; } }
+            /// <summary> Orient calls that CollinearByConstruction decided (0) </summary>
+            public long Zeros;
+            // (per plane key: whether that plane meets the triangle's plane in a line, exactly)
+            Dictionary<int, bool> cuts;
+
+            /// <summary>
+            /// p, q, r collinear by their constructions (sufficient, not necessary): all three lie on one plane K that
+            /// meets the triangle's plane in a line (every point of the triangle's arrangement lies in its plane, so they
+            /// lie on that line), or all three on the line of one of the triangle's edges. A point lies on K by
+            /// construction if K is one of the planes it was constructed from (Planes: three planes, EdgePlane: the plane
+            /// and, through the edge's ends, the planes of the triangles they are corners of), or it is a corner of the
+            /// triangle whose plane is K. Exact: then Orient is 0, without arithmetic on the points
+            /// </summary>
+            public bool CollinearByConstruction(int p, int q, int r)
+            {
+                int tp = arr.CanonicalPlane(4 * t.Index);
+                for (int n = 0; n < 3; ++n) {
+                    PointKey key = arr.keys[arr.Canonical(n == 0 ? p : n == 1 ? q : r)];
+                    if (key.Kind == PointKind.Planes) {
+                        if (on_common((int)key.A, tp, p, q, r) || on_common((int)key.B, tp, p, q, r) || on_common((int)key.C, tp, p, q, r))
+                            return true;
+                    } else if (key.Kind == PointKind.EdgePlane) {
+                        if (on_common((int)key.B, tp, p, q, r))
+                            return true;
+                    }
+                }
+                Index3i c = t.Corners;
+                for (int k = 0; k < 3; ++k) {
+                    int a = c[k], b = c[(k + 1) % 3];
+                    if (on_edge(p, a, b) && on_edge(q, a, b) && on_edge(r, a, b))
+                        return true;
+                }
+                return false;
+            }
+
+            bool on_common(int plane, int tp, int p, int q, int r)
+            {
+                plane = arr.CanonicalPlane(plane);
+                if (plane == tp || arr.OnPlaneByConstruction(p, plane) == false || arr.OnPlaneByConstruction(q, plane) == false
+                    || arr.OnPlaneByConstruction(r, plane) == false)
+                    return false;
+                if (cuts == null)
+                    cuts = new Dictionary<int, bool>();
+                bool v;
+                if (cuts.TryGetValue(plane, out v) == false) {
+                    // (the normals not parallel: the cross product of the exact normals is not 0)
+                    Plane P = t.P, K = arr.PlaneOf(plane);
+                    v = (P.B * K.C - P.C * K.B).IsZero == false || (P.C * K.A - P.A * K.C).IsZero == false || (P.A * K.B - P.B * K.A).IsZero == false;
+                    cuts[plane] = v;
+                }
+                return v;
+            }
+
+            // x on the line of the triangle's edge a-b by its construction: a corner of it, or constructed on that edge
+            bool on_edge(int x, int a, int b)
+            {
+                if (x == a || x == b)
+                    return true;
+                PointKey key = arr.keys[arr.Canonical(x)];
+                return key.Kind == PointKind.EdgePlane && key.A == EdgeKey(a, b);
+            }
 
             public LocalPoints(ExactMeshArrangement arr, InputTriangle t)
             {
@@ -1486,6 +1549,32 @@ namespace g3
             static bool tiny(double v) { return v != 0 && Math.Abs(v) < 1e-290; }
         }
 
+        /// <summary>
+        /// point id lies on plane (a canonical plane key) by its construction (sufficient, not necessary): Planes with that
+        /// plane among its three, EdgePlane with that plane or with both ends of its edge on it, an input point that is a
+        /// corner of the triangle whose plane it is. Exact: a constructed point lies exactly on the planes it was
+        /// constructed from, a corner on its triangle's plane, and an edge with both ends on a plane lies in it
+        /// </summary>
+        internal bool OnPlaneByConstruction(int id, int plane)
+        {
+            PointKey key = keys[Canonical(id)];
+            switch (key.Kind) {
+                case PointKind.Planes:
+                    return key.A == plane || key.B == plane || key.C == plane;
+                case PointKind.EdgePlane:
+                    return key.B == plane || (OnPlaneByConstruction((int)(key.A >> 32), plane) && OnPlaneByConstruction((int)(key.A & 0xFFFFFFFF), plane));
+                case PointKind.Input: {
+                    if ((plane & 3) != 0)
+                        return false;
+                    Index3i c = Triangles[plane >> 2].Corners;
+                    int x = Canonical(id);
+                    return Canonical(c.a) == x || Canonical(c.b) == x || Canonical(c.c) == x;
+                }
+                default:
+                    return false;
+            }
+        }
+
         /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
         [MethodImpl(JitHints.Optimize)]
         public int Orient(InputTriangle t, int p, int q, int r)
@@ -1517,7 +1606,13 @@ namespace g3
             }
             if (ra > 0 && rb > 0 && rc > 0)
                 return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
-            // (the local filter only before the BigInteger stage: the stages above cost less than the conversion)
+            // (in the triangulation, before the BigInteger stage: points collinear by their constructions, the points on a
+            // segment or on an edge of the triangle, give 0 without arithmetic; then the local filter, which the stages
+            // above beat: they cost less than the conversion)
+            if (local != null && local.CollinearByConstruction(p, q, r)) {
+                local.Zeros++;
+                return 0;
+            }
             Vector3d lp, lq, lr;
             if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr)) {
                 double err;
@@ -2507,6 +2602,7 @@ namespace g3
             if (local != null) {
                 System.Threading.Interlocked.Add(ref LocalFilterDecided, local.Decided);
                 System.Threading.Interlocked.Add(ref LocalFilterPoints, local.Count);
+                System.Threading.Interlocked.Add(ref ConstructionZeros, local.Zeros);
             }
             foreach (Index3i f in tri.Triangles())
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });

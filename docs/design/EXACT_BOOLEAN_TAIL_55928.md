@@ -31,6 +31,7 @@ Difference, 4 cores, the same container, nothing else running (`profile --repeat
 | this stage: L2 with the local frame (a5227166) | 454 s | 262 s | 163 s | 25 s | 61550C3C2F352E72 |
 | this stage: L3 step 1, the local filter of the triangulation | 421 s | 275 s | 117 s | 24 s | 61550C3C2F352E72 |
 | this stage: L2, the centroids from their corners in the frame | 425 s | 254 s | 128 s | 30 s | 61550C3C2F352E72 |
+| this stage: L3 step 2, Orient's zeros from the constructions | 370 s | 224 s | 116 s | 25 s | 61550C3C2F352E72 |
 
 The result is the same. Classification is 1.98 times slower on master. Both operands are open and have 133 boundary
 segments each, so since 98def50f (open operands classified per piece) and d458662c (the Antipodal Method) every piece
@@ -375,6 +376,32 @@ Tests (`ExactMeshBooleanTestsLocalFilter`):
   bound the filter decides them wrongly.
 - Similarity invariance, serial against parallel, reuse.
 
+**Step 2, Orient's zeros from the constructions (`LocalPoints.CollinearByConstruction`, bit-identical).** Counted on
+55928 by phase (the Orient calls past the first filter): 13.84M exact zeros in the segment phase (a candidate point on
+the segment), 2.74M in the point insertion, 2.61M in the constraint insertion, 1.50M before the triangulation. Of the
+segment phase's, 13.37M (97 %) lie on the segment's line by their constructions, and none of those had a non-zero
+value. The test, in the triangulation's Orient right before the local filter and the BigInteger stage:
+- A point lies on a plane K by construction if K is one of its planes (Planes: three; EdgePlane: its plane, and the
+  planes on which both ends of its edge lie), or if it is a corner of the triangle whose plane K is
+  (`ExactMeshArrangement.OnPlaneByConstruction`; plane keys canonical, merged points by their representative's key).
+  It is then exactly on K: a constructed point lies on its planes, a corner on its triangle's plane, and an edge with
+  both ends on K in K.
+- Every point of a triangle's arrangement lies in its plane. If three of them lie on a plane K that meets that plane in
+  a line, they are collinear and Orient is 0. "Meets in a line" is checked exactly, once per K and triangle: the cross
+  product of the two normals is not 0. Without that check, a plane coplanar with the triangle under its own key
+  (`ShareCoplanarConstructions` off, or coplanar planes not shared) would make any three points of it "collinear".
+- Also three points on one of the triangle's edges (its corners, and EdgePlane points of that edge).
+- The test is sufficient, not necessary: where it does not apply, the filters and the exact stage decide as before.
+
+Measured, Difference, 4 cores:
+- 55928: 9.0M zeros so decided (those that reached the BigInteger stage), triangulation 116 s (117-128 s in the runs of
+  the step before), triangulation allocations 117 -> 104 GB, hash 61550C3C2F352E72 unchanged.
+- Knot benchmark: triangulation allocations 1.3 -> 0.7 GB (points converted for the local filter 219k -> 176), hash
+  unchanged.
+
+Tests: the constructions' zeros against the exact stage (the segment triples of the densest triangles), a plane
+coplanar with the triangle under its own key not taken as evidence, the counts. Mutants of each case killed.
+
 **The GC and the bit sizes (measured on 55928, after step 1).**
 
 GC upper bound, Difference, 4 cores, 263 GB allocated in both configurations. The second configuration is runtime
@@ -397,9 +424,7 @@ Bit sizes of the exact points, and why the fixed width (4 limbs, 2^255 per compo
   Orient on the larger points takes about 875 bits and InCircle about 3,300.
 
 **Next, by the counts above.**
-- The exact zeros of Orient (20.7M, collinear points of the segments: a candidate on a segment, the walk along a
-  constraint). The points of a segment are constructed on its line, so the zero can be read from the construction
-  (the point's planes include the line's), without arithmetic. A sufficient test, the exact stage otherwise.
+- The exact zeros of Orient: step 2 above.
 - The InCircle stages that the local filter leaves (13.0M, nearly cocircular quadruples of the Delaunay flips): an
   adaptive stage, the differences to the fourth point first.
 - Only then fixed-width limbs for the larger implicit points, and the dictionaries.

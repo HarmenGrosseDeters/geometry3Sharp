@@ -54,12 +54,15 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, off.Counts["l3_local_decided"]);
             Assert.Equal(0, off.Counts["l3_local_points"]);
             Assert.True(Invariance.AllFinite(on.Result));
-            // the BigInteger stage is reached (the local points are converted) either way; the local filter decides only
-            // where the first filter's absolute errors exceed the points' distances (the near copy, 1e4 and more here),
-            // not in the plain knot, where the exact stages are true zeros
-            Assert.True(on.Counts["l3_local_points"] > 1000, $"{on.Counts["l3_local_points"]} local points");
-            if (angle < 1e-3)
+            Assert.Equal(0, off.Counts["l3_construction_zeros"]);
+            // the BigInteger stage is reached either way. In the plain knot its Orient calls are true zeros, collinear
+            // points of the segments, which the constructions decide (no point converted); the local filter decides
+            // where the first filter's absolute errors exceed the points' distances (the near copy, 1e4 and more here)
+            Assert.True(on.Counts["l3_construction_zeros"] > 1000, $"{on.Counts["l3_construction_zeros"]} construction zeros");
+            if (angle < 1e-3) {
+                Assert.True(on.Counts["l3_local_points"] > 1000, $"{on.Counts["l3_local_points"]} local points");
                 Assert.True(on.Counts["l3_local_decided"] > 5000, $"{on.Counts["l3_local_decided"]} decided");
+            }
         }
 
         [Fact]
@@ -77,6 +80,7 @@ namespace geometry3Sharp.Tests
                 (byTriangle.TryGetValue(ot.Source, out var l) ? l : (byTriangle[ot.Source] = new List<ExactMeshArrangement.OutputTriangle>())).Add(ot);
             var rand = new Random(7);
             int zeros = 0, decided = 0, tested = 0;
+            long constructionZeros = 0;
             foreach (int ti in byTriangle.Keys.OrderByDescending(k => byTriangle[k].Count).ThenBy(k => k).Take(6)) {
                 var t = arr.Triangles[ti];
                 var local = new ExactMeshArrangement.LocalPoints(arr, t);
@@ -94,6 +98,7 @@ namespace geometry3Sharp.Tests
                             zeros++;
                             Assert.Equal(before, local.Decided);
                         }
+                        // (the triples of a segment's ends and a point on it: zeros by their constructions)
                         tested++;
                     }
                 }
@@ -123,7 +128,9 @@ namespace geometry3Sharp.Tests
                     tested++;
                 }
                 decided += (int)local.Decided;
+                constructionZeros += local.Zeros;
             }
+            Assert.True(constructionZeros > 50, $"{constructionZeros} zeros by the constructions");
             Assert.True(zeros > 100, $"{zeros} collinear triples");
             Assert.True(decided > tested / 10, $"{decided} of {tested} decided by the local filter");
         }
@@ -179,6 +186,45 @@ namespace geometry3Sharp.Tests
             arr.DisableFilters = true;
             Assert.Equal(-o012, arr.InCircle(t, p0, p1, p2, q));
             Assert.Equal(o012, arr.Orient(t, p0, p1, p2));
+        }
+
+        [Fact]
+        public void ConstructionZeros_NotFromAPlaneParallelToTheTriangle()
+        {
+            // a triangle t, a coplanar one u whose plane keeps its own key (ShareCoplanarConstructions off), and three
+            // vertical triangles: the points of u's plane and two of the vertical planes all lie on u's plane, which is
+            // t's, but they are not collinear; a plane shared by three points is evidence of collinearity only where it
+            // meets t's plane in a line. And three points of one vertical plane are collinear (on its line in t)
+            var mesh = new DMesh3();
+            Func<Vector3d, Vector3d, Vector3d, int> tri = (a, b, c) => mesh.AppendTriangle(mesh.AppendVertex(a), mesh.AppendVertex(b), mesh.AppendVertex(c));
+            tri(new Vector3d(0, 0, 0), new Vector3d(10, 0, 0), new Vector3d(0, 10, 0));        // t
+            tri(new Vector3d(1, 1, 0), new Vector3d(9, 1, 0), new Vector3d(1, 9, 0));          // u, coplanar
+            // (the vertical planes meet u's plane outside t and u: their points there are new, constructed with u's plane)
+            tri(new Vector3d(12, -5, -5), new Vector3d(12, 40, -5), new Vector3d(12, 0, 40));      // x = 12
+            tri(new Vector3d(-5, 12, -5), new Vector3d(40, 12, -5), new Vector3d(0, 12, 40));      // y = 12
+            tri(new Vector3d(30, 0, -5), new Vector3d(0, 30, -5), new Vector3d(15, 15, 40));       // x + y = 30
+            tri(new Vector3d(-5, 20, -5), new Vector3d(40, 20, -5), new Vector3d(0, 20, 40));      // y = 20
+            var arr = new ExactMeshArrangement(new List<DMesh3>() { mesh }) { SelfIntersections = true, ShareCoplanarConstructions = false };
+            arr.Compute();
+            var t = arr.Triangles[0];
+            int pu = 4 * 1, px = 4 * 2, py = 4 * 3, pd = 4 * 4, p6 = 4 * 5;
+            Assert.Equal(6, arr.Triangles.Count);
+            Assert.NotEqual(arr.CanonicalPlane(4 * 0), arr.CanonicalPlane(pu));
+            int a = arr.PlanesPointImplicit(pu, px, py), b = arr.PlanesPointImplicit(pu, px, pd), c = arr.PlanesPointImplicit(pu, py, pd);
+            var local = new ExactMeshArrangement.LocalPoints(arr, t);
+            // (constructed with u's plane: the case the guard is for)
+            Assert.True(arr.OnPlaneByConstruction(a, pu) && arr.OnPlaneByConstruction(b, pu) && arr.OnPlaneByConstruction(c, pu));
+            Assert.False(local.CollinearByConstruction(a, b, c));
+            Assert.NotEqual(0, arr.Orient(t, a, b, c, local));
+            arr.DisableFilters = true;
+            Assert.NotEqual(0, arr.Orient(t, a, b, c));
+            arr.DisableFilters = false;
+            // (on x = 12: (12, 12), (12, 18), (12, 20), from u's plane and x = 12 with another plane each)
+            int d = arr.PlanesPointImplicit(pu, px, p6);
+            Assert.True(local.CollinearByConstruction(a, b, d));
+            Assert.Equal(0, arr.Orient(t, a, b, d, local));
+            arr.DisableFilters = true;
+            Assert.Equal(0, arr.Orient(t, a, b, d));
         }
 
         [Theory]

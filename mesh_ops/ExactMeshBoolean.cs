@@ -593,6 +593,7 @@ namespace g3
             // (L3: the triangulation's local filter, points converted and exact stages decided)
             Counts["l3_local_points"] = arr.LocalFilterPoints;
             Counts["l3_local_decided"] = arr.LocalFilterDecided;
+            Counts["l3_construction_zeros"] = arr.ConstructionZeros;
 
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             bool[] keep, flip;
