@@ -1,0 +1,11 @@
+crash-81de73cb06453617 op 5 (rounding-repair)             n= 8 mag=2^ -111.9 minMeshExt/mag=2^-906.1 subnormal=False -> out
+timeout-04c8c2d6e89877 op 3 (robust-repair)               n= 4 mag=2^  -96.0 minMeshExt/mag=2^   0.0 subnormal=False -> IN
+timeout-260b3056740eee op 4 (robust-repair-soup)          n=16 mag=2^  -75.9 minMeshExt/mag=2^  -2.1 subnormal=False -> IN
+timeout-4a9dcc676c0f22 op 3 (robust-repair)               n= 8 mag=2^ -113.6 minMeshExt/mag=2^   0.0 subnormal=False -> IN
+timeout-555e541bc6b908 op 4 (robust-repair-soup)          n=16 mag=2^  -75.9 minMeshExt/mag=2^  -2.1 subnormal=False -> IN
+timeout-583f325a78143a op 3 (robust-repair)               n= 8 mag=2^   96.7 minMeshExt/mag=2^   0.0 subnormal=False -> IN
+timeout-87e50945dcfa84 op 3 (robust-repair)               n= 4 mag=2^ -100.0 minMeshExt/mag=2^   0.0 subnormal=False -> IN
+timeout-a94b939639c35b op 4 (robust-repair-soup)          n=16 mag=2^   80.5 minMeshExt/mag=2^  -inf subnormal=False -> out
+timeout-bbf0c87a36bdbb op 4 (robust-repair-soup)          n=16 mag=2^  -75.2 minMeshExt/mag=2^  -2.8 subnormal=False -> IN
+timeout-d01cd908fbf805 op 4 (robust-repair-soup)          n=20 mag=2^  -96.0 minMeshExt/mag=2^ -18.4 subnormal=False -> IN
+timeout-ea8c9383021b50 op 4 (robust-repair-soup)          n=14 mag=2^ -103.9 minMeshExt/mag=2^  -inf subnormal=False -> out

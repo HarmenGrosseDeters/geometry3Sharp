@@ -1,0 +1,5 @@
+op 5 (rounding-repair): A 4 v / 4 t, B 4 v / 4 t
+Unhandled exception. MeshFuzzPilot.Program+Finding: op 5 (rounding-repair): A 4 v / 4 t, B 4 v / 4 t: IsClean but 8 degenerate triangles (at the rounding's scale)
+   at MeshFuzzPilot.Program.CheckRounding(String what, Boolean clean, Boolean isClean, DMesh3 mesh, Double maxDrift, Double maxLength, Boolean inputClosed) in /src/tools/MeshFuzzPilot/Program.cs:line 369
+   at MeshFuzzPilot.Program.Run(Case c) in /src/tools/MeshFuzzPilot/Program.cs:line 446
+   at MeshFuzzPilot.Program.Main(String[] args) in /src/tools/MeshFuzzPilot/Program.cs:line 556

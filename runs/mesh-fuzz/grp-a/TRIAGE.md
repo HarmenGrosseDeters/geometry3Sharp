@@ -59,7 +59,13 @@ Exact Boolean 3.0 queue.
 
 ## slow-unit-* (60)
 
-Replayed one by one with a stopwatch (`slow-timing.txt`, replay text not kept). All 60 pass (rc 0, no finding) and all
-take more than 5 s: 12 s to 35 s. The timing ran while three fuzz workers ran on the same VM, so the numbers are high. A
-clean re-timing on an idle machine is still to do before a performance claim. The units are the same operations as
-above, so they go to the same queue as one performance item.
+Replayed one by one with a stopwatch, replay text not kept. First timing (`slow-timing.txt`) ran while three fuzz
+workers ran on the same VM: 12 s to 35 s, too high. Re-timed on the idle machine after grp-b (`slow-timing-idle.txt`,
+including about 0.2 s .NET start): all 60 pass (rc 0), 59 above 5 s; union 47 units 4.7 to 16.4 s, intersection 12 units
+6.8 to 12.7 s, difference 1 unit 6.7 s. The same operations as the timeout above, so one performance item: #711.
+
+## Issues
+
+- #710: item 2 (ExactTriangulation2 exception).
+- #711: item 3 and the slow units (performance).
+- Item 1: known class (FINDINGS.md 5a), no new issue.

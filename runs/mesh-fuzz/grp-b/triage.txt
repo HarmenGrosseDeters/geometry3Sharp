@@ -1,0 +1,12 @@
+crash-81de73cb06453617f1e5a3c2ca759d67ddffe19b 211 ms rc=134 | op 5 (rounding-repair): A 4 v / 4 t, B 4 v / 4 t | Unhandled exception. MeshFuzzPilot.Program+Finding: op 5 (rounding-repair): A 4 v / 4 t, B 4 v / 4 t: IsClean but 8 degenerate triangles (at the rounding's scale)
+timeout-04c8c2d6e89877f60415510aa2b1f505fd2aa8d9 5569 ms rc=0 | op 3 (robust-repair): A 4 v / 4 t, B 4 v / 4 t | 
+timeout-260b3056740eee2d1ac3ccb85475e07ac7e67dc9 14459 ms rc=0 | op 4 (robust-repair-soup): A 8 v / 10 t, B 8 v / 10 t | 
+timeout-4a9dcc676c0f22c34ed9276963e338ce5f84f87a 11280 ms rc=0 | op 3 (robust-repair): A 8 v / 10 t, B 4 v / 4 t | 
+timeout-555e541bc6b908df9ca0c90aa2b2c2e2d19ee78e 52283 ms rc=0 | op 4 (robust-repair-soup): A 8 v / 10 t, B 8 v / 10 t | 
+timeout-583f325a78143ab5e893098e83434646b5f6d3a4 6244 ms rc=0 | op 3 (robust-repair): A 8 v / 8 t, B 4 v / 4 t | 
+timeout-87e50945dcfa844b15c39026b54879131894efa8 5342 ms rc=0 | op 3 (robust-repair): A 4 v / 4 t, B 4 v / 4 t | 
+timeout-a94b939639c35bc7ba5b767e5329bb22b15dca23 17575 ms rc=0 | op 4 (robust-repair-soup): A 8 v / 8 t, B 8 v / 10 t | 
+timeout-bbf0c87a36bdbbd7475e7b047a9e8c4187d6bb0e 8403 ms rc=0 | op 4 (robust-repair-soup): A 8 v / 10 t, B 8 v / 10 t | 
+timeout-d01cd908fbf805c349bc696467b6b537712de524 5596 ms rc=0 | op 4 (robust-repair-soup): A 16 v / 24 t, B 4 v / 4 t | 
+timeout-ea8c9383021b502a82d70eb7f3c056b31b5ce04f 10405 ms rc=0 | op 4 (robust-repair-soup): A 6 v / 8 t, B 8 v / 10 t | 
+DONE
