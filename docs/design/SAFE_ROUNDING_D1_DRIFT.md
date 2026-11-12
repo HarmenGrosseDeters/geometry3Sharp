@@ -491,7 +491,9 @@ builds it. What exists and what is left:
   an added triangle is written after the edit by `FindTriangle`, in the mesh's corner order.
 - `SmallestRejectedDrift` and the moves past the evaluation limit: `MeshRoundingRepairIncrementalTests.
   PastTheLimit_SameAsProposingInFull` compares the shortcut with the full proposal, so `move_bound` must compute
-  exactly what `proposed_drift` computes for a move (the same maxima of the same doubles).
+  exactly what `proposed_drift` computes for a move (the same maxima of the same doubles). (Since the stop at the
+  limit, owner 2026-11-12, no edit is proposed past the limit: the shortcut and `move_bound` are gone, the test is
+  `AtTheLimit_Stops_SameMeshAsProposingOn`, and every drift comes from `proposed_drift`.)
 - Results are not bit-identical to the apex rule's even without a rejected edit in rare cases: the two rules compute
   different expressions (section 3.3).
 - The measured distance has a floor of about 0.002 of the bound (section 5); compare with a slack.

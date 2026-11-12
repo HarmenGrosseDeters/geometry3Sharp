@@ -139,6 +139,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Execute_SteinerLimitHit_IsReported_AndOnlyThen()
+        {
+            // the ALKIS sample records the limit hits: the line appears when the mesher stopped at the limit, never otherwise
+            string dir = TempDir();
+            string poly = Path.Combine(dir, "l.poly");
+            File.WriteAllText(poly, "4 2 0 0\n1 0 0\n2 10 0\n3 10 1\n4 0 1\n4 0\n1 1 2\n2 2 3\n3 3 4\n4 4 1\n0\n");
+            var (exit, stdout, stderr) = Execute("--input", poly, "--output", Path.Combine(dir, "free.txt"), "--min-angle", "30", "--no-oracle");
+            Assert.True(exit == 0, stdout + stderr);
+            Assert.DoesNotContain("steiner_limit_reached", stdout);
+            (exit, stdout, stderr) = Execute("--input", poly, "--output", Path.Combine(dir, "capped.txt"), "--min-angle", "30", "--steiner-limit", "1", "--no-oracle");
+            Assert.True(exit == 0, stdout + stderr);
+            Assert.Contains("steiner_limit_reached true", stdout);
+        }
+
+        [Fact]
         public void Execute_NoOracle_WritesTheMeshWithoutJudging()
         {
             // timing the mesher alone: the same mesh is written, nothing is judged or compared, exit 0; the times are printed either way
