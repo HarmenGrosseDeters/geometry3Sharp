@@ -45,7 +45,7 @@ namespace geometry3Sharp.Tests
         }
 
         static Vector2d Grid(Random rng, int range = 12) => new Vector2d(rng.Next(range) / 8.0, rng.Next(range) / 8.0);
-        static Vector2d Place(Vector2d p, int e, double shift) => new Vector2d(Math.ScaleB(p.x, e) + shift, Math.ScaleB(p.y, e) + shift);
+        static Vector2d Place(Vector2d p, int e, double shift) => new Vector2d(ExactPoint3.ScaleB(p.x, e) + shift, ExactPoint3.ScaleB(p.y, e) + shift);
         static AxisAlignedBox2d Box(Vector2d a, Vector2d b) =>
             new AxisAlignedBox2d(new Vector2d(Math.Min(a.x, b.x), Math.Min(a.y, b.y)), new Vector2d(Math.Max(a.x, b.x), Math.Max(a.y, b.y)));
 
@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
             var rng = new Random(2026111601);
             int hits = 0, misses = 0;
             foreach (int e in Exponents)
-                foreach (double shift in new[] { 0.0, Math.ScaleB(1.0, e + 4) })
+                foreach (double shift in new[] { 0.0, ExactPoint3.ScaleB(1.0, e + 4) })
                     for (int i = 0; i < 400; ++i) {
                         Vector2d a = Place(Grid(rng), e, shift), b = i % 7 == 0 ? a : Place(Grid(rng), e, shift);
                         AxisAlignedBox2d box = Box(Place(Grid(rng), e, shift), Place(Grid(rng), e, shift));

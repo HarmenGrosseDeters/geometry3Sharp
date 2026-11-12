@@ -61,11 +61,11 @@ namespace geometry3Sharp.Tests
         }
 
         static List<Vector2d> Place(List<Vector2d> pts, int e, double shift) =>
-            pts.Select(p => new Vector2d(Math.ScaleB(p.x, e) + shift, Math.ScaleB(p.y, e) + shift)).ToList();
+            pts.Select(p => new Vector2d(ExactPoint3.ScaleB(p.x, e) + shift, ExactPoint3.ScaleB(p.y, e) + shift)).ToList();
 
         static readonly int[] Exponents = { -40, 0, 30, 300 };
 
-        static double Eps(int e) => Math.ScaleB(1e-12, Math.Min(e, 0));
+        static double Eps(int e) => ExactPoint3.ScaleB(1e-12, Math.Min(e, 0));
 
         [Fact]
         public void Double_HullEqualsTheExactChain_AndContainsEveryPoint()
@@ -75,7 +75,7 @@ namespace geometry3Sharp.Tests
             foreach (Family fam in new[] { Family.Random, Family.Grid })
                 foreach (int e in Exponents)
                     foreach (bool moved in new[] { false, true }) {
-                        List<Vector2d> pts = Place(Points(fam, 40, rng), e, moved ? Math.ScaleB(1.0, e + 6) : 0);
+                        List<Vector2d> pts = Place(Points(fam, 40, rng), e, moved ? ExactPoint3.ScaleB(1.0, e + 6) : 0);
                         List<Vector2d> chain = Chain(pts);
                         var hull = new ConvexHull2(pts, Eps(e), QueryNumberType.QT_DOUBLE);
                         Assert.Equal(2, hull.Dimension);
@@ -112,7 +112,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(Extreme(a).SetEquals(Extreme(b)), $"{fam}: the hull depends on the order of the points");
                 foreach (int e in new[] { -30, 100 }) {
                     HashSet<Vector2d> s = Ring(Place(pts, e, 0), Eps(e), QueryNumberType.QT_DOUBLE);
-                    Assert.True(Extreme(s).SetEquals(Extreme(a).Select(p => new Vector2d(Math.ScaleB(p.x, e), Math.ScaleB(p.y, e)))), $"{fam} 2^{e}: not the scaled hull");
+                    Assert.True(Extreme(s).SetEquals(Extreme(a).Select(p => new Vector2d(ExactPoint3.ScaleB(p.x, e), ExactPoint3.ScaleB(p.y, e)))), $"{fam} 2^{e}: not the scaled hull");
                 }
             }
         }
@@ -152,7 +152,7 @@ namespace geometry3Sharp.Tests
                     int[] idx = hull.HullIndices;
                     Assert.True(idx.Length >= 3 && idx.Length == idx.Distinct().Count() && idx.All(i => i >= 0 && i < pts.Count), $"{fam} 2^{e} {q}: bad indices");
                     var ring = idx.Select(i => pts[i]).ToList();
-                    double tol = Math.ScaleB(1e-5, e);      // the integer modes quantize to 2^20 / 2^24 cells of the extent
+                    double tol = ExactPoint3.ScaleB(1e-5, e);      // the integer modes quantize to 2^20 / 2^24 cells of the extent
                     for (int k = 0; k < ring.Count; ++k) {
                         Vector2d a = ring[k], b = ring[(k + 1) % ring.Count];
                         Vector2d d = b - a;
