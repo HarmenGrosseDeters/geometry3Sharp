@@ -289,7 +289,9 @@ namespace gs
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                 return false;
             if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success) {
-                Status = refine_non_manifold();
+                // (the confirming full trial of this pass is left to the pass after the quality refinement, which runs then)
+                skippedConfirm = false;
+                Status = refine_non_manifold(!(SkipFirstConfirm && RefineMinAngleDegrees > 0));
                 end_phase("wrap.pinches");
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                     return false;
@@ -303,7 +305,7 @@ namespace gs
                 end_phase("wrap.quality");
                 if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                     return false;
-                if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success && Counts["quality_points"] > 0) {
+                if (MakeManifold && (RefineNonManifold || forceRefineNonManifold) && Status == WrapStatus.Success && (Counts["quality_points"] > 0 || skippedConfirm)) {
                     Status = refine_non_manifold();
                     end_phase("wrap.pinches2");
                     if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
@@ -853,7 +855,17 @@ namespace gs
         //     facet's circumradius is at least that much: the point is the center of an empty ball through the facet's
         //     vertices, at least as large as the facet's circumcircle.
         // Terminates: at most MaxNonManifoldRounds rounds, each inserts at least one point or ends the loop.
-        WrapStatus refine_non_manifold()
+        /// <summary>
+        /// (tests) the pinch refinement before the quality refinement ends without the full trial that confirms a local trial
+        /// which found nothing (Alpha Wrap 3.0 lever 4): the pinch refinement after the quality refinement runs then (also
+        /// without quality points) and confirms with a full trial, whose labels the manifold step reuses as before. The result
+        /// differs from the confirmed run only where that skipped trial would have found a spot the local trials missed
+        /// (Counts confirm_skipped; a spot found later is refined after the quality points instead of before)
+        /// </summary>
+        internal bool SkipFirstConfirm = true;
+        bool skippedConfirm;
+
+        WrapStatus refine_non_manifold(bool confirm = true)
         {
             long rounds = 0, points = 0, cells = 0, skipped = 0;
             var pinch = new List<int>();
@@ -871,7 +883,13 @@ namespace gs
                 // (a local trial that found nothing is confirmed by a full one: a local trial can miss a spot, see
                 // LocalPinchTrials, and the refinement would stop with it left to the manifold step. If the full trial moves
                 // nothing either, its labels are kept as usual)
-                if (trial == WrapStatus.Success && pinch.Count == 0 && local) {
+                if (trial == WrapStatus.Success && pinch.Count == 0 && local && !confirm) {
+                    // (the labels the confirming trial would have kept when it moved nothing: the pockets removed, see
+                    // cells_moved_by_manifold_step; the quality refinement sees those)
+                    skippedConfirm = true;
+                    add_count("confirm_skipped", 1);
+                    remove_pockets();
+                } else if (trial == WrapStatus.Success && pinch.Count == 0 && local) {
                     confirmTrials++;
                     tt = Stopwatch.GetTimestamp();
                     trial = cells_moved_by_manifold_step(pinch, out local, true);

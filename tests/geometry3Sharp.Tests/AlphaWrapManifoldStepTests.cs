@@ -53,6 +53,44 @@ namespace geometry3Sharp.Tests
             Assert.Equal(hash, Hash(w.Result));
         }
 
+        // the first pinch pass leaves its confirming full trial to the second (SkipFirstConfirm): the same result as with it on
+        // these inputs (the confirmation finds nothing there), it is skipped on some of them, and the second pass then runs
+        // even when the quality refinement adds no point (here: an angle bound no facet is below)
+        [Fact]
+        public void SkipFirstConfirm_SameResult_SecondPassConfirms()
+        {
+            int skippedRuns = 0;
+            foreach (object[] c in Pinned()) {
+                DMesh3 input = AlphaWrapTests.RandomSoup((int)c[0]);
+                var on = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2] };
+                var off = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2], SkipFirstConfirm = false };
+                Assert.True(on.SkipFirstConfirm);
+                Assert.True(on.Compute(), on.Error);
+                Assert.True(off.Compute(), off.Error);
+                Assert.Equal(Hash(off.Result), Hash(on.Result));
+                Assert.False(off.Counts.ContainsKey("confirm_skipped"));
+                if (on.Counts.TryGetValue("confirm_skipped", out long k) && k > 0) {
+                    skippedRuns++;
+                    // (the skipped trial is not counted as a confirmation; the second pass confirms instead)
+                    Assert.True(on.PhaseMilliseconds.ContainsKey("wrap.pinches2"));
+                    Assert.True(on.Counts["local_trials_confirmed"] >= 1);
+                }
+            }
+            Assert.True(skippedRuns > 0, "no input skipped the first confirmation");
+            // no quality point: the second pass runs only to confirm (before, it did not run, and the first pass confirmed)
+            foreach (object[] c in Pinned()) {
+                DMesh3 input = AlphaWrapTests.RandomSoup((int)c[0]);
+                var on = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2], RefineMinAngleDegrees = 1e-6 };
+                var off = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2], RefineMinAngleDegrees = 1e-6, SkipFirstConfirm = false };
+                Assert.True(on.Compute(), on.Error);
+                Assert.True(off.Compute(), off.Error);
+                Assert.Equal(0, on.Counts["quality_points"]);
+                Assert.Equal(Hash(off.Result), Hash(on.Result));
+                if (on.Counts.TryGetValue("confirm_skipped", out long k) && k > 0)
+                    Assert.True(on.PhaseMilliseconds.ContainsKey("wrap.pinches2") && !off.PhaseMilliseconds.ContainsKey("wrap.pinches2"));
+            }
+        }
+
         // computed twice on one instance (and so on a new triangulation each time): the same result; the stars of the
         // first triangulation are not reused for the second
         [Fact]
