@@ -1186,6 +1186,18 @@ above 170 degrees is kept, and only these fields show it.
 Switches:
 - `BENCH_WRAP_QUALITY=1`: turns the pass on (off by default, as in the library; in `wrappipe` mode it was on unless
   `BENCH_WRAP_QUALITY=0` until 2026-11-09).
+- `BENCH_WRAP_THREADS=n`: threads of the simplification's partitioned reduction (0, the default: the platform's; the
+  result does not depend on it).
+
+`wrappipe` since Alpha Wrap 3.0 PR 0 (2026-11-12): the simplification gets the wrap's input as `KeepClearOf`, as
+`MeshRobustRepair` does since the contact fix (#498); before, the bench left it out, so the 2.0 timings (f800 on
+`runs/alpha-wrap-2`) miss its cost (about +3 %, 16 meshes; the output changes where the guard refuses a collapse).
+`pipe_phases` also has the parts of each phase, keys with a `/`: `wrap/intersection`, `/touch`, `/insert`, `/carve`
+(the whole carving loop) and `/trial` (the manifold-step trials of the pinch passes) for `wrap`, `wrap.pinches`,
+`wrap.quality` and `wrap.pinches2`, each the time in that phase only (`wrap.intersection` / `.touch` / `.insert` stay
+the totals over all four, which overlapped the pinch passes in the 2.0 split), and `simplify.reduce/setup` / `/rounds`
+(the parallel rounds with their stitching) / `/last` (the serial last pass). `analyze_wrap_pipe.py` prints them as
+"per phase". The Alpha Wrap 3.0 phase-1 profile with these parts: `runs/alpha-wrap-3`, `aw3/REPORT-phase1.md`.
 - `BENCH_WQ="k=v,..."`: internal variant switches, applied on top of the default settings: `turn`, `follow`,
   `crease`, `worst`, `normals`, `nslack`, `nsamples`, `split`, `capflip`, `pin`, `protect`, `protectflipsonly`,
   `flips`, `moves`, `collapse`, `growth`. `default=0`, given first, resets to the pass's own settings, as for the
