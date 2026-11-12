@@ -61,7 +61,7 @@ Status on 2026-11-12 (morning, Berlin).
   (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Exact Boolean 3.0** (in progress, serial, one PR per stage): merged 2026-11-11: T3a cull (#612), T3b
   `IntersectEach` / `DifferenceEach` (#616), T3 input range of the rounding (#593), T2 memory (#619), T1 scaling levers
-  (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
+  (#631). The 55928 tail-case stage #633 merged 2026-11-12 (d6f6fe9d): budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
   classification filter from local corner coordinates, Orient's zeros from the constructions; Difference total 973 -> 370 s,
   hash unchanged). Step 3(a), a second InCircle filter, measured and not taken (no gain). An InCircle limb kernel (E: -20 to
   -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Docs, shard resplit and the full local CI
@@ -135,10 +135,10 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 The next steps per topic, in order ("in progress" where a session works on them).
 
-- Exact Boolean 3.0 after #633: T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
+- Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
   then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- Meshing2D: the three untraced single triangles from #542 (in progress); a `ConstrainedMesh2` to `DMesh3` helper with the
-  heights as z (2.5D output, additive API; owner 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
+- Meshing2D: the three untraced single triangles from #542 (in progress); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
+  (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
   session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; starts
   when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)

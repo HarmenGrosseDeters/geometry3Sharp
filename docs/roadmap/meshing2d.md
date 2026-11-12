@@ -34,10 +34,6 @@ Actionable:
   and the oracle takes such an end as apex when the lines do not meet on both closed segments (owner 2026-11-12: excuse
   widening approved; both parts ship together).
 
-- **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
-  Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
-  as z (labels as groups where they fit). Effort S.
-
 - **Three single triangles at 1e-7..1e-9 radian (from #542):** in the near-contact fan (T-junction segments ending 2^-k beside a
   long segment, constrained quality mode), scale 1.13 at k = 26 and 28 leaves three single triangles below the bound that the
   oracle does not excuse (fan factors 1.13; [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md) section 2), not
@@ -54,7 +50,7 @@ Actionable:
   dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
 - **2.5D output (owner 2026-11-12):** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
   so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
-  isolated). Additive API; PR of `claude/mesh2-to-dmesh3`. Effort S.
+  isolated). Additive API. Done: #663, merged 2026-11-12 (f0578fb6).
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
