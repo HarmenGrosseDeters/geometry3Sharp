@@ -519,6 +519,9 @@ namespace g3
             /// as it is hides a vertex across the hole from the domain's edges (found with the grid fuzz with holes: a segment inside a
             /// hole, between a hole edge and a vertex on the opposite hole edge, left the domain not Delaunay across the hole)
             /// </summary>
+            /// <summary> Collect's set of the triangles it has queued (reused) </summary>
+            readonly HashSet<int> dirtySeen = new HashSet<int>();
+
             void QueueAll()
             {
                 for (int t = 0; t < k.TriangleSlots; ++t) {
@@ -649,8 +652,12 @@ namespace g3
                 }
                 foreach (var pair in previous) if (k.Tag[pair.Key] == int.MinValue) k.Tag[pair.Key] = pair.Value;
                 CheckTags();
+                // each rewritten triangle once: Dirty holds a triangle once per flip that touched it, and a split in a narrow channel
+                // flips the same triangles many times (#638: up to 31 536 entries on 1600 triangles for one insertion, a burst of 600k
+                // queue steps that ran into the defect cap at a small Steiner limit)
+                dirtySeen.Clear();
                 foreach (int t in k.Dirty) {
-                    if (t >= k.TriangleSlots || k.IsGhost(t)) continue;
+                    if (t >= k.TriangleSlots || k.IsGhost(t) || !dirtySeen.Add(t)) continue;
                     triangles.Enqueue(t);
                     QueueEdges(t);
                 }
