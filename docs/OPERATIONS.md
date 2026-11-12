@@ -819,8 +819,9 @@ largest drift and `max_length`, the bound: 1e-5 of the largest component's diago
 term, `scale_disparity`, the closed components kept although thin by the bound, with real volume: not clean, and
 `scale_not_finite`, a diagonal that is not finite or overflows: every edit rejected, not clean). **Robust repair options** (`repair`, `MeshRobustRepair`):
 `--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`,
-`--reject-topology-change`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`
-and `result_reason`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
+`--reject-topology-change`, `--exact-resolve-rounds`, `--wrap-relative-alpha`, `--wrap-relative-offset`, `--alpha-wrap-quality-pass`,
+`--passthrough-clean-parts`, `--separate-fraction`; the result reports `used_alpha_wrap`, `alpha_wrap_simplified`, `wrap_reason`, `used_input`,
+`result_reason`, `robust_options` (the values used), `passed_through_triangles`, `exact_resolve_rounds_used` and `phase_milliseconds`. Parts far apart compared to their size (eg one 1e8 away from parts of size 1) make the degenerate
 area of the clean check (1e-12 of the squared diagonal of all triangles) cover their real triangles: the repair then fails
 with the message "scale disparity: ..." and writes nothing, instead of a coarse wrap (`MeshRobustRepair.Apply()` returns
 false with the exactly resolved mesh, `ResultReason` `ScaleDisparity`):
