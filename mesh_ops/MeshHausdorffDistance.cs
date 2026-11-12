@@ -82,7 +82,8 @@ namespace gs
         const int MinPlainExponent = -32, MaxPlainExponent = 64;
 
         /// <summary>
-        /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN,
+        /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN (the other outputs
+        /// are then not defined),
         /// if either mesh has no triangles or a non-finite vertex, or if the distance exceeds double.MaxValue (meshes near
         /// opposite ends of the double range); also returns false if cancelled. Returns true otherwise, even if not Converged
         /// (check Converged). Vertices no triangle uses are ignored (also for the size of the meshes).
@@ -110,8 +111,8 @@ namespace gs
                     0, Vector3d.Zero, true);
 
             // an axis along which both meshes are flat is moved to 0 (exact, and distances are the same): its coordinate may be far
-            // larger than the extent and overflow when scaled. Along every other axis a coordinate is at most 2^53 times the axis'
-            // span (the span is at least an ulp of it), so the scaled coordinates stay below 2^54
+            // larger than the extent and overflow when scaled. Along every other axis a coordinate is less than 2^54 times the axis'
+            // span (the span is at least half an ulp of it), so the scaled coordinates stay below about 2^55
             Vector3d shift = Vector3d.Zero;
             for (int k = 0; k < 3; ++k) if (bounds.Min[k] == bounds.Max[k]) shift[k] = bounds.Min[k];
             DMesh3 a = scaled(MeshA, shift, -e), b = scaled(MeshB, shift, -e);
