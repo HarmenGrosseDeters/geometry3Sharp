@@ -123,6 +123,15 @@ built) on the 20 tail meshes plus about 30 random ones at the same alpha / offse
 min / p01 angle, certified Hausdorff; (3) the (B) probe on the tail meshes: a guarantee note, a round simulation
 (independent-set sizes per round, late rounds especially) and a serial-round prototype for quality against master, with the
 projected tail time on 4 and 16 cores. No PR for (B) before the owner has the results.
+**Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
+on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
+benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
+diagnosis per tail mesh and levers ranked by benefit; measurement only, probe patches never pushed, every table with its
+commit set; the levers are then built one PR each by the AW3 work. Both studies report the shared profile categories
+(exact predicates and constructions, AABB / BVH queries, allocation and GC, rounding, rest), merged into
+[hotspots.md](hotspots.md). A nightly watcher (tools and workflow only) measures the known extreme cases of both studies
+isolated per master commit and reports outliers (regression against the rolling median, or above 20 s). Predicate kernels
+(InCircle limb kernel, filter tuning) only if the profile shows they matter.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
