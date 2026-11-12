@@ -103,6 +103,7 @@ The guard also catches cone12_x0.6 and cone16_x0.6: without it, the coarse remes
 layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the last passes are rolled back.
 
 ### Cases that get worse
+(Before the rim fold check of #621, below, which removes the rim cases.)
 - **More self-intersecting pairs (11 primitives, none of the gears or Thingi meshes):** taper10_x0.15 (12 -> 16),
   taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12), taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15
   (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31), cone32_x0.6 (0 -> 8): all at the bottom rim, where the flat
@@ -156,7 +157,7 @@ cones (cone24_x0.6: 136 pairs in 4 runs). Smoothing and projection moves are not
 nothing in the default setting).
 
 Translation ensemble (4 runs each, 18 cones and tapers incl. the nine, final pairs summed), master -> fold check:
-Remesher 2..285 per setting -> 0 (default), RemesherPro 189 -> 0, PinSharpVertices(30) 285 -> 18 (cone12_x0.15,
+Remesher 440 -> 0, RemesherPro 189 -> 0, Remesher with PinSharpVertices(30) 285 -> 18 (cone12_x0.15,
 x0.2 and x0.3 have 6, 7 and 4 where master has none; cone12_x0.1 15 -> 2). The full benchmark (`runs=1`, above):
 
 | setting | self-intersecting pairs master / fold check | cases with pairs | cases not clean | mean hausdorff/target |
@@ -169,7 +170,12 @@ x0.2 and x0.3 have 6, 7 and 4 where master has none; cone12_x0.1 15 -> 2). The f
 The two primitives left with pairs are the flattened cones cone12_x0.6 and cone16_x0.6 (67 each; master 70 and 52,
 a separate item). F-scores, normal consistency, Edge Chamfer and the 1% worst angle are equal or better
 (primitives F 0.1% 0.8282 -> 0.8289, Edge Chamfer 0.0154 -> 0.0146). The Hausdorff distance is the cones' apex
-(not a feature, rounded off by 1.4..3.4 target in both): APEXNOTE. Time with the option: TIMENOTE.
+(not a feature, rounded off by 1.4..3.4 target in both), and the single runs differ by chance: over the 8
+translations of the 42 cones the mean is 1.078 (master) and 1.088 target, 6 cones worse and 4 better by more than
+0.1 (cone12_x0.45 1.46 -> 1.90, cone32_x0.6 1.37 -> 1.85; cone32_x0.1 2.94 -> 2.50). Time with the option, the 150
+primitives, `runs=3 fidelity=0`, three pairs of master and fold-check runs alternating: 4.62 -> 5.15 s (1.115; the
+unchanged runs without the option differ by 1.04 between the same pairs, so about 1.07; the pairs 1.08, 1.12, 1.14).
+The exact tests themselves are about 3..6% (box6, taper16).
 The tube135363 tube no longer turns inside out with the option (the rejected flips at its rims were part of the
 inversion); `RemesherInversionGuardTests` test the guard with MinTriangleQuality on tubes that still do.
 
