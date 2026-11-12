@@ -16,6 +16,13 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactBooleanOpenInputTestsAntipodal
     {
+        // Edge vertices of the spheres of the three tests with the most terms in antipodal_front_winding (SameResultAsFastWinding,
+        // TwoOpenSpheres_Similarities, DuplicatesAndFans: 42 of the 51 million terms of this class at 20). The terms grow with
+        // the pieces times the boundary segments, about the cube of the resolution, and under Stryker's coverage capture the class
+        // took 94 minutes (tests/mutation/README.md, "Coverage pass"); at 8 these tests have 14 to 17 times fewer terms and the
+        // same assertions, rim differences of the two open spheres included.
+        const int Coarse = 8;
+
         // a unit sphere with the cap above capZ (relative to its centre) removed; capZ above 1 keeps it closed
         static DMesh3 Sphere(Vector3d c, double capZ, int edgeVertices = 20)
         {
@@ -325,9 +332,9 @@ namespace geometry3Sharp.Tests
 
         static void Inputs(string name, out DMesh3 a, out DMesh3 b)
         {
-            if (name == "two open spheres") { a = Sphere(Vector3d.Zero, 0.6); b = Sphere(CenterB, 0.5); }
-            else if (name == "open sphere and open box") { a = Sphere(Vector3d.Zero, 0.6); b = OpenBox(new Vector3d(-0.3, -0.4, -0.5), new Vector3d(1.1, 0.7, 0.8)); }
-            else { a = Sphere(Vector3d.Zero, 0.6); b = Sphere(CenterB, 2); }
+            if (name == "two open spheres") { a = Sphere(Vector3d.Zero, 0.6, Coarse); b = Sphere(CenterB, 0.5, Coarse); }
+            else if (name == "open sphere and open box") { a = Sphere(Vector3d.Zero, 0.6, Coarse); b = OpenBox(new Vector3d(-0.3, -0.4, -0.5), new Vector3d(1.1, 0.7, 0.8)); }
+            else { a = Sphere(Vector3d.Zero, 0.6, Coarse); b = Sphere(CenterB, 2, Coarse); }
         }
 
         [Theory]
@@ -354,8 +361,8 @@ namespace geometry3Sharp.Tests
         public void DuplicatesAndFans_SameClassificationOnBothPaths()
         {
             // an open sphere with a same-orientation duplicate of a triangle far from B, and one with a fin on an edge
-            DMesh3 b = Sphere(CenterB, 2);
-            DMesh3 dup = Sphere(Vector3d.Zero, 0.6), fin = Sphere(Vector3d.Zero, 0.6);
+            DMesh3 b = Sphere(CenterB, 2, Coarse);
+            DMesh3 dup = Sphere(Vector3d.Zero, 0.6, Coarse), fin = Sphere(Vector3d.Zero, 0.6, Coarse);
             int far = dup.TriangleIndices().OrderBy(t => -(dup.GetTriCentroid(t) - CenterB).Length).First();
             Index3i d = dup.GetTriangle(far);
             dup.AppendTriangle(dup.AppendVertex(dup.GetVertex(d.a)), dup.AppendVertex(dup.GetVertex(d.b)), dup.AppendVertex(dup.GetVertex(d.c)));
@@ -447,7 +454,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TwoOpenSpheres_Similarities_Antipodal()
         {
-            DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 0.5);
+            DMesh3 a = Sphere(Vector3d.Zero, 0.6, Coarse), b = Sphere(CenterB, 0.5, Coarse);
             ExactMeshBoolean r0 = Run(a, b, Ops.Intersection, Antipodal);
             foreach (Similarity sim in Similarity.All()) {
                 DMesh3 sa = Invariance.Transformed(a, sim), sb = Invariance.Transformed(b, sim);
