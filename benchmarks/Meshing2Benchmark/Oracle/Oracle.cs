@@ -797,10 +797,11 @@ namespace Meshing2Acceptance
                 if (own.Count == 0) return false;
                 Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
                 Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
-                // (a piece longer than 2^20 pixels along its larger axis is not enumerated and judged splittable; #723: the limit was 2^16
-                // pixels of the piece's box, which a diagonal piece of 600 x 400 pixels exceeded, so a piece that no split point could split
-                // was taken as splittable and its triangle's circumcentre behind it not excused)
-                if (Q.Max(kx1 - kx0, ky1 - ky0) > new Q(1 << 20, 1)) return false;
+                // (a piece longer than 2^18 pixels along its larger axis is not enumerated and judged splittable: the band of such a piece
+                // costs seconds, which a run of many fine-pixel pieces would multiply; #723: the limit was 2^16 pixels of the piece's box,
+                // which a diagonal piece of 600 x 400 pixels exceeded, so a piece that no split point could split was taken as splittable
+                // and its triangle's circumcentre behind it not excused)
+                if (Q.Max(kx1 - kx0, ky1 - ky0) > new Q(1 << 18, 1)) return false;
                 // only what lies near the piece can block a split point: a constraint crossing its pixel or the new edges, a vertex whose
                 // pixel they cross (boxes three pixels wider in doubles, generous to the hair of a decimal pixel; every test below stays
                 // exact): the hull pieces of a domain judged here too made the whole lists per candidate too slow on the Herne tiles

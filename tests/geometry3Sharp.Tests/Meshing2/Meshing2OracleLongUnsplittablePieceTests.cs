@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
     /// circumcentre lies behind that piece, outside the domain, so the triangle stays (MESHING2D_SNAP.md 3g), and the oracle excuses such
     /// a triangle (CircumcentreBehindGridUnsplittable). But the oracle's GridUnsplittable gave up on pieces whose pixel box exceeded 2^16
     /// pixels and judged them splittable; this diagonal piece has a box of 607 x 417 pixels. It now enumerates only the band of pixels
-    /// along the piece (the pixels its distance filter keeps), so no box limit is needed.
+    /// along the piece (the pixels its distance filter keeps), up to 2^18 pixels along the piece's larger axis instead of 2^16 of its box.
     /// </summary>
     public class Meshing2OracleLongUnsplittablePieceTests
     {
