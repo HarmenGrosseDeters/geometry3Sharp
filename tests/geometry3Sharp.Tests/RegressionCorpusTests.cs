@@ -101,15 +101,45 @@ namespace geometry3Sharp.Tests
         public void EveryPipelineHasATable() =>
             Assert.Equal(Pipelines.Keys.OrderBy(k => k), Expected.Keys.OrderBy(k => k));
 
-        public static IEnumerable<object[]> PipelineNames() => Pipelines.Keys.Select(k => new object[] { k });
+        // The robust repair pipeline is split into 13 parts (corpus index mod 13: the cases of 5-6 s alone are in different parts, the
+        // largest part takes 6.7 s serial; the pipeline took 30.7 s serial, 18 s in the old test with two cores). The parts together are
+        // the corpus (RobustParts_PartitionTheCorpus), the table is checked against all of it (Tables_HaveExactlyTheCorpusCases)
+        const int RobustParts = 13;
+
+        static int PartsOf(string pipeline) => pipeline == "robust repair" ? RobustParts : 1;
+
+        public static IEnumerable<object[]> PipelineParts() =>
+            Pipelines.Keys.SelectMany(k => Enumerable.Range(0, PartsOf(k)).Select(part => new object[] { k, part }));
+
+        [Fact]
+        public void RobustParts_PartitionTheCorpus()
+        {
+            int n = Corpus().Count();
+            var seen = new int[n];
+            for (int part = 0; part < RobustParts; ++part)
+                for (int i = 0; i < n; ++i)
+                    if (i % PartsOf("robust repair") == part) ++seen[i];
+            Assert.All(seen, c => Assert.Equal(1, c));
+            Assert.True(n >= RobustParts, "fewer cases than parts");
+        }
+
+        // the table of each pipeline has exactly the cases of the corpus (a case missing from the corpus would otherwise be dropped silently)
+        [Fact]
+        public void Tables_HaveExactlyTheCorpusCases()
+        {
+            var names = Corpus().Select(c => c.name).OrderBy(x => x).ToList();
+            foreach (string pipeline in Pipelines.Keys)
+                Assert.Equal(names, Expected[pipeline].Keys.OrderBy(x => x).ToList());
+        }
 
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(PipelineNames))]
-        public void Pipeline_MatchesTheStoredOutcomes(string pipeline)
+        [MemberData(nameof(PipelineParts))]
+        public void Pipeline_MatchesTheStoredOutcomes(string pipeline, int part)
         {
-            // the cases are independent: in parallel (a few robust repairs take half a minute each), in corpus order
-            var corpus = Corpus().ToList();
+            // the cases are independent: in parallel (a few robust repairs take several seconds each), in corpus order
+            int parts = PartsOf(pipeline);
+            var corpus = Corpus().Where((c, i) => i % parts == part).ToList();
             var outcomes = new string[corpus.Count];
             // (half the cores: other test classes run at the same time, some with timing checks)
             var po = new System.Threading.Tasks.ParallelOptions() { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
@@ -134,10 +164,8 @@ namespace geometry3Sharp.Tests
                 if (expected.TryGetValue(a.name, out string e) == false) diffs.Add($"{a.name}: not in the table, now \"{a.outcome}\"");
                 else if (Matches(e, a.outcome) == false) diffs.Add($"{a.name}: expected \"{e}\", now \"{a.outcome}\"");
             }
-            foreach (string name in expected.Keys.Except(actual.Select(a => a.name)))
-                diffs.Add($"{name}: in the table, not in the corpus");
             int clean = actual.Count(a => a.outcome.StartsWith("clean")), expectedClean = expected.Values.Count(v => v.StartsWith("clean"));
-            Assert.True(diffs.Count == 0, $"{pipeline}: {clean} of {actual.Count} clean (table: {expectedClean}); changed:\n" + string.Join("\n", diffs));
+            Assert.True(diffs.Count == 0, $"{pipeline} part {part}: {clean} of {actual.Count} clean (table: {expectedClean} of all {expected.Count}); changed:\n" + string.Join("\n", diffs));
         }
 
         /// <summary> equal outcomes; for clean ones the volume within VolumeTolerance </summary>
