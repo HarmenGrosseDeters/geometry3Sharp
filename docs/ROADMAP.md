@@ -150,8 +150,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   when a slot is free). [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
-- Platform: issue-tracker follow-ups left: the regressions a remesher flip-guard default would cause, the P1 collapse
-  (P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
+- Platform: issue-tracker follow-up left: the P1 collapse (the flip-guard default follow-up is closed: the Remesher
+  defaults stay upstream's, owner November 2026; P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
 
 ## Later / research
 
@@ -214,7 +214,7 @@ The next steps per topic, in order ("in progress" where a session works on them)
   its own worktree and one PR-sized topic.
 - **Exception (owner 2026-11-12):** three extra medium Sonnet sessions (CLI / MCP update, test-time backlog,
   short pipeline topics: fast-winding cache lever 3, DualContouring allocations, the
-  issue-tracker follow-ups (flip-guard, P1), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
+  issue-tracker follow-up (P1; the flip-guard follow-up is closed), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
   no further starts until the count is back below it.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.

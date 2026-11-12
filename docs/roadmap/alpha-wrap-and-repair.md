@@ -240,8 +240,8 @@ better; 0.75 is 1.09-1.22x.
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
-  research), S2 and S3 open, pinned and documented; the regressions a remesher flip-guard default would cause; the
-  P1 collapse.
+  research), S2 and S3 open, pinned and documented; the P1 collapse. Closed: the regressions a remesher flip-guard default
+  would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
 - The slow `exact.resolve` on small inputs (67709, 42327) went to the boolean-performance session
   ([exact-boolean.md](exact-boolean.md#other-open-items)).
