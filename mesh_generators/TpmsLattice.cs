@@ -94,6 +94,9 @@ namespace g3
         public int GridShiftsUsed;
         /// <summary> The marching cubes level used (0 unless Enclosure: sqrt(3) h / 2 plus the floating point pad, in length units). </summary>
         public double IsoValueUsed;
+        // test hooks: reject a grid attempt as if the contouring had failed; the lowest node of the grid last used
+        internal Func<int, bool> RejectAttempt;
+        internal Vector3d LastGridMin;
         /// <summary> NotCleanReason of a rejected result. </summary>
         public string NotCleanReason = "";
 
@@ -161,14 +164,14 @@ namespace g3
 
         /// <summary>
         /// The quantile table of g over one period: q[k] is the level for the fraction k / 1024 (midpoint rule on a cell-centred
-        /// 64^3 grid of one period, sorted, linear interpolation). Cached per type and style. Public for tests.
+        /// 64^3 grid of one period, sorted, linear interpolation). Cached per type and style. Internal, for tests.
         /// </summary>
         internal static double[] QuantileTable(TpmsType type, TpmsStyle style)
         {
             return tables.GetOrAdd((type, style), key => BuildTable(key.Item1, key.Item2, TableSamples));
         }
 
-        /// <summary> The table for a given sampling resolution (not cached). Public for tests (an independent finer table). </summary>
+        /// <summary> The table for a given sampling resolution (not cached). Internal, for tests (an independent finer table). </summary>
         internal static double[] BuildTable(TpmsType type, TpmsStyle style, int n)
         {
             int total = checked(n * n * n);
@@ -421,9 +424,11 @@ namespace g3
                 double shift = Enclosure ? DyadicGridShifts[attempt] : GridShifts[attempt];
                 var min = new Vector3d(h * (kmin[0] - shift), h * (kmin[1] - shift), h * (kmin[2] - shift));
                 if (Enclosure && !(IsMultiple(min.x, enclosureUnit) && IsMultiple(min.y, enclosureUnit) && IsMultiple(min.z, enclosureUnit))) {
-                    last = "the shifted grid is not exactly representable"; result = null; continue;   // never an inexact grid under Enclosure
+                    last = "the shifted grid is not exactly representable"; result = null; continue;   // never an inexact grid under Enclosure (h*0.125 is a multiple of the unit only for a cube of at least 8 units, so for tiny cubes the later shifts are skipped: harmless, ContouringFailed)
                 }
                 // (int)((Max - Min) / h) + 1 = cells, independent of rounding: Max is half a cube above the last full cube
+                if (RejectAttempt != null && RejectAttempt(attempt)) { last = "attempt rejected"; result = null; continue; }
+                LastGridMin = min;
                 var max = new Vector3d(min.x + h * (cells[0] - 0.5), min.y + h * (cells[1] - 0.5), min.z + h * (cells[2] - 0.5));
                 mc = new MarchingCubes {
                     Implicit = field, Bounds = new AxisAlignedBox3d(min, max), CubeSize = h, IsoValue = isoValue,

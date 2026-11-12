@@ -491,7 +491,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Enclosure_HoldsWhenTheGridIsShifted_AndInAFrame()
+        public void Enclosure_HoldsAtTheBoxFaces_InAFrame()
         {
             // (an enclosure level is never exactly hit by the box distance, so no retry is needed here; the dyadic shifts are
             // used only when a sample does hit the level, which this input cannot be made to do)
@@ -519,6 +519,31 @@ namespace geometry3Sharp.Tests
                 Assert.True(tree.IsInside(q + lattice.Origin), "box point " + q + " outside (g " + g + ")");
             }
             Assert.True(tested >= 1000, "only " + tested);
+        }
+
+        [Fact]
+        public void Enclosure_RetryUsesADyadicGridAndStillEncloses()
+        {
+            // reject the first attempts by hook: the retry shifts must be dyadic multiples of the unit s 2^-40 (s = 4 here)
+            double unit = 4 * Math.Pow(2, -40);
+            foreach (int rejected in new[] { 1, 2, 3 }) {
+                var lattice = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16, 2);
+                lattice.Enclosure = true;
+                lattice.RejectAttempt = a => a < rejected;
+                lattice.Compute();
+                Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+                Assert.Equal(rejected, lattice.GridShiftsUsed);
+                Vector3d min = lattice.LastGridMin;
+                for (int d = 0; d < 3; ++d)
+                    Assert.Equal(Math.Floor(min[d] / unit), min[d] / unit);
+                AssertContainsLatticePoints(lattice, TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16, 2000);
+            }
+            var all = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16, 2);
+            all.Enclosure = true;
+            all.RejectAttempt = a => true;
+            all.Compute();
+            Assert.Equal(TpmsStatus.ContouringFailed, all.Status);
+            Assert.Null(all.Mesh);
         }
 
         static void AssertContainsLatticePoints(TpmsLattice lattice, TpmsType type, TpmsStyle style, double fraction, int divisions, int samples)
