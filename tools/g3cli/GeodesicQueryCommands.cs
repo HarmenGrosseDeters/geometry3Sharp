@@ -202,7 +202,7 @@ namespace g3cli
         {
             JsonArray array;
             try { array = JsonNode.Parse(text) as JsonArray; }
-            catch (System.Text.Json.JsonException e) { throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': not valid JSON: {e.Message}"); }
+            catch (Exception e) when (e is System.Text.Json.JsonException || e is ArgumentException) { throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': not valid JSON: {e.Message}"); }
             if (array == null)
                 throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': a JSON list was expected");
             if (array.Count > MaxQueries)
@@ -210,6 +210,8 @@ namespace g3cli
             if (array.Count == 0)
                 throw new CommandException(ResultCodes.InvalidArguments, $"'{name}' is empty");
             var list = new List<double[]>(array.Count);
+            // (a duplicate key in an object throws ArgumentException when the object is first read)
+            try {
             for (int i = 0; i < array.Count; i++) {
                 string bad = $"'{name}': entry {i + 1} is not a list of {size} finite numbers" + (size == 6 ? " or an object with 'origin' and 'direction'" : "");
                 JsonNode e = array[i];
@@ -228,6 +230,9 @@ namespace g3cli
                 if (numbers.Count != size)
                     throw new CommandException(ResultCodes.InvalidArguments, bad);
                 list.Add(numbers.ToArray());
+            }
+            } catch (ArgumentException e) {
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': invalid JSON object: {e.Message}");
             }
             return list;
         }
@@ -284,8 +289,10 @@ namespace g3cli
             string dir = Path.GetDirectoryName(Path.GetFullPath(path));
             if (Directory.Exists(dir) == false)
                 throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': directory does not exist");
+            // (written next to the target and moved over it: a failure leaves neither a partial file nor a destroyed old one)
+            string temp = path + ".g3tmp";
             try {
-                using (var w = new StreamWriter(path, false, new System.Text.UTF8Encoding(false))) {
+                using (var w = new StreamWriter(temp, false, new System.Text.UTF8Encoding(false))) {
                     if (format == "json") {
                         w.Write('[');
                         bool first = true;
@@ -306,7 +313,9 @@ namespace g3cli
                         }
                     }
                 }
+                File.Move(temp, path, true);
             } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                try { File.Delete(temp); } catch (Exception) { }
                 throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
             }
         }
@@ -353,6 +362,10 @@ namespace g3cli
                     if (args.Has("rays") && args.Has("points"))
                         throw new CommandException(ResultCodes.InvalidArguments, "'output' is for rays or for points, not both: run the command twice");
                     outputFormat = QueryOutputFormat(args.String("output"));
+                    string outFull = Path.GetFullPath(args.String("output"));
+                    foreach (string list in new[] { "rays", "points" })
+                        if (args.Has(list) && args.String(list).StartsWith("@") && string.Equals(Path.GetFullPath(args.String(list).Substring(1)), outFull, StringComparison.Ordinal))
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'output' is the '{list}' file");
                 }
                 double maxDistance = double.MaxValue;
                 if (args.Has("max_distance")) {
@@ -436,7 +449,7 @@ namespace g3cli
                     if (args.Has("inside")) {
                         string insideMode = args.String("inside");
                         // auto: the exact crossings test needs a closed mesh without boundary; any other mesh gets the winding number
-                        bool closed = MeshIterators.BoundaryEdges(mesh).Any() == false && (mesh.TriangleCount == 0 || ExactMeshBoolean.IsWindingClosed(mesh));
+                        bool closed = insideMode != "winding_number" && MeshIterators.BoundaryEdges(mesh).Any() == false && (mesh.TriangleCount == 0 || ExactMeshBoolean.IsWindingClosed(mesh));
                         string used = insideMode == "auto" ? (closed ? "crossings" : "winding_number") : insideMode;
                         if (insideMode == "crossings" && !closed)
                             warnings.Add("inside by crossings is exact only for a closed mesh without self-intersections; this mesh is not closed: use inside=winding_number (or auto)");

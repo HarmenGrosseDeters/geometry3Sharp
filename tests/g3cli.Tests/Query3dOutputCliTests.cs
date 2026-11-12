@@ -148,6 +148,7 @@ namespace g3cli.Tests
                 "[", "{}", "[]", "[[1,2,3]]", "[[0,0,0,1,0]]", "[[0,0,0,1,0,\"x\"]]", "[{\"origin\": [0,0,0]}]",
                 "[{\"origin\": [0,0,0], \"direction\": [1,0]}]", "[{\"origin\": [0,0,0], \"direction\": [1,0,0], \"extra\": 1}]", "[null]", "[1]",
                 "[[0,0,0,1,0,1e999]]",
+                "[{\"origin\": [0,0,0], \"origin\": [9,9,9], \"direction\": [1,0,0]}]",     // a duplicate key
             };
             foreach (string bad in badRays) {
                 var (exit, r) = Run("query3d", m.Cube, "--rays", bad, "--compact");
@@ -155,6 +156,29 @@ namespace g3cli.Tests
             }
             var (e2, r2) = Run("query3d", m.Cube, "--points", "[[0,0]]", "--inside", "crossings", "--compact");
             AssertError(e2, r2, "invalid_arguments");
+        }
+
+        [Fact]
+        public void Output_ToTheInputListFile_UpperCaseExtension_AndNoResults()
+        {
+            string rays = m.Path_("rays_in.json");
+            File.WriteAllText(rays, "[[-5,0,0,1,0,0]]");
+            var (e1, r1) = Run("query3d", m.Cube, "--rays", "@" + rays, "--output", rays, "--compact");
+            AssertError(e1, r1, "invalid_arguments");
+            Assert.Equal("[[-5,0,0,1,0,0]]", File.ReadAllText(rays));                // the input list is untouched
+
+            string upper = m.Path_("UPPER.CSV");
+            var (e2, r2) = Run("query3d", m.Cube, "--rays", "-5,0,0,1,0,0", "--max-results", "0", "--output", upper, "--compact");
+            Assert.Equal(0, e2);
+            Assert.Empty(r2["rays"]["results"].AsArray());
+            Assert.Equal(2, File.ReadAllLines(upper).Length);                        // header and the one ray
+            Assert.Empty(Directory.GetFiles(m.Dir, "*.g3tmp"));                      // no temporary file is left
+
+            // an existing output file is replaced as a whole
+            File.WriteAllText(m.Path_("old.csv"), string.Join("\n", Enumerable.Repeat("junk,junk", 50)));
+            var (e3, _) = Run("query3d", m.Cube, "--rays", "-5,0,0,1,0,0", "--output", m.Path_("old.csv"), "--compact");
+            Assert.Equal(0, e3);
+            Assert.Equal(2, File.ReadAllLines(m.Path_("old.csv")).Length);
         }
 
         [Fact]
@@ -171,6 +195,8 @@ namespace g3cli.Tests
             Assert.Single(r["warnings"].AsArray());
             var (e2, r2) = Run("query3d", m.Cube, "--points", "0,0,0", "--inside", "crossings", "--normalize=false", "--compact");
             AssertError(e2, r2, "invalid_arguments");
+            var (e3, r3) = Run("query3d", m.Cube, "--rays", "0,0,0,0,0,0", "--normalize=false", "--compact");      // a zero direction is rejected either way
+            AssertError(e3, r3, "invalid_arguments");
         }
     }
 }
