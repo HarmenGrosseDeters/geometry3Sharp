@@ -427,6 +427,11 @@ namespace g3cli
                     if (ext != ".pgm" && ext != ".csv")
                         throw new CommandException(ResultCodes.UnknownFormat, $"cannot write '{args.String("depth_output")}': the distance image is written as .pgm or .csv");
                     depthFormat = ext.Substring(1);
+                    string depthDir = Path.GetDirectoryName(Path.GetFullPath(args.String("depth_output")));
+                    if (Directory.Exists(depthDir) == false)
+                        throw new CommandException(ResultCodes.WriteError, $"cannot write '{args.String("depth_output")}': directory does not exist");
+                    if (args.Has("output") && string.Equals(Path.GetFullPath(args.String("output")), Path.GetFullPath(args.String("depth_output")), StringComparison.Ordinal))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'depth_output' and 'output' are the same file");
                 }
                 if (args.Bool("any_hit") && args.Has("rays") == false && !hasCamera)
                     throw new CommandException(ResultCodes.InvalidArguments, "'any_hit' needs 'rays' or a camera");
@@ -615,14 +620,15 @@ namespace g3cli
             Vector3d view = new Vector3d(target[0], target[1], target[2]) - position;
             double vscale = Math.Max(Math.Abs(view.x), Math.Max(Math.Abs(view.y), Math.Abs(view.z)));
             if (!(vscale > 0) || double.IsInfinity(vscale))
-                throw new CommandException(ResultCodes.InvalidArguments, "'camera': the target must differ from the position (finite)");
+                throw new CommandException(ResultCodes.InvalidArguments, "'camera': the target must differ from the position, and the difference must be finite");
             Vector3d forward = (view / vscale).Normalized;
             Vector3d up = new Vector3d(0, 0, 1);
             if (upText != null) {
                 double[] u = ParseNumbers(upText, "up");
                 if (u.Length != 3 || (u[0] == 0 && u[1] == 0 && u[2] == 0))
                     throw new CommandException(ResultCodes.InvalidArguments, "'up' is a direction 'x,y,z' that is not zero");
-                up = new Vector3d(u[0], u[1], u[2]).Normalized;
+                double uscale = Math.Max(Math.Abs(u[0]), Math.Max(Math.Abs(u[1]), Math.Abs(u[2])));      // (scaled first: 1e-200 normalizes as any other)
+                up = new Vector3d(u[0] / uscale, u[1] / uscale, u[2] / uscale).Normalized;
             }
             Vector3d right = forward.Cross(up);
             bool upChanged = false;

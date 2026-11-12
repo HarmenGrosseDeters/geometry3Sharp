@@ -150,6 +150,16 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void ATinyUpVector_IsNormalizedLikeAnyOther()
+        {
+            var (exit, r) = Run("query3d", m.Cube, "--camera", Front, "--up", "0,0,1e-200", "--compact");
+            Assert.Equal(0, exit);
+            Assert.False(B(r["camera"]["up_replaced"]));
+            Assert.Equal(1.0, D(r["camera"]["up"][2]), 12);
+            Assert.Equal(16, I(r["rays"]["hits"]));
+        }
+
+        [Fact]
         public void ParallelOrNot_AndPowerOfTwoScales_GiveTheSameImage()
         {
             string a = m.Path_("depth_a.csv"), b = m.Path_("depth_b.csv");
@@ -220,6 +230,13 @@ namespace g3cli.Tests
             AssertError(e2, r2, "write_error");
             var (e3, r3) = Run("query3d", m.Cube, "--compact");
             AssertError(e3, r3, "invalid_arguments");
+            // nothing is written when the depth image cannot be: the per-ray file does not exist either
+            string o2 = m.Path_("cam_o2.csv");
+            var (e4, r4) = Run("query3d", m.Cube, "--camera", Front, "--output", o2, "--depth-output", Path.Combine(m.Path_("no_such_dir"), "x.pgm"), "--compact");
+            AssertError(e4, r4, "write_error");
+            Assert.False(File.Exists(o2));
+            var (e5, r5) = Run("query3d", m.Cube, "--camera", Front, "--output", m.Path_("same.csv"), "--depth-output", m.Path_("same.csv"), "--compact");
+            AssertError(e5, r5, "invalid_arguments");
         }
 
         static void AssertError2((int exit, JsonObject r) x) => AssertError(x.exit, x.r, "invalid_arguments");
