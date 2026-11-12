@@ -20,17 +20,17 @@ done = the task's done-when is met; partly = built, a named part is missing; ope
 | T7 | CsCheck remesher / reducer | done | `RemeshReduceCampaignTests.CsCheck.cs`; one open Reducer finding (section 2, F7) |
 | T8 | Changed-line coverage gate | partly | `coverage.yml`, `tools/changed_line_coverage.py`; the nightly cron has not fired yet (section 4); "findings worked off" is not checked here |
 | T9 | Stryker: `DMeshAABBTree3`, readers | open | no shard config for either in `tests/mutation`; adding one touches mutation config (CI-speed session owns it) |
-| T10 | CsCheck Clipper2 and Z3 frame lemma | partly | `Clipper2CampaignTests.CsCheck.cs` done; no Z3 lemma for `ClipperFrame` in `tools/Z3Pilot` |
+| T10 | CsCheck Clipper2 and Z3 frame lemma | partly | `Clipper2CampaignTests.CsCheck.cs` done; the Z3 frame lemma `tools/Z3Pilot/clipper_frame.py` is in PR #643 (reviewed, merge pending) |
 | T11 | CsCheck MarchingCubes / terrain | done | `MarchingCubesCampaignTests.CsCheck.cs`, `TerrainSlopeCampaignTests.CsCheck.cs`; two terrain findings open (F9) |
 | T12 | FPTaylor hand-derived filters | partly | `tools/FPTaylorPilot` has `Orient3dLPI` ux and nx; PR #627 (draft) and issue #625 for the rest; `ExactPredicates`, `ExactTriangleIntersection` open |
 | T13 | Fuzz second wave | partly | targets done (remesher, reducer, quality-mesh2, clipper2, plus alpha wrap, tree-*); campaigns 10 min each, ranked in FINDINGS.md; long runs #624 |
-| T14 | Z3 termination lemmas | open | no termination lemma in `tools/Z3Pilot` (`fix_degenerate`, median split, expansion sums) |
+| T14 | Z3 termination lemmas | done for the named rules | `split_termination.py` (`DMeshAABBTree3` midpoint split, #641) and `step_loops.py` (`MeshRoundingRepair` step loops, the #452 class, #642), merged; expansion sums of `AdaptivePredicates` only if the owner wants them |
 | T15 | Stryker terrain / repair result checks / mesher | open | depends on the test-time backlog program |
 
 Done-when clauses (platform.md): (1) fuzz harness per reader and per untrusted-geometry operation: partly (readers,
 Boolean, repair, rounding, trees, remesher, reducer, mesher, Clipper2, alpha wrap have targets; no target for
 MarchingCubes / terrain / `MeshMeshCut` and the upstream editing operations; long runs missing); (2) FPTaylor bound per
-filter and Z3 lemma per filter or termination rule: open (T12, T14); (3) property campaign and mutation shard per
+filter and Z3 lemma per filter or termination rule: partly (T14 lemmas for the median split and the rounding step loops are merged; T12 and the filter-rule lemmas remain); (3) property campaign and mutation shard per
 robustness-critical module: campaigns done for repair, mesher, alpha wrap, remesher / reducer, MarchingCubes, terrain,
 Clipper2, Boolean; shards exist for the exact code only; (4) coverage gate nightly: partly, the cron has not fired yet.
 
@@ -90,3 +90,13 @@ What changed on GitHub after the state above (PR and issue states, not re-measur
   `RegionOperator`, `MeshTrimLoop`); item 5, #643 (T10 frame lemma); T12, #627 (draft).
 - T8 and done-when (4) are "partly" (they were "done"): the `coverage.yml` cron has not fired yet (no scheduled run on
   2026-11-12), see [platform.md](../roadmap/platform.md#open).
+
+## 5. Update after the merges of 2026-11-12
+
+- Merged: #639 (differential tests for `PointAABBTree3`, `MeshBatchQueries`, `WindingNumberOctree`), #641 and #642 (T14 Z3
+  lemmas), #646 and #648 (seeded properties of `ConvexHull2`, `QuadtreeExactQuery2d`, `VoxelSurfaceGenerator`,
+  `MeshInsertPolygon`, `RegionOperator`, `MeshTrimLoop`). Section 3 items 2, 3 and 4 are done; item 5 is #643 (T10 frame
+  lemma, in review) and T12 after #627; item 6 stays blocked.
+- Replay of the FINDINGS repros on master (1f227db): F1, F3, F6 and the DualContouring throw no longer reproduce, F2 (#636),
+  F5 (#637) and F7 (#638) do. The gap-list PRs found three more defects: #644 and #645 (`ConvexHull2`), #647
+  (`VoxelSurfaceGenerator` exceeds `MaxMeshElementCount` by up to 17 vertices); each is pinned by a skipped or a pinning test.
