@@ -499,6 +499,8 @@ namespace gs
         // (totals over all calls of refine_and_carve in one Compute(): the pinch refinement continues the refinement)
         long ticksIntersection, ticksTouch, ticksInsert, projectionFallbacks;
         long rule1, rule2, carved, rejected, rejected1, rejected2, popped;
+        // successful insertions into this triangulation (the stars of the manifold step follow it)
+        long insertions;
         int steiner;
         readonly List<int> removedCells = new List<int>(), addedCells = new List<int>();
 
@@ -508,6 +510,7 @@ namespace gs
             ticksCarve = ticksTrial = 0;
             split_phase(null);
             rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
+            insertions = 0;
             staleGates = requeuedGates = 0;
             steiner = 0;
         }
@@ -628,6 +631,7 @@ namespace gs
                 return false;
             labelsManifold = false;
             steiner++;
+            insertions++;
             vertexDistance.Add(offset);
             ensure_labels();
             foreach (int nc in addedCells)
@@ -1147,25 +1151,37 @@ namespace gs
 
 
         // outside cells not connected to the box boundary (enclosed by an insertion) become inside
+        // (reached: pocketStamp[c] == pocketStampValue; the arrays are kept between the calls)
+        int[] pocketStamp = new int[0];
+        int pocketStampValue;
+        readonly Stack<int> pocketStack = new Stack<int>();
+
         int remove_pockets(List<int> flipped = null)
         {
-            var reached = new bool[dt.MaxCellID];
-            var stack = new Stack<int>();
+            if (pocketStamp.Length < dt.MaxCellID) {
+                pocketStamp = new int[Math.Max(dt.MaxCellID, 2 * pocketStamp.Length)];
+                pocketStampValue = 0;
+            }
+            if (++pocketStampValue == int.MaxValue) { Array.Clear(pocketStamp, 0, pocketStamp.Length); pocketStampValue = 1; }
+            int[] reachedAt = pocketStamp;
+            int mark = pocketStampValue;
+            var stack = pocketStack;
+            stack.Clear();
             foreach (int c in dt.CellIndices()) {
                 if (label[c] != Outside) continue;
                 for (int i = 0; i < 4; ++i)
-                    if (dt.Neighbour(c, i) < 0) { reached[c] = true; stack.Push(c); break; }
+                    if (dt.Neighbour(c, i) < 0) { reachedAt[c] = mark; stack.Push(c); break; }
             }
             while (stack.Count > 0) {
                 int c = stack.Pop();
                 for (int i = 0; i < 4; ++i) {
                     int n = dt.Neighbour(c, i);
-                    if (n >= 0 && !reached[n] && label[n] == Outside) { reached[n] = true; stack.Push(n); }
+                    if (n >= 0 && reachedAt[n] != mark && label[n] == Outside) { reachedAt[n] = mark; stack.Push(n); }
                 }
             }
             int count = 0;
             foreach (int c in dt.CellIndices())
-                if (label[c] == Outside && !reached[c]) {
+                if (label[c] == Outside && reachedAt[c] != mark) {
                     label[c] = Inside;
                     flipped?.Add(c);
                     count++;
@@ -1174,17 +1190,27 @@ namespace gs
             return count;
         }
 
-        // cells incident to each vertex (CSR)
-        int[] starStart, starCells;
+        // cells incident to each vertex (CSR), built for the triangulation starsOf after starsInsertions successful insertions
+        // into it (only insertions change it: the manifold step changes labels)
+        int[] starStart = new int[0], starCells = new int[0], starFill = new int[0];
+        long starsInsertions = -1;
+        Delaunay3 starsOf;
         void build_stars()
         {
+            if (starsOf == dt && starsInsertions == insertions)
+                return;
+            starsOf = dt;
+            starsInsertions = insertions;
             int nv = dt.VertexCount;
-            starStart = new int[nv + 1];
+            if (starStart.Length < nv + 1) starStart = new int[Math.Max(nv + 1, 2 * starStart.Length)];
+            else Array.Clear(starStart, 0, nv + 1);
             foreach (int c in dt.CellIndices())
                 for (int j = 0; j < 4; ++j) starStart[dt.CellVertex(c, j) + 1]++;
             for (int v = 0; v < nv; ++v) starStart[v + 1] += starStart[v];
-            starCells = new int[starStart[nv]];
-            int[] fill = new int[nv];
+            if (starCells.Length < starStart[nv]) starCells = new int[Math.Max(starStart[nv], 2 * starCells.Length)];
+            if (starFill.Length < nv) starFill = new int[Math.Max(nv, 2 * starFill.Length)];
+            else Array.Clear(starFill, 0, nv);
+            int[] fill = starFill;
             foreach (int c in dt.CellIndices())
                 for (int j = 0; j < 4; ++j) {
                     int v = dt.CellVertex(c, j);
@@ -1227,7 +1253,13 @@ namespace gs
                         if (label_of(dt.Neighbour(c, i)) == Outside) { enqueue_cell(c); break; }
                 }
             }
-            var edgeCount = new Dictionary<int, int>();
+            // (the edges v-x of the result facets around v and their facet counts, in the order first reached: the order the
+            // dictionary of before enumerated them in; edgeSlot[x] is x's entry while edgeStamp[x] is the current check's)
+            if (edgeSlot.Length < dt.VertexCount) {
+                edgeSlot = new int[Math.Max(dt.VertexCount, 2 * edgeSlot.Length)];
+                edgeStamp = new int[edgeSlot.Length];
+                edgeStampValue = 0;
+            }
             long limit = 100L * dt.VertexCount + 1000;
             while (true) {
                 while (work.Count > 0) {
@@ -1239,24 +1271,39 @@ namespace gs
                     queued[v] = false;
                     flippedCells.Clear();
                     // edges v-x: result facets around them (all contain v, so they are facets of the star of v)
-                    edgeCount.Clear();
+                    edgeX.Clear(); edgeN.Clear();
+                    if (++edgeStampValue == int.MaxValue) { Array.Clear(edgeStamp, 0, edgeStamp.Length); edgeStampValue = 1; }
+                    // (and the result facets' link edges x-y, for the disk test below; hull: a facet through v on the box)
+                    bool hull = false;
+                    linkA.Clear(); linkB.Clear();
                     for (int k = starStart[v]; k < starStart[v + 1]; ++k) {
                         int c = starCells[k];
-                        if (label[c] != Inside) continue;
                         for (int i = 0; i < 4; ++i) {
-                            if (dt.CellVertex(c, i) == v || label_of(dt.Neighbour(c, i)) != Outside) continue;
+                            if (dt.CellVertex(c, i) == v) continue;
+                            int nb = dt.Neighbour(c, i);
+                            if (nb < 0) hull = true;
+                            if (label[c] != Inside || label_of(nb) != Outside) continue;
+                            int first = -1;
                             for (int j = 0; j < 4; ++j) {
                                 int x = dt.CellVertex(c, j);
                                 if (j == i || x == v) continue;
-                                edgeCount.TryGetValue(x, out int cnt);
-                                edgeCount[x] = cnt + 1;
+                                if (edgeStamp[x] != edgeStampValue) {
+                                    edgeStamp[x] = edgeStampValue;
+                                    edgeSlot[x] = edgeX.Count;
+                                    edgeX.Add(x); edgeN.Add(0);
+                                }
+                                edgeN[edgeSlot[x]]++;
+                                if (first < 0) first = edgeSlot[x];
+                                else { linkA.Add(first); linkB.Add(edgeSlot[x]); }
                             }
                         }
                     }
-                    foreach (var kv in edgeCount)
-                        if (kv.Value > 2) fix_star(v, kv.Key);
-                    // the vertex (once its edges are manifold; otherwise it is queued again by the flips)
-                    if (flippedCells.Count == 0)
+                    for (int e = 0; e < edgeX.Count; ++e)
+                        if (edgeN[e] > 2) fix_star(v, edgeX[e]);
+                    // the vertex (once its edges are manifold; otherwise it is queued again by the flips), unless its result
+                    // facets form one disk (link_is_one_cycle): then the star has one inside and one outside component and
+                    // fix_star would change nothing
+                    if (flippedCells.Count == 0 && !(edgeX.Count == 0 || !hull && link_is_one_cycle()))
                         fix_star(v, -1);
                     flips += flippedCells.Count;
                     foreach (int c in flippedCells)
@@ -1275,6 +1322,34 @@ namespace gs
         }
 
         readonly List<int> flippedCells = new List<int>();
+        // the link of a vertex v away from the box: a triangulated sphere, whose triangles are the cells of the star and whose
+        // edges are their facets through v. The result facets through v are link edges between an inside and an outside
+        // triangle. If every link vertex x has exactly two of them (edge v-x on two result facets) and they are connected,
+        // they form one simple closed curve, which cuts the sphere into two connected regions (Jordan): one inside and one
+        // outside component of the star, so the vertex is manifold
+        readonly List<int> linkA = new List<int>(), linkB = new List<int>(), linkParent = new List<int>();
+        bool link_is_one_cycle()
+        {
+            int n = edgeX.Count;
+            for (int e = 0; e < n; ++e)
+                if (edgeN[e] != 2) return false;
+            linkParent.Clear();
+            for (int e = 0; e < n; ++e) linkParent.Add(e);
+            int parts = n;
+            for (int k = 0; k < linkA.Count; ++k) {
+                int a = link_root(linkA[k]), b = link_root(linkB[k]);
+                if (a != b) { linkParent[a] = b; parts--; }
+            }
+            return parts == 1;
+        }
+        int link_root(int e)
+        {
+            while (linkParent[e] != e) { linkParent[e] = linkParent[linkParent[e]]; e = linkParent[e]; }
+            return e;
+        }
+        int[] edgeSlot = new int[0], edgeStamp = new int[0];
+        int edgeStampValue;
+        readonly List<int> edgeX = new List<int>(), edgeN = new List<int>();
 
         static long edge_key(int a, int b)
         {
@@ -1283,21 +1358,49 @@ namespace gs
 
         // star of vertex v (w < 0) or of edge v-w: cells containing it, connected through facets containing it
         readonly List<int> local = new List<int>();
-        readonly Dictionary<int, int> localIndex = new Dictionary<int, int>();
+        // the position of cell c in local while localStamp[c] is the current star's (localStampValue)
+        int[] localPos = new int[0], localStamp = new int[0];
+        int localStampValue;
+        bool local_index(int c, out int k)
+        {
+            if (c < localStamp.Length && localStamp[c] == localStampValue) { k = localPos[c]; return true; }
+            k = -1;
+            return false;
+        }
         readonly List<int> comp = new List<int>();
         readonly List<byte> compLabel = new List<byte>();
         readonly List<bool> compExterior = new List<bool>();
+        // (the volume of a component only when the choice needs it: the sum of its cells' volumes in the order the search
+        // reached them, compOrder[compBegin[id] ..], as it was summed during the search before; NaN until computed)
         readonly List<double> compVolume = new List<double>();
+        readonly List<int> compOrder = new List<int>(), compBegin = new List<int>();
+        double comp_volume(int id)
+        {
+            if (double.IsNaN(compVolume[id])) {
+                double sum = 0;
+                int end = id + 1 < compBegin.Count ? compBegin[id + 1] : compOrder.Count;
+                for (int j = compBegin[id]; j < end; ++j) sum += dt.CellVolume(local[compOrder[j]]);
+                compVolume[id] = sum;
+            }
+            return compVolume[id];
+        }
         readonly List<bool> compCorner = new List<bool>();
         readonly Stack<int> compStack = new Stack<int>();
 
         int fix_star(int v, int w)
         {
-            local.Clear(); localIndex.Clear();
+            local.Clear();
+            if (localStamp.Length < dt.MaxCellID) {
+                localStamp = new int[Math.Max(dt.MaxCellID, 2 * localStamp.Length)];
+                localPos = new int[localStamp.Length];
+                localStampValue = 0;
+            }
+            if (++localStampValue == int.MaxValue) { Array.Clear(localStamp, 0, localStamp.Length); localStampValue = 1; }
             for (int k = starStart[v]; k < starStart[v + 1]; ++k) {
                 int c = starCells[k];
                 if (w >= 0 && dt.VertexIndexIn(c, w) < 0) continue;
-                localIndex[c] = local.Count;
+                localStamp[c] = localStampValue;
+                localPos[c] = local.Count;
                 local.Add(c);
             }
             int n = local.Count;
@@ -1323,7 +1426,7 @@ namespace gs
                     int keep = -1;
                     for (int k = 0; k < compLabel.Count; ++k) {
                         if (compLabel[k] != Outside || exterior) continue;
-                        if (keep < 0 || compCorner[k] && !compCorner[keep] || compCorner[k] == compCorner[keep] && compVolume[k] > compVolume[keep]) keep = k;
+                        if (keep < 0 || compCorner[k] && !compCorner[keep] || compCorner[k] == compCorner[keep] && comp_volume(k) > comp_volume(keep)) keep = k;
                     }
                     for (int k = 0; k < n; ++k) {
                         int ck = comp[k];
@@ -1347,7 +1450,7 @@ namespace gs
                         int cvx = dt.CellVertex(c, i);
                         if (cvx == v || cvx == w) continue;
                         int m = dt.Neighbour(c, i);
-                        if (m < 0 || label[m] != Inside || !localIndex.TryGetValue(m, out int mk)) continue;
+                        if (m < 0 || label[m] != Inside || !local_index(m, out int mk)) continue;
                         touches = 1;
                         if (firstIn < 0) firstIn = comp[mk];
                         else if (comp[mk] != firstIn) joins = 1;
@@ -1388,25 +1491,27 @@ namespace gs
             comp.Clear();
             for (int k = 0; k < n; ++k) comp.Add(-1);
             compLabel.Clear(); compExterior.Clear(); compVolume.Clear(); compCorner.Clear();
+            compOrder.Clear(); compBegin.Clear();
             var stack = compStack;
             for (int k = 0; k < n; ++k) {
                 if (comp[k] >= 0) continue;
                 int id = compLabel.Count;
                 byte lab = label[local[k]];
-                compLabel.Add(lab); compExterior.Add(false); compVolume.Add(0); compCorner.Add(false);
+                compLabel.Add(lab); compExterior.Add(false); compVolume.Add(double.NaN); compCorner.Add(false);
+                compBegin.Add(compOrder.Count);
                 comp[k] = id;
                 stack.Push(k);
                 while (stack.Count > 0) {
                     int kk = stack.Pop();
                     int c = local[kk];
-                    compVolume[id] += dt.CellVolume(c);
+                    compOrder.Add(kk);
                     if (has_corner(c)) compCorner[id] = true;
                     for (int i = 0; i < 4; ++i) {
                         int cvx = dt.CellVertex(c, i);
                         if (cvx == v || cvx == w) continue;     // facet i does not contain the vertex / edge
                         int m = dt.Neighbour(c, i);
                         if (m < 0) { compExterior[id] = true; continue; }
-                        if (localIndex.TryGetValue(m, out int mk) && comp[mk] < 0 && label[m] == lab) {
+                        if (local_index(m, out int mk) && comp[mk] < 0 && label[m] == lab) {
                             comp[mk] = id;
                             stack.Push(mk);
                         }
