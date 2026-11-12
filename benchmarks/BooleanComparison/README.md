@@ -706,6 +706,10 @@ Looked at in this round, not changed:
 - **GC settings of an application** (not the library's choice): server GC (`DOTNET_gcServer=1`) made fertility +
   spheres 2.19 / 2.06 -> 1.69 / 1.56 s (GC pause 955 -> 225 ms), but small inputs 5-25 % slower;
   `DOTNET_GCgen0size=0x40000000` 1.99 / 1.91 s, neutral on small inputs.
+  On the 55928 tail case (Difference, 4 cores, 263 GB allocated; docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4),
+  `DOTNET_gcServer=1 DOTNET_gcConcurrent=0 DOTNET_GCgen0size=0x40000000` made it 474 -> 358 s, with GC pauses
+  131 -> 44 s and peak RSS 10.2 -> 10.0 GB. For long booleans on large inputs it is a setting worth documenting
+  for the application; a library cannot set it.
 - **`Span` / `stackalloc` / `ArrayPool`**: nothing to use them on. The GC cost is the objects that live through
   the boolean, not temporaries, and `BigInteger` allocates its digits itself; reused buffers (round 1) gave nothing.
 
