@@ -128,7 +128,7 @@ namespace geometry3Sharp.Tests
         // it none, and every case that inverted without it reports rolled-back passes. The sweep runs serial: its 96 remeshes
         // of 20 passes each start thousands of tiny parallel loops, which starve for pool threads while the rest of the
         // suite runs (75 s instead of 2 s in the full run); the parallel path is checked against the serial one in
-        // ParallelEqualsSerial_RepeatedRuns and RemesherDeterminismTests, and gives the same outcome on every case here
+        // ParallelEqualsSerial_RepeatedRuns and RemesherDeterminismTests; serial and parallel gave the same outcome on every case of this sweep when it was made
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
