@@ -212,10 +212,10 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   `AntipodalMaxBoundarySegments = 0`), diagnosed before (A) since (A) lifts the switches; (2) the (A) follow-up above; (3) #711: 5-47 s on 8-16
   vertex inputs whose coordinates span ~2^840; a profile first, then a bound, a faster path or a documented range (owner
   decision). The `RoundingClean` crash of the same group is the known class FINDINGS.md 5a (no new issue).
-- **Snap rounding study (#721, owner 2026-11-12):** (1) stop the rounding passes at the evaluation limit, keeping
-  `SmallestRejectedDrift` (past the limit every try_* is drift-only, as try_move since #327); upper bound first, a hard
-  stop goes back to the owner if drift-only falls far short (measured hard stop: rounding -33 %, booleans -9 %, 33/33
-  hashes equal); (2) idea 3 approved, simple variant first: a seeded single-vertex position search after the passes,
+- **Snap rounding study (#721, owner 2026-11-12):** (1) option A: a hard stop of the rounding passes at the evaluation
+  limit; meshes bit-identical (33/33 hashes), rounding -33 %, booleans -9 %; on results that report
+  `EvaluationLimitReached`, `SmallestRejectedDrift` is taken over the proposals made before the limit (documented; the
+  drift-only variant was measured and dropped: most post-limit work is try_move, drift-only already); (2) idea 3 approved, simple variant first: a seeded single-vertex position search after the passes,
   only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
   clean; plateau steps need a termination lemma and a separate decision); design note first, after (1), same file;
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
