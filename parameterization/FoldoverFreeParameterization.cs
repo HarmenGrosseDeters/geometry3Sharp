@@ -25,9 +25,11 @@ namespace g3
         /// <summary>
         /// Stop rule of Algorithm 1 (line 11): converged once no triangle is invalid and an iteration lowers the
         /// energy (both values at that iteration's epsilon) by less than this relative amount. The paper uses 1e-3;
-        /// 0 never stops on the energy and runs on to the Newton-decrement or the epsilon-floor test.
+        /// 0 disables the energy stop only; the Newton-decrement exit (also guarded by the regularization test) remains.
         /// </summary>
         public double EnergyDecreaseTolerance = 1e-3;
+        /// <summary> Fixed relative tolerance of the regularization guard; independent of the public option. </summary>
+        const double RegularizationTolerance = 1e-3;
         public ParameterizationResult Result;
 
         public FoldoverFreeParameterization(DMesh3 mesh, IList<Vector2d> startUV)
@@ -183,7 +185,7 @@ namespace g3
         bool RegularizationNegligible(ParamMesh pm, double[] x, double epsilon, double regularized)
         {
             double exact = Evaluate(pm, x, 0, null, null, out _);
-            return MathUtil.IsFinite(exact) && exact <= (1 + EnergyDecreaseTolerance) * regularized;
+            return MathUtil.IsFinite(exact) && exact <= (1 + RegularizationTolerance) * regularized;
         }
 
         static bool SameValues(double[] a, double[] b)

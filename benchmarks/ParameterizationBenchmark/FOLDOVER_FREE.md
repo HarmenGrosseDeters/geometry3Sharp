@@ -190,7 +190,7 @@ The bare paper rule is **not enough**: with it alone the annulus stops at the fi
 epsilon 0.26, min det 2.9e-3, symmetric Dirichlet **686.97** instead of 7.46; three peaks 17.15), because F(., epsilon)
 is nearly flat there although the unregularized energy is far from converged. Added guard: the rule only fires when
 F(x, 0) <= (1 + tol) F(x, epsilon) (for positive determinants F(x, epsilon) <= F(x, 0)), i.e. when the regularization
-is negligible. This is our addition, not the paper's.
+is negligible. This is our addition, not the paper's. The guard uses its own fixed tolerance (1e-3), independent of the option. It also replaces the old absolute `epsilon <= 1e-6` condition of the Newton-decrement exit, so runs where the energy stop never fires (`EnergyDecreaseTolerance` 0) change too: they now end once the regularization is negligible instead of at an absolute epsilon.
 
 | Fixture | Iterations before -> after | Symmetric Dirichlet before -> after | ms before -> after |
 |---|---:|---:|---:|
@@ -228,5 +228,5 @@ SLIM's own free boundary also leaves 8 pairs here. The counterfactual fallback c
 same distinction (inversion freedom is not injectivity). A fix needs a different boundary (cutting or cone placement),
 which is outside fixed-boundary untangling and has no paper-backed method in Garanzha et al.; not implemented.
 
-Tests: `StopRule_*`, `EnergyDecreaseTolerance_IsValidated_AndZeroRunsLonger`. Hand mutants (killed, 2 tests each):
+Tests: `StopRule_*` (fail on base by iteration count), `FoldoverFreeToleranceTests` (own file: uses the new option). Hand mutants (killed, 2 tests each):
 guard `return true` (annulus, three peaks), stop replaced by `epsilon <= 1e-6` (tolerance test, three peaks).

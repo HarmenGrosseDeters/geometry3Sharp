@@ -297,20 +297,6 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void EnergyDecreaseTolerance_IsValidated_AndZeroRunsLonger()
-        {
-            var m = Disc(); var uv = Start(m);
-            foreach (double bad in new[] { -1e-3, 1, double.NaN, double.PositiveInfinity })
-                Assert.Equal(ParameterizationStatus.InvalidConstraints,
-                    new FoldoverFreeParameterization(m, uv) { EnergyDecreaseTolerance = bad }.Compute().Status);
-            var normal = new FoldoverFreeParameterization(m, uv).Compute();
-            var strict = new FoldoverFreeParameterization(m, uv) { EnergyDecreaseTolerance = 0 }.Compute();
-            Valid(m, uv, strict); Assert.True(strict.Converged, strict.Error);
-            Assert.True(strict.Iterations > normal.Iterations);
-            Assert.True(strict.Distortion.SymmetricDirichlet <= normal.Distortion.SymmetricDirichlet * 1.001);
-        }
-
-        [Fact]
         public void AnnulusNearCollapsedBoundary_IsNotAssumedInfeasible()
         {
             var mesh = Annulus();
