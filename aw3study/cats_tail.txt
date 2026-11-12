@@ -1,0 +1,73 @@
+mesh | wall s | cpu s (perf) | serial S s | parallel work P s | bg GC/JIT threads s | P share of S+P | Amdahl x4 / x16 vs 1 core | floor today-structure 4 / 16 cores s | i exact % | ii bvh+grid % | iii alloc/GC % | iv % | v rest %
+40118 | 70.2 | 103.9 | 58.2 | 44.8 | 1.0 | 43% | 1.48 / 1.69 | 69.4 / 61.0 | 6.9 | 31.5 | 5.1 | 0.0 | 56.4
+860049 | 50.8 | 74.7 | 41.8 | 32.1 | 0.7 | 43% | 1.48 / 1.69 | 49.8 / 43.8 | 10.8 | 24.4 | 5.2 | 0.0 | 59.7
+69261 | 36.0 | 56.6 | 29.3 | 26.5 | 0.9 | 48% | 1.55 / 1.80 | 35.9 / 30.9 | 8.2 | 30.3 | 6.6 | 0.0 | 54.9
+222695 | 35.2 | 57.9 | 27.1 | 29.8 | 0.9 | 52% | 1.65 / 1.96 | 34.6 / 29.0 | 14.7 | 30.2 | 5.8 | 0.0 | 49.3
+500097 | 34.1 | 49.7 | 28.2 | 20.7 | 0.8 | 42% | 1.46 / 1.66 | 33.4 / 29.5 | 6.7 | 28.6 | 6.5 | 0.0 | 58.2
+535629 | 33.9 | 52.0 | 27.0 | 24.3 | 0.7 | 47% | 1.55 / 1.80 | 33.1 / 28.5 | 10.6 | 25.2 | 5.9 | 0.0 | 58.3
+520646 | 32.5 | 50.3 | 25.9 | 23.7 | 0.8 | 48% | 1.56 / 1.81 | 31.8 / 27.3 | 9.7 | 23.7 | 6.0 | 0.0 | 60.6
+222687 | 31.1 | 49.6 | 24.3 | 24.5 | 0.7 | 50% | 1.60 / 1.89 | 30.5 / 25.9 | 13.4 | 27.5 | 6.5 | 0.0 | 52.5
+500115 | 30.0 | 43.8 | 24.3 | 18.7 | 0.8 | 44% | 1.49 / 1.69 | 29.0 / 25.4 | 7.5 | 25.5 | 6.0 | 0.0 | 61.0
+78968 | 29.2 | 42.7 | 24.0 | 17.8 | 0.9 | 43% | 1.47 / 1.66 | 28.5 / 25.1 | 10.4 | 24.7 | 6.1 | 0.0 | 58.8
+500099 | 26.7 | 43.8 | 20.4 | 22.5 | 0.9 | 52% | 1.65 / 1.97 | 26.0 / 21.8 | 8.0 | 22.0 | 7.1 | 0.0 | 62.8
+49901 | 25.7 | 37.6 | 21.7 | 15.1 | 0.7 | 41% | 1.44 / 1.63 | 25.5 / 22.7 | 8.7 | 19.7 | 6.2 | 0.0 | 65.4
+111959 | 25.4 | 37.7 | 20.8 | 15.9 | 1.0 | 43% | 1.48 / 1.68 | 24.8 / 21.8 | 8.2 | 24.8 | 7.4 | 0.0 | 59.6
+679615 | 25.4 | 37.0 | 20.9 | 15.5 | 0.6 | 42% | 1.47 / 1.66 | 24.8 / 21.9 | 9.2 | 24.1 | 6.1 | 0.0 | 60.6
+49998 | 22.5 | 34.2 | 18.4 | 15.0 | 0.8 | 45% | 1.51 / 1.73 | 22.2 / 19.4 | 7.8 | 25.0 | 7.3 | 0.0 | 60.0
+224108 | 22.4 | 38.5 | 16.4 | 21.3 | 0.8 | 57% | 1.74 / 2.13 | 21.7 / 17.7 | 17.0 | 25.3 | 5.8 | 0.0 | 51.9
+39368 | 22.0 | 31.9 | 18.2 | 12.8 | 0.9 | 41% | 1.45 / 1.63 | 21.4 / 19.0 | 10.4 | 27.5 | 6.8 | 0.0 | 55.2
+84042 | 21.8 | 32.7 | 17.8 | 14.1 | 0.9 | 44% | 1.50 / 1.71 | 21.3 / 18.7 | 7.4 | 26.2 | 8.4 | 0.0 | 58.1
+466329 | 18.0 | 26.5 | 14.5 | 11.3 | 0.6 | 44% | 1.49 / 1.70 | 17.4 / 15.2 | 8.1 | 25.5 | 8.1 | 0.0 | 58.3
+139429 | 16.8 | 25.9 | 13.2 | 11.7 | 0.9 | 47% | 1.54 / 1.78 | 16.2 / 14.0 | 7.1 | 23.3 | 9.4 | 0.0 | 60.2
+51909 | 16.7 | 28.4 | 12.4 | 15.1 | 0.8 | 55% | 1.70 / 2.06 | 16.2 / 13.4 | 8.7 | 20.6 | 7.9 | 0.0 | 62.8
+175914 | 15.6 | 24.0 | 12.7 | 10.6 | 0.8 | 45% | 1.52 / 1.74 | 15.3 / 13.4 | 8.3 | 21.2 | 8.2 | 0.0 | 62.2
+1514905 | 14.9 | 25.6 | 10.7 | 14.3 | 0.7 | 57% | 1.75 / 2.15 | 14.3 / 11.6 | 29.2 | 29.6 | 6.2 | 0.0 | 34.9
+162898 | 14.8 | 23.9 | 11.3 | 11.9 | 0.7 | 51% | 1.62 / 1.93 | 14.3 / 12.1 | 8.1 | 17.2 | 9.3 | 0.0 | 65.4
+
+all meshes, share of CPU samples:
+  (i) 10.0%   median per mesh 8.5%  | of serial main-thread time 3.3% | of parallel work 18.0%
+  (ii) 25.9%   median per mesh 25.1%  | of serial main-thread time 29.8% | of parallel work 22.5%
+  (iii) 6.5%   median per mesh 6.5%  | of serial main-thread time 2.5% | of parallel work 10.6%
+  (iv) 0.0%   median per mesh 0.0%  | of serial main-thread time 0.0% | of parallel work 0.0%
+  (v) 57.6%   median per mesh 59.2%  | of serial main-thread time 64.4% | of parallel work 48.8%
+    21.12%  (v) MeshAlphaWrap (carving, queue, manifold step, extract)
+    13.49%  (ii) bvh:AlphaWrapOracle
+    10.62%  (v) Reducer
+     8.65%  (v) Delaunay3 (insert, locate; filtered InSphere inlined)
+     8.28%  (v) DMesh3 / mesh queries
+     7.56%  (ii) grid:TriangleHashGrid
+     4.11%  (v) deviation bounds (certify)
+     3.24%  (iii) gc (libclrgc: allocation slow path and collections)
+     3.03%  (i) ExactPredicates::Orient3d
+     2.97%  (v) other (BCL collections, unknown)
+     2.41%  (ii) bvh:DMeshAABBTree3
+     2.08%  (iii) runtime helpers (libcoreclr: allocation helpers, casts, stubs)
+     2.01%  (i) ExactPredicates::Orient2d
+     1.76%  (v) jit
+     1.56%  (ii) grid:SmallListSet
+     1.27%  (i) ExactPredicates::InSphere
+     1.21%  (i) TriangleTriangleFilter::by_projection
+     1.08%  (i) TriangleTriangleFilter::all_finite
+     1.06%  (iii) kernel memory (page faults)
+     0.73%  (ii) grid:SmallListSet+<ValueItr>d__22
+     0.35%  (i) ExactTriangleIntersection::Intersects
+     0.31%  (i) TriangleTriangleFilter::common_axis_plane
+     0.30%  (i) TriangleTriangleFilter::drop
+     0.16%  (i) ExactTriangleIntersection::IsDegenerate
+     0.16%  (ii) bvh:AlphaWrapOracle+Tet
+     0.12%  (v) runtime threads / idle spin (native only)
+     0.11%  (iii) memset/memmove (array clears and copies in BCL)
+     0.07%  (i) ExactTriangleIntersection::drop
+     0.05%  (i) ExactTriangleIntersection::IntersectsBeyondShared
+     0.04%  (i) TriangleTriangleFilter::axis_plane
+     0.03%  (i) ExactPredicates::orient3d_int
+     0.02%  (i) TriangleTriangleFilter::in_axis_plane_of
+     0.01%  (i) AdaptivePredicates::orient2d
+     0.01%  (i) ExactTriangleIntersection::tri_tri
+     0.01%  (i) AdaptivePredicates::sum
+     0.00%  (i) Expansion::in_range
+     0.00%  (i) ExactPredicates::insphere_bigint
+     0.00%  (i) ExactPredicates::to_integers
+     0.00%  (ii) bvh:DMeshAABBTree3+TreeTraversal
+     0.00%  (i) TriangleTriangleFilter::IntersectsBeyondShared
+sum wall 672 s, S 540, P 470, bg 19

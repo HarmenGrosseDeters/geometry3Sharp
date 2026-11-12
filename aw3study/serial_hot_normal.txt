@@ -1,0 +1,101 @@
+serial main-thread samples 111 s of wall 157 s
+--- self
+ 17.1% Delaunay3::Insert
+  9.6% AlphaWrapOracle::tet_rec
+  5.6% MeshAlphaWrap::make_manifold
+  4.9% MeshAlphaWrap::refine_and_carve_loop
+  4.7% MeshAlphaWrap::insert_steiner
+  4.7% MeshAlphaWrap::remove_pockets
+  4.2% MeshAlphaWrap+GateQueue::Pop
+  3.5% AlphaWrapOracle::entry_rec
+  3.4% ExactPredicates::InSphere
+  3.0% MeshAlphaWrap::dual_edge
+  2.5% AlphaWrapOracle::primitive_entry_once
+  2.1% AlphaWrapOracle::tet_primitive_touch
+  1.6% AlphaWrapOracle::face_separates
+  1.6% AlphaWrapOracle::box_entry
+  1.5% __vdso_clock_gettime
+  1.4% libclrjit![unknown]
+  1.4% MeshAlphaWrap::build_stars
+  1.3% MeshAlphaWrap+GateQueue::Push
+  1.2% libcoreclr![unknown]
+  1.0% MeshAlphaWrap::touches_input
+  1.0% SmallListSet::FindByKey
+  0.9% DMesh3::IsBowtieVertex
+  0.8% MeshAlphaWrap::rule_intersection
+  0.7% AlphaWrapOracle::closest_rec
+  0.7% DMeshAABBTree3::split_tri_set_midpoint
+  0.6% MeshAlphaWrap::extract
+  0.6% K!exc_page_fault
+  0.6% MeshAlphaWrap::poor_facets
+  0.6% libclrgc![unknown]
+  0.5% int32 [System.Private.CoreLib] System.Collections.Generic.Ge
+  0.5% PartitionedReduction::round
+  0.4% AlphaWrapOracle+Tet::.ctor
+  0.4% Program::Quality
+  0.4% DMesh3::GetTriNeighbourTris
+  0.4% DMesh3::GetTriBounds
+  0.4% instance !1& [System.Private.CoreLib] System.Collections.Gen
+  0.4% libc!__memset_avx512_unaligned_erms
+  0.3% TriangleHashGrid::Query
+  0.3% DMesh3+<VtxTrianglesItr>d__147::MoveNext
+  0.3% DMesh3::AppendTriangle
+--- inclusive
+100.0% dotnet![unknown]
+ 85.0% MeshAlphaWrap::Compute
+ 81.0% MeshAlphaWrap::compute_once
+ 66.4% MeshAlphaWrap::refine_and_carve_loop
+ 27.5% MeshAlphaWrap::insert_steiner
+ 21.5% Delaunay3::Insert
+ 14.7% MeshAlphaWrap::touches_input
+ 13.3% AlphaWrapOracle::tet_rec
+ 11.3% MeshRobustRepair::SimplifyWithin
+ 10.4% MeshAlphaWrap::refine_non_manifold
+  8.5% MeshAlphaWrap::rule_intersection
+  8.3% MeshAlphaWrap::make_manifold
+  7.5% AlphaWrapOracle::entry_rec
+  4.9% PartitionedReduction::Reduce
+  4.8% MeshAlphaWrap::remove_pockets
+  4.2% MeshAlphaWrap+GateQueue::Pop
+  3.5% Reducer::DoReduce
+  3.4% ExactPredicates::InSphere
+  3.1% MeshAlphaWrap::dual_edge
+  3.1% Reducer::CollapseEdge
+  3.0% MeshAlphaWrap::cells_moved_by_manifold_step
+  2.6% AlphaWrapOracle::primitive_entry_once
+  2.5% PartitionedReduction::round
+  2.4% MeshAlphaWrap::extract
+  2.4% DMesh3::AppendTriangle
+  2.2% MeshRobustRepair::certified_within
+  2.1% instance void [System.Private.CoreLib] System.Collections.Ge
+  2.1% AlphaWrapOracle::tet_primitive_touch
+  2.0% MeshAlphaWrap::refine_quality
+  1.7% DMeshAABBTree3::.ctor
+  1.7% DMeshAABBTree3::build_top_down
+  1.7% Reducer::collapse_creates_intersection
+  1.6% AlphaWrapOracle::face_separates
+  1.6% AlphaWrapOracle::box_entry
+  1.5% MeshAlphaWrap::build_stars
+  1.5% __vdso_clock_gettime
+  1.4% DMeshAABBTree3::split_tri_set_midpoint
+  1.4% void [System.Private.CoreLib] System.Collections.Generic.Gen
+  1.4% MeshAlphaWrap::setup
+  1.3% MeshAlphaWrap+GateQueue::Push
+  1.1% Reducer::ReduceToMaxQuadricError
+  1.1% TriangleHashGrid::Query
+  1.0% SmallListSet::FindByKey
+  1.0% MeshRobustRepair::NotCleanReason
+  1.0% AlphaWrapOracle::build
+  1.0% DMesh3::IsBowtieVertex
+  0.9% int32 [System.Private.CoreLib] System.Collections.Generic.Ge
+  0.8% Reducer::collapse_creates_flip_invalid_or_fold
+  0.8% MeshIterators+<BowtieVertices>d__11::MoveNext
+  0.8% MeshAlphaWrap::poor_facets
+  0.7% MeshAlphaWrap::project_to_offset
+  0.7% AlphaWrapOracle::DistanceSquared
+  0.7% AlphaWrapOracle::closest_rec
+  0.7% MeshHausdorffDistance+OneSided::Run
+  0.7% DMesh3::add_edge
+  0.7% Reducer::si_candidate
+  0.7% MeshConnectedComponents::FindConnectedT
+  0.6% MeshRepairMetrics::self_intersection_pairs

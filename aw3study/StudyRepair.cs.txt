@@ -1,0 +1,100 @@
+// [study probe, local only, never pushed] MeshRobustRepair on the procedural inputs of #692, #693, #636, #712: phase split
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
+using g3;
+using gs;
+
+static class StudyRepair
+{
+    static DMesh3 ThinPlates(int seed)
+    {
+        var rnd = new Random(seed);
+        DMesh3 m = new DMesh3();
+        for (int i = 0; i < 12; ++i) {
+            var c = new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+            var e = new Vector3d(0.3 + 0.2 * rnd.NextDouble(), 0.02 + 0.03 * rnd.NextDouble(), 0.3);
+            var b = new TrivialBox3Generator() { Box = new Box3d(c, e) }.Generate().MakeDMesh();
+            var axis = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+            MeshTransforms.Rotate(b, c, Quaterniond.AxisAngleD(axis, 360 * rnd.NextDouble()));
+            MeshEditor.Append(m, b);
+        }
+        return m;
+    }
+    static DMesh3 FarScene(double far, int edgeVertices = 20)
+    {
+        DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = edgeVertices }.Generate().MakeDMesh();
+        DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = edgeVertices }.Generate().MakeDMesh();
+        MeshTransforms.Translate(s, new Vector3d(0.5, 0.3, 0.2));
+        new MeshEditor(m).AppendMesh(s);
+        var p = new Vector3d(far, far, far);
+        int v0 = m.AppendVertex(p), v1 = m.AppendVertex(p + Vector3d.AxisX), v2 = m.AppendVertex(p + Vector3d.AxisY), v3 = m.AppendVertex(p + Vector3d.AxisZ);
+        m.AppendTriangle(v0, v2, v1); m.AppendTriangle(v0, v1, v3); m.AppendTriangle(v0, v3, v2); m.AppendTriangle(v1, v2, v3);
+        return m;
+    }
+    // "x y z;x y z;...|a,b,c;a,b,c" (several meshes joined with '+')
+    static DMesh3 Parse(string text)
+    {
+        DMesh3 all = new DMesh3();
+        foreach (string part in text.Split('+')) {
+            var m = new DMesh3();
+            string[] vt = part.Split('|');
+            foreach (string v in vt[0].Split(';')) {
+                double[] c = v.Trim().Split(' ').Select(s => double.Parse(s, CultureInfo.InvariantCulture)).ToArray();
+                m.AppendVertex(new Vector3d(c[0], c[1], c[2]));
+            }
+            foreach (string t in vt[1].Split(';')) {
+                int[] c = t.Trim().Split(',').Select(int.Parse).ToArray();
+                m.AppendTriangle(c[0], c[1], c[2]);
+            }
+            if (all.TriangleCount == 0) all = m; else new MeshEditor(all).AppendMesh(m);
+        }
+        return all;
+    }
+
+    public static int Run(string[] args)
+    {
+        string name = args[0];
+        Func<DMesh3> make; Action<MeshRobustRepair> cfg = (r) => { }; bool seam = false;
+        if (name == "692") { make = () => ThinPlates(6); cfg = (r) => { r.RepairF = (m) => new DMesh3(m); r.ExactResolve = false; r.SolidifyResolution = 64; }; seam = true; }
+        else if (name.StartsWith("693:")) { double far = double.Parse(name.Substring(4), CultureInfo.InvariantCulture); make = () => FarScene(far); }
+        else if (name.StartsWith("mesh:")) { string t = System.IO.File.ReadAllText(name.Substring(5)).Trim(); make = () => Parse(t); }
+        else return 2;
+        int repeat = int.Parse(Environment.GetEnvironmentVariable("STUDY_REPEAT") ?? "2");
+        for (int k = 0; k < repeat; ++k) {
+            var input = make();
+            var rr = new MeshRobustRepair(input);
+            cfg(rr);
+            GC.Collect();
+            var gp0 = GC.GetTotalPauseDuration(); long ga0 = GC.GetTotalAllocatedBytes(false);
+            var cpu0 = Process.GetCurrentProcess().TotalProcessorTime;
+            long ts0 = Stopwatch.GetTimestamp();
+            var sw = Stopwatch.StartNew();
+            bool ok;
+            DualContouring.SkipResolveForTests = seam;
+            try { ok = rr.Apply(); } finally { DualContouring.SkipResolveForTests = false; }
+            long ms = sw.ElapsedMilliseconds;
+            long ts1 = Stopwatch.GetTimestamp();
+            var r = new Dictionary<string, object>();
+            r["case"] = name; r["run"] = k; r["ms"] = ms; r["ok"] = ok;
+            r["study_t0_ns"] = (long)(ts0 * (1e9 / Stopwatch.Frequency)); r["study_t1_ns"] = (long)(ts1 * (1e9 / Stopwatch.Frequency));
+            r["cpu_ms"] = (long)(Process.GetCurrentProcess().TotalProcessorTime - cpu0).TotalMilliseconds;
+            r["gc_pause_ms"] = (long)(GC.GetTotalPauseDuration() - gp0).TotalMilliseconds;
+            r["alloc_mb"] = (GC.GetTotalAllocatedBytes(false) - ga0) >> 20;
+            r["in_tris"] = input.TriangleCount; r["out_tris"] = rr.Mesh.TriangleCount;
+            r["used_wrap"] = rr.UsedAlphaWrap; r["used_solidify"] = rr.UsedSolidify; r["reason"] = rr.ResultReason;
+            r["solidify_reason"] = rr.SolidifyReason; r["wrap_reason"] = rr.WrapReason;
+            r["phases"] = string.Join(",", rr.PhaseMilliseconds.OrderByDescending(kv => kv.Value).Select(kv => kv.Key + "=" + kv.Value));
+            if (rr.AlphaWrap != null) {
+                r["wrap_alpha"] = rr.AlphaWrap.UsedAlpha.ToString("R", CultureInfo.InvariantCulture);
+                r["wrap_raw_tris"] = rr.AlphaWrapTriangles;
+                r["wrap_phases"] = string.Join(",", rr.AlphaWrap.PhaseMilliseconds.Where(kv => kv.Value > 0).Select(kv => kv.Key + "=" + kv.Value));
+                r["wrap_counts"] = string.Join(",", rr.AlphaWrap.Counts.Where(kv => kv.Value > 0).Select(kv => kv.Key + "=" + kv.Value));
+            }
+            Console.WriteLine("{" + string.Join(",", r.Select(kv => "\"" + kv.Key + "\":" + (kv.Value is string s ? "\"" + s + "\"" : kv.Value is bool b ? (b ? "true" : "false") : Convert.ToString(kv.Value, CultureInfo.InvariantCulture)))) + "}");
+        }
+        return 0;
+    }
+}

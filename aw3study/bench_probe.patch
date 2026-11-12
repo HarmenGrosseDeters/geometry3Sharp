@@ -1,0 +1,50 @@
+diff --git a/benchmarks/MeshRepairBenchmark/Program.cs b/benchmarks/MeshRepairBenchmark/Program.cs
+index ce7740e..e9b9d45 100644
+--- a/benchmarks/MeshRepairBenchmark/Program.cs
++++ b/benchmarks/MeshRepairBenchmark/Program.cs
+@@ -16,6 +16,7 @@ class Program
+ {
+     static int Main(string[] args)
+     {
++        if (Environment.GetEnvironmentVariable("BENCH_REPAIR") == "studyrepair") return StudyRepair.Run(args);   // [study probe, local only]
+         var r = new System.Collections.Generic.Dictionary<string, object>();
+         r["file"] = System.IO.Path.GetFileName(args[0]);
+         string stage = "load";
+@@ -296,7 +297,21 @@ class Program
+                 var runs = new System.Collections.Generic.List<object>();
+                 result = null;
+                 for (int k = 0; k < Math.Max(1, repeat); ++k) {
++                    // [study probe, local only] GC / CPU counters and the monotonic window of the measured pipeline
++                    GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
++                    var gp0 = GC.GetTotalPauseDuration(); long ga0 = GC.GetTotalAllocatedBytes(false);
++                    int g00 = GC.CollectionCount(0), g10 = GC.CollectionCount(1), g20 = GC.CollectionCount(2);
++                    var cpu0 = Process.GetCurrentProcess().TotalProcessorTime;
++                    long ts0 = Stopwatch.GetTimestamp();
+                     result = WrapPipeline(original, r);
++                    long ts1 = Stopwatch.GetTimestamp();
++                    r["study_t0_ns"] = (long)(ts0 * (1e9 / Stopwatch.Frequency)); r["study_t1_ns"] = (long)(ts1 * (1e9 / Stopwatch.Frequency));
++                    r["study_cpu_ms"] = (long)(Process.GetCurrentProcess().TotalProcessorTime - cpu0).TotalMilliseconds;
++                    r["study_gc_pause_ms"] = (long)(GC.GetTotalPauseDuration() - gp0).TotalMilliseconds;
++                    r["study_alloc_mb"] = (GC.GetTotalAllocatedBytes(false) - ga0) >> 20;
++                    r["study_gc_counts"] = new int[] { GC.CollectionCount(0) - g00, GC.CollectionCount(1) - g10, GC.CollectionCount(2) - g20 };
++                    r["study_peak_ws_mb"] = Process.GetCurrentProcess().PeakWorkingSet64 >> 20;
++                    r["study_procs"] = Environment.ProcessorCount; r["study_server_gc"] = System.Runtime.GCSettings.IsServerGC;
+                     runs.Add(r["pipe_ms"]);
+                 }
+                 if (repeat > 1) r["pipe_ms_runs"] = runs;
+@@ -566,6 +581,7 @@ class Program
+         wrap.Compute();
+         long wrapMs = sw.ElapsedMilliseconds;
+         r["wrap_ms"] = wrapMs;
++        r["study_wrap_cpu_ms"] = (long)Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
+         r["wrap_status"] = wrap.Status.ToString();
+         if (wrap.Error != null) r["wrap_error"] = wrap.Error;
+         r["wrap_rel_alpha"] = relAlpha;
+@@ -604,6 +620,7 @@ class Program
+             if (improved != null) result = improved;
+         }
+         r["pipe_ms"] = sw.ElapsedMilliseconds;
++        r["study_pipe_end_cpu_ms"] = (long)Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
+         r["pipe_phases"] = phases;
+         // the raw wrap's triangle quality (angles only; raw_tris for the size)
+         r["raw_tris"] = raw.TriangleCount;
