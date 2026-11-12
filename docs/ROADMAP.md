@@ -65,8 +65,9 @@ Status on 2026-11-12 (morning, Berlin).
   classification filter from local corner coordinates, Orient's zeros from the constructions; Difference total 973 -> 370 s,
   hash unchanged). Step 3(a), a second InCircle filter, measured and not taken (no gain). An InCircle limb kernel (E: -20 to
   -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Docs, shard resplit and the full local CI
-  are done (allocations 534 -> 200 GB); waiting for the independent exact-code review of the new error bounds (started
-  2026-11-12). Then T5 / T1b per the execution order; T6 (only all-clean method, <= 2x CGAL EPECK on 1k-100k) is checked at the end. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
+  are done (allocations 534 -> 200 GB); the independent exact-code review of the new error bounds was done in the PR
+  (22eb5903: a derived pierce prefilter bound, tests of three bounds). Now T5 PR 2 (#675, draft: cost count done; it carries the
+  open winding across input-triangle edges); then T1b per the execution order; T6 (only all-clean method, <= 2x CGAL EPECK on 1k-100k) is checked at the end. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
   memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
   `DualContouring` allocations bound about 4 % of wall (below the 5 % threshold: dropped, 2026-11-12); lever (3), the fast-winding cache's `List<int>` per box, is done (#674, merged 2026-11-12, e48dd964: cache build 1.13-1.42x serial, 1.15-1.31x parallel, bit-identical).
@@ -139,7 +140,7 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 The next steps per topic, in order ("in progress" where a session works on them).
 
-- Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
+- Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2; in progress, #675 draft, cost count done), T1b (parallel SafeRounding edits), the T6 check;
   then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - Meshing2D: the three single triangles from #542 traced and fixed (#661, merged 2026-11-12); the rotated-fan
   Steiner-limit bugfix #664 (#666, merged 2026-11-12, fec3b2a9); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
