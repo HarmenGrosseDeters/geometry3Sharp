@@ -41,7 +41,7 @@ Part of the [roadmap](../ROADMAP.md).
   Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
   borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
-  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now).
+  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now). `trx_durations.py --flag-filter/--isolated` judges flagged tests on a re-run alone (contention-free); CI step: see docs/QA.md.
   Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
   4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
   6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests

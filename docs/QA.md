@@ -51,6 +51,15 @@ done since and what is open.
   (`RATCHET_ENFORCE: '0'` in `ci.yml`: violations are printed as warnings and the step passes); a PR sets it to 1.
   Splitting a CPU-bound test into parallel classes does not reduce its duration in the saturated full run (four classes
   of 9 s instead of one of 9 s, #521): only less work does.
+  **Judged alone.** The full run oversubscribes the cores (test classes in parallel, each with the library's parallel loops), so a
+  test takes several times its time alone: `RemeshReduceCampaignTests.Reducer` ran 3 to 95 s between runs of the same code and
+  takes 6 s alone; a sequential run of 30 classes of the backlog had 2 of 48 entries at 5 s or more. So the rule is judged on
+  the time alone: `trx_durations.py full.trx --threshold 5 --flag-filter flagged.txt` writes a `dotnet test --filter`
+  expression for every method with a row of 5 s or more; those tests run again alone
+  (`dotnet test --no-build --filter "$(cat flagged.txt)" --logger trx -- xUnit.ParallelizeTestCollections=false`), and
+  `trx_durations.py full.trx --isolated alone.trx --backlog ...` replaces the full-run time of each re-run test by its time
+  alone (the report keeps "full run N s"); a re-run that failed keeps the full-run time. The re-run takes about as long as
+  the flagged tests do alone (a few minutes). Rows below the threshold in the full run are not re-run.
   Fix a slow test, then delete its line. The reason on a `Slow` tag is a review item, not machine-checked.
 - A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
   (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)

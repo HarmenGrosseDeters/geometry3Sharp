@@ -18,6 +18,16 @@ The backlog (tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt) has one `Class.Method`
 trx: every method with a row of --backlog-from seconds or more (default 4: a margin under the threshold, the CI
 runner is not the machine the list was made on).
 
+Isolated re-run (contention): in a full run the test classes and the library's parallel loops compete for the cores, so a
+test takes several times its time alone (RemeshReduceCampaignTests.Reducer 3 to 95 s between runs of the same code, 6 s
+alone). The rule is judged on the time alone:
+  - --flag-filter FILE writes a `dotnet test --filter` expression for every method with a row of --threshold seconds or
+    more (or of --flag-from);
+  - the flagged tests run again alone (`dotnet test --no-build --filter "$(cat FILE)" -- xUnit.ParallelizeTestCollections=false
+    --logger trx`), and --isolated TRX... gives that trx: the time of a test in it replaces its time in the full run for
+    the ratchet and the lists (the full-run time stays in the report as "full run N s"). Rows that were not re-run keep
+    their full-run time.
+
 Usage:
     python3 tools/trx_durations.py <file.trx>... [--slow-list <file>] [--top N] [--threshold SECONDS]
         [--fail-above SECONDS] [--backlog FILE [--backlog-base FILE] [--max-seconds S]] [--summary <markdown file>]
@@ -96,6 +106,30 @@ def make_backlog(rows, floor):
     return sorted(k for k, v in max_by_method(rows).items() if v >= floor)
 
 
+def flag_filter(rows, threshold):
+    """-> a `dotnet test --filter` expression (FullyQualifiedName~Class.Method joined by |) for the methods with a row of
+    threshold seconds or more; the namespace and nested classes (Outer+Inner) are kept, theory arguments dropped."""
+    methods = set()
+    for name, sec, _, _ in rows:
+        if sec >= threshold:
+            methods.add(name.split("(")[0])
+    return "|".join("FullyQualifiedName~" + m for m in sorted(methods))
+
+
+def merge_isolated(rows, isolated):
+    """-> (rows with the time alone where a test was re-run, {name: full-run seconds}). A test is matched by its display
+    name; a re-run that did not pass keeps the full-run time."""
+    alone = {name: sec for name, sec, outcome, _ in isolated if outcome == "Passed"}
+    merged, full = [], {}
+    for name, sec, outcome, slow in rows:
+        if name in alone:
+            full[name] = sec
+            merged.append((name, alone[name], outcome, slow))
+        else:
+            merged.append((name, sec, outcome, slow))
+    return merged, full
+
+
 def ratchet(rows, backlog, base, threshold, max_seconds, fail_from=7.0):
     """-> list of error lines (the untagged tests from threshold to fail_from are not errors: see untagged_warnings)."""
     errors = []
@@ -136,12 +170,24 @@ def main(argv=None):
     p.add_argument("--fail-from", type=float, default=7.0, help="untagged tests from this many seconds fail the ratchet (default 7)")
     p.add_argument("--make-backlog", help="write a backlog from the trx to this file and stop")
     p.add_argument("--backlog-from", type=float, default=4.0)
+    p.add_argument("--flag-filter", help="write a dotnet test --filter expression for the tests of --flag-from seconds or more and stop")
+    p.add_argument("--flag-from", type=float, default=None, help="default: --threshold")
+    p.add_argument("--isolated", nargs="+", help="trx of the flagged tests run again alone: their times replace the full-run times")
     a = p.parse_args(argv)
 
     rows = [r for f in a.trx for r in read_trx(f)]
     if a.slow_list:
         names = read_slow_list(a.slow_list)
         rows = [(n, sec, o, slow or n in names) for n, sec, o, slow in rows]
+    if a.flag_filter:
+        expression = flag_filter(rows, a.flag_from if a.flag_from is not None else a.threshold)
+        with open(a.flag_filter, "w", encoding="utf-8", newline="\n") as f:
+            f.write(expression)
+        print(f"{expression.count('FullyQualifiedName~')} methods flagged")
+        return 0
+    full_run = {}
+    if a.isolated:
+        rows, full_run = merge_isolated(rows, [r for f in a.isolated for r in read_trx(f)])
     if a.make_backlog:
         entries = make_backlog(rows, a.backlog_from)
         with open(a.make_backlog, "w", encoding="utf-8", newline="\n") as f:
@@ -151,15 +197,17 @@ def main(argv=None):
         print(f"{len(entries)} entries written")
         return 0
     total = sum(r[1] for r in rows)
-    lines = [f"{len(rows)} tests, sum of durations {total:.0f} s", ""]
+    lines = [f"{len(rows)} tests, sum of durations {total:.0f} s" + (f" ({len(full_run)} of them as measured alone)" if full_run else ""), ""]
+    def note(name):
+        return f"  (full run {full_run[name]:.1f} s)" if name in full_run else ""
     lines.append(f"Slowest {a.top} tests:")
     for name, sec, outcome, slow in sorted(rows, key=lambda r: -r[1])[:a.top]:
-        lines.append(f"  {sec:8.1f} s  {'Slow    ' if slow else 'untagged'}  {name}")
+        lines.append(f"  {sec:8.1f} s  {'Slow    ' if slow else 'untagged'}  {name}{note(name)}")
     untagged = sorted((r for r in rows if r[1] >= a.threshold and not r[3]), key=lambda r: -r[1])
     tagged_fast = sorted((r for r in rows if r[3] and r[1] < a.threshold / 5), key=lambda r: -r[1])
     lines += ["", f"Tests of {a.threshold:g} s or more without the trait Category=Slow: {len(untagged)}"]
     for name, sec, _, _ in untagged[:50]:
-        lines.append(f"  {sec:8.1f} s  {name}")
+        lines.append(f"  {sec:8.1f} s  {name}{note(name)}")
     if len(untagged) > 50:
         lines.append(f"  ... and {len(untagged) - 50} more")
     lines += ["", f"Tests tagged Slow that took less than {a.threshold / 5:g} s: {len(tagged_fast)} (candidates to untag)"]
@@ -170,6 +218,7 @@ def main(argv=None):
         backlog = read_backlog(a.backlog)
         base = read_backlog(a.backlog_base) if a.backlog_base else None
         errors = ratchet(rows, backlog, base, a.threshold, a.max_seconds, a.fail_from)
+        errors = [e + note(e.rsplit(": ", 1)[-1]) if not e.startswith("backlog entry") else e for e in errors]
         warnings = untagged_warnings(rows, backlog, a.threshold, a.fail_from)
         lines += ["", f"Ratchet: backlog of {len(backlog)} methods, {len(errors)} violations, {len(warnings)} warnings (untagged, {a.threshold:g} to {a.fail_from:g} s)"]
         lines += ["  " + e for e in errors[:50]] + ["  warning: " + w for w in warnings[:50]]

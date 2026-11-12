@@ -126,5 +126,69 @@ class Trx(unittest.TestCase):
         self.assertEqual(t.class_of("N.B+C.Row(x: 1.5)"), "N.B+C")
 
 
+ISOLATED = """<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testId="3" testName="N.A.SlowUntagged" duration="00:00:02.0000000" outcome="Passed" />
+    <UnitTestResult testId="4" testName="N.B+C.Row(x: 1.5)" duration="00:00:20.0000000" outcome="Failed" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="N.A.SlowUntagged" id="3"><TestMethod className="N.A" name="SlowUntagged" /></UnitTest>
+    <UnitTest name="N.B+C.Row(x: 1.5)" id="4"><TestMethod className="N.B+C" name="Row" /></UnitTest>
+  </TestDefinitions>
+</TestRun>
+"""
+
+
+class Isolated(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.full = os.path.join(self.dir.name, "full.trx")
+        self.alone = os.path.join(self.dir.name, "alone.trx")
+        for path, text in ((self.full, TRX), (self.alone, ISOLATED)):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_flag_filter_names_each_method_once_with_namespace_and_nesting(self):
+        out = os.path.join(self.dir.name, "flag.txt")
+        self.assertEqual(t.main([self.full, "--threshold", "5", "--flag-filter", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "FullyQualifiedName~N.A.SlowTagged|FullyQualifiedName~N.A.SlowUntagged|FullyQualifiedName~N.B+C.Row")
+        # a higher limit flags fewer
+        self.assertEqual(t.main([self.full, "--threshold", "5", "--flag-from", "100", "--flag-filter", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "FullyQualifiedName~N.B+C.Row")
+
+    def test_merge_uses_the_time_alone_for_passed_reruns_only(self):
+        rows, full = t.merge_isolated(t.read_trx(self.full), t.read_trx(self.alone))
+        by = {r[0]: r[1] for r in rows}
+        self.assertAlmostEqual(by["N.A.SlowUntagged"], 2.0)          # re-run alone: 7.25 s in the full run
+        self.assertAlmostEqual(by["N.B+C.Row(x: 1.5)"], 120.0)        # the re-run failed: the full-run time stays
+        self.assertAlmostEqual(by["N.A.Fast"], 0.5)
+        self.assertEqual(full, {"N.A.SlowUntagged": 7.25})
+
+    def test_ratchet_judges_the_time_alone(self):
+        backlog = os.path.join(self.dir.name, "backlog.txt")
+        with open(backlog, "w", encoding="utf-8") as f:
+            f.write("B+C.Row\nA.SlowTagged\n")
+        out = os.path.join(self.dir.name, "summary.md")
+        # full run alone: N.A.SlowUntagged is 7.25 s without Slow and not on the list, a violation
+        self.assertEqual(t.main([self.full, "--backlog", backlog, "--summary", out]), 1)
+        # with the isolated re-run it took 2 s: no violation, and the report shows the full-run time
+        self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", backlog, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("(full run 7.2 s)", text)
+        self.assertIn("1 of them as measured alone", text)
+        # a violation keeps its full-run time in the message
+        small = os.path.join(self.dir.name, "small.txt")
+        with open(small, "w", encoding="utf-8") as f:
+            f.write("B+C.Row\nA.SlowTagged\n")
+        self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", small, "--max-seconds", "1"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
