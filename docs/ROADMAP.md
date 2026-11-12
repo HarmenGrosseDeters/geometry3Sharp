@@ -124,9 +124,9 @@ Checked line by line against the owner's decisions and git on 2026-11-12; settle
   upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
   library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
-- **Exact Boolean 2.0 leftovers (asked 2026-11-12):** re-measure the speed exceptions (519511, 1517923, 519507) and
-  manifold M2 (`Generic_Twin_7081`, 20 s) on master, or close them as documented exceptions; delete the superseded
-  branches `claude/int256-spike` / `claude/collinear-shortcut` after #633 merges. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- **Exact Boolean 2.0 leftovers:** the speed exceptions (519511, 1517923, 519507) and manifold M2 closed as documented
+  exceptions (owner 2026-11-12; the thingi-pairs runs after 3.0 measure them). Open: delete the superseded
+  branches `claude/int256-spike` / `claude/collinear-shortcut` (#633 merged; owner, branch deletion is not available to sessions). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B

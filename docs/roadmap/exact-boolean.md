@@ -335,10 +335,10 @@ Checked against the owner's decisions and git on 2026-11-12.
 
 Open:
 
-- **Exact Boolean 2.0 leftovers (owner question 2026-11-12):** the speed exceptions over 5 s (519511, 1517923, 519507) were
-  not re-measured after D1 (#513; the sign-off has no timing section), and manifold M2 (`Generic_Twin_7081` union 20 s,
-  self-intersecting inputs, outside the 2.0 target set) not since the 2.0 levers: re-measure on master or close as
-  documented exceptions. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
+- **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
+  and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
+  exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
+  3.0 state. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
 - **Degeneracy criterion (`DegenerateArea` = 1e-12 × diag²):** its motivating cases 119829 / 119830 are clean since D1
   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
