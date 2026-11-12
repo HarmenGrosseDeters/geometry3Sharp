@@ -12,7 +12,8 @@ namespace geometry3Sharp.Tests
     /// finite large values) now test each component (ClothSimulationFilter, MeshHausdorffDistance, TerrainDualContouring, PrimitiveFit3,
     /// TriangleDeviationBounds, MeshAlphaWrap). With the per-component Vector3d.IsFinite (#705) such inputs now reach the operations;
     /// these tests pin a defined result at huge coordinates, where the sums overflow (the ordinary scale is in each class's own tests): a
-    /// refusal (false), or for TriangleDeviationBounds a measured, consistent bound; never an exception.
+    /// refusal (false), or for TriangleDeviationBounds a measured, consistent bound, for MeshHausdorffDistance the distance (measured on
+    /// scaled copies since #731); never an exception.
     /// </summary>
     public class InlineSumFiniteTests
     {
@@ -45,7 +46,8 @@ namespace geometry3Sharp.Tests
             // (measured since #731, on copies scaled by a power of two)
             var h = new MeshHausdorffDistance(Sphere(scale, off), Sphere(scale * 1.01, off));
             Assert.True(h.Compute());
-            Assert.True(h.LowerBound >= 0 && h.UpperBound >= h.LowerBound && !double.IsInfinity(h.UpperBound), h.LowerBound + " " + h.UpperBound);
+            Assert.InRange(h.LowerBound, 0.009 * scale, 0.011 * scale);
+            Assert.InRange(h.UpperBound, h.LowerBound, 0.011 * scale);
             var target = Sphere(scale, off);
             var tree = new DMeshAABBTree3(target, true);
             var bounds = new TriangleDeviationBounds(target);
@@ -82,7 +84,7 @@ namespace geometry3Sharp.Tests
             Assert.True(h.Compute());
             // the spheres' radii differ by 1 %: the distance is 0.01 scale, up to the tolerance and the face discretization
             Assert.InRange(h.LowerBound, 0.009 * scale, 0.011 * scale);
-            Assert.True(h.UpperBound >= h.LowerBound);
+            Assert.InRange(h.UpperBound, h.LowerBound, 0.011 * scale);
         }
     }
 }

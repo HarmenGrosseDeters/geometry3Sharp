@@ -64,17 +64,89 @@ namespace geometry3Sharp.Tests
             Assert.InRange(h.UpperBound, 0.0099 * s, 0.0105 * s);
         }
 
-        /// <summary> coordinates far larger than the extent: a sphere of radius 1e-100 at 1e-90 is scaled up (2^332) and measured; the
-        /// same at radius 1e-250 is flat along z (an ulp of 1e300 is 1e284) and would overflow when scaled to extent 1, so it is
-        /// refused, with the outputs NaN </summary>
+        /// <summary> coordinates far larger than the extent: a sphere of radius 1e-100 at 1e-90 is scaled up (2^332) and measured </summary>
         [Fact]
-        public void LargeOffsets_SmallExtent_MeasuredOrRefused()
+        public void LargeOffsets_SmallExtent_Measured()
         {
             var h = Measure(1e-100, new Vector3d(1e-90, -1e-90, 1e-90));
             Assert.InRange(h.LowerBound, 0.0099e-100, 0.0101e-100);
-            var flat = new MeshHausdorffDistance(Sphere(1e-250, new Vector3d(0, 0, 1e300)), Sphere(1.01e-250, new Vector3d(0, 0, 1e300)));
-            Assert.False(flat.Compute());
-            Assert.True(double.IsNaN(flat.LowerBound) && double.IsNaN(flat.UpperBound));
+            Assert.InRange(h.UpperBound, 0.0099e-100, 0.0105e-100);
+        }
+
+        /// <summary> spheres of radius r at z = 1e300 are flat (an ulp of 1e300 is 1.5e284): two discs, whose distance is 0.01 r in the
+        /// plane. Scaled to extent 1, z would overflow; the flat axis is moved to 0 on the copies and back for the worst points
+        /// (review of #735: a refusal there was a regression for 2^-35 .. 2^-45, which the old code measured) </summary>
+        [Theory]
+        [InlineData(-35)] [InlineData(-40)] [InlineData(-45)] [InlineData(-830)]
+        public void FlatAtHugeCoordinates_Measured(int k)
+        {
+            double r = Math.Pow(2, k);
+            var off = new Vector3d(0, 0, 1e300);
+            var h = Measure(r, off);
+            Assert.InRange(h.LowerBound, 0.0099 * r, 0.0101 * r);
+            Assert.InRange(h.UpperBound, 0.0099 * r, 0.0105 * r);
+            Assert.Equal(1e300, h.WorstPoint.z);
+            Assert.Equal(1e300, h.WorstPointClosest.z);
+        }
+
+        /// <summary> a vertex no triangle uses does not set the scale: with one far away (1e100 gave an upper bound of 23 times the
+        /// distance after 0 subdivisions, the relative tolerance taken from it; from 1e160 the scaled triangles underflowed and the
+        /// certified bounds were 0 and 0) the result is the one without it, bit for bit (review of #735) </summary>
+        [Theory]
+        [InlineData(1e100)] [InlineData(1e200)] [InlineData(1e300)] [InlineData(-1.7e308)]
+        public void FarUnusedVertex_DoesNotSetTheScale(double far)
+        {
+            foreach (double s in new[] { 1.0, Math.Pow(2, -300) }) {
+                MeshHausdorffDistance plain = Measure(s);
+                DMesh3 a = Sphere(s), b = Sphere(1.01 * s);
+                a.AppendVertex(new Vector3d(far, 0, 0));
+                b.AppendVertex(new Vector3d(0, far, -far));
+                var h = new MeshHausdorffDistance(a, b);
+                Assert.True(h.Compute());
+                Assert.Equal(plain.LowerBound, h.LowerBound);
+                Assert.Equal(plain.UpperBound, h.UpperBound);
+                Assert.Equal(plain.Subdivisions, h.Subdivisions);
+                Assert.Equal(plain.WorstPoint, h.WorstPoint);
+            }
+        }
+
+        /// <summary> meshes near opposite ends of the double range: their distance (3.4e308) exceeds double.MaxValue and has no bounds
+        /// in doubles; refused, the outputs NaN (scaled back, the lower bound was +infinity above an upper bound MaxValue). Just
+        /// below MaxValue it is measured </summary>
+        [Fact]
+        public void DistanceBeyondMaxValue_Refuses()
+        {
+            var far = new MeshHausdorffDistance(Sphere(1e306, new Vector3d(-1.7e308, 0, 0)), Sphere(1e306, new Vector3d(1.7e308, 0, 0)));
+            Assert.False(far.Compute());
+            Assert.True(double.IsNaN(far.LowerBound) && double.IsNaN(far.UpperBound));
+            Assert.False(far.Converged);
+            var near = new MeshHausdorffDistance(Sphere(1e306, new Vector3d(-0.8e308, 0, 0)), Sphere(1e306, new Vector3d(0.8e308, 0, 0)));
+            Assert.True(near.Compute());
+            Assert.InRange(near.LowerBound, 1.59e308, 1.61e308);
+            Assert.True(near.UpperBound >= near.LowerBound && !double.IsInfinity(near.UpperBound));
+        }
+
+        /// <summary> the scaled path neither uses nor sets SpatialA / SpatialB (trees of the unscaled meshes); one instance computed on
+        /// a plain extent, then on a scaled one, then plain again gives the results of fresh instances </summary>
+        [Fact]
+        public void ScaledPath_SpatialUntouched_ReuseAcrossPaths()
+        {
+            double s = Math.Pow(2, -400);
+            MeshHausdorffDistance plain = Measure(1), small = Measure(s);
+            Assert.Null(small.SpatialA);
+            Assert.Null(small.SpatialB);
+            DMesh3 ua = Sphere(1), ub = Sphere(1.01);
+            var h = new MeshHausdorffDistance(ua, ub);
+            Assert.True(h.Compute());
+            DMeshAABBTree3 ta = h.SpatialA, tb = h.SpatialB;
+            Assert.NotNull(ta);
+            h.MeshA = Sphere(s); h.MeshB = Sphere(1.01 * s);
+            Assert.True(h.Compute());
+            Assert.Equal(small.LowerBound, h.LowerBound); Assert.Equal(small.UpperBound, h.UpperBound); Assert.Equal(small.Subdivisions, h.Subdivisions);
+            Assert.Same(ta, h.SpatialA); Assert.Same(tb, h.SpatialB);
+            h.MeshA = ua; h.MeshB = ub;
+            Assert.True(h.Compute());
+            Assert.Equal(plain.LowerBound, h.LowerBound); Assert.Equal(plain.UpperBound, h.UpperBound); Assert.Equal(plain.Subdivisions, h.Subdivisions);
         }
 
         /// <summary> an absolute Tolerance is scaled with the meshes: the same result as the unit spheres with the unit tolerance </summary>

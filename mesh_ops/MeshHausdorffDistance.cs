@@ -83,20 +83,21 @@ namespace gs
 
         /// <summary>
         /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN,
-        /// if either mesh has no triangles or a non-finite vertex, or if a coordinate of the meshes, scaled so that their extent
-        /// lies in [1, 2), would exceed 2^1000 (a mesh flat along an axis at coordinates far larger than its extent); also returns
-        /// false if cancelled. Returns true otherwise, even if not Converged (check Converged).
+        /// if either mesh has no triangles or a non-finite vertex, or if the distance exceeds double.MaxValue (meshes near
+        /// opposite ends of the double range); also returns false if cancelled. Returns true otherwise, even if not Converged
+        /// (check Converged). Vertices no triangle uses are ignored (also for the size of the meshes).
         /// Meshes with an extent outside [2^-32, 2^65) are measured on copies scaled by an exact power of two (the squared lengths
         /// of the distance queries would overflow or underflow at their own scale), so the result at 2^k times the meshes is
-        /// 2^k times the result, bit for bit; SpatialA / SpatialB are then not used.
+        /// 2^k times the result, bit for bit; SpatialA / SpatialB are then not used (nor set).
         /// </summary>
         public bool Compute()
         {
             LowerBound = UpperBound = double.NaN; Converged = false; Subdivisions = 0;
             if (MeshA.TriangleCount == 0 || MeshB.TriangleCount == 0 || finite(MeshA) == false || finite(MeshB) == false)
                 return false;
-            AxisAlignedBox3d bounds = MeshA.CachedBounds;
-            bounds.Contain(MeshB.CachedBounds);
+            // (the vertices used by triangles: a far isolated vertex would set the scale, and the triangles, scaled by it, underflowed)
+            AxisAlignedBox3d bounds = used_bounds(MeshA);
+            bounds.Contain(used_bounds(MeshB));
             // the distance queries square lengths of the meshes' extent: beyond about 2^500 they overflowed (the nearest-triangle
             // search found no triangle and threw; from about 1e120 the upper bound was double.MaxValue), below about 2^-500 they
             // underflowed (a distance of 1e-202 was measured as 0). Such meshes are measured on copies scaled by 2^-e (#731)
@@ -105,21 +106,21 @@ namespace gs
             for (int k = 0; k < 3; ++k) half = Math.Max(half, 0.5 * bounds.Max[k] - 0.5 * bounds.Min[k]);
             int e = (half > 0) ? exponent(half) + 1 : 0;      // extent = 2 half in [2^e, 2^(e+1))
             if (e >= MinPlainExponent && e <= MaxPlainExponent)
-                return compute(MeshA, MeshB, SpatialA, SpatialB, (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength, 0, true);
+                return compute(MeshA, MeshB, SpatialA, SpatialB, (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength,
+                    0, Vector3d.Zero, true);
 
-            double big = 0;
-            for (int k = 0; k < 3; ++k) big = Math.Max(big, Math.Max(Math.Abs(bounds.Max[k]), Math.Abs(bounds.Min[k])));
-            if (exponent(big) - e > 1000)
-                return false;
-            DMesh3 a = scaled(MeshA, -e), b = scaled(MeshB, -e);
-            AxisAlignedBox3d sb = a.CachedBounds;
-            sb.Contain(b.CachedBounds);
+            // an axis along which both meshes are flat is moved to 0 (exact, and distances are the same): its coordinate may be far
+            // larger than the extent and overflow when scaled. Along every other axis a coordinate is at most 2^53 times the axis'
+            // span (the span is at least an ulp of it), so the scaled coordinates stay below 2^54
+            Vector3d shift = Vector3d.Zero;
+            for (int k = 0; k < 3; ++k) if (bounds.Min[k] == bounds.Max[k]) shift[k] = bounds.Min[k];
+            DMesh3 a = scaled(MeshA, shift, -e), b = scaled(MeshB, shift, -e);
             // (an absolute tolerance scaled with the meshes; below the subnormal range it is 0, as RelativeTolerance would be)
-            double tol = (Tolerance > 0) ? pow2(Tolerance, -e) : RelativeTolerance * sb.DiagonalLength;
-            return compute(a, b, Symmetric ? new DMeshAABBTree3(a, true) : null, new DMeshAABBTree3(b, true), tol, e, false);
+            double tol = (Tolerance > 0) ? pow2(Tolerance, -e) : RelativeTolerance * new AxisAlignedBox3d(pow2(bounds.Min - shift, -e), pow2(bounds.Max - shift, -e)).DiagonalLength;
+            return compute(a, b, Symmetric ? new DMeshAABBTree3(a, true) : null, new DMeshAABBTree3(b, true), tol, e, shift, false);
         }
 
-        bool compute(DMesh3 meshA, DMesh3 meshB, DMeshAABBTree3 spatialA, DMeshAABBTree3 spatialB, double tol, int e, bool keepSpatial)
+        bool compute(DMesh3 meshA, DMesh3 meshB, DMeshAABBTree3 spatialA, DMeshAABBTree3 spatialB, double tol, int e, Vector3d shift, bool keepSpatial)
         {
             if (spatialA == null && Symmetric) spatialA = new DMeshAABBTree3(meshA, true);
             if (spatialB == null) spatialB = new DMeshAABBTree3(meshB, true);
@@ -142,10 +143,18 @@ namespace gs
                 upper = Math.Max(upper, ba.Upper);
             }
             upper = Math.Max(upper, lower);
-            // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue)
-            LowerBound = pow2(lower, e);
-            UpperBound = (upper == double.MaxValue) ? double.MaxValue : Math.Min(pow2(upper, e), double.MaxValue);
+            // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue). A distance beyond MaxValue
+            // (meshes near opposite ends of the double range) has no bounds in doubles: refused, the outputs NaN
+            double lo = pow2(lower, e), up = (upper == double.MaxValue) ? double.MaxValue : pow2(upper, e);
+            if (double.IsInfinity(lo) || double.IsInfinity(up)) {
+                Converged = false;
+                return false;
+            }
+            LowerBound = lo; UpperBound = up;
             WorstPoint = pow2(worst, e); WorstPointClosest = pow2(worstClosest, e);
+            // (along a flat axis every point, the closest point on a triangle in that plane too, has the axis' coordinate)
+            for (int k = 0; k < 3; ++k)
+                if (shift[k] != 0) { WorstPoint[k] = shift[k]; WorstPointClosest[k] = shift[k]; }
             return CancelF() == false;
         }
 
@@ -158,7 +167,8 @@ namespace gs
             return biased - 1023;
         }
 
-        // x 2^n, exact unless the result leaves the normal range (in two factors: 2^n alone may not be representable)
+        // x 2^n, exact unless the result leaves the normal range (in two factors: 2^n alone may not be representable; a subnormal
+        // result may round twice, for values below about 2^-485 of the extent, which do not decide a bound)
         static double pow2(double x, int n)
         {
             int h = n / 2;
@@ -166,11 +176,22 @@ namespace gs
         }
         static Vector3d pow2(Vector3d v, int n) => new Vector3d(pow2(v.x, n), pow2(v.y, n), pow2(v.z, n));
 
-        static DMesh3 scaled(DMesh3 mesh, int n)
+        // (v - shift) 2^n; vertices no triangle uses at 0 (they may be far away or not finite)
+        static DMesh3 scaled(DMesh3 mesh, Vector3d shift, int n)
         {
             var copy = new DMesh3(mesh, false, MeshComponents.None);
-            foreach (int vid in copy.VertexIndices()) copy.SetVertex(vid, pow2(copy.GetVertex(vid), n));
+            foreach (int vid in copy.VertexIndices())
+                copy.SetVertex(vid, (copy.GetVtxEdgeCount(vid) > 0) ? pow2(copy.GetVertex(vid) - shift, n) : Vector3d.Zero);
             return copy;
+        }
+
+        // bounds of the vertices used by triangles
+        static AxisAlignedBox3d used_bounds(DMesh3 mesh)
+        {
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            foreach (int vid in mesh.VertexIndices())
+                if (mesh.GetVtxEdgeCount(vid) > 0) box.Contain(mesh.GetVertex(vid));
+            return box;
         }
 
 
