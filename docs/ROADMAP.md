@@ -147,9 +147,9 @@ The next steps per topic, in order ("in progress" where a session works on them)
 - Alpha Wrap 3.0: L1, L3b, L2 (in progress, one PR per lever, fresh session from the hand-over `aw3/HANDOVER-L1.md`; L4 #670 merged). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662 merged,
   B #665, C #667, D #669, E #672 open in that merge order; F, G after A-D). [research.md](roadmap/research.md#open)
-- Phase 5: batch queries, the internal caller switches (spatial profile first, then switch only serial loops over many
-  independent queries, bit-identical; Sonnet; owner 2026-11-12: queued, starts after the dirty-side provenance session
-  when a slot is free). [research.md](roadmap/research.md#open)
+- Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
+  the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
+  [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: no issue-tracker follow-up left (the flip-guard default follow-up is closed: the Remesher

@@ -200,3 +200,49 @@ MCP: tools `raycast` and `inside` with the same schema (the `Param` list), array
 
 - Decided: the first PR has nearest hit and any-hit (`IntersectBatch`, `AnyHitBatch`, same options and statuses; any-hit equals `FindNearestHitTriangle(ray, maxDistance) != InvalidID`); all-hits later.
 - b1 with the Lévy phase-2 fast-winding cache: the winding batch only calls `FastWindingNumber`, so it needs no change when that PR lands.
+
+## 7. Profile of the internal callers (2026-11-12)
+
+Task: find the library callers of the single queries that are a serial loop over many (>= ~1000) independent queries, and
+measure what a switch to `MeshBatchQueries` would gain (upper bound first). No library change. Read from the code (loop shape);
+measured with a probe (sphere meshes from `Sphere3Generator_NormalizedCube`, 4-core container, net10.0, median of 3-5 runs after a warm-up).
+
+**Result: no caller pays. Every candidate loop already runs in parallel (`gParallel`), so the batch can only add the Morton
+sort, and that costs as much as it saves or loses on the callers' (coherent) input order. Nothing is switched.**
+
+| Caller | Loop shape | Queries | Query share of the caller | Expected gain |
+|---|---|---|---|---|
+| `MeshDeviation.Compute` (`MaxDeviation` / `IsWithin` are not in this class) | `gParallel.ForEach` over the vertices, `FindNearestTriangle` (+ pseudo-normal or `FastWindingNumber`) | 59k (probe) | 20-28 % (nearest, parallel loop) | **none, a loss**: `NearestPointBatch` 62-92 ms vs the parallel loop 50-65 ms on vertex-ordered input; caller 3-12 % slower |
+| `MeshFidelityMetrics` volume IoU (`volume_iou`, OuterFaces) | `gParallel.BlockStartEnd` over random samples, `FastWindingNumber`; `OuterFaces` loops are parallel too | `VolumeSamples` | the IoU part is nearly all queries, but the caller also builds trees, curvature, edge samples | sort gain on the query part 0.94x (29k tris) - 1.41x (303k tris); of the caller far below 10 % (the tree build of 300k triangles alone is several times the 10 ms saved) |
+| `MeshFidelityMetrics` edge / surface distances | `gParallel.BlockStartEnd`; `SegmentTree3` and `Surface.Distance` (own tree, per-sample pseudo-normal logic) | n | - | none: parallel; `Surface.Distance` needs the barycentric point and a feature normal, which `NearestPointBatch` does not return |
+| `MeshRepairMetrics` (`volume_iou`, `lost components`) | `gParallel.BlockStartEnd` / `ForEach`, `FastWindingNumber` | `VolumeSamples` | as the fidelity IoU | none (same loop, same numbers) |
+| `WindingContouring` | `Field` / `FindNearestHitTriangle` / `FindNearestTriangle` per octree cell or edge, called as `HermiteF` / `HiddenGapF` / `HiddenWallF` from `DualContouring`'s parallel loops (`gParallel.ForEach`, `mesh_generators/DualContouring.cs` lines 235, 1133) | per cell, 1-10 each | - | none: parallel, and the queries of a cell depend on the previous hit (`collect_hits` re-casts from the last hit) |
+| `WindingNumberOctree` | `evaluate` per node during a parallel refinement; a node copies from a neighbour when the neighbour is known | data dependent | - | none: parallel, adaptive (the set of queried points depends on earlier results); not a fixed batch |
+| `RemoveOccludedTriangles` | `gParallel.ForEach` over vertices / triangles, `IsInside` / `FastWindingNumber` / 6 rays | vertices or triangles | most of `Compute` | none: parallel, mesh order is coherent (sort gain on coherent input 0.9-1.1x, README) |
+| `MeshSignedDistanceGrid` | `gParallel.ForEach` over the grid (`FindNearestTriangle`), frontier queue by rings in the sweep variant | grid cells | - | none: parallel and in grid order (coherent: sorted 1.0x, section 3) |
+| `MeshRepairOrientation` (ray time of the repair) | `gParallel.BlockStartEnd` over component triangles, 2 rays each | 2 per triangle | 6-7 % of the repair CPU time (Q2/Q3) | none: parallel; probe: batch 0.90x (29k) - 1.02x (303k) of the parallel loop; even at 1.3x the bound is 6-7 % x 0.23 = 1.5 % |
+| `TerrainOffset` | `sample` / `distance` as `SampleF` of `TerrainDualContouring`, called from its `gParallel.ForEach` over columns and candidate cells | per cell | - | none: parallel; `sample` is an iterated march, not a fixed batch |
+| `TerrainSafety` | serial: sources densified along polylines (`FindNearestTriangle`), then a priority queue (sequential by nature); `bound` (certification) is serial but interleaved with a shared `incident` list | up to `MaxSourcePoints` = 1e7 sources, typically 1e3-1e5 | the source mapping is a small part next to the heat method / remesher / Dijkstra | below 10 %: the serial query loop is the only one in the list that is not parallel, but a terrain case spends its time in the remesh and the distance solve; and the file is under test-time changes by another session. **Not switched**; the first thing to do if a profile of a terrain case with 1e5+ sources shows the mapping |
+| `AlphaWrapQualityPass` | out of scope (Alpha Wrap 3.0 session) | | | |
+
+Probe numbers (command: a throwaway console project referencing `geometry3Sharp_netstandard.csproj`, 20 000 random points
+in the cube [-1.2, 1.2]^3 and random rays from them; speed of the existing parallel loop `gParallel.BlockStartEnd(.., 256, false)`
+over the single query versus the batch, sorted and parallel):
+
+| triangles | query | parallel loop of single calls | batch (sorted + parallel) | batch / loop |
+|---:|---|---:|---:|---:|
+| 28 812 | `FastWindingNumber > 0.5` | 25.8 ms | 27.3 ms (unsorted 32.1) | 0.94x |
+| 28 812 | nearest triangle | 95.3 ms | 71.7 ms | 1.33x |
+| 28 812 | nearest hit (ray) | 39.3 ms | 43.4 ms | 0.90x |
+| 303 372 | `FastWindingNumber > 0.5` | 35.0 ms | 24.8 ms | 1.41x |
+| 303 372 | nearest triangle | 249.7 ms | 204.5 ms | 1.22x |
+| 303 372 | nearest hit (ray) | 23.1 ms | 22.7 ms | 1.02x |
+
+(random input is the best case for the sort; the callers above feed vertex / grid / triangle order, which is coherent, where the
+batch is on par or slower: `MeshDeviation` rows of the first table.)
+
+Reading: the 3-5x of section 3 is parallel scaling, which these callers already have. What is left is the sort effect, at most
+0.9-1.4x on the query part for random input and none for coherent input. With query shares of 20-30 % (MeshDeviation) or less
+(everything else), the caller gain is below 10 % everywhere, so under the rule of thumb of the task nothing is switched.
+Where a switch would pay in the future: a **new serial loop** over many queries (a new caller, or `TerrainSafety`'s source mapping if
+a profile shows it), and the CLI / MCP commands (`raycast`, `inside`), which call the batch directly.
