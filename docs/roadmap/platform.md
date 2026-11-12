@@ -41,7 +41,7 @@ Part of the [roadmap](../ROADMAP.md).
   Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
   borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
-  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now).
+  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now). Backlog at 171 after TerrainSafety (2 fixed).
   Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
   4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
   6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
@@ -71,9 +71,8 @@ Part of the [roadmap](../ROADMAP.md).
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
-  section 11); PR A (`repair` options and result fields, #662), PR B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665)
-  and PR C (`polygon_solids`, #667) are merged; D (`polygon2d` line ops, #669) and E (`curvature`, `fidelity` / `geodesic` options, #672) are in
-  review; F and G as in its section 10.
+  section 11); PRs A (`repair` options and result fields, #662), B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665), C (`polygon_solids`, #667)
+  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is in review; F and G as in its section 10.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).

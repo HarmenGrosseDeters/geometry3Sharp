@@ -133,6 +133,8 @@ namespace g3cli
             c.Params.Add(new Param("surface_samples", ParamType.Integer, "surface samples per mesh (library default 50000)"));
             c.Params.Add(new Param("edge_samples", ParamType.Integer, "samples on the sharp edges per mesh (library default 10000)"));
             c.Params.Add(new Param("sharp_edge_angle", ParamType.Number, "dihedral angle in degrees above which an edge is sharp (library default 30)"));
+            c.Params.Add(new Param("sharp_edge_min_height", ParamType.Number, "edges at triangles thinner than this (height, relative to the reference size) are not sharp: the normal of a sliver comes from rounding (library default 1e-5), 0..1"));
+            c.Params.Add(new Param("outer_offset", ParamType.Number, "outer surface: offset of the two winding number tests, relative to the reference size; walls thinner and gaps narrower than this are not outer (library default 1e-5), > 0 and <= 1"));
             c.Params.Add(new Param("outer_surface", ParamType.Boolean, "also the metrics restricted to the outer surface of the reference (library default true)"));
             c.Params.Add(new Param("volume_samples", ParamType.Integer, "samples of the volume IoU (library default 100000)"));
             c.Params.Add(new Param("curvature", ParamType.Boolean, "also the curvature agreement (library default true)"));
@@ -150,6 +152,20 @@ namespace g3cli
                         throw new CommandException(ResultCodes.InvalidArguments, "'sharp_edge_angle' must be in 0..180");
                     f.SharpEdgeAngle = a;
                 }
+                if (args.Has("sharp_edge_min_height")) {
+                    double v = args.Number("sharp_edge_min_height");
+                    if (!(v >= 0 && v <= 1))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'sharp_edge_min_height' must be in 0..1");
+                    f.SharpEdgeMinHeight = v;
+                }
+                if (args.Has("outer_offset")) {
+                    double v = args.Number("outer_offset");
+                    if (!(v > 0 && v <= 1))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'outer_offset' must be in (0, 1]");
+                    f.OuterOffset = v;
+                }
+                if (args.Has("outer_offset") && args.Has("outer_surface") && !args.Bool("outer_surface"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'outer_offset' is an option of the outer surface metrics");
                 if (args.Has("outer_surface")) f.OuterSurface = args.Bool("outer_surface");
                 if (args.Has("curvature")) f.Curvature = args.Bool("curvature");
                 if (args.Has("seed")) f.Seed = args.Integer("seed");
@@ -163,6 +179,12 @@ namespace g3cli
 
                 var o = new JsonObject() { ["reference"] = args.String("reference"), ["mesh_file"] = args.String("mesh") };
                 o["size"] = MeshReport.Num(f.Size);
+                // the sampling and detection options as used (the library's defaults where not given)
+                o["options"] = new JsonObject() {
+                    ["surface_samples"] = f.SurfaceSamples, ["edge_samples"] = f.EdgeSamples, ["volume_samples"] = f.VolumeSamples,
+                    ["sharp_edge_angle"] = f.SharpEdgeAngle, ["sharp_edge_min_height"] = f.SharpEdgeMinHeight, ["outer_offset"] = f.OuterOffset,
+                    ["outer_surface"] = f.OuterSurface, ["curvature"] = f.Curvature, ["seed"] = f.Seed,
+                };
                 o["relative_thresholds"] = NumArray(f.RelativeThresholds);
                 o["precision"] = NumArray(f.Precision); o["recall"] = NumArray(f.Recall); o["f_score"] = NumArray(f.FScore);
                 o["chamfer"] = MeshReport.Num(f.Chamfer);
