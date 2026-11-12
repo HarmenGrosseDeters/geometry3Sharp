@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
   3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now)). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
-  The remesher items of Phase 2 stay open; the Remesher rim folds (#621) have a fix in draft #640.
+  The remesher items of Phase 2 stay open; the Remesher rim folds (#621) are fixed by #640 (merged 2026-11-12).
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
   [ALPHA_WRAP_PAPER_NOTES.md](../design/ALPHA_WRAP_PAPER_NOTES.md), [ENVELOPE.md](../design/ENVELOPE.md),
   [VOLUME_CHECK_SAMPLING.md](../design/VOLUME_CHECK_SAMPLING.md),
@@ -227,8 +227,9 @@ better; 0.75 is 1.09-1.22x.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
   candidate pairs); walls folding through each other far above the wall thickness (135363 with the sizing: 1.1M
-  triangles, 22613 pairs; with the check as well more than 90 minutes); new self-intersections that
-  `MinTriangleQuality` creates at the bottom rim of cones and tapers (#621, fix in draft #640). Leads in
+  triangles, 22613 pairs; with the check as well more than 90 minutes). Done: the new self-intersections that
+  `MinTriangleQuality` created at the bottom rim of cones and tapers (#621, fixed by #640; 1.16-1.22x on Thingi10K,
+  accepted by the owner; [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 13). Leads in
   [hotspots.md](hotspots.md#open-tasks-and-where-their-answer-may-already-be).
 - **Reducer / Remesher upper bounds** (2026-11-02): B (the union-box query in the Remesher, 4-6 %) not built; D (the
   permission-grid accept filter) not built (owner 2026-11-02). Shared BVH queries per collapse were "being tried in
@@ -325,8 +326,11 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
   results have self-intersecting triangle pairs (19768 pairs, the inputs 1522), mostly from valence flips and collapses
   (no geometric check by default). `MinTriangleQuality` (0.2, the `g3cli` default now) reduces them (17 of 20 results,
   3105 pairs; far fewer are created during the passes)
-  but does not prevent them, and 9 of 150 procedural primitives end with a few more pairs than without it, all at the
-  bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
+  but does not prevent them. Before #640 (fold check, merged 2026-11-12) 9 of 150 procedural primitives ended with a few
+  more pairs than without it, all at the bottom rim where the flat cap meets the side (folds onto the cap, no normal
+  flips); with #640 the primitives have 129 pairs (from 281; only the flattened cones cone12_x0.6, cone16_x0.6 left) and
+  the 20 Thingi10K meshes 1186 new pairs at x1 (from 2113), most of them not local (no shared vertex), so the fold check
+  cannot see them ([REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 13). The repro cases of #621 in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
   taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
   cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`).

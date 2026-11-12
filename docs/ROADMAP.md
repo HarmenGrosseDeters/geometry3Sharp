@@ -81,7 +81,8 @@ Status on 2026-11-12 (morning, Berlin).
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
   #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fixed by #640 (merged 2026-11-12, 36ef5a18; owner accepted the missed time gate,
   1.16-1.22x on Thingi, opt-in via `MinTriangleQuality`). Follow-ups closed (owner 2026-11-12): the snapshot PR is not
-  built (no bit-identical gain), the crease-general fold check is exhausted (most remaining pairs are non-local).
+  built (no bit-identical gain), the crease-general fold check is exhausted (most remaining pairs are non-local;
+  numbers in [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 13).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
