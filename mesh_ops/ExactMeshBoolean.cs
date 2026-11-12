@@ -105,7 +105,8 @@ namespace g3
         /// budget: the largest number of pieces (triangles of the arrangement, Counts["pieces"]) that Compute() takes on;
         /// with more, it stops before the triangulation with Status BudgetExceeded instead of running on (the count is
         /// exact and known after the intersections are computed, a few percent into the work). 0 (the default): no limit.
-        /// The time of the classification grows with the pieces, about one exact ray per piece per open input mesh.
+        /// The time of the classification grows with the pieces: for open input meshes, a winding number per piece and
+        /// open mesh, most of them carried from a neighbouring piece.
         /// </summary>
         public long MaxPieces;
 
