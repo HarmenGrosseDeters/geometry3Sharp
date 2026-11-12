@@ -10,8 +10,10 @@ The rule (fixed here, before any mesher run; change it only with a new SEED or a
   Measures: nb = buildings, np = parcels whose bounding box centre lies in the cell; use = the land use (Nutzung layer, attribute
             nutzart) at the cell centre; big = the largest bounding box area (m2) of a parcel that intersects the cell.
   Strata:   STRATA below, each a predicate on (nb, np, use, big), the number K of tiles, and the districts it draws from.
-  Draw:     the strata in the order of the table (a cell taken by one stratum is not taken by another); the candidate cells of a (stratum, district) pair are ordered by sha256(SEED | district | cell); the first cell that
-            satisfies the predicate is taken (a uniform draw without replacement from the qualifying cells). Tile i of a stratum
+  Strata:   mutually exclusive: a cell belongs to the first stratum of the table whose predicate holds (classify). So the draw of a
+            stratum depends on nothing but its own earlier tiles, and `--only` and `--first` give subsets of the full sample.
+  Draw:     the candidate cells of a (stratum, district) pair are ordered by sha256(SEED | district | cell); the first cell of the
+            stratum (classify) that was not taken by an earlier tile of the same stratum is taken (a uniform draw without replacement). Tile i of a stratum
             comes from district DISTRICTS[i mod len(DISTRICTS)], so every stratum spreads over its districts.
   Output:   <out>/<stratum>/ with the inputs of alkis_tiles.py (m2_, base_, cq_ files) and <out>/sample.json (the manifest: stratum,
             district, tile, nb, np, use, big, counts, input checksums). Nothing of it is committed.
@@ -34,9 +36,9 @@ BORKEN, EUSKIRCHEN, SIEGEN, ERFT, DUEREN, HOEXTER, HERNE = "05554000", "05366000
 BUILDING_USE = ("Wohnbaufläche", "Fläche gemischter Nutzung")
 MINING_USE = ("Bergbaubetrieb", "Tagebau, Grube, Steinbruch")
 
-# name: (K, districts, predicate(nb, np, use, big)). The order is the order of the draw: the specific strata first, and a cell belongs to
-# the first stratum that takes it (a cell is never in the sample twice; the first version of this table drew one cell for "centre" and
-# "tiny" and one for "forest" and "huge").
+# name: (K, districts, predicate(nb, np, use, big)). The order is the priority: a cell belongs to the first stratum whose predicate
+# holds (classify), so the strata are disjoint. (The first version of this table let a cell count for two strata, "centre" and "tiny",
+# and handled it with a global used-set; that made `--only` and `--first` change the draw.)
 STRATA = {
     "tiny":       (4, [KOELN, DUESSELDORF, DUISBURG, DORTMUND], lambda nb, np_, use, big: np_ >= 120),
     "huge":       (4, [EUSKIRCHEN, SIEGEN, HOEXTER, BORKEN], lambda nb, np_, use, big: big >= 1_000_000),
@@ -131,35 +133,57 @@ def plan(args):
     print(f"  {len(need)} districts, {total / 1e6:.0f} MB of archives, {sum(len(v) for v in need.values())} tiles")
 
 
-def draw(args):
-    manifest = []
-    stats = {}
-    used = set()
-    for name, (k, districts, predicate) in STRATA.items():
-        if args.only and name not in args.only:
+def classify(nb, np_, use, big):
+    """The stratum of a cell: the first of STRATA (in table order) whose predicate holds, or None."""
+    for name, (_, _, predicate) in STRATA.items():
+        if predicate(nb, np_, use, big):
+            return name
+    return None
+
+
+def select_tiles(stats_of, only=None, first=0):
+    """The tiles of the sample: [(stratum, district, cell, nb, np, use, big)]. stats_of(district) gives the Stats of a district
+    (loaded on demand). `only` (strata) and `first` (tiles per stratum) filter the draw, they never change it."""
+    picks = []
+    for name, (k, districts, _) in STRATA.items():
+        if only and name not in only:
             continue
-        for i in range(min(k, args.first) if args.first else k):
+        used = set()
+        for i in range(min(k, first) if first else k):
             d = districts[i % len(districts)]
-            if d not in stats:
-                gpkg, digest, city, nbytes = at.open_district(args.cache, d)
-                print(f"district {d} {city}: archive sha256 {digest}", flush=True)
-                stats[d] = (Stats(gpkg), gpkg, city, digest)
-            st, gpkg, city, digest = stats[d]
+            st = stats_of(d)
             for cell in sorted(st.cells, key=lambda c: order_key(d, c)):
                 if (d, cell) in used:
                     continue
                 nb, np_ = st.nb.get(cell, 0), st.np.get(cell, 0)
                 use = st.use(cell)
                 big = st.big(cell)
-                if predicate(nb, np_, use, big):
+                if classify(nb, np_, use, big) == name:
                     used.add((d, cell))
-                    manifest.append({"stratum": name, "district": d, "city": city, "tile": f"{cell[0]}_{cell[1]}",
-                                     "nb": nb, "np": np_, "use": use, "big_m2": big, "archive_sha256": digest})
-                    print(f"  {name}: {city} {cell[0]}_{cell[1]}  nb {nb} np {np_} use {use} big {big:.0f}", flush=True)
+                    picks.append((name, d, cell, nb, np_, use, big))
                     break
             else:
-                print(f"  {name}: no qualifying cell left in {city}", flush=True)
-    # inputs
+                print(f"  {name}: no qualifying cell left in district {d}", flush=True)
+    return picks
+
+
+def draw(args):
+    stats = {}
+    archives = {}
+
+    def stats_of(d):
+        if d not in stats:
+            gpkg, digest, city, nbytes = at.open_district(args.cache, d)
+            print(f"district {d} {city}: {nbytes} bytes, archive sha256 {digest}", flush=True)
+            archives[d] = {"city": city, "file": at.index(args.cache)[d][0], "bytes": nbytes, "sha256": digest}
+            stats[d] = (Stats(gpkg), gpkg)
+        return stats[d][0]
+
+    manifest = []
+    for name, d, cell, nb, np_, use, big in select_tiles(stats_of, args.only, args.first):
+        manifest.append({"stratum": name, "district": d, "city": archives[d]["city"], "tile": f"{cell[0]}_{cell[1]}",
+                         "nb": nb, "np": np_, "use": use, "big_m2": big, "archive_sha256": archives[d]["sha256"]})
+        print(f"  {name}: {archives[d]['city']} {cell[0]}_{cell[1]}  nb {nb} np {np_} use {use} big {big:.0f}", flush=True)
     by_district = {}
     for m in manifest:
         by_district.setdefault(m["district"], []).append(m)
@@ -178,8 +202,12 @@ def draw(args):
                     name = f"{prefix}_{m['tile']}_q{angle}s"
                     m["files"][name] = at.write_input(os.path.join(out, name + ".txt"), pts, segs, angle, constrained, args.steiner_limit, "0.01")
     path = os.path.join(args.out, "sample.json")
-    json.dump({"seed": SEED, "cell": CELL, "tiles": manifest}, open(path, "w"), indent=1, ensure_ascii=False)
-    print(f"{len(manifest)} tiles, manifest {path}")
+    os.makedirs(args.out, exist_ok=True)
+    # the akt source changes over time: the sample is reproducible per archive hash, so the hashes are part of the output
+    json.dump({"seed": SEED, "cell": CELL, "archives": archives, "tiles": manifest}, open(path, "w"), indent=1, ensure_ascii=False)
+    print(f"{len(manifest)} tiles from {len(archives)} archives, manifest {path}")
+    for d, a in sorted(archives.items()):
+        print(f"  archive {d} {a['file']} {a['bytes']} bytes sha256 {a['sha256']}")
 
 
 def main():

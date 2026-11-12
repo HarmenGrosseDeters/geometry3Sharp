@@ -343,6 +343,8 @@ as in the source, `snap_tolerance 0.01`, `steiner_limit 200000`, `resolve_crossi
 were read off the tile names, `MESHING2D_SPEC.md` (100 to 200 m tiles) and `MESHING2D_HULL_GRID.md` (Herne points outside the tile), and checked
 against the recorded constrained-mode counts (below).
 
+**Reproducibility.** The host's "akt" data change over time, so a sample or a Herne result is reproducible per archive SHA-256: `alkis_tiles.py` prints it, and `alkis_sample.py` writes the archives (file, size, SHA-256) and the tile list into `sample.json`. `--only` and `--first` select from the full draw and never change it (`test_alkis_sample.py`, offline, in CI).
+
 **Herne, fetched and prepared by `alkis_tiles.py --herne` (archive sha256 `1d92eb85...39232`, 2026-11-12, master `2b26172`).** All 12 runs of
 `herne_ratchet.py` are VALID, RefinementPinch 0, exit 0. Input sizes: 371800 474 points / 513 segments, 373600 1 713 / 1 925, 381000 323 / 333.
 

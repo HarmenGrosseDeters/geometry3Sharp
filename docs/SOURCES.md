@@ -729,3 +729,9 @@ Verification (tests, independent of the vendored code): `CoreMathReference` comp
 on evenly spread hard-to-round arguments taken from the CORE-MATH worst-case lists (`CoreMathHardCases`, inputs only, MIT);
 `CoreMathTintTests` / `CoreMathDintTests` pin the 192-bit and 128-bit helper types; `CoreMathCampaignTests` (Nightly tier) runs
 the large comparison (1 000 000 random arguments and up to 30 000 worst cases per function for the PR).
+
+## ALKIS cadastral data (2D mesher benchmark, `benchmarks/Meshing2Benchmark/corpus/alkis_*.py`)
+
+| Item | Source and license |
+|---|---|
+| Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
