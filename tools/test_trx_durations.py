@@ -197,9 +197,12 @@ class Isolated(unittest.TestCase):
         path2 = os.path.join(self.dir.name, "alone3.trx")
         with open(path2, "w", encoding="utf-8") as f:
             f.write(passed)
+        only_tagged = os.path.join(self.dir.name, "tagged.txt")
+        with open(only_tagged, "w", encoding="utf-8") as f:
+            f.write("A.SlowTagged\n")
         buf2 = io.StringIO()
         with contextlib.redirect_stdout(buf2):
-            t.main([self.full, "--isolated", path2, "--backlog", small, "--max-seconds", "1"])
+            t.main([self.full, "--isolated", path2, "--backlog", only_tagged, "--max-seconds", "1"])
         self.assertIn("3.0 s > 1 s, not on the backlog: N.B+C.Row(x: 1.5)  (full run 120.0 s)", buf2.getvalue())
         self.assertIn("2.0 s > 1 s, not on the backlog: N.A.SlowUntagged  (full run 7.2 s)", buf.getvalue())
 
