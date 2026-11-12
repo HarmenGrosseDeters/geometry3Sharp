@@ -118,6 +118,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void PointTree_LimitIsStrict_AtAnExactTie()
+        {
+            // integer points at the 3-4-5 distances from the origin: maxDist 5 gives maxDist^2 == 25 == the squared distance exactly
+            foreach (int e in new[] { 0, 10, -10 }) {
+                double s = Math.Pow(2, e);
+                var pts = new List<Vector3d> { new Vector3d(3, 4, 0), new Vector3d(-4, 3, 0), new Vector3d(0, -3, 4), new Vector3d(5, 0, 0), new Vector3d(6, 8, 0) };
+                for (int i = 0; i < 30; ++i) pts.Add(new Vector3d(20 + i % 5, 20 + i / 5, 20));        // filler: a deeper tree
+                DMesh3 m = PointMesh(pts, s);
+                PointAABBTree3 tree = BuiltTree(m);
+                Vector3d q = Vector3d.Zero;
+                Assert.Equal(DMesh3.InvalidID, tree.FindNearestPoint(q, 5 * s));                         // the four points at distance 5 are not closer
+                Assert.Equal(DMesh3.InvalidID, BruteNearest(m, q, 5 * s, null, out _));
+                int found = tree.FindNearestPoint(q, 5 * s * (1 + 1e-12));
+                Assert.NotEqual(DMesh3.InvalidID, found);
+                Assert.Equal(25 * s * s, m.GetVertex(found).DistanceSquared(q));
+                Assert.Equal(DMesh3.InvalidID, tree.FindNearestPoint(q, 5 * s * (1 - 1e-12)));
+            }
+        }
+
+        [Fact]
         public void PointTree_PointFilter_IsHonoured()
         {
             var rng = new Random(2026111202);
