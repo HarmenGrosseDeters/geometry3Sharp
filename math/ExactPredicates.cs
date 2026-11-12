@@ -34,7 +34,7 @@ namespace g3
         /// The bound of a filter: relative (its bound constant times the permanent) plus sum times 2^-1066, the same
         /// double as relative + sum * UnderflowUnit wherever the filter can decide, but without that product where it
         /// adds nothing. The product is subnormal for every sum below 2^1044, and subnormal arithmetic is slow on
-        /// x86 (a microcode assist of about 50 ns per filter call, docs/perf/FILTER_UNDERFLOW_TERM.md).
+        /// x86 (a microcode assist of about 50 ns per filter call, benchmarks/PredicateComparison/README.md, "Filter underflow term").
         /// Why the result is the same: the filters decide only where permanent > UnderflowLimit (1e-200 > 2^-665),
         /// and every bound constant is at least 2^-51, so relative >= 2^-716 (rounding is monotone and 2^-716 is a
         /// double) and half an ulp of it is at least 2^-769. For sum < 2^256, sum * 2^-1066 < 2^-810 is below that

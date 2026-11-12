@@ -67,3 +67,41 @@ Every family has 0 false negatives, 0 false positives and 0 `Find()` results wit
 longer reach the exact `Orient3d` stage); `Find()` is dominated by its contact points and changes little; general
 position (not on the exact route) is unchanged. (The times are higher than in the table above, which was measured
 with another benchmark running: this is a slower moment of the same container, both builds measured alike.)
+
+## Filter underflow term
+
+    dotnet run -c Release -- filters
+
+ns per call of `Orient3d`, `InCircle` and `InSphere` in general position (the filter decides every call), best of 5
+runs of 2 000 000 calls, one thread. Until 12 November 2026 each of the three filters added `sum * 2^-1066` to its
+bound on every call; that product is subnormal for every sum below 2^1044 and costs a microcode assist on x86. Now the
+term is added only for sums of 2^256 and more, where it can change the bound (the proof is at
+`ExactPredicates.with_underflow`); the bound, and so every decision, is the same double as before.
+
+4-core cloud container (Xeon 2.1 GHz), master `8612d56` against the change, two runs each (the second shown):
+
+| coordinates | orient3d before | after | incircle before | after | insphere before | after |
+|---|---|---|---|---|---|---|
+| [-1, 1] | 52.2 | 7.0 | 55.2 | 9.1 | 70.3 | 28.1 |
+| [-1, 1] * 2^-40 | 52.7 | 7.6 | 58.4 | 8.7 | 75.4 | 28.1 |
+| [-1, 1] * 2^40 | 53.6 | 7.6 | 55.7 | 9.2 | 70.7 | 28.7 |
+
+**Effect on `ExactMeshBoolean`** (`underflow/ab.py`: per case base and candidate alternately, each one process
+`BooleanComparison profile --repeat 5 --median --safe-rounding --ops union`; `underflow/abrep.py` the table; raw rows in
+`underflow/results/`). The cases are those of docs/perf/EXTREME_RUNTIME_BOOLEANS.md section 8 (36 normal unions:
+Thingi10K models with their rotated, shifted copy, `cross150`, `sph300`) and its tail (the four 5.3-5.6 s models and
+1088051, about 90 s; 1088138 is of the same group and was not run). 4 cores; median of 5 per case; the sums are of
+the per-case medians.
+
+| set | wall before (ms) | after | pair search (`intersections.pairs`) before | after | allocated MB before / after | GC pause ms before / after | result hashes |
+|---|---|---|---|---|---|---|---|
+| normal, 36 unions | 21 949 | 19 847 (-9.6 %) | 4 301 | 2 232 (-48 %) | 7 897 / 7 872 | 1 600 / 1 613 | all equal |
+| tail, 5 unions | 105 535 | 99 487 (-5.7 %) | 7 464 | 3 041 (-59 %) | 15 506 / 15 504 | 5 232 / 5 362 | all equal |
+
+- The pair search is dominated by the self-join's `touch_only` on adjacent triangles (6 million pairs for `sph300`),
+  one or two `Orient3d` calls each; the filter was most of their cost.
+- Largest gains: 1063860 -33 %, cross150 -30 %, 1722409 -28 %, 1041432 (tail) -21 %.
+- No case is slower. Single runs of the small cases (100-400 ms) vary by up to ±18 % in either direction; the three
+  that came out slower in one run (1005281, 281457, 669966) were measured again in four rounds (20 runs each side):
+  medians 344.5 / 335.5, 143 / 139 and 200.5 / 184.5 ms before / after (`small_x4_2026-11-12.jsonl`).
+- Allocations are unchanged; the GC pause differences are run-to-run noise.
