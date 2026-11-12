@@ -468,7 +468,9 @@ namespace g3
 			/// nesting when they are closer together than the absolute SimplifyDeviationTolerance. The deviation tolerance used for a
 			/// loop is SimplifyRelativeTolerance times the diagonal of that loop's own bounding box; if SimplifyDeviationTolerance is
 			/// also greater than 0, the smaller of the two is used for every loop, and if it is 0 the relative tolerance alone
-			/// simplifies. A value that is 0, negative or NaN switches the option off (the results are then exactly those without it).
+			/// simplifies. A value that is 0, negative or NaN switches the option off (the results are then exactly those without it);
+			/// it must otherwise be finite (+infinity with SimplifyDeviationTolerance 0 is an infinite tolerance). A degenerate loop whose
+			/// bounding box has diagonal 0 gets tolerance 0 and is not simplified, even if SimplifyDeviationTolerance is greater than 0.
 			/// The tolerance scales with the loop, so a 2^k scale of the input gives the same decisions bit for bit.
 			/// </summary>
 			public double SimplifyRelativeTolerance;

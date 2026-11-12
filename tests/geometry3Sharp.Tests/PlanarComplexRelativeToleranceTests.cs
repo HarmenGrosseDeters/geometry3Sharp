@@ -120,6 +120,63 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(-1e-4)]
+        [InlineData(-1.0)]
+        [InlineData(double.NegativeInfinity)]
+        [InlineData(double.NaN)]
+        [InlineData(0.0)]
+        public void NegativeNaNAndZero_WithoutAbsoluteTolerance_DoNotSimplify(double rel)
+        {
+            // abs = 0: nothing else simplifies, so a negative value taken as its absolute value (or any active tolerance) would show
+            // (a finely sampled circle, whose vertices a tolerance of 1e-4 times the diagonal removes)
+            var complex = new PlanarComplex { DistanceAccuracy = 1e-6 };
+            complex.Add(new Circle2d(Vector2d.Zero, 1.0));
+            var off = PlanarComplex.FindSolidsOptions.Default;
+            off.SimplifyDeviationTolerance = 0;
+            var with = off;
+            with.SimplifyRelativeTolerance = rel;
+            var reference = complex.FindSolidRegions(off);
+            AssertSame(reference, complex.FindSolidRegions(with));
+            // (the fixture is sensitive: a positive 1e-4 does simplify it)
+            with.SimplifyRelativeTolerance = 1e-4;
+            Assert.True(complex.FindSolidRegions(with).Polygons[0].Outer.VertexCount < reference.Polygons[0].Outer.VertexCount);
+        }
+
+        [Fact]
+        public void RelativeTolerance_UsesTheDiagonal_NotTheSumOfTheSidesNorTheLargerSide()
+        {
+            // an irregular loop (a wobbling ellipse, 6000 vertices) whose vertex count after the simplification changes smoothly with
+            // the tolerance: the diagonal sqrt(w^2 + h^2), the sum of the sides w + h and the larger side give different counts
+            // for some relative tolerances (the fixture checks that), and the option gives the count of the diagonal for all of them
+            var v = new Vector2d[6000];
+            for (int i = 0; i < v.Length; ++i) {
+                double t = 2 * Math.PI * i / v.Length, r = 1 + 0.02 * Math.Sin(9 * t) + 0.005 * Math.Sin(31 * t);
+                v[i] = new Vector2d(2.0 * r * Math.Cos(t), 0.7 * r * Math.Sin(t));
+            }
+            var complex = new PlanarComplex();
+            complex.Add(new Polygon2d(v));
+            var box = new Polygon2d(v).GetBounds();
+            double w = box.Width, h = box.Height;
+            int Absolute(double tol)
+            {
+                var o = PlanarComplex.FindSolidsOptions.Default;
+                o.SimplifyDeviationTolerance = tol;
+                return complex.FindSolidRegions(o).Polygons[0].Outer.VertexCount;
+            }
+            int sensitive = 0;
+            foreach (double rel in new[] { 1e-5, 3e-5, 1e-4, 3e-4, 1e-3 }) {
+                int diagonal = Absolute(rel * Math.Sqrt(w * w + h * h)), sum = Absolute(rel * (w + h)), larger = Absolute(rel * Math.Max(w, h));
+                var relative = PlanarComplex.FindSolidsOptions.Default;
+                relative.SimplifyDeviationTolerance = 0;
+                relative.SimplifyRelativeTolerance = rel;
+                Assert.Equal(diagonal, complex.FindSolidRegions(relative).Polygons[0].Outer.VertexCount);
+                if (diagonal != sum && diagonal != larger)
+                    sensitive++;
+            }
+            Assert.True(sensitive >= 3, $"only {sensitive} of 5 tolerances separate the three candidates");
+        }
+
         [Fact]
         public void RelativeAlone_WithoutAbsoluteTolerance_Simplifies()
         {
