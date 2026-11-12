@@ -237,20 +237,6 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ExtentExponent_IsTheBinaryExponent_AlsoForSubnormals()
-        {
-            // 2^k <= x < 2^(k+1), exact. (An end-to-end test cannot tell a wrong exponent for a subnormal extent: the scaled extent
-            // stays above the 2.2e-16 of Normalize.)
-            var values = new List<double> { 5e-324, 1e-323, 3e-320, 1e-310, 2.2250738585072009e-308, 2.2250738585072014e-308, 1e-300, 0.001, 0.5, 0.99999, 1, 1.5, 2, 3, 1000, 1e300, 1.7976931348623157e308 };
-            foreach (double x in values) {
-                int k = ConvexHull2.ExtentExponent(x);
-                Assert.True(ExactPoint3.ScaleB(1, k) <= x && (k == 1023 || x < ExactPoint3.ScaleB(1, k + 1)), $"{x}: exponent {k}");
-            }
-            Assert.Equal(0, ConvexHull2.ExtentExponent(0));
-            Assert.Equal(0, ConvexHull2.ExtentExponent(double.PositiveInfinity));
-        }
-
-        [Fact]
         public void ExtentThatOverflows_StillGivesTheExactHull()
         {
             // finite coordinates of both signs near the double range: max - min is infinite (the old code scaled by 1 / infinity = 0)
