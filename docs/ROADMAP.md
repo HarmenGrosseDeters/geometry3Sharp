@@ -49,7 +49,7 @@ selectively.
 
 ## Now
 Status on 2026-11-12 (morning, Berlin).
-- **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
+- **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3, counted as Exact Boolean 2.1, owner 2026-11-12; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
   one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
@@ -57,7 +57,7 @@ Status on 2026-11-12 (morning, Berlin).
   119829/119830 now run in 0.8-3.7 s and already report RoundingClean false honestly). The ±1e308 throw is fixed in
   #449 (robustness sweep S38: the volume checks scale by a power of two, MeshRobustRepair fails with ScaleNotFinite
   above an extent of about 1e154). The final Thingi10K run and the control run are the sign-off run; the thingi-pairs runs (class merged in #418) have
-  no recorded result.
+  no recorded result; still wanted, queued behind Exact Boolean 3.0 (owner 2026-11-12).
   Lévy classification: phase 1 done (#428, no propagation now); phase 2 done
   (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Exact Boolean 3.0** (in progress, serial, one PR per stage): merged 2026-11-11: T3a cull (#612), T3b
@@ -65,6 +65,8 @@ Status on 2026-11-12 (morning, Berlin).
   (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1 and L2 done, L3 step 1 pushed
   (Difference total 973 -> 421 s, hash unchanged); open: the classification filter from local corner coordinates,
   the combinatorial zeros, possibly InCircle limbs. Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
+- **`DMeshAABBTree3` profile** (in progress since 2026-11-12, owner): profile and upper bound per lever before any change.
+  [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
   [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
@@ -162,7 +164,7 @@ Planned, not started.
 - Takeover of the abandoned work, stages 0 to 3 (2026-10-31). [history.md](roadmap/history.md#stages-0-to-3)
 - Phase 2, exact booleans: arrangement, winding numbers, n-ary, SafeRounding output. [exact-boolean.md](roadmap/exact-boolean.md#phase-2-items-on-exact-booleans)
 - Milestone "ExactMeshBoolean 1.0" (2026-11-01: #223, #244, #248, #249, #251, #253). [exact-boolean.md](roadmap/exact-boolean.md#stage-r-saferounding)
-- Milestone "Exact Boolean 2.0" (2026-11-11, D1 #513). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
+- Milestone "Exact Boolean 2.0" (2026-11-11); D1 (#513) counted as Exact Boolean 2.1 (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - Milestones "Alpha Wrap 2.0" (owner 2026-11-09) and "Reducer / Remesher 2.0" (2026-11-09).
   [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Snap-rounding experiment measured and closed (#313, 2026-11-02). [exact-boolean.md](roadmap/exact-boolean.md#stage-r-saferounding)

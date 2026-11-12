@@ -6,7 +6,7 @@ Part of the [roadmap](../ROADMAP.md).
   predicate compiler, indirect predicates, cheaper constructions), the Exact Boolean 2.0 milestone, external corpora
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
-  reached on 2026-11-11: D1 (#513) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
+  reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
   progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage is in progress (draft #633).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
@@ -44,7 +44,7 @@ in the rest are contacts; 52 real self-intersections remain in the rest (open 7,
 6 models unavailable (81313, 101633, 102610, 242236, 242237, 996816).
 
 **`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
-has merged; that is #501, merged 2026-11-10; the profile has not started):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
+has merged; that is #501, merged 2026-11-10; in progress since 2026-11-12, owner):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
 boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
 per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
 The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
@@ -276,7 +276,8 @@ merge queue behind the #403 mutation gate has cleared. Phase 2 merged in #501 (2
 **thingi-pairs runs (owner 2026-11-08):** the EMBER-protocol class (#418) runs in full (1000 pairs plus the 100k-1M
 size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner 2026-11-08) twice on a Haiku runner: a baseline on master right after #418 merges, and the
 final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the
-runner's data branch. #418 merged 2026-11-09; no result of either run is recorded here.
+runner's data branch. #418 merged 2026-11-09; no result of either run is recorded here. Owner 2026-11-12: both runs are still wanted,
+queued behind Exact Boolean 3.0.
 
 **Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
 #425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
@@ -320,9 +321,11 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
   solver, exact convex polyhedron cutting, small filters, the procedural star-shaped test corpus.
 - **Boolean performance leftovers:** planes in fixed width (section 12 of the fixed-width design; CSR dropped as a
-  step of its own, a GC trace on cherchi decides later); the generator reused for the envelope predicates (status
-  unclear, check: the envelope stopped on 2026-11-01); the slow `exact.resolve` on small inputs (67709, 42327),
-  handed over from the raw-wrap work as a diagnosis (status unclear, check).
+  step of its own, a GC trace on cherchi decides later); the generator reused for the envelope predicates (done:
+  the generated indirect predicates on doubles are in the envelope code kept on #263 / #268, ENVELOPE.md section 6;
+  the envelope itself stopped on 2026-11-01); the slow `exact.resolve` on small inputs (67709, 42327),
+  handed over from the raw-wrap work as a diagnosis (done: CHEAPER_CONSTRUCTIONS.md section 10a, rounding on rotated
+  inputs and `coplanar_stack`; the `coplanar_stack` fix was not built, owner decision).
 - **Exact arithmetic without `BigInteger`** (Phase 2 item, perf doc section 3): branches `claude/int256-spike` and
   `claude/collinear-shortcut`. Exact code, so it goes to the owner. Keep both branches.
 - **`coplanar_stack` worst-case latency** (a flood fill over the piece adjacency): the owner's decision; numbers in
