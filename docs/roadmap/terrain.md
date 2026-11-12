@@ -31,7 +31,9 @@ Part of the [roadmap](../ROADMAP.md).
   states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
   limit, #696).
 
-Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+**Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
+distance, then the proven tan interval and catch-line bound. Still owner decisions: the slope-envelope construction,
+berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
   paused):** (1) slope on the inside of a closed toe needs up to 4 retries of the exact check and ends in
