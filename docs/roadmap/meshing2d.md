@@ -46,6 +46,10 @@ Actionable:
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
   must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
   dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
+- **Near T-junctions under a rotation (#664, bugfix):** a T-junction end rounded a hair beside the other segment lost the small-angle
+  exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in PR of `claude/664-rotated-fan`: the
+  mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
+  widens an excuse: owner decision pending. Effort M.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 

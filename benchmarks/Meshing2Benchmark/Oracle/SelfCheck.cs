@@ -330,11 +330,11 @@ namespace Meshing2Acceptance
             // the tube makes the apex (counted as NearMeetAngleExcused); at d = 1e-6, outside the tube, the triangle is judged. Only the
             // verdict on p E1 q is asserted (the triangle A P0 q has an angle of its own)
             {
-                Mesh2Input NearIn(double d) { var i = new Mesh2Input { X = new[] { 0, 30, 24, 10 }, Y = new[] { 0, 0, 18, d }, MinAngleDeg = 20 }; i.Segments.Add(new SegmentInput(3, 2)); return i; }
+                Mesh2Input NearIn(double d) { var i = new Mesh2Input { X = new[] { 0.0, 30, 24, 10 }, Y = new[] { 0.0, 0, 18, d }, MinAngleDeg = 20 }; i.Segments.Add(new SegmentInput(3, 2)); return i; }
                 Mesh2Output NearOut(double d) {
                     double ux = 14 / Math.Sqrt(14 * 14 + (18 - d) * (18 - d)), uy = (18 - d) / Math.Sqrt(14 * 14 + (18 - d) * (18 - d));
                     var tris = new[] { new[] { 0, 3, 5 }, new[] { 0, 5, 2 }, new[] { 3, 4, 5 }, new[] { 4, 1, 5 }, new[] { 5, 1, 2 } };
-                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0, 30, 24, 10, 11, 10 + 1.2 * ux }, VY = new[] { 0, 0, 18, d, 0, d + 1.2 * uy },
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0.0, 30, 24, 10, 11, 10 + 1.2 * ux }, VY = new[] { 0.0, 0, 18, d, 0, d + 1.2 * uy },
                         InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0, 0, 0 },
                         Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(3, 5), new SubsegmentOutput(5, 2) }, BadTriangles = new[] { 0, 3 } };
                 }
