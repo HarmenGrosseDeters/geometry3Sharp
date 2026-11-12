@@ -53,6 +53,10 @@ namespace gs
         /// </summary>
         internal bool PatchBound = false;
 
+        /// <summary> tests only: measure the meshes as given, without the scaled or shifted copies (to test the bounds' own handling of
+        /// rounded subdivision points, #738) </summary>
+        internal bool AsGivenForTests = false;
+
         /// <summary> if this function returns true, the computation stops and Compute() returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
@@ -80,6 +84,9 @@ namespace gs
         // (below: the bounds' absolute thresholds, eg 1e-12 for two triangle centroids in TriangleDeviationBounds, changed the
         // subdivisions from extents of about 2^-40; above: squared lengths stay far from overflow)
         const int MinPlainExponent = -32, MaxPlainExponent = 64;
+        // coordinates up to 2^24 times the extent are measured as given (eg UTM coordinates, 2^16 times a tile of 100 m): a midpoint
+        // rounds there by at most 2^-29 of the extent, which the bounds account for (OneSided.off); beyond, on copies shifted near 0
+        const int MaxPlainOffsetExponent = 24;
 
         /// <summary>
         /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN (the other outputs
@@ -89,7 +96,9 @@ namespace gs
         /// (check Converged). Vertices no triangle uses are ignored (also for the size of the meshes).
         /// Meshes with an extent outside [2^-32, 2^65) are measured on copies scaled by an exact power of two (the squared lengths
         /// of the distance queries would overflow or underflow at their own scale), so the result at 2^k times the meshes is
-        /// 2^k times the result, bit for bit; SpatialA / SpatialB are then not used (nor set).
+        /// 2^k times the result, bit for bit; meshes whose coordinates exceed 2^24 times their extent on copies moved near 0 by an
+        /// exact shift (subdivision points would round off the triangles). SpatialA / SpatialB are then not used (nor set).
+        /// The bounds are certified up to the rounding of the distance queries: the rounding of subdivision points is accounted for.
         /// </summary>
         public bool Compute()
         {
@@ -106,15 +115,25 @@ namespace gs
             double half = 0;
             for (int k = 0; k < 3; ++k) half = Math.Max(half, 0.5 * bounds.Max[k] - 0.5 * bounds.Min[k]);
             int e = (half > 0) ? exponent(half) + 1 : 0;      // extent = 2 half in [2^e, 2^(e+1))
-            if (e >= MinPlainExponent && e <= MaxPlainExponent)
+            // each axis whose coordinates are far from 0 compared with their span is moved near 0 by a shift c, exactly (Sterbenz: all
+            // coordinates lie in [c, 2c], or [2c, c] below 0; an axis along which both meshes are flat is the case of span 0). At
+            // coordinates far beyond the extent, a midpoint of two corners is not representable and rounds: at z = 1.3 2^52 an ulp is 1,
+            // the midpoint of z = -1 and 0 rounded onto a corner, a child triangle was its parent and refinement never ended, and the
+            // rounded points, off the triangle by up to 0.5, gave a lower bound 18 times the distance (#738). After the shift every
+            // coordinate is at most twice the span of its axis; along an axis that cannot be shifted it already is
+            Vector3d shift = Vector3d.Zero;
+            double big = 0;
+            for (int k = 0; k < 3; ++k) {
+                double lo = bounds.Min[k], hi = bounds.Max[k];
+                if (lo > 0 && hi <= 2 * lo) shift[k] = lo;
+                else if (hi < 0 && lo >= 2 * hi) shift[k] = hi;
+                big = Math.Max(big, Math.Max(Math.Abs(lo), Math.Abs(hi)));
+            }
+            bool offset = big > 0 && exponent(big) - e > MaxPlainOffsetExponent;
+            if ((e >= MinPlainExponent && e <= MaxPlainExponent && !offset) || AsGivenForTests)
                 return compute(MeshA, MeshB, SpatialA, SpatialB, (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength,
                     0, Vector3d.Zero, true);
 
-            // an axis along which both meshes are flat is moved to 0 (exact, and distances are the same): its coordinate may be far
-            // larger than the extent and overflow when scaled. Along every other axis a coordinate is less than 2^54 times the axis'
-            // span (the span is at least half an ulp of it), so the scaled coordinates stay below about 2^55
-            Vector3d shift = Vector3d.Zero;
-            for (int k = 0; k < 3; ++k) if (bounds.Min[k] == bounds.Max[k]) shift[k] = bounds.Min[k];
             DMesh3 a = scaled(MeshA, shift, -e), b = scaled(MeshB, shift, -e);
             // (an absolute tolerance scaled with the meshes; below the subnormal range it is 0, as RelativeTolerance would be)
             double tol = (Tolerance > 0) ? pow2(Tolerance, -e) : RelativeTolerance * new AxisAlignedBox3d(pow2(bounds.Min - shift, -e), pow2(bounds.Max - shift, -e)).DiagonalLength;
@@ -153,9 +172,9 @@ namespace gs
             }
             LowerBound = lo; UpperBound = up;
             WorstPoint = pow2(worst, e); WorstPointClosest = pow2(worstClosest, e);
-            // (along a flat axis every point, the closest point on a triangle in that plane too, has the axis' coordinate)
+            // (rounded to doubles; exact along a flat axis, whose scaled coordinates are 0)
             for (int k = 0; k < 3; ++k)
-                if (shift[k] != 0) { WorstPoint[k] = shift[k]; WorstPointClosest[k] = shift[k]; }
+                if (shift[k] != 0) { WorstPoint[k] += shift[k]; WorstPointClosest[k] += shift[k]; }
             return CancelF() == false;
         }
 
@@ -221,6 +240,15 @@ namespace gs
             List<double> dist = new List<double>();
             List<int> near = new List<int>();
             List<Vector3d> closest = new List<Vector3d>();
+            // how far a point may be from the triangle of From it stands for (0 for the input vertices): a subdivision point is the
+            // midpoint of two points rounded to doubles, so it may lie off the triangle. Its distance minus this is a distance of a
+            // point of the triangle (a lower bound), and a triangle's bound plus the largest of its corners' bounds the distances of
+            // the points it stands for (#738)
+            List<double> off = new List<double>();
+            // the largest bound of a triangle that is not refined further, kept in Upper (#738): one that cannot be split (in doubles
+            // a child is the triangle itself, every midpoint rounding onto a corner), or one whose corners may be off by more than
+            // the tolerance (the gap of its bounds cannot close below that; it was refined until the points' last bits)
+            double stuck = 0;
 
             public double Lower, Upper;
             public bool Converged;
@@ -247,14 +275,44 @@ namespace gs
                 query(p, out d, out t, out c);
                 return add_point(p, d, t, c);
             }
-            int add_point(Vector3d p, double d, int t, Vector3d c)
+            int add_point(Vector3d p, double d, int t, Vector3d c, double o = 0)
             {
-                pos.Add(p); dist.Add(d); near.Add(t); closest.Add(c);
+                pos.Add(p); dist.Add(d); near.Add(t); closest.Add(c); off.Add(o);
                 int i = pos.Count - 1;
-                if (d > Lower) {
-                    Lower = d; Worst = p; WorstClosest = c;
+                double l = (o > 0) ? down(d - o) : d;
+                if (l > Lower) {
+                    Lower = l; Worst = p; WorstClosest = c;
                 }
                 return i;
+            }
+
+            // a little below x (rounded down by more than its rounding error); 0 for x <= 0
+            static double down(double x) => (x > 0) ? x * (1 - 4.5e-16) : 0;
+            static double up(double x) => x * (1 + 4.5e-16);
+
+            // the midpoint of a and b in doubles, and an upper bound of its distance from the exact midpoint (TwoSum per component:
+            // a + b = s + err exactly; halving s is exact unless it is subnormal, whose rounding the last term bounds)
+            static Vector3d midpoint(Vector3d a, Vector3d b, out double err)
+            {
+                Vector3d m = Vector3d.Zero;
+                double e2 = 0;
+                for (int k = 0; k < 3; ++k) {
+                    double x = a[k], y = b[k], sum = x + y, bb = sum - x, r = (x - (sum - bb)) + (y - bb);
+                    m[k] = 0.5 * sum;
+                    double ek = 0.5 * Math.Abs(r) + Math.Abs(0.5 * sum - m[k]) + ((m[k] != 0 && Math.Abs(m[k]) < 2.2250738585072014E-308) ? 4.9406564584124654E-324 : 0);
+                    e2 += ek * ek;
+                }
+                err = (e2 > 0) ? up(Math.Sqrt(e2)) : 0;
+                return m;
+            }
+
+            // the triangles have the same corners (as a multiset of points): splitting made no progress
+            bool same(Index3i c, Index3i p)
+            {
+                Vector3d c0 = pos[c.a], c1 = pos[c.b], c2 = pos[c.c], p0 = pos[p.a], p1 = pos[p.b], p2 = pos[p.c];
+                return (c0 == p0 && ((c1 == p1 && c2 == p2) || (c1 == p2 && c2 == p1)))
+                    || (c0 == p1 && ((c1 == p0 && c2 == p2) || (c1 == p2 && c2 == p0)))
+                    || (c0 == p2 && ((c1 == p0 && c2 == p1) || (c1 == p1 && c2 == p0)));
             }
 
             public void Run()
@@ -308,22 +366,27 @@ namespace gs
 
                     int nb = batch.Count;
                     Vector3d[] mp = new Vector3d[3 * nb], mc = new Vector3d[3 * nb];
-                    double[] md = new double[3 * nb];
+                    double[] md = new double[3 * nb], mo = new double[3 * nb];
                     int[] mt = new int[3 * nb];
                     for (int b = 0; b < nb; ++b) {
                         Index3i t = batch[b];
-                        mp[3 * b] = 0.5 * (pos[t.a] + pos[t.b]);
-                        mp[3 * b + 1] = 0.5 * (pos[t.b] + pos[t.c]);
-                        mp[3 * b + 2] = 0.5 * (pos[t.c] + pos[t.a]);
+                        double e0, e1, e2;
+                        mp[3 * b] = midpoint(pos[t.a], pos[t.b], out e0);
+                        mp[3 * b + 1] = midpoint(pos[t.b], pos[t.c], out e1);
+                        mp[3 * b + 2] = midpoint(pos[t.c], pos[t.a], out e2);
+                        // (the exact midpoint of two points within off of the triangle is within their mean of it)
+                        mo[3 * b] = mid_off(off[t.a], off[t.b], e0);
+                        mo[3 * b + 1] = mid_off(off[t.b], off[t.c], e1);
+                        mo[3 * b + 2] = mid_off(off[t.c], off[t.a], e2);
                     }
                     gParallel.ForEach(Interval1i.Range(3 * nb), (k) => query(mp[k], out md[k], out mt[k], out mc[k]));
 
                     Index3i[] children = new Index3i[4 * nb];
                     for (int b = 0; b < nb; ++b) {
                         Index3i t = batch[b];
-                        int m01 = add_point(mp[3 * b], md[3 * b], mt[3 * b], mc[3 * b]);
-                        int m12 = add_point(mp[3 * b + 1], md[3 * b + 1], mt[3 * b + 1], mc[3 * b + 1]);
-                        int m20 = add_point(mp[3 * b + 2], md[3 * b + 2], mt[3 * b + 2], mc[3 * b + 2]);
+                        int m01 = add_point(mp[3 * b], md[3 * b], mt[3 * b], mc[3 * b], mo[3 * b]);
+                        int m12 = add_point(mp[3 * b + 1], md[3 * b + 1], mt[3 * b + 1], mc[3 * b + 1], mo[3 * b + 1]);
+                        int m20 = add_point(mp[3 * b + 2], md[3 * b + 2], mt[3 * b + 2], mc[3 * b + 2], mo[3 * b + 2]);
                         children[4 * b] = new Index3i(t.a, m01, m20);
                         children[4 * b + 1] = new Index3i(m01, t.b, m12);
                         children[4 * b + 2] = new Index3i(m20, m12, t.c);
@@ -331,22 +394,38 @@ namespace gs
                     }
                     double[] cu = new double[4 * nb];
                     gParallel.ForEach(Interval1i.Range(4 * nb), (k) => cu[k] = upper_bound(children[k]));
-                    for (int k = 0; k < 4 * nb; ++k)
-                        if (!(cu[k] <= threshold()))
+                    for (int k = 0; k < 4 * nb; ++k) {
+                        if (cu[k] <= threshold())
+                            continue;
+                        Index3i c = children[k];
+                        if (same(c, batch[k / 4]) || Math.Max(off[c.a], Math.Max(off[c.b], off[c.c])) > tol)
+                            stuck = Math.Max(stuck, double.IsNaN(cu[k]) ? double.MaxValue : cu[k]);
+                        else
                             heap.Push(double.IsNaN(cu[k]) ? double.MaxValue : cu[k], children[k]);
+                    }
                 }
+                if (stuck > threshold() + tol)
+                    Converged = false;
                 // dropped triangles were below max(Lower, prune), so for the pruned (second) direction this is
                 // only an upper bound where it is above prune, which is all the symmetric distance needs
-                Upper = Math.Max(Lower, (heap.Count > 0) ? heap.TopKey : 0);
+                Upper = Math.Max(Math.Max(Lower, stuck), (heap.Count > 0) ? heap.TopKey : 0);
             }
 
             double threshold() { return Math.Max(Lower, prune); }
 
-            // upper bound of the distance to To over the triangle (i, j, k)
+            static double mid_off(double oa, double ob, double err)
+            {
+                double o = 0.5 * (oa + ob) + err;
+                return (o > 0) ? up(o) : 0;
+            }
+
+            // upper bound of the distance to To over the triangle (i, j, k), and over the part of From's triangle it stands for
             double upper_bound(Index3i t)
             {
-                return bounds.UpperBound(pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
+                double o = Math.Max(off[t.a], Math.Max(off[t.b], off[t.c]));
+                double u = bounds.UpperBound(pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
                     near[t.a], near[t.b], near[t.c], threshold());
+                return (o > 0) ? up(u + o) : u;
             }
         }
     }
