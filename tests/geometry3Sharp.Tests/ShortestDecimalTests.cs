@@ -286,6 +286,44 @@ namespace geometry3Sharp.Tests
             Assert.True(n > 12000);
         }
 
+        // The tables of powers of 5 against an independent computation: entry i is the value of 5^i (or 2^k / 5^i, rounded up) cut to
+        // the bit count, from exact integer division and bit length by repeated squaring-free counting (not the formula of the code)
+        [Fact]
+        public void Tables_MatchAnIndependentBigIntegerComputation()
+        {
+            Func<ulong[], int, BigInteger> entry = (t, i) => ((BigInteger)t[2 * i + 1] << 64) | t[2 * i];
+            BigInteger p5 = 1;
+            for (int i = 0; i < 342; ++i) {
+                int bits = 0; for (BigInteger x = p5; x > 0; x >>= 1) ++bits;                  // bit length of 5^i by counting
+                BigInteger inv = ((BigInteger.One << (bits - 1 + ShortestDecimal.DoublePow5InvBitCount)) + p5 - 1) / p5;   // ceiling of 2^(bits-1+B) / 5^i
+                if ((BigInteger.One << (bits - 1 + ShortestDecimal.DoublePow5InvBitCount)) % p5 == 0) inv += 1;    // (the code adds 1 also on an exact quotient)
+                Assert.Equal(inv, entry(ShortestDecimal.DoublePow5Inv, i));
+                if (i < 326) {
+                    BigInteger p = bits >= ShortestDecimal.DoublePow5BitCount ? p5 >> (bits - ShortestDecimal.DoublePow5BitCount) : p5 << (ShortestDecimal.DoublePow5BitCount - bits);
+                    Assert.Equal(p, entry(ShortestDecimal.DoublePow5, i));
+                    Assert.Equal(ShortestDecimal.DoublePow5BitCount, BitLength(p));
+                }
+                if (i < 32) Assert.Equal((BigInteger)(((BigInteger.One << (bits - 1 + ShortestDecimal.FloatPow5InvBitCount)) / p5) + 1), (BigInteger)ShortestDecimal.FloatPow5Inv[i]);
+                if (i < 48) {
+                    BigInteger p = bits >= ShortestDecimal.FloatPow5BitCount ? p5 >> (bits - ShortestDecimal.FloatPow5BitCount) : p5 << (ShortestDecimal.FloatPow5BitCount - bits);
+                    Assert.Equal(p, (BigInteger)ShortestDecimal.FloatPow5[i]);
+                }
+                p5 *= 5;
+            }
+        }
+
+        static int BitLength(BigInteger v) { int n = 0; for (; v > 0; v >>= 1) ++n; return n; }
+
+        // first use from several threads at once gives the same text (the static constructor builds the tables once)
+        [Fact]
+        public void Format_FromManyThreads_IsTheSame()
+        {
+            var results = new string[16];
+            System.Threading.Tasks.Parallel.For(0, results.Length, i => { results[i] = MeshIOUtil.FormatDouble(0.1 + i) + " " + MeshIOUtil.FormatFloat(0.3f + i); });
+            for (int i = 0; i < results.Length; ++i)
+                Assert.Equal(MeshIOUtil.FormatDouble(0.1 + i) + " " + MeshIOUtil.FormatFloat(0.3f + i), results[i]);
+        }
+
         [Fact]
         public void Double_Classes_ReadBackAndAreShortest()
         {

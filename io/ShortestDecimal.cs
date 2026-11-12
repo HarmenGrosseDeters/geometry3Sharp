@@ -21,10 +21,10 @@ namespace g3
     internal static class ShortestDecimal
     {
         // bit counts of the table entries (as in the paper's implementation: 125 bit for double, 59 and 61 bit for float)
-        const int DoublePow5InvBitCount = 125;
-        const int DoublePow5BitCount = 125;
-        const int FloatPow5InvBitCount = 59;
-        const int FloatPow5BitCount = 61;
+        internal const int DoublePow5InvBitCount = 125;
+        internal const int DoublePow5BitCount = 125;
+        internal const int FloatPow5InvBitCount = 59;
+        internal const int FloatPow5BitCount = 61;
 
         const int DoublePow5InvTableSize = 342;
         const int DoublePow5TableSize = 326;
@@ -32,10 +32,10 @@ namespace g3
         const int FloatPow5TableSize = 48;
 
         // two ulongs (low, high) per entry
-        static readonly ulong[] DoublePow5Inv = new ulong[2 * DoublePow5InvTableSize];
-        static readonly ulong[] DoublePow5 = new ulong[2 * DoublePow5TableSize];
-        static readonly ulong[] FloatPow5Inv = new ulong[FloatPow5InvTableSize];
-        static readonly ulong[] FloatPow5 = new ulong[FloatPow5TableSize];
+        internal static readonly ulong[] DoublePow5Inv = new ulong[2 * DoublePow5InvTableSize];
+        internal static readonly ulong[] DoublePow5 = new ulong[2 * DoublePow5TableSize];
+        internal static readonly ulong[] FloatPow5Inv = new ulong[FloatPow5InvTableSize];
+        internal static readonly ulong[] FloatPow5 = new ulong[FloatPow5TableSize];
 
         static ShortestDecimal()
         {

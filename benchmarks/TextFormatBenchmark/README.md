@@ -27,3 +27,7 @@ Linux x64 container, net10.0, 1M values, ns per value, two runs:
 The G15/16/17 column is the cost of the old .NET Framework path measured on net10 (its parse is faster there than on
 .NET Framework itself, so the real saving on net48 is larger). Short decimals are 15 percent slower than `"R"` (the
 Ryu general path), everything else is faster; the whole writer is 6 to 10 percent faster.
+
+Start-up: the tables of the powers of 5 (342 + 326 128-bit and 32 + 48 64-bit entries) are built by the static
+constructor on the first call, once and thread-safe: about 13 ms for the first `FormatDouble` call in a fresh process
+(net10, including JIT), nothing afterwards. A test compares every entry with an independent BigInteger computation.
