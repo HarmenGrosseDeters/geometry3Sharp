@@ -1,4 +1,4 @@
-# JOB ps-cohort: SafeRounding position search (PR #755), cohort run of the Thingi10K target class (16 239 operations)
+# JOB ps-cohort: SafeRounding position search (PR #755), cohort run on 3000 models of the Thingi10K target class (9000 operations)
 
 Owner of the job: the position search build session (session_01AaGT5AET7mF6x8ExehSwJe, library PR #755). Approved by
 the owner 2026-11-12. Execute literally; ask instead of improvising. The layout is the correctness pass of the D1
@@ -6,8 +6,12 @@ cohort job (`jobs/JOB-d1-cohort.md`); there is no timing pass.
 
 ## What
 
-Every model of the Thingi10K target class of the Boolean 2.0 final run (5413 models, `runs/ps/target_ids.txt`, the
-list of `runs/d1/target_ids.txt`), with its #385 pairing (B = A rotated 20 degrees about (1, 1, 0) and shifted by a
+3000 of the 5413 models of the Thingi10K target class of the Boolean 2.0 final run (`runs/ps/target_ids.txt`; the
+coordinator's cut of 2026-11-12, to stay within the approved 2-3 h): the 30 models with an operation that is not
+clean in the D1 cohort rows (`runs/d1/results/cand.jsonl`: not rounding clean, 6 models, or a NotCleanReason, or
+failed), and a seeded sample of 2970 of the 5383 others (Python `random.Random(20261112).sample` of the ids sorted
+as numbers, in the order of the full list `runs/ps/full_ids.txt`). The full cohort can follow as an owner decision
+(`IDS_FILE=runs/ps/full_ids.txt`, about 4 h; finished models are skipped). Each model with its #385 pairing (B = A rotated 20 degrees about (1, 1, 0) and shifted by a
 quarter of the box, as `BooleanComparison export` makes it), union / intersection / difference, SafeRounding on, on two
 builds:
 
@@ -25,8 +29,9 @@ SHA-256 of the result.
 are rounding clean in base with a different result, and 0 with more defects left in cand; section 3: MaxDrift above
 MaxLength 0. Reported: the unclean counts of both builds, 1b, the changed unclean operations, the deciles, section 4.
 
-**Expected wall time** on a 4-core machine: about 4 h (the D1 job's correctness pass: about 2.4 h of per-model
-overhead for download, export and two process starts, about 1.5 h of operations and evaluations on single cores).
+**Expected wall time** on a 4-core machine: about 2.2 h (scaled from the D1 job's correctness pass of about 4 h for
+5413 models: per-model overhead for download, export and two process starts 2.4 h x 3000 / 5413 = 1.3 h; operations
+and evaluations 1.5 h x 0.56, the cut's share of the D1 rows' operation time, = 0.85 h).
 The smoke run of 4 models took 31 s after the builds. Builds about 5 minutes. Disk: an export is deleted after its
 model.
 
