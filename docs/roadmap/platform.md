@@ -46,8 +46,14 @@ Part of the [roadmap](../ROADMAP.md).
   4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
   6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
   >= 5 s but costs about 30 % wall. **Owner 2026-11-12:** a solution so the run does not overload the machine and slow tests
-  artificially. In progress (same session): one shared thread budget for the test run (a limited-concurrency scheduler
-  at the core count, so nested library loops share it), fallback `maxParallelThreads=2`.
+  artificially. A harness-only scheduler does not work: `Parallel.For` uses `TaskScheduler.Default`, not the current
+  one, and a thread-pool cap starved the `Timed` workers (9 failures, 21 min wall). Plan (coordinator, 2026-11-12):
+  (A) now, `tools/trx_durations.py` re-runs the flagged tests alone and judges the 5 s / 10 s rule on those times (the
+  CI-speed session adds the workflow step); (D) next, every library `Parallel.For` / `ForEach` goes through an internal
+  `gParallel` options hook (production default unchanged), the test assembly sets one limited-concurrency scheduler at
+  the core count, a scan test keeps loops from bypassing it (exact-code files reviewed if touched), measured against
+  the current run; then Terrain Slope (one scenario per PR, with counters and mutants; reducing coverage only via the
+  owner). In progress: the backlog session.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
