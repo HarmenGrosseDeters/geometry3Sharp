@@ -1,0 +1,6 @@
+op 1 (intersection): A 16 v / 24 t, B 16 v / 24 t
+Unhandled exception. MeshFuzzPilot.Program+Finding: op 1 (intersection): A 16 v / 24 t, B 16 v / 24 t: RoundingClean but 1 degenerate triangles (at the rounding's scale)
+   at MeshFuzzPilot.Program.CheckBoolean(String what, Boolean ok, BooleanStatus status, DMesh3 result, Boolean roundingClean, Int32 contacts, Int32 nonManifoldTriangles, Int32 conflictEdges, Boolean inputsClosed) in /src/tools/MeshFuzzPilot/Program.cs:line 296
+   at MeshFuzzPilot.Program.Run(Case c) in /src/tools/MeshFuzzPilot/Program.cs:line 428
+   at MeshFuzzPilot.Program.Main(String[] args) in /src/tools/MeshFuzzPilot/Program.cs:line 556
+rc=134

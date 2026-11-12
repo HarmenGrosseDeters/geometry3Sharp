@@ -1,0 +1,16 @@
+op 2 (difference): A 8 v / 12 t, B 8 v / 12 t
+Unhandled exception. System.InvalidOperationException: ExactTriangulation2: constraint was not inserted (0 crossing edges, 8 collinear vertex uses)
+   at g3.ExactTriangulation2.InsertConstraint(Int32 u, Int32 v) in /src/mesh_ops/ExactTriangulation2.cs:line 332
+   at g3.ExactMeshArrangement.triangulate_touched(Int32 ti, InputTriangle t, List`1& output, List`1& constraints) in /src/mesh_ops/ExactMeshArrangement.cs:line 2222
+   at g3.ExactMeshArrangement.<>c__DisplayClass106_0.<Compute>b__1(Int32 ti) in /src/mesh_ops/ExactMeshArrangement.cs:line 1078
+   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)
+--- End of stack trace from previous location ---
+   at System.Threading.Tasks.Parallel.<>c__DisplayClass19_0`2.<ForWorker>b__1(RangeWorker& currentWorker, Int64 timeout, Boolean& replicationDelegateYieldedBeforeCompletion)
+   at System.Threading.Tasks.TaskReplicator.Replica.Execute()
+--- End of stack trace from previous location ---
+   at g3.gParallel.ForRange(Int32 count, Action`1 body) in /src/core/gParallel.cs:line 75
+   at g3.ExactMeshArrangement.Compute() in /src/mesh_ops/ExactMeshArrangement.cs:line 1078
+   at g3.ExactMeshBoolean.Compute() in /src/mesh_ops/ExactMeshBoolean.cs:line 520
+   at MeshFuzzPilot.Program.Run(Case c) in /src/tools/MeshFuzzPilot/Program.cs:line 426
+   at MeshFuzzPilot.Program.Main(String[] args) in /src/tools/MeshFuzzPilot/Program.cs:line 556
+rc=134

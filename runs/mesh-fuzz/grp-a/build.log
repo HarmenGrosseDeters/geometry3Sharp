@@ -1,0 +1,8 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  G3ExactCodeAnalyzers -> /src/tools/analyzers/G3ExactCodeAnalyzers/bin/Release/netstandard2.0/G3ExactCodeAnalyzers.dll
+  geometry3Sharp_netstandard -> /src/bin/Release/net10.0/geometry3Sharp.dll
+  geometry3Sharp.Clipper2 -> /src/addons/geometry3Sharp.Clipper2/bin/Release/net10.0/geometry3Sharp.Clipper2.dll
+  Meshing2Oracle -> /src/benchmarks/Meshing2Benchmark/Oracle/bin/Release/netstandard2.0/Meshing2Oracle.dll
+  MeshFuzzPilot -> /src/tools/MeshFuzzPilot/bin/Release/net10.0/MeshFuzzPilot.dll
+  MeshFuzzPilot -> /work/grp-a/replay/
