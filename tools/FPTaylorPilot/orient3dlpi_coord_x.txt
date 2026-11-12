@@ -1,0 +1,49 @@
+Variables
+ float64 sx in [1, 2], float64 sy in [1, 2], float64 sz in [1, 2],
+ float64 tx in [1, 2], float64 ty in [1, 2], float64 tz in [1, 2],
+ float64 px in [1, 2], float64 py in [1, 2], float64 pz in [1, 2],
+ float64 qx in [1, 2], float64 qy in [1, 2], float64 qz in [1, 2],
+ float64 rx in [0, 0.5], float64 ry in [0, 0.5], float64 rz in [0, 0.5],
+ float64 ox in [1, 2], float64 oy in [1, 2], float64 oz in [1, 2]
+;
+Definitions
+ ux rnd64= sx - rx,
+ uy rnd64= sy - ry,
+ uz rnd64= sz - rz,
+ wx rnd64= tx - rx,
+ wy rnd64= ty - ry,
+ wz rnd64= tz - rz,
+ nxa rnd64= uy * wz,
+ nxb rnd64= uz * wy,
+ nx rnd64= nxa - nxb,
+ nya rnd64= uz * wx,
+ nyb rnd64= ux * wz,
+ ny rnd64= nya - nyb,
+ nza rnd64= ux * wy,
+ nzb rnd64= uy * wx,
+ nz rnd64= nza - nzb,
+ prx rnd64= px - rx,
+ pry rnd64= py - ry,
+ prz rnd64= pz - rz,
+ qrx rnd64= qx - rx,
+ qry rnd64= qy - ry,
+ qrz rnd64= qz - rz,
+ lp1 rnd64= nx * prx,
+ lp2 rnd64= ny * pry,
+ lp3 rnd64= nz * prz,
+ lpa rnd64= lp1 + lp2,
+ lp rnd64= lpa + lp3,
+ lq1 rnd64= nx * qrx,
+ lq2 rnd64= ny * qry,
+ lq3 rnd64= nz * qrz,
+ lqa rnd64= lq1 + lq2,
+ lq rnd64= lqa + lq3,
+ pcx rnd64= px - ox,
+ qcx rnd64= qx - ox,
+ cm1 rnd64= pcx * lq,
+ cm2 rnd64= qcx * lp,
+ cxr rnd64= cm1 - cm2
+;
+Expressions
+ rnd64(cxr)
+;
