@@ -223,7 +223,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   pre-check (owner 2026-11-12): axis-aligned directions instead of the local frame (equal or better everywhere, less
   code), J = 8, search and passes repeated until a search accepts nothing, a pair searched at the 3 corners of its first
   triangle (11 of 35 generated and 4 of 5 D1 cohort leftovers clean, 41.5 s against 36.4 s without search on the 35;
-  local frame one round: 8 of 35; J = 24 gains 1-3 at 2-2.5x the proposals);
+  local frame one round: 8 of 35; J = 24 gains 1-3 at 2-2.5x the proposals); sizes smallest first, room / 128 up to room
+  (owner 2026-11-12, reverses "largest first": 10 instead of 11 of 35, the same 4 of 5, the cohort's drift 2-16x lower,
+  as fix_degenerate / fix_intersection and Milenkovic-Sacks); the D1 cohort acceptance run (2-3 h) is approved;
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
