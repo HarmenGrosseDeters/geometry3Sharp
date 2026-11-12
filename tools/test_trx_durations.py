@@ -201,7 +201,7 @@ class Isolated(unittest.TestCase):
         self.assertIn("without a passed result in the re-run alone: 2", text)
 
     def test_equal_display_names_in_the_rerun_take_the_slowest(self):
-        twice = ISOLATED.replace('</Results>', '<UnitTestResult testId="3" testName="N.A.SlowUntagged" duration="00:00:09.0000000" outcome="Passed" /></Results>')
+        twice = ISOLATED.replace('<Results>', '<Results><UnitTestResult testId="3" testName="N.A.SlowUntagged" duration="00:00:09.0000000" outcome="Passed" />')
         path = os.path.join(self.dir.name, "twice.trx")
         with open(path, "w", encoding="utf-8") as f:
             f.write(twice)
