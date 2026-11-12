@@ -409,6 +409,11 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
+  P2 is built (2026-11-12, PR pending): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
+  by the monomial pass ([design](../design/EXACT_FALLBACK_MONOMIALS.md)); on master a7693fd the 61 units of the #711
+  class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
+  shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
+  (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
 - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
   its tail (4 cores, median of 5, alternating A/B, hashes equal):
   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent

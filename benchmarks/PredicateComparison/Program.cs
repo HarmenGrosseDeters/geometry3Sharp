@@ -227,6 +227,10 @@ static class Program
             CoplanarTriangles.Run();
             return;
         }
+        if (args.Length > 0 && args[0] == "span") {
+            ExponentSpan.Run(args.Length > 1 ? int.Parse(args[1]) : 20000);
+            return;
+        }
         if (args.Length > 0) Count = int.Parse(args[0]);
         var impls = implementations();
         var scales = new[] { 1.0, 1e6, 1e-10, 1e-160, 1e-300, 1e150, 1e200 };
