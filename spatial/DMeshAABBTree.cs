@@ -1969,8 +1969,9 @@ namespace g3
                     // every center is <= midpoint; the scan ran past the set, into the other sets or out of the array)
                     while (l < iCount && centers[iStart + l][axis] <= midpoint)
                         l++;
-                    // (r >= 0 is a guard only: every center above the midpoint would need a midpoint of -infinity, and
-                    // finite centroids, a third of a finite sum, cannot overflow a + b)
+                    // (r >= 0 bounds the scan when every center is above the midpoint: that needs a midpoint of -infinity,
+                    // which the sum of two finite centers of about -MaxValue gives, since the overflow fallback of the
+                    // centroids can return finite centers up to MaxValue; then n0 is 0 and the half and half rule below applies)
                     while (r >= 0 && centers[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)

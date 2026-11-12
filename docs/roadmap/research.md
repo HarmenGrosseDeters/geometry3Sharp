@@ -4,8 +4,10 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** items that are not scheduled: the "Later" list, the Phase 5 candidates from recent research, the open
   research questions, and the SMT pilot.
-- **Status (2026-11-08):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
-  stopped at its gate (#371); everything else is not started.
+- **Status (2026-11-12):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
+  stopped at its gate (#371). Since then: batch queries stage 2 (#448), intersection-free dual contouring options A and
+  B (#552, #572), geodesic Bézier curves (#540), point clouds step C1 (#580) merged; the D1 drift rule (hard problem 2)
+  built in #513. Not started: collision detection, tet meshing, TPMS, the rest of the Later list.
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -20,7 +22,7 @@ Part of the [roadmap](../ROADMAP.md).
   item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection) and 7
   (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
   feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
-  upper bound, design note) started; item 3 (tet meshing) waits until the alpha wrap has sharp features.
+  upper bound, design note) started, then built up to step C1 (#580, see item 6); item 3 (tet meshing) waits until the alpha wrap has sharp features.
   Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
@@ -165,9 +167,9 @@ bound review CLAUDE.md demands. This is consistent with "not a fit" above: the r
 are not proved as a whole. Pilot 1 used the Python package `z3-solver` (MIT), not the NuGet `Microsoft.Z3`; still only
 in the tool project.
 
-**Pilot 2, step (1) result (2026-11-08, draft PR #416):** the D1 drift lemma of SafeRounding (the apex rule of `docs/design/ROUNDING_DRIFT_APEX.md`) in `tools/Z3Pilot/drift_apex.py`, derived from the rule's specification in the file: I1, I2, `d' >= d` and `max d' <= maxLength` per illustrative edit shape (moves, 25 contractions, removal, flip, strip zips of a 3-vertex loop with the middle chain vertex as apex; zip, 4-vertex strip loop and ear contraction without an apex) and shape-free (only "apex in every added triangle" and "M over R and A" are used): 168 obligations unsat with satisfiable, replayed assumptions; 13 mutants sat (a non-apex vertex charged, `M` without `δ`, `M` over `A` only, no acceptance, an ear with one vertex charged). Zips, longer strip loops and ear contractions (the kept boundary vertex is never moved) have no apex and keep today's rule. The chain bound `d <= d̂ (1 + u)^k + k ε` holds with Higham (2.5) and is SAT with the note's first model (2.4), now a documented witness (note corrected in fd931c69). Review only: (E1)/(E2) per edit type, untouched triangles keep their geometry, the distance model, I1/I2 => Hausdorff, the induction over edits, one chain counter for all vertices; the source contract waits for the D1 implementation (skipped test).
+**Pilot 2, step (1) result (2026-11-08, PR #416, merged 2026-11-08):** the D1 drift lemma of SafeRounding (the apex rule of `docs/design/ROUNDING_DRIFT_APEX.md`) in `tools/Z3Pilot/drift_apex.py`, derived from the rule's specification in the file: I1, I2, `d' >= d` and `max d' <= maxLength` per illustrative edit shape (moves, 25 contractions, removal, flip, strip zips of a 3-vertex loop with the middle chain vertex as apex; zip, 4-vertex strip loop and ear contraction without an apex) and shape-free (only "apex in every added triangle" and "M over R and A" are used): 168 obligations unsat with satisfiable, replayed assumptions; 13 mutants sat (a non-apex vertex charged, `M` without `δ`, `M` over `A` only, no acceptance, an ear with one vertex charged). Zips, longer strip loops and ear contractions (the kept boundary vertex is never moved) have no apex and keep today's rule. The chain bound `d <= d̂ (1 + u)^k + k ε` holds with Higham (2.5) and is SAT with the note's first model (2.4), now a documented witness (note corrected in fd931c69). Review only: (E1)/(E2) per edit type, untouched triangles keep their geometry, the distance model, I1/I2 => Hausdorff, the induction over edits, one chain counter for all vertices; the source contract waits for the D1 implementation (skipped test).
 
-**Pilot 2, step (2) result (2026-11-08, draft PR):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
+**Pilot 2, step (2) result (2026-11-08, PR #407, merged):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
 
 #### Later
 
@@ -239,7 +241,7 @@ started. The owner runs them locally (2026-11-03); the coordinator reviews and m
 no caller yet, Neumann boundaries need a new closest-silhouette query, and Monte Carlo results conflict with the
 bit-for-bit determinism and invariance tests.
 
-**Planar nesting probe (#620, 2026-11-11):** With two sampled circles and sampling spacing scaled with the input, the default absolute simplification tolerance changes nesting at small gaps and scales; even a correctly nested hole can lose area to simplification. `SortPolygons` preserves nesting for these cases except at the combined large translation / millimetre scale, where nesting or the reported hole area also fails. The passing cases are regression tests; the failures are tracked in #628. This probe does not test the default absolute sampling spacing or establish a need for generalized winding numbers.
+**Planar nesting probe (#620, 2026-11-11):** With two sampled circles and sampling spacing scaled with the input, the default absolute simplification tolerance changes nesting at small gaps and scales; even a correctly nested hole can lose area to simplification. `SortPolygons` preserves nesting for these cases except at the combined large translation / millimetre scale, where nesting or the reported hole area also fails. The passing cases are regression tests; the failures are tracked in #628, fixed by #634 (2026-11-12). This probe does not test the default absolute sampling spacing or establish a need for generalized winding numbers.
 
 | # | Feature | Research / port source | License of reference code | Why / builds on |
 |---|---|---|---|---|
@@ -398,13 +400,16 @@ Ordered by expected value for the library.
      chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
 8. **Open-operand classification in the exact booleans.**
    - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
-     w_B = 0.86), fix in progress.
+     w_B = 0.86), fixed: open operands are classified per piece (#528, owner decision A, 2026-11-10).
    - The open cohort also has 736 ops > 5 s.
-   - Open: Lévy 2024-style propagation across intersection curves (phase 2 running) and a robust, scale-invariant
-     inside threshold for open operands.
+   - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
+     parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
+     (exact Antipodal Method merged in #539; per-patch evaluation L1 in draft #633).
    - A stronger-model review of the classification design pays here.
 9. **Robust repair at extreme scale disparity (F1b / F1c).**
-   - Problem: cleanups relative to all triangles erode or drop far parts; a first-stage design change is in progress.
+   - Problem: cleanups relative to all triangles erode or drop far parts. Design note
+     [ROBUST_REPAIR_SCALE_FREE.md](../design/ROBUST_REPAIR_SCALE_FREE.md) (#547); option A with guard G merged in #560,
+     B stage 0 in #578.
    - Open: a scale-free formulation of the repair stage, so that no cleanup depends on the global box.
    - Related: the 183 `robust` misses of the strict criterion, 137 of them Hausdorff >= 1 % after solidify
      ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)).

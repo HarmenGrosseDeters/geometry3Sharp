@@ -1,6 +1,7 @@
 # Portable `DMath` for the geodesic / intrinsic family (design, C1 of DETERMINISM.md)
 
-Status: design for the owner's review, no library code yet. Context: [DETERMINISM.md](DETERMINISM.md) (cause C1, levels
+Status: implemented: the internal `CoreMath` (CoreMathSharp-based CORE-MATH) merged in #617 (6ce03ee5, 2026-11-11). Written as
+the design for the owner's review, before any library code. Context: [DETERMINISM.md](DETERMINISM.md) (cause C1, levels
 L0 / L1 / L2; section 5 for the arm64 result).
 
 ## 0. Update 2026-11-11: CoreMathSharp changes the recommendation
@@ -75,7 +76,7 @@ except `Math.Sqrt` if needed, no `Math.FusedMultiplyAdd`:
   the geodesic code never needs: angles are in `[-2 pi, 2 pi]`, but the function stays total), then the two polynomial
   kernels on `[-pi/4, pi/4]`.
 - `atan2`: fdlibm `atan` (argument reduction with four constants and an odd polynomial) plus the quadrant logic and the
-  special cases (zeros, infinities, NaN) of `e_atan2.c`. `portable_atan2` of PR #539 (not merged at the time of writing:
+  special cases (zeros, infinities, NaN) of `e_atan2.c`. `portable_atan2` of PR #539 (merged 2026-11-11; not merged at the time of writing:
   `master` has no `portable_atan2`) is taken as the starting point if it is merged by then, otherwise it is replaced by
   this.
 - `exp`: reduction `x = k ln2 + r` with a split `ln2`, the rational approximation of `e_exp.c`, scaling by `2^k` by
@@ -193,4 +194,4 @@ FMA is too high (then net48 would still be exact, only slower), or if a defect i
    capacity: opt-in `workflow_dispatch` input `macos`; owner decision 2026-11-11); the golden values of the
    geodesic tests move once, justified in the PR (decided).
 3. Source: CORE-MATH checked first (this section); the decision between CoreMathSharp-based CORE-MATH and fdlibm is open
-   (recommendation above).
+   (recommendation above). Built with CoreMathSharp-based CORE-MATH (#617).

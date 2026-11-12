@@ -26,7 +26,7 @@ What no formulation removes: disparity inside one part (a small feature inside t
 **Recommendation.** A now, as its own small PR. Then the cheap part of B (clean closed parts pass through untouched), and the full B
 in stages behind a measured gate. D (a scale-free cleanliness criterion next
 to `NotCleanReason`) is an owner decision about the status of far parts. C (local tolerances inside every stage) not now. Details in
-section 6, owner questions in section 7. Nothing is implemented; no library code was changed for this note.
+section 6, owner questions in section 7. Nothing is implemented; no library code was changed for this note. Built since: A with G (#560) and B stage 0 (#578).
 
 Read with: `RepairCampaignFindings` (F1 to F5), [QA.md](../QA.md) 2.5a (supported range), [ROBUSTNESS_SWEEP.md](../ROBUSTNESS_SWEEP.md)
 (R29), [alpha-wrap-and-repair.md](../roadmap/alpha-wrap-and-repair.md), #537 (F4), #543 (F5).

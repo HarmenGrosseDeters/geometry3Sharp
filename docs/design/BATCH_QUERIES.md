@@ -1,6 +1,7 @@
 # Batch ray and point queries: prior art, upper bound, API proposal (ROADMAP Phase 5 priority 1, stage 1)
 
-Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. No library code changed. The benchmark prototype is
+Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. Stage 2 merged in #448 (fb114adf, 2026-11-09,
+`spatial/MeshBatchQueries.cs`). Stage 1 changed no library code. The benchmark prototype is
 [benchmarks/BatchQueryBenchmark](../../benchmarks/BatchQueryBenchmark/README.md) (raw results there).
 
 ## 0. Decisions (owner, 2026-11-08)
