@@ -81,7 +81,7 @@ static class FoldoverFreeComparison
         Console.WriteLine("quality_ratio_vs_free_boundary_SLIM=" + F(ratio) + "; target=" +
             (repaired.Succeeded && MathUtil.IsFinite(ratio) && ratio <= 1.1 ? "met" : "UNSATISFIED"));
         // Attribution of the quality gap: the same start with the boundary replaced by the free-boundary SLIM result.
-        if (slim.UV != null && repaired.Distortion != null) {
+        if (slim.UV != null && slim.Distortion != null && repaired.Distortion != null) {
             var mixed = (Vector2d[])start.Clone();
             foreach (int v in mesh.VertexIndices()) if (mesh.IsBoundaryVertex(v)) mixed[v] = slim.UV[v];
             var viaSlimBoundary = Run(name, "FoldoverFree-SLIM-boundary", "fixed-from-SLIM", mesh, () => new FoldoverFreeParameterization(mesh, mixed).Compute());

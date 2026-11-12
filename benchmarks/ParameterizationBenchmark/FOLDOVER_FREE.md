@@ -210,7 +210,7 @@ Ratio to free-boundary SLIM: disc 1.306, three peaks 2.36, torus 1.012. Attribut
 | LSCM interior, SLIM boundary fixed | 7.4649 | 1.083 |
 | SLIM map as start (already valid), SLIM boundary fixed | 7.3035 | 1.059 |
 
-On the folded disc the SLIM boundary gives 4.000000000009 (ratio 1.000000000002). So (a) the stop rule is not the cause,
+(The tolerance-0 and SLIM-map-start rows come from a one-off probe, not from the committed command; the other rows are in the perf file.) On the folded disc the SLIM boundary gives 4.000000000009 (ratio 1.000000000002). So (a) the stop rule is not the cause,
 (b) the gap is the prescribed boundary: LSCM's boundary is itself conformal-stretched, and a fixed boundary cannot
 beat the free-boundary optimum; with the same boundary the target (<= 10 %) is met on the disc and on three peaks (1.083).
 (c) A residual 4-6 % remains on three peaks even from SLIM's own map: the energy (Garanzha's shape/area energy) is

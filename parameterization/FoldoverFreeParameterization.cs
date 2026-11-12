@@ -48,7 +48,7 @@ namespace g3
             if (InitialUV == null || MaxIterations < 0 || !Positive(InitialEpsilon) ||
                 !Positive(MinimumEpsilon) || MinimumEpsilon > InitialEpsilon ||
                 !(EnergyDecreaseTolerance >= 0 && EnergyDecreaseTolerance < 1))
-                return Fail(ParameterizationStatus.InvalidConstraints, "invalid initial UVs or iteration/epsilon options");
+                return Fail(ParameterizationStatus.InvalidConstraints, "invalid initial UVs or iteration/epsilon/EnergyDecreaseTolerance options");
             ParamMesh pm;
             string error;
             if (!PrepareMesh(Mesh, out pm, out error))
@@ -106,7 +106,7 @@ namespace g3
                 for (int i = 0; i < step.Length; ++i) slope += gradient[i] * step[i];
                 if (!MathUtil.IsFinite(slope) || slope > 0) return Fail(ParameterizationStatus.SolverFailed, "non-finite or non-descent search direction");
                 int bad = BadCount(pm, x);
-                if (bad == 0 && -slope <= 1e-10 * Math.Max(1, energy)) {
+                if (bad == 0 && -slope <= 1e-10 * Math.Max(1, energy) && RegularizationNegligible(pm, x, epsilon, energy)) {
                     converged = true; stop = null; break;
                 }
                 double nextEnergy = energy, minDet = 0, alpha = 1;
@@ -133,7 +133,6 @@ namespace g3
                 } else {
                     nextEnergy = energy;
                     Evaluate(pm, x, epsilon, null, null, out minDet);
-                    if (bad == 0 && RegularizationNegligible(pm, x, epsilon, energy)) converged = true;
                 }
                 if (converged) { stop = null; break; }
                 if (epsilon == MinimumEpsilon && !accepted) { stop = "line search stalled at minimum epsilon"; break; }

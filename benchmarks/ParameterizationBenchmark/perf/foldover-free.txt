@@ -1,50 +1,50 @@
 fixture,method,boundary,status,iterations,converged,flips,degenerate,symmetric_dirichlet,overlap_pairs,milliseconds
-folded-disc,SLIM-default,free,Success,1,True,0,0,4,0,13.9385
-folded-disc,start,unchanged,FlippedTriangles,0,False,4,0,Infinity,54,0.1471
-folded-disc,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.4512
+folded-disc,SLIM-default,free,Success,1,True,0,0,4,0,15.7141
+folded-disc,start,unchanged,FlippedTriangles,0,False,4,0,Infinity,54,0.2433
+folded-disc,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.5865
 diagnostic=initial UVs have flipped or degenerate triangles
-folded-disc,FoldoverFree,fixed,Success,28,True,0,0,5.2238527865238815,0,15.7355
+folded-disc,FoldoverFree,fixed,Success,28,True,0,0,5.2238527865238815,0,20.483
 fixed_boundary_bitwise=True
 fixed_boundary_feasibility=locally-feasible-witness
 quality_ratio_vs_free_boundary_SLIM=1.3059631966309704; target=UNSATISFIED
-folded-disc,FoldoverFree-SLIM-boundary,fixed-from-SLIM,Success,18,True,0,0,4.000000000009308,0,2.7076
-quality_ratio_SLIM_boundary_vs_free_boundary_SLIM=1.000000000002327
-annulus-8x3,LSCM,two-pins,FlippedTriangles,0,True,2,0,Infinity,10,1.298
+folded-disc,FoldoverFree-SLIM-boundary,fixed-from-SLIM,Success,23,True,0,0,4,0,4.3392
+quality_ratio_SLIM_boundary_vs_free_boundary_SLIM=1
+annulus-8x3,LSCM,two-pins,FlippedTriangles,0,True,2,0,Infinity,10,1.6557
 diagnostic=LSCM: of 48 UV triangles 2 flipped or of zero area, 0 degenerate
-annulus-8x3,SLIM-default,free,InvalidTopology,0,False,NA,NA,NA,NA,0.1646
+annulus-8x3,SLIM-default,free,InvalidTopology,0,False,NA,NA,NA,NA,0.2396
 diagnostic=mesh is not a topological disc (2 boundary loops, Euler characteristic 0); cut it with MeshDiscCut
 annulus_boundary_vertices=0:2.328460334294555:8.012831502703891E-17;1:1.4042546556416513:1.3118076532651823;2:-2.585110275060198E-16:1.7490768710202398;3:-1.4042546556416484:1.3118076532651788;4:-2.3284603342945447:8.012831502703891E-17;5:-1.404254655641649:-1.311807653265179;6:-1.8095771925421384E-15:-1.7490768710202396;7:1.4042546556416486:-1.3118076532651821
 boundary_y_range=-1.7490768710202396:1.7490768710202398; feasibility=undetermined-not-certified
 annulus_boundary_vertices=25:0.498782443385331:3.434881276661839E-15;24:0.7175023676635526:3.0367269353832216E-15;31:0.4987824433853248:1.701947536791698E-16;30:-3.619154385084277E-15:-2.3659055808749992E-15;29:-0.49878244338533073:-3.1397468667866413E-15;28:-0.7175023676635541:-2.207084140258548E-15;27:-0.4987824433853279:-6.704014771968566E-16;26:2.585110275060198E-15:1.4985772175330096E-15
 boundary_y_range=-3.1397468667866413E-15:3.434881276661839E-15; feasibility=undetermined-not-certified
-annulus-8x3,start,unchanged,FlippedTriangles,0,False,2,0,Infinity,10,0.0645
-annulus-8x3,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.1013
+annulus-8x3,start,unchanged,FlippedTriangles,0,False,2,0,Infinity,10,0.1203
+annulus-8x3,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,0.1185
 diagnostic=initial UVs have flipped or degenerate triangles
-annulus-8x3,FoldoverFree,fixed,Success,41,True,0,0,7.466766985993783,0,9.8879
+annulus-8x3,FoldoverFree,fixed,Success,41,True,0,0,7.466766985993783,0,22.2217
 fixed_boundary_bitwise=True
 fixed_boundary_feasibility=locally-feasible-witness
 quality_ratio_vs_free_boundary_SLIM=NaN; target=UNSATISFIED
-three-peaks-30,LSCM,two-pins,FlippedTriangles,0,True,19,0,Infinity,2486,49.195
+three-peaks-30,LSCM,two-pins,FlippedTriangles,0,True,19,0,Infinity,2486,51.5374
 diagnostic=LSCM: of 1800 UV triangles 19 flipped or of zero area, 0 degenerate
-three-peaks-30,SLIM-default,free,Success,69,True,0,0,6.8949156797521605,0,222.3992
-three-peaks-30,start,unchanged,FlippedTriangles,0,False,19,0,Infinity,2486,1.2915
-three-peaks-30,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,3.2761
+three-peaks-30,SLIM-default,free,Success,69,True,0,0,6.8949156797521605,0,211.2452
+three-peaks-30,start,unchanged,FlippedTriangles,0,False,19,0,Infinity,2486,0.7869
+three-peaks-30,SLIM-same-start,free,InvalidConstraints,0,False,NA,NA,NA,NA,2.2726
 diagnostic=initial UVs have flipped or degenerate triangles
-three-peaks-30,FoldoverFree,fixed,Success,54,True,0,0,16.246810671323242,1399,240.6905
+three-peaks-30,FoldoverFree,fixed,Success,54,True,0,0,16.246810671323242,1399,240.0236
 fixed_boundary_bitwise=True
 fixed_boundary_feasibility=locally-feasible-witness
 quality_ratio_vs_free_boundary_SLIM=2.3563465350322077; target=UNSATISFIED
-three-peaks-30,FoldoverFree-SLIM-boundary,fixed-from-SLIM,Success,82,True,0,0,7.464884815566135,0,309.123
+three-peaks-30,FoldoverFree-SLIM-boundary,fixed-from-SLIM,Success,82,True,0,0,7.464884815566135,0,267.2719
 quality_ratio_SLIM_boundary_vs_free_boundary_SLIM=1.08266513504839
 torus-stock status=Success; components=1; cone_components=0; charts=17; fallback_components=1
-torus-cone-cut,SLIM-default,free,Success,31,True,0,0,4.005953318212518,8,109.6882
-torus-cone-cut,start,unchanged,Success,0,False,0,0,4.0657836814808554,8,0.6003
-torus-cone-cut,SLIM-same-start,free,Success,31,True,0,0,4.006661915881016,8,21.8045
-torus-cone-cut,FoldoverFree,fixed,Success,16,True,0,0,4.055167971523193,8,49.2635
+torus-cone-cut,SLIM-default,free,Success,31,True,0,0,4.005953318212518,8,91.9512
+torus-cone-cut,start,unchanged,Success,0,False,0,0,4.0657836814808554,8,0.5622
+torus-cone-cut,SLIM-same-start,free,Success,31,True,0,0,4.006661915881016,8,23.0651
+torus-cone-cut,FoldoverFree,fixed,Success,16,True,0,0,4.055167971523193,8,50.8443
 fixed_boundary_bitwise=True
 fixed_boundary_feasibility=locally-feasible-witness
 quality_ratio_vs_free_boundary_SLIM=1.012285378635574; target=met
-torus-cone-cut,FoldoverFree-SLIM-boundary,fixed-from-SLIM,Success,47,True,0,0,4.0185526355525205,8,110.2438
+torus-cone-cut,FoldoverFree-SLIM-boundary,fixed-from-SLIM,Success,47,True,0,0,4.0185526355525205,8,117.528
 quality_ratio_SLIM_boundary_vs_free_boundary_SLIM=1.0031451483178102
 torus-boundary proper_self_crossings=4; overlap_pairs_touching_boundary=8/8
 torus-repair globally_injective=False; accepted_by_auto_limits=False; counterfactual_cones_fallback_components=1; production_defaults_unchanged=true
