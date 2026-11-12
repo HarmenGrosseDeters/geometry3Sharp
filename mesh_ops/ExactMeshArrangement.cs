@@ -820,7 +820,13 @@ namespace g3
             double M = Math.Max(Math.Max(Math.Abs(bx), Math.Abs(by)), Math.Max(Math.Abs(cx), Math.Abs(cy)));
             double eps = 2 * e + U * M;
             err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + Tiny;
-            return bx * cy - by * cx;
+            double det = bx * cy - by * cx;
+            // (a product overflowed: for M above about 1.34e154 a product can be infinite while the bound, evaluated as
+            // 3 U M M, is still finite; the sign of the infinite difference does not stand for the exact points within e.
+            // Undecided, as in incircle_approx; review of #732)
+            if (!(Math.Abs(det) <= double.MaxValue))
+                err = double.PositiveInfinity;
+            return det;
         }
 
         [MethodImpl(JitHints.Optimize)]

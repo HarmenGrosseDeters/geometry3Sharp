@@ -181,6 +181,43 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Orient2d_DecidesOnlyCorrectly_WhereItsProductsOverflow()
+        {
+            // review of #732: differences near 1.3e154 to 1.5e154, where a product can overflow while the bound, 3 U M M
+            // evaluated from the left, stays finite. Where the filter decides, the sign is the exact one at every corner of
+            // the error boxes (e > 0: the points are approximations), and the overflowed cases are undecided. The case the
+            // review found: the determinant of the doubles is +1.03e290, below the bound 3.4e293
+            var r = new Random(13);
+            int decided = 0, overflowed = 0;
+            for (int iter = 0; iter < 3000; ++iter) {
+                double M = Math.Pow(2, 512) * (0.95 + 0.15 * r.NextDouble());
+                Func<double> c = () => (r.NextDouble() < 0.5 ? -1 : 1) * M * (0.9 + 0.1 * r.NextDouble());
+                double bx = c(), cy = c(), by = c(), cx = c();
+                if (iter == 0) { bx = 1.463843223656292e154; cy = 1.2280639796741043e154; by = 1.360334066409679e154; cx = 1.32150857590956e154; }
+                var a = new Vector3d(0, 0, 0);
+                var b = new Vector3d(bx, by, 0);
+                var cc = new Vector3d(cx, cy, 0);
+                // (the review's case with an error of 1e138, which moves the determinant by about 1.4e292, more than its
+                // value at the doubles)
+                double e = iter == 0 || iter % 2 == 1 ? 1e138 : 0;
+                double err;
+                double f = ExactMeshArrangement.orient2d_approx(a, b, cc, 0, 1, e, out err);
+                if (!(Math.Abs(f) <= double.MaxValue)) overflowed++;
+                int sign = f > err ? 1 : -f > err ? -1 : 0;
+                if (sign == 0)
+                    continue;
+                decided++;
+                for (int mask = 0; mask < 64; ++mask) {
+                    BigInteger ax0 = Corner(0, e, mask, 0), ay0 = Corner(0, e, mask, 1), bx0 = Corner(bx, e, mask, 2), by0 = Corner(by, e, mask, 3),
+                        cx0 = Corner(cx, e, mask, 4), cy0 = Corner(cy, e, mask, 5);
+                    BigInteger det = (bx0 - ax0) * (cy0 - ay0) - (by0 - ay0) * (cx0 - ax0);
+                    Assert.True(det.Sign == sign, $"iter {iter} mask {mask}: filter {sign}, exact {det.Sign} (f {f}, err {err})");
+                }
+            }
+            Assert.True(decided > 500 && overflowed > 100, $"{decided} decided, {overflowed} overflowed");
+        }
+
+        [Fact]
         public void CompareAlong_BoundHolds_WithExactDirection()
         {
             // the direction is an exact integer (rounded to double by the filter), the points differ nearly
