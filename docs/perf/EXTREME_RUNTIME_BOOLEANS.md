@@ -490,7 +490,23 @@ sampling profile per case. Raw rows: `results/normal_stratum_median5_2026-11-12.
 - The phases include their GC pauses. The GC row is the pause time of the same runs, as a share of the wall time.
 - The trace categories (section 4.8) are CPU-sample shares with the GC waits included.
 
-
+| phase | normal Thingi10K, 20 models | Boolean30 scaling set, 14 models | procedural (cross150, sph300) | all 36 | all 36, median over the ops |
+|---|---|---|---|---|---|
+| ops; wall s in total (median op) | 20; 8.24 (0.29) | 14; 10.88 (0.16) | 2; 2.31 (1.16) | 36; 21.43 (0.29) | |
+| input preparation | 1.4 % | 0.4 % | 0.7 % | 0.8 % | 0.9 % |
+| setup (points, triangles) | 2.1 % | 1.9 % | 6.8 % | 2.5 % | 2.1 % |
+| box trees | 2.0 % | 1.5 % | 4.2 % | 2.0 % | 2.1 % |
+| pair search and triangle tests | 12.8 % | 19.8 % | 26.8 % | 17.9 % | 13.6 % |
+| planes | 1.1 % | 1.0 % | 0.6 % | 1.0 % | 1.3 % |
+| intersection points | 1.3 % | 2.9 % | 0.6 % | 2.0 % | 1.6 % |
+| merge (exact points) | 5.1 % | 17.2 % | 2.8 % | 11.0 % | 7.3 % |
+| triangulation | 5.3 % | 10.2 % | 1.8 % | 7.4 % | 8.0 % |
+| classification | 35.0 % | 8.5 % | 12.9 % | 19.2 % | 6.1 % |
+| ExactPlanarSimplify | 1.9 % | 2.6 % | 1.6 % | 2.2 % | 2.8 % |
+| assembly | 9.1 % | 8.9 % | 15.7 % | 9.7 % | 11.5 % |
+| rounding | 22.5 % | 25.0 % | 25.2 % | 24.0 % | 28.8 % |
+| GC pauses, wall (inside the phases above) | 4.6 % | 12.4 % | 4.8 % | 8.6 % | 1.4 % |
+| allocated MB per op, mean (median) | 106 (46) | 312 (48) | 656 (656) | 217 (50) | |
 
 **Cross-cutting, CPU samples of the same 36** (all threads, warm-up subtracted):
 
@@ -513,12 +529,13 @@ the ceiling where it matters.
 | rounding (24.0 % / 28.8 %) | the first full search's box-neighbour enumeration and `near` (SNAP_ROUNDING_3D.md section 5.5, its option 3) | 1.5x on the rounding | 8 % | M | yes | snap rounding session (#721 option 3, after #725) |
 | classification (19.2 % / 6.1 %) | on the open models (Antipodal path): lever 1, the hierarchical boundary sum; on closed models nothing measured | 2x on the open models' classification (2.5 of 4.1 s) | 6 % | M-L | decisions kept by the fallback | **T3a queue (lever 1)** and option A |
 | pair search and triangle tests (17.9 % / 13.6 %) | box-tree traversal and the pair filter (`TriangleBoxTree.Query`, `TriangleTriangleFilter`) | 1.5x | 6 % | M | yes | none |
+| planes and intersection points (3.1 % / 2.9 %; the rest of the intersections stage with the pair search and the box trees) | the planes of the intersecting triangles and the implicit points | 1.5x | 1 % | M (exact code) | yes | partly C' (planes, exact-numbers study) |
 | GC pauses (8.6 % / 1.4 %) and 217 MB per op | fewer allocations (lever 4); server GC on the host | allocation-free in the largest phases: at most the pause share | 8.6 % ceiling | M | yes | **T3a queue (lever 4)**; OPERATIONS.md advice |
 | exact stage across phases (7.6 % of the samples) | P2 gains nothing here: the exact-numbers study counts 0 calls of the `*_bigint` paths in its 99 normal operations. What remains is the exact point construction (its candidate C, on stack limbs) and the planes (C') | C 1.8-2.4x on stack limbs, no allocation | C: 2.0-5.0 %, C': 0.9-1.6 % (exact-numbers study, single thread) | M (exact code) | yes | exact-numbers study (C, C'); not P2 |
 | merge (11.0 % / 7.3 %; `merge.points` 65 % of it) | the exact-point merge (sort and dedupe), its allocations | 1.5x | 3.7 % | M | yes | partly lever 4 (1017018 is GC-bound) |
 | assembly (9.7 % / 11.5 %) | building the result mesh | 1.5x | 3.2 % | M | yes | none (T1 lever 3 dropped it at 3-4 % of large operations) |
 | triangulation (7.4 % / 8.0 %) | the per-triangle CDT | 1.5x | 2.5 % | M | yes | none |
-| input preparation, setup, box trees (5.3 % / 5.1 %) | already done in T1 (#631) | - | < 2 % | - | - | T1 |
+| input preparation, setup, box trees (5.3 % / 6.1 %) | already done in T1 (#631) | - | < 2 % | - | - | T1 |
 | ExactPlanarSimplify (2.2 % / 2.8 %) | not diagnosed | 1.5x | 0.7 % | M | yes | none; a candidate under the owner's rule, lowest gain per effort |
 | filters (8.9 % of the samples) | filter tuning | 1.3x | 2 % | M (exact code: bound review) | yes | none; a candidate under the owner's rule |
 
