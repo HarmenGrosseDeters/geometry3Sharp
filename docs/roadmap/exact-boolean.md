@@ -207,7 +207,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   after #675 merges, with an OPERATIONS.md note on the cost (boundary segments times boundary sums).
 - **Fuzz findings (#624 group a, 2026-11-12), queue after #675, serial:** (1) #710 (bugfix): `ExactMeshBoolean`
   difference throws in `ExactTriangulation2.InsertConstraint` ("constraint was not inserted") on two cubes at ~3.7e-223
-  with one corner at ~1.8e-284; first, a crash on finite input; (2) the (A) follow-up above; (3) #711: 5-47 s on 8-16
+  with one corner at ~1.8e-284; first, a crash on finite input; (1b) #719 (coverage round 2, #716): the Antipodal
+  open-mesh classification changes when one coordinate moves by 2^-1000 (union 1080 -> 1118 triangles; unit result with
+  `AntipodalMaxBoundarySegments = 0`), diagnosed before (A) since (A) lifts the switches; (2) the (A) follow-up above; (3) #711: 5-47 s on 8-16
   vertex inputs whose coordinates span ~2^840; a profile first, then a bound, a faster path or a documented range (owner
   decision). The `RoundingClean` crash of the same group is the known class FINDINGS.md 5a (no new issue).
 

@@ -306,7 +306,9 @@ and the test tiers and time limit (#447, the backlog program).
   6.5 -> 1.0 s; optional lever: the remaining 2.5 s of the soup case are the solidify contour of a 1e-23 input, not profiled).
   Groups (c) to (f) still to run; a second round of (a)/(b) only after #710-#712 are fixed and if the owner wants it.
   Tests above 20 s (#692-#698): #692 and #693 in the AW3 tail report; #694, #695, #696 (#691, #704, #706), #697 and #698
-  with the backlog session; flaky net48 tests #671 (#683) and #676 (#684) have PRs.
+  with the backlog session (#694 split into 13 parts, #715; #695 Nightly plus a reduced PR test, #714; #697 FoldedCluster
+  row Nightly, base plus one frame in the PR tier); CoreMath coverage round 2 (#716) found #718 (`CoreMath.Exp(2^-53)`
+  returns 1.0, port error in the tiny-argument check; coverage session); flaky net48 tests #671 (#683) and #676 (#684) have PRs.
 
 #### Test suite on German Windows
 
