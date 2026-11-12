@@ -400,7 +400,9 @@ Open:
   push no library code"; exact review and mutation shards apply). It replaces #711 in T3a's queue (now #732, #719,
   (A), levers 1 and 4) and the cost-weighted rounding budget, which is dropped; the slow tail is re-measured once P2 is
   on master. Measured: orient3d 5077 to 202 ns, 0 B allocated; the 60 slow units plus the timeout unit 298 to 64 s,
-  bit-identical; on normal operations exact arithmetic is ~5-6 % self time, so the stop rule stands there.
+  bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
+  the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
+  filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
 - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
   coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
