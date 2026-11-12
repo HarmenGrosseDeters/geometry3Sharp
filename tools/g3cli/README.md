@@ -31,6 +31,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
 | `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`), simplification (`--op simplify --epsilon e`), and on lines: `simplify_lines`, `clip_lines` (the pieces of GeoJSON LineStrings inside / outside the clip polygons, `--clip-type`) and `offset_lines` (the band of width 2 delta around lines, `--end-type round/square/butt/joined`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
 | `polygon_solids` | solid regions (polygons with holes) from loops: every ring of GeoJSON Polygons / MultiPolygons and every closed LineString is a loop, the nesting is found from containment; absolute (`--simplify-tolerance`, library default 0.1) and relative (`--relative-tolerance`) simplification, `--trust-orientations`, `--allow-overlapping-holes`; the result as GeoJSON (a file, or inline with `--return-geojson`), counts and areas | `PlanarComplex.FindSolidRegions` |
+| `hull2d` | convex hull of 2D points (`--points` as text, `@file` or JSON, or the x/y of a mesh's vertices): dimension (2 polygon, 1 line, 0 point), vertices counterclockwise with their input indices, area, perimeter, GeoJSON out; `--query double` (default) or `int64` (points rounded to a 2^20 grid of their bounding square; there is no exact mode) | `ConvexHull2` |
 
 ## Build and run
 
@@ -162,6 +163,11 @@ g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvatu
 # discrete curvature per vertex: statistics (H and K in mesh units and times size, size^2) and a CSV of every vertex
 g3cli curvature part.stl --output curvature.csv
 #   -> "valid_vertices": 5120, "mean_curvature": {"mean": 0.31, "std_dev": 0.05, ...}, "gaussian_curvature": {...}, "angle_deficit_total": 12.566
+
+# convex hull of 2D points (or of the x/y of a mesh's vertices); the hull vertices counterclockwise with their indices in the input
+g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1" --return-geojson
+#   -> "dimension": 2, "hull_vertices": 4, "area": 12, "perimeter": 14, "indices": [2, 3, 0, 1], "polygon": [[4, 3], [0, 3], [0, 0], [4, 0]]
+g3cli hull2d part.stl --output hull.geojson
 
 # quality and topology of one mesh
 g3cli quality part.stl

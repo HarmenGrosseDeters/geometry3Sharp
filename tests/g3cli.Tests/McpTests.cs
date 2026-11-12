@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "hull2d" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -225,6 +225,21 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal(20.0, D(r["result"]["structuredContent"]["refinement"]["min_angle_bound"]));
             Assert.True(I(r["result"]["structuredContent"]["trace_point_count"]) >= 2);
+        }
+
+        [Fact]
+        public void Hull2d_IsATool()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "hull2d", new JsonObject() { ["points"] = "0,0;4,0;4,3;0,3;2,1", ["query"] = "int64", ["return_geojson"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(4, I(sc["hull_vertices"]));
+            Assert.Equal("int64", S(sc["query"]));
+            Assert.Equal("Polygon", S(sc["hull_geojson"]["geometry"]["type"]));
+            r = Handle(server, Call(2, "hull2d", new JsonObject() { ["points"] = "0,0;4,0", ["epsilon"] = 0.0 }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
         }
 
         [Fact]

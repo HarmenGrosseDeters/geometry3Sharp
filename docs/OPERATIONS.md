@@ -814,6 +814,16 @@ bounding box diagonal and the smaller of the two applies. Open lines are counted
 g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
 ```
 
+**Convex hull of 2D points** (`hull2d`, `ConvexHull2`): `--points` ("x,y;x,y", `@file`, or JSON `[[x,y],...]`) or a mesh file (its vertices' x and y); the result has the
+`dimension` of the hull (2 a polygon, 1 all points on a line, 0 one point), its vertices counterclockwise with their `indices` into the input, `area`, `perimeter`
+and, with `--output` or `--return-geojson`, a GeoJSON Polygon, LineString or Point. `--query double` (default) uses floating point predicates (not robust in every case);
+`int64` rounds the points to a 2^20 grid of their bounding square and takes the hull of the rounded points. ConvexHull2 has no exact mode (`QT_RATIONAL` is not
+implemented), so none is offered. `--epsilon` (absolute, default 1e-8, must be > 0) decides whether points are on a line or at one point:
+
+```
+g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,
