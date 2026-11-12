@@ -222,7 +222,11 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   flips, times within the noise of the shared machine. `UVAtlasBenchmark` (`auto`, the 250 meshes of the
   first selection, master 99b314ce against the fix): all 250 results identical (status, charts per method, coverage,
   seams, overlaps, distortion), total time 1116 s against 1114 s.
-- Open (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
+- Closed as a limitation (2026-11-12): LSCM and ARAP on a seam-free annulus report `FlippedTriangles`; the workaround is a seam
+  cut (the atlas does this) or BFF / SLIM. Pinning one vertex on each of two loops instead of two on one loop does not
+  help (tried on 8x3, 16x4 and 24x6 cylinders of several heights: still 2 flipped triangles), so the pin choice is not the
+  cause. The real fix stays in research (the options below).
+- Research (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
   loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
   conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
 
