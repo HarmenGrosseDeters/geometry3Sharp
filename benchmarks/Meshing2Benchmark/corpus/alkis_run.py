@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--no-oracle", action="store_true")
+    ap.add_argument("--known", help="JSON {run name: issue} of known findings: exit 1 on a failing run not listed, and on a listed run that now passes")
     ap.add_argument("--summary", action="store_true", help="print the table of results.jsonl and stop")
     args = ap.parse_args()
     manifest = json.load(open(os.path.join(args.sample, "sample.json"), encoding="utf-8"))["tiles"]
@@ -123,7 +124,32 @@ def main():
                 print(name, r["verdict"], r.get("triangles", ""), f"mesh {r.get('mesh_ms', '-')} ms oracle {r.get('oracle_ms', '-')} ms wall {r['wall_s']} s", ",".join(r["flags"]), flush=True)
                 if os.path.exists(out) and os.path.getsize(out) > 50_000_000:
                     os.remove(out)   # keep the disk for the next runs; a finding keeps its input, the run can be repeated
-    return 0
+    return check_known(args, manifest, path)
+
+
+def check_known(args, manifest, path):
+    """Exit status for the scheduled job: every run VALID except the known findings (a ratchet, like herne_ratchet.py)."""
+    if not args.known:
+        return 0
+    known = json.load(open(args.known, encoding="utf-8"))
+    results = {}
+    for line in open(path, encoding="utf-8"):
+        r = json.loads(line)
+        results[(r["stratum"], r["name"])] = r
+    wanted = {(t["stratum"], n) for t in manifest if not args.only or t["stratum"] in args.only for n in t["files"]}
+    bad = 0
+    for key in sorted(wanted):
+        r = results.get(key)
+        name = key[1]
+        failing = r is None or r["verdict"] not in ("VALID", "NOT-JUDGED") or "SLOW" in r["flags"] or "STEINER" in r["flags"]
+        if failing and name not in known:
+            print(f"NEW FINDING {name}: {r['verdict'] if r else 'no result'} {r.get('detail', '') if r else ''}"[:400])
+            bad += 1
+        elif not failing and name in known:
+            print(f"FIXED {name} ({known[name]}): remove it from {args.known}")
+            bad += 1
+    print("known findings held" if bad == 0 else f"{bad} runs differ from {args.known}")
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

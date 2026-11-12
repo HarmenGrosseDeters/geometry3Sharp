@@ -133,6 +133,21 @@ def plan(args):
     print(f"  {len(need)} districts, {total / 1e6:.0f} MB of archives, {sum(len(v) for v in need.values())} tiles")
 
 
+def cache_key(args):
+    """A key for actions/cache: the preparation version (the scripts and the seed) and the host's listing (name, size, timestamp)
+    of the districts of the sample. The listing changes when the host republishes a district, which changes the archive's SHA-256."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha256(SEED.encode())
+    for script in ("alkis_tiles.py", "alkis_sample.py"):
+        h.update(open(os.path.join(here, script), "rb").read())
+    listing = json.load(open(os.path.join(args.cache, "index.json"), encoding="utf-8"))["datasets"][0]["files"]
+    districts = sorted({ds[i % len(ds)] for k, ds, _ in STRATA.values() for i in range(min(k, args.first) if args.first else k)})
+    for f in listing:
+        if any(f["name"].startswith(f"gru_vereinf_{d}_") for d in districts):
+            h.update(json.dumps(f, sort_keys=True).encode())
+    print("alkis-sample-" + h.hexdigest()[:20])
+
+
 def classify(nb, np_, use, big):
     """The stratum of a cell: the first of STRATA (in table order) whose predicate holds, or None."""
     for name, (_, _, predicate) in STRATA.items():
@@ -217,6 +232,7 @@ def main():
     ap.add_argument("--out", default=None, help="default: <cache>/sample")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--draw", action="store_true")
+    ap.add_argument("--cache-key", action="store_true", help="print the key under which a CI cache of --out can be stored")
     ap.add_argument("--only", nargs="*", help="strata to draw")
     ap.add_argument("--first", type=int, default=0, help="only the first N tiles of every stratum (a measurement subset of the same draw)")
     ap.add_argument("--steiner-limit", type=int, default=200000)
@@ -225,6 +241,9 @@ def main():
     args.out = args.out or os.path.join(args.cache, "sample")
     if args.plan:
         plan(args)
+    elif args.cache_key:
+        at.index(args.cache)
+        cache_key(args)
     elif args.draw:
         draw(args)
     else:

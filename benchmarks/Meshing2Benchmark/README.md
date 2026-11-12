@@ -360,6 +360,77 @@ against the recorded constrained-mode counts (below).
 The constrained-mode counts agree within 1.7 %, so the input is the same. The base counts are lower than the older tables because those predate the
 small-angle rule in the conforming mode (`MESHING2D_SMALL_ANGLES_CONFORMING.md`, 2026-11-08); these numbers are the new reference. Not tuned.
 
+### ALKIS sample run (2026-11-12)
+
+41 tiles of 200 m from 11 districts, drawn by `corpus/alkis_sample.py` (seed `g3-alkis-2026-11-12`, 10 strata, rule fixed before the first run),
+5 runs per tile (M2; M3 default mode q20 and q30; M3 constrained mode q20 and q30), 205 runs, snap 0.01 m, Steiner limit 200 000. Master
+`7668b57` plus this branch, 4-core container, one process at a time, one run each (JIT included; times are indicative). Commands:
+`alkis_sample.py --draw --cache <dir> --out <dir>`, then `alkis_run.py --sample <dir>`. Fetch: 1.7 GB of district archives (the host serves
+no single tiles). Wall time 2 998 s, of which the mesher 217 s and the oracle 2 374 s.
+
+**Result: 198 of 205 runs VALID, 7 INVALID. No crash, no hang (longest run 128 s, the oracle), no mesher failure, no Steiner-limit hit, no mesher run
+above 20 s (longest 4.0 s).** The oracle took more than 20 s on 39 runs (the dense tiles of the strata tiny and centre, up to 127 s at 128 009 triangles).
+A silent drop (an unused input vertex, an uncovered segment) is a verdict of the oracle and would show as INVALID. Cells: triangles / mesher time / oracle time.
+
+| stratum | district | tile | points / segments | M2 | base q20 | base q30 | cq q20 | cq q30 |
+|---|---|---|---|---|---|---|---|---|
+| tiny | Köln | 349200_5653200 | 2204 / 2652 | 4540 / 375 ms / 6.8 s | 55809 / 2829 ms / 42.0 s | 127856 / 3476 ms / 54.9 s | 28285 / 1900 ms / 27.2 s | 92026 / 2585 ms / 45.9 s |
+| tiny | Düsseldorf | 345800_5683600 | 1825 / 2134 | 3791 / 465 ms / 8.1 s | 54836 / 2283 ms / 39.2 s | 114648 / 3576 ms / 49.6 s | 37217 / 2399 ms / 25.0 s | 101909 / 3069 ms / 40.2 s |
+| tiny | Duisburg | 346800_5695800 | 1432 / 1821 | 2919 / 336 ms / 2.7 s | 31652 / 1480 ms / 20.8 s | 73794 / 2563 ms / 31.6 s | 24177 / 1634 ms / 18.7 s | 69247 / 2062 ms / 31.5 s |
+| tiny | Dortmund | 400000_5703800 | 1869 / 2184 | 3751 / 351 ms / 5.0 s | 29410 / 1456 ms / 23.6 s | 68260 / 2247 ms / 34.1 s | 21522 / 1599 ms / 17.8 s | 63151 / 1957 ms / 32.7 s |
+| huge | Euskirchen | 332400_5586800 | 165 / 169 | 311 / 87 ms / 0.2 s | **INVALID** | 34337 / 2071 ms / 6.7 s | 10735 / 892 ms / 3.3 s | 26403 / 1404 ms / 5.2 s |
+| huge | Siegen-Wittgenstein | 437400_5619400 | 903 / 947 | 1787 / 212 ms / 0.9 s | 11689 / 834 ms / 4.2 s | 25621 / 1505 ms / 9.2 s | 9271 / 844 ms / 3.9 s | 24574 / 1251 ms / 9.1 s |
+| huge | Höxter | 507600_5728000 | 632 / 674 | 1258 / 211 ms / 0.8 s | 6392 / 548 ms / 2.2 s | 14824 / 958 ms / 4.1 s | 5203 / 536 ms / 2.0 s | 13781 / 866 ms / 3.5 s |
+| huge | Borken | 345400_5739200 | 287 / 300 | 562 / 163 ms / 0.2 s | 28973 / 1405 ms / 7.1 s | 54073 / 1801 ms / 10.9 s | 19080 / 1536 ms / 5.2 s | 50601 / 1775 ms / 10.2 s |
+| mining | Rhein-Erft-Kreis | 329800_5643000 | 277 / 291 | 542 / 154 ms / 0.3 s | 4251 / 393 ms / 1.7 s | 7485 / 517 ms / 2.0 s | 2948 / 351 ms / 1.0 s | 7471 / 549 ms / 1.9 s |
+| mining | Düren | 315200_5639000 | 159 / 179 | 306 / 115 ms / 0.2 s | 17471 / 1065 ms / 4.7 s | **INVALID** | 11738 / 1016 ms / 3.7 s | 28438 / 1476 ms / 6.6 s |
+| mining | Rhein-Erft-Kreis | 331000_5641400 | 138 / 146 | 261 / 117 ms / 0.2 s | 3839 / 356 ms / 1.2 s | 6815 / 508 ms / 1.8 s | 2560 / 350 ms / 0.7 s | 6731 / 482 ms / 1.3 s |
+| mining | Düren | 326600_5640000 | 189 / 200 | 367 / 120 ms / 0.2 s | 3940 / 468 ms / 1.4 s | 8755 / 675 ms / 2.1 s | 2677 / 405 ms / 0.8 s | 7248 / 514 ms / 1.6 s |
+| river | Duisburg | 345600_5702400 | 366 / 399 | 719 / 184 ms / 0.4 s | 9727 / 677 ms / 2.6 s | 21299 / 978 ms / 4.4 s | 7397 / 699 ms / 1.8 s | 21246 / 1264 ms / 4.2 s |
+| river | Köln | 362400_5639600 | 501 / 516 | 982 / 191 ms / 0.6 s | 13809 / 961 ms / 5.0 s | 30287 / 1649 ms / 10.9 s | 9698 / 777 ms / 3.4 s | 26623 / 1521 ms / 8.0 s |
+| river | Düsseldorf | 352400_5667400 | 453 / 458 | 882 / 174 ms / 0.5 s | 7007 / 553 ms / 2.2 s | 17804 / 1112 ms / 4.5 s | 5636 / 543 ms / 1.8 s | 15462 / 858 ms / 3.4 s |
+| river | Dortmund | 397000_5712600 | 362 / 396 | 695 / 173 ms / 0.4 s | 9084 / 754 ms / 2.9 s | 18935 / 937 ms / 5.5 s | 6627 / 640 ms / 2.1 s | 17178 / 883 ms / 4.6 s |
+| industrial | Duisburg | 339000_5699200 | 979 / 1019 | 1991 / 256 ms / 2.1 s | 17992 / 1095 ms / 6.3 s | 38334 / 1781 ms / 10.1 s | 13061 / 944 ms / 5.2 s | 38276 / 1322 ms / 9.4 s |
+| industrial | Dortmund | 402200_5707000 | 412 / 461 | 808 / 182 ms / 0.4 s | 4996 / 423 ms / 1.7 s | 12025 / 716 ms / 2.7 s | 4012 / 423 ms / 1.2 s | 11914 / 721 ms / 2.5 s |
+| industrial | Rhein-Erft-Kreis | 351400_5637800 | 1127 / 1211 | 2238 / 265 ms / 2.4 s | 11829 / 767 ms / 5.3 s | 29719 / 1237 ms / 11.8 s | 9756 / 742 ms / 4.7 s | 28035 / 1054 ms / 11.3 s |
+| industrial | Duisburg | 341000_5695000 | 1127 / 1142 | 2062 / 278 ms / 2.5 s | 11966 / 807 ms / 6.3 s | 28834 / 1252 ms / 10.3 s | 9927 / 899 ms / 5.2 s | 25874 / 1147 ms / 9.4 s |
+| forest | Euskirchen | 331200_5609600 | 689 / 699 | 1356 / 219 ms / 0.6 s | 8386 / 647 ms / 2.4 s | 16539 / 950 ms / 4.6 s | 6140 / 521 ms / 1.9 s | 15831 / 963 ms / 4.2 s |
+| forest | Siegen-Wittgenstein | 459400_5642800 | 960 / 1030 | 1906 / 245 ms / 1.2 s | 10795 / 687 ms / 4.2 s | 24426 / 1291 ms / 8.3 s | 8485 / 762 ms / 3.3 s | 23795 / 1077 ms / 8.1 s |
+| forest | Höxter | 528800_5721000 | 1316 / 1426 | 2649 / 297 ms / 2.0 s | 16774 / 1011 ms / 9.4 s | 38108 / 1818 ms / 20.2 s | 11605 / 910 ms / 6.1 s | 34500 / 1416 ms / 17.6 s |
+| forest | Düren | 320400_5617000 | 1003 / 1024 | 1983 / 220 ms / 1.0 s | 11731 / 780 ms / 3.8 s | 26585 / 1436 ms / 8.0 s | 9546 / 737 ms / 2.8 s | 26170 / 1470 ms / 8.1 s |
+| farmland | Borken | 342800_5750200 | 260 / 271 | 483 / 121 ms / 0.4 s | 8962 / 729 ms / 3.0 s | 17631 / 1133 ms / 4.6 s | 5782 / 597 ms / 2.0 s | 15729 / 860 ms / 3.7 s |
+| farmland | Höxter | 518000_5712800 | 157 / 162 | 299 / 101 ms / 0.2 s | 4062 / 333 ms / 1.0 s | 9806 / 610 ms / 2.1 s | 2599 / 315 ms / 0.7 s | 7415 / 545 ms / 1.6 s |
+| farmland | Düren | 315000_5647000 | 75 / 80 | 127 / 80 ms / 0.1 s | 3534 / 349 ms / 1.1 s | 10209 / 738 ms / 2.9 s | 3140 / 387 ms / 1.1 s | 7518 / 522 ms / 1.6 s |
+| farmland | Euskirchen | 336800_5606000 | 160 / 173 | 301 / 106 ms / 0.2 s | 3265 / 320 ms / 1.1 s | 8425 / 580 ms / 2.2 s | 1950 / 309 ms / 0.8 s | 5069 / 439 ms / 1.4 s |
+| village | Euskirchen | 342400_5600000 | 694 / 740 | 1373 / 199 ms / 0.7 s | 6009 / 453 ms / 2.0 s | 13975 / 735 ms / 4.0 s | 4872 / 469 ms / 1.6 s | 13779 / 653 ms / 3.7 s |
+| village | Höxter | 504400_5723200 | 611 / 636 | 1204 / 167 ms / 0.6 s | 7020 / 481 ms / 2.2 s | 15402 / 921 ms / 5.0 s | 5248 / 498 ms / 1.7 s | 14218 / 842 ms / 4.3 s |
+| village | Borken | 322000_5745000 | 593 / 626 | 1177 / 184 ms / 1.0 s | 4482 / 387 ms / 1.9 s | 10560 / 711 ms / 3.1 s | 3848 / 412 ms / 1.5 s | 10503 / 719 ms / 2.9 s |
+| village | Siegen-Wittgenstein | 424200_5636600 | 648 / 699 | 1282 / 219 ms / 0.7 s | 7572 / 559 ms / 2.6 s | 16088 / 861 ms / 4.7 s | 5664 / 513 ms / 1.7 s | 15975 / 825 ms / 4.4 s |
+| suburb | Bielefeld | 468800_5763400 | 1062 / 1194 | 2143 / 351 ms / 1.9 s | 12129 / 915 ms / 6.0 s | 29242 / 1260 ms / 12.2 s | 10048 / 887 ms / 4.3 s | 27838 / 1637 ms / 10.7 s |
+| suburb | Dortmund | 392600_5714800 | 1170 / 1254 | 2392 / 242 ms / 3.0 s | 55265 / 2015 ms / 21.7 s | 119560 / 2814 ms / 36.3 s | 32644 / 1473 ms / 13.1 s | 108303 / 2523 ms / 32.1 s |
+| suburb | Köln | 357800_5637800 | 1000 / 1084 | 1994 / 253 ms / 1.8 s | 11974 / 793 ms / 5.8 s | 27983 / 1203 ms / 10.0 s | 9539 / 891 ms / 4.8 s | 26894 / 1139 ms / 9.6 s |
+| suburb | Düsseldorf | 346200_5689200 | 1246 / 1354 | 2538 / 388 ms / 2.4 s | 35603 / 1960 ms / 18.4 s | 77719 / 2486 ms / 30.5 s | 22926 / 1349 ms / 12.3 s | 69389 / 2265 ms / 26.5 s |
+| centre | Köln | 356800_5650800 | 2325 / 2660 | 4745 / 534 ms / 10.9 s | 38216 / 2190 ms / 35.0 s | 87456 / 2727 ms / 44.7 s | 27286 / 1762 ms / 28.1 s | 76179 / 2668 ms / 42.0 s |
+| centre | Düsseldorf | 343600_5678000 | 4028 / 4270 | 7246 / 699 ms / 59.9 s | **INVALID** | **INVALID** | 44015 / 2318 ms / 99.3 s | 112869 / 3813 ms / 118.4 s |
+| centre | Dortmund | 400000_5704200 | 1888 / 2078 | 3793 / 411 ms / 6.1 s | 33791 / 1679 ms / 24.5 s | 74198 / 2634 ms / 35.1 s | 18598 / 1518 ms / 15.4 s | 69963 / 2659 ms / 33.0 s |
+| centre | Köln | 366200_5642600 | 1911 / 2055 | 3807 / 377 ms / 4.8 s | **INVALID** | **INVALID** | 20568 / 1573 ms / 17.0 s | **INVALID** |
+| centre | Düsseldorf | 349600_5675600 | 1911 / 2125 | 3863 / 439 ms / 7.1 s | 42061 / 2438 ms / 27.6 s | 96429 / 2885 ms / 40.2 s | 27321 / 1820 ms / 21.4 s | 81378 / 2456 ms / 35.4 s |
+
+**Findings** (every INVALID; minimized by delta debugging over the segments, small enough to post in an issue):
+
+| Run | Verdict | Minimal input | Issue |
+|---|---|---|---|
+| default q20, Euskirchen 332400_5586800 (forest, 3 huge parcels) | AngleBelowBound (q30 and constrained mode VALID) | 7 points, 4 segments, nearly collinear disjoint pieces of a hull diagonal | #723 |
+| default q30, Rhein-Erft 315200_5639000 (mining) | NotDelaunayLocal / NotDelaunayGlobal (a vertex inside a circumcircle) | 6 points, 4 segments (`min_angle_deg 30`, `conforming 1`) | to be filed |
+| default q20 and q30, Düsseldorf 343600_5678000 and Köln 366200_5642600 (centre; 4 runs) | NotDelaunayLocal / Global, the same signature as the mining run | not minimized (25 000 to 128 000 triangles) | with the mining one |
+| constrained q30, Köln 366200_5642600 | AngleBelowBound, below 30 degrees | 6 points, 3 segments (`mode constrained`) | to be filed (may be the class of #723) |
+
+Reproduce: write the tile with `alkis_tiles.py --district <key> --tile <tile>` (or take the minimal inputs from the issues) and run
+`dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input <file> --output <out> --milestone M3`.
+
+**Scheduled job.** `.github/workflows/nightly.yml`, job `alkis`: the first tile of each stratum (10 tiles, 50 runs, about 11 minutes). `alkis_run.py --known
+alkis_known.json` exits 1 on a failing run that is not listed and on a listed run that now passes (a ratchet like `herne_ratchet.py`). The rest of the sample runs by hand.
+
 ## Herne ratchet and the snapped-area report (2026-11-03)
 
 `herne_ratchet.py` meshes the 12 Herne runs (prepared ALKIS tiles, snap 0.01 m, not in the repository; `--inputs <dir>`), judges them
