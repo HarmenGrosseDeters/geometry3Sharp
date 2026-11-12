@@ -1167,8 +1167,8 @@ exists within the drift that is left. `MeshRoundingRepair` now searches for it (
 - *Cost:* at most 26 · 8 · 3 proposals per defect and round, inside `MaxEvaluationsPerDefect` and `MaxPairTests`: the
   candidates count as evaluations like the edits of the passes, so on a result with many defects that no position
   repairs the search can be what reaches the limit (`EvaluationLimitReached`; the defects are then searched in their
-  order as far as the budget goes). A vertex whose search found no move is not searched again until a move of the
-  search changes the mesh (a corner of several defects is searched once).
+  order as far as the budget goes). A vertex whose search found no move is not searched again in the same round
+  (a corner of several defects is searched once per round).
 - `PositionSearchMoves` counts the accepted moves; they are also counted in `Moves`.
 
 **Guarantees, unchanged.**

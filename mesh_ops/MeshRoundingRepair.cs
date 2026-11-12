@@ -2626,8 +2626,9 @@ namespace g3
             return maxLength_of(v) - most;
         }
 
-        // the vertices whose search found no move since the last move of the search: the mesh is the same, so the same
-        // candidates would fail again (a corner of several defects, eg the pairs of one triangle, is searched once)
+        // the vertices whose search found no move in this round: each is searched once per round (a corner of several
+        // defects, eg of the pairs of one triangle, would fail again on the same mesh; after a move of the search the
+        // next round searches them again)
         readonly HashSet<int> searchFailed = new HashSet<int>();
 
         // after the passes: for each defect that is left (the degenerate triangles by id, then the intersecting pairs in
@@ -2680,16 +2681,13 @@ namespace g3
                             PositionSearchProposals++;
                             if (try_move(v, c + s * d)) {
                                 PositionSearchMoves++;
-                                searchFailed.Clear();
                                 return true;
                             }
                             // (a candidate is within the bound by its size, so only the rounding of its position, a
                             // few ulps of the coordinates, can put it beyond: that is no edit the bound stood against)
                             SmallestRejectedDrift = rejected;
                         }
-                    // (not at the effort limit: there the candidates were not evaluated)
-                    if (stopped == false)
-                        searchFailed.Add(v);
+                    searchFailed.Add(v);
                 }
             return false;
         }

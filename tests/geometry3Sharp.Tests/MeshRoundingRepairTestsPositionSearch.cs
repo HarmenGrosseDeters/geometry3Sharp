@@ -261,6 +261,16 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, r.PositionSearchMoves);
             // (the four vertices of the tetrahedron at most: the box's corners are not corners of a first triangle)
             Assert.InRange(r.PositionSearchProposals, 26 * 8, 4 * 26 * 8);
+            // reuse: the vertices that failed here are searched again in the next Apply (the same ids in a mesh where
+            // a move of the apex separates the pairs): the result of a fresh instance
+            DMesh3 shallow = PokedBox(1e-7), copy = new DMesh3(shallow);
+            r.Mesh = shallow;
+            Assert.True(r.Apply());
+            var fresh = new MeshRoundingRepair(copy) { SharedPositionsTouch = true, SearchWithoutPasses = true };
+            Assert.True(fresh.Apply());
+            Assert.Equal(1, r.PositionSearchMoves);
+            Assert.Equal(fresh.PositionSearchProposals, r.PositionSearchProposals);
+            Assert.Equal(Print(copy), Print(shallow));
         }
 
         [Fact]
