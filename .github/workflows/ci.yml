@@ -163,10 +163,17 @@ jobs:
       - name: Build the tests
         run: dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0
       - name: Which tests
+        id: which
         run: |
           dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
           python3 tools/trx_durations.py --rerun-filter rerun.txt --slow-list slow-tests.txt --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt
+          if [ ! -s rerun.txt ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::no test to run alone (the Slow list and the backlog are empty or the listing failed)"
+            printf '### Test time rule\nNo test to run alone: the list of Slow-tagged tests and the backlog gave an empty filter.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Run them alone (one test class at a time)
+        if: steps.which.outputs.skip != 'true'
         run: dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter "Category!=Nightly&($(cat rerun.txt))" --logger "trx;LogFileName=alone.trx" --results-directory test-results -- xUnit.ParallelizeTestCollections=false
       - uses: actions/upload-artifact@v4
         if: always()
@@ -192,22 +199,37 @@ jobs:
       RATCHET_ENFORCE: '0'
     steps:
       - uses: actions/checkout@v4
+      # (the inputs may be missing: linux failed before its trx, isolated timed out or crashed; the script below says so in the
+      # step summary and, in report mode, passes)
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: full-run-trx
           path: full
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: isolated-results
           path: alone
       - name: Judge
         run: |
+          note() { printf '### Test time rule\n%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"; echo "::warning::$1"; }
+          missing() { if [ "$RATCHET_ENFORCE" = 1 ]; then exit 1; else exit 0; fi; }
+          if [ ! -f full/net10.trx ]; then
+            note "net10.trx is missing (the job linux failed before its trx): the time rule was not judged."
+            missing
+          fi
+          iso=(); slow=()
+          if [ -f alone/test-results/alone.trx ]; then iso=(--isolated alone/test-results/alone.trx)
+          else note "alone.trx is missing (the job isolated timed out, crashed or had nothing to run): the tests are judged on their full-run times."; fi
+          if [ -f alone/slow-tests.txt ]; then slow=(--slow-list alone/slow-tests.txt)
+          else note "slow-tests.txt is missing: the Slow tags are not known, untagged tests of 5 s or more are reported without them."; fi
           base=()
           if [ "${{ github.event_name }}" = pull_request ]; then
             git fetch --depth=1 origin "${{ github.base_ref }}"
             if git show FETCH_HEAD:tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt > backlog-base.txt 2>/dev/null; then base=(--backlog-base backlog-base.txt); fi
           fi
-          python3 tools/trx_durations.py full/net10.trx --isolated alone/test-results/alone.trx --slow-list alone/slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
+          python3 tools/trx_durations.py full/net10.trx "${iso[@]}" "${slow[@]}" --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
 
   netstandard:
     name: ${{ matrix.name }}

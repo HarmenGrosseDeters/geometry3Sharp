@@ -22,7 +22,7 @@ done since and what is open.
   test showed up in repeated runs, after the `BitArray` races were fixed (ThreadingFixesTests).
 
 **Test tiers (2026-11-09).** A full run of the suite (8133 tests) took 21-23 min on 4 cores, and PR CI 25-35 min.
-- A test that takes 5 s or more (alone: flagged in a full run, then re-run in isolation, see "Judged alone" below) carries `[Trait("Category", "Slow")]`. A long test is split into
+- A test that takes 5 s or more (alone: CI re-runs the tests tagged Slow and the backlog alone and judges those on that time; every other test on its full-run time, see "Judged alone" below) carries `[Trait("Category", "Slow")]`. A long test is split into
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
@@ -40,7 +40,7 @@ done since and what is open.
   and F-38/d of `ExtremeScales`). Also three K checks that are runs by nature, each with a reduced variant in the PR tier
   (`Solidify_IsDeterministic_Reduced`, `InsertionOrder_Reduced_DoesNotChangeTheResult`, `RemesherPro_FullRemesh_Reduced_...`). The Stryker filters of `tests/mutation` name classes of the exact arithmetic and do not
   contain these; a class that gets Nightly tests and is in a filter needs `&Category!=Nightly` there.
-- The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet over the full run, judged on the time alone of the flagged tests (below):
+- The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet over the full run: the tests tagged `Slow` and those on the backlog are judged on their time alone (CI re-runs them, below), every other test on its full-run time:
   `tools/trx_durations.py --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt` fails for a test above 10 s, and for one of
   5 s or more without `Slow`, unless its method (`Class.Method`) is on that list. The list was made from a full run with
   every method that has a row of 4 s or more (a margin: the CI runner is not that machine) and may only shrink: the run
