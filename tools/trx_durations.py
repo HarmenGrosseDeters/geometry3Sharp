@@ -21,6 +21,8 @@ runner is not the machine the list was made on).
 Isolated re-run (contention): in a full run the test classes and the library's parallel loops compete for the cores, so a
 test takes several times its time alone (RemeshReduceCampaignTests.Reducer 3 to 95 s between runs of the same code, 6 s
 alone). The rule is judged on the time alone:
+  - --rerun-filter FILE (with --slow-list and --backlog, no trx) writes the expression for the tests tagged Slow and the
+    backlog methods: the candidates, known before the full run, so CI re-runs them in a job parallel to it;
   - --flag-filter FILE writes a `dotnet test --filter` expression for every method with a row of --threshold seconds or
     more (or of --flag-from);
   - the flagged tests run again alone (`dotnet test --no-build --filter "$(cat FILE)" --logger trx -- xUnit.ParallelizeTestCollections=false`), and --isolated TRX... gives that trx: the time of a test in it replaces its time in the full run for
@@ -115,6 +117,14 @@ def flag_filter(rows, threshold):
     return "|".join("FullyQualifiedName~" + m for m in sorted(methods))
 
 
+def rerun_filter(slow_names, backlog):
+    """-> a `dotnet test --filter` expression for the tests that can be above the rule: the tests tagged Slow (their names from
+    `--list-tests`, theory arguments dropped) and the methods on the backlog (`Class.Method`). CI re-runs these alone in a job of its
+    own, in parallel to the full run, whose trx is not needed to know them (the rule is: a test of 5 s or more carries Slow)."""
+    parts = {m.split("(")[0] for m in slow_names} | set(backlog)
+    return "|".join("FullyQualifiedName~" + m for m in sorted(parts))
+
+
 def merge_isolated(rows, isolated):
     """-> (rows with the time alone where a test was re-run, {name: full-run seconds}). A test is matched by its display
     name; a re-run that did not pass keeps the full-run time."""
@@ -172,7 +182,7 @@ def untagged_warnings(rows, backlog, threshold, fail_from=7.0):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("trx", nargs="+")
+    p.add_argument("trx", nargs="*")
     p.add_argument("--slow-list", help="output of dotnet test --list-tests --filter Category=Slow")
     p.add_argument("--top", type=int, default=20)
     p.add_argument("--threshold", type=float, default=5.0)
@@ -187,10 +197,19 @@ def main(argv=None):
     p.add_argument("--backlog-from", type=float, default=4.0)
     p.add_argument("--flag-filter", help="write a dotnet test --filter expression for the tests of --flag-from seconds or more and stop")
     p.add_argument("--flag-from", type=float, default=None, help="default: --threshold")
+    p.add_argument("--rerun-filter", help="write a dotnet test --filter expression for the tests tagged Slow (--slow-list) and the backlog (--backlog), no trx needed, and stop")
     p.add_argument("--defect-above", type=float, default=20.0, help="tests above this many seconds in any run are listed as potential defects (default 20)")
     p.add_argument("--isolated", nargs="+", help="trx of the flagged tests run again alone: their times replace the full-run times")
     a = p.parse_args(argv)
 
+    if a.rerun_filter:
+        expression = rerun_filter(read_slow_list(a.slow_list) if a.slow_list else set(), read_backlog(a.backlog) if a.backlog else set())
+        with open(a.rerun_filter, "w", encoding="utf-8", newline="\n") as f:
+            f.write(expression)
+        print(f"{expression.count('FullyQualifiedName~')} methods to re-run alone")
+        return 0
+    if not a.trx:
+        p.error("a trx file is needed (or --rerun-filter)")
     rows = [r for f in a.trx for r in read_trx(f)]
     if a.slow_list:
         names = read_slow_list(a.slow_list)

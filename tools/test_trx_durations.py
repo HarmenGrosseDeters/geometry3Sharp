@@ -243,6 +243,18 @@ class Isolated(unittest.TestCase):
         self.assertEqual(t.potential_defects(t.read_trx(self.full), {}, 100)[0][0], "N.B+C.Row(x: 1.5)")
         self.assertEqual(len(t.potential_defects(t.read_trx(self.full), {}, 200)), 0)
 
+    def test_rerun_filter_names_the_slow_tagged_and_the_backlog_methods_without_a_trx(self):
+        listing = os.path.join(self.dir.name, "slow.txt")
+        with open(listing, "w", encoding="utf-8") as f:
+            f.write("The following Tests are available:\n    N.A.SlowTagged\n    N.B+C.Row(x: 1.5)\n    N.B+C.Row(x: 2)\n")
+        backlog = os.path.join(self.dir.name, "backlog.txt")
+        with open(backlog, "w", encoding="utf-8") as f:
+            f.write("# c\nD.Other\nA.SlowTagged\n")
+        out = os.path.join(self.dir.name, "rerun.txt")
+        self.assertEqual(t.main(["--rerun-filter", out, "--slow-list", listing, "--backlog", backlog]), 0)
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "FullyQualifiedName~A.SlowTagged|FullyQualifiedName~D.Other|FullyQualifiedName~N.A.SlowTagged|FullyQualifiedName~N.B+C.Row")
+
 
 if __name__ == "__main__":
     unittest.main()

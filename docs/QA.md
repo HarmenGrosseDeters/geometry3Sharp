@@ -60,8 +60,12 @@ done since and what is open.
   `trx_durations.py full.trx --isolated alone.trx --backlog ...` replaces the full-run time of each re-run test by its time
   alone (the report keeps "full run N s"); a re-run that failed keeps the full-run time. Measured on 4 cores: 93 flagged methods
   (498 test rows, all rows of a flagged theory) took 15 min alone, against 15.5 min for the full run; 129 tests of 5 s or more
-  in the full run were 50 alone. Rows of methods below the threshold in the full run are not re-run. The CI step is the CI-speed session's (pending: until it
-  exists, CI still judges the full-run times; run these commands locally).
+  in the full run were 50 alone. Rows of methods below the threshold in the full run are not re-run. In CI the job `isolated` (parallel to `linux`) runs the tests tagged
+  `Slow` and the methods of `SLOW_BACKLOG.txt` alone, one class after the other (`--rerun-filter`: the candidates are known before the
+  full run), and the job `time-rule` judges the full run's trx with `--isolated`, with the "Potential defects" section in its step
+  summary. It runs in report mode (`RATCHET_ENFORCE: '0'` in the job) until the backlog is remade from isolated times and the job has
+  been green on master. A test above the rule that is neither tagged Slow nor on the backlog has no result alone: it stays judged
+  on its full-run time, and the report lists it.
   **Above 20 s (owner 2026-11-12).** A test above 20 s in any run, the full parallel run included, is a potential defect
   (starvation, a hang, a pathological input or algorithm), whatever its time alone: it gets an issue with the full-run and
   isolated times and a diagnosis, not only a backlog line. The report lists them in a separate "Potential defects" section

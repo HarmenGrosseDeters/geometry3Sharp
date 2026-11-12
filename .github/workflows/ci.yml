@@ -71,22 +71,13 @@ jobs:
           filter=(--filter "Category!=Nightly")
           if [ "$FULL_TIER" != true ]; then filter=(--filter "Category!=Slow&Category!=Nightly"); fi
           dotnet test tests/geometry3Sharp.Tests -c Release "${filter[@]}" --logger "trx;LogFileName=net10.trx" --results-directory test-results
-      - name: Test time rule (CLAUDE.md, "Test time"; report, ratchet over SLOW_BACKLOG.txt)
-        if: needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
-        # fails for a test of more than 10 s, and for one of 5 s or more without the trait Slow, unless its method is on
-        # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list).
-        # RATCHET_ENFORCE=0: report mode (violations go to the step summary and as warnings, the step passes) while the backlog
-        # is filled from the runner timings of master's full runs; then a PR sets it to 1.
-        env:
-          RATCHET_ENFORCE: '0'
-        run: |
-          dotnet test tests/geometry3Sharp.Tests -c Release --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
-          base=()
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            if git show FETCH_HEAD:tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt > backlog-base.txt 2>/dev/null; then base=(--backlog-base backlog-base.txt); fi
-          fi
-          python3 tools/trx_durations.py test-results/net10.trx --slow-list slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
+      # the full run's trx, for the job time-rule (the 5 s / 10 s rule is judged on the time alone, see the job isolated)
+      - uses: actions/upload-artifact@v4
+        if: always() && needs.scope.outputs.library == 'true' && env.FULL_TIER == 'true'
+        with:
+          name: full-run-trx
+          path: test-results/net10.trx
+          if-no-files-found: ignore
       - name: Test CLI / MCP server (tools/g3cli)
         if: needs.scope.outputs.g3cli == 'true'
         run: dotnet test tests/g3cli.Tests -c Release --logger "trx;LogFileName=g3cli.trx" --results-directory test-results
@@ -155,6 +146,69 @@ jobs:
   # and envelope tests are about half of its time (net10.0 timings, 2026-11-04). The first shard keeps the check name
   # `netstandard` and runs the Clipper2 and benchmark steps too. The envelope tests moved to shard b on 2026-11-04
   # (shard a had grown to 40 min with the mesher tests, shard b was at 20-26 min).
+  # The time rule of CLAUDE.md ("Test time") is judged on the time of a test alone: in a full run the test classes and the
+  # library's parallel loops compete for the cores, so a test takes several times its time alone (docs/QA.md, "Judged
+  # alone"). This job runs the tests that can be above the rule, the tests tagged Slow and the methods of SLOW_BACKLOG.txt, one
+  # class after the other, in parallel to the job linux (it needs no result of it). The job time-rule judges.
+  isolated:
+    needs: scope
+    if: needs.scope.outputs.library == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the tests
+        run: dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0
+      - name: Which tests
+        run: |
+          dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --list-tests --filter "Category=Slow" > slow-tests.txt
+          python3 tools/trx_durations.py --rerun-filter rerun.txt --slow-list slow-tests.txt --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt
+      - name: Run them alone (one test class at a time)
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --filter "Category!=Nightly&($(cat rerun.txt))" --logger "trx;LogFileName=alone.trx" --results-directory test-results -- xUnit.ParallelizeTestCollections=false
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-results
+          path: |
+            test-results/alone.trx
+            slow-tests.txt
+          if-no-files-found: ignore
+
+  # The rule itself (CLAUDE.md, "Test time"): judged on the time alone from the job isolated; a test above 20 s in the full run
+  # is listed as a potential defect (an issue with a diagnosis, owner 2026-11-12). Fails for a test of more than 10 s
+  # alone, and for one of 5 s or more alone without the trait Slow, unless its method is on
+  # tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt; that list may only shrink (a PR may not add to the base branch's list).
+  time-rule:
+    needs: [scope, linux, isolated]
+    if: always() && needs.scope.outputs.library == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.linux.result != 'skipped' && needs.isolated.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # RATCHET_ENFORCE=0: report mode (violations go to the step summary and as warnings, the job passes) until the backlog is
+      # remade from the isolated times (SLOW_BACKLOG.txt) and this job has been green on master; then it is set to 1.
+      RATCHET_ENFORCE: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: full-run-trx
+          path: full
+      - uses: actions/download-artifact@v4
+        with:
+          name: isolated-results
+          path: alone
+      - name: Judge
+        run: |
+          base=()
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git fetch --depth=1 origin "${{ github.base_ref }}"
+            if git show FETCH_HEAD:tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt > backlog-base.txt 2>/dev/null; then base=(--backlog-base backlog-base.txt); fi
+          fi
+          python3 tools/trx_durations.py full/net10.trx --isolated alone/test-results/alone.trx --slow-list alone/slow-tests.txt --threshold 5 --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt "${base[@]}" $([ "$RATCHET_ENFORCE" = 1 ] || echo --report-only) --summary "$GITHUB_STEP_SUMMARY"
+
   netstandard:
     name: ${{ matrix.name }}
     needs: scope
