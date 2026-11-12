@@ -42,6 +42,12 @@ Part of the [roadmap](../ROADMAP.md).
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
   borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
   session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now).
+  Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
+  4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
+  6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
+  >= 5 s but costs about 30 % wall. **Owner 2026-11-12:** a solution so the run does not overload the machine and slow tests
+  artificially. In progress (same session): one shared thread budget for the test run (a limited-concurrency scheduler
+  at the core count, so nested library loops share it), fallback `maxParallelThreads=2`.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
