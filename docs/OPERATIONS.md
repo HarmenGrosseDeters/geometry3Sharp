@@ -799,6 +799,11 @@ with clip polygons keeps the pieces of the lines inside (`--clip-type intersecti
 `--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
 neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
 invariance are those of the booleans (`frame`).
+`--op minkowski_sum` / `minkowski_difference` sweep a pattern polygon (`--pattern` file or `--pattern-geojson`: one polygon without holes, its coordinates
+relative to the reference point, eg a circle around (0, 0)) along the subject: with `--path-closed` (default) one polygon without holes, its interior
+included; with `--path-closed=false` one `LineString` as an open path. The difference uses the pattern mirrored at its reference point; the result has holes
+where the sweep encloses one (`Clipper2Polygons.MinkowskiSum` / `MinkowskiDifference`). The pattern times the path may have at most 100000 vertex pairs (the time grows
+faster than the product: 200 x 200 vertices about 1 s, 1000 x 1000 about 90 s); the result keeps collinear vertices of the sweep (`--preserve-collinear` is refused).
 
 ```
 g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
@@ -826,6 +831,16 @@ so the command promises no enclosure of the input (owner decision 2026-11-12):
 
 ```
 g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
+```
+
+**Convex hull of 2D points** (`hull2d`, `ConvexHull2`): `--points` ("x,y;x,y", `@file`, or JSON `[[x,y],...]`) or a mesh file (its vertices' x and y); the result has the
+`dimension` of the hull (2 a polygon, 1 all points on a line, 0 one point), its vertices counterclockwise with their `indices` into the input, `area`, `perimeter`
+and, with `--output` or `--return-geojson`, a GeoJSON Polygon, LineString or Point. `--query double` (default) uses floating point predicates (not robust in every case);
+`int64` rounds the points to a 2^20 grid of their bounding square and takes the hull of the rounded points. ConvexHull2 has no exact mode (`QT_RATIONAL` is not
+implemented), so none is offered. `--epsilon` (default 1e-8, must be > 0) decides whether points are on a line or at one point: an extent below it (absolute) is one point, a deviation from a line below epsilon times the extent is a line. At most 50000 points (the library takes quadratic time when most points are on the hull, eg on a circle):
+
+```
+g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
