@@ -26,8 +26,9 @@ the probes are scratch patches applied to a throw-away worktree (`benchmarks/Ext
   normal stratum of section 8 it is 7.6 %, plus 8.9 % filters.
 - **Normal stratum** (section 8: 36 unions under 5 s, median of five, master cbf8b787). Rounding takes 24 % of the wall
   time, pair search 18 %, classification 19 % (from two open models; 6-13 % on closed ones), merge 11 %, assembly 10 %
-  and GC pauses 8.6 %. No single lever reaches 10 %. The queued items (the rounding search, lever 4, P2, lever 1) bound
-  about 25-28 %. The pair search (6 %) is the one uncovered lever of that size.
+  and GC pauses 8.6 %. No single lever reaches 10 %. The queued items (the rounding search, lever 4, lever 1) and the exact-numbers
+  study's point and plane constructions (C, C') bound about 20-25 %. P2 does nothing here: no BigInteger stage runs in
+  normal operations. The pair search (6 %) is the one uncovered lever of that size.
 - **Ranked levers** (section 5): (1) a hierarchical Antipodal boundary sum after option A (bound: 70 % of 117959's CPU samples, 30 % of
   1087141's, 52 % of 122796's; 23 instead of 6007 terms per evaluation, error at most 3.4e-4 before the fallback); (2) option A itself,
   already decided (the open union group 437 -> 349 s, 1087141 -56 %, 122796 +52 %); (3) a cost-weighted rounding budget
@@ -35,7 +36,7 @@ the probes are scratch patches applied to a throw-away worktree (`benchmarks/Ext
   (298 -> 64 s on the 61 #711-class units, bit-identical); (4) server GC as documented advice, and the allocation task of the roadmap, whose
   trigger is now met (server GC -19 % / -11 % on 107554 / 42327, bit-identical); (5) the n-ary one-pass levers of the
   pre-study, restated with today's numbers (boxes_64_1 38.4 s against 0.57 s chained).
-- **Closed below the stop rule:** a leading-term certificate for the BigInteger stage (decides 1.4 % of the calls, 2 % of
+- **Closed** (no measurable gain, or dominated by another lever; the owner's rule of 2026-11-12): a leading-term certificate for the BigInteger stage (decides 1.4 % of the calls, 2 % of
   the time), scaling into the
   expansion range (8.3 % of the op), stopping at the evaluation limit on #711 (0 %), the `BigInteger[4,4]` matrix
   of `orient3d` on `ExactPoint3` (-4 % to +3 %, noise), shard hash mixing in `AddPoint` (no bias to fix), the per-patch L1
@@ -230,6 +231,11 @@ are left out). It is a CPU share, not a wall share. Two caveats:
 - Serial phases weigh less than in wall time. 1368057 union: rounding is 51 % of the wall clock but 25 % of the
   samples.
 
+Region timers summed over threads have the opposite problem. Threads wait inside the timed regions (collections,
+allocation, more runnable threads than cores), so the exact-numbers study saw such sums exceed the process CPU time by
+up to 170 % on 42327. Its shares by representation are therefore measured on one thread (`gParallel.SerialOnThisThread`,
+`taskset -c 0`, `DOTNET_gcConcurrent=0`; branch `runs/exact-numbers`, REPORT.md).
+
 A first version of this note filtered the samples by `ExactMeshBoolean.Compute`, which keeps only the calling thread
 (the workers of the parallel loops start in the thread pool). Every share below is over all threads.
 
@@ -405,16 +411,20 @@ measured on the named rows. A lever whose bound is under 10 % of its group's tim
 
 ### 5.3 Closed, with their bound
 
+The owner's rule of 2026-11-12 (AGENT_WORKFLOW.md section 8) keeps a lever below 10 % when it is measured never slower
+and gains measurably somewhere. So each row below names why it is closed: no measurable gain, or dominated (another
+lever covers the same work faster).
+
 | lever | bound | how measured |
 |---|---|---|
-| Leading-term certificate for the BigInteger stage (flush coordinates below 2^(Emax-200) to 0, keep the sign of the flushed determinant if it exceeds the flushed parts' bound) | decides 1.4 % of the orient3d BigInteger calls of #711 (25 093 of 1.79 M), 266 ms of their 9 959 ms, and 70 ms of the orient2d calls' 4 418 ms: 0.34 s of 16.3 s (2 %; master cbf8b787 rerun) | `probe_bigint.py` (0 wrong signs; the time of the decided calls: `certified_ms`) |
-| Scale by 2^k into the expansion range (a relative range check instead of the absolute [2^-100, 2^100]) | admits 2.9 % of the orient3d BigInteger calls of #711 (about 0.3 s) and 24 % of the orient2d calls (about 1.1 s): together about 1.4 s of 16.3 s (8.3 %) | `probe_bigint.py` (span <= 2^200) |
-| Stop the rounding passes at the evaluation limit (#721 option 1) on #711 | 0 %: rounding 15.9 vs 16.2 s, the same hash | #721's `instrument.py`, `G3_STOP_AT_LIMIT=1`: the work is before the limit |
-| `orient3d` on `ExactPoint3` without the `BigInteger[4,4]` matrix | 42327 intersection -4 % / -1 % (two rounds, 30.2 / 29.5 -> 28.9 / 29.3 s), 1087141 union (A) +3 % / +0.4 %; hashes equal | `probe_det4.py`, A/B of two builds of the same tree |
-| Shard hash mixing in `AddPoint` | no bias to remove (largest shard 1.6 %) | `probe_shards.py`, `G3_SHARD_PROBE=1` |
-| L1 per-patch open winding | never runs (L2 tracing supersedes it): `l1_patch_decided` 0 in all 74 rows | inventory counts |
+| Leading-term certificate for the BigInteger stage (flush coordinates below 2^(Emax-200) to 0, keep the sign of the flushed determinant if it exceeds the flushed parts' bound) | dominated by P2 (the same BigInteger calls, all of them, faster). Decides 1.4 % of the orient3d BigInteger calls of #711 (25 093 of 1.79 M), 266 ms of their 9 959 ms, and 70 ms of the orient2d calls' 4 418 ms: 0.34 s of 16.3 s (2 %; master cbf8b787 rerun) | `probe_bigint.py` (0 wrong signs; the time of the decided calls: `certified_ms`) |
+| Scale by 2^k into the expansion range (a relative range check instead of the absolute [2^-100, 2^100]) | dominated by P2. Admits 2.9 % of the orient3d BigInteger calls of #711 (about 0.3 s) and 24 % of the orient2d calls (about 1.1 s): together about 1.4 s of 16.3 s (8.3 %) | `probe_bigint.py` (span <= 2^200) |
+| Stop the rounding passes at the evaluation limit (#721 option 1) on #711 | no measurable gain: rounding 15.9 vs 16.2 s, the same hash | #721's `instrument.py`, `G3_STOP_AT_LIMIT=1`: the work is before the limit |
+| `orient3d` on `ExactPoint3` without the `BigInteger[4,4]` matrix | no measurable gain (within the noise): 42327 intersection -4 % / -1 % (two rounds, 30.2 / 29.5 -> 28.9 / 29.3 s), 1087141 union (A) +3 % / +0.4 %; hashes equal | `probe_det4.py`, A/B of two builds of the same tree |
+| Shard hash mixing in `AddPoint` | no measurable gain: no bias to remove (largest shard 1.6 %) | `probe_shards.py`, `G3_SHARD_PROBE=1` |
+| L1 per-patch open winding | no gain possible: never runs (L2 tracing supersedes it): `l1_patch_decided` 0 in all 74 rows | inventory counts |
 | FWN per piece on the default path (two tree queries per piece, 88-90 % of 117959 / 1087141) | closed by decision, not by the stop rule: option A (owner 2026-11-12) moves these models to the Antipodal path | section 4.2 |
-| JIT settings for cold single calls | `TieredCompilation=0` -0.5 s of 7.6 s (about 7 %); gen0 256 MB none | section 2 |
+| JIT settings for cold single calls | a host setting, not a library lever: `TieredCompilation=0` -0.5 s of 7.6 s (about 7 %); gen0 256 MB none | section 2 |
 | Rounding levers of SNAP_ROUNDING_3D.md 4.2 (stop at the limit, `near`, box-neighbour enumeration, setup; certified empty ball, clearance skins, separating-axis prefilter) | measured there; not repeated | #721 |
 
 ## 6. Recommendation
@@ -504,22 +514,27 @@ the ceiling where it matters.
 | classification (19.2 % / 6.1 %) | on the open models (Antipodal path): lever 1, the hierarchical boundary sum; on closed models nothing measured | 2x on the open models' classification (2.5 of 4.1 s) | 6 % | M-L | decisions kept by the fallback | **T3a queue (lever 1)** and option A |
 | pair search and triangle tests (17.9 % / 13.6 %) | box-tree traversal and the pair filter (`TriangleBoxTree.Query`, `TriangleTriangleFilter`) | 1.5x | 6 % | M | yes | none |
 | GC pauses (8.6 % / 1.4 %) and 217 MB per op | fewer allocations (lever 4); server GC on the host | allocation-free in the largest phases: at most the pause share | 8.6 % ceiling | M | yes | **T3a queue (lever 4)**; OPERATIONS.md advice |
-| exact stage across phases (7.6 % of the samples) | the allocation-free kernel | the BigInteger and expansion part, 5-6 % by the exact-numbers study | 5-6 % ceiling | M | yes | **P2** (exact-numbers study) |
+| exact stage across phases (7.6 % of the samples) | P2 gains nothing here: the exact-numbers study counts 0 calls of the `*_bigint` paths in its 99 normal operations. What remains is the exact point construction (its candidate C, on stack limbs) and the planes (C') | C 1.8-2.4x on stack limbs, no allocation | C: 2.0-5.0 %, C': 0.9-1.6 % (exact-numbers study, single thread) | M (exact code) | yes | exact-numbers study (C, C'); not P2 |
 | merge (11.0 % / 7.3 %; `merge.points` 65 % of it) | the exact-point merge (sort and dedupe), its allocations | 1.5x | 3.7 % | M | yes | partly lever 4 (1017018 is GC-bound) |
 | assembly (9.7 % / 11.5 %) | building the result mesh | 1.5x | 3.2 % | M | yes | none (T1 lever 3 dropped it at 3-4 % of large operations) |
 | triangulation (7.4 % / 8.0 %) | the per-triangle CDT | 1.5x | 2.5 % | M | yes | none |
 | input preparation, setup, box trees (5.3 % / 5.1 %) | already done in T1 (#631) | - | < 2 % | - | - | T1 |
-| ExactPlanarSimplify (2.2 % / 2.8 %) | - | - | 2.2 % ceiling | - | - | closed (stop rule) |
-| filters (8.9 % of the samples) | filter tuning | 1.3x | 2 % | M | yes | closed (stop rule) |
+| ExactPlanarSimplify (2.2 % / 2.8 %) | not diagnosed | 1.5x | 0.7 % | M | yes | none; a candidate under the owner's rule, lowest gain per effort |
+| filters (8.9 % of the samples) | filter tuning | 1.3x | 2 % | M (exact code: bound review) | yes | none; a candidate under the owner's rule |
 
 **Ranking by gain per effort**, with what is already queued marked so that nothing is counted twice:
 1. The rounding search: 8 %, M, bit-identical; snap rounding session.
 2. Lever 4, allocations: up to 8.6 %, M; T3a queue.
-3. P2, the exact kernel: 5-6 %; exact-numbers study.
-4. Lever 1 on the open models of the stratum: 6 %; T3a queue.
-5. The pair search: 6 %, M, bit-identical; **the one uncovered lever with a gain of this size.**
-6. Assembly 3 %, merge 4 %, triangulation 2.5 %: all below the stop rule.
+3. Lever 1 on the open models of the stratum: 6 %; T3a queue.
+4. The pair search: 6 %, M, bit-identical; **the one uncovered lever with a gain of this size.**
+5. C and C', the point construction and the planes on stack limbs: 2-5 % and 1-1.6 %; exact-numbers study. P2: 0 on
+   this stratum.
+6. Merge 4 %, assembly 3 %, triangulation 2.5 %, filters 2 %, ExactPlanarSimplify 0.7 %.
+
+Under the owner's rule of 2026-11-12 (AGENT_WORKFLOW.md section 8: build what is measured never slower, normal stratum
+and tail separately, median of 5, and gains measurably somewhere, even below 10 %), the items of point 6 are not dropped.
+They are candidates in this order of gain per effort; each one is built only after its own never-slower A/B.
 
 No single lever reaches 10 % of the normal stratum: the time of a typical boolean (median 0.29 s) is spread over five
-phases of similar size. Together the queued items (rounding search, lever 4, P2, lever 1) bound about 25-28 % of the
-stratum. The bounds overlap partly: the GC pauses sit inside the phases.
+phases of similar size. Together the queued items (rounding search, lever 4, lever 1) and C / C' bound about 20-25 % of
+the stratum. The bounds overlap partly: the GC pauses sit inside the phases.
