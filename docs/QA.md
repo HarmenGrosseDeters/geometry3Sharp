@@ -60,7 +60,8 @@ done since and what is open.
   `trx_durations.py full.trx --isolated alone.trx --backlog ...` replaces the full-run time of each re-run test by its time
   alone (the report keeps "full run N s"); a re-run that failed keeps the full-run time. Measured on 4 cores: 93 flagged methods
   (498 test rows, all rows of a flagged theory) took 15 min alone, against 15.5 min for the full run; 129 tests of 5 s or more
-  in the full run were 50 alone. Rows of methods below the threshold in the full run are not re-run.
+  in the full run were 50 alone. Rows of methods below the threshold in the full run are not re-run. The CI step is the CI-speed session's (pending: until it
+  exists, CI still judges the full-run times; run these commands locally).
   **Above 20 s (owner 2026-11-12).** A test above 20 s in any run, the full parallel run included, is a potential defect
   (starvation, a hang, a pathological input or algorithm), whatever its time alone: it gets an issue with the full-run and
   isolated times and a diagnosis, not only a backlog line. The report lists them in a separate "Potential defects" section

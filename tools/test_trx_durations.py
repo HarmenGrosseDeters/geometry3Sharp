@@ -187,7 +187,21 @@ class Isolated(unittest.TestCase):
         small = os.path.join(self.dir.name, "small.txt")
         with open(small, "w", encoding="utf-8") as f:
             f.write("B+C.Row\nA.SlowTagged\n")
-        self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", small, "--max-seconds", "1"]), 1)
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", small, "--max-seconds", "1"]), 1)
+        self.assertIn("N.A.SlowUntagged", buf.getvalue())
+        # a name with ": " in its theory arguments keeps the note too
+        passed = ISOLATED.replace('outcome="Failed"', 'outcome="Passed"').replace('00:00:20.0000000', '00:00:03.0000000')
+        path2 = os.path.join(self.dir.name, "alone3.trx")
+        with open(path2, "w", encoding="utf-8") as f:
+            f.write(passed)
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            t.main([self.full, "--isolated", path2, "--backlog", small, "--max-seconds", "1"])
+        self.assertIn("3.0 s > 1 s, not on the backlog: N.B+C.Row(x: 1.5)  (full run 120.0 s)", buf2.getvalue())
+        self.assertIn("2.0 s > 1 s, not on the backlog: N.A.SlowUntagged  (full run 7.2 s)", buf.getvalue())
 
     def test_a_flagged_test_missing_from_the_rerun_is_listed_and_keeps_its_time(self):
         out = os.path.join(self.dir.name, "summary.md")

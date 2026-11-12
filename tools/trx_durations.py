@@ -23,8 +23,7 @@ test takes several times its time alone (RemeshReduceCampaignTests.Reducer 3 to 
 alone). The rule is judged on the time alone:
   - --flag-filter FILE writes a `dotnet test --filter` expression for every method with a row of --threshold seconds or
     more (or of --flag-from);
-  - the flagged tests run again alone (`dotnet test --no-build --filter "$(cat FILE)" -- xUnit.ParallelizeTestCollections=false
-    --logger trx`), and --isolated TRX... gives that trx: the time of a test in it replaces its time in the full run for
+  - the flagged tests run again alone (`dotnet test --no-build --filter "$(cat FILE)" --logger trx -- xUnit.ParallelizeTestCollections=false`), and --isolated TRX... gives that trx: the time of a test in it replaces its time in the full run for
     the ratchet and the lists (the full-run time stays in the report as "full run N s"). Rows that were not re-run keep
     their full-run time.
 
@@ -237,17 +236,21 @@ def main(argv=None):
     if missing:
         lines += ["", f"Flagged in the full run but without a passed result in the re-run alone: {len(missing)} (judged on the full-run time)"]
         lines += [f"  {sec:8.1f} s  {name}" for name, sec in missing[:50]]
+        if len(missing) > 50:
+            lines.append(f"  ... and {len(missing) - 50} more")
     defects = potential_defects(original, alone_by_name, a.defect_above)
     if defects:
         lines += ["", f"Potential defects: {len(defects)} tests above {a.defect_above:g} s in the full run (owner rule 2026-11-12: each gets an issue with a diagnosis)"]
         for name, sec, alone in defects[:50]:
             lines.append(f"  {sec:8.1f} s  {name}" + (f"  (alone {alone:.1f} s)" if alone is not None else "  (not re-run alone)"))
+        if len(defects) > 50:
+            lines.append(f"  ... and {len(defects) - 50} more")
     errors = []
     if a.backlog:
         backlog = read_backlog(a.backlog)
         base = read_backlog(a.backlog_base) if a.backlog_base else None
         errors = ratchet(rows, backlog, base, a.threshold, a.max_seconds, a.fail_from)
-        errors = [e + note(e.rsplit(": ", 1)[-1]) if not e.startswith("backlog entry") else e for e in errors]
+        errors = [e + next((note(n) for n in full_run if e.endswith(": " + n)), "") for e in errors]
         warnings = untagged_warnings(rows, backlog, a.threshold, a.fail_from)
         lines += ["", f"Ratchet: backlog of {len(backlog)} methods, {len(errors)} violations, {len(warnings)} warnings (untagged, {a.threshold:g} to {a.fail_from:g} s)"]
         lines += ["  " + e for e in errors[:50]] + ["  warning: " + w for w in warnings[:50]]
