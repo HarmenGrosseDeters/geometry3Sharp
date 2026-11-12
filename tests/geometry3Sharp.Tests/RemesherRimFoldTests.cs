@@ -141,8 +141,8 @@ namespace geometry3Sharp.Tests
 
         // with PinSharpVertices (30 degrees: the apex and, on cone12, the rim vertices pinned). master: 0, 0, 0, 30 and 24
         // pairs in the 4 runs of each; cone12_x0.3 ended with 264 pairs when the fold check also rejected the flips on
-        // the coarse input (the edges from the rim to the apex), cone12_x0.15 / x0.2 / x0.3 with 6 / 7 / 4 when the
-        // old triangles were counted at all their corners (an intersection at a corner off the features hid new folds)
+        // the coarse input (the edges from the rim to the apex), cone12_x0.15 / x0.2 with 6 / 7 when the old triangles
+        // were counted at all their corners (an intersection at a corner off the features hid new folds)
         [Theory]
         [InlineData("cone12_x0.15")]
         [InlineData("cone12_x0.2")]
@@ -221,6 +221,41 @@ namespace geometry3Sharp.Tests
             int e = m.FindEdge(B, U);
             Index2i ev = m.GetEdgeV(e), ov = m.GetEdgeOpposingV(e), et = m.GetEdgeT(e);
             Assert.True(r.flip_creates_feature_fold(ev.a, ev.b, ov.a, ov.b, et.a, et.b, 10));
+        }
+
+        // a collapse of the side vertex S onto the rim vertex B close to it, with a fin at S that crosses the side triangle
+        // S-A-U: after the collapse the fin crosses B-A-U the same way. The collapse adds no crossing, so it is not
+        // rejected: the triangles before it are counted with S as a feature corner, as B is after it (counted without
+        // S, the crossing would look new and block the collapse)
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Collapse_ExistingCrossingMoved_NotRejected(bool fin)
+        {
+            var m = new DMesh3();
+            double c30 = Math.Cos(Math.PI / 6);
+            int O = m.AppendVertex(new Vector3d(0, 0, 0)), A = m.AppendVertex(new Vector3d(1, 0, 0)), B = m.AppendVertex(new Vector3d(c30, 0, 0.5)),
+                C = m.AppendVertex(new Vector3d(0.5, 0, c30)), U = m.AppendVertex(new Vector3d(0.6, 0.6, 0.4)),
+                S = m.AppendVertex(new Vector3d(0.98 * c30, 0.03, 0.98 * 0.5));
+            m.AppendTriangle(O, A, B); m.AppendTriangle(O, B, C);
+            m.AppendTriangle(B, A, S); m.AppendTriangle(C, B, S);
+            int tSAU = m.AppendTriangle(S, A, U);
+            m.AppendTriangle(S, U, C);
+            if (fin) {
+                Vector3d s = m.GetVertex(S), n = m.GetTriNormal(tSAU), p = Vector3d.Lerp(s, (m.GetVertex(A) + m.GetVertex(U)) / 2, 0.5);
+                Vector3d side = (p - s).Cross(n).Normalized, p1 = p + 0.3 * n + 0.2 * side, p2 = p - 0.3 * n - 0.2 * side;
+                int i1 = m.AppendVertex(p1), i2 = m.AppendVertex(p2);
+                if (MathUtil.Normal(s, p1, p2).Dot(n) < 0) m.AppendTriangle(S, i1, i2); else m.AppendTriangle(S, i2, i1);
+            }
+            Assert.Equal(fin ? 1 : 0, MeshRepairMetrics.SelfIntersections(m));
+            var r = new Remesher(m) { MinTriangleQuality = 0.2 };
+            var cons = new MeshConstraints();
+            var rim = MeshProjectionTarget.Auto(new DMesh3(m));
+            foreach (int v in new[] { A, B, C })
+                cons.SetOrUpdateVertexConstraint(v, new VertexConstraint(rim));
+            r.SetExternalConstraints(cons);
+            Index2i et = m.GetEdgeT(m.FindEdge(S, B));
+            Assert.False(r.collapse_creates_feature_fold(S, B, B, m.GetVertex(B), et.a, et.b));
         }
 
         // one Remesher instance used twice (the mesh reset to the input, the constraints set again): the same result

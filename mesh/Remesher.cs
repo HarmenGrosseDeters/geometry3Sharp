@@ -1023,7 +1023,7 @@ namespace g3 {
         // that is not on a feature onto one that is (or onto a point of its curve): its triangles gain a feature vertex,
         // the way a side triangle next to the rim gets all its corners on the rim. (A collapse along a curve or away from
         // the curves leaves the number of feature vertices of each triangle as it was.)
-        bool collapse_creates_feature_fold(int a, int b, int vKeep, Vector3d newPos, int t0, int t1)
+        internal bool collapse_creates_feature_fold(int a, int b, int vKeep, Vector3d newPos, int t0, int t1)
         {
             bool fa = is_feature_vertex(a), fb = is_feature_vertex(b);
             if (fa == fb)
