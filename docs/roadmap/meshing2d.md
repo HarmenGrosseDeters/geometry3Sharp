@@ -88,8 +88,8 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   in no triangle) with status `Success`; the oracle excuses it (`OracleReport.VanishedPoints/VanishedSegments`, now also as index sets).
   Under the no-silent-deletion rule the mesher now reports it in `Diagnostics` ("N input points and M input segments are in no triangle:
   their part of the domain is narrower than the automatic tolerance and vanished in refinement (points ...; segments ...)"): the input
-  points in the domain before refinement and in no triangle after it, and the input segments that had a piece in the domain before and
-  none after, or such an end point. The mesh is unchanged (golden rows equal); off the snap grid only (on it the `snap grid:` lines report
+  points in the domain before refinement and in no triangle after it, and the input segments with such an end point (points in holes or
+  outside from the start are not reported). The mesh is unchanged (golden rows equal); off the snap grid only (on it the `snap grid:` lines report
   collapsed and pinched parts). `QualityMesh2DroppedPartDiagnosticTests`: the report equals the oracle's vanished sets.
 - **Three single triangles at 1e-7..1e-9 radian (from #542): done (#661, merged 2026-11-12, 629aa28f).** Traced and fixed. In the near-contact fan (scale
   1.13, k = 26 and 28, constrained quality mode) each triangle lay below A at a T-junction apex, its off-centre in the diametral
