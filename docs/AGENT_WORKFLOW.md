@@ -106,6 +106,15 @@ from secret tests, which a public repository cannot keep.
 - One session per PR-sized topic. Prefer fresh sessions over long ones. At most 5 implementation sessions at
   once, at most 2 of them large (tier L), plus one review session ([ROADMAP.md](ROADMAP.md#session-limits)).
 - The plan lives in the repository ([ROADMAP.md](ROADMAP.md), details in [roadmap/](roadmap/)), not in chat. Results live in PRs and READMEs.
+- Roadmap upkeep (owner 2026-11-12, after the audit #649 found the roadmap days behind):
+  - A PR that starts, finishes or changes the scope of a roadmap item updates that item in the same PR: status,
+    date, PR numbers, and the headline numbers (totals only). The reviewer checks it (REVIEW_CHECKLIST section 11).
+  - The coordinator updates "Now" in [ROADMAP.md](ROADMAP.md) in the same step as each merge, a new tier-L topic, an
+    owner decision that changes direction or targets, and a closed-out phase; owner decisions are recorded with
+    their date, not left in chat.
+  - Once a day, with the morning summary, the coordinator compares "Now" and the open items against the merged PRs
+    and open issues since the last check and fixes any drift in one docs commit. A status that cannot be settled
+    from git and GitHub goes to the owner as a question, not into the docs as "(status unclear)".
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).
 - A bugfix must not run into a fundamental problem that a planned concept will solve (owner 2026-11-02). Before
