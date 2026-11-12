@@ -1984,7 +1984,7 @@ namespace Meshing2Acceptance
                     if (isUsed) continue;
                     if (!InClosure(inPts[i]) || CollapsedHullTip(i, usedSet)) continue;
                     if (OnCollapsedPoint(inPts[i])) { ++r.CollapsedPoints; continue; }
-                    if (InVanishingPart(inPts[i])) { ++r.VanishedPoints; continue; }
+                    if (InVanishingPart(inPts[i])) { ++r.VanishedPoints; r.VanishedPointIds.Add(i); continue; }
                     r.Add(Violation.VertexUnused, "input " + i + " " + inPts[i] + " is in the domain but in no triangle");
                 }
                 if (o.IdentityRules)
@@ -2933,7 +2933,7 @@ namespace Meshing2Acceptance
                         }
                         if (reached < 0) {
                             if (ChainAcrossCollapsed((s.a, s.b), candidates, starts, goals, adjacency)) { ++r.CollapsedSegments; continue; }
-                            if (InVanishingPart(s.a, s.b, new Pt((s.a.Qx + s.b.Qx) * new Q(1, 2), (s.a.Qy + s.b.Qy) * new Q(1, 2)), piece.from, piece.to, new Pt((piece.from.Qx + piece.to.Qx) * new Q(1, 2), (piece.from.Qy + piece.to.Qy) * new Q(1, 2)))) { ++r.VanishedSegments; continue; }
+                            if (InVanishingPart(s.a, s.b, new Pt((s.a.Qx + s.b.Qx) * new Q(1, 2), (s.a.Qy + s.b.Qy) * new Q(1, 2)), piece.from, piece.to, new Pt((piece.from.Qx + piece.to.Qx) * new Q(1, 2), (piece.from.Qy + piece.to.Qy) * new Q(1, 2)))) { ++r.VanishedSegments; r.VanishedSourceIds.Add(s.sourceId); continue; }
                             r.Add(Violation.SegmentMissing, "input constraint " + s.a + " - " + s.b + ": no chain from " + piece.from + " to " + piece.to);
                             continue;
                         }
