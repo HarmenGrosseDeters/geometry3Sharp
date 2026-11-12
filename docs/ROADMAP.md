@@ -65,7 +65,9 @@ Status on 2026-11-12 (morning, Berlin).
   (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1 and L2 done, L3 step 1 pushed
   (Difference total 973 -> 421 s, hash unchanged); open: the classification filter from local corner coordinates,
   the combinatorial zeros, possibly InCircle limbs. Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- **`DMeshAABBTree3` profile** (in progress since 2026-11-12, owner): profile and upper bound per lever before any change.
+- **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
+  memory layout (up to 2x on shuffled inputs) waits for a Thingi10K measurement (owner); the solidify's
+  `DualContouring` allocations bound about 4 % of wall.
   [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
