@@ -695,3 +695,18 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 - (b3): the geometric step that an encroaching vertex projects into the piece.
 - Not encoded at all: Shewchuk's termination theorems, the 25.65 degree value as a number (`arcsin(sqrt 3 / 4) = 25.659 degrees` is a numeric
   fact, not checked by Z3), and every termination argument of #394 and rule C beyond the inequalities above (they are measured, not proved).
+
+## Clipper2 frame (pilot 6, `clipper_frame.py`, QA 2.0 T10, 2026-11-12)
+
+The frame of the Clipper2 adapter (`ClipperFrame.ForBounds`): `CeilExponent` of a normal number is the smallest power of two above it
+(Z3 on the mantissa), the subnormal loop ends within 52 steps with the same property (Z3, unrolled bit vectors), `PowerOfTwo` is exactly 2^n for
+all 2046 exponents and every accepted frame (86 817 combinations of `precisionBits` 8..50 and exponent) maps the extent to at most 2^bits <= 2^50,
+below `MaxIntegerCoordinate` = 2^52, with a finite `1 / scale` (exhaustive), and the extent plus margin is never below the larger distance (binary64).
+Mutants: a floor instead of the ceiling and a `MaxPrecisionBits` of 53 are SAT. Not proved by Z3 (it does not finish on the bit-blasted
+monotonicity of a rounded subtraction or product): that a coordinate within the bounds scales to an integer of magnitude at most 2^bits
+(monotone rounding of `p - Origin` and `d * Scale`; reviewed). `source_contracts` holds the model to the source. About 5 s; part of the `Z3 pilot` workflow.
+
+```sh
+python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
+```
