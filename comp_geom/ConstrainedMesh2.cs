@@ -61,6 +61,29 @@ namespace g3
         public int TriangleCount => triangles.Length;
 
         /// <summary>
+        /// The mesh as a 2.5D <see cref="DMesh3"/>: vertex i is (x, y, z) with z = <see cref="Heights"/>[i], or z = 0 when the input had
+        /// no heights (a flat mesh in the plane z = 0, so a mesh without heights needs no special case). Vertex and triangle ids are the
+        /// same as here: vertex i of the result is <see cref="Vertices"/>[i] and triangle t is <see cref="Triangles"/>[t], so
+        /// <see cref="InputToVertex"/>, <see cref="BadTriangles"/> and the subsegments keep their meaning. A vertex no triangle uses (an
+        /// exact duplicate of an input point, an input point outside the domain) stays an isolated vertex of the result; the triangles
+        /// keep their counter-clockwise orientation (normals towards +z). When <paramref name="labelsAsGroups"/> is set, triangle groups are
+        /// enabled and the group of each triangle is its region label (<see cref="TriangleLabels"/>, 0 outside all regions). No per-vertex
+        /// normals, colours or UVs are allocated. Coordinates are copied as they are; nothing is rounded or moved.
+        /// </summary>
+        public DMesh3 ToDMesh3(bool labelsAsGroups = true)
+        {
+            var mesh = new DMesh3(false, false, false, labelsAsGroups);
+            var labels = TriangleLabels;
+            for (int i = 0; i < vertices.Length; ++i)
+                mesh.AppendVertex(new Vector3d(vertices[i].x, vertices[i].y, Heights == null ? 0 : Heights[i]));
+            for (int t = 0; t < triangles.Length; ++t) {
+                int id = mesh.AppendTriangle(triangles[t], labelsAsGroups ? labels[t] : -1);
+                if (id != t) throw new InvalidOperationException("triangle " + t + " could not be added to the DMesh3 (" + id + ")");
+            }
+            return mesh;
+        }
+
+        /// <summary>
         /// The same mesh with fewer input points: the points appended by snap rounding (crossing and restore pixels, SnapRounding2)
         /// become vertices made by the mesher, so ids at or above <paramref name="inputCount"/> are no input points
         /// </summary>
