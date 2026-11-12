@@ -23,6 +23,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds (options as used in `options`, incl. `--outer-offset` and `--sharp-edge-min-height`), Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
 | `curvature` | discrete mean and Gaussian curvature per vertex (Meyer et al.: mixed Voronoi area, mean curvature normal, angle deficit) as statistics over the valid vertices, also scaled by the mesh size; `--output` writes every vertex as CSV / JSON | `MeshCurvature` |
+| `offset` | offset surface of a closed mesh at a signed distance (positive outward, negative inward) by marching cubes on a signed distance grid; `--cell-size` / `--relative-cell-size`, `--root-mode single_lerp` / `lerp_steps` / `bisection` / `linear_edges` (`LinearEdges`: one linear interpolation of the corner samples, fails with `linear_edges_precondition` where its preconditions are violated), a cell budget (`--max-cells`); `enclosure_claim` is always `none` (no guarantee that the offset surface encloses the input) | `MeshSignedDistanceGrid`, `MarchingCubes` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
 | `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices; intrinsic refinement, the descent path from a vertex or point with `--trace-from`) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
 | `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
@@ -163,6 +164,13 @@ g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvatu
 g3cli curvature part.stl --output curvature.csv
 #   -> "valid_vertices": 5120, "mean_curvature": {"mean": 0.31, "std_dev": 0.05, ...}, "gaussian_curvature": {...}, "angle_deficit_total": 12.566
 
+# offset surface: 0.5 outward at a cell of 0.1 (positive outward, negative inward); the mesh must be closed
+g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
+#   -> "cells": [35, 35, 35], "root_mode": "single_lerp", "enclosure_claim": "none", "mesh": { "closed": true, "volume": 25.18, ... }
+# linear_edges: unmodified linear edge interpolation (the mode of docs/design/CONSERVATIVE_MC_AUDIT.md); it never repairs a violated precondition:
+g3cli offset part.stl part_offset.stl --distance 0.5 --relative-cell-size 0.005 --root-mode linear_edges
+#   -> or operation_failed with "offset_status": "linear_edges_precondition" and no output file
+
 # quality and topology of one mesh
 g3cli quality part.stl
 #   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
@@ -284,7 +292,7 @@ The input is a JSON object; only `points` is required, indices refer to `points`
 `heights` one z per point (interpolated at new vertices). Unknown keys, wrong types and bad indices fail with
 `invalid_arguments` (inline `--geometry`) or `read_error` (a file). The written mesh lies in the XY plane, oriented
 counterclockwise, the labels are its triangle groups (OBJ: `g mmGroup<label>`); only vertices of triangles are written.
-The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (areas below the double range, at coordinates around 1e-160 and smaller, are 0), `bad_triangles`
+The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (summed in units of a power of two near the extent of the mesh, so it is right down to the double range; below it, at coordinates around 1e-162 and smaller, it is 0), `area_relative` (the area in units of the squared extent of the mesh: independent of the scale, and not 0 there), `bad_triangles`
 (below the angle bound, near locked segments or small input angles), `steiner_limit_reached`, `labels` (triangles per
 label) and the diagnostics of the mesher as `warnings`. Crossing constraints with `--resolve-crossings false`, and inputs
 without a triangle (collinear points), fail with `operation_failed` and the coordinate of the problem.
@@ -422,7 +430,7 @@ the server until they finish.
 cubes, sphere) and generated 2D domains and terrains: format round trips, quality bounds and labels of `mesh2d`, heights
 and box queries of `query2d` against brute force, fuzzed `mesh2d` JSON, expected volumes of booleans and repairs, error cases with their result
 and exit codes, the MCP protocol in process and the real executable as a child process (stdio). CI runs it
-on every push.
+on every pull request and master push that changes the library, its tests or `tools/g3cli` (`tools/ci_scope.py`).
 
 ```
 dotnet test tests/g3cli.Tests

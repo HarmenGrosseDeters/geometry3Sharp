@@ -25,7 +25,8 @@ namespace gs
         public int NonManifoldTriangles;
         /// <summary>
         /// intersecting triangle pairs the hole fill of the last contour added (the holes where dual contouring left
-        /// out non-manifold quads); SelfIntersectionFree is false if any
+        /// out a non-manifold polygon that no face vertex could avoid: rare, NonManifoldTriangles is mostly 0);
+        /// SelfIntersectionFree is false if any
         /// </summary>
         public int HoleFillIntersections;
         public int WindingEvaluations;
@@ -220,7 +221,7 @@ namespace gs
         public int RefinedCells, RefineFactor = 1;
         /// <summary>
         /// local refinement: at most this many times the cells around polygons that dual contouring left out
-        /// (non-manifold edges, see DualContouring.NonManifoldCells) are refined and contoured again
+        /// (non-manifold edges that no face vertex avoided, see DualContouring.NonManifoldCells) are refined and contoured again
         /// </summary>
         public int MaxNonManifoldRounds = 2;
         /// <summary> local refinement: how often the last ContourRefined refined for non-manifold edges </summary>

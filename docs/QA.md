@@ -22,7 +22,7 @@ done since and what is open.
   test showed up in repeated runs, after the `BitArray` races were fixed (ThreadingFixesTests).
 
 **Test tiers (2026-11-09).** A full run of the suite (8133 tests) took 21-23 min on 4 cores, and PR CI 25-35 min.
-- A test that takes 5 s or more (measured in a full run) carries `[Trait("Category", "Slow")]`. A long test is split into
+- A test that takes 5 s or more (alone: CI re-runs the tests tagged Slow and the backlog alone and judges those on that time; every other test on its full-run time, see "Judged alone" below) carries `[Trait("Category", "Slow")]`. A long test is split into
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
@@ -31,8 +31,8 @@ done since and what is open.
   to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
-  "Category=Slow"`). It fails for an untagged test of 60 s or more and only reports below that: durations on a shared
-  runner are noisy, and a gate at 5 s would turn that noise into red CI. Tag a test that shows up in the list.
+  "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
+  b73c151d). Tag a test that shows up in the list.
 - The scheduled tier: `[Trait("Category", "Nightly")]` tests run only in `.github/workflows/nightly.yml` (daily on master, and
   `workflow_dispatch`; `dotnet test --filter "Category=Nightly"`, 90 min budget, durations in the step summary). PR and master CI
   exclude the category (`Category!=Nightly` on Linux and both net48 shards). It holds the rows above 10 s whose run is the check:
@@ -40,7 +40,7 @@ done since and what is open.
   and F-38/d of `ExtremeScales`). Also three K checks that are runs by nature, each with a reduced variant in the PR tier
   (`Solidify_IsDeterministic_Reduced`, `InsertionOrder_Reduced_DoesNotChangeTheResult`, `RemesherPro_FullRemesh_Reduced_...`). The Stryker filters of `tests/mutation` name classes of the exact arithmetic and do not
   contain these; a class that gets Nightly tests and is in a filter needs `&Category!=Nightly` there.
-- The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet in the full run:
+- The test time rule of CLAUDE.md (5 s, up to 10 s with `Slow` and a reason, nothing above) is a ratchet over the full run: the tests tagged `Slow` and those on the backlog are judged on their time alone (CI re-runs them, below), every other test on its full-run time:
   `tools/trx_durations.py --backlog tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt` fails for a test above 10 s, and for one of
   5 s or more without `Slow`, unless its method (`Class.Method`) is on that list. The list was made from a full run with
   every method that has a row of 4 s or more (a margin: the CI runner is not that machine) and may only shrink: the run
@@ -51,6 +51,26 @@ done since and what is open.
   (`RATCHET_ENFORCE: '0'` in `ci.yml`: violations are printed as warnings and the step passes); a PR sets it to 1.
   Splitting a CPU-bound test into parallel classes does not reduce its duration in the saturated full run (four classes
   of 9 s instead of one of 9 s, #521): only less work does.
+  **Judged alone.** The full run oversubscribes the cores (test classes in parallel, each with the library's parallel loops), so a
+  test takes several times its time alone: `RemeshReduceCampaignTests.Reducer` ran 3 to 95 s between runs of the same code and
+  takes 6 s alone; a sequential run of 30 classes of the backlog had 2 of 48 entries at 5 s or more. So the rule is judged on
+  the time alone: `trx_durations.py full.trx --threshold 5 --flag-filter flagged.txt` writes a `dotnet test --filter`
+  expression for every method with a row of 5 s or more; those tests run again alone
+  (`dotnet test --no-build --filter "$(cat flagged.txt)" --logger trx -- xUnit.ParallelizeTestCollections=false`), and
+  `trx_durations.py full.trx --isolated alone.trx --backlog ...` replaces the full-run time of each re-run test by its time
+  alone (the report keeps "full run N s"); a re-run that failed keeps the full-run time. Measured on 4 cores: 93 flagged methods
+  (498 test rows, all rows of a flagged theory) took 15 min alone, against 15.5 min for the full run; 129 tests of 5 s or more
+  in the full run were 50 alone. Rows of methods below the threshold in the full run are not re-run. In CI the job `isolated` (parallel to `linux`) runs the tests tagged
+  `Slow` and the methods of `SLOW_BACKLOG.txt` alone, one class after the other (`--rerun-filter`: the candidates are known before the
+  full run), and the job `time-rule` judges the full run's trx with `--isolated`, with the "Potential defects" section in its step
+  summary. It runs in report mode (`RATCHET_ENFORCE: '0'` in the job) until the backlog is remade from isolated times and the job has
+  been green on master. A test above the rule that is neither tagged Slow nor on the backlog has no result alone: it stays judged
+  on its full-run time, and the report lists it.
+  **Above 20 s (owner 2026-11-12).** A test above 20 s in any run, the full parallel run included, is a potential defect
+  (starvation, a hang, a pathological input or algorithm), whatever its time alone: it gets an issue with the full-run and
+  isolated times and a diagnosis, not only a backlog line. The report lists them in a separate "Potential defects" section
+  (`--defect-above`, default 20) with the time alone next to the full-run time; a flagged test without a passed re-run result
+  is listed too and stays judged on its full-run time.
   Fix a slow test, then delete its line. The reason on a `Slow` tag is a review item, not machine-checked.
 - A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
   (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)

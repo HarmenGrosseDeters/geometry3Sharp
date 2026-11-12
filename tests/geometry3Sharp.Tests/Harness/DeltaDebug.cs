@@ -17,6 +17,14 @@ namespace geometry3Sharp.Tests
         /// <summary> one predicate call; zero or less runs the predicate on the calling thread without a timeout </summary>
         public TimeSpan PredicateTimeout = TimeSpan.FromSeconds(10);
         /// <summary>
+        /// Replaces the wall-clock PredicateTimeout (tests that must not depend on the speed of the machine): runs the
+        /// action and returns false if the call counts as timed out. A call that returns false keeps running if the action
+        /// does not end.
+        /// </summary>
+        public Func<Action, bool> TimeoutRunner;
+        /// <summary> Replaces the wall clock of TimeBudget and of the reported Elapsed: the time since the start of the run </summary>
+        public Func<TimeSpan> Clock;
+        /// <summary>
         /// A predicate that throws is a different error, not the one being minimized (false), unless this is set. A
         /// predicate that reproduces a crash should catch it and compare it with the original (see FailureMinimizer).
         /// </summary>
@@ -51,8 +59,8 @@ namespace geometry3Sharp.Tests
             this.options = options;
         }
 
-        public TimeSpan Elapsed => clock.Elapsed;
-        public bool BudgetExhausted => clock.Elapsed >= options.TimeBudget;
+        public TimeSpan Elapsed => options.Clock != null ? options.Clock() : clock.Elapsed;
+        public bool BudgetExhausted => Elapsed >= options.TimeBudget;
         public bool TimeoutLimitReached => Timeouts >= options.MaxTimeouts;
         public bool Stopped => BudgetExhausted || TimeoutLimitReached;
 
@@ -65,7 +73,13 @@ namespace geometry3Sharp.Tests
             Action run = () => {
                 try { result = predicate(input); } catch (Exception e) { error = e; }
             };
-            if (options.PredicateTimeout <= TimeSpan.Zero)
+            if (options.TimeoutRunner != null) {
+                if (options.TimeoutRunner(run) == false) {
+                    ++Timeouts;
+                    return options.TimeoutMeansFailure;
+                }
+            }
+            else if (options.PredicateTimeout <= TimeSpan.Zero)
                 run();
             else if (Timed.Finishes(run, options.PredicateTimeout) == false) {
                 ++Timeouts;

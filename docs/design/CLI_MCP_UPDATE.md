@@ -5,6 +5,10 @@ decisions in section 11. Tier S (docs only). Each command is public surface, so 
 Basis: `master` at b25eb46 (2026-11-12), compared with `tools/g3cli` (`Name = "..."` of every `Command`, their
 `Param` lists) and the public classes of the library and of the Clipper2 addon.
 
+Update 2026-11-12 (evening): PRs A to E of section 10 are merged (#662, #665, #667, #669, #672). F (#689), G1 `hull2d`
+(#690) and G2 Minkowski (#702) are open; G3 is in work. The owner dropped `voxelize` on 2026-11-12; #702 records that
+in sections 10 and 11.
+
 Conventions for all new commands (existing ones, [tools/g3cli/README.md](../../tools/g3cli/README.md)): one JSON
 object with `status`, `code`, `warnings`, `elapsed_ms`; snake_case options, the same `Param` list for the CLI and the
 MCP tool; failures are result codes, never stack traces; no output file on failure; large inputs go through files,

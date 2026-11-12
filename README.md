@@ -17,6 +17,9 @@ and [upstream changes](docs/UPSTREAM_CHANGES.md) for bug-fix history.
   - New `gs.MeshPostRepairCleanup`, and `MeshAutoRepair.PostRepairCleanup = true` to run it after `Apply()`.
     It removes duplicate triangles and bowties and fixes most degenerate triangles, folds and
     inside-out components left by AutoRepair.
+  - New `gs.MeshRobustRepair`: a closed, manifold, self-intersection-free result from any input (exact resolve,
+    winding number solidify, alpha wrap as fallbacks; `Apply()`, `FallbackReason` and `NotCleanReason` report the
+    rare case where it is not reached).
   - Benchmark on Thingi10K in `benchmarks/MeshRepairBenchmark`, with results and findings in its README.
 - Exact predicates (`ExactPredicates`), winding-number booleans and solidify
   ([operations](docs/OPERATIONS.md)).
@@ -37,6 +40,12 @@ and [upstream changes](docs/UPSTREAM_CHANGES.md) for bug-fix history.
   bool ok = wrap.Compute();          // false: see wrap.Status and wrap.Error
   DMesh3 result = wrap.Result;
   ```
+- Point clouds: `PointCloudNormals` (outward normals of an unoriented cloud) and `PointCloudSurface` (a surface with
+  more detail than the wrap); `.xyz` and face-less `.ply` files read and write point sets
+  ([operations](docs/OPERATIONS.md#which-repair-or-boolean-class)).
+- 2D meshing: `DelaunayMesh2`, `ConstrainedDelaunayMesh2` (segments, holes, crossings split) and `QualityMesh2`
+  (Delaunay refinement to a minimum angle, maximum area and size function) with exact predicates; `ConstrainedMesh2.ToDMesh3()`
+  gives the 2.5D mesh ([operations](docs/OPERATIONS.md#operations)).
 
 ### Surface processing
 
@@ -47,6 +56,7 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
   the input mesh, mollification of degenerate triangles), the heat method on it
   (`MeshGeodesicDistance.IntrinsicDelaunay`, on by default) and `VectorHeatMethod` (parallel transport,
   scalar extension, log map). `SparseCholesky` is a direct sparse solver for the heat and Poisson systems.
+  Geodesic paths and loops by edge flips (`MeshGeodesicPath`, FlipOut) and geodesic Bezier curves (`MeshGeodesicBezier`).
 - UV atlases: `UVAtlasGenerator` combines chart segmentation, seams, cone flattening, packing and exact
   overlap checks ([example](docs/examples/UVAtlasExample.cs)).
 - Mesh parameterization (UV unwrapping) of meshes with boundary: `LSCMParameterization` (least squares
@@ -55,14 +65,21 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
   with prescribed boundary lengths or angles, eg minimal area distortion, disk or rectangle), `TutteEmbedding`,
   distortion measures (`ParameterizationDistortion`) and `UVPacker` for packing charts into the unit square.
   All return a `ParameterizationResult` with status, UVs and distortion. They use the new `SparseCholesky`.
+  `FoldoverFreeParameterization` untangles supplied UVs with the boundary fixed.
 
 ### Analysis and application building blocks
 
 - `Reducer.MaxDeviation` bounds the result's deviation from the input, not the reverse direction;
   `MeshEnvelope` supports exact envelope containment
   ([simplification contracts](docs/OPERATIONS.md#remeshing-simplification-smoothing)).
-- Hausdorff distance and terrain / LiDAR tools (ground filter, terrain dual contouring, offsets,
-  cut/fill volumes, safety lines); see [measurements and queries](docs/OPERATIONS.md#measurements-and-queries).
+- Hausdorff distance and terrain / LiDAR tools (ground filter for point clouds by cloth simulation (`ClothSimulationFilter`, after Zhang et al. 2016), terrain dual contouring (`TerrainDualContouring`), offsets,
+  cut/fill volumes, also per cell of a lattice (`TerrainCellVolumes`), safety lines); height grid (DGM) files and their TIN
+  with a guaranteed surface error (`HeightGridReader`, `TerrainGridTin`); slope design from toe lines to a terrain, never
+  steeper than specified (`TerrainSlopeDesign`, [example](docs/OPERATIONS.md#terrain-slope-design)).
+- Comparison metrics: `MeshFidelityMetrics` (F-score, normal consistency, edge Chamfer, volume IoU, curvature fidelity),
+  `MeshCurvature` (discrete mean and Gaussian curvature per vertex), `TriangleQualityStatistics`, `MeshTopologySummary`.
+- 2D spatial indexes: `LooseQuadtree2d`, `PointQuadtree2d`, `SegmentQuadtree2d`, `TriangleQuadtree2d`
+  ([operations](docs/OPERATIONS.md#2d-loose-quadtree)).
 - Analysis building blocks: `MeshWallThickness` (wall thickness per vertex / triangle: inward ray, shape
   diameter function, largest inscribed ball / medial axis), `MeshDeviation` (signed deviation map of a mesh
   against a reference, with statistics and the certified Hausdorff bound) and `PrimitiveFit3` (plane, sphere,
@@ -80,8 +97,10 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
   [Clipper2](https://github.com/AngusJohnson/Clipper2) (Boost-1.0). Results come with a status; the integer grid
   is fitted to the input, so UTM coordinates and any units work. The core package stays free of dependencies.
   See [OPERATIONS.md](docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).
-- `tools/g3cli`: the mesh operations (measure, repair, boolean, resolve, remesh, simplify, convert) as a CLI with
-  JSON output and result codes, and as an MCP server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
+- `tools/g3cli`: the main operations (measure, repair, boolean, resolve, remesh, simplify, uv, convert, wrap, the evaluation
+  metrics, geodesics and batch queries, the 2D mesher, polygon booleans, terrain tools; worked examples in
+  [OPERATIONS.md](docs/OPERATIONS.md#command-line-and-mcp-g3cli)) as a CLI with JSON output and result codes, and as an MCP
+  server (`g3cli mcp`). See [tools/g3cli/README.md](tools/g3cli/README.md).
 
 ## Build, targets, tests
 
@@ -111,6 +130,7 @@ all of this on every pull request and every push to master: tests on net10.0 (Li
 | `.stl` | yes | yes | ascii and binary (`WriteOptions.bWriteBinary`) |
 | `.off` | yes | yes | |
 | `.g3mesh` | yes | yes | packed DMesh3 |
+| `.xyz` | yes | yes | ascii point cloud, `x y z` or `x y z nx ny nz` per line (vertices only) |
 | `.ply` | yes | yes | ascii, binary (reads little and big endian, writes little endian); normals, colors, UVs, point sets. Positions are written as double unless `RealPrecisionDigits <= 7` |
 | `.3mf` | yes | yes | core spec; build items, components, transforms; read in millimeters (`ThreeMFReader.ConvertToMillimeters`) |
 | `.glb` / `.gltf` | yes | yes | glTF 2.0; node transforms applied, primitives as face groups, normals/colors/UVs. No materials, no Draco/meshopt |
