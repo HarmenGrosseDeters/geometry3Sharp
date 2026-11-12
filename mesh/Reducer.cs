@@ -446,6 +446,19 @@ namespace g3
             deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
         }
 
+        /// <summary>
+        /// (internal) the MaxDeviation reference as a built tree, only read, so several Reducers share it (the slabs of a
+        /// PartitionedReduction and its last pass all measure from the same original mesh); the tree's mesh must not change
+        /// </summary>
+        /// <summary> (internal) has a MaxDeviation reference been set (SetDeviationReference)? </summary>
+        internal bool HasDeviationReference => deviationTarget != null;
+
+        internal void SetDeviationReference(DMeshAABBTree3 reference)
+        {
+            deviationTarget = reference;
+            deviationBounds = new TriangleDeviationBounds(reference.Mesh);
+        }
+
         // current triangles by grid cell, for PreventSelfIntersections
         protected TriangleHashGrid triangleGrid;
         /// <summary>
