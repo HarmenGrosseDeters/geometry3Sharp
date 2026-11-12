@@ -83,6 +83,23 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Curvature_NoValidVertex_IsReportedWithAWarning()
+        {
+            // one triangle: every vertex is a boundary vertex, none is valid, the statistics are null; the boundary angle deficits sum to 2 pi
+            string triangle = m.Path_("one_triangle.obj");
+            File.WriteAllText(triangle, "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
+            var (exit, r) = Run("curvature", triangle, "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(3, I(r["vertices"]));
+            Assert.Equal(0, I(r["valid_vertices"]));
+            Assert.Equal(3, I(r["boundary_vertices"]));
+            Assert.Null(r["mean_curvature"]);
+            Assert.Null(r["gaussian_curvature_scaled"]);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("no vertex is valid"));
+            Assert.Equal(2 * Math.PI, D(r["angle_deficit_total"]), 9);   // the sum of (pi - angle) over the three corners: 3 pi - pi
+        }
+
+        [Fact]
         public void Curvature_Output_CsvAndJson_HaveEveryVertex()
         {
             string csv = m.Path_("curv.csv"), json = m.Path_("curv.json");
