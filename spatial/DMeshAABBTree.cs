@@ -1805,7 +1805,15 @@ namespace g3
             ref FWNInfo cacheInfo = ref FastWindingCache[iBox];
 
             double dist_qp = cacheInfo.Center.Distance(ref q);
-            if (dist_qp > FWNBeta * cacheInfo.R) {
+            // (a slack of the coordinates' rounding beside beta R, 2^-48 of their magnitude (exact under 2^k): a point on a
+            // triangle is within R of the centre in exact arithmetic, but the stored corners, centre and the query carry
+            // rounding of a few units in the last place of the coordinates, which for a part whose size is near that
+            // resolution (a sphere of radius 3e-4 at 1e12, collapsed onto a few grid points) let a box above the
+            // triangle a point lies on take the expansion; the padded box of before kept those exact)
+            Vector3d cc = cacheInfo.Center;
+            double magnitude = Math.Max(Math.Abs(q.x), Math.Max(Math.Abs(q.y), Math.Abs(q.z)))
+                + Math.Max(Math.Abs(cc.x), Math.Max(Math.Abs(cc.y), Math.Abs(cc.z)));
+            if (dist_qp > FWNBeta * cacheInfo.R + 3.552713678800501e-15 * magnitude) {
                 // (the expansion divides by the fifth power of the distance: only where that is a normal double, ie
                 // distances from about 2^-204 to 2^204. Below, it underflowed to 0 or a subnormal and the value was NaN,
                 // infinite or wrong (a sphere of size 2^-210: NaN for every query); the exact sum is right there)

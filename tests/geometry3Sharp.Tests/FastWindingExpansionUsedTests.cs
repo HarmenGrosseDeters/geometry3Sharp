@@ -105,6 +105,35 @@ namespace geometry3Sharp.Tests
             Assert.Equal(exact.Count, tree.FastWindingExactTriangleCount(q));
         }
 
+        [Theory]
+        [InlineData(3e-4)]
+        [InlineData(1e-3)]
+        public void CollapsedPartFarFromTheOrigin_PointsOnItsTriangles_AsTheExactSum(double radius)
+        {
+            // a sphere at 1e12 whose edges are below or near the coordinates' resolution (1.2e-4 there): at r = 3e-4 its
+            // vertices round onto a few grid points (collapsed). Points on its triangles must get the triangles under
+            // them summed exactly, as the old padded gate did: the gate needs a slack of the coordinates' rounding
+            // (2^-48 of |q| + |c|) beside beta R, which the exact-arithmetic argument |q - c| <= R does not see
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = radius, EdgeVertices = 20 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(m, new Vector3d(1e12, 1e12, 1e12));
+            var tree = new DMeshAABBTree3(m, true);
+            int wrong = 0, points = 0;
+            string first = null;
+            foreach (int t in m.TriangleIndices().Where(t => t % 2 == 0)) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                foreach (Vector3d p in new[] { a, 0.5 * (a + b), (a + b + c) / 3 }) {
+                    double fast = tree.FastWindingNumber(p), reference = tree.WindingNumber(p);
+                    points++;
+                    if (!(Math.Abs(fast - reference) < 0.1)) {
+                        wrong++;
+                        first = first ?? $"triangle {t}, point {p}: fast {fast} vs exact {reference}";
+                    }
+                }
+            }
+            Assert.True(wrong == 0, $"r {radius}: {wrong} of {points} points on triangles off by 0.1 or more; first: {first}");
+        }
+
         // the similarities whose coordinates resolve the spheres of the unit-frame scene at 1e8 (size 4e-8): at UTM
         // coordinates (4e-11 after the millimetre scale) they round to a few units in the last place, degenerate triangles
         // that are summed exactly by right (FastWindingScaleTests.FastWindingNumber_Invariant covers those)
