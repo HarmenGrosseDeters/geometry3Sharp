@@ -209,7 +209,7 @@ a-priori bound e_z (1 + 4 D / h) per triangle) was considered: it needs the alti
 which exist only after the build, and the build depends on λ, so it is no proven bound before the first build; the
 second build (about 2x the time, 4.8 s -> 9.0 s in the UTM case) is kept, and avoiding it is a candidate for 1c.
 
-Before / after in this PR, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
+Before / after in #267, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
 at 7e8d251 (simplify 6.1 s, 1.45M exact of 19.2M predicates); 4.8 s with failed merges not retried and the apex shortcut
 (simplify 2.1 s, 0.49M of 18.1M). An earlier note of "> 30 min" here was wrong: that run was one command with four
 cases in a row, stopped as a whole after 30 min. Open for 1c: the uneven toe (3 builds), the predicate count per
@@ -389,7 +389,7 @@ order needs a canonical result first (idea D of the 1c plan).
 The pieces in a seeded random order, the labels by (height, plane id), and `Simplify` as the canonical partition (one
 convex face per part of a label component between the rays from its reflex corners). The output is the same for every
 insertion order, and it has far fewer triangles. A/B on the same machine at the same time (2026-11-02), first call of
-a process, median of 3 (the #314 head against this branch):
+a process, median of 3 (the #314 head against #318):
 
 | case | #314 | D | insert | simplify | slope triangles | region triangles |
 |---|---|---|---|---|---|---|
@@ -403,7 +403,7 @@ The octagon is slower: its slope faces are now large (159 triangles instead of 4
 region triangles that the composite clips from them measures a support excess above the first toe lowering, so a
 second realization runs, with a second overlay and composite (λ 3.0e-8 → 5.1e-8 m). The insert and simplify of the
 map are faster there too. A way back is a first lowering that covers the clipped triangles (a change of the lowering's
-estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in this PR.
+estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in #318.
 
 
 ### The band merge for needles at near-quadruple points (item 4, `TERRAIN.md` 5.4)
@@ -413,7 +413,7 @@ Needles whose short edge joins two crease vertices with plane sets that are not 
 band radius lives in the facets' slack, so designs without such needles are unchanged.
 
 Setup:
-- A/B on 2026-11-03, 4 cores, median of 2. Before is the master of #339, after is this branch.
+- A/B on 2026-11-03, 4 cores, median of 2. Before is the master of #339, after is #350.
 - The output hashes (`hash_surface`, `hash_region`, `hash_composite`: FNV over the vertices' bits and the triangles)
   compare the slope surface, the region and the composite bit for bit.
 - The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
@@ -439,7 +439,7 @@ On a terrain, `Tolerance` / 4 is reserved for the move of the composite's catch 
 exact certificate then bounds the surface's deviation at the moved points; if it does not fit, δ is raised.
 
 Setup:
-- A/B on 2026-11-03, 4 cores, 2 runs each. Before is master at cd7fb8ab, after is this branch.
+- A/B on 2026-11-03, 4 cores, 2 runs each. Before is master at cd7fb8ab, after is #363.
 - The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
 - "certificate" is the phase `certificate` (`SlopeComposite.SnapDeviation`) of the final build.
 
