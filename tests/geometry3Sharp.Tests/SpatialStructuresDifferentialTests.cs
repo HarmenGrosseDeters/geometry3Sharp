@@ -230,7 +230,8 @@ namespace geometry3Sharp.Tests
                     for (int i = 0; i < rays.Length; ++i) Assert.Equal(singleAny[i], any[i]);
 
                     // reversed order of the queries: every result at the reversed index is the same
-                    Ray3d[] rev = rays.Reverse().ToArray();
+                    Ray3d[] rev = (Ray3d[])rays.Clone();
+                    Array.Reverse(rev);
                     var revHits = new RayHit[rays.Length];
                     MeshBatchQueries.IntersectBatch(tree, rev, revHits, null, opt);
                     for (int i = 0; i < rays.Length; ++i) {
