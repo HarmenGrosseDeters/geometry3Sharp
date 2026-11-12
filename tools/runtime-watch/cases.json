@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "rules": {
+    "ratio": 1.3,
+    "abs_s": 1.0,
+    "hard_s": 20.0,
+    "window": 10,
+    "repeats": 3,
+    "repeat_budget_s": 60,
+    "timeout_s": 900
+  },
+  "cases": [
+    {
+      "id": "boolean-knot-default-union",
+      "area": "boolean",
+      "kind": "procedural",
+      "description": "Exact Boolean union of the procedural 55928 stand-in (open tube wound inside a ball) with its rotated, shifted copy, default knot options (benchmarks/BooleanComparison/README.md, tail case knot).",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "time_field": "ms"
+    },
+    {
+      "id": "boolean-knot-dense-union",
+      "area": "boolean",
+      "kind": "procedural",
+      "description": "Same stand-in with a denser tube (more rings, more turns): more self-intersecting pairs per triangle.",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}",
+          "--segments",
+          "1200",
+          "--turns",
+          "20"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "time_field": "ms"
+    },
+    {
+      "id": "boolean-thingi-55928-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 55928 (the open, self-intersecting knot, docs/design/EXACT_BOOLEAN_TAIL_55928.md) with its rotated, shifted copy (BooleanComparison export), union. Fetched at run time.",
+      "thingi": [
+        "55928"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:55928}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "time_field": "ms"
+    },
+    {
+      "id": "alphawrap-knot-default-wrap",
+      "area": "alphawrap",
+      "kind": "procedural",
+      "description": "Alpha Wrap (MeshAlphaWrap, MeshRepairBenchmark BENCH_REPAIR=wrap, library defaults) of the procedural knot: an open tube wound tightly inside a ball, self-intersecting, many small triangles in every direction.",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{work}/A.off",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrap",
+        "BENCH_FIDELITY": "0",
+        "BENCH_IOU_CELLS": "0"
+      },
+      "time_field": "repair_ms"
+    },
+    {
+      "id": "alphawrap-knot-dense-wrap",
+      "area": "alphawrap",
+      "kind": "procedural",
+      "description": "Alpha Wrap of the denser knot (more rings and turns).",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}",
+          "--segments",
+          "1200",
+          "--turns",
+          "20"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{work}/A.off",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrap",
+        "BENCH_FIDELITY": "0",
+        "BENCH_IOU_CELLS": "0"
+      },
+      "time_field": "repair_ms"
+    }
+  ]
+}
