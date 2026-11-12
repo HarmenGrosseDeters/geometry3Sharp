@@ -11,8 +11,8 @@ Part of the [roadmap](../ROADMAP.md).
 
 - `ExactMeshBoolean.coplanar_stack`: the worst-case latency fix (flood fill over the piece adjacency) is the owner's
   decision.
-- `Reducer` `MaxDeviation`: shared BVH queries per collapse were being tried in the envelope session (status
-  unclear, check).
+- `Reducer` `MaxDeviation`: shared BVH queries per collapse were tried and merged in #275 (2026-11-01, 1.03-1.12x,
+  bit-identical); the envelope stopped (owner 2026-11-01).
 - Every lead in the second table is untried.
 
 ### Done / history

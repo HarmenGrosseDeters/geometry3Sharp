@@ -1,6 +1,7 @@
 # Design: slope construction and daylighting on TINs (open-pit mining)
 
-Status: **phase 0, design only, for review.** Nothing here is implemented. Revised after an independent review
+Status: **phase 0, design only, for review**, as written. Since then phase 1 is built (#357) and the terrain topic is closed
+out (owner 2026-11-09; [roadmap/terrain.md](../roadmap/terrain.md)). Revised after an independent review
 (its findings are worked in; the derivations it questioned are in appendix A). The open questions for the user are
 in [section 12](#12-open-questions-for-the-user). Section numbers are used in review comments.
 

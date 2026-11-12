@@ -17,6 +17,9 @@ on:
       - 'math/Vector3d.cs'
       # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
       - 'mesh_ops/ExactMeshArrangement.cs'
+      # pilot 4: the termination of the midpoint split of the AABB tree build (split_termination.py, its source contract)
+      - 'spatial/DMeshAABBTree.cs'
+      - 'math/Interval1d.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -47,6 +50,7 @@ jobs:
           Z3_DRIFT_REFERENCE_REPORT: z3-drift-reference-report.json
           Z3_STEP_LOOPS_REPORT: z3-step-loops-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
+          Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -59,3 +63,4 @@ jobs:
             z3-drift-reference-report.json
             z3-step-loops-report.json
             z3-tritri-report.json
+            z3-split-termination-report.json

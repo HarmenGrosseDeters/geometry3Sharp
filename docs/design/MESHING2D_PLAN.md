@@ -55,6 +55,7 @@ Extrapolated, not measured, 1 000 000 points take months. It is no matter of tun
 | The fixture commit `74af291` | Already on master by its own PR |
 
 Recommendation to the owner: close #200 unmerged once a new M1 is up. Its PR is kept until then as the source of the test subject.
+(Done: #200 was closed unmerged on 2026-11-01.)
 
 ## 3. The order of work
 

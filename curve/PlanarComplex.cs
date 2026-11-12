@@ -466,6 +466,10 @@ namespace g3
 			public bool TrustOrientations;
 			public bool AllowOverlappingHoles;
 
+			/// <summary>
+			/// Default options. SimplifyDeviationTolerance is an absolute length (0.1 in the units of the input), so loops closer
+			/// than about that distance can be simplified past each other and lose their nesting; choose a smaller tolerance for small or close loops.
+			/// </summary>
 			public static readonly FindSolidsOptions Default = new FindSolidsOptions() {
 				SimplifyDeviationTolerance = 0.1,
 				WantCurveSolids = true,

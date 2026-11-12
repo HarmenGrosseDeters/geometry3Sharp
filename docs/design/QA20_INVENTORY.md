@@ -1,6 +1,7 @@
 # QA 2.0, step 1: inventory of tools x areas
 
-Status: analysis only (2026-11-09, Sonnet analysis session for the coordinator). No library or test code changes.
+Status: analysis only (2026-11-09, Sonnet analysis session for the coordinator). No library or test code changes. A snapshot
+of that day (eg #434 and #447 are merged since); the current state is in [QA20_STATUS.md](QA20_STATUS.md).
 Part of the [QA 2.0 milestone](../roadmap/platform.md#qa-20-milestone); strategy in [QA.md](../QA.md).
 
 How to read it: section 1 is the state of master at `2c7ba9f`. Section 2 is the grid (one glance), section 3 has

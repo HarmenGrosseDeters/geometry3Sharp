@@ -1,6 +1,7 @@
 # Acceptance of spec-driven work: references and golden masters
 
-Status: accepted by the owner on 2026-10-31, nothing of it is implemented yet. It replaces the plan for hidden acceptance tests by separate authors (#202). That plan needs
+Status: accepted by the owner on 2026-10-31, nothing of it was implemented then; the 2D mesher's oracle, reference
+comparison and golden format follow it since (MESHING2D_PLAN.md, MESHING2D_GOLDEN_FORMAT.md). It replaces the plan for hidden acceptance tests by separate authors (#202). That plan needs
 isolated authors, and this repository is public, with the quadtree implementation and its tests on `origin/quadtree`: the authors
 could read them, and nobody could tell. Independence now comes from references the implementer cannot bend: mathematics and other libraries.
 
