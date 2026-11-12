@@ -84,7 +84,12 @@ was a scratch console app, not committed.
 - (7) Memory layout: on a 780k mesh, a fully shuffled copy makes nearest queries 2.0x slower than generator order
   (2052 vs 1046 ms per 50k queries), Morton order recovers 1215 ms; rays and fast-winding evaluation change by
   10 % or less. The gain depends on how incoherent real inputs are: a Thingi10K measurement (file order vs Morton
-  order) on the owner's machine or a runner decides; with the owner.
+  order) decides. Measured 2026-11-12 (cloud session, 52 Thingi10K models fetched at run time, 64 to 1.1M
+  triangles, 11 above 200k; median of 5): file order is already at Morton speed (nearest file/Morton median 1.02,
+  large class 1.03; rays 1.00; fast winding 1.01-1.03; build 0.98-1.04; the gains above 10 % are at the box's
+  noise floor of about 10-15 %), while a shuffled copy is 1.37x slower on nearest queries in the large class.
+  Dropped: real inputs are coherent. Side finding: fast-winding values depend on the triangle order at the
+  approximation level (median relative difference 3.3e-6, max 5.4e-4), so any reorder would change them.
 - (8) Allocations of the solidify (2.2 GB, GC pauses 0.99 s of 12.3 s wall): about 45 % come from `DualContouring`
   (`find_crossings` 21 %, `cell_patches` 9 %, `solve_qef` with a new `SymmetricEigenSolver` per call 12.5 %), the
   fast-winding cache 4 %, `SmallListSet.ValueItr` enumerators 3 %. Upper bound for removing the `DualContouring`

@@ -66,7 +66,7 @@ Status on 2026-11-12 (morning, Berlin).
   (Difference total 973 -> 421 s, hash unchanged); open: the classification filter from local corner coordinates,
   the combinatorial zeros, possibly InCircle limbs. Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
-  memory layout (up to 2x on shuffled inputs) has its Thingi10K measurement (file order vs Morton order, about 50 models) running in a cloud session (owner 2026-11-12); the solidify's
+  memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
   `DualContouring` allocations bound about 4 % of wall.
   [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
