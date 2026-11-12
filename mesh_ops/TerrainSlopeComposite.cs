@@ -555,7 +555,6 @@ namespace gs
             if (Partner != null) {
                 Partner.Region = Region; Partner.Composite = Composite;
                 Partner.regionVerts = regionVerts; Partner.compVerts = compVerts; Partner.constructed = constructed;
-                Partner.RegionParent = RegionParent;
             }
             // the slope part (of both surfaces of a mixed run)
             if (slope_part() == false) return false;
@@ -1227,7 +1226,8 @@ namespace gs
         /// <summary>
         /// per triangle of Region, its slope triangle (of A, the realized surface of the run that made it) in XY: the
         /// position of its corners, in A's order. A region triangle that fails the exact check names the realized triangle
-        /// it was cut from (TerrainSlopeDesign: a needle there is merged on the next realization, TERRAIN.md 5.5)
+        /// it was cut from (TerrainSlopeDesign: a needle there is merged on the next realization, TERRAIN.md 5.5). Of this
+        /// composite's own slope triangles only (a mixed run's partner keeps its own)
         /// </summary>
         internal Dictionary<int, Vector2d[]> RegionParent = new Dictionary<int, Vector2d[]>();
 

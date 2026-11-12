@@ -128,6 +128,19 @@ namespace geometry3Sharp.Tests
                                          new Vector3d(-e, -0.75 * e, 0), new Vector3d(10, 0, 0), new Vector3d(0, 10, 0)), 12);
         }
 
+        // the overlap of t with one slope triangle s spans the capsules of two of s's boundary edges: every candidate lies
+        // within m of one of them, but not all within m of the same one, and the overlap (a convex set, the hull of the
+        // candidates) reaches 2.5 from both. It is compared: 1 (a rule "each candidate in some capsule" would give 0)
+        [Fact]
+        public void StepsOfTwoEdgesOfOneTriangle_AreNotOneStep()
+        {
+            var cut = new DMesh3();
+            int a = cut.AppendVertex(new Vector3d(0, 0, -1)), b = cut.AppendVertex(new Vector3d(40, 0, -1)), c = cut.AppendVertex(new Vector3d(0, 40, -1));
+            cut.AppendTriangle(a, b, c);
+            Assert.Equal(1.0, Bound(Plane((x, y) => 0), cut, null, -1, 0.01,
+                                    new Vector3d(-0.004, -0.004, 0), new Vector3d(5, 0.005, 0), new Vector3d(0.005, 5, 0)), 12);
+        }
+
         // a triangle without area in XY (a vertical wall of a step, eg at a toe crossing) holds no point of the height
         // field: 0, whatever the surfaces
         [Fact]

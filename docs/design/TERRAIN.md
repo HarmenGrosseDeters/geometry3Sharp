@@ -822,9 +822,12 @@ documentation says so.
     width w that tilts the plane by about e_z / w (#567, finding 1: on the inside of a closed square toe the four
     planes meet in two points 9e-12 apart, the needle from a toe corner to them has its catch points 7e-12 apart, and
     no margin δ helped, as w does not grow with δ). So a failing triangle of the region names the realized triangle it
-    was cut from; if that one has an edge within the band merge radius, the build realizes again, and the band merge
-    (5.4) takes it as failing and collapses its short edge, with its λ need as for any band merge. Only designs whose
-    region failed change; the others are bitwise as before;
+    was cut from; its edges within the band merge radius are recorded (by their ends in XY, for this margin δ), the
+    build realizes again, and the band merge (5.4) takes a triangle with such an edge as failing and collapses the edge,
+    with its λ need as for any band merge. The record belongs to the margin, so the reference path that builds anew
+    for each lowering (`RebuildForEachLowering`) keeps it and gives the same result. Only designs whose region failed
+    change; the others are bitwise as before. The mixed composite of `Auto` has no such feedback (each run certified
+    its own region first; a failure of the joint region stays a `SlopeViolation`);
   - the clipped part of an S̃ triangle is triangulated as a fan from its S̃ vertex farthest from the catch line, so
     altitudes stay large even where the catch-line vertices are nearly collinear (planar terrain at UTM).
 - **The move of the catch points and its certificate** (item (b) of section 11). The snap above, the merge of catch

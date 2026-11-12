@@ -227,9 +227,32 @@ namespace geometry3Sharp.Tests
             AssertCertified(s);
             TerrainSlopeDesign d = Make(s, 0);
             d.Compute();
-            // (by the merge of the region's needle, at the first margin, not by a larger one)
-            Assert.True(d.RegionNeedles > 0);
+            // (by the merge of the region's needle, at the first margin, not by a larger one: its edge recorded and found
+            // by the band merge)
+            Assert.True(d.RegionNeedles > 0 && d.RegionNeedleHits > 0, $"{d.RegionNeedles} edges, {d.RegionNeedleHits} hits");
             Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+            // the reference path, a new build for every lowering (TerrainSlopeOneBuildTests), keeps the margin's region
+            // needles: the same result bit for bit, and it ends (a time limit, not a hang)
+            TerrainSlopeDesign r = Make(s, 0);
+            r.RebuildForEachLowering = true;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            r.CancelF = () => sw.Elapsed.TotalSeconds > 60;
+            Assert.True(r.Compute(), r.Status + ": " + r.Message);
+            Assert.Equal(d.UsedToeLowering, r.UsedToeLowering);
+            Assert.Equal("", SameDesign(d, r, 1));
+            Assert.True(d.Attempts <= r.Attempts);
+        }
+
+        // the edge key of the region needles: the order of its ends and the sign of a zero do not matter
+        [Fact]
+        public void RegionNeedleEdgeKey_IgnoresOrderAndSignOfZero()
+        {
+            var p = new Vector2d(0.0, 1.5); var q = new Vector2d(-2.0, 0.25);
+            var a = new TerrainSlopeDesign.XYEdge(p, q); var b = new TerrainSlopeDesign.XYEdge(q, p);
+            Assert.Equal(a, b); Assert.Equal(a.GetHashCode(), b.GetHashCode());
+            var n = new TerrainSlopeDesign.XYEdge(new Vector2d(-0.0, 1.5), q);
+            Assert.Equal(a, n); Assert.Equal(a.GetHashCode(), n.GetHashCode());
+            Assert.NotEqual(a, new TerrainSlopeDesign.XYEdge(p, new Vector2d(-2.0, 0.5)));
         }
 
         /// <summary>
