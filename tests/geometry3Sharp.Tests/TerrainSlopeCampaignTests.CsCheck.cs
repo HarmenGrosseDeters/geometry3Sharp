@@ -189,7 +189,7 @@ namespace geometry3Sharp.Tests
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 d.SlopeRegion.GetTriVertices(t, ref a, ref b, ref c);
                 Assert.True(MathUtil.IsFinite(a.x + a.y + a.z + b.x + b.y + b.z + c.x + c.y + c.z), $"region triangle {t} is not finite");
-                TerrainSlopeDesign.SlopePiece pc = d.Pieces[d.SlopeRegion.GetTriangleGroup(t)];
+                SlopePiece pc = d.Pieces[d.SlopeRegion.GetTriangleGroup(t)];
                 Vector3d p0 = pc.P0, p1 = pc.P1;
                 if (pc.Direction == TerrainSlopeDesign.Directions.Fill) { a.z = -a.z; b.z = -b.z; c.z = -c.z; p0.z = -p0.z; p1.z = -p1.z; }
                 Assert.True(ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0, $"region triangle {t} is not counter-clockwise");
@@ -254,7 +254,7 @@ namespace geometry3Sharp.Tests
             CampaignRunner.Run(log, nameof(TerrainSlopeCampaignTests), "terrainslope", GenScene, s => Property(s, Shifts), CampaignRunner.Samples(5), 411u);
             // (not vacuous: most designs end with a result)
             if (CampaignRunner.Samples(5) >= 5 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY"))) Assert.True(accepted > 2 * rejected && volumeChecked > 0, $"{accepted} designs with a result, {rejected} with another status, {volumeChecked} volume checks");
-            log.WriteLine($"terrainslope: {accepted} designs with a result, {rejected} with another status, {volumeChecked} volume checks);
+            log.WriteLine($"terrainslope: {accepted} designs with a result, {rejected} with another status, {volumeChecked} volume checks");
         }
     }
 }
