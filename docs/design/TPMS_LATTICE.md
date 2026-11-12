@@ -29,8 +29,7 @@ Library (searched 2026-11-12):
 Literature (sources go to `docs/SOURCES.md`; formulas are public mathematics, nothing is ported):
 
 - Schoen 1970 (gyroid), Schwarz 1890 (P, D), Neovius 1883, Lidin & Larsson 1990 (Lidinoid), Gandy, Bardhan, Mackay & Klinowski
-  2001 (nodal approximations of P, G, D, I-WP: the cosine / sine sums used here are these approximations; citation to be
-  checked by the reviewer, it was written from memory).
+  2001 (nodal approximations of P, G, D, I-WP: the cosine / sine sums used here are these approximations).
 - Al-Ketan & Abu Al-Rub 2019 (sheet vs skeletal "solid network" lattices, level-set offset `f = c`, grading by a
   position dependent `c`): the standard AM description; how nTop-style tools and the open `MSLattice` generator work.
   That is the approach everybody uses (level set of the nodal approximation on a grid, then marching cubes); we add the
@@ -72,7 +71,7 @@ public class TpmsLattice
 ```
 
 Notes: all-fields mutable options like `MarchingCubes`/`DualContouring`; no existing type changes, so
-`dotnet pack` API validation stays green. The lattice frame (`Origin`, `Rotation`) makes the operation equivariant
+`dotnet pack` API validation stays green. The class is a generator, so it is equivariant, not invariant under rotating an input. The lattice frame (`Origin`, `Rotation`) makes the operation equivariant
 under `Similarity.All()`: the grid, the box and the field live in the local frame, vertices are mapped out at the end.
 For the 2^k scales the local frame sees identical numbers (grid index times `L/Divisions`, `x/L` exact), hence a bit
 for bit identical mesh up to the exact scaling; rotated and translated members agree to the rounding of the final map
@@ -86,11 +85,13 @@ Fields (p = 2 pi x / L): gyroid `sin x cos y + sin y cos z + sin z cos x`; P `co
 
 The solid is `S = {f <= c}` (skeletal; `SkeletalHigh` is `{f >= -c}`) or `S = {|f| <= t}` (sheet). Its volume
 fraction in the infinite lattice is the distribution function of `f` (or `|f|`) over one period, so the map is a
-**quantile**, no fit: sample the periodic field on a cell-centred `N^3` grid of one period (midpoint rule, `N = 64`,
+**sampled quantile**, no fit: sample the periodic field on a cell-centred `N^3` grid of one period (midpoint rule, `N = 64`,
 262 144 evaluations, a few ms; cached per type), sort, read the quantile at the target fraction, interpolate linearly
-between samples. Tolerance of the map: the sampled fraction differs from the true one by at most the surface-cell
-share, `< A/(L N)` with the unit-cell area ratio `A/L^2` (gyroid 3.09): below 5e-2 / 64 ~ 1e-2 absolute for the
-worst type; the test states the number it measures. The realized fraction of a clipped, discretised result is reported
+between samples. Tolerance of the map: the sampled fraction differs from the true one by about the share of the cells the
+level set cuts, `~ c A/(L N)` with `c` between 1 and sqrt 3 and the area ratio `A/L^2` (gyroid 3.09): a heuristic, not
+a bound (the signs of the cell errors do not simply add). The tests state the numbers they measure (0.02 of the
+range against a 112^3 table, +-0.007 on 1e5 random points). An exact quantile would need the contour area per level;
+not worth it here. The realized fraction of a clipped, discretised result is reported
 (`RealizedVolumeFraction`) and tested against the target with a stated tolerance (boundary share + discretisation).
 
 `WallThickness w` is mapped through the area ratio: `fraction = (A/L^2) * (w/L)` (flat-wall, first order; sheets only,

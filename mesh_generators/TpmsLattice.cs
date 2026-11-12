@@ -23,7 +23,7 @@ namespace g3
     /// Triply periodic minimal surface lattices (gyroid, Schwarz P and D, Neovius, I-WP) for additive manufacturing,
     /// clipped to a box or to the inside of a closed mesh. Marching cubes with <see cref="MarchingCubes.RootfindingModes.LinearEdges"/>
     /// on the field F = max((g - c) / Lw, d): g the style value of the nodal approximation, c the level for the volume
-    /// fraction (the exact quantile of g over one period), Lw a proven bound of the gradient of g so that F is 1-Lipschitz,
+    /// fraction (the sampled quantile of g over one period: 64^3 midpoint rule, linear between samples), Lw a proven bound of the gradient of g so that F is 1-Lipschitz,
     /// d the signed distance to the domain. The solid is {F &lt;= 0}, so the cut faces belong to it and the result is closed.
     ///
     /// Guarantees (docs/design/TPMS_LATTICE.md section 5): Status Ok only for a mesh that passed MeshRobustRepair.NotCleanReason
@@ -34,7 +34,8 @@ namespace g3
     ///
     /// The lattice lives in a local frame (Origin, Rotation): phase zero at the origin, the Box in local coordinates,
     /// the grid anchored at multiples of the cube size. The result is mapped to world coordinates at the end, so the
-    /// operation is equivariant under similarities (bit for bit under power-of-two scales).
+    /// operation is equivariant under similarities (bit for bit under power-of-two scales): a generator, not a field that is
+    /// invariant under rotating its input.
     /// </summary>
     public class TpmsLattice
     {
@@ -85,12 +86,14 @@ namespace g3
         public double RealizedVolumeFraction;
         /// <summary> 2 V / A of the result (the wall thickness of a sheet; a report, not a promise). </summary>
         public double MeanWallThickness;
-        /// <summary> Pairs found by the exact check (0 for Ok; the mesh is not exposed otherwise). </summary>
+        /// <summary> 0 for Ok; 1 when the exact check rejected the result (it stops at the first reason, so this is "at least one", not a count). </summary>
         public int SelfIntersectionsFound;
         /// <summary> Grid nodes of the successful (or last) attempt. </summary>
         public long CellsEvaluated;
         /// <summary> Number of grid shifts tried before the contouring succeeded (0 = the first grid; see the design note section 4). </summary>
         public int GridShiftsUsed;
+        /// <summary> The marching cubes level used (0 unless Enclosure: sqrt(3) h / 2 plus the floating point pad, in length units). </summary>
+        public double IsoValueUsed;
         /// <summary> NotCleanReason of a rejected result. </summary>
         public string NotCleanReason = "";
 
@@ -120,7 +123,7 @@ namespace g3
         }
 
         /// <summary> A proven bound of |grad f| in phase coordinates (triangle inequality on the closed forms; see the design note). </summary>
-        public static double GradientBound(TpmsType type)
+        internal static double GradientBound(TpmsType type)
         {
             double r3 = Math.Sqrt(3.0);
             switch (type) {
@@ -160,13 +163,13 @@ namespace g3
         /// The quantile table of g over one period: q[k] is the level for the fraction k / 1024 (midpoint rule on a cell-centred
         /// 64^3 grid of one period, sorted, linear interpolation). Cached per type and style. Public for tests.
         /// </summary>
-        public static double[] QuantileTable(TpmsType type, TpmsStyle style)
+        internal static double[] QuantileTable(TpmsType type, TpmsStyle style)
         {
             return tables.GetOrAdd((type, style), key => BuildTable(key.Item1, key.Item2, TableSamples));
         }
 
         /// <summary> The table for a given sampling resolution (not cached). Public for tests (an independent finer table). </summary>
-        public static double[] BuildTable(TpmsType type, TpmsStyle style, int n)
+        internal static double[] BuildTable(TpmsType type, TpmsStyle style, int n)
         {
             int total = checked(n * n * n);
             var values = new double[total];
@@ -190,7 +193,7 @@ namespace g3
         }
 
         /// <summary> The level for a volume fraction, from a quantile table (monotone, linear between the knots). </summary>
-        public static double LevelForFraction(double[] table, double fraction)
+        internal static double LevelForFraction(double[] table, double fraction)
         {
             double fr = Math.Min(Math.Max(fraction, MinFraction), MaxFraction);
             double pos = fr * TableKnots;
@@ -203,7 +206,7 @@ namespace g3
         /// Area of the surface f = 0 per period, in units of L^2 (marching cubes of one period with 48 cubes per period,
         /// triangles with the centroid in the half-open period). Cached per type.
         /// </summary>
-        public static double AreaRatio(TpmsType type)
+        internal static double AreaRatio(TpmsType type)
         {
             return areaRatios.GetOrAdd(type, t => {
                 const int n = 48;
@@ -279,7 +282,7 @@ namespace g3
         public void Compute()
         {
             Mesh = null; Message = ""; NotCleanReason = ""; Level = 0; RealizedVolumeFraction = 0; MeanWallThickness = 0;
-            SelfIntersectionsFound = 0; CellsEvaluated = 0; GridShiftsUsed = 0;
+            SelfIntersectionsFound = 0; CellsEvaluated = 0; GridShiftsUsed = 0; IsoValueUsed = 0;
             Status = TpmsStatus.InvalidOptions;
 
             // ---- options ----
@@ -394,6 +397,7 @@ namespace g3
                 }
             }
 
+            IsoValueUsed = isoValue;
             var field = new FieldFunction {
                 Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
@@ -438,6 +442,7 @@ namespace g3
                 // ---- certificate of the result ----
                 reason = MeshRobustRepair.NotCleanReason(result, VerifySelfIntersections);
                 // a node with a field value within rounding of the level makes a sliver triangle: another grid avoids it
+                // (only when degenerate triangles are the sole reason; a combined reason is reported, not retried)
                 if (reason == "degenerate triangles" && attempt + 1 < GridShifts.Length) { last = reason; result = null; continue; }
                 break;
             }

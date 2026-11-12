@@ -472,6 +472,25 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Enclosure_LevelIsAtLeastTheHalfDiagonalPlusPad()
+        {
+            // Pins the size of the level pad (a half-pad mutant, sqrt(3) h / 4, must fail): the recipe of CONSERVATIVE_MC_AUDIT needs
+            // sqrt(3) h / 2 plus the floating point pad 2^-26 (times the power of two above the largest coordinate, here 4).
+            foreach (int divisions in new[] { 8, 16, 32 }) {
+                var lattice = Make(TpmsType.SchwarzP, TpmsStyle.SkeletalLow, 0.3, divisions, 2);
+                lattice.Enclosure = true;
+                lattice.Compute();
+                Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+                double h = L / divisions;
+                Assert.True(lattice.IsoValueUsed >= Math.Sqrt(3) * h / 2 + 4 * Math.Pow(2, -26), "level " + lattice.IsoValueUsed);
+                Assert.True(lattice.IsoValueUsed <= Math.Sqrt(3) * h / 2 + 4 * Math.Pow(2, -22), "level " + lattice.IsoValueUsed);
+                var plain = Make(TpmsType.SchwarzP, TpmsStyle.SkeletalLow, 0.3, divisions, 2);
+                plain.Compute();
+                Assert.Equal(0.0, plain.IsoValueUsed);
+            }
+        }
+
+        [Fact]
         public void Enclosure_HoldsWhenTheGridIsShifted_AndInAFrame()
         {
             // (an enclosure level is never exactly hit by the box distance, so no retry is needed here; the dyadic shifts are
