@@ -103,8 +103,10 @@ Status on 2026-11-12 (morning, Berlin).
   2026-11-12; `nightly.yml` (cron 02:23 UTC) ran once on schedule (2026-11-11, started 09:36 UTC), none on 2026-11-12.
   [platform.md](roadmap/platform.md#open)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
-  no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462). Coarsening closed (re-measured: −4.5 %
-  triangles for +50 % mesher time).
+  no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
+  iterated image #526, collapsed stretches #535, #542, near contact #546 with owner decision D). Coarsening closed.
+  Inventory 2026-11-12: open are three untraced single triangles from #542 and the provenance delta after d9006aa
+  (needs a dirty-side session before a release).
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 2
   merged (#448), intersection-free dual contouring options A and B merged (#552, #572), point clouds step C1 merged (#580);
@@ -142,8 +144,7 @@ Planned, not started.
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Exact booleans: EMBER levers 2-4 re-ranked after the full Thingi10K run; boolean allocations (not scheduled).
   [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Meshing2D: near-contact inputs (stmlf/1461), not measured. [meshing2d.md](roadmap/meshing2d.md#open)
-- Meshing2D: SplitSegment speed; the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
+- Meshing2D: SplitSegment speed (upper-bound check first; its input 373600 is a corpus input); the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
