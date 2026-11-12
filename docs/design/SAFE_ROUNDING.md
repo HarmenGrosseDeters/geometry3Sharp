@@ -6,6 +6,12 @@ the research item "Practical 3D snap rounding with guarantees" (item 4): a conce
 Valque and Lazard, section 8 the experiment (prototypes of options A and B behind internal options, the measurements,
 and the verdict per criterion of the owner).
 
+Update 2026-11-12: section 2 (1b) was built in #279, the ulp tolerance (section 5) in #287 and the pass-through API in
+#294 (stage R, section 6). The experiment of section 8 closed options A and B as defaults (#313); the prototypes stay out of
+the library (8.7), so `math/DenseSimplex.cs` (section 8) exists only on the branch `claude/snap-rounding-A-archive`.
+The LP question of section 6.4 was answered by that experiment: a floating-point dense simplex, with correctness from
+the exact check.
+
 `ExactMeshBoolean` computes its result exactly and rounds the new vertices to double. `SafeRounding`
 (`MeshRoundingRepair`, on by default) then repairs what the rounding leaves: self-intersections and degenerate
 triangles (area below `1e-12` of the squared diagonal, as `MeshRobustRepair.NotCleanReason`). It uses local edits,
