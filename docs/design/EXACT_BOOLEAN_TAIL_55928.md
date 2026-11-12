@@ -318,13 +318,24 @@ From the review of #633:
 - `antipodal_value` with a point error against the value at a point displaced by it.
 - L3's `LocalPoints` against the exact differences.
 
-Bound mutants that survive, each covered by another term:
+Bound mutants that survive. Covered by another term:
 - The carry length without its error term (the 1e-15 term covers it).
 - ToGrid without the addition's rounding (the origin's 2^-52 covers it where the conversion rounds to nearest).
-- `Center.Local` with half its corners' term, or half its rounding term. The corners' errors are taken as 2^-52 for
-  runtimes that truncate; rounding to nearest gives half.
-- In `pierce_prefilter`: the rows' point errors in dn, and the points' term. The margin 1e-9 S |n|_1 covers them; the
-  decisive term, the whole err(x), and the orientation guard are killed.
+- `Center.Local` with half its corners' term: equivalent where the conversion rounds to nearest. It then provides
+  1.58e-16 m against the 1.48e-16 m needed. The corners' errors are taken as 2^-52 for runtimes that truncate;
+  rounding to nearest gives half.
+- In `pierce_prefilter`: the rows' point errors in dn, and the points' term. The margin 1e-9 S |n|_1 covers them.
+
+Not covered, but unreachable in tests (the worst case needs every rounding and every input error extreme at once):
+- `Center.Local` with half its rounding term: 1.37e-16 m against 1.48e-16 m in the worst case.
+- `pierce_prefilter` with dn halved: the bound's slack against the errors a test can produce (moves of 0.9 of the
+  allowed error, signs at random).
+- `antipodal_value` with `pointError` dropped from one end of a term only: the 16 times tolerance absorbs it. Dropped
+  from both ends, it is killed.
+- The centroid acceptance with the condition of before the review (only for bounds above 1e-6): the difference shows
+  only within about 1e-12 of a half-integer.
+
+Killed: the decisive term of `pierce_prefilter`, the whole err(x), and its orientation guard.
 
 **The threshold.**
 - Every traced value is that of an Antipodal evaluation with another ray. Its threshold can differ from the piece's own
