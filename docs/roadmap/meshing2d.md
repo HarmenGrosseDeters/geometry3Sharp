@@ -67,7 +67,7 @@ Research or not scheduled (not built without a new decision):
   collapsed double chains as a certificate that the oracle checks.
 - **Parked** (no use case; [platform.md](platform.md#stage-8-planned-follow-ups)): the `.poly` reader keeps crossing /
   touching / overlapping segment groups as constraints only. Done (2026-11-12): the d² exact tests at a vertex of degree d are an
-  angular sort (d log d; 20k-spoke wheel 5.5 s to 4.0 s: the rest is the quadtree visiting the long segments of a hub, a loose
+  angular sort (d log d; wheel of n spokes, ReadPoly: 5000 0.39 s to 0.27 s, 10 000 1.25 s to 0.97 s, 20 000 5.5 s to 4.0 s: the rest is the quadtree visiting the long segments of a hub, a loose
   quadtree keeps them in its top nodes, so a sweep would be the next lever, not parked work of its own), and the mesh2d report
   sums the areas in units of a power of two near the extent (right down to the double range) and adds `area_relative`.
 

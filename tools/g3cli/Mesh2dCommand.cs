@@ -413,7 +413,8 @@ namespace g3cli
                 double minAng = double.MaxValue, maxArea = 0, area = 0;
                 // the areas are summed in units of 2^exp (a power of two near the extent of the mesh: exact), so that the products of the
                 // edge vectors neither underflow nor lose bits for tiny coordinates; one scaling back at the end
-                double extent = Extent(m2.Vertices);
+                // (of the vertices of the triangles: a point far from the domain, in no triangle, does not enlarge the unit)
+                double extent = Extent(m2.Vertices.Where((v, i) => map[i] >= 0).ToList());
                 int exp = extent > 0 && double.IsFinite(extent) ? Math.ILogB(extent) : 0;
                 var labels = new SortedDictionary<int, int>();
                 for (int t = 0; t < m2.TriangleCount; ++t) {

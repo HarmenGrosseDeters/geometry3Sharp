@@ -82,14 +82,16 @@ namespace g3cli.Tests
         }
 
         [Theory]
-        [InlineData(1.0, 0.0, 0.0)]
         [InlineData(1.0 / 1024, 0.0, 0.0)]
         [InlineData(1024.0, 0.0, 0.0)]
-        [InlineData(1.0, 632117.25, 5712043.5)]
-        [InlineData(0.001, 632117.25, 5712043.5)]
-        public void Invariance_ScaleAndTranslation(double scale, double dx, double dy)
+        [InlineData(1.0, 1024.0, -4096.0)]
+        [InlineData(1.0 / 64, 1.0 / 2, 3.0)]
+        public void Invariance_ExactScalesAndTranslations(double scale, double dx, double dy)
         {
+            // powers of two and translations by small multiples of them are exact on these small integers: the same improper segments as
+            // the reference on the integers
             var rnd = new Random(8);
+            int withBad = 0;
             for (int c = 0; c < 80; ++c) {
                 var pts = Enumerable.Range(0, 7).Select(i => new[] { (long)rnd.Next(4), (long)rnd.Next(4) }).GroupBy(p => (p[0], p[1])).Select(g => g.First()).ToArray();
                 var edges = new List<Index2i>();
@@ -99,13 +101,24 @@ namespace g3cli.Tests
                     if (a != b && seen.Add((Math.Min(a, b), Math.Max(a, b)))) edges.Add(new Index2i(a, b));
                 }
                 var expected = Reference(pts, edges);
-                // the powers of two and the translation are exact on these small integers (0.001 and the UTM offset are not, and the
-                // translated points lose the small differences: only the exact scales are compared with the reference)
-                bool exact = Math.Log(scale, 2) % 1 == 0 && dx == 0;
-                var got = TrianglePolyFormat.ImproperSegments(ToVectors(pts, scale, dx, dy), edges);
-                if (exact) Assert.Equal(expected, got);
-                else Assert.Equal(expected.Length, got.Length);
+                Assert.Equal(expected, TrianglePolyFormat.ImproperSegments(ToVectors(pts, scale, dx, dy), edges));
+                if (expected.Any(x => x)) ++withBad;
             }
+            Assert.True(withBad > 10);
+        }
+
+        [Theory]
+        [InlineData(1e150)]
+        [InlineData(1e-150)]
+        [InlineData(1e-300)]
+        public void ExtremeScales_GiveTheResultOfTheIntegers(double scale)
+        {
+            // collinear overlaps and crossings at coordinates near the ends of the double range (the half-plane test compares, the orientations are exact)
+            var pts = new long[][] { new long[] { 0, 0 }, new long[] { 2, 0 }, new long[] { 5, 0 }, new long[] { 1, 3 }, new long[] { 1, -3 }, new long[] { 0, 4 } };
+            var edges = new List<Index2i> { new Index2i(0, 1), new Index2i(0, 2), new Index2i(3, 4), new Index2i(0, 5) };
+            var bad = TrianglePolyFormat.ImproperSegments(ToVectors(pts, scale), edges);
+            Assert.Equal(Reference(pts, edges), bad);
+            Assert.Equal(new[] { true, true, true, false }, bad);     // 0-1 and 0-2 overlap; 3-4 crosses both; 0-5 only touches at 0
         }
 
         [Fact]

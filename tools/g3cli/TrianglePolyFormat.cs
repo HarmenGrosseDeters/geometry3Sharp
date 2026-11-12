@@ -335,7 +335,8 @@ namespace g3cli
         /// <summary>
         /// The segments (between vertices, no two equal) that meet another one other than at one shared end point: a crossing, a
         /// touch of an end point on the inside of another, or an overlap along one line (exact). Segments with a shared end point are
-        /// decided by the directions around that point (d log d at a vertex of degree d); all others by a segment quadtree.
+        /// decided by the directions around that point (d log d at a vertex of degree d); all others by a segment quadtree. Precondition
+        /// (AddLoops makes it): no segment has equal end points, no two segments are equal, no two vertices share a position.
         /// </summary>
         internal static bool[] ImproperSegments(IReadOnlyList<Vector2d> pts, List<Index2i> edges)
         {
@@ -392,6 +393,7 @@ namespace g3cli
             var incident = new Dictionary<int, List<int>>();
             for (int e = 0; e < edges.Count; ++e)
                 foreach (int v in new[] { edges[e].a, edges[e].b }) {
+                    if (edges[e].a == edges[e].b) break;      // (not a segment; the precondition excludes it)
                     if (!incident.TryGetValue(v, out var l)) incident[v] = l = new List<int>();
                     l.Add(e);
                 }

@@ -33,6 +33,7 @@ namespace g3cli.Tests
         }
 
         [Theory]
+        [InlineData(1e60)]
         [InlineData(1.0)]
         [InlineData(1e-100)]
         [InlineData(1e-150)]
@@ -58,18 +59,20 @@ namespace g3cli.Tests
         }
 
         [Theory]
-        [InlineData(1.0 / 1024, 0.0, 0.0)]
-        [InlineData(1024.0, 0.0, 0.0)]
-        [InlineData(1e-3, 0.0, 0.0)]
-        [InlineData(1e3, 0.0, 0.0)]
-        [InlineData(1.0, 632117.25, 5712043.5)]
-        [InlineData(1e-3, 632117.25, 5712043.5)]
-        public void RelativeArea_DoesNotChangeUnderSimilarities(double scale, double ox, double oy)
+        [InlineData(1.0 / 1024, 0.0, 0.0, true)]
+        [InlineData(1024.0, 0.0, 0.0, true)]
+        [InlineData(1.0, 4096.0, -1024.0, true)]
+        [InlineData(1e-3, 0.0, 0.0, false)]
+        [InlineData(1e3, 0.0, 0.0, false)]
+        [InlineData(1.0, 632117.25, 5712043.5, true)]
+        [InlineData(1e-3, 632117.25, 5712043.5, false)]
+        public void RelativeArea_DoesNotChangeUnderSimilarities(double scale, double ox, double oy, bool exact)
         {
             double reference = D(RunMesh(1.0)["area_relative"]);
             double got = D(RunMesh(scale, ox, oy)["area_relative"]);
-            // the 2^k scales are exact; the others and the translation round the coordinates (the UTM offset leaves about 7 digits of 1e-3)
-            double tolerance = (Math.Log(scale, 2) % 1 == 0 && ox == 0) ? 0 : ox != 0 ? 1e-6 : 1e-12;
+            // exact: powers of two and offsets that keep the coordinates exact (the square side 3 is a multiple of a quarter at these
+            // offsets) give the same value; the others round the coordinates a little
+            double tolerance = exact ? 0 : ox != 0 ? 1e-6 : 1e-12;
             Assert.True(Math.Abs(got - reference) <= tolerance * reference, $"{got:R} vs {reference:R}");
         }
 
