@@ -15,9 +15,9 @@ namespace geometry3Sharp.Tests
             foreach (double gap in new[] { 1e-1, 1e-2, 1e-3, 1e-6 })
             foreach (bool offset in new[] { false, true })
             foreach (bool sort in new[] { false, true })
-            foreach (Similarity s in Similarity.All()) {
+            foreach (Similarity s in Similarity.All2D()) {
                 bool expectedPass = sort
-                    ? !(s == Similarity.RotatedUtmMillimetre && gap == 1e-6)
+                    ? !(s == Similarity.RotatedZUtmMillimetre && gap == 1e-6)
                     : s == Similarity.Pow2Large || s == Similarity.Kilometre;
                 if (passing == expectedPass)
                     yield return new object[] { gap, offset, sort, s.Name };

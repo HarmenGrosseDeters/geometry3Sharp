@@ -89,7 +89,7 @@ Status on 2026-11-12 (morning, Berlin).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #642, #643, #646, #648, #657 (#645), #655 (#647); open PRs #627 (draft), #656 (#644); open `local` issues #636-#638;
+  #641, #642, #643, #646, #648, #657 (#645), #655 (#647), #656 (#644); open PRs #627 (draft) and the `Similarity.All2D()` harness PR (2D tests on the similarities of the plane); open `local` issues #636-#638;
   #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since

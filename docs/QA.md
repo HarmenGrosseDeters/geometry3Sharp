@@ -137,6 +137,13 @@ results mapped back to the original frame.
 - a scale of 1e-3 and of 1e3;
 - a rotation;
 - a rotation, a scale of 1e-3 and the UTM translation together.
+
+**2D inputs** (`Similarity.All2D()`, `Apply2d`, `Inverse2d`, `Angle2d`): the rotations of `All()` also tilt about x and y, so
+the xy part of their image is a rotation with a squash, not a similarity of the plane. Tests whose input is a set of points,
+segments or polygons in the plane use `All2D()`: the identity, UTM, the scales 2^-10, 2^10, 1e-3 and 1e3, a rotation about z
+by 31 degrees, and a rotation about z by 23 degrees with the scale 1e-3 and the UTM translation. A pinned case that needs the
+squash (`QualityMesh2NearTJunctionTests.RotatedFan`, `QualityMesh2GridRerouteSweepTests`) keeps `ByName("rotated")`. Operations on
+3D points with a height (the quadtree adapters, which project) keep `All()`.
 - **A scale by 2^-10 and by 2^10.** A power-of-two scale is exact in floating point, so an operation without
   absolute constants must give the same result, scaled, up to the last bits; most tests check it bit for bit
   (`Similarity.IsExact`). This catches

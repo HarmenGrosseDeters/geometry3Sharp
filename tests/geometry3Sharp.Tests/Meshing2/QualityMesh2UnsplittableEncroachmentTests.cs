@@ -56,7 +56,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Counts[15] > 0, "no subsegment was left unsplit next to another source");
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> under every similarity the k = 26 fan terminates below its Steiner limit and the oracle accepts it (the angle bound
         /// included), and the 2^k scales give the same mesh bit for bit. Under a rotation the T-junction ends are rounded off A; that ran to the
