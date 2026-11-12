@@ -1,0 +1,20 @@
+scenario | cores | max s | median s | sum s | meshes > 20 s | > 10 s | speedup (sum) | 40118 | 860049 | 69261
+today (master 1230482), M on 4 cores | 4 | 69.0 | 25.5 | 680 | 18 | 24 | 1.00x | 69.0 | 56.6 | 37.0
+today (master 1230482), M on 4 cores | 16 | 58.8 | 20.7 | 560 | 13 | 24 | 1.21x | 58.8 | 47.8 | 30.2
+(B) alone: main carve in rounds | 4 | 40.2 | 16.4 | 426 | 8 | 22 | 1.60x | 40.2 | 38.4 | 21.5
+(B) alone: main carve in rounds | 16 | 24.2 | 9.1 | 232 | 2 | 10 | 2.94x | 21.6 | 24.2 | 10.2
+(B) + trials halved (local trials only) | 4 | 35.3 | 15.2 | 379 | 4 | 20 | 1.79x | 35.3 | 31.5 | 19.8
+(B) + trials halved (local trials only) | 16 | 17.3 | 7.8 | 185 | 0 | 2 | 3.68x | 16.7 | 17.3 | 8.4
+(B) + trials free (bound) | 4 | 30.3 | 13.3 | 332 | 2 | 18 | 2.05x | 30.3 | 24.6 | 18.0
+(B) + trials free (bound) | 16 | 11.7 | 5.8 | 138 | 0 | 2 | 4.92x | 11.7 | 10.4 | 6.6
+(B) + every rest phase perfectly parallel (floor) | 4 | 28.8 | 11.5 | 302 | 2 | 15 | 2.25x | 28.8 | 23.9 | 16.8
+(B) + every rest phase perfectly parallel (floor) | 16 | 7.4 | 2.9 | 77 | 0 | 0 | 8.84x | 7.4 | 6.1 | 4.3
+everything perfectly parallel (Amdahl floor, no re-evaluation) | 4 | 27.5 | 11.1 | 290 | 2 | 14 | 2.35x | 27.5 | 23.0 | 16.1
+everything perfectly parallel (Amdahl floor, no re-evaluation) | 16 | 6.9 | 2.8 | 72 | 0 | 0 | 9.38x | 6.9 | 5.8 | 4.0
+size budget raw <= 300k, M on 4 cores | 4 | 19.4 | 14.4 | 338 | 0 | 22 | 2.01x | 2.2 | 11.6 | 16.6
+size budget raw <= 300k, M on 4 cores | 16 | 16.1 | 11.6 | 274 | 0 | 20 | 2.48x | 1.5 | 9.1 | 13.9
+size budget + (B) | 4 | 13.1 | 9.0 | 217 | 0 | 8 | 3.13x | 1.5 | 7.8 | 10.6
+size budget + (B) | 16 | 8.1 | 4.6 | 118 | 0 | 0 | 5.77x | 0.7 | 4.2 | 6.1
+size budget + (B) + trials halved | 4 | 11.3 | 8.3 | 196 | 0 | 2 | 3.48x | 1.5 | 6.9 | 9.0
+size budget + (B) + trials halved | 16 | 6.1 | 3.9 | 96 | 0 | 0 | 7.09x | 0.6 | 3.3 | 4.6
+tail phase shares for the model: carve 52.2%, pinch_carve 0.0%, trials 13.7%, quality 1.6%, par 23.5%, rest 8.9%
