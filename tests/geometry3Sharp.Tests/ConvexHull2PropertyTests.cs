@@ -219,6 +219,51 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(-1070)]      // coordinates up to 1000 * 2^-1070: the extent is subnormal (the exponent is read after scaling up by 2^64)
+        [InlineData(-1060)]
+        public void SubnormalExtent_GivesTheHullOfTheIntegerGrid(int e)
+        {
+            // small integers times 2^e are exact subnormal doubles, so the scaled copy is exact
+            var rng = new Random(2026111803);
+            var ints = new List<Vector2d>();
+            for (int i = 0; i < 40; ++i) ints.Add(new Vector2d(rng.Next(1000), rng.Next(1000)));
+            var reference = new ConvexHull2(ints, 1e-300, QueryNumberType.QT_DOUBLE);
+            var tiny = ints.Select(p => new Vector2d(ExactPoint3.ScaleB(p.x, e), ExactPoint3.ScaleB(p.y, e))).ToList();
+            Assert.True(tiny.Max(p => p.x) < 2.2250738585072014e-308, "the extent is not subnormal");
+            var hull = new ConvexHull2(tiny, 1e-320, QueryNumberType.QT_DOUBLE);
+            Assert.Equal(2, hull.Dimension);
+            Assert.True(reference.HullIndices.SequenceEqual(hull.HullIndices), "other hull indices");
+        }
+
+        [Fact]
+        public void ExtentExponent_IsTheBinaryExponent_AlsoForSubnormals()
+        {
+            // 2^k <= x < 2^(k+1), exact. (An end-to-end test cannot tell a wrong exponent for a subnormal extent: the scaled extent
+            // stays above the 2.2e-16 of Normalize.)
+            var values = new List<double> { 5e-324, 1e-323, 3e-320, 1e-310, 2.2250738585072009e-308, 2.2250738585072014e-308, 1e-300, 0.001, 0.5, 0.99999, 1, 1.5, 2, 3, 1000, 1e300, 1.7976931348623157e308 };
+            foreach (double x in values) {
+                int k = ConvexHull2.ExtentExponent(x);
+                Assert.True(ExactPoint3.ScaleB(1, k) <= x && (k == 1023 || x < ExactPoint3.ScaleB(1, k + 1)), $"{x}: exponent {k}");
+            }
+            Assert.Equal(0, ConvexHull2.ExtentExponent(0));
+            Assert.Equal(0, ConvexHull2.ExtentExponent(double.PositiveInfinity));
+        }
+
+        [Fact]
+        public void ExtentThatOverflows_StillGivesTheExactHull()
+        {
+            // finite coordinates of both signs near the double range: max - min is infinite (the old code scaled by 1 / infinity = 0)
+            var rng = new Random(2026111804);
+            // (Vector2d.IsFinite tests x + y, so a point with two large coordinates of one sign is refused: the points sit near the axes)
+            var pts = new List<Vector2d> { new Vector2d(9e307, 1), new Vector2d(-9e307, -2), new Vector2d(3, 9e307), new Vector2d(-1, -9e307) };
+            for (int i = 0; i < 40; ++i) pts.Add(new Vector2d((rng.NextDouble() - 0.5) * 1e307, (rng.NextDouble() - 0.5) * 1e307));
+            Assert.True(double.IsInfinity(pts.Max(p => p.x) - pts.Min(p => p.x)), "the extent does not overflow");
+            var hull = new ConvexHull2(pts, 1e-12, QueryNumberType.QT_DOUBLE);
+            Assert.Equal(2, hull.Dimension);
+            Assert.True(Extreme(hull.HullIndices.Select(i => pts[i])).SetEquals(Chain(pts)), "not the exact hull");
+        }
+
         [Fact]
         public void Hull_UnderTheSimilaritiesOfTheHarness_IsTheExactHull()
         {

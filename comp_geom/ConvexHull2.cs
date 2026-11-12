@@ -106,12 +106,12 @@ namespace g3
             // polygon refer to the original points.
             IList<Vector2d> work = vertices;
             if (mNumVertices > 0 && epsilon < 1) {
-                double extent = Extent(vertices);
+                int k;
+                double extent = Extent(vertices, out k);
                 if (extent < epsilon) {
                     mDimension = 0;
                     return;
                 }
-                int k = ExtentExponent(extent);
                 if (k != 0) {
                     var scaled = new Vector2d[mNumVertices];
                     for (int i = 0; i < mNumVertices; ++i)
@@ -234,8 +234,9 @@ namespace g3
 
 
 
-        // the larger side of the bounding box of the points (computed from halves if the difference overflows)
-        static double Extent(IList<Vector2d> v)
+        // the larger side of the bounding box of the points, and its exponent k with extent in [2^k, 2^(k+1)): for a difference
+        // that overflows (coordinates of both signs near the double range) the extent is infinite and k is taken from half of it
+        static double Extent(IList<Vector2d> v, out int k)
         {
             double minx = v[0].x, maxx = minx, miny = v[0].y, maxy = miny;
             for (int i = 1; i < v.Count; ++i) {
@@ -243,13 +244,12 @@ namespace g3
                 miny = Math.Min(miny, v[i].y); maxy = Math.Max(maxy, v[i].y);
             }
             double range = Math.Max(maxx - minx, maxy - miny);
-            if (double.IsInfinity(range))
-                range = 2 * Math.Max(0.5 * maxx - 0.5 * minx, 0.5 * maxy - 0.5 * miny);
+            k = double.IsInfinity(range) ? ExtentExponent(Math.Max(0.5 * maxx - 0.5 * minx, 0.5 * maxy - 0.5 * miny)) + 1 : ExtentExponent(range);
             return range;
         }
 
         // k with extent in [2^k, 2^(k+1)); 0 for an extent that is zero, or not finite
-        static int ExtentExponent(double extent)
+        internal static int ExtentExponent(double extent)
         {
             if (!(extent > 0) || double.IsInfinity(extent))
                 return 0;
