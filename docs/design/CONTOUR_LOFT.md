@@ -1,6 +1,6 @@
 # ContourLoft, stage 1: a band between two closed contours
 
-Status: approved by the coordinator 2026-11-12; built in #741 (section 9 lists what changed while building). Roadmap: [research.md](../roadmap/research.md) item 9; background
+Status: approved by the coordinator 2026-11-12; built in #741 (section 9 lists what changed while building and the measurements). Roadmap: [research.md](../roadmap/research.md) item 9; background
 [TERRAIN.md](TERRAIN.md) §9.2; sources in [SOURCES.md](../SOURCES.md) (contour lofting row).
 
 ## 1. Problem
@@ -108,7 +108,7 @@ All options are read at the start of `Compute`; nothing is cached between calls 
   fine: the grid graph is acyclic, the DP needs no non-negativity. Meant for convex contours, as in the paper (documented).
 - **Custom**: any finite double, may be negative. The delegate must be deterministic (called once per triangle, in a fixed
   order).
-- **NormalizeForCost**: the built-in costs are evaluated on copies of the contours, each translated to its area centroid
+- **NormalizeForCost**: the built-in costs are evaluated on copies of the contours, each translated to its vertex centroid
   and scaled by 1 / sqrt(|area|), the second one at unit distance from the first along the normal. The admissibility test
   and the output always use the input positions.
 
@@ -156,17 +156,17 @@ benchmark `benchmarks/ContourLoftBenchmark` reports both at n = 250, 1000, 2000.
 ## 7. Result checks (never a silently wrong band)
 
 On every path to `Success`:
-- the start reported is the internal path's first spanning edge (First[0], Second[J]); when the band holds several spanning
-  edges at First[0], any of them may be reported;
+- the start reported is the smallest J with (First[0], Second[J]) an edge of the band, read off the band's steps (also when
+  the first contour is the shorter one, which the search uses as its start contour);
 - each band triangle is non-degenerate (exact: not all three of its coordinate-plane orientations, `ExactPredicates.Orient2d`
   on xy, yz and zx, are zero), every vertex finite;
 - the band is a manifold with exactly two boundary loops, equal to P and Q as given (edge for edge);
 - orientation consistent; with caps oriented outward (the signed volume of the closed solid is positive);
 - `CheckSelfIntersections`: no intersecting pair of non-adjacent triangles (exact), else `SelfIntersecting`;
-- with caps: each cap's boundary is exactly its contour (no merged or split vertex or edge), then
-  `MeshRobustRepair.NotCleanReason(mesh) == ""`, else `CapFailed`.
+- with caps: every contour vertex is kept by its cap at its position and not merged (checked directly); a split contour edge
+  shows as an open edge in `MeshRobustRepair.NotCleanReason(mesh)` ("not closed"), which must be `""`, else `CapFailed`.
 
-## 8. Tests (planned)
+## 8. Tests (as planned; section 9 lists the additions)
 
 - **Oracle, closed form**: coaxial regular n-gons (same and rotated by half a step, m = n and m = 2n): the optimal band is
   known (the straight / zigzag correspondence); its area by formula.

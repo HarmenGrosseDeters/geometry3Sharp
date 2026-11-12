@@ -55,10 +55,12 @@ namespace geometry3Sharp.Tests
             int m = P.Count, n = Q.Count;
             var res = new BruteResult();
             var band = new List<Tri>();
+            var seen = new Dictionary<string, (int, double)>();
             void Walk(int i, int j, int k, int cnt, double c)
             {
                 if (i == m && j == n) {
                     if (Turns(band) < 3) return;   // a fan over a whole contour: not a manifold band
+                    seen[Key(band)] = (cnt, c);
                     if (cnt < res.MinCount || cnt == res.MinCount && c < res.Best) {
                         if (cnt == res.MinCount) res.Second = res.Best; else res.Second = double.PositiveInfinity;
                         res.MinCount = cnt; res.Best = c; res.BestBand = new List<Tri>(band);
@@ -75,6 +77,11 @@ namespace geometry3Sharp.Tests
                 }
             }
             for (int k = 0; k < n; ++k) Walk(0, 0, k, 0, 0);
+            // a band with several spanning edges at P_0 is enumerated once per start: the runner-up is the best other band
+            res.Second = double.PositiveInfinity;
+            string bestKey = Key(res.BestBand);
+            foreach (var kv in seen)
+                if (kv.Key != bestKey && kv.Value.Item1 == res.MinCount) res.Second = Math.Min(res.Second, kv.Value.Item2);
             return res;
         }
 
@@ -586,6 +593,33 @@ namespace geometry3Sharp.Tests
             Assert.Equal(brute.MinCount, r.InadmissibleTriangles);
         }
 
+        [Fact]
+        public void NotSteeperThan_DecidesAsSlopeIsNotSteeper()
+        {
+            // the cached factors give the oracle's decision on every triangle, also at the limit, degenerate and non-finite
+            var rand = new Random(3);
+            var specs = new[] { SlopeSpec.Ratio(3), SlopeSpec.Percent(37.5), SlopeSpec.Rise(0.3), SlopeSpec.Degrees(30) };
+            Assert.Throws<ArgumentException>(() => ContourLoft.NotSteeperThan(SlopeSpec.Ratio(-1)));
+            int yes = 0, no = 0;
+            foreach (var spec in specs) {
+                var test = ContourLoft.NotSteeperThan(spec);
+                for (int k = 0; k < 4000; ++k) {
+                    Vector3d a = new Vector3d(rand.Next(-8, 9), rand.Next(-8, 9), rand.Next(-3, 4));
+                    Vector3d b = new Vector3d(rand.Next(-8, 9), rand.Next(-8, 9), rand.Next(-3, 4));
+                    Vector3d c = k % 50 == 0 ? new Vector3d(double.NaN, 0, 0) : k % 7 == 0 ? a + (b - a) * 2 : new Vector3d(rand.Next(-8, 9), rand.Next(-8, 9), rand.Next(-3, 4));
+                    bool expect = Slope.IsNotSteeper(a, b, c, spec);
+                    Assert.Equal(expect, test(new ContourLoftTriangle { A = a, B = b, C = c }));
+                    if (expect) yes++; else no++;
+                }
+                // exactly at the limit: rise 1 over a run of 3 for 1:3
+                if (spec.Kind == SlopeSpec.Kinds.Ratio) {
+                    Assert.True(test(new ContourLoftTriangle { A = new Vector3d(0, 0, 0), B = new Vector3d(1, 0, 0), C = new Vector3d(0, 3, 1) }));
+                    Assert.False(test(new ContourLoftTriangle { A = new Vector3d(0, 0, 0), B = new Vector3d(1, 0, 0), C = new Vector3d(0, 2.999999, 1) }));
+                }
+            }
+            Assert.True(yes > 1000 && no > 1000, $"{yes} / {no}");
+        }
+
         static bool IsNotSteeper(DMesh3 mesh, int tid, SlopeSpec spec)
         {
             Index3i t = mesh.GetTriangle(tid);
@@ -633,6 +667,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, calls);
             loft.MaxCells = 20;
             Assert.Equal(ContourLoftStatus.Success, loft.Compute(P, Q).Status);
+        }
+
+        [Fact]
+        public void TooLarge_ForTheStateArrays_EvenWithAHugeMaxCells()
+        {
+            // 15000 x 15000 nodes of 10 states do not fit an int-indexed array: TooLarge, before anything is allocated
+            var P = Regular(15000, 1, 0); var Q = Regular(15000, 1, 1);
+            var r = new ContourLoft { MaxCells = long.MaxValue }.Compute(P, Q);
+            Assert.Equal(ContourLoftStatus.TooLarge, r.Status);
+            Assert.Contains("arrays", r.Reason);
+        }
+
+        [Fact]
+        public void ThinContour_IsNotZeroArea()
+        {
+            // an area of 1e-170 of the extent: its squared Newell normal underflows, the normal itself does not
+            var P = new List<Vector3d> { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1e-170, 0), new Vector3d(0, 1e-170, 0) };
+            var Q = Regular(5, 0.5, 1, 0, 0.5, 0);
+            var r = new ContourLoft { CheckSelfIntersections = false }.Compute(P, Q);
+            Assert.DoesNotContain("zero area", r.Reason);
+            Assert.Equal(ContourLoftStatus.Success, r.Status);
         }
 
         [Fact]
@@ -702,17 +757,20 @@ namespace geometry3Sharp.Tests
             Similarity s = Similarity.ByName(name);
             var (P, Q) = InvarianceInput();
             foreach (var cost in new[] { ContourLoftCost.MinimumArea, ContourLoftCost.MaximumVolume })
-                foreach (bool caps in new[] { false, true }) {
-                    var loft = new ContourLoft { Cost = cost, Caps = caps };
-                    var expected = loft.Compute(P, Q);
-                    AssertValidBand(expected, P, Q, caps);
-                    var Ps = P.Select(s.Apply).ToList(); var Qs = Q.Select(s.Apply).ToList();
+                foreach (bool caps in new[] { false, true })
+                foreach (bool normalize in new[] { false, true })
+                foreach (bool swap in new[] { false, true }) {
+                    var X = swap ? Q : P; var Y = swap ? P : Q;
+                    var loft = new ContourLoft { Cost = cost, Caps = caps, NormalizeForCost = normalize };
+                    var expected = loft.Compute(X, Y);
+                    AssertValidBand(expected, X, Y, caps);
+                    var Ps = X.Select(s.Apply).ToList(); var Qs = Y.Select(s.Apply).ToList();
                     var got = loft.Compute(Ps, Qs);
                     Assert.Equal(ContourLoftStatus.Success, got.Status);
                     if (s.IsExact) {
                         Assert.Equal(expected.StartOffset, got.StartOffset);
                         Assert.Equal("", Invariance.Difference(expected.Mesh, Invariance.MappedBack(got.Mesh, s)));
-                        double f = cost == ContourLoftCost.MinimumArea ? s.Scale * s.Scale : s.Scale * s.Scale * s.Scale;
+                        double f = normalize ? 1 : cost == ContourLoftCost.MinimumArea ? s.Scale * s.Scale : s.Scale * s.Scale * s.Scale;
                         Assert.Equal(expected.TotalCost * f, got.TotalCost);
                     } else if (!caps) {
                         // the band's triangles (ids) are the same; the caps' Delaunay triangulation may flip at near-cocircular points
@@ -723,6 +781,72 @@ namespace geometry3Sharp.Tests
                         Assert.Equal("", MeshRobustRepair.NotCleanReason(got.Mesh));
                     }
                 }
+        }
+
+        [Fact]
+        public void StartOffset_IsTheSmallestSpanningEdgeAtFirst0_AlsoWhenFirstIsShorter()
+        {
+            // the review's case: a 4-gon first, an 8-gon second rotated so that First[0] meets Second[6]
+            var P = Regular(4, 1, 0); var Q = Regular(8, 1, 1, -6 * 2 * Math.PI / 8);
+            foreach (var (a, b) in new[] { (P, Q), (Q, P) }) {
+                var r = new ContourLoft().Compute(a, b);
+                AssertValidBand(r, a, b);
+                int expected = Spanning(r.Mesh, a.Count).Where(e => e.Item1 == 0).Min(e => e.Item2);
+                Assert.Equal(expected, r.StartOffset);
+            }
+            for (int seed = 0; seed < 20; ++seed) {
+                var rand = new Random(seed);
+                var a = Star(rand, 3 + seed % 5, 0); var b = Star(rand, 4 + seed % 7, 1);
+                foreach (var (x, y) in new[] { (a, b), (b, a) }) {
+                    var r = new ContourLoft { CheckSelfIntersections = false }.Compute(x, y);
+                    Assert.Equal(Spanning(r.Mesh, x.Count).Where(e => e.Item1 == 0).Min(e => e.Item2), r.StartOffset);
+                }
+            }
+        }
+
+        [Fact]
+        public void FullRegionFallback_GivesTheSameBand()
+        {
+            for (int seed = 0; seed < 6; ++seed) {
+                var rand = new Random(seed);
+                var P = Star(rand, 30 + seed, 0); var Q = Star(rand, 11 + seed, 0.7);
+                foreach (var cost in new[] { ContourLoftCost.MinimumArea, ContourLoftCost.MaximumVolume }) {
+                    var a = new ContourLoft { Cost = cost, CheckSelfIntersections = false }.Compute(P, Q);
+                    var b = new ContourLoft { Cost = cost, CheckSelfIntersections = false, EmptyRegionsForTests = true }.Compute(P, Q);
+                    Assert.Equal(0, a.FullRegionFallbacks);
+                    Assert.Equal(Q.Count - 1, b.FullRegionFallbacks);
+                    Assert.Equal(a.Status, b.Status);
+                    Assert.Equal(a.TotalCost, b.TotalCost, 12);
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(-1000)]
+        [InlineData(-600)]
+        [InlineData(-268)]
+        [InlineData(-30)]
+        [InlineData(300)]
+        [InlineData(700)]
+        public void ExtremePowerOfTwoScales_GiveTheSameBand(int k)
+        {
+            // the double geometry runs in a working frame scaled by a power of two, so the decisions do not depend on the exponent
+            var (P, Q) = InvarianceInput();
+            Vector3d S(Vector3d p) => new Vector3d(Math.ScaleB(p.x, k), Math.ScaleB(p.y, k), Math.ScaleB(p.z, k));
+            var Ps = P.Select(S).ToList(); var Qs = Q.Select(S).ToList();
+            foreach (var loft in new[] { new ContourLoft(), new ContourLoft { Cost = ContourLoftCost.MaximumVolume }, new ContourLoft { NormalizeForCost = true } }) {
+                var expected = loft.Compute(P, Q);
+                var got = loft.Compute(Ps, Qs);
+                Assert.Equal(ContourLoftStatus.Success, expected.Status);
+                Assert.Equal(ContourLoftStatus.Success, got.Status);
+                var a = expected.Mesh.TriangleIndices().Select(t => expected.Mesh.GetTriangle(t)).ToList();
+                var b = got.Mesh.TriangleIndices().Select(t => got.Mesh.GetTriangle(t)).ToList();
+                Assert.Equal(a, b);
+                int f = loft.NormalizeForCost ? 0 : loft.Cost == ContourLoftCost.MinimumArea ? 2 : 3;
+                double scaled = Math.ScaleB(expected.TotalCost, f * k);
+                if (scaled != 0 && !double.IsInfinity(scaled) && Math.Abs(scaled) >= 2.2250738585072014E-308)
+                    Assert.Equal(scaled, got.TotalCost);
+            }
         }
 
         [Fact]

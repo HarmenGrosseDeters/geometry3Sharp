@@ -70,7 +70,10 @@ namespace g3
         public DMesh3 Mesh { get; internal set; }
         /// <summary> The band's total cost, the sum the search minimized (for MaximumVolume: minus the band's share of the volume). </summary>
         public double TotalCost { get; internal set; }
-        /// <summary> The J of the spanning edge (First[0], Second[J]) of the band. </summary>
+        /// <summary>
+        /// The smallest J such that (First[0], Second[J]) is an edge of the band (on NoAdmissibleBand: of the band with the fewest
+        /// violations that the search found).
+        /// </summary>
         public int StartOffset { get; internal set; }
         /// <summary> 0 on Success; on NoAdmissibleBand the smallest number of inadmissible triangles in any band (exact). </summary>
         public int InadmissibleTriangles { get; internal set; }
@@ -100,6 +103,12 @@ namespace g3
     /// must lie strictly on the same side of the other contour's (Newell) plane. Contours running in opposite directions are
     /// matched (the second one is traversed backwards; ids still follow the input). Dissimilar or offset contours can make the
     /// optimal band intersect itself; that is checked exactly and reported (<see cref="ContourLoftStatus.SelfIntersecting"/>).</para>
+    /// <para>Range: the double geometry (orientation, separation, the built-in costs) runs on the input scaled by a power of two to
+    /// a largest coordinate in [1, 2), so the band is the same for the input scaled by any 2^k that keeps it normal and finite;
+    /// <see cref="ContourLoftResult.TotalCost"/> is scaled back and may then underflow or overflow. A contour whose area is below
+    /// about 2^-1000 of its extent squared may still be reported as zero area. Caps: QualityMesh2's coordinate range (below 1e70)
+    /// applies, and a solid whose height is above about 1e5 times its width fails NotCleanReason's degenerate-triangle threshold
+    /// (CapFailed, never a silent result).</para>
     /// </remarks>
     public sealed class ContourLoft
     {
@@ -125,12 +134,17 @@ namespace g3
         public bool CheckSelfIntersections = true;
         /// <summary> Largest m * n accepted (memory, about 36 bytes each); above it the status is TooLarge. </summary>
         public long MaxCells = 1L << 22;
+        /// <summary> tests only: every bounded region is empty, so each start takes the full-region fallback </summary>
+        internal bool EmptyRegionsForTests;
 
         /// <summary> An admissibility test for terrain: the triangle is not steeper than the spec (exact, <c>gs.Slope.IsNotSteeper</c>). </summary>
         public static Func<ContourLoftTriangle, bool> NotSteeperThan(gs.SlopeSpec spec)
         {
             if (!spec.IsValid) throw new ArgumentException("the slope spec is not valid");
-            return t => gs.Slope.IsNotSteeper(t.A, t.B, t.C, spec);
+            // the decision of gs.Slope.IsNotSteeper, with the spec's factors computed once (the public overload validates the
+            // spec on every call, which costs more than the predicate's filter)
+            spec.Factors(out double k1a, out double k1b, out double k2a, out double k2b);
+            return t => gs.Slope.IsNotSteeper(t.A, t.B, t.C, k1a, k1b, k2a, k2b);
         }
 
         /// <exception cref="ArgumentNullException">A contour is null.</exception>
@@ -152,7 +166,10 @@ namespace g3
             readonly ContourLoftResult result = new ContourLoftResult();
 
             // internal contours: A (m vertices, the rows) and B (n <= m vertices, the starts); B runs the same way as A
-            Vector3d[] A, B;
+            Vector3d[] A, B;       // the input points
+            Vector3d[] WA, WB;     // the same in the working frame, scaled by 2^-e (exact): all double geometry runs on these
+            int e;                 // the exponent of the largest input coordinate
+            int costExp;           // the reported cost is the working cost times 2^costExp
             int m, n;
             bool swapped;          // A is the second contour
             bool reversedB;        // B is its input contour backwards
@@ -175,24 +192,33 @@ namespace g3
             {
                 string why = Validate(first, "first") ?? Validate(second, "second");
                 if (why != null) return Fail(ContourLoftStatus.InvalidInput, why);
-                if ((long)first.Count * second.Count > o.MaxCells || (long)(first.Count + 1) * (second.Count + 1) > int.MaxValue / 2)
+                if ((long)first.Count * second.Count > o.MaxCells)
                     return Fail(ContourLoftStatus.TooLarge, "m * n = " + ((long)first.Count * second.Count) + " is above MaxCells = " + o.MaxCells);
+                // the largest array: the predecessors, States bytes per node of the (m + 1) x (n + 1) grid, indexed in int
+                if ((long)(first.Count + 1) * (second.Count + 1) * States > int.MaxValue)
+                    return Fail(ContourLoftStatus.TooLarge, "m * n = " + ((long)first.Count * second.Count) + " is above what the arrays can hold");
 
-                Vector3d c1 = Centroid(first), c2 = Centroid(second);
-                Vector3d n1 = Newell(first, c1), n2 = Newell(second, c2);
-                if (n1.LengthSquared == 0 || !n1.IsFinite) return Fail(ContourLoftStatus.InvalidInput, "the first contour has zero area");
-                if (n2.LengthSquared == 0 || !n2.IsFinite) return Fail(ContourLoftStatus.InvalidInput, "the second contour has zero area");
-                if (!StrictlyOneSide(second, c1, n1) || !StrictlyOneSide(first, c2, n2))
+                // The working frame: the inputs scaled by a power of two so that the largest coordinate is in [1, 2). Scaling by 2^k is
+                // exact, so every double decision (orientation, separation, costs) is the same for an input scaled by 2^k, also near
+                // the ends of the double range. Exact tests (admissibility, self-intersections) and the output use the input.
+                e = MaxExponent(first, second);
+                Vector3d[] w1 = Scaled(first, -e), w2 = Scaled(second, -e);
+                Vector3d c1 = Centroid(w1), c2 = Centroid(w2);
+                Vector3d n1 = Newell(w1, c1), n2 = Newell(w2, c2);
+                if (n1 == Vector3d.Zero || !n1.IsFinite) return Fail(ContourLoftStatus.InvalidInput, "the first contour has zero area");
+                if (n2 == Vector3d.Zero || !n2.IsFinite) return Fail(ContourLoftStatus.InvalidInput, "the second contour has zero area");
+                if (!StrictlyOneSide(w2, c1, n1) || !StrictlyOneSide(w1, c2, n2))
                     return Fail(ContourLoftStatus.InvalidInput, "the contours' planes are not separated (a vertex lies on or across the other contour's plane)");
 
                 swapped = second.Count > first.Count;
                 IList<Vector3d> a = swapped ? second : first, b = swapped ? first : second;
+                Vector3d[] wa = swapped ? w2 : w1, wb = swapped ? w1 : w2;
                 Vector3d na = swapped ? n2 : n1, nb = swapped ? n1 : n2, ca = swapped ? c2 : c1, cb = swapped ? c1 : c2;
                 m = a.Count; n = b.Count;
-                A = new Vector3d[m]; B = new Vector3d[n];
-                for (int i = 0; i < m; ++i) A[i] = a[i];
+                A = new Vector3d[m]; B = new Vector3d[n]; WA = new Vector3d[m]; WB = new Vector3d[n];
+                for (int i = 0; i < m; ++i) { A[i] = a[i]; WA[i] = wa[i]; }
                 reversedB = na.Dot(nb) < 0;
-                for (int j = 0; j < n; ++j) B[j] = b[reversedB ? (n - j) % n : j];
+                for (int j = 0; j < n; ++j) { int q = reversedB ? (n - j) % n : j; B[j] = b[q]; WB[j] = wb[q]; }
 
                 // The band's internal triangles are down (A_i, A_i+1, B_j) and right (A_i, B_j+1, B_j): A forwards, B backwards. Closed by
                 // cap A (A backwards, normal -na) and cap B, the solid is outward iff cap A's normal points away from B.
@@ -202,12 +228,46 @@ namespace g3
                 if (costWhy != null) return Fail(ContourLoftStatus.InvalidCost, costWhy);
 
                 Search(out int best, out int count, out double cost, out byte[] steps);
-                result.StartOffset = InputIndexB(best);
-                result.TotalCost = cost;
+                result.StartOffset = StartOf(best, steps);
+                result.TotalCost = ExactPoint3.ScaleB(cost, costExp);
                 result.InadmissibleTriangles = count;
                 if (count > 0)
                     return Fail(ContourLoftStatus.NoAdmissibleBand, "every band has an inadmissible triangle (at least " + count + ")");
                 return Build(best, steps);
+            }
+
+            // the smallest J with (First[0], Second[J]) a spanning edge of the band of start s
+            int StartOf(int s, byte[] steps)
+            {
+                int best = int.MaxValue, i = 0, j = s;
+                for (int k = 0; ; ++k) {
+                    if (swapped) { if (InputIndexB(j) == 0) best = Math.Min(best, i % m); }
+                    else if (i % m == 0) best = Math.Min(best, InputIndexB(j));
+                    if (k == steps.Length) break;
+                    if (steps[k] == 1) i++; else j++;
+                }
+                return best;
+            }
+
+            static int MaxExponent(IList<Vector3d> p, IList<Vector3d> q)
+            {
+                double big = 0;
+                foreach (var c in new[] { p, q })
+                    for (int i = 0; i < c.Count; ++i)
+                        big = Math.Max(big, Math.Max(Math.Abs(c[i].x), Math.Max(Math.Abs(c[i].y), Math.Abs(c[i].z))));
+                if (big == 0) return 0;
+                int shift = 0;
+                if (big < 2.2250738585072014E-308) { big *= 18446744073709551616.0; shift = 64; }   // subnormal: 2^64 first (exact)
+                long bits = BitConverter.DoubleToInt64Bits(big);
+                return (int)((bits >> 52) & 0x7FF) - 1023 - shift;
+            }
+
+            static Vector3d[] Scaled(IList<Vector3d> c, int k)
+            {
+                var r = new Vector3d[c.Count];
+                for (int i = 0; i < c.Count; ++i)
+                    r[i] = new Vector3d(ExactPoint3.ScaleB(c[i].x, k), ExactPoint3.ScaleB(c[i].y, k), ExactPoint3.ScaleB(c[i].z, k));
+                return r;
             }
 
             static string Validate(IList<Vector3d> c, string name)
@@ -280,18 +340,23 @@ namespace g3
                 // the points the built-in costs see
                 Vector3d[] PA = new Vector3d[m], PB = new Vector3d[n];
                 if (o.NormalizeForCost) {
-                    double sa = Math.Sqrt(Newell(A, ca).Length / 2), sb = Math.Sqrt(Newell(B, cb).Length / 2);
-                    Vector3d up = na.Normalized * sgn;
-                    for (int i = 0; i < m; ++i) PA[i] = (A[i] - ca) / sa;
-                    for (int j = 0; j < n; ++j) PB[j] = (B[j] - cb) / sb + up;
+                    // (working coordinates are below 2 in magnitude, so these squares neither overflow nor, for a contour of
+                    // non-zero area, all vanish; the unit normal from a copy scaled by a power of two)
+                    double sa = Math.Sqrt(Newell(WA, ca).Length / 2), sb = Math.Sqrt(Newell(WB, cb).Length / 2);
+                    Vector3d up = UnitOf(na) * sgn;
+                    for (int i = 0; i < m; ++i) PA[i] = (WA[i] - ca) / sa;
+                    for (int j = 0; j < n; ++j) PB[j] = (WB[j] - cb) / sb + up;
+                    costExp = 0;
                 } else {
                     Vector3d c = Vector3d.Zero;
-                    for (int i = 0; i < m; ++i) c += A[i];
-                    for (int j = 0; j < n; ++j) c += B[j];
+                    for (int i = 0; i < m; ++i) c += WA[i];
+                    for (int j = 0; j < n; ++j) c += WB[j];
                     c /= (m + n);
-                    for (int i = 0; i < m; ++i) PA[i] = A[i] - c;
-                    for (int j = 0; j < n; ++j) PB[j] = B[j] - c;
+                    for (int i = 0; i < m; ++i) PA[i] = WA[i] - c;
+                    for (int j = 0; j < n; ++j) PB[j] = WB[j] - c;
+                    costExp = o.Cost == ContourLoftCost.MinimumArea ? 2 * e : o.Cost == ContourLoftCost.MaximumVolume ? 3 * e : 0;
                 }
+                if (o.Cost == ContourLoftCost.Custom) costExp = 0;
                 double largest = 0;
                 for (int i = 0; i < m; ++i) {
                     ct.ThrowIfCancellationRequested();
@@ -326,6 +391,14 @@ namespace g3
                 if (!MathUtil.IsFinite(largest * (m + n) * 2))
                     return "the costs are too large to be summed along a band";
                 return null;
+            }
+
+            // v / |v| for v != 0, computed on v scaled by a power of two (no overflow or underflow of the squares)
+            static Vector3d UnitOf(Vector3d v)
+            {
+                int k = MaxExponent(new[] { v }, new Vector3d[0]);
+                Vector3d u = new Vector3d(ExactPoint3.ScaleB(v.x, -k), ExactPoint3.ScaleB(v.y, -k), ExactPoint3.ScaleB(v.z, -k));
+                return u / u.Length;
             }
 
             static double Area(Vector3d a, Vector3d b, Vector3d c) => 0.5 * (b - a).Cross(c - a).Length;
@@ -398,7 +471,8 @@ namespace g3
                 int lo = boundLo[s], hi = boundHi[s];
                 for (int i = 0; i <= m; ++i) {
                     int L = s, R = s + n;
-                    if (lo >= 0) {
+                    if (lo >= 0 && o.EmptyRegionsForTests) { L = s + 1; R = s; }
+                    else if (lo >= 0) {
                         L = Math.Max(L, Math.Min(spanLo[lo * (m + 1) + i], spanLo[hi * (m + 1) + i]));
                         R = Math.Min(R, Math.Max(spanHi[lo * (m + 1) + i], spanHi[hi * (m + 1) + i]));
                     }
@@ -435,70 +509,84 @@ namespace g3
                 return end;
             }
 
+            // Next(st, dir) as a table, [2 st + dir]
+            static readonly byte[] NextTable = BuildNext();
+            static byte[] BuildNext()
+            {
+                var t = new byte[2 * States];
+                for (int st = 0; st < States; ++st) { t[2 * st] = (byte)Next(st, 0); t[2 * st + 1] = (byte)Next(st, 1); }
+                return t;
+            }
+
+            // The state arrays are column-major (index States * column + state). Offers are made in a fixed order (from above, states
+            // ascending, then from the left), and only a strictly better offer replaces one, so ties keep the earlier offer.
             int SolveInRegion(int s, out int count, out double cost)
             {
+                int[] cp = cntPrev, cc = cntCur; double[] dp = dPrev, dc = dCur;
+                byte[] pr = pred, next = NextTable;
                 int w = n + 1;
                 for (int i = 0; i <= m; ++i) {
                     int L = regionL[i], R = regionR[i];
-                    int ia = i % m;
+                    int pL = i > 0 ? regionL[i - 1] : int.MaxValue, pR = i > 0 ? regionR[i - 1] : int.MinValue;
+                    int ia = i % m, rowDown = (i - 1) * n, rowRight = ia * n;
                     result.SearchWork += R - L + 1;
                     for (int j = L; j <= R; ++j) {
-                        int c = j - s, cell = (i * w + c) * States;
-                        for (int st = 0; st < States; ++st) pred[cell + st] = None;
+                        int c = j - s, cell = (i * w + c) * States, cur = c * States;
+                        for (int st = 0; st < States; ++st) pr[cell + st] = None;
                         // from above: a down step, triangle (A_i-1, A_i, B_j)
-                        if (i > 0 && j >= regionL[i - 1] && j <= regionR[i - 1]) {
-                            int k = (i - 1) * n + j % n;
+                        if (j >= pL && j <= pR) {
+                            int k = rowDown + j % n;
                             int bad = badDown[k] ? 1 : 0; double w2 = costDown[k];
-                            if (i - 1 == 0 && j == s) Offer(c, 0, bad, w2, FromStart, cell);
+                            if (i == 1 && j == s) { cc[cur] = bad; dc[cur] = w2; pr[cell] = FromStart; }
                             else
-                                for (int st = 0; st < States; ++st)
-                                    if (cntPrev[st * w + c] != int.MaxValue)
-                                        Offer(c, Next(st, 0), cntPrev[st * w + c] + bad, dPrev[st * w + c] + w2, st, cell);
+                                for (int st = 0, from = cur; st < States; ++st, ++from) {
+                                    int c0 = cp[from];
+                                    if (c0 == int.MaxValue) continue;
+                                    int ns = next[2 * st], idx = cur + ns, c2 = c0 + bad; double d2 = dp[from] + w2;
+                                    int cOld = cc[idx];
+                                    if (cOld == int.MaxValue || c2 < cOld || c2 == cOld && d2 < dc[idx]) { cc[idx] = c2; dc[idx] = d2; pr[cell + ns] = (byte)st; }
+                                }
                         }
                         // from the left: a right step, triangle (A_i, B_j, B_j-1)
                         if (j > L) {
-                            int k = ia * n + (j - 1) % n;
+                            int k = rowRight + (j - 1) % n;
                             int bad = badRight[k] ? 1 : 0; double w2 = costRight[k];
-                            if (i == 0 && j - 1 == s) Offer(c, 5, bad, w2, FromStart, cell);
-                            else
-                                for (int st = 0; st < States; ++st)
-                                    if (cntCur[st * w + c - 1] != int.MaxValue)
-                                        Offer(c, Next(st, 1), cntCur[st * w + c - 1] + bad, dCur[st * w + c - 1] + w2, st, cell);
+                            if (i == 0 && j - 1 == s) {
+                                int idx = cur + 5;
+                                if (cc[idx] == int.MaxValue || bad < cc[idx] || bad == cc[idx] && w2 < dc[idx]) { cc[idx] = bad; dc[idx] = w2; pr[cell + 5] = FromStart; }
+                            } else
+                                for (int st = 0, from = cur - States; st < States; ++st, ++from) {
+                                    int c0 = cc[from];
+                                    if (c0 == int.MaxValue) continue;
+                                    int ns = next[2 * st + 1], idx = cur + ns, c2 = c0 + bad; double d2 = dc[from] + w2;
+                                    int cOld = cc[idx];
+                                    if (cOld == int.MaxValue || c2 < cOld || c2 == cOld && d2 < dc[idx]) { cc[idx] = c2; dc[idx] = d2; pr[cell + ns] = (byte)st; }
+                                }
                         }
                     }
                     // the current row becomes the previous one; cells outside the region stay unreachable
-                    var ti = cntPrev; cntPrev = cntCur; cntCur = ti;
-                    var td = dPrev; dPrev = dCur; dCur = td;
+                    var ti = cp; cp = cc; cc = ti;
+                    var td = dp; dp = dc; dc = td;
                     // only the region's columns of the row before were written (resetting all would cost O(n) per row and
                     // make every start O(m n), the whole search O(m n^2))
-                    if (i > 0) Clear(cntCur, regionL[i - 1] - s, regionR[i - 1] - s);
+                    if (i > 0) Clear(cc, pL - s, pR - s);
                 }
+                cntPrev = cp; cntCur = cc; dPrev = dp; dCur = dc;
                 // at (m, s + n): the states with at least 3 turns (first step down, then first step right)
                 int end = -1; count = int.MaxValue; cost = 0;
                 foreach (int st in EndStates) {
-                    int cc = cntPrev[st * w + n];
-                    if (cc == int.MaxValue) continue;
-                    if (end < 0 || Less(cc, dPrev[st * w + n], count, cost)) { end = st; count = cc; cost = dPrev[st * w + n]; }
+                    int cnt = cp[n * States + st];
+                    if (cnt == int.MaxValue) continue;
+                    if (end < 0 || Less(cnt, dp[n * States + st], count, cost)) { end = st; count = cnt; cost = dp[n * States + st]; }
                 }
-                Clear(cntPrev, regionL[m] - s, regionR[m] - s);
+                Clear(cp, regionL[m] - s, regionR[m] - s);
                 return end;
             }
 
             void Clear(int[] cnt, int from, int to)
             {
-                int w = n + 1;
                 result.SearchWork += to - from + 1;
-                for (int st = 0; st < States; ++st)
-                    for (int c = from; c <= to; ++c) cnt[st * w + c] = int.MaxValue;
-            }
-
-            // a candidate for state st at column c of the current row (strictly better only: ties keep the earlier offer)
-            void Offer(int c, int st, int cnt, double d, int from, int cell)
-            {
-                int w = n + 1, idx = st * w + c;
-                if (cntCur[idx] == int.MaxValue || Less(cnt, d, cntCur[idx], dCur[idx])) {
-                    cntCur[idx] = cnt; dCur[idx] = d; pred[cell + st] = (byte)from;
-                }
+                for (int k = from * States, e = (to + 1) * States; k < e; ++k) cnt[k] = int.MaxValue;
             }
 
             // the steps of start s from the pred table of its last solve: 1 = down, 2 = right, in band order
@@ -579,7 +667,8 @@ namespace g3
             string AddCap(DMesh3 mesh, IList<Vector3d> c, int off)
             {
                 int k = c.Count;
-                Vector3d nrm = Newell(c, Centroid(c));
+                Vector3d[] wc = Scaled(c, -e);
+                Vector3d nrm = Newell(wc, Centroid(wc));
                 int axis = Math.Abs(nrm.x) >= Math.Abs(nrm.y) && Math.Abs(nrm.x) >= Math.Abs(nrm.z) ? 0 : Math.Abs(nrm.y) >= Math.Abs(nrm.z) ? 1 : 2;
                 int ax = (axis + 1) % 3, ay = (axis + 2) % 3;
                 var input = new ConstrainedMesh2Input { Heights = new List<double>() };
