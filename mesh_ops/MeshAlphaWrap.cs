@@ -861,7 +861,10 @@ namespace gs
         /// which found nothing (Alpha Wrap 3.0 lever 4): the pinch refinement after the quality refinement runs then (also
         /// without quality points) and confirms with a full trial, whose labels the manifold step reuses as before. The result
         /// differs from the confirmed run only where that skipped trial would have found a spot the local trials missed
-        /// (Counts confirm_skipped; a spot found later is refined after the quality points instead of before)
+        /// (Counts confirm_skipped; a spot found later is refined after the quality points instead of before). If the quality
+        /// refinement ends at MaxSteinerPoints (PointLimitReached), the second pass does not run: such a spot is then left to
+        /// the final manifold step, as every spot is after the point limit (no point could be inserted for it); where the
+        /// skipped trial would have found nothing, the final manifold step gives the labels it would have kept
         /// </summary>
         internal bool SkipFirstConfirm = true;
         bool skippedConfirm;
@@ -1321,7 +1324,8 @@ namespace gs
                         if (edgeN[e] > 2) fix_star(v, edgeX[e]);
                     // the vertex (once its edges are manifold; otherwise it is queued again by the flips), unless its result
                     // facets form one disk (link_is_one_cycle): then the star has one inside and one outside component and
-                    // fix_star would change nothing
+                    // fix_star would change nothing. (The hull guard is for the 8 box corners, the only vertices on the box:
+                    // their link is a disk, not a sphere; their stars carry no result facets in practice, see the PR #670 review)
                     if (flippedCells.Count == 0 && !(edgeX.Count == 0 || !hull && link_is_one_cycle()))
                         fix_star(v, -1);
                     flips += flippedCells.Count;

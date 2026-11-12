@@ -91,6 +91,36 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the quality refinement ends at the point limit: the second pass does not run, so a skipped confirmation is left to
+        // the final manifold step; the result keeps the PointLimitReached guarantees (closed, manifold) and, where the skipped
+        // trial finds nothing (these inputs), equals the run with the confirmation
+        [Fact]
+        public void SkipFirstConfirm_QualityAtPointLimit_SameResult()
+        {
+            int skippedAtLimit = 0;
+            foreach (object[] c in Pinned()) {
+                DMesh3 input = AlphaWrapTests.RandomSoup((int)c[0]);
+                var full = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2] };
+                Assert.True(full.Compute(), full.Error);
+                long q = full.Counts["quality_points"];
+                if (q < 2) continue;
+                // (a limit the quality refinement reaches: half its points short of the run without a limit)
+                int limit = (int)(full.Counts["steiner_points"] - q / 2);
+                var on = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2], MaxSteinerPoints = limit };
+                var off = new MeshAlphaWrap(input) { RelativeAlpha = (double)c[1], RelativeOffset = (double)c[2], MaxSteinerPoints = limit, SkipFirstConfirm = false };
+                on.Compute(); off.Compute();
+                Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, on.Status);
+                Assert.Equal(off.Status, on.Status);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(on.Result));
+                Assert.Equal(Hash(off.Result), Hash(on.Result));
+                if (on.Counts.TryGetValue("confirm_skipped", out long k) && k > 0) {
+                    skippedAtLimit++;
+                    Assert.False(on.PhaseMilliseconds.ContainsKey("wrap.pinches2"));
+                }
+            }
+            Assert.True(skippedAtLimit > 0, "no input skipped the confirmation before reaching the limit");
+        }
+
         // computed twice on one instance (and so on a new triangulation each time): the same result; the stars of the
         // first triangulation are not reused for the second
         [Fact]
