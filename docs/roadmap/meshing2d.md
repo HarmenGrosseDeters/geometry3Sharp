@@ -28,17 +28,19 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
-- **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
-  Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
-  as z (labels as groups where they fit). Effort S.
+- **#664 (bugfix, owner 2026-11-12):** the near-contact fan of #661 under the `rotated` similarity runs to the Steiner limit
+  (about 400 000 vertices; same on master). Cause: the rotation rounds a T-junction end off A, so `PairOf` misses the
+  meeting pair. Fix (in progress, one PR): the mesher treats an end within its tolerance of the other segment as meeting,
+  and the oracle takes such an end as apex when the lines do not meet on both closed segments (owner 2026-11-12: excuse
+  widening approved; both parts ship together).
 
-- **Three single triangles at 1e-7..1e-9 radian (from #542):** in the near-contact fan (T-junction segments ending 2^-k beside a
-  long segment, constrained quality mode), scale 1.13 at k = 26 and 28 leaves three single triangles below the bound that the
-  oracle does not excuse (fan factors 1.13; [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md) section 2), not
-  traced. Next: trace them with the fan generator of `Meshing2OracleCrossingRoundingTests`; a mesher defect gets a fix with a
-  failing test, an oracle gap goes to the coordinator first (no oracle widening without a decision). The tie at fan scale 1.0
-  (a split point exactly at the tolerance 2^-41 from another source, refused by the mesher, not excused by the oracle's
-  `O11Unsplittable` margin) stays documented, not fixed (coordinator decision in #542). Effort S-M.
+- **Three single triangles at 1e-7..1e-9 radian (from #542): traced and fixed (2026-11-12, #661).** In the near-contact fan (scale
+  1.13, k = 26 and 28, constrained quality mode) each triangle lay below A at a T-junction apex, its off-centre in the diametral
+  circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave such a triangle up, which the oracle's O11
+  exemptions (a circumcentre behind the piece) do not cover. Fix in the mesher (coordinator decision, option A: no oracle or spec
+  change): the encroachment of an unsplittable piece no longer stops the point, as on the grid. Golden rows f-26 / f-27 re-recorded.
+  Before merge: a public-corpus runner A/B (`runs/meshing2d-unsplittable-encroach`, JOB-1). The tie at fan scale 1.0 (a split point
+  exactly at the tolerance 2^-41 from another source) stays documented, not fixed (coordinator decision in #542).
 - **Provenance delta after `d9006aa`:** stage 6b-3 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md),
   ff0c378) covers master `d9006aa`, no (A) finding. Since then `QualityMesh2.cs`, `ConstrainedDelaunayMesh2.cs` and
   `SnapRounding2.cs` changed by +383 / −61 lines (#394 small-angle rule, #437 corner choice, #441 / #462 rule C, #496 the
@@ -46,6 +48,9 @@ Actionable:
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
   must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
   dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
+- **2.5D output (owner 2026-11-12):** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
+  so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
+  isolated). Additive API. Done: #663, merged 2026-11-12 (f0578fb6).
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
@@ -97,7 +102,7 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   stay judged by the full image (self-check B1 kept).
 - **The #542 oracle gap: done.** A vertex computed from two near-parallel sources counts on either side of the apex within
   `RoundingReach2` (#542, 2026-11-10). Its two leftovers: the tie at fan scale 1.0 (documented, coordinator decision) and three
-  single triangles (Open).
+  single triangles (traced and fixed in #661).
 - **Small-angle exemption up to 60° (owner 2026-11-09): done** in #496 (aa7d451): the pair threshold in the mesher
   (`PairOf`, `SmallPairSin2`) and the oracle's excuse (`SpansSmallInputAngle`) is 60° less the slack, whatever the bound;
   such triangles are listed in `BadTriangles` (the report) and excused by the same rule; self-checks for 59°, goldens

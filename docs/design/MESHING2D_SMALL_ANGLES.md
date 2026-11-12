@@ -244,10 +244,13 @@ off-centres, petal candidates, the grid, lenses and lens deletion are not covere
       but along them by up to that error over the sine, which exceeds 3 tube once the sine is below about 4e-4 (the near-contact fan of the
       QualityMesh2 campaign, T5: 1e-11 along against 3e-12; 8 ulps is a conservative envelope, not a derived bound). Open and documented,
       not fixed: a split point exactly at the mesher's tolerance (2^-41) from another source, which only a dyadic input produces, is
-      refused by the mesher (`<=`) and not excused by the oracle, whose `O11Unsplittable` margin is 2^-7 inside the tolerance; and three
-      single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28), not traced.
-  - `exempt`, a triangle given up: its circumcentre failed, or the kernel refused the insertion, or the subsegment it would split is locked or
-    unsplittable;
+      refused by the mesher (`<=`) and not excused by the oracle, whose `O11Unsplittable` margin is 2^-7 inside the tolerance. The three
+      single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28) were traced on 2026-11-12: each lay below A at
+      a T-junction apex, its off-centre in the diametral circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave
+      such a triangle up, which the oracle's O11 exemptions (a circumcentre behind the piece) do not cover. Fixed in the mesher: the
+      encroachment of an unsplittable piece no longer stops the point, as on the grid (`QualityMesh2UnsplittableEncroachmentTests`).
+  - `exempt`, a triangle given up: its circumcentre failed, or the kernel refused the insertion, or a locked or unsplittable subsegment
+    lies between it and its point (since 2026-11-12 not when the point only encroaches on an unsplittable piece: it is then inserted);
   - the grid floor;
   - the Steiner limit (reported).
 
