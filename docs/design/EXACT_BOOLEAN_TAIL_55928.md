@@ -402,6 +402,21 @@ Measured, Difference, 4 cores:
 Tests: the constructions' zeros against the exact stage (the segment triples of the densest triangles), a plane
 coplanar with the triangle under its own key not taken as evidence, the counts. Mutants of each case killed.
 
+**What step 2 left, and a filter on the differences to the fourth point (tried, not taken).** After step 2 the BigInteger
+stages left in the triangulation of 55928 were 12.43M InCircle, 0.74M non-zero Orient and 11k zero Orient, plus 0.34M
+Orient elsewhere. InCircle was about 45 % of the arrangement's samples (`incircle_row` 18 %, most of `Det3`'s 31 %).
+Its exact zeros are rare (66), so these are nearly cocircular quadruples of the Delaunay flips. The local filter's
+coordinates have errors relative to the triangle's size, not to the quadruple's.
+
+The attempt: a second filter right before the BigInteger determinant, on the coordinates of a - d, b - d, c - d. Each
+was the exact quotient (x_k w_d - d_k w_x) / (w_x w_d) rounded once, so the errors were relative to the quadruple's
+spread.
+- 55928: it decided 4.65M of the 12.43M, but the triangulation stayed at 116 s, with allocations 104 -> 101 GB. The
+  three exact differences per call (about 560 bits) cost about as much as they saved.
+- The 7.8M left are cocircular to within the filter's bound of about 1e-14 relative. Only an exact stage decides them,
+  so the next lever is a cheaper exact stage (limbs), not another filter.
+- Not taken: no measurable gain.
+
 **The GC and the bit sizes (measured on 55928, after step 1).**
 
 GC upper bound, Difference, 4 cores, 263 GB allocated in both configurations. The second configuration is runtime
