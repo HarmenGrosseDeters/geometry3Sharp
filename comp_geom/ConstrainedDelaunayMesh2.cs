@@ -155,8 +155,6 @@ namespace g3
             /// </summary>
             internal int HullSegmentsFrom = int.MaxValue, HullSegmentsTo = int.MaxValue;
             internal bool HullFromSegments => HullSegmentsFrom != int.MaxValue;
-            /// <summary> the source of input segment i is sources[SegmentSourcesFrom + i] (ring edges come first) </summary>
-            internal int SegmentSourcesFrom;
             /// <summary> input points and input segments that refinement left in no triangle (QualityMesh2: parts narrower than the
             /// tolerance); published on the mesh for the tests </summary>
             internal int[] DroppedInputPoints = new int[0], DroppedInputSegments = new int[0];
@@ -484,7 +482,6 @@ namespace g3
                         Add(a, b, Make(a, b, rings.Count + g, 0, false));
                     }
                 }
-                SegmentSourcesFrom = sources.Count;
                 if (input.Segments != null)
                     for (int si = 0; si < input.Segments.Count; ++si) {
                         var s = input.Segments[si];

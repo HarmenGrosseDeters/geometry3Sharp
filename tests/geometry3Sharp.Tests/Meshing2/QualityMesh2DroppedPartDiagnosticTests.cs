@@ -59,7 +59,7 @@ namespace geometry3Sharp.Tests
             if (mesh.DroppedInputPoints.Length + mesh.DroppedInputSegments.Length == 0) Assert.Empty(line);
             else {
                 Assert.Single(line);
-                Assert.Contains(mesh.DroppedInputPoints.Length + " input points and " + mesh.DroppedInputSegments.Length + " input segments are in no triangle", line[0]);
+                Assert.Contains(mesh.DroppedInputPoints.Length + " input points are in no triangle (and " + mesh.DroppedInputSegments.Length + " input segments end at one)", line[0]);
                 Assert.Contains("(points " + string.Join(", ", mesh.DroppedInputPoints) + "; segments " + string.Join(", ", mesh.DroppedInputSegments) + ")", line[0]);
             }
         }
@@ -141,7 +141,9 @@ namespace geometry3Sharp.Tests
             var plain = Sliver(true);
             var moved = Sliver(true);
             for (int i = 0; i < plain.X.Length; ++i) { var q = s.Apply(new Vector3d(plain.X[i], plain.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }
-            if (s.Translation.x != 0 || s.Translation.y != 0) {
+            bool translated = s.Translation.x != 0 || s.Translation.y != 0;
+            // (every similarity without a translation must reach the comparison with the oracle below)
+            if (translated) {
                 // (a translation to utm coordinates, about 1e6, rounds the cluster of 1e-13 to one point: the input is collinear, Empty, and
                 // nothing is in the domain to drop; the oracle accepts that)
                 var r = Mesher(moved).Compute(ConstrainedDelaunayMesh2Candidate.Convert(moved));
@@ -154,6 +156,7 @@ namespace geometry3Sharp.Tests
             }
             var b = Run(moved, name);
             AssertReportMatchesOracle(b.Result, b.Report, moved.Segments.Count, name);
+            if (!translated) Assert.Equal(new[] { 3 }, b.Result.Mesh.DroppedInputPoints);
             if (s.IsExact) {
                 var a = Run(plain, "plain").Result.Mesh;
                 var m = b.Result.Mesh;

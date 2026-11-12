@@ -317,7 +317,8 @@ namespace g3
             /// hull domain whose sides merged: the hull flood or the carve takes its triangles, and its input points and segments end up in
             /// no triangle; the oracle excuses a part whose twice area is at most tube times perimeter, OracleReport.VanishedPoints /
             /// VanishedSegments). Reported here: the input points in the domain before refinement and in no triangle after it, and the
-            /// input segments with such an end point. The mesh is unchanged. (Off the snap grid; on it, the
+            /// input segments with such an end point (a segment that only crosses a vanished part and keeps both ends is not named). The
+            /// mesh is unchanged. (Off the snap grid; on it, the
             /// "snap grid:" diagnostics report collapsed and pinched parts.)
             /// </summary>
             void ReportDropped(bool[] domainBefore)
@@ -339,8 +340,8 @@ namespace g3
                 b.DroppedInputPoints = points.ToArray();
                 b.DroppedInputSegments = segments.ToArray();
                 string List(List<int> ids) => ids.Count <= 20 ? string.Join(", ", ids) : string.Join(", ", ids.Take(20)) + ", ...";
-                b.diagnostics.Add(points.Count + " input points and " + segments.Count + " input segments are in no triangle: their part of the domain is narrower "
-                    + "than the automatic tolerance and vanished in refinement (points " + List(points) + "; segments " + List(segments) + ")");
+                b.diagnostics.Add(points.Count + " input points are in no triangle (and " + segments.Count + " input segments end at one): their part of the domain is "
+                    + "narrower than the automatic tolerance and vanished in refinement (points " + List(points) + "; segments " + List(segments) + ")");
             }
 
             /// <summary>
