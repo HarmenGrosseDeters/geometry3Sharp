@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
             foreach (bool sort in new[] { false, true })
             foreach (Similarity s in Similarity.All()) {
                 bool expectedPass = sort
-                    ? s != Similarity.RotatedUtmMillimetre
+                    ? !(s == Similarity.RotatedUtmMillimetre && gap == 1e-6)
                     : s == Similarity.Pow2Large || s == Similarity.Kilometre;
                 if (passing == expectedPass)
                     yield return new object[] { gap, offset, sort, s.Name };
@@ -33,7 +33,7 @@ namespace geometry3Sharp.Tests
             Check(gap, offset, sort, similarity);
         }
 
-        [Theory(Skip = "Known nesting or hole-area failure: https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/628")]
+        [Theory(Skip = "Default: absolute simplification tolerance 0.1 by design (FindSolidsOptions.Default); SortPolygons: gap 1e-6 at the rotated UTM millimetre similarity is about 1 ulp of the coordinates, not representable (#628)")]
         [MemberData(nameof(FailingCases))]
         public void NestedCircles_KnownFailures(double gap, bool offset, bool sort, string similarity)
         {
