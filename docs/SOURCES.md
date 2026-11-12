@@ -181,6 +181,7 @@ Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_w
 | Point location by a stochastic walk | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002 |
 | InSphere determinant and its floating-point error bound (filter; the uncertain cases are evaluated in integer arithmetic) | J. R. Shewchuk 1997 (see above) |
 | Closest point on a triangle (Voronoi regions), separating axis test of tetrahedron and triangle | C. Ericson, *Real-Time Collision Detection*, 2005 |
+| Oracle pruning (Alpha Wrap 3.0 L1): a face plane of the tetrahedron against a BVH node box by its lowest / highest corner along the normal; segment against node boxes by slabs with the reciprocals of the direction computed once per query | N. Greene, *Detecting intersection of a rectangular solid and a convex polyhedron*, Graphics Gems IV, 1994; A. Williams, S. Barrus, R. K. Morley, P. Shirley, *An efficient and robust ray-box intersection algorithm*, J. Graphics Tools 10(1), 2005 |
 
 Choices described in the code: traversability by the paper's Phi(f), the smallest empty ball through the facet's
 vertices (Definition 2, Fig. 23; Alpha Wrap 2.0. Before, the circumradius of the facet, which refines thin sheets
