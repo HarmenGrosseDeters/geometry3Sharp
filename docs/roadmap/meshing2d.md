@@ -28,6 +28,9 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
+- **#664 (bugfix, owner 2026-11-12):** the near-contact fan of #661 under the `rotated` similarity runs to the Steiner limit
+  (about 400 000 vertices; same on master). Next item of the Meshing2D session, after #661 / #663.
+
 - **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
   Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
   as z (labels as groups where they fit). Effort S.
