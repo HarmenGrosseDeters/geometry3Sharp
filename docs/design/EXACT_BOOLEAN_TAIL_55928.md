@@ -29,6 +29,7 @@ Difference, 4 cores, the same container, nothing else running (`profile --repeat
 | this stage: L1 (e04b02f7) | 625 s | 442 s | 155 s | 24 s | 61550C3C2F352E72 |
 | this stage: L2 (43990acb) | 475 s | 295 s | | | 61550C3C2F352E72 |
 | this stage: L2 with the local frame (a5227166) | 454 s | 262 s | 163 s | 25 s | 61550C3C2F352E72 |
+| this stage: L3 step 1, the local filter of the triangulation | 421 s | 275 s | 117 s | 24 s | 61550C3C2F352E72 |
 
 The result is the same. Classification is 1.98 times slower on master. Both operands are open and have 133 boundary
 segments each, so since 98def50f (open operands classified per piece) and d458662c (the Antipodal Method) every piece
@@ -266,21 +267,74 @@ found nothing that combines propagation with a certified bound for open meshes.
 ## 4. L3: triangulation
 
 Measured: on the whole case 10.4 us per piece against 2.4 in the knot, slope 1.36 per triangle, 15 KB allocated per
-piece. In order:
+piece. The plan was, in order: a profile of the expensive triangles; exact stages on implicit points without
+BigInteger (fixed-width limbs); cavity insertion of the constraints (Shewchuk & Brown 2015) if the insertion is
+superlinear; arrays instead of the dictionaries of `ExactTriangulation2`.
 
-1. A profile of the 200 most expensive triangles (time, predicate calls, exact stages and allocations per triangle),
-   to separate the exact stages, the constraint insertion and the dictionaries.
-2. The exact stages on implicit points without BigInteger allocations: fixed-width limbs, as `FixedPoint3` does for
-   rational points (docs/design/FIXED_WIDTH_EXACT_POINTS.md, bound table). This is bit-identical, because the predicate
-   values are exact.
-3. If the constraint insertion is superlinear on the large triangles (flips with a queue, O(k^2) per long
-   constraint): insertion by cavity retriangulation (Shewchuk & Brown 2015, "Fast segment insertion and incremental construction of constrained Delaunay triangulations"; Anglada 1997). This is bit-identical where the
-   constrained Delaunay triangulation is unique. With four cocircular points the tie-breaking can permute the pieces;
-   the A/B shows whether it does.
-4. Arrays instead of the `edgeTri` / `vertexTri` dictionaries of `ExactTriangulation2`. This is bit-identical: the same
-   operations in the same order.
+**The profile** (the arrangement alone on 55928, 181 s, sample profiler): about 55-60 % of the samples are in
+BigInteger arithmetic (`Multiply` 28 %, the constructor 21 % exclusive). Inclusive: `ExactPoint3.Det3` 37 % (the
+exact `Orient`) and `incircle_row` 19 % (the exact `InCircle`), all under `triangulate_touched` (81 %). The
+constraint insertion is 3.5 %, the point location 3 %, the dictionaries below 3 %. The exact stages of the expensive
+triangles are the cost:
+- In the most expensive triangle (6,462 points, 12,670 pieces), 57 % of the Orient calls, 73 % of the InCircle calls
+  and 85 % of the Orient calls of the segment phase reach the exact stage.
+- On the whole case: 6.2 % and 11.7 % in the point insertion, 22.9 % of the Orient calls in the segment phase.
+- The points come from three planes at coordinates of about 2^58 grid units. They exceed the fixed width (2^255 per
+  component, docs/design/FIXED_WIDTH_EXACT_POINTS.md), so these stages are BigInteger.
 
-Estimated: 172 s to about 40-80 s on 55928.
+The first filter works on the approximations in grid coordinates. Their absolute errors (about 1e3 units on 55928)
+exceed the distances between the points of a dense triangle, the same limit as in section 3. The exact stages,
+counted with the exact result and with a filter on coordinates relative to the triangle's first corner:
+
+| exact stages (55928) | total | exactly 0 | decided by the local filter | neither |
+|---|---|---|---|---|
+| Orient | 59.1M | 20.7M | 37.5M | 1.0M |
+| InCircle | 25.0M | 66 | 11.9M | 13.0M |
+
+The local filter never gave a sign different from the exact one.
+
+**Step 1, the local filter (`ExactMeshArrangement.LocalPoints`, bit-identical).** For each triangle, the points'
+coordinates relative to its first corner o (an input point, so an integer grid point), in the triangle's projection.
+Each one is the exact difference x - o, rounded once, computed when a point first needs it.
+- `ExactPoint3.ToDouble` takes a 64-bit truncated quotient (relative error below 2^-63), then converts it to double:
+  2^-53 when the conversion rounds to nearest, 2^-52 if it truncates, as .NET Framework may. Both are below
+  2.3e-16 |l_k| per coordinate, the bound used. Values near the subnormal range or beyond 1e300 are not used.
+- Orient and InCircle are polynomials in the differences of their points (the 2x2 and the lifted 3x3 determinant),
+  so o cancels exactly. The sign of the local determinant is that of the exact points.
+- The filters are the existing `orient2d_approx` and `incircle_approx` with these coordinates and the error bound
+  e = max of the points' bounds. Their bounds take e as the absolute error per coordinate and add the evaluation's
+  rounding; their derivations are at the methods, unchanged.
+- The filter runs right before the BigInteger stage, after the exact-double and fixed-width stages. Those are cheaper
+  than the conversion: on the knot benchmark, where those stages decide, a version before them converted 219k points
+  and decided 83.
+
+Measured, Difference, 4 cores:
+- 55928: triangulation 163 -> 117 s, total 454 -> 421 s, hash 61550C3C2F352E72 unchanged. 33.9M exact stages were
+  decided and 4.2M points converted. The classification (275 s) is not changed by this step; its runs spread by about
+  20 s.
+- The arrangement alone, two runs each: with the filter before the exact-double and fixed-width stages, triangulation
+  120 and 124 s, with 45.2M decided and 7.9M converted; as implemented, 125 and 132 s. The difference is within the
+  spread, and on the knot the earlier position allocated 150 MB more, so the filter stays before the BigInteger stage.
+- Knot benchmark: triangulation within the noise (medians of five cold runs: 1,553 ms off, 1,455 ms on), hash
+  52258C35170BF15E unchanged.
+
+Tests (`ExactMeshBooleanTestsLocalFilter`):
+- A knot and a copy rotated by 1e-12, so that every triangle meets its copy almost in its plane: the same results with
+  and without the filter, and more than 5,000 decisions.
+- Every decision checked against the exact stage on the densest triangles: segment ends with every point (the points
+  on the segment give exact zeros), random triples and quadruples, and the Delaunay quadruples of neighbouring pieces.
+- Exactly cocircular and collinear rational points beyond the fixed width, 1000 grid units from the corner, where the
+  rounding of the local coordinates exceeds the circle's terms. They must stay with the exact stage; without the error
+  bound the filter decides them wrongly.
+- Similarity invariance, serial against parallel, reuse.
+
+**Next, by the counts above.**
+- The exact zeros of Orient (20.7M, collinear points of the segments: a candidate on a segment, the walk along a
+  constraint). The points of a segment are constructed on its line, so the zero can be read from the construction
+  (the point's planes include the line's), without arithmetic. A sufficient test, the exact stage otherwise.
+- The InCircle stages that the local filter leaves (13.0M, nearly cocircular quadruples of the Delaunay flips): an
+  adaptive stage, the differences to the fourth point first.
+- Only then fixed-width limbs for the larger implicit points, and the dictionaries.
 
 ## 5. The fail-fast budget (additive API)
 

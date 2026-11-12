@@ -260,6 +260,12 @@ namespace g3
         public int SegmentCrossings;        // points where two intersection segments cross inside a triangle
         /// <summary> segment pairs and segment-point pairs examined in the triangles (for tests: about linear in their number) </summary>
         public long CandidateTests;
+        /// <summary> exact stages of the triangulation's Orient and InCircle that the local filter decided (LocalPoints) </summary>
+        internal long LocalFilterDecided;
+        /// <summary> points converted to local coordinates for that filter (LocalPoints) </summary>
+        internal long LocalFilterPoints;
+        /// <summary> for tests: the local filter of the triangulation (LocalPoints) on; off gives the same results </summary>
+        internal bool LocalFilters = true;
         /// <summary> points that were merged because different constructions gave the same point </summary>
         public int MergedPoints;
 
@@ -1413,9 +1419,77 @@ namespace g3
         }
 
 
+        /// <summary>
+        /// The points of one input triangle in coordinates relative to its first corner, in the projection of the
+        /// triangle (L3, docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4): the second filter of Orient and InCircle in
+        /// the triangulation, where the points are close together against their distance from the origin and the
+        /// approximations' absolute errors exceed their distances. Each coordinate is the exact difference x - o,
+        /// rounded once (ExactPoint3.ToDouble: a 64-bit truncated quotient, then the conversion to double), so its error
+        /// is below 2^-52 of its magnitude; o cancels exactly in both determinants, which are polynomials in the
+        /// differences of the points. Computed when a point first needs it; one instance per triangle and thread.
+        /// </summary>
+        internal sealed class LocalPoints
+        {
+            readonly ExactMeshArrangement arr;
+            readonly InputTriangle t;
+            readonly int i, j;
+            ExactPoint3 o;
+            // (created when a point first needs its local coordinates: most triangles never ask)
+            Dictionary<int, int> index;
+            List<Vector3d> points;
+            /// <summary> exact stages that the local filter decided </summary>
+            public long Decided;
+            /// <summary> points converted </summary>
+            public int Count { get { return points == null ? 0 : points.Count; } }
+
+            public LocalPoints(ExactMeshArrangement arr, InputTriangle t)
+            {
+                this.arr = arr;
+                this.t = t;
+                i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
+            }
+
+            /// <summary> the local coordinates of p (x, y, and the bound of their errors as z), false if not usable </summary>
+            public bool Get(int p, out Vector3d l)
+            {
+                int k;
+                if (index == null) {
+                    index = new Dictionary<int, int>();
+                    points = new List<Vector3d>();
+                    o = arr.Exact(t.Corners[0]);
+                    // (an input point: an integer grid point)
+                    if (o.W.IsOne == false)
+                        throw new InvalidOperationException("ExactMeshArrangement: the first corner of a triangle is not a grid point");
+                }
+                if (index.TryGetValue(p, out k) == false) {
+                    ExactPoint3 x = arr.Exact(p);
+                    double lx = ExactPoint3.ToDouble(x[i] - o[i] * x.W, x.W, 0), ly = ExactPoint3.ToDouble(x[j] - o[j] * x.W, x.W, 0);
+                    double m = Math.Max(Math.Abs(lx), Math.Abs(ly));
+                    // (an infinite or NaN value, or a nonzero one near the subnormal range, where the relative bound
+                    // does not hold: not usable)
+                    if (!(m < 1e300) || tiny(lx) || tiny(ly))
+                        lx = double.NaN;
+                    k = points.Count;
+                    points.Add(new Vector3d(lx, ly, 2.3e-16 * m));
+                    index.Add(p, k);
+                }
+                l = points[k];
+                return double.IsNaN(l.x) == false;
+            }
+
+            static bool tiny(double v) { return v != 0 && Math.Abs(v) < 1e-290; }
+        }
+
         /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
         [MethodImpl(JitHints.Optimize)]
         public int Orient(InputTriangle t, int p, int q, int r)
+        {
+            return Orient(t, p, q, r, null);
+        }
+
+        /// <summary> Orient, with the local points of t as a second filter (null: none) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal int Orient(InputTriangle t, int p, int q, int r, LocalPoints local)
         {
             if (p == q || q == r || r == p)
                 return 0;
@@ -1437,6 +1511,14 @@ namespace g3
             }
             if (ra > 0 && rb > 0 && rc > 0)
                 return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
+            // (the local filter only before the BigInteger stage: the stages above cost less than the conversion)
+            Vector3d lp, lq, lr;
+            if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr)) {
+                double err;
+                double fdet = orient2d_approx(lp, lq, lr, 0, 1, Math.Max(lp.z, Math.Max(lq.z, lr.z)), out err);
+                if (fdet > err) { local.Decided++; return t.Sign; }
+                if (-fdet > err) { local.Decided++; return -t.Sign; }
+            }
             ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
             return det.Sign * t.Sign;
@@ -1477,6 +1559,13 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public int InCircle(InputTriangle t, int p, int q, int r, int s)
         {
+            return InCircle(t, p, q, r, s, null);
+        }
+
+        /// <summary> InCircle, with the local points of t as a second filter (null: none) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal int InCircle(InputTriangle t, int p, int q, int r, int s, LocalPoints local)
+        {
             PredicateStats.Call(PredicateStats.Kind.ArrInCircle);
             if (DisableFilters == false) {
                 int f = InCircleFiltered(t, p, q, r, s);
@@ -1499,6 +1588,14 @@ namespace g3
             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
             if (ra > 0 && rb > 0 && rc > 0 && rd > 0)
                 return FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
+            // (the local filter only before the BigInteger stage, as in Orient)
+            Vector3d lp, lq, lr, ls;
+            if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
+                double bound;
+                double fdet = incircle_approx(lp, lq, lr, ls, 0, 1, Math.Max(Math.Max(lp.z, lq.z), Math.Max(lr.z, ls.z)), out bound);
+                if (fdet > bound) { local.Decided++; return t.Sign; }
+                if (-fdet > bound) { local.Decided++; return -t.Sign; }
+            }
             ExactPoint3 pd = Exact(s);
             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
             incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
@@ -2361,8 +2458,9 @@ namespace g3
             }
             constraints = new List<long>();
 
+            var local = LocalFilters ? new LocalPoints(this, t) : null;
             var tri = new ExactTriangulation2(t.Corners[0], t.Corners[1], t.Corners[2],
-                (a, b, c) => Orient(t, a, b, c), (a, b, c, d) => InCircle(t, a, b, c, d));
+                (a, b, c) => Orient(t, a, b, c, local), (a, b, c, d) => InCircle(t, a, b, c, d, local));
             int[] ordered = pts;
             foreach (int p in ordered)
                 tri.InsertPoint(p);
@@ -2382,7 +2480,7 @@ namespace g3
                 candidates.Add(t.Corners[0]); candidates.Add(t.Corners[1]); candidates.Add(t.Corners[2]);
                 foreach (int r in candidates) {
                     if (r == sp || r == sq) continue;
-                    if (Orient(t, sp, sq, r) == 0 && between(d, sp, sq, r))
+                    if (Orient(t, sp, sq, r, local) == 0 && between(d, sp, sq, r))
                         on.Add(r);
                 }
                 on.Sort((a, b) => compare_along(d, a, b));
@@ -2393,6 +2491,10 @@ namespace g3
             }
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             tri.MakeDelaunay();
+            if (local != null) {
+                System.Threading.Interlocked.Add(ref LocalFilterDecided, local.Decided);
+                System.Threading.Interlocked.Add(ref LocalFilterPoints, local.Count);
+            }
             foreach (Index3i f in tri.Triangles())
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });
         }

@@ -328,6 +328,8 @@ namespace g3
         internal bool DisableFilters = false;
         // for tests: all exact points of the arrangement as BigInteger (ExactMeshArrangement.FixedWidthPoints)
         internal bool FixedWidthPoints = true;
+        // for tests: the triangulation's local filter (ExactMeshArrangement.LocalFilters; the same results without it)
+        internal bool LocalTriangulationFilters = true;
         // for tests: the arrangement of the last Compute
         internal ExactMeshArrangement Arrangement { get { return arr; } }
         /// <summary> time per phase, for diagnostics </summary>
@@ -552,7 +554,7 @@ namespace g3
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
-                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation };
+                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters };
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
@@ -588,6 +590,9 @@ namespace g3
                 return fail(BooleanStatus.BudgetExceeded, string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "the arrangement would have {0} pieces, more than MaxPieces = {1}", arr.PredictedPieces, MaxPieces));
             Counts["pieces"] = arr.Output.Count;
+            // (L3: the triangulation's local filter, points converted and exact stages decided)
+            Counts["l3_local_points"] = arr.LocalFilterPoints;
+            Counts["l3_local_decided"] = arr.LocalFilterDecided;
 
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             bool[] keep, flip;
