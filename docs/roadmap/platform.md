@@ -59,6 +59,11 @@ Part of the [roadmap](../ROADMAP.md).
   included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
   isolated re-run time of the flagged tests (#685 changes CLAUDE.md and docs/QA.md with it); the 20 s rule above
   covers what hides behind load in the full run.
+  **Owner 2026-11-12, Terrain Slope rows in the rotated/1e-3/utm frame:** no library change (a first-δ shortcut was
+  approved, then withdrawn: the formula gives no fraction, so it would be a constant tuned on one design; TERRAIN.md
+  5.8.1 states the limit, `LocalFrame` is the remedy). Rows of that frame at or under 10 s alone get Slow with the
+  reason; ClippedRegion and BandRepair move only that frame's row to Nightly ("the frame needs 3 builds by design,
+  TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
