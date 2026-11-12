@@ -418,7 +418,7 @@ namespace g3
                     // them), so they drain. Counting them hit the cap on a channel 2^-38 wide at a small Steiner limit, where splits across
                     // the channel flip the same triangles many times: a burst of 600k dequeues for 34k entries of distinct triangles (#638)
                     if (work > 64 * (limit + k.TriangleSlots) + 100000)
-                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + work + " split attempts");
+                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + work + " split attempts (" + steps + " dequeues)");
                     if (segments.Count > 0) {
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
