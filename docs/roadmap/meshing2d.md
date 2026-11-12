@@ -103,8 +103,9 @@ Oracle leftovers (no verdict of ours affected):
   conformity.
 - Judging very large outputs of other producers: the quality phase on the two Herne q20 fork outputs (1171 s, or no
   result within 1800 s; profile first); `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about
-  4 min each); `Conformity`'s `OverlapPairs` sweep (status unclear, check: #392 made it O((n + pairs) log n) on
-  2026-11-06, the note that lists it as left may predate it).
+  4 min each); `Conformity`'s `OverlapPairs` sweep: replaced in #392 (2026-11-06; box pairs by segment trees over y,
+  O((n + pairs) log n), the report independent of the pair order); the leftover note of 2026-11-05 predates it, and
+  f-16's triangle.c output was not re-timed.
 - The other 72 own ORACLE-TIMEOUT outputs of run A were not judged.
 - Iterated rounding can depend on the order (Hershberger 2013); no case is known. If one appears, the mesher returns
   its collapsed double chains as a certificate that the oracle checks.

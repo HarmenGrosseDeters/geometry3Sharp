@@ -84,8 +84,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
   P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept). Follow-ups: the ray batch API
   ([research.md](research.md#later)), the regressions a remesher flip-guard default would cause, the P1 collapse.
-- **Verifiable agent work** (QA.md 4a): the parent item is still open; the other items go with the modules they touch
-  (status unclear, check).
+- **Verifiable agent work** (QA.md 4a): the parent item is still open; the remaining items are carried by the QA 2.0
+  milestone (owner 2026-11-09; status in [QA20_STATUS.md](../design/QA20_STATUS.md)).
 - **Two wall-clock tests** (`QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap`,
   `Predicates_MatchTheOracle_AtAllSizes`): closed 2026-11-08, not reproduced (owner, local): on current master the full
   suite passed all 7866 tests and ten isolated runs of both passed. The oracle test already sits in the

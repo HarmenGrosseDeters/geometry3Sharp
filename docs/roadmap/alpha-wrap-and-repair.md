@@ -191,7 +191,8 @@ better; 0.75 is 1.09-1.22x.
   >= CGAL's on the T1 100): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
-  pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done); #413
+  pass in #292 (2026-11-02), ON by default in the wrap fallback; the goal (the min angle after the simplification) is met by Alpha Wrap 2.0
+  (the #405 guard among its changes; final 800 run: p01 median 11.34°, before 2.0 7.62°), so the item is done; #413
   (2026-11-08) turned it off by default (`MeshRobustRepair.AlphaWrapQualityPass = false`).
 - **Reducer / Remesher 2.0: done 2026-11-09** (baseline, T5, T2, T1, T3, T6; results, measured limits and open items T4 / feature-curve operators in
   [design/REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) sections 6 to 11; no default changed). The milestone idea as first written (owner 2026-11-08, upper bounds first):
@@ -201,7 +202,7 @@ better; 0.75 is 1.09-1.22x.
   `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
   and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
   (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
-  "status unclear" items below (the Remesher session, shared BVH queries per collapse). The Alpha Wrap session writes a
+  "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
@@ -211,9 +212,10 @@ better; 0.75 is 1.09-1.22x.
   [hotspots.md](hotspots.md#open-tasks-and-where-their-answer-may-already-be).
 - **Reducer / Remesher upper bounds** (2026-11-02): B (the union-box query in the Remesher, 4-6 %) not built; D (the
   permission-grid accept filter) not built (owner 2026-11-02). Shared BVH queries per collapse were "being tried in
-  the envelope session" (status unclear, check).
-- **Remesher session** on the cost of `PreventSelfIntersections` (started 2026-11-02) (status unclear, check: the
-  coplanar 2D shortcut and the clearance filter were measured and closed).
+  the envelope session" (done: #275, merged 2026-11-01, shares the MaxDeviation check's tree queries within a
+  collapse, 1.03-1.12x, bit-identical).
+- **Remesher session** on the cost of `PreventSelfIntersections` (started 2026-11-02) (done: #298, merged 2026-11-02, profile and
+  upper bounds; the coplanar 2D shortcut and the clearance filter were measured and closed).
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
@@ -284,10 +286,11 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 - [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
   around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
   Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
-  - [ ] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
+  - [x] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
     normals equal at a quarter of the triangles) but the 1%-worst min angle drops from 16.2 to 3.8 degrees (17 wrap
     results of Thingi10K, benchmarks/MeshRepairBenchmark README, re-evaluation); eg a short remesh pass with
-    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification. Trials so far: `fix/alpha-wrap-simplification-quality`, none passes every gate (unverified, see Next, stage 7)
+    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification. Trials so far: `fix/alpha-wrap-simplification-quality`, none passes every gate (unverified, see Next, stage 7).
+    Met by Alpha Wrap 2.0 (the #405 guard among its changes; final 800 run p01 median 11.34°), see [Alpha Wrap 2.0](#alpha-wrap-20-milestone).
 - [ ] Remeshers must not leave degenerate triangles. `Remesher` and `RemesherPro` (`g3cli remesh` settings) leave
   degenerate triangles or self-intersections on 18 of 20 clean Thingi10K meshes, 99% of the triangles with q < 0.1 at
   feature constraints (`benchmarks/RemeshBenchmark`). `RemesherPro` (8 x `RemeshIteration` and a full pass without
