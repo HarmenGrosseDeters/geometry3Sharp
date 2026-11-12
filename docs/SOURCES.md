@@ -506,6 +506,10 @@ in `docs/roadmap/alpha-wrap-and-repair.md` (Phase 2 items).
 (triangle hash grid, the exact `ExactTriangleIntersection.IntersectsBeyondShared`) extended to flips, splits and the
 buffered vertex moves; no external source.
 
+The feature-fold check of `Remesher.MinTriangleQuality` (#640, issue #621: a flip or collapse at a feature curve that folds a
+triangle onto a flat cap without flipping a normal is rejected, by the exact triangle test against the triangles that face away
+around its feature corners): own design, no external source.
+
 `Remesher.TargetEdgeLengthF` / `RemeshSizing.FromWallThickness`: sizing below the local feature size, as in
 isotropic remeshing with a sizing field (Botsch, Kobbelt, Pauly, Alliez, Lévy, *Polygon Mesh Processing*, ch. 6); the
 thickness is `MeshWallThickness`'s inscribed sphere (Ma, Bai, Hu, Kim 2012). Own design otherwise.
