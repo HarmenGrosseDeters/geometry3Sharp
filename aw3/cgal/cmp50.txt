@@ -1,0 +1,82 @@
+
+## tail 20 (20 meshes; CGAL 5.6 single-threaded; g3 default threads = 4 on 4 cores; one process at a time)
+| | CGAL alpha_wrap_3 | g3 raw wrap | g3 pipeline (wrap + simplify) |
+|---|---:|---:|---:|
+| guarantees (closed, valid) | 20/20 | 20/20 | 20/20 |
+| time median / max (s) | 84.7 / 204.7 | 19.8 / 54.9 | 28.5 / 66.5 |
+| time sum (s) | 1886 | 447 | 596 |
+| g3 raw / CGAL time, median (min, max) | | 0.24 (0.08, 0.42) | |
+| triangles, median | 653k | 592k | 124k |
+| min angle: global / median (deg) | 1.89 / 4.59 | 0.72 / 6.18 | 1.29 / 6.60 |
+| p01 angle median (deg) | 21.6 | 20.9 | 11.4 |
+| max angle: global (deg) | 172.2 | 170.6 | 169.3 |
+| certified Hausdorff result -> input, median (upper, % diag) | 0.362 | 0.358 | 0.367 |
+| certified Hausdorff input -> result, median (upper, % diag) | 0.781 | 0.765 | 0.767 |
+
+per mesh: file, CGAL s, g3 raw s, g3 pipeline s, CGAL / g3 raw / g3 pipeline triangles
+  49998.stl 204.7 16.9 20.9  520704 445596 199140  closed closed
+  69261.stl 144.2 25.7 36.0  855286 725154 119790  closed closed
+  860049.stl 143.2 44.8 53.8  1167916 840960 245664  closed closed
+  40118.stl 129.8 54.9 66.5  1689426 1204976 107978  closed closed
+  222687.stl 118.2 23.5 32.6  699568 681274 242946  closed closed
+  222695.stl 116.2 25.1 34.8  735624 717714 248356  closed closed
+  535629.stl 110.4 26.0 33.6  801584 686084 145608  closed closed
+  500097.stl 104.0 24.5 31.9  704424 607884 125364  closed closed
+  78968.stl 96.9 21.8 28.8  557678 486720 139782  closed closed
+  466329.stl 88.6 14.0 18.6  403218 369922 122454  closed closed
+  84042.stl 80.9 15.3 20.3  438168 387524 194534  closed closed
+  39368.stl 79.6 15.3 19.4  385468 339842 115242  closed closed
+  500115.stl 76.4 21.9 29.8  670508 580516 106376  closed closed
+  224108.stl 74.8 15.0 20.9  550898 539522 89982  closed closed
+  520646.stl 70.4 21.7 30.4  776810 669034 99728  closed closed
+  500099.stl 62.8 18.0 24.5  698698 604086 80180  closed closed
+  111959.stl 50.2 17.1 23.0  410386 412740 206992  closed closed
+  91280.stl 48.3 13.8 18.5  447812 411620 134214  closed closed
+  49901.stl 43.5 14.5 23.4  608704 569246 50200  closed closed
+  679615.stl 42.9 16.8 28.1  634882 603690 44278  closed closed
+
+## random 30 (30 meshes; CGAL 5.6 single-threaded; g3 default threads = 4 on 4 cores; one process at a time)
+| | CGAL alpha_wrap_3 | g3 raw wrap | g3 pipeline (wrap + simplify) |
+|---|---:|---:|---:|
+| guarantees (closed, valid) | 30/30 | 30/30 | 30/30 |
+| time median / max (s) | 18.8 / 97.3 | 3.5 / 10.9 | 5.1 / 14.0 |
+| time sum (s) | 728 | 114 | 159 |
+| g3 raw / CGAL time, median (min, max) | | 0.20 (0.04, 0.58) | |
+| triangles, median | 147k | 132k | 34k |
+| min angle: global / median (deg) | 4.51 / 4.96 | 3.98 / 11.08 | 3.98 / 10.14 |
+| p01 angle median (deg) | 20.1 | 20.9 | 11.4 |
+| max angle: global (deg) | 151.6 | 157.2 | 153.8 |
+| certified Hausdorff result -> input, median (upper, % diag) | 0.347 | 0.346 | 0.356 |
+| certified Hausdorff input -> result, median (upper, % diag) | 0.531 | 0.479 | 0.482 |
+
+per mesh: file, CGAL s, g3 raw s, g3 pipeline s, CGAL / g3 raw / g3 pipeline triangles
+  1083348.stl 97.3 3.8 5.1  149938 126474 49392  closed closed
+  78226.stl 67.7 7.1 9.5  238704 219934 55238  closed closed
+  1601406.stl 63.3 10.9 14.0  278328 264926 106808  closed closed
+  1085686.stl 59.0 5.9 8.2  221568 207898 43390  closed closed
+  72658.stl 39.7 4.9 6.9  200488 180112 56856  closed closed
+  47732.stl 33.9 6.0 9.0  251106 233360 40162  closed closed
+  250395.stl 32.4 3.2 3.8  122748 110932 37624  closed closed
+  110787.stl 29.2 4.4 5.9  194134 178474 43500  closed closed
+  42941.stl 28.7 3.8 5.4  153252 140682 64840  closed closed
+  51297.stl 26.4 5.6 6.9  175310 151726 104920  closed closed
+  1095210.stl 26.3 6.5 9.2  238890 224660 29176  closed closed
+  44804.stl 20.0 4.1 5.9  185134 175126 35874  closed closed
+  69977.stl 19.8 5.2 6.9  212140 200214 33322  closed closed
+  77319.stl 19.6 3.6 4.7  119212 98634 73248  closed closed
+  237624.stl 19.4 2.3 2.6  92228 76826 29276  closed closed
+  1706458.stl 18.2 3.4 5.1  143590 127916 35488  closed closed
+  82324.stl 16.4 4.2 5.7  134620 127092 40084  closed closed
+  63461.stl 15.5 3.9 5.6  165928 156366 29290  closed closed
+  375254.stl 15.3 3.1 4.4  141534 136772 24184  closed closed
+  55136.stl 11.0 3.2 4.6  112884 107754 39646  closed closed
+  255657.stl 10.9 2.1 3.0  100144 87368 11804  closed closed
+  472182.stl 10.3 1.7 2.6  59524 57468 23434  closed closed
+  43552.stl 9.4 2.5 4.2  150486 147862 12002  closed closed
+  405884.stl 8.8 2.2 2.7  92220 87940 22260  closed closed
+  37622.stl 7.7 3.1 5.3  190086 187006 13822  closed closed
+  69896.stl 7.4 1.7 2.9  91382 88320 18300  closed closed
+  1378611.stl 5.8 1.6 2.3  66402 64004 20570  closed closed
+  67923.stl 3.5 1.8 3.1  92818 91180 10232  closed closed
+  39164.stl 2.7 1.6 2.5  92878 94306 6512  closed closed
+  996803.stl 2.6 0.9 1.2  19296 19092 12188  closed closed
