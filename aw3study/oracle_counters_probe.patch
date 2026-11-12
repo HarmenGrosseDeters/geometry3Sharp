@@ -1,0 +1,91 @@
+diff --git a/mesh_ops/AlphaWrapOracle.cs b/mesh_ops/AlphaWrapOracle.cs
+index 35eca4f..6e25259 100644
+--- a/mesh_ops/AlphaWrapOracle.cs
++++ b/mesh_ops/AlphaWrapOracle.cs
+@@ -39,6 +39,7 @@ namespace gs
+ 
+         /// <summary> (tests) the tetrahedron query skips nodes that a face plane of the tetrahedron separates from it </summary>
+         internal bool FacePruning = true;
++        internal static long[] StudyQ = new long[12];   // [study probe, local only] query counters
+ 
+         public readonly AxisAlignedBox3d Bounds;
+         public int PrimitiveCount { get { return kind.Length; } }
+@@ -182,6 +183,7 @@ namespace gs
+             closest = Vector3d.Zero;
+             if (kind.Length == 0)
+                 return best;
++            StudyQ[8]++;
+             closest_rec(0, p, ref best, ref closest);
+             return best;
+         }
+@@ -194,10 +196,12 @@ namespace gs
+ 
+         void closest_rec(int node, Vector3d p, ref double best, ref Vector3d closest)
+         {
++            StudyQ[9]++;
+             if (nd[node].Count > 0) {
+                 int end = nd[node].Start + nd[node].Count;
+                 for (int k = nd[node].Start; k < end; ++k) {
+                     int i = order[k];
++                    StudyQ[10]++;
+                     Vector3d q = closest_on_primitive(i, p);
+                     double d = q.DistanceSquared(p);
+                     if (d < best) { best = d; closest = q; }
+@@ -290,7 +294,9 @@ namespace gs
+             AxisAlignedBox3d box = new AxisAlignedBox3d(a);
+             box.Contain(b); box.Contain(c); box.Contain(d);
+             Tet t = new Tet(a, b, c, d, margin);
++            StudyQ[4]++;
+             bool touches = tet_rec(0, ref t, box, margin);
++            if (touches) StudyQ[7]++;
+             primitiveTests = t.Tests;
+             return touches;
+         }
+@@ -327,6 +333,7 @@ namespace gs
+ 
+         bool tet_rec(int node, ref Tet t, AxisAlignedBox3d box, double margin)
+         {
++            StudyQ[5]++;
+             if (box_box_dist_sqr(node, box) > margin * margin)
+                 return false;
+             Vector3d sn = nd[node].N;
+@@ -348,7 +355,7 @@ namespace gs
+                     if (pb.Min.x - box.Max.x > margin || box.Min.x - pb.Max.x > margin || pb.Min.y - box.Max.y > margin
+                         || box.Min.y - pb.Max.y > margin || pb.Min.z - box.Max.z > margin || box.Min.z - pb.Max.z > margin)
+                         continue;
+-                    t.Tests++;
++                    t.Tests++; StudyQ[6]++;
+                     if (tet_primitive_touch(ref t, i, margin)) return true;
+                 }
+                 return false;
+@@ -436,9 +443,13 @@ namespace gs
+                 return -1;
+             double best = 2;
+             Seg sg = new Seg(a, b - a);
+-            if (box_entry(0, ref sg, r, 1) < 0)
++            StudyQ[0]++;
++            if (box_entry(0, ref sg, r, 1) < 0) {
++                StudyQ[3]++;
+                 return -1;
++            }
+             entry_rec(0, ref sg, r, ref best);
++            if (best <= 1) StudyQ[11]++;
+             return best <= 1 ? best : -1;
+         }
+ 
+@@ -478,6 +489,7 @@ namespace gs
+         // on the end parameter, and t <= min(best, 1) passes each axis' clip)
+         void entry_rec(int node, ref Seg sg, double r, ref double best)
+         {
++            StudyQ[1]++;
+             double tmax = Math.Min(best, 1);
+             Vector3d sn = nd[node].N;
+             double s0 = sn.Dot(sg.A), s1 = s0 + tmax * sn.Dot(sg.D);
+@@ -486,6 +498,7 @@ namespace gs
+             if (nd[node].Count > 0) {
+                 int end = nd[node].Start + nd[node].Count;
+                 for (int k = nd[node].Start; k < end; ++k) {
++                    StudyQ[2]++;
+                     double t = primitive_entry_once(order[k], sg.A, sg.D, r, Math.Min(best, 1));
+                     if (t >= 0 && t < best) best = t;
+                 }

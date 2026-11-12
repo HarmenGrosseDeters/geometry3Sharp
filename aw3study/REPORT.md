@@ -33,7 +33,9 @@ serial reference (the reduction still used 3 cores of CPU; small meshes became 1
    over the 800 rows, from 50-100k to above 700k raw triangles, an insertion goes 9.5 -> 17.1 us, the oracle per popped
    gate 0.18 -> 0.62 us, the touch test 0.28 -> 0.50, gate bookkeeping 0.42 -> 0.66, trials per cell 0.83 -> 2.06 (1 -> 3
    local trials). The simplification does not grow (10.6 -> 10.0 us per raw triangle), the certification falls
-   (5.2 -> 2.7). That is the 1.4x per raw triangle of the tail (51.1 against 36.1 us here). Cause of the growth: not
+   (5.2 -> 2.7). That is the 1.4x per raw triangle of the tail (51.1 against 36.1 us here). The oracle's part of it is
+   input geometry, not size: a segment query visits 23.7 BVH nodes on the tail against 8.2 at the median (17 % against
+   45 % are rejected at the root box; section 2a). For insertion, bookkeeping and trials the cause of the growth is: not
    the TLB (THP = always: no change, M), not GC (below); memory access over a 2.5 GB working set is the remaining
    candidate, unproven. Bound if the unit costs stayed at the 50-100k level: 1.48x on the tail (E).
 2. **80 % of the tail's wall time is serial** (540 s of 672 s; the wrap). The parallel parts (reduction rounds, check,
@@ -51,7 +53,7 @@ serial reference (the reduction still used 3 cores of CPU; small meshes became 1
    On 4 cores (B) alone leaves 8 meshes above 20 s. "90 s -> 10 s" needs 16 cores and (B) plus the rest phases, or the
    budget.
 6. **Repair cases:** #703 removes #636 and #712 (6.9 -> 0.34 s, 3.4 -> 0.16 s, 42.2 -> 1.3 s). #692 is the same size
-   effect below the budget (185k raw triangles from 144 input triangles, 11.6 s per Apply). **#693 is not a wrap case:**
+   effect below the budget (185k raw triangles from 144 input triangles, 11.6 s per Apply). **#693 is not a wrap case** (it has its own session; a pointer only, not in the ranking)**:**
    97.8 % of its 50 s is the fast winding number of the volume checks evaluating exact solid angles (with the far part
    the far-field cache is evidently not used; why, in the tree or its criterion, is not diagnosed); the same scene with
    the part at 1e3 takes 0.78 s.
@@ -72,6 +74,7 @@ Speedups are of the summed time. M = measured (a run, or a phase's measured time
 | 6 | unit costs at the 50-100k level (locality: cell / vertex layout, queue) | 39.9 s / 460 s | - | 1.48x | E | cause unproven (THP ruled out); a probe would be a compacting / spatially ordered Delaunay3 layout |
 | 7 | pinch / manifold trials free, serial | 59.0 s / 587 s | - | 1.16x | M | upper bound of "L4b" (local / incremental trials); real gain about half |
 | 8 | oracle + touch free (rest of L1) | 48.0 s / 523 s | - | 1.30x | M | L1 took the cheap part; no further idea measured |
+| 8a | faster query path in `AlphaWrapOracle` (section 2a): node / box tests free (perfect culling) / traversal 2x faster (wide nodes, SIMD boxes) | - | - | 1.18x / about 1.08x | M / E | bit-identical; the only carve lever that also helps the median (1.13x / about 1.06x). Last-hit caching <= 1.01x (M: 6.9 % and 2.9 % positive answers); a query batch exists only inside (B)'s rounds |
 | 9 | reduction's serial parts free | 67.4 s / 650 s | - | 1.05x | M | 15-17 % on 679615 / 49901 (large flat faces) |
 | 10 | Server GC / gen0 size / no concurrent GC | - | - | <= 1.04x | M | a host setting, not a library lever; noise level |
 | 11 | THP = always | - | - | 1.00x | M | none |
@@ -99,6 +102,61 @@ area / diag^2 inputs), (B) changes the output bits but not the resolution.
 
 The normal case has no single hotspot: the four carving parts are 6-14 % each, the simplification 41 %. Nothing
 measured gives more than about 1.2x there without parallel carving.
+
+## 2a. The main carve split: input queries, Delaunay, queue and bookkeeping, GC (owner request)
+
+The main carve is `refine_and_carve_loop` outside the pinch and quality passes. Shares from the perf samples of the
+main thread (`carve_split.py`, `carve_split_*.txt`); counts from a counter probe in the oracle
+(`oracle_counters_probe.patch`, local; output hashes equal on 54 / 54; `counts_*.jsonl`, `query_counts.txt`), cost per
+query = the baseline's phase time / count. The wrap does not query `DMeshAABBTree3`: its index is `AlphaWrapOracle`, a
+binary BVH over the input's triangles as one array of node structs with a box and a slab along one normal per node
+(#681).
+
+| part | tail: share of T (of the main carve) | normal: share of T (of the main carve) |
+|---|---:|---:|
+| main carve | 51.4 % | 46.0 % |
+| (a) queries against the input (`AlphaWrapOracle`) | 20.3 % (39.6 %) | 15.3 % (33.3 %) |
+| - `FirstEntry`, segment against the offset input (rule 1) | 10.7 % | 5.3 % |
+| - `TetrahedronTouches` (touch test) | 8.8 % | 9.4 % |
+| - distance / closest point (rule 2 projection, vertex distances) | 0.8 % | 0.5 % |
+| - of (a): node and box tests / primitive tests | 14.9 % / 5.4 % | 11.7 % / 3.5 % |
+| (b) Delaunay3 (insertion incl. the inlined filtered InSphere; `ExactPredicates.InSphere` 1.9 % / 2.3 %) | 15.0 % (29.2 %) | 14.7 % (32.1 %) |
+| (c) queue and bookkeeping (loop 3.5, queue pop 3.5 + push 0.8, insert_steiner's labels and pushes 3.2, dual edge 2.0, timers 1.0) | 15.4 % (30.0 %) | 15.1 % (32.9 %) |
+| (d) GC / allocation inside the carve | 0.6 % (1.2 %) | 0.8 % (1.8 %) |
+
+Counts and cost per query (sums over the stratum):
+
+| query | stratum | calls per popped gate | per Steiner point | ns per query | BVH nodes per query | primitive tests per query | outcome |
+|---|---|---:|---:|---:|---:|---:|---|
+| `FirstEntry` | tail | 0.42 | 10.3 | 1174 | 23.7 | 6.2 | hit 6.9 %, rejected at the root box 17 % |
+| `FirstEntry` | normal | 0.42 | 9.4 | 494 | 8.2 | 1.9 | hit 9.0 %, rejected at the root box 45 % |
+| `TetrahedronTouches` | tail | 0.39 | 9.6 | 1239 | 61.8 | 3.2 | touches 2.9 % |
+| `TetrahedronTouches` | normal | 0.39 | 8.5 | 1012 | 44.3 | 3.6 | touches 1.8 % |
+| distance / closest point | tail / normal | 0.012 / 0.007 | 0.29 / 0.16 | - | 59 / 61 | 41 / 46 | |
+
+(159 M popped gates and 6.6 M Steiner points on the tail, 44 M and 2.0 M on the normal stratum; 58 % of the popped
+gates are stale and reach no query.) A visited node costs about 20 ns in the touch test and 50 ns in the segment query
+(with its share of primitive tests).
+
+Upper bounds of a faster query path:
+
+| idea | tail | normal | kind | note |
+|---|---:|---:|---|---|
+| all input queries free | 1.25x (perf) / 1.30x (phase keys) | 1.18x / 1.22x | M | the ceiling of everything below |
+| perfect culling: node and box tests free, primitive tests stay | 1.18x | 1.13x | M (perf split) | the touch test visits 62 nodes to answer "no" 97 % of the time |
+| traversal 2x faster: 4-wide nodes with SIMD box tests, or tighter node bounds | about 1.08x | about 1.06x | E | building block: `benchmarks/BatchQueryBenchmark` b2 (flat Morton-ordered BVH, leaves of 4 as SoA, `Vector256<double>`, no FMA; a benchmark prototype for rays, not library code). The oracle's node array (#681) is the place; needs the certified rounding argument of #681 again for the wide test |
+| cache the last hit / last separating face | <= 1.01x | <= 1.01x | M (counts) | only 6.9 % of the segment queries and 2.9 % of the touch tests are positive; the separating face is already carried as a hint (#681) |
+| query batch (`MeshBatchQueries`, #448 / #678) | none serial | none serial | - | the batch API covers rays, nearest point and inside on `DMeshAABBTree3`, not the wrap's two queries, and the carving issues one query at a time from its current state. A batch exists only as the gates of one (B) round: then the parallel batch is (B) itself (2.5-5.7x per query on 4 cores in BatchQueryBenchmark) |
+| fewer queries: skip the 0.39 touch tests per gate by a certified distance bound from the cell's vertices | not measured | not measured | - | the cells at the front have vertices on the offset surface and edges of about alpha = 10 offsets, so a Lipschitz bound from the vertex distances rarely certifies "far"; no probe built |
+
+Ranking against the other levers: the query path is worth at most 1.18x on the tail and about 1.08x realistically, the
+same size as the trial passes (1.16x bound), below the size budget (2.0x) and (B) (1.6x on 4 cores). It is the only
+one of the carve levers that stays bit-identical and also helps the median. Of the main carve, queries, Delaunay and
+bookkeeping are each a third; no part dominates, which is why only parallelism or a smaller wrap moves the tail.
+
+Method note for the merged hotspots table: these GC numbers are on-CPU samples (perf). The boolean study's sampling
+profile counts waiting threads too (its "GC waits" 20 % on the #712 inputs); for the same #712 b run perf shows GC +
+allocation at 9.7 % of CPU and the GC pause at 3.4 % of wall.
 
 ## 3. Upper bounds per phase and profile categories
 
@@ -304,14 +362,14 @@ rest 45.7 %; #693 BVH 97.3 % (the winding number), everything else < 1.5 %; #636
 ## 8. Files (branch `runs/alpha-wrap-3-fable`, folder `aw3study/`)
 
 - Lists: `list_tail.txt`, `list_normal.txt`, `list_tail8.txt`, `list_normal10.txt`.
-- Rows: `base4_*.jsonl` (baseline), `base4b_*`, `base4c_*` (reruns), `serial_*` (taskset -c 0), `p1_*`
+- Rows: `base4_*.jsonl` (baseline), `base4b_*` (rerun), `base4c_tail8.jsonl` (6 rows, stopped), `counts_*` (counter probe), `serial_*` (taskset -c 0), `p1_*`
   (DOTNET_PROCESSOR_COUNT=1, not a serial reference), `gc_noconc_*`, `gc_server_*`, `gc_gen0_256m_*`, `thp_always_*`,
-  `thp2_always_*`, `budget300k_tail.jsonl`, `repair_cases.jsonl`.
+  `budget300k_tail.jsonl`, `repair_cases.jsonl`.
 - Tables: `tables.md` (per mesh, zeroing bounds, categories), `phases_*.txt`, `cats_*.txt`, `serial_hot_*.txt`,
-  `projection.txt`, `budget300k.txt`, `gcprobe.txt`, `diagnosis.md`.
+  `projection.txt`, `carve_split_*.txt`, `query_counts.txt`, `budget300k.txt`, `gcprobe.txt`, `diagnosis.md`.
 - Scripts: `drive.sh`, `perfrun.sh`, `fold.py`, `prof.py`, `cats.py`, `serial_hot.py`, `phases.py`, `gcprobe.py`,
-  `budget.sh`, `budget_cmp.py`, `project.py`, `report_tables.py`, `chain2.sh`, `chain3.sh`.
-- Probes (text only): `bench_probe.patch`, `StudyRepair.cs.txt`, inputs `c636.txt`, `c712a.txt`, `c712b.txt`.
+  `budget.sh`, `budget_cmp.py`, `project.py`, `carve_split.py`, `query_counts.py`, `report_tables.py`, `chain2.sh`, `chain3.sh`.
+- Probes (text only): `bench_probe.patch`, `oracle_counters_probe.patch`, `StudyRepair.cs.txt`, inputs `c636.txt`, `c712a.txt`, `c712b.txt`.
 - The perf stack files (260 MB) are not on the branch; `perfrun.sh` regenerates them.
 
 ## 9. Limits of this study

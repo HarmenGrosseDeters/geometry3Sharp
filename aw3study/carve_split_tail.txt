@@ -1,0 +1,22 @@
+wall 672 s, serial main thread 540 s, main carve 345 s = 51.4 % of wall
+(a) queries against the input (AlphaWrapOracle BVH): 39.6 % of the main carve, 20.3 % of wall, 137 s
+        split by test kind: node / box tests: 29.1 % of carve, 14.9 % of wall
+      FirstEntry (segment against the offset input, rule 1): 20.8 % of carve, 10.7 % of wall
+      TetrahedronTouches (touch test): 17.2 % of carve, 8.8 % of wall
+        split by test kind: primitive tests: 10.6 % of carve, 5.4 % of wall
+      Distance / closest point (rule 2 projection, vertex distances): 1.5 % of carve, 0.8 % of wall
+(b) Delaunay3 (insertion, location, InSphere / Orient3d): 29.2 % of the main carve, 15.0 % of wall, 101 s
+      Delaunay3::Insert: 24.8 % of carve, 12.7 % of wall
+      ExactPredicates::InSphere: 3.7 % of carve, 1.9 % of wall
+      Delaunay3::FacetVertices: 0.3 % of carve, 0.2 % of wall
+(c) queue and bookkeeping: 30.0 % of the main carve, 15.4 % of wall, 103 s
+      MeshAlphaWrap::refine_and_carve_loop: 6.8 % of carve, 3.5 % of wall
+      MeshAlphaWrap+GateQueue::Pop: 6.8 % of carve, 3.5 % of wall
+      MeshAlphaWrap::insert_steiner: 6.3 % of carve, 3.2 % of wall
+      MeshAlphaWrap::dual_edge: 3.9 % of carve, 2.0 % of wall
+      __vdso_clock_gettime: 2.0 % of carve, 1.0 % of wall
+      MeshAlphaWrap+GateQueue::Push: 1.6 % of carve, 0.8 % of wall
+      MeshAlphaWrap::touches_input: 1.4 % of carve, 0.7 % of wall
+      MeshAlphaWrap::rule_intersection: 0.9 % of carve, 0.4 % of wall
+(d) GC / allocation: 1.2 % of the main carve, 0.6 % of wall, 4 s
+      kernel memory: 1.0 % of carve, 0.5 % of wall

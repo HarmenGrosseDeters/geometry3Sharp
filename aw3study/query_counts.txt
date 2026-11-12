@@ -1,0 +1,16 @@
+## tail (24 meshes, output hashes equal to the baseline on 24); popped gates 159 M, Steiner points 6.6 M
+| query | calls per popped gate | per Steiner point | ns per query (sum; median mesh) | share of T | BVH nodes per query | primitive tests per query | outcome |
+|---|---:|---:|---:|---:|---:|---:|---|
+| FirstEntry (segment vs offset input, rule 1) | 0.42 | 10.3 | 1174; 1061 | 11.7 % | 23.7 | 6.2 | hit 6.9 %, rejected at the root box 17 % |
+| TetrahedronTouches (touch test) | 0.39 | 9.6 | 1239; 1235 | 11.5 % | 61.8 | 3.2 | touches 2.9 % |
+| Distance / closest point (rule 2, vertex distances) | 0.012 | 0.29 | - (inside bookkeeping, 0.8 % of T by perf) | - | 58.9 | 40.7 | |
+ns per visited node incl. its share of primitive tests: FirstEntry 50, touch 20
+
+## normal (30 meshes, output hashes equal to the baseline on 30); popped gates 44 M, Steiner points 2.0 M
+| query | calls per popped gate | per Steiner point | ns per query (sum; median mesh) | share of T | BVH nodes per query | primitive tests per query | outcome |
+|---|---:|---:|---:|---:|---:|---:|---|
+| FirstEntry (segment vs offset input, rule 1) | 0.42 | 9.4 | 494; 494 | 6.3 % | 8.2 | 1.9 | hit 9.0 %, rejected at the root box 45 % |
+| TetrahedronTouches (touch test) | 0.39 | 8.5 | 1012; 997 | 11.7 % | 44.3 | 3.6 | touches 1.8 % |
+| Distance / closest point (rule 2, vertex distances) | 0.007 | 0.16 | - (inside bookkeeping, 0.8 % of T by perf) | - | 61.2 | 45.8 | |
+ns per visited node incl. its share of primitive tests: FirstEntry 60, touch 23
+

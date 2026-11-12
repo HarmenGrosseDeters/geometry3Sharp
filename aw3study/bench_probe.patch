@@ -1,5 +1,5 @@
 diff --git a/benchmarks/MeshRepairBenchmark/Program.cs b/benchmarks/MeshRepairBenchmark/Program.cs
-index ce7740e..e9b9d45 100644
+index ce7740e..670f63b 100644
 --- a/benchmarks/MeshRepairBenchmark/Program.cs
 +++ b/benchmarks/MeshRepairBenchmark/Program.cs
 @@ -16,6 +16,7 @@ class Program
@@ -10,7 +10,7 @@ index ce7740e..e9b9d45 100644
          var r = new System.Collections.Generic.Dictionary<string, object>();
          r["file"] = System.IO.Path.GetFileName(args[0]);
          string stage = "load";
-@@ -296,7 +297,21 @@ class Program
+@@ -296,7 +297,23 @@ class Program
                  var runs = new System.Collections.Generic.List<object>();
                  result = null;
                  for (int k = 0; k < Math.Max(1, repeat); ++k) {
@@ -20,7 +20,9 @@ index ce7740e..e9b9d45 100644
 +                    int g00 = GC.CollectionCount(0), g10 = GC.CollectionCount(1), g20 = GC.CollectionCount(2);
 +                    var cpu0 = Process.GetCurrentProcess().TotalProcessorTime;
 +                    long ts0 = Stopwatch.GetTimestamp();
++                    Array.Clear(gs.AlphaWrapOracle.StudyQ, 0, 12);
                      result = WrapPipeline(original, r);
++                    r["study_q"] = (long[])gs.AlphaWrapOracle.StudyQ.Clone();
 +                    long ts1 = Stopwatch.GetTimestamp();
 +                    r["study_t0_ns"] = (long)(ts0 * (1e9 / Stopwatch.Frequency)); r["study_t1_ns"] = (long)(ts1 * (1e9 / Stopwatch.Frequency));
 +                    r["study_cpu_ms"] = (long)(Process.GetCurrentProcess().TotalProcessorTime - cpu0).TotalMilliseconds;
@@ -32,7 +34,7 @@ index ce7740e..e9b9d45 100644
                      runs.Add(r["pipe_ms"]);
                  }
                  if (repeat > 1) r["pipe_ms_runs"] = runs;
-@@ -566,6 +581,7 @@ class Program
+@@ -566,6 +583,7 @@ class Program
          wrap.Compute();
          long wrapMs = sw.ElapsedMilliseconds;
          r["wrap_ms"] = wrapMs;
@@ -40,7 +42,7 @@ index ce7740e..e9b9d45 100644
          r["wrap_status"] = wrap.Status.ToString();
          if (wrap.Error != null) r["wrap_error"] = wrap.Error;
          r["wrap_rel_alpha"] = relAlpha;
-@@ -604,6 +620,7 @@ class Program
+@@ -604,6 +622,7 @@ class Program
              if (improved != null) result = improved;
          }
          r["pipe_ms"] = sw.ElapsedMilliseconds;
