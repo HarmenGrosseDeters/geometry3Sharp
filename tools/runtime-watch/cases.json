@@ -145,6 +145,363 @@
         "BENCH_IOU_CELLS": "0"
       },
       "time_field": "repair_ms"
+    },
+    {
+      "id": "alphawrap-thingi-40118-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 40118, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 66.5 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "40118"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:40118}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-860049-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 860049, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 53.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "860049"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:860049}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-69261-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 69261, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 36.0 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "69261"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:69261}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-222695-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 222695, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 34.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "222695"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:222695}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-535629-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 535629, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 33.6 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "535629"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:535629}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-222687-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 222687, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 32.6 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "222687"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:222687}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-500097-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 500097, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 31.9 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "500097"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:500097}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-520646-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 520646, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 30.4 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "520646"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:520646}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-500115-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 500115, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 29.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "500115"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:500115}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-78968-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 78968, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 28.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "78968"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:78968}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-679615-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 679615, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 28.1 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "679615"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:679615}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-500099-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 500099, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 24.5 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "500099"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:500099}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-49901-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 49901, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 23.4 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "49901"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:49901}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-111959-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 111959, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 23.0 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "111959"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:111959}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-224108-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 224108, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.9 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "224108"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:224108}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-49998-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 49998, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.9 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "49998"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:49998}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-84042-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 84042, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.3 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "84042"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:84042}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
     }
   ]
 }
