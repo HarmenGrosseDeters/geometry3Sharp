@@ -161,5 +161,17 @@ twice, so the result is ≤ the exact value. Then `sqrt`, which rounds to neares
     midpoint and the bound still exceeds lower + tol. In every constructed case the bound of such a needle was below that.
     It is kept as the stop against an otherwise endless loop.
   - The off term in a triangle's upper bound. In every constructed case a sibling with a looser bound covered the distance.
-    It is needed for soundness wherever a tight bound (all corners nearest one triangle, or a polygon split) is taken on a
-    rounded triangle.
+    The term is needed for soundness (c3) wherever a tight bound (all corners nearest one triangle, or a polygon split) is
+    taken on a rounded triangle.
+
+    A construction in which no sibling covers was tried (coordinator, 2026-11-12) and none was found:
+    - At the root level every corner is an input vertex, with off = 0, so the term is 0 there. It acts only from the first
+      subdivision on.
+    - Below that, in a frame where one coordinate is quantized (an ulp of 1), the target's triangles are quantized too.
+      A region of A that is far from B and lies off every rounded child must be bounded by edges of B between two lattice
+      lines, and B has none there.
+    - In every attempt the point of maximal distance therefore lay on a rounded child, or under a sibling whose bound is
+      loose (d + edge, about the size of the child): an interior maximum, children nearest one triangle, a needle.
+      These are the tests `InteriorMaximum_*`, `RoundedChildrenNearestOneTriangle_*` and `Needle_*`.
+
+    The term stays, by the proof in c3.
