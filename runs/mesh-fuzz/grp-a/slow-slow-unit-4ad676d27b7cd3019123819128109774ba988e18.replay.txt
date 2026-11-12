@@ -1,1 +1,0 @@
-op 2 (difference): A 16 v / 24 t, B 16 v / 24 t

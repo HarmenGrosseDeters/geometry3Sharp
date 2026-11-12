@@ -1,1 +1,0 @@
-op 0 (union): A 16 v / 24 t, B 6 v / 8 t

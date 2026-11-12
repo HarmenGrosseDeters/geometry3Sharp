@@ -1,1 +1,0 @@
-op 1 (intersection): A 16 v / 24 t, B 16 v / 24 t
