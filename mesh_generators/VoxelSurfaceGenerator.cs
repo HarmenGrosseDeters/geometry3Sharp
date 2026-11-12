@@ -22,8 +22,8 @@ namespace g3
 		public Func<Vector3i, Colorf> ColorSourceF;
 
 		// if the vert-count or tri-count of a mesh would get higher than this value, we start a new mesh: a bound that holds
-		// for every mesh (a voxel is never split, so a value below the 24 vertices and 12 triangles of one voxel with six
-		// exposed faces cannot be kept, and a mesh then holds that one voxel)
+		// for every mesh, except that a voxel is never split: a voxel with more than MaxMeshElementCount / 4 exposed faces
+		// (at most 6, so only for a value below 24) does not fit, and a mesh then holds that voxel alone
 		public int MaxMeshElementCount = int.MaxValue;
 
         // result

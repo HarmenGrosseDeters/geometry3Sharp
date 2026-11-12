@@ -138,6 +138,25 @@ namespace geometry3Sharp.Tests
             Assert.All(gen.Meshes, m => Assert.Equal(12, m.TriangleCount));
         }
 
+        [Fact]
+        public void VoxelSurface_VoxelWithoutExposedFaces_OpensNoEmptyMesh()
+        {
+            // A full 3x3x3 grid without the cap at the boundary, minus (1,1,2) and (1,2,1): the last voxel with faces is (1,2,2)
+            // (two faces toward the holes: 8 vertices, above the limit of 5, so the mesh is full), and the very last voxel (2,2,2)
+            // has no face to add (its three other neighbours are filled, the rest is outside). It must not start an empty mesh.
+            var grid = new Bitmap3(new Vector3i(3, 3, 3));
+            for (int z = 0; z < 3; ++z) for (int y = 0; y < 3; ++y) for (int x = 0; x < 3; ++x) grid.Set(new Vector3i(x, y, z), true);
+            grid.Set(new Vector3i(1, 1, 2), false); grid.Set(new Vector3i(1, 2, 1), false);
+            var gen = new VoxelSurfaceGenerator { Voxels = grid, CapAtBoundary = false, MaxMeshElementCount = 5 };
+            gen.Generate();
+            Assert.NotEmpty(gen.Meshes);
+            Assert.All(gen.Meshes, m => Assert.True(m.TriangleCount > 0, "an empty mesh"));
+            var unlimited = new VoxelSurfaceGenerator { Voxels = grid, CapAtBoundary = false };
+            unlimited.Generate();
+            Assert.True(unlimited.Meshes[0].TriangleCount > 0);
+            Assert.Equal(unlimited.Meshes[0].TriangleCount, gen.Meshes.Sum(m => m.TriangleCount));
+        }
+
         [Theory]
         [InlineData(48, 1)]        // two isolated voxels of 24 vertices each fit exactly
         [InlineData(47, 2)]
