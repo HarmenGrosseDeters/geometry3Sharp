@@ -2434,10 +2434,17 @@ namespace g3
             Vector3d grid;
             bool hasGrid;
             public Center(ExactPoint3 p) { P = p; }
-            // the grid coordinates as doubles, without the tiny-coordinate check of Grid (for the Antipodal boundary sum)
+            Vector3d gridDouble;
+            bool hasGridDouble;
+            // the grid coordinates as doubles, without the tiny-coordinate check of Grid (for the Antipodal boundary sum),
+            // when first needed (L2 asks for them several times per piece)
             public Vector3d GridDouble()
             {
-                return new Vector3d(ExactPoint3.ToDouble(P.X, P.W, 0), ExactPoint3.ToDouble(P.Y, P.W, 0), ExactPoint3.ToDouble(P.Z, P.W, 0));
+                if (hasGridDouble == false) {
+                    gridDouble = new Vector3d(ExactPoint3.ToDouble(P.X, P.W, 0), ExactPoint3.ToDouble(P.Y, P.W, 0), ExactPoint3.ToDouble(P.Z, P.W, 0));
+                    hasGridDouble = true;
+                }
+                return gridDouble;
             }
             // the grid coordinates as doubles (grid_coord), when first needed
             public Vector3d Grid()
