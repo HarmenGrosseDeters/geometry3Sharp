@@ -213,7 +213,8 @@ interior triangles that are not on the level set):
 Let L be the level set (the boundary of the region above the iso value) and D the dual contouring mesh. For every
 run: `TopologyCertified` (bool) and the list of **uncertified cells**. If the list is empty, D is isotopic to L. If
 not, D and L agree outside the union of the listed cells in the sense of 4.2 (same crossings of every other grid
-edge, face and cell; this is a statement about those cells, not an isotopy of the rest), and the list is where a user or a refinement has to look. A certificate, not an unconditional
+edge, face and cell; this is a statement about those cells, not an isotopy of the rest; and a node sign is checked only through a
+path of checked edges to the padding, so a node surrounded by uncertified cells is not covered by it), and the list is where a user or a refinement has to look. A certificate, not an unconditional
 guarantee: at a degenerate spot (a surface touching itself, a tip of angle 0, a level set through a grid node) no
 finite refinement passes, in this as in every published method.
 
@@ -274,7 +275,8 @@ is the hull of both where both can be active). (E): the derivative along the edg
 derivative excludes 0 (the cut is a graph over an axis of the face, so it has no closed curve), and with four
 crossings the value keeps one sign on a segment that separates the two pairs. (C): a graph direction, and either one
 curve on the cell's boundary or, with several, the value keeps one sign on surfaces in the cell that separate them
-(Theorem 4); otherwise refine. A plain `Func<Vector3d, double>` gets no certificate; a Lipschitz constant alone
+(Theorem 4; the separating surfaces are the test, the parts cannot be counted from enclosures); otherwise refine.
+Theorem 1 is not yet proved for level sets that are not PL (section 7.2, remark 2). A plain `Func<Vector3d, double>` gets no certificate; a Lipschitz constant alone
 (Kalra & Barr 1989) can exclude cells but cannot prove a crossing pattern.
 
 **W: winding number of a broken mesh.** Away from defect edges and from self-intersections the level set is locally
@@ -322,7 +324,7 @@ handle.
 
 | stage | what | size | gate |
 |---|---|---|---|
-| 0 | the lemma and the mesh side written as a full proof: **done, section 7** (2026-11-13; it corrected the cell test, section 4.3); open: a review by a second session, the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
+| 0 | the lemma and the mesh side written as a full proof: **done, section 7** (2026-11-13; it corrected the cell test, section 4.3); reviewed by a second session on #749, findings worked in; open: the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
 | 1 | class P, report only: `TopologyCertified` and the uncertified cells on `WindingContouring` / `MeshWindingNumberSolidify` for clean inputs; exact (E), (F), (C) by counting (section 7.4) | M (tier L rules: exact code) | never true on a wrong result (sections 2.1, 2.2 and a fuzz run); certified share and time reported; a spike first measures the check time against the DC phases |
 | 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
 | 3 | class S: the interval interface, the built-in shapes and operators, the certificate in `DualContouring` (dense and two-level) | M | the families of 2.1 certified from 2 cells on; the gyroid gets a certified reference |
@@ -455,7 +457,8 @@ it is e (its interior), the only faces that meet it are f_1 .. f_4, and it is cu
 the four cells.
 
 *(a) The cut of one polygon.* P separates {v_1, v_4} from {v_2, v_3} and contains none of them. So P meets each
-triangle of Q_e in a segment or not at all, and Q_e in a path from x_1, the point where the side v_1 v_2 crosses P,
+triangle of Q_e in a segment, in the single point v_e (a fan triangle on one side of P), or not at all, and Q_e in
+a path from x_1, the point where the side v_1 v_2 crosses P,
 to x_3 on the side v_3 v_4: with the diagonal v_1 v_3, the segments x_1 y and y x_3 with y the diagonal's point on P;
 with the diagonal v_2 v_4 likewise; with an edge vertex, x_1 v_e and v_e x_3. x_1 lies in the interior of f_1 and x_3
 in the interior of f_3 (the segment of two interior points of two boxes that share a face crosses it in the face's
@@ -467,7 +470,11 @@ e is on P, that path passes through the same z_e and meets the first nowhere els
 - Q_e meets the line of e, and so e, exactly in z_e;
 - Q_e meets f_i exactly in an arc a_(e,i) from x_i to z_e (a segment or two), whose interior is in the interior of
   f_i;
-- the two paths are properly embedded arcs of the disk Q_e that cross once, so by (J) they cut it into four disks
+- the two paths are properly embedded arcs of the disk Q_e that meet exactly in z_e, and their end points alternate
+  on the boundary of Q_e (x_1, x_2, x_3, x_4, one on each side). The alternation, not the local shape at z_e (both
+  paths may bend there, when a diagonal's point y lies on the line of e), makes them cross: the first cuts Q_e into
+  two disks with x_2 and x_4 in different ones, and each half of the second is a properly embedded arc of one of
+  them. So by (J) they cut Q_e into four disks
   K_(e,i), the part of Q_e in c_i, each bounded by the two *spokes* from v_i to x_(i-1) and to x_i (parts of the
   sides of Q_e) and the arcs a_(e,i-1) and a_(e,i); K_(e,i) meets the boundary of c_i exactly in those two arcs.
 
@@ -513,9 +520,14 @@ is another.
 
 Let S be a closed manifold triangle mesh without self-intersections (the level set of a clean input: its components
 across which the winding number steps between 0 and 1; one exact signed ray-crossing count per component decides
-which those are). Let X be a face or a 3-cell of the grid, closed. **General position (G)** for X: no mesh vertex on
+which those are). "Triangles", "mesh edges" and "mesh vertices" below are those of L only: a component that is not part of the level set
+(a shell nested in material, where w steps 1 to 2) is left out of every count. Let X be a face or a 3-cell of the
+grid, closed. **General position (G)** for X: no mesh vertex on
 the boundary of X (for a face: on the face), no mesh edge meets an edge of X's boundary (for a face: no mesh edge
-lies in its plane or meets its boundary), no triangle contains a node of X. Under (G), S meets a face in a compact
+lies in the face's plane and meets the face, or meets its boundary), no triangle contains a node of X. **A cell is
+tested together with all its faces, and a face with all its edges**: the cell's own clause does not exclude a mesh
+edge that crosses the interior of a face inside the face's plane, where a part could touch the cell's boundary from
+inside; the face's clause does. Under (G), S meets a face in a compact
 1-manifold whose boundary is on the face's edges, and a 3-cell in a compact 2-manifold whose boundary is on the
 cell's boundary.
 
@@ -534,7 +546,7 @@ triangle meets X in a set of characteristic (its edges in M) - (its vertices in 
 minus that, an open edge 1 minus its ends in V, a vertex 1. Summing, with every mesh edge in two triangles and a
 vertex of degree k in k triangles and k edges: |T| - 2|M| + |M| + sum over V of (k - k + 1) = |T| - |M| + |V|. ∎
 
-**Theorem 3.** Under (G) for all faces and cells tested:
+**Theorem 3.** Under (G) for a cell, all its faces and all their edges:
 
 - (E) holds on an edge exactly if at most one triangle meets it (a count of segment-triangle crossings);
 - (F) holds on a face f exactly if every part of S in f has |T| - |M| = 1 (a connected compact 1-manifold is an arc,
@@ -558,7 +570,8 @@ meets c in a compact 2-manifold with boundary on the cell's boundary. Suppose th
 line parallel to d meets S in c in at most one point. Then no part of S in c is closed, every part is a disk with
 holes, and if the boundary of c carries m circles of S, the parts are all disks exactly if there are m of them. In
 particular: if m = 1, S meets c in one disk; and if for m > 1 there are surfaces in c that S does not meet and that
-separate each circle from the others, S meets c in m disks.
+separate each circle from the others, S meets c in m disks. (For a function only this second form is a test: the
+parts cannot be counted from enclosures, a certified sign on a separating surface can.)
 
 *Proof.* The projection along d is continuous and injective on the compact set S in c, so it embeds each part in a
 plane. A closed surface does not embed in a plane, and a compact connected surface with boundary in the plane is a
@@ -589,13 +602,15 @@ What this needs that `Orient2d`, `Orient3d` and comparisons do not already give:
    The fast winding number is not used by the certificate at all.
 4. **Three implementation facts of option B** ((i)-(iii) in section 7.3), to be asserted in tests.
 5. **For class S only:** interval enclosures of the function and its gradient (a new interface on `ExactInterval`),
-   and the tameness remark of section 7.2.
+   and the open argument of section 7.2, remark 2 (Theorem 1 for level sets that are not PL).
 6. **Nothing for class W** is proved here.
 
 What the certificate does not give: a bound on the distance between D and L (the existing deviation measures do
 that); a statement about cells that are refused (the pattern may still agree there); termination of the refinement
 at a degenerate spot.
 
-Open before stage 1: a second reader for this section (a fresh session with the note only), with attention to step
-4 of Theorem 1 (the regions of a ball cut by several disks), part (a) of Theorem 2 when a diagonal's point y lies on
-the line of e, and the general-position conditions of Theorem 3.
+Review (2026-11-13, a fresh session with the note only, on #749): Theorems 1-4 hold in the PL setting; its findings
+are worked in (the region argument of step 4, the alternation argument of Theorem 2 (a), the rule that a cell is
+tested with its faces, the counts over L's triangles only, the node-sign caveat of 4.1, the withdrawn shear argument
+for class S). Still premises, not proved: the three implementation facts of option B (section 7.3 (i)-(iii)), on
+which the statement for face vertices and refinement transitions rests; they become assertions in stage 1's tests.
