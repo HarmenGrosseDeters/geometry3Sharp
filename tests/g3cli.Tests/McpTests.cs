@@ -161,6 +161,40 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Query3d_OutputAndInsideAuto_AreToolArguments()
+        {
+            var server = Server();
+            string csv = m.Path_("mcp_q3.csv");
+            JsonObject r = Handle(server, Call(1, "query3d", new JsonObject() { ["input"] = m.Cube, ["points"] = "[[0,0,0],[3,0,0]]", ["inside"] = "auto", ["output"] = csv }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal("crossings", S(sc["points"]["method_used"]));
+            Assert.Equal(2, I(sc["output_rows"]));
+            Assert.Equal(3, System.IO.File.ReadAllLines(csv).Length);
+            r = Handle(server, Call(2, "query3d", new JsonObject() { ["input"] = m.Cube, ["rays"] = "[{\"origin\":[-5,0,0],\"direction\":[1,0,0]}]", ["normalize"] = false }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(4.0, D(r["result"]["structuredContent"]["rays"]["results"][0]["t"]), 9);
+        }
+
+        [Fact]
+        public void Repair_NewOptions_AreToolArguments()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "repair", new JsonObject() { ["input"] = m.Overlapping, ["output"] = m.Path_("mcp_rep.stl"),
+                ["exact_resolve_rounds"] = 3, ["wrap_relative_alpha"] = 200.0, ["passthrough_clean_parts"] = false, ["separate_fraction"] = 0.001 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var o = r["result"]["structuredContent"]["robust_options"];
+            Assert.Equal(3, I(o["exact_resolve_rounds"]));
+            Assert.Equal(200.0, D(o["wrap_relative_alpha"]));
+            Assert.False(B(o["passthrough_clean_parts"]));
+            Assert.Equal(1e-3, D(o["separate_fraction"]));
+
+            r = Handle(server, Call(2, "repair", new JsonObject() { ["input"] = m.Overlapping, ["output"] = m.Path_("mcp_rep2.stl"), ["exact_resolve_rounds"] = 0 }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
         public void ToolErrors_AreResults()
         {
             var server = Server();

@@ -78,6 +78,21 @@ floors, fidelity and determinism unchanged, PRs 1, 3 and 4 bit-identical to mast
 (this), 1 L3 (independent determinism review), 2 L4 (not guaranteed bit-identical: where its output differs, and the
 guarantees there), 3 L1, 4 L3b, 5 L2. Lever 6 re-measured on DC A+B: B clean 20/20 (before 19/20), Chamfer 0.22x, still
 no offset and 17870 triangles > 170 deg at 3.3x time; C3 unchanged (+40 % time); not built now (owner 2026-11-12).
+**L3 dropped (owner 2026-11-12).** The bit-identical spike (gate tests of the queue's top gates precomputed in parallel,
+used only while the stamps of both cells match; output hashes identical) is slower: only 36-40 % of the tests are in the
+window before the carving pops them (the priority flood mostly pops gates it just pushed; a deeper window covers less),
+which bounds it at <= 1.085x at zero overhead (`runs/alpha-wrap-3`, `aw3/L3-SPIKE.md`, the reference). Decision: (A) go on
+with L4, L1, L3b, L2; target (b) lowered to about 1.25x on the 189 against master on 4 cores, (a) and (c) unchanged. (B), a
+deterministic round-based parallel carving (independent gates per round, deterministic reservations; serial = parallel and
+2^k bit-identical, but not master's output), is a future research item: a guarantee argument first, then a probe, then
+an owner decision on (c) for it.
+**L4 (PR 2):** the manifold step faster, bit-identical (no star search for a vertex whose result facets form
+one closed cycle in its link, Jordan; stamp arrays instead of dictionaries in the same order; volumes only when needed;
+stars kept between trials without an insertion), and the first pinch pass leaves its confirming full trial to the
+second (output different only where that trial would find a spot the local ones missed). Measured (4-core container):
+A/B against master alternating on 24 meshes (16 random of the 269, 8 with the most pinch points): 24/24 identical,
+trial + manifold step 0.49x (median), pipeline 0.93x (median and sum); the 269 meshes of phase 1: 269/269 identical
+output (the confirmation skipped on 126), all closed and free of self-intersections, trial + manifold 0.49x.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
@@ -221,7 +236,7 @@ better; 0.75 is 1.09-1.22x.
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
   `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
   and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
-  (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
+  (`MinTriangleQuality` 0, `PreventSelfIntersections` off; the flip guard is moot: the owner kept the Remesher defaults upstream's, November 2026); (5) settle the
   "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
@@ -240,8 +255,8 @@ better; 0.75 is 1.09-1.22x.
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
-  research), S2 and S3 open, pinned and documented; the regressions a remesher flip-guard default would cause; the
-  P1 collapse.
+  research), S2 and S3 open, pinned and documented. Closed: the P1 collapse (a limitation, [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); the real fix is research); the regressions a remesher flip-guard default
+  would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
 - The slow `exact.resolve` on small inputs (67709, 42327) went to the boolean-performance session
   ([exact-boolean.md](exact-boolean.md#other-open-items)).

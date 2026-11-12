@@ -94,6 +94,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `PlaneIntersectionTarget.RayIntersect` | computed in float: up to 0.5 off at UTM coordinates; a non-finite ray returned true with a non-finite hit | computed in double (`PlaneFrame` stays a `Frame3f`, so its origin and axes are still float); a non-finite hit returns false with the same `vHit` as for a parallel ray |
 | `RoundRectGenerator.GetBorderLoop`, `RevolveGenerator` cap normals, `TrivialBox3Generator` normals | see the commit history | corrected |
 | `ConvexHull2` constructor with `QT_INTEGER`, `QT_RATIONAL` or `QT_FILTERED` | `NotImplementedException` ("not currently supported"), while the class comment offered an exact mode | the same exception type; the message names the mode and the supported ones (`QT_DOUBLE`, `QT_INT64`), and the comment says the others were never ported (#645) |
+| `VoxelSurfaceGenerator` with `MaxMeshElementCount` | reserved 6 vertices and 2 triangles per voxel but added up to 24 and 12, so a mesh could end up to 17 vertices above the limit (the strict `<` was also off by one) | a hard bound: the exposed faces of a voxel are counted first and a new mesh is started unless the whole voxel fits (`<=`); the meshes split at other voxels than before. A limit below one voxel (24 vertices) cannot be kept and gives one voxel per mesh (#647) |
 
 ## Signatures that change (recompile needed)
 

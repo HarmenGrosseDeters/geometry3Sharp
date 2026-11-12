@@ -323,6 +323,30 @@ namespace Meshing2Acceptance
                 Must("reject: the same at an input angle of 63.43 degrees, above 60, as AngleBelowBound", wide.Has(Violation.AngleBelowBound), "report: " + wide);
             }
 
+            // ---- the shortest edge spans a small input angle of two constraints that miss each other by a rounding (#664): the hull
+            // domain A = (0, 0), E1 = (30, 0), E2 = (24, 18) with a segment S from P0 = (10, d) to E2 (52.1 degrees to the bottom edge),
+            // a bound of 20 degrees, and the triangle p E1 q with p = (11, 0) and q on S at 1.2 from P0. At d = 0 S ends on the bottom edge
+            // (the exact rule); at d = 1e-13, inside the tube (2^-40 of 30), the lines cross 7.8e-14 before S's end, so only the end in
+            // the tube makes the apex (counted as NearMeetAngleExcused); at d = 1e-6, outside the tube, the triangle is judged. Only the
+            // verdict on p E1 q is asserted (the triangle A P0 q has an angle of its own)
+            {
+                Mesh2Input NearIn(double d) { var i = new Mesh2Input { X = new[] { 0.0, 30, 24, 10 }, Y = new[] { 0.0, 0, 18, d }, MinAngleDeg = 20 }; i.Segments.Add(new SegmentInput(3, 2)); return i; }
+                Mesh2Output NearOut(double d) {
+                    double ux = 14 / Math.Sqrt(14 * 14 + (18 - d) * (18 - d)), uy = (18 - d) / Math.Sqrt(14 * 14 + (18 - d) * (18 - d));
+                    var tris = new[] { new[] { 0, 3, 5 }, new[] { 0, 5, 2 }, new[] { 3, 4, 5 }, new[] { 4, 1, 5 }, new[] { 5, 1, 2 } };
+                    return new Mesh2Output { Status = Mesh2Status.Success, VX = new[] { 0.0, 30, 24, 10, 11, 10 + 1.2 * ux }, VY = new[] { 0.0, 0, 18, d, 0, d + 1.2 * uy },
+                        InputToVertex = new[] { 0, 1, 2, 3 }, Triangles = tris, Neighbours = NeighboursOf(tris), TriangleLabels = new[] { 0, 0, 0, 0, 0 },
+                        Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(3, 5), new SubsegmentOutput(5, 2) }, BadTriangles = new[] { 0, 3 } };
+                }
+                bool Judged(OracleReport rep) => rep.Violations.Any(x => x.Kind == Violation.AngleBelowBound && x.Detail.StartsWith("triangle 4 1 5 "));
+                var exact = Oracle.Check(NearIn(0), NearOut(0), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the shortest edge spans the input angle where S ends exactly on the bottom edge", !Judged(exact) && exact.NearMeetAngleExcused == 0, "report: " + exact);
+                var inTube = Oracle.Check(NearIn(1e-13), NearOut(1e-13), new OracleExpect { Milestone = Milestone.M3 });
+                Must("accept: the same where S's end lies 1e-13 off the bottom edge, inside its tube (#664)", !Judged(inTube) && inTube.NearMeetAngleExcused > 0, "report: " + inTube);
+                var off = Oracle.Check(NearIn(1e-6), NearOut(1e-6), new OracleExpect { Milestone = Milestone.M3 });
+                Must("reject: the same where S's end lies 1e-6 off the bottom edge, outside its tube, as AngleBelowBound", Judged(off), "report: " + off);
+            }
+
             // ---- the same on a snap grid, with a hull edge through a collinear input point (T5, found by the CsCheck campaign). The hull
             // domain A = (0, 0), E1 = (120, 0), E2 = (96, 72) (the hull angle at A is 36.87 degrees) with the input point P = (2, 0) on the bottom
             // edge, at pixel 1, a bound of 20 degrees and the triangle p E1 q with p = (4, 0) on the piece P-E1 and q on A-E2: its shortest
