@@ -222,6 +222,8 @@ static unsafe class Implicit
         int n = args.Length > 0 ? int.Parse(args[0]) : 4000;
         int reps = args.Length > 1 ? int.Parse(args[1]) : 3;
         // (bits of X / Y / Z, bits of W): the fixed-width limit, three-plane points beyond it, piece centroids (EXACT_BOOLEAN_TAIL_55928.md)
+        // (two passes, the second one printed: the first warms the JIT tiers of BigInteger and FixedArith)
+        for (int pass = 0; pass < 2; ++pass)
         foreach (var (bx, bw, label) in new[] { (192, 138, "edge-plane points (fixed width today)"), (309, 255, "three-plane points beyond the fixed width"), (807, 753, "piece centroids") }) {
             var rnd = new Random(bx);
             Pt[] q = new Pt[4 * n];
@@ -236,9 +238,12 @@ static unsafe class Implicit
                 }
                 pl[2 * i] = p; pl[2 * i + 1] = q[4 * i];
             }
-            Console.WriteLine($"## {label}: X {bx} bits, W {bw} bits, n = {n}");
-            Console.WriteLine("| operation | method | ns / call | B / call | wrong signs |");
-            Console.WriteLine("|---|---|---|---|---|");
+            Quiet = pass == 0;
+            if (!Quiet) {
+                Console.WriteLine($"## {label}: X {bx} bits, W {bw} bits, n = {n}");
+                Console.WriteLine("| operation | method | ns / call | B / call | wrong signs |");
+                Console.WriteLine("|---|---|---|---|---|");
+            }
             Row("InCircle", "BigInteger (today)", n, reps, i => InCircleBig(q, 4 * i), null);
             Row("InCircle", "FixedArith, loaded from BigInteger per call", n, reps, i => InCircleLimbs(q, 4 * i, true), i => InCircleBig(q, 4 * i));
             Row("InCircle", "FixedArith, points stored as limbs", n, reps, i => InCircleLimbs(q, 4 * i, false), i => InCircleBig(q, 4 * i));
@@ -250,11 +255,12 @@ static unsafe class Implicit
             Row("plane side", "FixedArith, points stored as limbs", n, reps, i => SideLimbs(pl, 2 * i, false), i => SideBig(pl, 2 * i));
             Row("centroid (construction, result kept)", "BigInteger (today)", n, reps, i => CentroidBig(q, 4 * i).Sign, null);
             Row("centroid (construction, result kept)", "FixedArith, one limb array per point", n, reps, i => (int)(CentroidLimbs(q, 4 * i)[0] & 1) * 0 + 1, null);
-            Console.WriteLine();
+            if (!Quiet) Console.WriteLine();
         }
         return 0;
     }
 
+    static bool Quiet;
     static void Row(string op, string method, int n, int reps, Func<int, int> f, Func<int, int> reference)
     {
         int wrong = 0;
@@ -271,6 +277,6 @@ static unsafe class Implicit
             if (r > 0) best = Math.Min(best, (t1 - t0) * 1e9 / Stopwatch.Frequency / n);
             GC.KeepAlive(acc);
         }
-        Console.WriteLine($"| {op} | {method} | {best:F0} | {bytes / (double)n:F0} | {(reference != null ? wrong.ToString() : "")} |");
+        if (Quiet == false) Console.WriteLine($"| {op} | {method} | {best:F0} | {bytes / (double)n:F0} | {(reference != null ? wrong.ToString() : "")} |");
     }
 }

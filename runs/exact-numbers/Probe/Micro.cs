@@ -24,12 +24,13 @@ static unsafe class Micro
             foreach (var kv in sets) Bench("rec:" + Path.GetFileName(args[1]), kv.Key, kv.Value, reps);
             return 0;
         }
+        if (args.Length >= 1 && args[0] == "construct") return Construct.Run(args.Skip(1).ToArray());
         if (args.Length >= 1 && args[0] == "norm") return NormBench.Run(args.Skip(1).ToArray());
         if (args.Length >= 1 && args[0] == "implicit") return Implicit.Run(args.Skip(1).ToArray());
         if (args.Length >= 1 && args[0] == "synth") {
             int n = args.Length > 1 ? int.Parse(args[1]) : 20000;
             int reps = args.Length > 2 ? int.Parse(args[2]) : 3;
-            foreach (string cls in new[] { "inrange-degenerate", "inrange-general", "tiny-uniform", "wide-3scales", "wide-full" })
+            foreach (string cls in new[] { "inrange-degenerate", "inrange-general", "tiny-uniform", "wide-3scales", "wide-full", "extreme-carry" })
                 for (int kind = 1; kind <= 4; ++kind)
                     Bench(cls, kind, Synth(cls, kind, n, 12345 + kind), reps);
             return 0;
@@ -101,6 +102,12 @@ static unsafe class Micro
                     double m = (rnd.Next(2) == 0) ? rnd.Next(-3, 4) : (rnd.NextDouble() + 1) * (rnd.Next(2) * 2 - 1);
                     p[k] = Math.ScaleB(m, e);
                 }
+            } else if (cls == "extreme-carry") {
+                // the largest mantissas at the ends of the exponent range (full carries, maximal span, many cancellations)
+                double[] ext = { double.MaxValue, -double.MaxValue, BitConverter.Int64BitsToDouble(0x001FFFFFFFFFFFFFL), -BitConverter.Int64BitsToDouble(0x001FFFFFFFFFFFFFL),
+                    BitConverter.Int64BitsToDouble(0x000FFFFFFFFFFFFFL), -BitConverter.Int64BitsToDouble(0x000FFFFFFFFFFFFFL), double.Epsilon, -double.Epsilon, 0.0, 1.0, -1.0,
+                    BitConverter.Int64BitsToDouble(0x3FFFFFFFFFFFFFFFL), BitConverter.Int64BitsToDouble(0x7FE0000000000000L) };
+                for (int k = 0; k < ar; ++k) p[k] = ext[rnd.Next(ext.Length)];
             } else {
                 // wide-full: any exponent of the double range, subnormals included; small or random mantissas
                 for (int k = 0; k < ar; ++k) {

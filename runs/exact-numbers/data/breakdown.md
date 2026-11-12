@@ -1,0 +1,33 @@
+| stratum | path | % of time | calls | ns / call | allocated inside, GB (% of all) |
+|---|---|---|---|---|---|
+| normal_pairs | arr.exact_point.big | 2.0 | 27736 | 7494 | 0.05 (2.3) |
+| normal_pairs | arr.planes | 0.9 | 34669 | 2785 | 0.03 (1.3) |
+| normal_pairs | o3.int | 0.8 | 5227810 | 17 | 0.00 (0.0) |
+| normal_pairs | arr.orient.fixed | 0.3 | 87199 | 297 | 0.00 (0.0) |
+| normal_pairs | arr.same_plane.big | 0.1 | 20025 | 475 | 0.00 (0.1) |
+| normal_pairs | o3.adaptive | 0.1 | 29360 | 229 | 0.00 (0.0) |
+| normal_pairs | bool.centroid.big | 0.1 | 642 | 9122 | 0.00 (0.1) |
+| normal_copy | arr.exact_point.big | 5.0 | 45004 | 8349 | 0.09 (5.9) |
+| normal_copy | arr.planes | 1.6 | 40924 | 2995 | 0.03 (2.2) |
+| normal_copy | arr.orient.fixed | 0.6 | 135330 | 344 | 0.00 (0.0) |
+| normal_copy | o3.int | 0.3 | 1976976 | 11 | 0.00 (0.0) |
+| normal_copy | arr.same_plane.big | 0.3 | 30669 | 653 | 0.00 (0.3) |
+| normal_copy | o3.adaptive | 0.1 | 28033 | 266 | 0.00 (0.0) |
+| normal_copy | arr.orient.big | 0.1 | 1126 | 5340 | 0.00 (0.1) |
+| normal_copy | bool.centroid.big | 0.1 | 449 | 12840 | 0.00 (0.0) |
+| tail_small | bool.centroid.big | 4.6 | 10408882 | 3517 | 14.70 (8.4) |
+| tail_small | arr.incircle.fixed | 4.5 | 15263481 | 2316 | 0.00 (0.0) |
+| tail_small | arr.exact_point.big | 4.0 | 6323022 | 4971 | 11.40 (6.5) |
+| tail_small | bool.side.big | 3.9 | 66992332 | 456 | 34.97 (20.0) |
+| tail_small | arr.orient.fixed | 2.8 | 74957165 | 299 | 0.00 (0.0) |
+| tail_small | bool.orient3d.big | 2.3 | 4123104 | 4358 | 17.38 (9.9) |
+| tail_small | arr.incircle.big | 1.7 | 1092726 | 12311 | 6.80 (3.9) |
+| tail_small | arr.planes | 0.4 | 1781558 | 1933 | 0.99 (0.6) |
+| tail_small | arr.along.fixed | 0.3 | 3609265 | 597 | 0.00 (0.0) |
+| tail_small | o3.int | 0.2 | 65670303 | 28 | 0.00 (0.0) |
+| tail_small | arr.compare.fixed | 0.2 | 9315392 | 186 | 0.00 (0.0) |
+| tail_small | arr.orient.big | 0.2 | 815173 | 1634 | 1.11 (0.6) |
+| tail_small | arr.along.big | 0.1 | 717746 | 1455 | 0.78 (0.4) |
+| tail_small | arr.compare.big | 0.1 | 747179 | 1380 | 0.67 (0.4) |
+| tail_small | arr.local_get.big | 0.1 | 906669 | 1082 | 0.43 (0.2) |
+| tail_small | arr.edge_planes.big | 0.1 | 190395 | 4142 | 0.39 (0.2) |

@@ -23,6 +23,11 @@ static class Program
         ExactPredicates.UseDyadic = proto.Contains("dyadic");
         ExactPredicates.UseScaledFilter = proto.Contains("filter");
 #endif
+        // EXACT_SERIAL=1: every gParallel loop runs on the calling thread, so a timed region's wall time is CPU time
+        if (Environment.GetEnvironmentVariable("EXACT_SERIAL") == "1") gParallel.SerialOnThisThread = true;
+#if PATHSTATS
+        PathStats.HistOn = Environment.GetEnvironmentVariable("EXACT_HIST") == "1";
+#endif
         if (args.Length >= 3 && args[0] == "list") return RunList(args[1], args[2]);
         Console.Error.WriteLine("usage: dump <file> | micro ...");
         return 2;
@@ -213,6 +218,7 @@ static class Program
             ["rounding_clean"] = bo.RoundingClean,
             ["hash"] = Hash(bo.Result),
             ["proto"] = Environment.GetEnvironmentVariable("EXACT_PROTO") ?? "",
+            ["serial"] = gParallel.SerialOnThisThread,
             ["result_tris"] = bo.Result != null ? bo.Result.TriangleCount : -1,
             ["phases_ms"] = bo.PhaseMilliseconds.Where(kv => kv.Value > 0).ToDictionary(kv => kv.Key, kv => kv.Value),
             ["counts"] = bo.Counts,
@@ -229,6 +235,15 @@ static class Program
                 ps[PathStats.Names[k]] = new[] { PathStats.Calls(k), Math.Round(PathStats.Ms(k), 1), Math.Round(PathStats.Bytes(k) / 1048576.0, 2) };
         row["paths"] = ps;      // calls, ms summed over threads (includes the timer overhead: calls * pair_ns), MB allocated inside
         row["pair_ns"] = Math.Round(PathStats.PairOverheadNs(), 1);
+        if (PathStats.HistOn) {
+            var hs = new Dictionary<string, long[]>();
+            for (int c = 0; c < PathStats.HistClasses; ++c) {
+                long[] h = new long[PathStats.HistBuckets];
+                Array.Copy(PathStats.hist, c * PathStats.HistBuckets, h, 0, h.Length);
+                if (h.Any(v => v != 0)) hs[PathStats.HistNames[c]] = h;
+            }
+            row["hist"] = hs;       // bucket 0: exact zero; 1 + gap / 8, gap = bits(scale) - bits(value)
+        }
 #endif
         return row;
     }
