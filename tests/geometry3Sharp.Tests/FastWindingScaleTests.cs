@@ -17,6 +17,7 @@ namespace geometry3Sharp.Tests
     /// spheres with a tetrahedron 1e8 or 1e12 away became spheres of size 4e-8 / 4e-12 there, and the volume checks
     /// took 60 s of a 62 s repair. (The number of triangles summed exactly: FastWindingExpansionUsedTests.)
     /// </summary>
+    [Collection("FastWindingParallelDepth")]
     public class FastWindingScaleTests
     {
         // RobustRepairFarPartTests.Scene scaled into the unit frame of MeshRobustRepair (largest extent in [1, 2)):
@@ -86,9 +87,9 @@ namespace geometry3Sharp.Tests
                 double expected = reference.FastWindingNumber(p), fast = tree.FastWindingNumber(q);
                 if (s.IsExact)
                     Assert.True(BitConverter.DoubleToInt64Bits(fast) == BitConverter.DoubleToInt64Bits(expected), $"{name}, at {p0}: {fast:R} vs {expected:R}");
-                else if (s.Translation == Vector3d.Zero)
-                    // (a translation to UTM rounds the coordinates of spheres of size 4e-8 to 1e-10: the exact winding
-                    // number of the rounded mesh is the reference only for the rotations)
+                else
+                    // (rotated or translated: another tree, so other expansions; the reference is the exact winding number
+                    // of the transformed mesh, whose coordinates at UTM round the spheres of size 4e-8 to 1e-10)
                     Assert.True(Math.Abs(fast - tree.WindingNumber(q)) < 0.1, $"{name}, at {p0}: fast {fast} vs exact {tree.WindingNumber(q)}");
             }
         }
@@ -124,21 +125,21 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void FarPart_Repair_TimeBounded()
+        public void FarPart_UnitFrame_VolumeCheck_TimeBounded()
         {
-            // #693: 62 s on the master before (exact.volume 38 s, volume 22 s, all in exact winding sums), 2 s after (4
-            // cores). The bound is 10x the measured time; the result is that of RobustRepairFarPartTests (the scale
-            // disparity, the spheres and the tetrahedron kept)
-            var r = new MeshRobustRepair(RobustRepairFarPartTests.Scene(1e8));
+            // #693: the volume check of MeshRobustRepair on the scene in its unit frame (MeshRepairMetrics.VolumeIoUAtLeast
+            // of a mesh with itself: the samples of the input's and the result's solid, each by a FastWindingNumber). The
+            // bound is far above the time after and far below the time before (see the PR of #693 for the numbers)
+            double scale;
+            DMesh3 m = UnitFrameScene(1e8, out scale);
             var sw = Stopwatch.StartNew();
-            bool ok = r.Apply();
+            double iou;
+            bool atLeast = MeshRepairMetrics.VolumeIoUAtLeast(m, new DMesh3(m), 0.9, out iou);
             long ms = sw.ElapsedMilliseconds;
-            Assert.True(ms < 20000, $"{ms} ms; phases {string.Join(",", r.PhaseMilliseconds.Select(kv => kv.Key + "=" + kv.Value))}");
-            Assert.False(ok);
-            Assert.Equal(MeshRobustRepair.ScaleDisparity, r.ResultReason);
-            Assert.False(r.UsedAlphaWrap);
-            Assert.True(r.Mesh.IsClosed());
-            Assert.True(r.Mesh.TriangleCount > 6000, $"{r.Mesh.TriangleCount} triangles");
+            Assert.True(atLeast, $"iou {iou}");
+            Assert.True(iou > 0.99, $"iou {iou}");
+            Assert.True(ms < BoundMs, $"{ms} ms");
         }
+        const long BoundMs = 2000;
     }
 }

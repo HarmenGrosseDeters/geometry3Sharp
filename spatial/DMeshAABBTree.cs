@@ -1478,7 +1478,8 @@ namespace g3
         /// percent up to about 0.1 are normal); accuracy is controlled by FWNBeta and FWNApproxOrder. The cache is built on the first call
         /// (thread-safe). Much faster than WindingNumber for many queries on large meshes. Scale-free: the expansion of a box
         /// is used by its centre and radius only (no absolute tolerance), so scaling the mesh and p by a power of two gives
-        /// the same value bit for bit, also for tiny parts or parts far from the origin.
+        /// the same value bit for bit, also for tiny parts or parts far from the origin, as long as the areas (squares of the
+        /// edge lengths) and the terms of the expansion (up to the fifth power of the distance) stay in the normal range.
         /// </summary>
         public virtual double FastWindingNumber(Vector3d p)
         {
@@ -1547,9 +1548,14 @@ namespace g3
         }
 
         // the gate of the far-field expansion of a child box (branch_fast_winding_num and the test hook below)
+        // (with FWNBeta below sqrt(3) the padded box as before: there the box test still matters, and the padding keeps a
+        // point on a triangle inside the boxes above it under rounding, as callers that subtract the exact terms of the
+        // triangles a point lies on rely on, eg ExactMeshBoolean.front_generalized_winding; from sqrt(3) on the centre and
+        // radius exclude those boxes already, see box_contains_unpadded)
         bool use_fast_winding_expansion(int iBox, ref Vector3d p)
         {
-            return box_contains_unpadded(iBox, p) == false && can_use_fast_winding_cache(iBox, ref p);
+            bool contained = FWNBeta >= 1.7320508075688772 ? box_contains_unpadded(iBox, p) : box_contains(iBox, p);
+            return contained == false && can_use_fast_winding_cache(iBox, ref p);
         }
 
         /// <summary> Test hook: the number of triangles FastWindingNumber(p) sums exactly (the rest by expansions); the cache must have been built by a FastWindingNumber call. </summary>
@@ -2670,8 +2676,11 @@ namespace g3
 
         // the stored (tight) box, without box_eps: the gate of the far-field expansion in branch_fast_winding_num. The
         // padding (2^-40 of the mesh's distance from the origin) is there so that queries never miss a triangle; here it
-        // only decides whether the expansion of a box may be used, which its centre and radius decide already (with
-        // FWNBeta 2, a point at more than 2 R from the centre is outside the tight box). Padded, the boxes of a small
+        // only decides whether the expansion of a box may be used, which its centre and radius decide already: R is the
+        // largest distance from the centre to a vertex, so the tight box lies in the cube of half size R around the centre
+        // and every point of it is within sqrt(3) R; with FWNBeta >= sqrt(3) (default 2) a point at more than FWNBeta R
+        // is outside the tight box, up to the rounding of the stored box (the margin (2 - sqrt(3)) R = 0.27 R absorbs it).
+        // For a smaller FWNBeta the test still matters, and the padded box is used as before. Padded, the boxes of a small
         // part far from the origin (a part of size 1 at 1e12: a padding of 1.8) contained the queries near them, and
         // the expansion was not used (#693).
         bool box_contains_unpadded(int iBox, Vector3d p)
