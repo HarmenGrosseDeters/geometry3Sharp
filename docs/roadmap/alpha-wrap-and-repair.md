@@ -111,6 +111,15 @@ cavity search 45 % (about 38 filtered InSphere per insertion, no exact fallback;
 chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Probe patches: `runs/alpha-wrap-3`,
 `aw3/l3b_l2/`. With these, target (b) (about 1.25x) is out of reach of the bit-identical levers (about 1.13-1.15x);
 the gap and the round-based parallel carving (B) go to the owner.
+**Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
+come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681, in this order:
+(1) the 800 run (runner) with a tail report: the 20 slowest meshes, raw / final triangles, time, phase split, the share
+already parallel, Amdahl ceilings on 4 and 16 cores, time per raw triangle on the tail against the median (big meshes or
+something pathological?); (2) a black-box competitor comparison as for CGAL 5.6 before (no source read, nothing cloned and
+built) on the 20 tail meshes plus about 30 random ones at the same alpha / offset: wall time (threads stated), triangles,
+min / p01 angle, certified Hausdorff; (3) the (B) probe on the tail meshes: a guarantee note, a round simulation
+(independent-set sizes per round, late rounds especially) and a serial-round prototype for quality against master, with the
+projected tail time on 4 and 16 cores. No PR for (B) before the owner has the results.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
