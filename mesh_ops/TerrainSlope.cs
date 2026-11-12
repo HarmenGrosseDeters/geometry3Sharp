@@ -135,7 +135,7 @@ namespace gs
             if (proven(start)) {
                 lo = start; hi = double.PositiveInfinity;
                 for (int i = 0; ; ++i) {
-                    double up = lo + Math.ScaleB(ExactInterval.Up(lo) - lo, Math.Min(i, 60));
+                    double up = lo + (ExactInterval.Up(lo) - lo) * (double)(1L << Math.Min(i, 60));
                     if (double.IsInfinity(up) || up <= lo) up = ExactInterval.Up(lo);
                     if (double.IsInfinity(up)) return lo;
                     if (proven(up)) lo = up; else { hi = up; break; }
@@ -143,7 +143,7 @@ namespace gs
             } else {
                 hi = start; lo = 0;
                 for (int i = 0; ; ++i) {
-                    double down = hi - Math.ScaleB(ExactInterval.Up(hi) - hi, Math.Min(i, 60));
+                    double down = hi - (ExactInterval.Up(hi) - hi) * (double)(1L << Math.Min(i, 60));
                     if (!(down > 0)) down = double.Epsilon;
                     if (proven(down)) { lo = down; break; }
                     if (down == double.Epsilon) return double.Epsilon;
