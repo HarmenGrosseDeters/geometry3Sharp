@@ -113,9 +113,8 @@ Part of the [roadmap](../ROADMAP.md).
   suite passed all 7866 tests and ten isolated runs of both passed. The oracle test already sits in the
   `Meshing2OracleTiming` collection (parallelization disabled, guarded by `RobustnessSweepRemainingTests`); the
   predicate test has no time budget. Reopen only with the exact failing assertion and invocation.
-- **Parked:** the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only, and a
-  vertex with d segments costs about d² comparisons; mesh2d report areas underflow to 0 below coordinates of about
-  1e-160 (see [stage 8](#stage-8-planned-follow-ups)).
+- **Parked:** the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only (the d² exact
+  tests at a hub and the area underflow of the mesh2d report are done, 2026-11-12: [meshing2d.md](meshing2d.md)).
 
 ### Done / history
 
