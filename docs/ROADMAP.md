@@ -62,9 +62,11 @@ Status on 2026-11-12 (morning, Berlin).
   (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Exact Boolean 3.0** (in progress, serial, one PR per stage): merged 2026-11-11: T3a cull (#612), T3b
   `IntersectEach` / `DifferenceEach` (#616), T3 input range of the rounding (#593), T2 memory (#619), T1 scaling levers
-  (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1 and L2 done, L3 step 1 pushed
-  (Difference total 973 -> 421 s, hash unchanged); open: the classification filter from local corner coordinates,
-  the combinatorial zeros, possibly InCircle limbs. Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
+  (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
+  classification filter from local corner coordinates, Orient's zeros from the constructions; Difference total 973 -> 370 s,
+  hash unchanged). Step 3(a), a second InCircle filter, measured and not taken (no gain). An InCircle limb kernel (E: -20 to
+  -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Open: stage close-out (docs, full CI,
+  independent exact-code review of the new error bounds). Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
   memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
   `DualContouring` allocations bound about 4 % of wall.
@@ -86,7 +88,8 @@ Status on 2026-11-12 (morning, Berlin).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #648; open PRs #642, #643, #646; open bugfix issues #636-#638, #644, #645, #647 (labelled `local`); #628 fixed by #634.
+  #641, #642, #643, #646, #648; open PRs #627 (draft), #655 (#647), #656 (#644), #657 (#645); open `local` issues #636-#638;
+  #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's

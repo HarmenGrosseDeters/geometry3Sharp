@@ -262,10 +262,10 @@ and the test tiers and time limit (#447, the backlog program).
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 - **Rollout status (2026-11-12):** step 0, the status of T1-T15 against their done-when, is
-  [design/QA20_STATUS.md](../design/QA20_STATUS.md) (#635). Open PRs: #639 (spatial structures, inventory cell K),
-  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), #627
-  (T12 FPTaylor, draft). Open bugfix issues from it: #636 (repair time, F2), #637 (F5), #638 (F7), #644, #645 (`ConvexHull2`),
-  #647 (`VoxelSurfaceGenerator`). #628 was fixed by #634 (merged).
+  [design/QA20_STATUS.md](../design/QA20_STATUS.md) (#635). Merged 2026-11-12: #639 (spatial structures, inventory cell K),
+  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations). Open: #627
+  (T12 FPTaylor, draft); bugfix PRs #655 (#647, `VoxelSurfaceGenerator`), #656 (#644, `ConvexHull2`), #657 (#645).
+  Open `local` issues: #636 (repair time, F2), #637 (F5), #638 (F7). #628 was fixed by #634 (merged).
 
 #### Test suite on German Windows
 
