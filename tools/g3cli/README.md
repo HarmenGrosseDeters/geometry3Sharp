@@ -281,7 +281,7 @@ The input is a JSON object; only `points` is required, indices refer to `points`
 `heights` one z per point (interpolated at new vertices). Unknown keys, wrong types and bad indices fail with
 `invalid_arguments` (inline `--geometry`) or `read_error` (a file). The written mesh lies in the XY plane, oriented
 counterclockwise, the labels are its triangle groups (OBJ: `g mmGroup<label>`); only vertices of triangles are written.
-The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (areas below the double range, at coordinates around 1e-160 and smaller, are 0), `bad_triangles`
+The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (summed in units of a power of two near the extent of the mesh, so it is right down to the double range; below it, at coordinates around 1e-162 and smaller, it is 0), `area_relative` (the area in units of the squared extent of the mesh: independent of the scale, and not 0 there), `bad_triangles`
 (below the angle bound, near locked segments or small input angles), `steiner_limit_reached`, `labels` (triangles per
 label) and the diagnostics of the mesher as `warnings`. Crossing constraints with `--resolve-crossings false`, and inputs
 without a triangle (collinear points), fail with `operation_failed` and the coordinate of the problem.

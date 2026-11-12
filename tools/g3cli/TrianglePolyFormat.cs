@@ -226,14 +226,7 @@ namespace g3cli
             if (edges.Count == 0) return 0;
 
             // segments that meet other than at a shared end point: their groups are no plane graph
-            var bad = new bool[edges.Count];
-            var tree = new SegmentQuadtree2d(pts.Select(p => new Vector3d(p.x, p.y, 0)).ToList(), edges, false);
-            var visitor = new MeetVisitor { Pts = pts, Edges = edges, Bad = bad };
-            for (int e = 0; e < edges.Count; ++e) {
-                visitor.E = e;
-                visitor.Box = new AxisAlignedBox2d(pts[edges[e].a], pts[edges[e].b]);
-                tree.Traverse(ref visitor);
-            }
+            bool[] bad = ImproperSegments(pts, edges);
 
             var adj = new Dictionary<int, List<(int to, int edge)>>();
             for (int e = 0; e < edges.Count; ++e) {
@@ -340,6 +333,27 @@ namespace g3cli
         }
 
         /// <summary>
+        /// The segments (between vertices, no two equal) that meet another one other than at one shared end point: a crossing, a
+        /// touch of an end point on the inside of another, or an overlap along one line (exact). Segments with a shared end point are
+        /// decided by the directions around that point (d log d at a vertex of degree d); all others by a segment quadtree. Precondition
+        /// (AddLoops makes it): no segment has equal end points, no two segments are equal, no two vertices share a position.
+        /// </summary>
+        internal static bool[] ImproperSegments(IReadOnlyList<Vector2d> pts, List<Index2i> edges)
+        {
+            var bad = new bool[edges.Count];
+            if (edges.Count == 0) return bad;
+            var tree = new SegmentQuadtree2d(pts.Select(p => new Vector3d(p.x, p.y, 0)).ToList(), edges, false);
+            MarkOverlapsAtVertices(pts, edges, bad);
+            var visitor = new MeetVisitor { Pts = pts, EA = edges.Select(x => x.a).ToArray(), EB = edges.Select(x => x.b).ToArray(), Bad = bad };
+            for (int e = 0; e < edges.Count; ++e) {
+                visitor.E = e; visitor.Ea = edges[e].a; visitor.Eb = edges[e].b;
+                visitor.Box = new AxisAlignedBox2d(pts[edges[e].a], pts[edges[e].b]);
+                tree.Traverse(ref visitor);
+            }
+            return bad;
+        }
+
+        /// <summary>
         /// Marks segment E and every later segment that meets it other than at one shared end point. Segments that share an end
         /// point are told apart by their indices before any exact test, so a vertex with many segments costs comparisons, not
         /// orientation tests; each pair is decided once (only later segments).
@@ -347,9 +361,10 @@ namespace g3cli
         struct MeetVisitor : IQuadtreeVisitor2d
         {
             public IReadOnlyList<Vector2d> Pts;
-            public List<Index2i> Edges;
+            public int[] EA, EB;           // the end points of every segment, as arrays (the loop below visits d^2 pairs at a hub)
             public bool[] Bad;
             public int E;
+            public int Ea, Eb;             // the end points of segment E
             public AxisAlignedBox2d Box;
 
             public bool TestRegion(AxisAlignedBox2d region) => region.Intersects(Box);
@@ -357,16 +372,43 @@ namespace g3cli
             public bool Visit(int f)
             {
                 if (f <= E) return false;
-                Index2i e = Edges[E], g = Edges[f];
-                bool shares = g.a == e.a || g.a == e.b || g.b == e.a || g.b == e.b;
-                if (shares) {
-                    // they touch at the shared point; improper only if they also overlap along one line
-                    if (!Collinear(Pts, e, g) || !Improper(Pts, e, g)) return false;
-                } else {
-                    if (!new AxisAlignedBox2d(Pts[g.a], Pts[g.b]).Intersects(Box) || !Meet(Pts[e.a], Pts[e.b], Pts[g.a], Pts[g.b])) return false;
-                }
+                int ga = EA[f], gb = EB[f];
+                // segments with a shared end point touch there; they are improper only if they also overlap along one line, which
+                // MarkOverlapsAtVertices has decided (a vertex of degree d would cost d^2 exact tests here)
+                if (ga == Ea || ga == Eb || gb == Ea || gb == Eb) return false;
+                Vector2d c = Pts[ga], d = Pts[gb];
+                if (!new AxisAlignedBox2d(c, d).Intersects(Box) || !Meet(Pts[Ea], Pts[Eb], c, d)) return false;
                 Bad[E] = Bad[f] = true;
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Marks the segments that share an end point and run the same way from it (they overlap along one line): around each vertex
+        /// the other ends are sorted by direction (exact), and the segments of a run of equal directions are bad. Two segments with a
+        /// shared end point meet elsewhere only so; the sort costs d log d for a vertex of degree d.
+        /// </summary>
+        static void MarkOverlapsAtVertices(IReadOnlyList<Vector2d> pts, List<Index2i> edges, bool[] bad)
+        {
+            var incident = new Dictionary<int, List<int>>();
+            for (int e = 0; e < edges.Count; ++e)
+                foreach (int v in new[] { edges[e].a, edges[e].b }) {
+                    if (edges[e].a == edges[e].b) break;      // (not a segment; the precondition excludes it)
+                    if (!incident.TryGetValue(v, out var l)) incident[v] = l = new List<int>();
+                    l.Add(e);
+                }
+            foreach (var kv in incident) {
+                var l = kv.Value;
+                if (l.Count < 2) continue;
+                Vector2d p = pts[kv.Key];
+                int Other(int e) => edges[e].a == kv.Key ? edges[e].b : edges[e].a;
+                l.Sort((x, y) => {
+                    int c = CompareAround(p, pts[Other(x)], pts[Other(y)]);
+                    return c != 0 ? c : x.CompareTo(y);
+                });
+                for (int i = 0; i + 1 < l.Count; ++i)
+                    if (CompareAround(p, pts[Other(l[i])], pts[Other(l[i + 1])]) == 0)
+                        bad[l[i]] = bad[l[i + 1]] = true;
             }
         }
 
@@ -387,26 +429,12 @@ namespace g3cli
         static bool OnSegment(Vector2d a, Vector2d b, Vector2d p) =>
             Math.Min(a.x, b.x) <= p.x && p.x <= Math.Max(a.x, b.x) && Math.Min(a.y, b.y) <= p.y && p.y <= Math.Max(a.y, b.y);
 
-        static bool Collinear(IReadOnlyList<Vector2d> pts, Index2i e, Index2i f) =>
-            ExactPredicates.Orient2d(pts[e.a], pts[e.b], pts[f.a]) == 0 && ExactPredicates.Orient2d(pts[e.a], pts[e.b], pts[f.b]) == 0;
-
         /// <summary> Counterclockwise order of directions from p, starting at +x: the half-plane first, then the orientation (exact). </summary>
         public static int CompareAround(Vector2d p, Vector2d a, Vector2d b)
         {
             int ha = a.y > p.y || (a.y == p.y && a.x > p.x) ? 0 : 1, hb = b.y > p.y || (b.y == p.y && b.x > p.x) ? 0 : 1;
             if (ha != hb) return ha.CompareTo(hb);
             return -ExactPredicates.Orient2d(p, a, b);      // a before b if b is counterclockwise of a
-        }
-
-        /// <summary> Two segments that the quadtree reports as meeting meet other than at one shared end point (a crossing, a touch, an overlap). </summary>
-        static bool Improper(IReadOnlyList<Vector2d> pts, Index2i e, Index2i f)
-        {
-            int p = e.a == f.a || e.a == f.b ? e.a : e.b == f.a || e.b == f.b ? e.b : -1;
-            if (p < 0) return true;
-            // one shared end point p: improper only if they overlap, ie run the same way along one line
-            int q = e.a == p ? e.b : e.a, r = f.a == p ? f.b : f.a;
-            Vector2d u = pts[q] - pts[p], v = pts[r] - pts[p];
-            return ExactPredicates.Orient2d(pts[p], pts[q], pts[r]) == 0 && u.x * v.x + u.y * v.y > 0;
         }
 
         static string N(double v) => v.ToString("R", CultureInfo.InvariantCulture);
