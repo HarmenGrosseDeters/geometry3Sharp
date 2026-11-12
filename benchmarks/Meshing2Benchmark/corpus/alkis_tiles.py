@@ -25,10 +25,12 @@ Preparation (what the tile files contain):
 The printed SHA-256 sums identify the downloaded archive and every written file.
 """
 import argparse
+import errno
 import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import struct
 import sys
@@ -51,23 +53,27 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def get(url, path, attempts=5, pause=10, sleep=time.sleep):
-    """Downloads url to path through a .part file; an existing file is kept (the cache). A transient network error (a reset
-    connection, a timeout, a 5xx answer) is retried from the start after a growing pause; the last error is raised."""
+def get(url, path, attempts=5, pause=10, sleep=time.sleep, timeout=120):
+    """Downloads url to path through a .part file; an existing file is kept (the cache). A transient error is retried from the start
+    after a growing pause, the last error is raised: a reset connection, a socket timeout (no byte for `timeout` seconds, so a stalled
+    download does not hang the job), a 5xx answer and 429. Other 4xx answers and a full disk (ENOSPC) are not transient."""
     if os.path.exists(path):
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
     for attempt in range(1, attempts + 1):
         print("download", url, file=sys.stderr, flush=True)
         try:
-            urllib.request.urlretrieve(url, path + ".part")
+            with urllib.request.urlopen(url, timeout=timeout) as response, open(path + ".part", "wb") as out:
+                shutil.copyfileobj(response, out, 1 << 20)
             os.replace(path + ".part", path)
             return
         except (urllib.error.URLError, OSError) as e:
             if os.path.exists(path + ".part"):
                 os.remove(path + ".part")
-            if isinstance(e, urllib.error.HTTPError) and e.code < 500:
-                raise                           # a 4xx answer is not transient
+            if isinstance(e, urllib.error.HTTPError) and e.code < 500 and e.code != 429:
+                raise                           # a 4xx answer (other than 429) is not transient
+            if getattr(e, "errno", None) == errno.ENOSPC:
+                raise                           # a full disk does not get better by waiting
             if attempt == attempts:
                 raise
             print(f"  attempt {attempt} of {attempts} failed ({e}); retrying in {pause * attempt} s", file=sys.stderr, flush=True)

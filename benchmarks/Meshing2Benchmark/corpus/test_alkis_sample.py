@@ -1,9 +1,11 @@
 """Offline tests of the ALKIS sample rule (no network, no data): python3 -m unittest discover -s benchmarks/Meshing2Benchmark/corpus -p 'test_*.py'"""
 import contextlib
+import errno
 import hashlib
 import io
 import json
 import os
+import socket
 import sys
 import tempfile
 import types
@@ -172,21 +174,47 @@ class KnownFindings(unittest.TestCase):
         self.assertEqual(self.run_check(self.valid(), {}, expect=50)[0], 1)
 
 
+class FakeResponse:
+    """What urlopen returns: a context manager with read(); `fail_after` bytes are delivered, then the error is raised."""
+
+    def __init__(self, data, error=None):
+        self.data, self.error, self.pos = data, error, 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, n=-1):
+        if self.error is not None and self.pos >= len(self.data) // 2:
+            raise self.error
+        chunk = self.data[self.pos:self.pos + (n if n and n > 0 else len(self.data))]
+        self.pos += len(chunk)
+        return chunk
+
+
 class Download(unittest.TestCase):
-    """The district archives are large; a transient network error must not fail the night (run 43312208041: connection reset)."""
+    """The district archives are large; a transient network error must not fail the night (run 43312208041: connection reset), and a
+    stalled download must not hang the job."""
 
-    def run_get(self, errors, attempts=5):
-        calls, pauses = [], []
+    def run_get(self, outcomes, attempts=5):
+        """outcomes: one per call of urlopen, an exception to raise at the open, ("read", exception) to raise in the middle of the
+        read, or None for success."""
+        calls, pauses, timeouts = [], [], []
 
-        def fake(url, part):
-            calls.append(part)
-            if len(calls) <= len(errors):
-                open(part, "wb").write(b"half")       # a partial file stays behind
-                raise errors[len(calls) - 1]
-            open(part, "wb").write(b"zip")
+        def fake(url, timeout=None):
+            timeouts.append(timeout)
+            outcome = outcomes[len(calls)] if len(calls) < len(outcomes) else None
+            calls.append(url)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            if isinstance(outcome, tuple):
+                return FakeResponse(b"x" * 100, outcome[1])
+            return FakeResponse(b"zip")
 
-        old = tiles.urllib.request.urlretrieve
-        tiles.urllib.request.urlretrieve = fake
+        old = tiles.urllib.request.urlopen
+        tiles.urllib.request.urlopen = fake
         try:
             with tempfile.TemporaryDirectory() as d:
                 path = os.path.join(d, "sub", "a.zip")
@@ -197,29 +225,48 @@ class Download(unittest.TestCase):
                     result = e
                 leftover = os.path.exists(path + ".part")
         finally:
-            tiles.urllib.request.urlretrieve = old
-        return result, len(calls), pauses, leftover
+            tiles.urllib.request.urlopen = old
+        return result, len(calls), pauses, leftover, timeouts
+
+    def http(self, code):
+        return tiles.urllib.error.HTTPError("https://example.invalid", code, "x", {}, None)
 
     def test_retries_a_reset_connection(self):
-        result, calls, pauses, leftover = self.run_get([ConnectionResetError(104, "reset"), tiles.urllib.error.URLError("reset")])
+        result, calls, pauses, leftover, _ = self.run_get([ConnectionResetError(104, "reset"), tiles.urllib.error.URLError("reset")])
         self.assertEqual(result, b"zip")
         self.assertEqual((calls, pauses, leftover), (3, [5, 10], False))
 
+    def test_a_connection_reset_in_the_middle_of_the_body_is_retried_from_the_start(self):
+        result, calls, pauses, leftover, _ = self.run_get([("read", ConnectionResetError(104, "reset"))])
+        self.assertEqual((result, calls, pauses, leftover), (b"zip", 2, [5], False))
+
+    def test_a_stalled_download_times_out_and_is_retried(self):
+        # urlopen gets a socket timeout (120 s), so a download without bytes raises TimeoutError instead of hanging
+        result, calls, pauses, leftover, timeouts = self.run_get([("read", TimeoutError("timed out")), socket.timeout("timed out")])
+        self.assertEqual((result, calls, pauses, leftover), (b"zip", 3, [5, 10], False))
+        self.assertEqual(set(timeouts), {120})
+
     def test_gives_up_after_the_last_attempt(self):
-        result, calls, pauses, leftover = self.run_get([ConnectionResetError(104, "reset")] * 5, attempts=3)
+        result, calls, pauses, leftover, _ = self.run_get([ConnectionResetError(104, "reset")] * 5, attempts=3)
         self.assertIsInstance(result, ConnectionResetError)
         self.assertEqual((calls, len(pauses), leftover), (3, 2, False))
 
     def test_a_client_error_is_not_retried(self):
-        err = tiles.urllib.error.HTTPError("https://example.invalid", 404, "not found", {}, None)
-        result, calls, pauses, leftover = self.run_get([err])
+        result, calls, pauses, _, _ = self.run_get([self.http(404)])
         self.assertIsInstance(result, tiles.urllib.error.HTTPError)
         self.assertEqual((calls, pauses), (1, []))
 
-    def test_a_server_error_is_retried(self):
-        err = tiles.urllib.error.HTTPError("https://example.invalid", 503, "unavailable", {}, None)
-        result, calls, _, _ = self.run_get([err])
-        self.assertEqual((result, calls), (b"zip", 2))
+    def test_a_server_error_and_too_many_requests_are_retried(self):
+        for code in (503, 429):
+            result, calls, _, _, _ = self.run_get([self.http(code)])
+            self.assertEqual((result, calls), (b"zip", 2), code)
+
+    def test_a_full_disk_is_not_retried(self):
+        for where in (OSError(errno.ENOSPC, "No space left on device"), ("read", OSError(errno.ENOSPC, "No space left on device"))):
+            result, calls, pauses, leftover, _ = self.run_get([where])
+            self.assertIsInstance(result, OSError)
+            self.assertEqual(result.errno, errno.ENOSPC)
+            self.assertEqual((calls, pauses, leftover), (1, [], False))
 
 
 if __name__ == "__main__":
