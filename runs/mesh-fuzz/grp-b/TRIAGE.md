@@ -40,3 +40,17 @@ One group (no message; the same module). Two soup inputs contain a component who
 
 `slow-timing.txt`: 1.0 s to 5.9 s; 5 above 5 s (robust-repair-soup 3, rounding-repair 2). The same operations as the
 timeouts, so part of #712, not a separate item.
+
+## Inputs (`units/`, owner request 2026-11-12)
+
+The 10 timeouts and 53 slow units: fuzzer bytes of about 150 bytes each, decoded procedurally by `Program.Decode`, not
+mesh files. Each file is named by the SHA-1 of its content; `units/.gitattributes` keeps git from converting line
+endings. Use the filter of the campaign:
+
+```sh
+MESH_FUZZ_OPS=robust-repair,robust-repair-soup,rounding-repair dotnet MeshFuzzPilot.dll replay runs/mesh-fuzz/grp-b/units/<file>
+```
+
+Baseline (master 05d1332b, uninstrumented Release build, idle Podman VM, one process at a time, about 0.2 s .NET start
+included): the timeouts in `triage.txt`, the slow units in `slow-timing.txt`. A before/after comparison (eg #703 for
+#712) should time both builds on the same machine rather than against these numbers.
