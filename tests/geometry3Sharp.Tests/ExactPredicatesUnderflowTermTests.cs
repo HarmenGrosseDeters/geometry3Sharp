@@ -39,6 +39,65 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Bound_SameDoubleAsTheFullExpression()
+        {
+            // for each predicate's bound constant B: with_underflow(B * P, sum) is B * P + sum * 2^-1066 bit for bit
+            // wherever the filter can decide (P > 1e-200), over sums around the 2^256 threshold and up to 2^320 (where
+            // the term changes the bound: so a larger threshold, or none, gives a different bound), permanents at
+            // and next to the cutoff, and zero, subnormal, NaN and infinite sums
+            var rnd = new Random(20261112);
+            double limit = ExactPredicates.UnderflowLimit;
+            double[] specialSums = { 0, 1, double.Epsilon, 1e-310, double.NaN, double.PositiveInfinity, ExactPredicates.UnderflowSumNegligible,
+                ExactPredicates.UnderflowSumNegligible * (1 - Epsilon), ExactPredicates.UnderflowSumNegligible * (1 + 2 * Epsilon), Math.Pow(2, 299), Math.Pow(2, 300) };
+            double[] specialPermanents = { limit, Up(limit), Up(Up(limit)), 2 * limit, 1, Math.Pow(2, 1000), double.MaxValue, double.PositiveInfinity };
+            int changedBelow300 = 0, changed = 0;
+            foreach (double B in new[] { ExactPredicates.Orient3dBound, ExactPredicates.InCircleBound, ExactPredicates.InSphereBound }) {
+                for (int i = 0; i < 200000; ++i) {
+                    double P = (i % 4 == 0) ? specialPermanents[rnd.Next(specialPermanents.Length)]
+                        : limit * Math.Pow(2, rnd.Next(4) == 0 ? rnd.Next(0, 2000) : rnd.NextDouble() * 4);
+                    double sum = (i % 5 == 0) ? specialSums[rnd.Next(specialSums.Length)]
+                        : (1 + rnd.NextDouble()) * Math.Pow(2, rnd.Next(4) == 0 ? rnd.Next(0, 1024) : rnd.Next(240, 321));
+                    double relative = B * P;
+                    double full = relative + sum * ExactPredicates.UnderflowUnit;
+                    double fast = ExactPredicates.with_underflow(relative, sum);
+                    if (P > limit)
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(full), BitConverter.DoubleToInt64Bits(fast));
+                    if (full != relative) {
+                        changed++;
+                        if (sum < Math.Pow(2, 300))
+                            changedBelow300++;
+                    }
+                }
+            }
+            // (the threshold is not far below where the term starts to matter: a mutant at 2^300 is caught)
+            Assert.True(changed > 1000 && changedBelow300 > 100, $"{changed} {changedBelow300}");
+        }
+
+        [Fact]
+        public void Filters_AtThePermanentCutoff_DoNotDecide()
+        {
+            // each filter decides only with a permanent above 1e-200: Orient3dFilter returns 0 at and below it (the
+            // bound may then differ from the full expression), the public predicates go to their exact stage
+            double s = Math.Pow(2, -334);       // products of two coordinates about 2^-668 < 1e-200
+            for (int k = -2; k <= 2; ++k) {
+                double w = Math.Pow(2, 300 + k);   // sum above the threshold: the full term
+                double tiny = 1e-200 / w;           // permanents near the cutoff
+                Assert.Equal(0, ExactPredicates.Orient3dFilter(s, 0, 0, 0, s, 0, 0, 0, s * (1 << 10)));
+                Assert.Equal(Orient3dFilterFull(tiny, 0, 0, 0, 1, 0, 0, 0, w), ExactPredicates.Orient3dFilter(tiny, 0, 0, 0, 1, 0, 0, 0, w));
+                Assert.Equal(Orient3dFilterFull(Up(tiny), 0, 0, 0, 1, 0, 0, 0, w), ExactPredicates.Orient3dFilter(Up(tiny), 0, 0, 0, 1, 0, 0, 0, w));
+                Assert.Equal(Orient3dFilterFull(tiny / 2, 0, 0, 0, 1, 0, 0, 0, w), ExactPredicates.Orient3dFilter(tiny / 2, 0, 0, 0, 1, 0, 0, 0, w));
+                Vector3d a = Vector3d.Zero, b = new Vector3d(tiny, 0, 0), c = new Vector3d(0, 1, 0), d = new Vector3d(0, 0, w);
+                Assert.Equal(ExactPredicates.orient3d_bigint(a, b, c, d), ExactPredicates.Orient3d(a, b, c, d));
+                Vector2d p = new Vector2d(tiny, 0), q = new Vector2d(0, s), r = new Vector2d(-s, 0), t = new Vector2d(0, -s);
+                Assert.Equal(ExactPredicates.incircle_bigint(p, q, r, t), ExactPredicates.InCircle(p, q, r, t));
+                Vector3d e0 = new Vector3d(tiny, 0, 0), e1 = new Vector3d(0, s, 0), e2 = new Vector3d(0, 0, s), e3 = new Vector3d(-s, 0, 0), e4 = new Vector3d(0, -s, w * 1e-300);
+                Assert.Equal(ExactPredicates.insphere_bigint(e0, e1, e2, e3, e4), ExactPredicates.InSphere(e0, e1, e2, e3, e4));
+            }
+        }
+
+        static double Up(double x) { return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1); }
+
+        [Fact]
         public void Orient3dFilter_DecidesAsTheFullUnderflowTerm()
         {
             // magnitudes over the whole range, and inputs around the two edges of the shortcut: |w| near 2^256 with

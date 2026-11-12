@@ -17,16 +17,16 @@ namespace g3
     {
         const double Epsilon = 1.1102230246251565e-16;     // 2^-53
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
-        const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
-        const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
-        const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
+        internal const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
+        internal const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
+        internal const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
         // below this the products may be subnormal (absolute, not relative rounding error)
-        const double UnderflowLimit = 1e-200;
+        internal const double UnderflowLimit = 1e-200;
         // A larger permanent does not exclude subnormal partial products either: a subnormal 2x2 product (absolute
         // error up to 2^-1075) times a large coordinate or lift. With fl(x * y) = x y (1 + d) + n, |n| <= 2^-1075
         // (sums that underflow are exact), these errors add at most 4 * 2^-1075 times the sum of the factors they
         // are multiplied by (plus 1); the filters add that sum times 2^-1066.
-        const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
+        internal const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
         // below this sum the underflow term adds nothing to the bound (with_underflow)
         internal const double UnderflowSumNegligible = 1.157920892373162e77;    // 2^256
 
@@ -42,7 +42,7 @@ namespace g3
         /// full expression (the comparison is false), as before.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static double with_underflow(double relative, double sum)
+        internal static double with_underflow(double relative, double sum)
         {
             return sum < UnderflowSumNegligible ? relative : relative + sum * UnderflowUnit;
         }
