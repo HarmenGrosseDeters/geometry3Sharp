@@ -8,8 +8,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-12):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
   run A and the small-angle rule (#394, 2026-11-07) are merged; since then the corner choice (#437), rule C (#441),
   Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed; the QA 2.0 T5 findings and owner decisions of
-  2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Open (inventory 2026-11-12): two actionable items (three
-  untraced single triangles from #542, the provenance delta after d9006aa: done 2026-11-12, stage 6b-4, no (A) finding), four blocked on corpus inputs, the rest research.
+  2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Open (inventory 2026-11-12): both actionable items done (the
+  three single triangles from #542, fixed in #661; the provenance delta after d9006aa, stage 6b-4, #677, no (A) finding); four blocked on corpus inputs, the rest research.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),

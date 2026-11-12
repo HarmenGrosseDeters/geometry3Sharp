@@ -106,8 +106,8 @@ Status on 2026-11-12 (morning, Berlin).
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
   iterated image #526, collapsed stretches #535, #542, near contact #546 with owner decision D). Coarsening closed.
-  Inventory 2026-11-12: open are three untraced single triangles from #542 and the provenance delta after d9006aa
-  (done 2026-11-12, stage 6b-4: no (A) finding).
+  Inventory 2026-11-12, both actionable items done: the three single triangles from #542 (fixed in #661) and the
+  provenance delta after d9006aa (stage 6b-4, #677: no (A) finding); also #664 (#666) and the 2.5D helper (#663).
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 2
   merged (#448), intersection-free dual contouring options A and B merged (#552, #572), point clouds step C1 merged (#580);
