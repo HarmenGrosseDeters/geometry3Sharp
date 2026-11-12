@@ -217,7 +217,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   `EvaluationLimitReached`, `SmallestRejectedDrift` is taken over the proposals made before the limit (documented; the
   drift-only variant was measured and dropped: most post-limit work is try_move, drift-only already); (2) idea 3 approved, simple variant first: a seeded single-vertex position search after the passes,
   only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
-  clean; plateau steps need a termination lemma and a separate decision); design note first, after (1), same file;
+  clean; plateau steps need a termination lemma and a separate decision); design accepted (owner): deterministic
+  enumeration (26 directions in the defect's local frame, sizes room / 2^j for J = 8, largest first, through try_move /
+  improves()), only on results that are not rounding clean, built after (1), same file;
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 

@@ -41,7 +41,7 @@ Part of the [roadmap](../ROADMAP.md).
   Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
   borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
-  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now). Backlog at 171 after TerrainSafety (2 fixed).
+  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now). Backlog at 171 after TerrainSafety (2 fixed). `trx_durations.py --flag-filter/--isolated` judges flagged tests on a re-run alone (contention-free); CI step: see docs/QA.md.
   Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
   4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
   6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
@@ -49,11 +49,18 @@ Part of the [roadmap](../ROADMAP.md).
   artificially. A harness-only scheduler does not work: `Parallel.For` uses `TaskScheduler.Default`, not the current
   one, and a thread-pool cap starved the `Timed` workers (9 failures, 21 min wall). Plan (coordinator, 2026-11-12):
   (A) now, `tools/trx_durations.py` re-runs the flagged tests alone and judges the 5 s / 10 s rule on those times (the
-  CI-speed session adds the workflow step); (D) next, every library `Parallel.For` / `ForEach` goes through an internal
-  `gParallel` options hook (production default unchanged), the test assembly sets one limited-concurrency scheduler at
-  the core count, a scan test keeps loops from bypassing it (exact-code files reviewed if touched), measured against
-  the current run; then Terrain Slope (one scenario per PR, with counters and mutants; reducing coverage only via the
-  owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
+  CI-speed session adds the workflow step); (D) was tried and dropped
+  (measured and dropped, 2026-11-12: every library `Parallel.For` / `ForEach` through an internal `gParallel.Options` hook,
+  9 direct sites plus gParallel, no exact-code file touched, the test assembly sets one limited-concurrency scheduler at the
+  core count, a scan test; full suite, 4 cores, net10.0: wall 16:37 against 15:32 / 15:28, tests >= 5 s 114 against
+  128 / 129, >= 10 s 31 against 38 / 39, sum of durations 3657 s against 3643 / 3529 s. The long parallel-loop tests become serial while all
+  cores are busy and form the tail, e.g. `RobustRepairFarPartTests.FarPart_NotABlob` 260-280 s against 56-68 s in the
+  full run and 52 s alone; the work does not shrink, only who waits. Two findings: `Parallel.For` waits for its queued
+  extra tasks, which sit behind whole tests in a saturated FIFO scheduler, so a `Timed` thread stalled until any thread
+  was allowed to inline a task it waits for; tests that assert real parallelism (eg
+  `MeshRoundingRepairFilterTests.Grid_SerialEqualsParallel_OnSeveralThreads`) would need an opt-out
+  `ThreadBudget.RealParallel()`. Not worth it; the seam is dropped as dead code), then Terrain Slope (one scenario per PR,
+  with counters and mutants; reducing coverage only via the owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
   diagnosis (starvation, hang, pathological input or algorithm): a library operation on one input in a benchmark or
   reference run (first the Alpha Wrap 800 tail, see alpha-wrap-and-repair.md), and a test in any run (the full run
   included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
@@ -77,7 +84,7 @@ Part of the [roadmap](../ROADMAP.md).
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
   section 11); PRs A (`repair` options and result fields, #662), B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665), C (`polygon_solids`, #667)
-  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F and G as in its section 10.
+  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702, `query3d --camera` #707) are in review; G without `voxelize` as in its section 10.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
@@ -122,9 +129,8 @@ Part of the [roadmap](../ROADMAP.md).
   suite passed all 7866 tests and ten isolated runs of both passed. The oracle test already sits in the
   `Meshing2OracleTiming` collection (parallelization disabled, guarded by `RobustnessSweepRemainingTests`); the
   predicate test has no time budget. Reopen only with the exact failing assertion and invocation.
-- **Parked:** the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only, and a
-  vertex with d segments costs about d² comparisons; mesh2d report areas underflow to 0 below coordinates of about
-  1e-160 (see [stage 8](#stage-8-planned-follow-ups)).
+- **Parked:** the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only (the d² exact
+  tests at a hub and the area underflow of the mesh2d report are done, 2026-11-12: [meshing2d.md](meshing2d.md)).
 
 ### Done / history
 
