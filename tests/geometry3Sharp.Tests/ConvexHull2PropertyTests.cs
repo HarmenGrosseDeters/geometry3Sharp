@@ -165,7 +165,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        [Theory(Skip = "Known failure: https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/644 (absolute normalize threshold)")]
+        [Theory]
         [InlineData(-52)]
         [InlineData(-53)]
         [InlineData(-60)]
@@ -180,6 +180,64 @@ namespace geometry3Sharp.Tests
             int[] idx = hull.HullIndices;
             Assert.Equal(idx.Length, idx.Distinct().Count());
             Assert.True(Extreme(idx.Select(i => pts[i])).SetEquals(Chain(pts)), "the hull is not the exact hull");
+        }
+
+        [Theory]
+        [InlineData(-200)]
+        [InlineData(-100)]
+        [InlineData(-60)]
+        [InlineData(-52)]
+        [InlineData(0)]
+        [InlineData(100)]
+        [InlineData(300)]
+        public void Hull_IsTheScaledHull_AtEveryBinaryScale_BitForBit(int e)
+        {
+            // the reference at scale 1; the hull of a copy scaled by 2^e (exact) lists the same indices (docs/QA.md 2.4; #644)
+            var rng = new Random(2026111801);
+            foreach (Family fam in new[] { Family.Random, Family.Grid, Family.Circle }) {
+                List<Vector2d> pts = Points(fam, 40, rng);
+                var reference = new ConvexHull2(pts, 1e-300, QueryNumberType.QT_DOUBLE);
+                var scaled = new ConvexHull2(Place(pts, e, 0), 1e-300, QueryNumberType.QT_DOUBLE);
+                Assert.Equal(reference.Dimension, scaled.Dimension);
+                Assert.True(reference.HullIndices.SequenceEqual(scaled.HullIndices), $"{fam} 2^{e}: other hull indices");
+            }
+        }
+
+        [Fact]
+        public void Hull_UnderTheSimilaritiesOfTheHarness_IsTheExactHull()
+        {
+            // the similarities without a rotation out of the plane: scale, translation (UTM), power-of-two scales exact
+            var rng = new Random(2026111802);
+            List<Vector2d> pts = Points(Family.Random, 40, rng);
+            var reference = new ConvexHull2(pts, 1e-300, QueryNumberType.QT_DOUBLE);
+            int checkedSimilarities = 0;
+            foreach (Similarity s in Similarity.All().Where(s => !s.IsRotated)) {
+                List<Vector2d> moved = pts.Select(p => { Vector3d q = s.Apply(new Vector3d(p.x, p.y, 0)); return new Vector2d(q.x, q.y); }).ToList();
+                var hull = new ConvexHull2(moved, 1e-300, QueryNumberType.QT_DOUBLE);
+                Assert.Equal(2, hull.Dimension);
+                if (s.IsExact)
+                    Assert.True(reference.HullIndices.SequenceEqual(hull.HullIndices), $"{s.Name}: not the same hull indices");
+                Assert.True(Extreme(hull.HullIndices.Select(i => moved[i])).SetEquals(Chain(moved)), $"{s.Name}: not the exact hull");
+                ++checkedSimilarities;
+            }
+            Assert.True(checkedSimilarities >= 5, "vacuous");
+        }
+
+        [Fact]
+        public void OneDimensionalAndPointSets_KeepTheirDimension_AtATinyScale()
+        {
+            foreach (int e in new[] { -100, 0, 100 }) {
+                var line = new List<Vector2d>();
+                for (int i = 0; i < 6; ++i) line.Add(new Vector2d(ExactPoint3.ScaleB(3 + i, e), ExactPoint3.ScaleB(5 + 2 * i, e)));
+                var h1 = new ConvexHull2(line, Eps(e), QueryNumberType.QT_DOUBLE);
+                Assert.Equal(1, h1.Dimension);
+                h1.Get1DHullInfo(out Vector2d origin, out Vector2d direction);
+                Assert.Contains(origin, line);                             // a point of the input, in its units
+                Assert.Equal(1.0, direction.Length, 12);
+                // a cluster below epsilon (an absolute length) is a point
+                var cluster = new List<Vector2d> { new Vector2d(1, 1), new Vector2d(1 + 1e-14, 1), new Vector2d(1, 1 + 1e-14) };
+                Assert.Equal(0, new ConvexHull2(cluster, 1e-12, QueryNumberType.QT_DOUBLE).Dimension);
+            }
         }
 
         [Fact]
