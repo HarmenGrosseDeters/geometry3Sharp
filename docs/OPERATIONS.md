@@ -757,7 +757,10 @@ mesh as read. `query3d` answers each query as the single query would (a ray's `t
 mesh without boundary and the winding number otherwise (`points.method_used`). `--output hits.csv` (or `.json`) writes every result, not only
 the first `--max-results`, one row per ray or point with its `index` (for rays or for points per call); rays and points may also be JSON
 (`[{"origin": [x,y,z], "direction": [x,y,z]}, ...]`, `[[ox,oy,oz,dx,dy,dz], ...]`, `[[x,y,z], ...]`, inline or `@file`), and
-`--normalize=false` passes the directions as given (a non-unit one gets the status `not_normalized`):
+`--normalize=false` passes the directions as given (a non-unit one gets the status `not_normalized`). `--camera 'px,py,pz;tx,ty,tz;fov;width;height'` generates the rays of a pinhole
+camera instead (one per pixel center, row by row from the top left, index = row x width + column; fov is the vertical angle in degrees; `--up`, default +z, replaced by +y or +x when
+the view direction is parallel to it); `--depth-output d.pgm` (16-bit ASCII PGM, nearer is brighter, a miss is 0) or `d.csv` writes the distance along the ray from the camera (not the depth along the view axis) of the nearest hit per pixel,
+and `--output` adds `pixel_x` / `pixel_y`:
 
 ```
 g3cli geodesic terrain.ply --sources 0 --targets 120,4711
@@ -766,6 +769,7 @@ g3cli geodesic scan.ply --sources 0 --intrinsic-refine --trace-from 4711     # r
 g3cli curvature part.stl --output curvature.csv                # H and K per vertex (MeshCurvature), statistics over the valid ones
 g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
 g3cli query3d part.stl --rays @rays.json --output hits.csv --max-results 10     # every hit in the file, ten in the JSON result
+g3cli query3d part.stl --camera "0,-300,80;0,0,40;45;640;480" --depth-output depth.pgm     # a distance image
 ```
 
 **Deviation, wall thickness and primitive fits** (`deviation` / `MeshDeviation`, `thickness` / `MeshWallThickness`, `fit` /
