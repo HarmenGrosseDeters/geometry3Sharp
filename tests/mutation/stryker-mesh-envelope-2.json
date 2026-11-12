@@ -6,7 +6,7 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/mesh_ops/PolyhedralEnvelope.cs{11013..17079}"
+      "**/mesh_ops/PolyhedralEnvelope.cs{10685..16753}"
     ],
     "test-case-filter": "FullyQualifiedName~PolyhedralEnvelopeTests",
     "ignore-methods": [

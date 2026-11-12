@@ -73,9 +73,10 @@ Research or not scheduled (not built without a new decision):
 - **Iterated rounding can depend on the order** (Hershberger 2013); no case is known. If one appears, the mesher returns its
   collapsed double chains as a certificate that the oracle checks.
 - **Parked** (no use case; [platform.md](platform.md#stage-8-planned-follow-ups)): the `.poly` reader keeps crossing /
-  touching / overlapping segment groups as constraints only, a vertex with d segments costs about d² comparisons (20k:
-  about 6 s); mesh2d report areas underflow to 0 below coordinates of about 1e-160 (the area itself is then in or below the subnormal
-  range, so a fix changes the report's format).
+  touching / overlapping segment groups as constraints only. Done (2026-11-12): the d² exact tests at a vertex of degree d are an
+  angular sort (d log d; wheel of n spokes, ReadPoly: 5000 0.39 s to 0.27 s, 10 000 1.25 s to 0.97 s, 20 000 5.5 s to 4.0 s: the rest is the quadtree visiting the long segments of a hub, a loose
+  quadtree keeps them in its top nodes, so a sweep would be the next lever, not parked work of its own), and the mesh2d report
+  sums the areas in units of a power of two near the extent (right down to the double range) and adds `area_relative`.
 
 ### Done / history
 
@@ -83,6 +84,14 @@ Research or not scheduled (not built without a new decision):
 
 Moved from Open; checked against git history and GitHub on 2026-11-12.
 
+- **A dropped sub-tolerance part is reported (open item of 2026-11-10, found by the MeshFuzzPilot): done (this PR).** `QualityMesh2`
+  drops a part of the domain narrower than the automatic tolerance (a sliver tail of a hull domain; its input points and segments end up
+  in no triangle) with status `Success`; the oracle excuses it (`OracleReport.VanishedPoints/VanishedSegments`, now also as index sets).
+  Under the no-silent-deletion rule the mesher now reports it in `Diagnostics` ("N input points and M input segments are in no triangle:
+  their part of the domain is narrower than the automatic tolerance and vanished in refinement (points ...; segments ...)"): the input
+  points in the domain before refinement and in no triangle after it, and the input segments with such an end point (points in holes or
+  outside from the start are not reported; a segment that only crosses a vanished part and keeps both ends is not named). The mesh is unchanged (golden rows equal); off the snap grid only (on it the `snap grid:` lines report
+  collapsed and pinched parts). `QualityMesh2DroppedPartDiagnosticTests`: the report equals the oracle's vanished sets.
 - **Three single triangles at 1e-7..1e-9 radian (from #542): done (#661, merged 2026-11-12, 629aa28f).** Traced and fixed. In the near-contact fan (scale
   1.13, k = 26 and 28, constrained quality mode) each triangle lay below A at a T-junction apex, its off-centre in the diametral
   circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave such a triangle up, which the oracle's O11
@@ -331,5 +340,3 @@ Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989, 
 The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session, which must stay independent of our code.
 
 Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits in his Triangle.NET fork (written privately with Claude, owner's rights) and answers the meshing session's written questions in spec terms only (behaviour, edge cases, failures, parameters, test inputs as descriptions; no code, structure or names). The coordinator checks the report before the meshing session gets it; it is logged in the provenance log and SOURCES.md. The meshing session never reads the fork. Starts once the question list is in MESHING2D_SNAP.md.
-
-**Open (2026-11-10, found by the MeshFuzzPilot):** `QualityMesh2` drops a part of the domain narrower than the tolerance (a sliver tail of a hull domain; its input points and segments end up in no triangle) with status `Success` and no diagnostic. The oracle now accepts this for a part whose twice area is at most tube times perimeter (the bound for a domain that may vanish altogether, no snap tolerance; `OracleReport.VanishedPoints/VanishedSegments`). Candidate under the no-silent-deletion rule: report such a dropped part in the diagnostics; the mesher is unchanged.

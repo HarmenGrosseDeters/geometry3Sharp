@@ -207,8 +207,10 @@ if (op.Compute() == false)
   arrangement will have (`Counts["predicted_pieces"]`, always set), a few percent into the work.
 - `Cancellation` is checked between the phases and within the long ones; a cancelled run returns within a fraction of
   a second on 4 cores.
-- The classification of open inputs carries the winding numbers from piece to piece; the counts `l2_traced`,
-  `l2_carried`, `l2_direct` and `l2_exact_centroids` show how. The triangulation's exact predicates show in
+- The classification of open inputs carries the winding numbers from piece to piece, also across the edges between
+  input triangles (clusters of adjacent triangles, so that most pieces need no ray of their own); the counts
+  `l2_traced`, `l2_carried`, `l2_direct`, `l2_exact_centroids`, `l2_cross_steps`, `l2_cross_fallbacks`,
+  `l2_cross_candidates` and `l2_clusters` show how (docs/design/EXACT_BOOLEAN_T5_CROSS_CARRY.md). The triangulation's exact predicates show in
   `l3_local_decided` and `l3_construction_zeros`.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
@@ -812,6 +814,18 @@ bounding box diagonal and the smaller of the two applies. Open lines are counted
 
 ```
 g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
+```
+
+**Offset surface** (`offset`, `MeshSignedDistanceGrid` + `MarchingCubes`, the example [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs)): the surface at a
+signed distance from a closed mesh, outward positive, on a regular grid (`--cell-size` or `--relative-cell-size`, default 0.01 of the diagonal; the result is as
+fine as the cell, thinner features vanish; `--max-cells` guards memory). `--root-mode` places the vertices along cell edges; `linear_edges` is
+`MarchingCubes.RootfindingModes.LinearEdges`, one linear interpolation of the corner samples, which fails (`offset_status` `linear_edges_precondition`, nothing written)
+where its preconditions are violated (a sample exactly at the iso value, a crossing on a corner). The result always states `"enclosure_claim": "none"`: the sampled
+float distance field of a mesh is not the exact 1-Lipschitz field the conservative enclosure recipe of [CONSERVATIVE_MC_AUDIT](design/CONSERVATIVE_MC_AUDIT.md) assumes,
+so the command promises no enclosure of the input (owner decision 2026-11-12):
+
+```
+g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with

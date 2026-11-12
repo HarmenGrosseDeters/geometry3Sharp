@@ -217,7 +217,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   `EvaluationLimitReached`, `SmallestRejectedDrift` is taken over the proposals made before the limit (documented; the
   drift-only variant was measured and dropped: most post-limit work is try_move, drift-only already); (2) idea 3 approved, simple variant first: a seeded single-vertex position search after the passes,
   only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
-  clean; plateau steps need a termination lemma and a separate decision); design note first, after (1), same file;
+  clean; plateau steps need a termination lemma and a separate decision); design accepted (owner): deterministic
+  enumeration (26 directions in the defect's local frame, sizes room / 2^j for J = 8, largest first, through try_move /
+  improves()), only on results that are not rounding clean, built after (1), same file;
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
@@ -281,6 +283,14 @@ oracle bit-identical to n separate booleans); (3) T2 memory (Sonnet: data layout
 exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning. Owner
 2026-11-11: that review comes from an existing Opus session that knows the area and did not write the PR (for T2 and
 later Sonnet stages: the T3a session); the Sonnet session starts no review subagent of its own.
+
+**T5 plan change (2026-11-12, coordinator):** the cost count (21 slow open models, Union, 4 cores, master f0d3035d)
+showed that lifting the fast-winding switches does not pay as L2 stands: classification 117959 92 -> 434 s, 1005586
+46 -> 74 s, 122796 7.5 -> 46 s, 1087xxx about equal. The cause is L2's scope: 82-98 % of the evaluations on these models
+come from input triangles of one piece, each with its own far ray (`front_crossings` 35.5 % of 1005586's profile). So
+T5 PR 2 first carries the open winding across input-triangle edges
+([design](../design/EXACT_BOOLEAN_T5_CROSS_CARRY.md)), measures with the switches as they are, and only then, after a
+reference check of the changed hashes, decides on the switches.
 
 **3.0 pre-study (owner 2026-11-10; done 2026-11-10, #532 and #536):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.

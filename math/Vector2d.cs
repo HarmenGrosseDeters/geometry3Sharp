@@ -81,9 +81,11 @@ namespace g3
 			get { return Math.Abs( (x * x + y * y) - 1) < MathUtil.ZeroTolerance; }
 		}
 
+        /// <summary> every component is finite (neither NaN nor infinite). Upstream tested the sum of the components, which overflows
+        /// for finite large values such as (1e308, 1e308) and then reported them as not finite. </summary>
         public bool IsFinite
         {
-            get { double f = x + y; return double.IsNaN(f) == false && double.IsInfinity(f) == false; }
+            get { return MathUtil.IsFinite(x) && MathUtil.IsFinite(y); }
         }
 
         public void Round(int nDecimals) {

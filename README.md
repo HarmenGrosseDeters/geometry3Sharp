@@ -72,7 +72,7 @@ See the tested [intrinsic geodesic](docs/OPERATIONS.md#intrinsic-triangulations)
 - `Reducer.MaxDeviation` bounds the result's deviation from the input, not the reverse direction;
   `MeshEnvelope` supports exact envelope containment
   ([simplification contracts](docs/OPERATIONS.md#remeshing-simplification-smoothing)).
-- Hausdorff distance and terrain / LiDAR tools (ground filter, terrain dual contouring, offsets,
+- Hausdorff distance and terrain / LiDAR tools (ground filter for point clouds by cloth simulation (`ClothSimulationFilter`, after Zhang et al. 2016), terrain dual contouring (`TerrainDualContouring`), offsets,
   cut/fill volumes, also per cell of a lattice (`TerrainCellVolumes`), safety lines); height grid (DGM) files and their TIN
   with a guaranteed surface error (`HeightGridReader`, `TerrainGridTin`); slope design from toe lines to a terrain, never
   steeper than specified (`TerrainSlopeDesign`, [example](docs/OPERATIONS.md#terrain-slope-design)).

@@ -1,7 +1,7 @@
 // A/B of the open-operand classification: the Antipodal Method with the boundary-segment switch (the default) against
 // fast winding numbers everywhere (AntipodalMaxBoundarySegments = 0, the classification of master before), on a case
 // directory (A.off, B.off; `export`, the #385 pairing). docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5.1.
-//   antipodal-ab <case dir> [--ops union,intersection,difference] [--check <max triangles>] [--uncapped]
+//   antipodal-ab <case dir> [--ops union,intersection,difference] [--check <max triangles>] [--uncapped] [--segments n] [--no-rays]
 // One JSON line per operation: times and classification times of both, whether the results are equal (hash), the
 // boundary segments and the meshes on the Antipodal path, and the differing result triangles checked against the
 // direct generalized winding number (the sum over all triangles, no approximation) of the input they do not lie on:
@@ -20,6 +20,9 @@ static class AntipodalAB
 {
     // the triangle cap of the Antipodal arms: the library default (ExactMeshBoolean.AntipodalMaxTriangles), or none
     static int AntCap = new ExactMeshBoolean(new DMesh3(), new DMesh3(), ExactMeshBoolean.Operations.Union).AntipodalMaxTriangles;
+    // the boundary-segment switch of the Antipodal arms (--segments n; the library default 1000)
+    static int AntSegments = 1000;
+    static bool NoRays = false;
 
     public static int Run(string[] args)
     {
@@ -35,6 +38,10 @@ static class AntipodalAB
             else if (args[i] == "--sample-all") sampleAll = int.Parse(args[++i]);
             // --uncapped: the Antipodal arms without the triangle cap (to measure where it wins, for re-tuning the cap)
             else if (args[i] == "--uncapped") AntCap = int.MaxValue;
+            // --segments n: the Antipodal arms' boundary-segment switch (T5: the reference check with both switches lifted)
+            else if (args[i] == "--segments") AntSegments = int.Parse(args[++i]);
+            // --no-rays: skip the second Antipodal run with other rays (on the largest models two instances do not fit)
+            else if (args[i] == "--no-rays") NoRays = true;
         }
         var opOf = new Dictionary<string, ExactMeshBoolean.Operations> {
             ["union"] = ExactMeshBoolean.Operations.Union, ["intersection"] = ExactMeshBoolean.Operations.Intersection,
@@ -51,7 +58,7 @@ static class AntipodalAB
         var tb = new DMeshAABBTree3(b, true);
         if (sampleAll > 0) {
             var fr = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AntipodalMaxBoundarySegments = 0, RecordOpenWinding = true };
-            var ar = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AntipodalMaxBoundarySegments = 1000, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true,
+            var ar = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Intersection) { AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true,
                 DisableFilters = args.Contains("--nofilter") };
             fr.Compute(); ar.Compute();
             var arr = ar.Arrangement;
@@ -123,7 +130,7 @@ static class AntipodalAB
             // (only the hash and the triangle count of each result are kept: an instance alive during the next run would
             // weigh on its time, and on the largest models the reruns below ran out of memory)
             var hashes = new Dictionary<string, (string, int)>();
-            foreach (var (name, max) in new[] { ("fwn", 0), ("antipodal", 1000) }) {
+            foreach (var (name, max) in new[] { ("fwn", 0), ("antipodal", AntSegments) }) {
                 if (only != null && only != name)
                     continue;
                 GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
@@ -157,17 +164,18 @@ static class AntipodalAB
                     int fwnPieces = fr.Arrangement.Output.Count;
                     fr = null;
                     GC.Collect();
-                    var ar = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 1000, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true };
+                    var ar = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true };
                     ar.Compute();
                     int[] cmp = ComparePieces(ar, fwnWinding, fwnPieces);
+                    fwnWinding = null;
                     // ray independence: the Antipodal values with other rays (another seed: other far points and choices) must
                     // be the same at every piece (exact crossing counts; the boundary sum differs only by rounding)
-                    var ar2 = new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = 1000, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true, Seed = 12345 };
-                    ar2.Compute();
+                    var ar2 = NoRays ? null : new ExactMeshBoolean(a, b, opOf[op]) { AntipodalMaxBoundarySegments = AntSegments, AntipodalMaxTriangles = AntCap, RecordOpenWinding = true, Seed = 12345 };
+                    ar2?.Compute();
                     int rayDiff = 0;
                     var rayDiffSamples = new List<string>();
                     var segsByMesh = new Dictionary<int, Vector3d[]>();
-                    for (int i = 0; i < ar.OpenWindingPerPiece.Length; ++i)
+                    for (int i = 0; ar2 != null && i < ar.OpenWindingPerPiece.Length; ++i)
                         for (int m = 0; m < 2; ++m) {
                             int v1 = Lookup(ar.OpenWindingPerPiece[i], m), v2 = Lookup(ar2.OpenWindingPerPiece[i], m);
                             if (v1 == v2) continue;
