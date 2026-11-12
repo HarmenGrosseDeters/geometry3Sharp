@@ -729,4 +729,18 @@ of drift is detected. Runs in under a second; part of the `Z3 pilot` workflow (i
 ```sh
 python3 tools/Z3Pilot/step_loops.py --out /tmp/step-loops.json
 python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
+
+## Clipper2 frame (pilot 6, `clipper_frame.py`, QA 2.0 T10, 2026-11-12)
+
+The frame of the Clipper2 adapter (`ClipperFrame.ForBounds`): `CeilExponent` on the 64 bits of a normal number is the smallest power of two above it
+(Z3 on the bits), the subnormal loop ends within 52 steps with the same property (Z3, unrolled bit vectors), `PowerOfTwo` is exactly 2^n for
+all 2046 exponents and every accepted frame (86 817 combinations of `precisionBits` 8..50 and exponent) maps the extent to at most 2^bits <= 2^50,
+below `MaxIntegerCoordinate` = 2^52, with a finite `1 / scale` (exhaustive), and the extent plus margin is never below the larger distance (binary64).
+Mutants: a floor instead of the ceiling (SAT, witness replayed) and the enumeration with `precisionBits` up to 53 (finds a frame with integers above 2^52, replayed). Not proved by Z3 (it does not finish on the bit-blasted
+monotonicity of a rounded subtraction or product): that a coordinate within the bounds scales to an integer of magnitude at most 2^bits
+(monotone rounding of `p - Origin` and `d * Scale`; reviewed). `source_contracts` holds the model to the source. `source_contracts` also pins the `precisionBits` range guard and the extent with its margin (drift tests). About 5 s; part of the `Z3 pilot` workflow (paths filter, uploaded report).
+
+```sh
+python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
 ```

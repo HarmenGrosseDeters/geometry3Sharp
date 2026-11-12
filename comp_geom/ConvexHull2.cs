@@ -13,16 +13,16 @@ namespace g3
     // destruction, set bOwner to 'true'.  Otherwise, you own the vertices and
     // must delete them yourself.
     //
-    // You have a choice of speed versus accuracy.  The fastest choice is
-    // Query::QT_INT64, but it gives up a lot of precision, scaling the points
-    // to [0,2^{20}]^3.  The choice Query::QT_INTEGER gives up less precision,
-    // scaling the points to [0,2^{24}]^3.  The choice Query::QT_RATIONAL uses
-    // exact arithmetic, but is the slowest choice.  The choice Query::QT_REAL
-    // uses floating-point arithmetic, but is not robust in all cases.
+    // You have a choice of speed versus accuracy: QT_INT64 is the fastest, but it gives up a lot of precision,
+    // scaling the points to [0,2^{20}]^2; QT_DOUBLE uses floating-point arithmetic, which is not robust in all
+    // cases. These two are the only supported modes. The modes of the original (QT_INTEGER, scaling to
+    // [0,2^{24}]^2; QT_RATIONAL, exact arithmetic; QT_FILTERED) were never ported: the constructor throws a
+    // NotImplementedException for them.
 
 
     /// <summary>
-    /// Construct convex hull of a set of 2D points, with various accuracy levels.
+    /// Construct convex hull of a set of 2D points. Supported query types: QT_DOUBLE (floating point) and QT_INT64
+    /// (points scaled to a 2^20 grid); QT_INTEGER, QT_RATIONAL and QT_FILTERED throw NotImplementedException.
     /// 
     /// HullIndices provides ordered indices of vertices of input points that form hull.
     /// </summary>
@@ -162,7 +162,7 @@ namespace g3
                     mQuery = new Query2Int64(mSVertices);
 
                 } else if (queryType == QueryNumberType.QT_INTEGER) {
-                    throw new NotImplementedException("ConvexHull2: Query type QT_INTEGER not currently supported");
+                    throw new NotImplementedException("ConvexHull2: Query type QT_INTEGER is not implemented; the supported query types are QT_DOUBLE and QT_INT64");
                     // Scale the vertices to the square [0,2^{24}]^2 to allow use of
                     // Integer.
                     //expand = (double)(1 << 24);
@@ -177,7 +177,7 @@ namespace g3
                     mSVertices[i] *= expand;
 
             } else {
-                throw new NotImplementedException("ConvexHull2: Query type QT_RATIONAL/QT_FILTERED not currently supported");
+                throw new NotImplementedException("ConvexHull2: Query type " + queryType + " is not implemented; the supported query types are QT_DOUBLE and QT_INT64");
 
                 // No transformation needed for exact rational arithmetic or filtered
                 // predicates.

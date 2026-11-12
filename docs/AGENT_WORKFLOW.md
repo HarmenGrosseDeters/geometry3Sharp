@@ -115,6 +115,13 @@ from secret tests, which a public repository cannot keep.
   - Once a day, with the morning summary, the coordinator compares "Now" and the open items against the merged PRs
     and open issues since the last check and fixes any drift in one docs commit. A status that cannot be settled
     from git and GitHub goes to the owner as a question, not into the docs as "(status unclear)".
+  - Every owner decision is written into the roadmap the moment it is made, in every place that lists the item:
+    "Open decisions", "Next", "Later" and the subpage. Closing an item in one place and leaving it open in another
+    is drift.
+  - The daily check covers every section of [ROADMAP.md](ROADMAP.md), "Open decisions" and "Later" included, and
+    the subpages' "Open" sections. Each pending item is checked against the owner's recorded decisions, not only
+    against merges (owner 2026-11-12, after an audit found five Exact Boolean decisions, the oldest from 2026-11-01,
+    still listed as pending).
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).
 - A bugfix must not run into a fundamental problem that a planned concept will solve (owner 2026-11-02). Before
