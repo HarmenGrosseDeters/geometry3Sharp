@@ -4,6 +4,9 @@ Status: proposal for the owner, written 2026-10-31 by a session that implemented
 (`docs/design/MESHING2D_M2.md` and `MESHING2D_M2_API.md`, branch `docs/meshing2d-m2-design`) and fixes the defaults that the implementing session builds until the
 owner says otherwise.
 
+Update 2026-11-12: the mesher was built on these defaults and the owner decisions below (M1 #231, M2 #233, M3 #252,
+`m2.snap` by D14 in #277). [MESHING2D_SPEC.md](MESHING2D_SPEC.md) was accepted by the owner on 2026-11-12.
+
 **The approvals.** #201 records owner approvals dated 2026-10-30 for its domain decisions and five API groups, and calls the API frozen. The owner disputes this
 (note at the top of both documents), and nothing outside those documents supports it. This table therefore counts only
 [MESHING2D_SPEC.md](MESHING2D_SPEC.md), section 5, as a decision of the owner. "Recorded" below means: #201 says it was approved, and that is all we know.

@@ -6,7 +6,8 @@ Part of the [roadmap](../ROADMAP.md).
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
 - **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
-  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now)). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
+  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now); L4 #670 and L1 #681 merged,
+  L3, L3b and L2 dropped; the 800 run with a tail report started 2026-11-12). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
   The remesher items of Phase 2 stay open; the Remesher rim folds (#621) are fixed by #640 (merged 2026-11-12).
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -93,7 +94,7 @@ second (output different only where that trial would find a spot the local ones 
 A/B against master alternating on 24 meshes (16 random of the 269, 8 with the most pinch points): 24/24 identical,
 trial + manifold step 0.49x (median), pipeline 0.93x (median and sum); the 269 meshes of phase 1: 269/269 identical
 output (the confirmation skipped on 126), all closed and free of self-intersections, trial + manifold 0.49x.
-**L1 (#681):** the intersection oracle and the touch test faster, bit-identical (`AlphaWrapOracle`: the segment query
+**L1 (#681, merged 2026-11-12, 14a27e45):** the intersection oracle and the touch test faster, bit-identical (`AlphaWrapOracle`: the segment query
 computes the direction's reciprocals once, no longer repeats the child box test, tests each triangle's vertex balls once;
 the tetrahedron query skips BVH nodes that a face plane of the tetrahedron separates, proven without a rounding slack by
 monotone rounding and the summation order of `Vector3d.Dot`; nodes as one array of structs). Measured (4-core container):
@@ -112,7 +113,8 @@ chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Pr
 `aw3/l3b_l2/`. With these, target (b) (about 1.25x) is out of reach of the bit-identical levers (about 1.13-1.15x);
 the gap and the round-based parallel carving (B) go to the owner.
 **Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
-come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681, in this order:
+come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681 (merged
+2026-11-12), in this order (step (1) started on master 2026-11-12):
 (1) the 800 run (runner) with a tail report: every mesh above 20 s (owner rule 2026-11-12, `docs/roadmap/platform.md`:
 anything above 20 s is a potential defect and gets a diagnosis: pathological input, algorithmic hotspot or size), at least the 20 slowest, raw / final triangles, time, phase split, the share
 already parallel, Amdahl ceilings on 4 and 16 cores, time per raw triangle on the tail against the median (big meshes or
@@ -121,6 +123,15 @@ built) on the 20 tail meshes plus about 30 random ones at the same alpha / offse
 min / p01 angle, certified Hausdorff; (3) the (B) probe on the tail meshes: a guarantee note, a round simulation
 (independent-set sizes per round, late rounds especially) and a serial-round prototype for quality against master, with the
 projected tail time on 4 and 16 cores. No PR for (B) before the owner has the results.
+**Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
+on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
+benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
+diagnosis per tail mesh and levers ranked by benefit; measurement only, probe patches never pushed, every table with its
+commit set; the levers are then built one PR each by the AW3 work. Both studies report the shared profile categories
+(exact predicates and constructions, AABB / BVH queries, allocation and GC, rounding, rest), merged into
+[hotspots.md](hotspots.md). A nightly watcher (tools and workflow only) measures the known extreme cases of both studies
+isolated per master commit and reports outliers (regression against the rolling median, or above 20 s). Predicate kernels
+(InCircle limb kernel, filter tuning) only if the profile shows they matter.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);

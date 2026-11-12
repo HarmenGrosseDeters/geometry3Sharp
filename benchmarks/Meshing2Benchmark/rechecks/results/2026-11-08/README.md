@@ -108,7 +108,7 @@ nested/disconnected components. The existing exact reference path should remain
 as the differential checker on small procedural inputs and deliberately broken
 meshes, preserving verdicts and deterministic reported examples. These are
 proposals in response to the owner's question, not measured speedup claims or
-production changes in this PR.
+production changes in #402.
 
 ## Scope and audit
 
@@ -142,6 +142,7 @@ this map joined with `historical-exceptions.json` plus local input paths.
 all-target builds/API-validating packs, clean CI gates and the controlled golden
 row fault that makes CI fail. An independent read-only review found no remaining
 blocking findings. Full multi-platform CI runs on the draft PR; no merge is made.
+Update 2026-11-12: that PR is #402, merged on 2026-11-08.
 
 The separate constrained M3 golden file contains 52 oracle-accepted procedural
 rows, with F-38 quality checks enabled; F-12/b and F-37 reach their budgets.

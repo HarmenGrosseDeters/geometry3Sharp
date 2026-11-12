@@ -3,6 +3,8 @@
 Status: plan of the 1b PR, with what was built (below). It follows [TERRAIN.md](TERRAIN.md) 5.5 and the 1b row of section 11, on top of 1a
 ([TERRAIN_1A_PLAN.md](TERRAIN_1A_PLAN.md)). Section numbers refer to TERRAIN.md.
 
+Update 2026-11-12: the 1b PR was merged in #285 (2026-11-02).
+
 ## Scope
 
 1. **Terrain input.** `TerrainSlopeDesign.Terrain` (a TIN, height field). With a terrain, `HeightLimit` may be left NaN:

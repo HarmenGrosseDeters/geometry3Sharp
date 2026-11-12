@@ -7,7 +7,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-12):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
   stopped at its gate (#371). Since then: batch queries stage 2 (#448), intersection-free dual contouring options A and
   B (#552, #572), geodesic Bézier curves (#540), point clouds step C1 (#580) merged; the D1 drift rule (hard problem 2)
-  built in #513. Not started: collision detection, tet meshing, TPMS, the rest of the Later list.
+  built in #513; the batch-query caller switches profiled and closed (#678). Not started: collision detection, tet meshing
+  beyond stage 0 (#487), TPMS, the rest of the Later list.
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -40,7 +41,7 @@ Part of the [roadmap](../ROADMAP.md).
      benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
      (a new session after Lévy phase 2; owner 2026-11-12: queued as a Sonnet session after the dirty-side provenance
      session):
-     - Profile run 2026-11-12 (docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
+     - Profile run 2026-11-12 (#678, merged 2026-11-12, 7b128048; docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
        parallel (`gParallel`), so a switch adds only the sort (0.9-1.4x on the query part for random input, a loss on the
        callers' coherent order: MeshDeviation 3-12 % slower); no caller reaches the 10 % rule, nothing is switched. The
        only serial query loop is `TerrainSafety`'s source mapping (below 10 % of a terrain case; not switched).
@@ -94,6 +95,7 @@ Part of the [roadmap](../ROADMAP.md).
      study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
      path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
      `WindingContouring` on the lever 6 set (#498) as the upper bound.
+     Status: options A and B merged (#552, 781729f5, and #572, 2909f3f8, both 2026-11-10); hard problem 13 is done.
      Candidate follow-up (owner 2026-11-10, not scheduled): a topology guarantee for the contouring (the result has the
      topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
@@ -146,7 +148,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
-- **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
+- **Phase 5 table:** #1 Bézier curves done (#540, 2026-11-10); #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
 - **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
@@ -377,7 +379,7 @@ Ordered by expected value for the library.
    - Closed without gain:
      - feature quadrics in the Reducer;
      - crease-aware Steiner points.
-   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measurement running) can change it.
+   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measured 2026-11-09, result below) can change it.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
@@ -417,7 +419,7 @@ Ordered by expected value for the library.
    - The open cohort also has 736 ops > 5 s.
    - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
      parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
-     (exact Antipodal Method merged in #539; per-patch evaluation L1 in draft #633).
+     (exact Antipodal Method merged in #539; per-patch evaluation L1 merged in #633, 2026-11-12; T5 PR 2 in draft #675).
    - A stronger-model review of the classification design pays here.
 9. **Robust repair at extreme scale disparity (F1b / F1c).**
    - Problem: cleanups relative to all triangles erode or drop far parts. Design note

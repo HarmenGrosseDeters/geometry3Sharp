@@ -810,7 +810,8 @@ input), the exact resolve, the solidify, or the alpha wrap (last resort, see abo
 strict criterion and why the earlier stages were not used. One row per mesh (category, stage, outcome, reasons,
 Hausdorff, IoU, triangles, time): [`cases/robust_stages_2026-10-25.csv`](cases/robust_stages_2026-10-25.csv).
 The run below is master after #47 (alpha wrap fallback), before #44 (touching edges in the exact resolve),
-#49 (faster checks) and #40 (orientation seams); it will be replaced by the final run.
+#49 (faster checks) and #40 (orientation seams). Update 2026-11-12: this table was not rerun; the path taken on
+master of 2026-10-25 night is in the next section, the stage times of 1 November in "Time per stage" above.
 
 Stage that produced the result, and its outcome ("deviation": Hausdorff ≥ 1 % of the diagonal):
 
@@ -873,7 +874,7 @@ the median, so they rarely meet the strict criterion. Their inputs are mostly me
 take: not closed in the winding number sense, or whose resolved solid differs from the input's.
 
 
-### `robust` on the current master (both selections)
+### `robust` on master of 2026-10-25 night (both selections)
 Master of 2026-10-25 night (`56a8ed5`), with the changes merged since `a66049b`: among them the exact resolve
 before the solidify, the alpha wrap as the last resort (#47) and the faster checks (#49). Before: the holdout run above (build `a66049b`). Same machine, `BENCH_P=2
 TIMEOUT=300`. The large meshes of the first selection were not rerun.
