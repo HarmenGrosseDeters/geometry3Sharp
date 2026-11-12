@@ -260,6 +260,22 @@ data:
 | `near` is 14-56 % of the rounding where edits are evaluated (5 % and less where the limit dominates) | 4-30 µs per query against about 1 µs for a tree query of the first search; 119829 union 52 %, 102375 union 56 % | not diagnosed here (the changed-triangle tree and its linear list are the suspects); bit-identical lever |
 | Tree and setup over all triangles where few are rounded | section 5.4 | bit-identical lever, small in seconds |
 
+**What the drift-only variant can reach (measured 2026-11-12 after the owner chose it).** The time of each kind of
+proposal after the limit was reached (a scratch timer around every `try_*`, the same worktree; the timers add about
+40 ns per call):
+
+| case | passes | `try_move` (drift-only since #327) | `try_collapse` | `try_flip` | `try_zip`, `try_strip`, `try_slide` |
+|---|---:|---:|---:|---:|---:|
+| 1368057 union | 23.2 s | 9.8 s, 26.2M calls | 5.2 s, 3.0M | 1.0 s, 1.15M | 0.06 s |
+| 42327 union | 14.4 s | 7.6 s, 20.0M calls | 0.07 s | 0.7 s, 0.75M | 0.01 s |
+
+So the work past the limit is mostly `try_move`, which is drift-only already: about 370 ns per call, 20-26 million
+calls. Making the other `try_*` drift-only can save at most the collapse and flip columns: up to about a quarter of the
+passes on 1368057 union and about 5 % on 42327 union, against −82 % and −70 % of the rounding for the stop. Keeping
+`SmallestRejectedDrift` bit for bit means walking the same 20-26 million proposals; the two aims do not fit together.
+This goes back to the owner: the stop with `SmallestRejectedDrift` documented as "over the proposals made before the
+limit" (a larger or equal value, only on results that report `EvaluationLimitReached`), or the small gain.
+
 ## 6. The leads of problem 1
 
 ### 6.1 What a guarantee could mean
