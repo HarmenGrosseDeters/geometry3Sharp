@@ -126,7 +126,7 @@ namespace geometry3Sharp.Tests
         [InlineData(QueryNumberType.QT_INTEGER)]
         public void ExactAndFilteredModes_AreNotImplemented(QueryNumberType q)
         {
-            // pinned: the class comment names these modes, the constructor throws (see the finding of the QA 2.0 gap-list PR)
+            // pinned (https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/645): the class comment names these modes, the constructor throws
             var pts = Points(Family.Random, 10, new Random(5));
             Assert.Throws<NotImplementedException>(() => new ConvexHull2(pts, 1e-12, q));
         }
@@ -166,6 +166,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory(Skip = "Known failure: https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/644 (absolute normalize threshold)")]
+        [InlineData(-52)]
         [InlineData(-53)]
         [InlineData(-60)]
         [InlineData(-100)]
@@ -174,6 +175,11 @@ namespace geometry3Sharp.Tests
             var pts = Place(Points(Family.Random, 40, new Random(7)), e, 0);
             var hull = new ConvexHull2(pts, 1e-300, QueryNumberType.QT_DOUBLE);
             Assert.Equal(2, hull.Dimension);
+            // the second symptom (e = -100: epsilon * range underflows, Dimension is 2, but the ring is wrong, with an index twice):
+            // distinct indices, and the extreme points are those of the exact chain
+            int[] idx = hull.HullIndices;
+            Assert.Equal(idx.Length, idx.Distinct().Count());
+            Assert.True(Extreme(idx.Select(i => pts[i])).SetEquals(Chain(pts)), "the hull is not the exact hull");
         }
 
         [Fact]
