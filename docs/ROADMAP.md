@@ -154,8 +154,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4 merged (#670), L1 merged (#681, 2026-11-12), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report (in progress, started 2026-11-12), a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667 and D #669
-  merged, E #672 open; F, G next). [research.md](roadmap/research.md#open)
+- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667, D #669
+  and E #672 merged; F (`offset`) in review, G next). [research.md](roadmap/research.md#open)
 - Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
   the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
   [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
