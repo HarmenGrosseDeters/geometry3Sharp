@@ -222,6 +222,15 @@ namespace g3cli.Tests
             Assert.Equal(2, point["trace"].AsArray().Count);
             Assert.True(B(point["trace_truncated"]));
             Assert.True(I(point["trace_point_count"]) > 2);
+            Assert.Empty(point["warnings"].AsArray());
+            var (e3, atSource) = Run("geodesic", grid, "--sources", "0", "--trace-from", "0", "--compact");       // the start is the source: a single point
+            Assert.Equal(0, e3);
+            Assert.Equal(1, I(atSource["trace_point_count"]));
+            Assert.Contains(atSource["warnings"].AsArray(), w => S(w).Contains("single point"));
+            var (e4, outside) = Run("geodesic", grid, "--sources", "0", "--trace-from", "1e300,0,0", "--compact");     // no triangle near enough for the library
+            Assert.Equal(0, e4);
+            Assert.True(I(outside["trace_point_count"]) <= 1);
+            Assert.NotEmpty(outside["warnings"].AsArray());
         }
 
         [Fact]

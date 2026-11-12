@@ -181,6 +181,10 @@ namespace g3cli
                         o["trace_length"] = Val(trace.Zip(trace.Skip(1), (a, b) => a.Distance(b)).Sum());
                         o["trace"] = new JsonArray(trace.Take(maxResults).Select(p => (JsonNode)MeshReport.Vec(p)).ToArray());
                         o["trace_truncated"] = trace.Count > maxResults;
+                        if (trace.Count == 0)
+                            warnings.Add("trace_from: the library found no triangle near the start, the trace is empty");
+                        else if (trace.Count == 1)
+                            warnings.Add("trace_from: the trace is a single point (the start lies in a component without a source, or at a source)");
                     }
                     if (targets != null)
                         o["targets"] = new JsonArray(targets.Select(t => (JsonNode)new JsonObject() { ["vertex"] = t, ["distance"] = Val(d[t]) }).ToArray());
