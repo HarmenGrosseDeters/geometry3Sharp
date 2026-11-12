@@ -274,10 +274,36 @@ Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 33 test cases), and 22 mutant
 
 ## 8. Measurement (step 3)
 
-The 21 models, switches as they are: classification and total before/after, the trace counts, hashes (expected equal on
-the 8 fast-winding models, which this does not touch; on the 13 Antipodal ones equal except within the band, checked by
-verify mode). Then with the switches lifted, the same, and for the changed hashes the reference check (direct GWN sum,
-beta = infinity) before any threshold moves.
+Union, 4 cores, alone on the machine, `BooleanComparison profile`, classification in seconds; aggregate numbers only.
+
+*Switches as they are* (master f0d3035d -> 896e2064): all 21 hashes equal. Classification sum 626 -> 596 s (the 8
+fast-winding models are not touched; their changes are noise). The 13 Antipodal models: 113906 17.3 -> 11.7, 107554
+6.5 -> 8.6 (more references than cross steps there; the remaining regression), the others within 0.3 s.
+Thingi10K 55928 Difference: 356 s total, classification 217 s, hash 61550C3C2F352E72 equal (370-425 s before). Knot
+benchmark: classification 2.6 s (master 2.4), hash equal.
+
+*Switches lifted* (`AntipodalMaxBoundarySegments` and `AntipodalMaxTriangles` unlimited), FWN | L2 | T5, every T5 hash
+equal to L2's:
+
+| model | boundary segments | FWN | L2 | T5 |
+|---|---|---|---|---|
+| 122796 | 2512 | 7.5 | 46.2 | 14.7 |
+| 124526 | 134 | 4.9 | 4.2 | 3.0 |
+| 112798 | | 40.1 | 50.6 | 26.8 |
+| 1005586 | | 46.1 | 73.5 | 31.7 |
+| 1087141, 1087144, 1088051, 1088054, 1088138 | 1196 | 77-87 | 78-81 | 30-33 |
+| 117959 | 6007 | 92.0 | 434.2 | 90.0 |
+| sum | | 595 | 1006 | 323 |
+
+*The reference check* (`antipodal-ab --uncapped --segments 100000 --no-rays`): the pieces where FWN and Antipodal
+thresholds differ, against the direct generalized winding number (the sum over all triangles), skipping pieces within
+1e-3 of their edge of another triangle of the evaluated mesh:
+- 117959: 1818 pieces differ; Antipodal is right at all 1818, FWN at none.
+- 122796: 43 differ; Antipodal right at all 43.
+- 1087141 and its four siblings: about 840 differ each, all next to the other sheet (not decidable by the oracle);
+  Antipodal leaves 2574 pieces undecided there (on a boundary segment with every ray).
+- 124526: 23 differ, all next to the other sheet.
+- 112798, 1005586: not checked; the harness, which holds both runs, ran out of memory (15 GB).
 
 ## 9. Prior art
 
