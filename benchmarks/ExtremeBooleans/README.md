@@ -18,7 +18,12 @@ levers. They drive `benchmarks/BooleanComparison` (`profile`, `export`); nothing
 | `results/inventory_2026-11-12.jsonl` | the raw rows (master 8124a7d3 + #675 a9b00da3, 4-core cloud container) |
 | `results/probes_2026-11-12.md` | the probes' outputs |
 | `units_job.sh`, `results/fuzz_units_*` | the #624 fuzz units (grp-a profile rows, grp-b replay times, the BigInteger probe per unit; master 0325530c) |
-| `traces_job.sh`, `speedscope_categories.py`, `results/categories_2026-11-12.jsonl`, `results/normal_stratum_2026-11-12.jsonl` | the shared profile table (section 4.8) and its normal stratum |
+| `traces_job.sh`, `speedscope_categories.py`, `results/categories_2026-11-12.jsonl` | the shared profile table (section 4.8) |
+| `normal_job.sh`, `results/normal_stratum_median5_2026-11-12.jsonl`, `results/normal_stratum_categories_2026-11-12.jsonl` | the normal stratum (section 8; master cbf8b787, median of five runs) |
 
-`BooleanComparison profile` gained two options for this note: `--antipodal-unlimited` (both Antipodal switches lifted,
-T5 option A) and `--rounding-max-pair-tests <n>`.
+`BooleanComparison profile` gained three options for this note: `--antipodal-unlimited` (both Antipodal switches lifted,
+T5 option A), `--rounding-max-pair-tests <n>` and `--median` (report the median run instead of the fastest).
+
+Sampling shares (`speedscope_*.py`) are over the library's samples on all threads; a filter on
+`ExactMeshBoolean.Compute` would keep only the calling thread, because the workers of the parallel loops start in the
+thread pool.

@@ -2,7 +2,8 @@
 # BigInteger exact stages of Orient3d / Orient2d, their time, how many are exactly zero, how many have nonzero
 # coordinate magnitudes within a span of 2^200 (a power-of-two scaling would bring them into the expansion range), and
 # how many a "leading-term" certificate would decide (coordinates below 2^(Emax-200) flushed to 0, the exact sign of the
-# flushed determinant kept if its magnitude exceeds a bound on what the flushed parts can contribute).
+# flushed determinant kept if its magnitude exceeds a bound on what the flushed parts can contribute), and the
+# BigInteger time of the calls it would decide (certified_ms).
 # Applied to a throw-away worktree, never committed to the library:
 #     git worktree add --detach <wt> <commit>; python3 probe_bigint.py <wt>/math/ExactPredicates.cs
 #     dotnet build <wt>/benchmarks/BooleanComparison -c Release -o <tool>
@@ -65,20 +66,20 @@ rep("""    internal static class Expansion
     {""", """    internal static class BigProbe
     {
         public static readonly bool On = System.Environment.GetEnvironmentVariable("G3_BIGINT_PROBE") == "1";
-        static long[] n = new long[2], ticks = new long[2], zero = new long[2], scal = new long[2], cert = new long[2], wrong = new long[2];
+        static long[] n = new long[2], ticks = new long[2], zero = new long[2], scal = new long[2], cert = new long[2], wrong = new long[2], certTicks = new long[2];
         static BigProbe()
         {
             if (On) System.AppDomain.CurrentDomain.ProcessExit += (o, e) => System.Console.Error.WriteLine(
                 "BIGINT_PROBE {\\"orient3d\\": " + Line(0) + ", \\"orient2d\\": " + Line(1) + "}");
         }
         static string Line(int k) => "{\\"calls\\": " + n[k] + ", \\"ms\\": " + (ticks[k] * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
-            + ", \\"zero\\": " + zero[k] + ", \\"span_le_200\\": " + scal[k] + ", \\"certified\\": " + cert[k] + ", \\"certificate_wrong\\": " + wrong[k] + "}";
+            + ", \\"zero\\": " + zero[k] + ", \\"span_le_200\\": " + scal[k] + ", \\"certified\\": " + cert[k] + ", \\"certified_ms\\": " + (certTicks[k] * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + ", \\"certificate_wrong\\": " + wrong[k] + "}";
         public static void Add(int k, long t, bool z, bool s, int c)
         {
             System.Threading.Interlocked.Increment(ref n[k]); System.Threading.Interlocked.Add(ref ticks[k], t);
             if (z) System.Threading.Interlocked.Increment(ref zero[k]);
             if (s) System.Threading.Interlocked.Increment(ref scal[k]);
-            if (c == 1) System.Threading.Interlocked.Increment(ref cert[k]);
+            if (c == 1) { System.Threading.Interlocked.Increment(ref cert[k]); System.Threading.Interlocked.Add(ref certTicks[k], t); }
             if (c == -1) System.Threading.Interlocked.Increment(ref wrong[k]);
         }
         static int Exp(double x) => System.Math.ILogB(x);

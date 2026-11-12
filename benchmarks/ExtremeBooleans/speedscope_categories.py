@@ -1,5 +1,7 @@
 # The shared profile categories of docs/perf/EXTREME_RUNTIME_BOOLEANS.md section 4.8 from dotnet-trace Speedscope files
-# (sampled thread time, CPU samples only, inside ExactMeshBoolean.Compute). Each CPU sample goes to the first category
+# (sampled thread time, CPU samples only, of the library: samples with a geometry3Sharp frame, the mesh readers left
+# out; this includes the worker threads of the parallel loops, whose stacks do not reach ExactMeshBoolean.Compute, and
+# the small warm-up booleans of `profile`). Each CPU sample goes to the first category
 # whose frames it contains, checked from the leaf towards the root:
 #   gc        the runtime's GC and allocation frames (PollGC, GC*, allocation helpers, CreateInstance*)
 #   exact     exact stages: *_exact, *_bigint, BigInteger*, Expansion, AdaptivePredicates, FixedArith, ExactPoint3,
@@ -11,8 +13,8 @@
 #   rest      the remainder
 # A sample with an exact frame inside a box-tree query counts as exact (the leaf-most match wins).
 #   python3 speedscope_categories.py [--root <frame substring>] <trace.speedscope.json>...
-# One JSON line per file: shares in % of the CPU time under the root frame (default ExactMeshBoolean.Compute; for the
-# repair units eg --root MeshFuzzPilot, the whole replay).
+# One JSON line per file: shares in % of that CPU time; with --root only the samples whose stack contains the given
+# frame (eg ExactMeshBoolean.classify: the classification, worker threads included when the frame is on their stack).
 import json, re, sys
 RULES = [
     ("gc", re.compile(r"PollGC|GCHeap|gc_heap|::GC|Allocat|JIT_New|CreateInstance|RhpNew|GarbageCollect")),
@@ -21,7 +23,7 @@ RULES = [
     ("bvh", re.compile(r"TriangleBoxTree|DMeshAABBTree3|PointAABBTree3|segment_hits|fast_winding|FastWinding")),
     ("rounding", re.compile(r"MeshRoundingRepair")),
 ]
-args = sys.argv[1:]; root = "ExactMeshBoolean.Compute"
+args = sys.argv[1:]; root = "geometry3Sharp!"
 if args and args[0] == "--root": root = args[1]; args = args[2:]
 for path in args:
     d = json.load(open(path)); frames = [f["name"] for f in d["shared"]["frames"]]
@@ -36,7 +38,7 @@ for path in args:
                 c = cat_of.get(key)
                 if c is None:
                     names = [frames[i] for i in stack]
-                    if not any(root in x for x in names): c = "outside"
+                    if not any(root in x for x in names) or any("MeshReader" in x or "OFFReader" in x or "STLReader" in x for x in names): c = "outside"
                     else:
                         c = "rest"
                         for x in reversed(names[:-1]):

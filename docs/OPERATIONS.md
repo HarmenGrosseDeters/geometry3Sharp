@@ -82,6 +82,16 @@ other results at UTM coordinates.
 
 `ExactMeshArrangement` is internal. Its `Trees` (the box trees of the winding queries) are null after `ExactMeshBoolean.Compute`: the boolean releases them after the classification to save memory (about 80 bytes per input triangle).
 
+Large booleans allocate heavily, mostly in the classification (eg 20 GB for one operation on a 4.6k-triangle CAD part
+with its rotated copy). Workstation GC is the .NET default for console and desktop applications; there, GC pauses
+take 11 % of the run time over the extreme cases of
+[perf/EXTREME_RUNTIME_BOOLEANS.md](perf/EXTREME_RUNTIME_BOOLEANS.md) and up to 27 % on single operations. An
+application that runs large booleans can switch to server GC. This is a host setting, not a library one:
+`<ServerGarbageCollection>true</ServerGarbageCollection>` in the application's project, `"System.GC.Server": true` in
+its `runtimeconfig.json`, or `DOTNET_gcServer=1`. Measured on 4 cores: Thingi10K 107554 intersection 20.5 -> 16.6 s
+(-19 %), 42327 intersection 29.7 -> 26.3 s (-11 %), results bit-identical (the same hashes). It costs memory. ASP.NET
+Core applications use server GC already.
+
 `ExactMeshBoolean` also takes open meshes (`AllowOpenMeshes`, default true): their solid is where the generalized
 winding number is above 1/2 (`ExactWinding[i]` false), and the result is generally open (`IsClosed()` false,
 `MeshRobustRepair.NotCleanReason` "not closed"). It is consistently oriented, also where an open boundary of an
