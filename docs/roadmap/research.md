@@ -100,6 +100,13 @@ Part of the [roadmap](../ROADMAP.md).
      topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
      `WindingContouring` a certified repair path.
+     Study done 2026-11-12 ([design/CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md), measurement
+     `benchmarks/ContouringTopology`), nothing built, waits for the owner: today's topology is wrong for every feature
+     below about 1.5 cells (implicit shapes, 1920 runs) and on 4 of 14 clean lever-6 meshes at one cell size at least
+     (7 of 42 runs; 0 of 18 on the procedural solids), without a signal; no published method covers winding-number
+     fields; recommended: a per-cell certificate (exact tests on the input triangles for clean meshes, the mesh side
+     from options A and B's coverage), refinement of the failing cells, the rest reported; stages and options in the
+     note.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
