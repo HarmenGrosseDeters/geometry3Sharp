@@ -102,7 +102,7 @@ of the expression over that domain; the derivations are in `compare_filter_expre
 ```sh
 python3 tools/FPTaylorPilot/compare_filter_expressions.py "$base"          # all expressions
 python3 tools/FPTaylorPilot/compare_filter_expressions.py "$base" d coord_x  # a subset
-python3 -m unittest tools/FPTaylorPilot/test_compare_filter_expressions.py
+python3 -I -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py'
 ```
 
 | Expression | FPTaylor bound (hex) | FPTaylor (decimal) | Generator bound (decimal) | Ratio | Result |

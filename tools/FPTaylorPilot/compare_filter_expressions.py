@@ -291,32 +291,61 @@ Expressions
 ;
 """
 
+# The lines of indirect.spec each model is built from, in the spec's order: the model's definitions follow them one for one, so a
+# change of any of these lines (or of their order) is a change of the model's expression.
+LPI_SPEC = {
+    'ux': '    ux = s.x - r.x', 'uy': '    uy = s.y - r.y', 'uz': '    uz = s.z - r.z',
+    'wx': '    wx = t.x - r.x', 'wy': '    wy = t.y - r.y', 'wz': '    wz = t.z - r.z',
+    'nx': '    nx = uy * wz - uz * wy', 'ny': '    ny = uz * wx - ux * wz', 'nz': '    nz = ux * wy - uy * wx',
+    'prx': '    prx = p.x - r.x', 'pry': '    pry = p.y - r.y', 'prz': '    prz = p.z - r.z',
+    'qrx': '    qrx = q.x - r.x', 'qry': '    qry = q.y - r.y', 'qrz': '    qrz = q.z - r.z',
+    'lp': '    lp = nx * prx + ny * pry + nz * prz', 'lq': '    lq = nx * qrx + ny * qry + nz * qrz',
+    'd': '    d = lq - lp',
+    'pcx': '    pcx = p.x - c.x', 'qcx': '    qcx = q.x - c.x', 'Nx': '    Nx = pcx * lq - qcx * lp',
+}
+TPI_SPEC = {
+    'u1_x': '    u1_x = b1.x - a1.x', 'u1_y': '    u1_y = b1.y - a1.y', 'u1_z': '    u1_z = b1.z - a1.z',
+    'w1_x': '    w1_x = c1.x - a1.x', 'w1_y': '    w1_y = c1.y - a1.y', 'w1_z': '    w1_z = c1.z - a1.z',
+    'n1x': '    n1x = u1_y * w1_z - u1_z * w1_y', 'n1y': '    n1y = u1_z * w1_x - u1_x * w1_z',
+    'n1z': '    n1z = u1_x * w1_y - u1_y * w1_x',
+    'a1cx': '    a1cx = a1.x - c.x', 'a1cy': '    a1cy = a1.y - c.y', 'a1cz': '    a1cz = a1.z - c.z',
+    'D1': '    D1 = n1x * a1cx + n1y * a1cy + n1z * a1cz',
+}
+LPI_D_CHAIN = ['ux', 'uy', 'uz', 'wx', 'wy', 'wz', 'nx', 'ny', 'nz', 'prx', 'pry', 'prz', 'qrx', 'qry', 'qrz', 'lp', 'lq']
+
+
+def lpi(*names):
+    return [LPI_SPEC[n] for n in names]
+
+
+def tpi(*names):
+    return [TPI_SPEC[n] for n in names]
+
+
 MODELS = {
     'ny': {'file': 'orient3dlpi_ny.txt', 'text': MODEL_NY, 'section': 'LPI',
-           'lines': ['    ny = uz * wx - ux * wz'],
+           'lines': lpi('ux', 'uz', 'wx', 'wz', 'ny'),
            'bound': compare_nx.generator_bound},  # 8 C_nx
     'nz': {'file': 'orient3dlpi_nz.txt', 'text': MODEL_NZ, 'section': 'LPI',
-           'lines': ['    nz = ux * wy - uy * wx'],
+           'lines': lpi('ux', 'uy', 'wx', 'wy', 'nz'),
            'bound': compare_nx.generator_bound},
     'd': {'file': 'orient3dlpi_d.txt', 'text': MODEL_D, 'section': 'LPI',
-          'lines': ['    lp = nx * prx + ny * pry + nz * prz', '    lq = nx * qrx + ny * qry + nz * qrz',
-                    '    d = lq - lp', '    prx = p.x - r.x', '    qrx = q.x - r.x'],
+          'lines': lpi(*LPI_D_CHAIN, 'd'),
           'bound': lambda: 96 * c_d()},
     'coord_x': {'file': 'orient3dlpi_coord_x.txt', 'text': MODEL_COORD_X, 'section': 'LPI',
-                'lines': ['    Nx = pcx * lq - qcx * lp', '    pcx = p.x - c.x', '    qcx = q.x - c.x'],
+                'lines': lpi(*LPI_D_CHAIN, 'pcx', 'qcx', 'Nx'),
                 'bound': lambda: 96 * c_coord_x()},
     'lpi_leaf': {'file': 'orient3dlpi_leaf.txt', 'text': MODEL_LPI_LEAF, 'section': 'LPI',
-                 'lines': ['    prx = p.x - r.x'],
+                 'lines': lpi('prx'),
                  'bound': lambda: 2 * LEAF},  # |prx| <= 2
     'tpi_leaf': {'file': 'orient3dtpi_leaf.txt', 'text': MODEL_TPI_LEAF, 'section': 'TPI',
-                 'lines': ['    u1_x = b1.x - a1.x'],
+                 'lines': tpi('u1_x'),
                  'bound': lambda: 1 * LEAF},
     'tpi_n1x': {'file': 'orient3dtpi_n1x.txt', 'text': MODEL_TPI_N1X, 'section': 'TPI',
-                'lines': ['    n1x = u1_y * w1_z - u1_z * w1_y', '    u1_y = b1.y - a1.y', '    w1_z = c1.z - a1.z',
-                          '    u1_z = b1.z - a1.z', '    w1_y = c1.y - a1.y'],
+                'lines': tpi('u1_y', 'u1_z', 'w1_y', 'w1_z', 'n1x'),
                 'bound': lambda: 2 * c_tpi_n()},
     'tpi_D1': {'file': 'orient3dtpi_D1.txt', 'text': MODEL_TPI_D1, 'section': 'TPI',
-               'lines': ['    D1 = n1x * a1cx + n1y * a1cy + n1z * a1cz', '    a1cx = a1.x - c.x'],
+               'lines': tpi('u1_x', 'u1_y', 'u1_z', 'w1_x', 'w1_y', 'w1_z', 'n1x', 'n1y', 'n1z', 'a1cx', 'a1cy', 'a1cz', 'D1'),
                'bound': lambda: 6 * c_tpi_d1()},
 }
 
@@ -331,7 +360,12 @@ def source_contract(spec, compiler, name):
     if spec.count('ipredicate Orient3dLPI(') != 1 or spec.count('ipredicate Orient3dTPI(') != 1:
         return False
     section = section_of(spec, MODELS[name]['section'])
-    if any(section.count(line + '\n') != 1 for line in MODELS[name]['lines']):
+    lines = MODELS[name]['lines']
+    if any(section.count(line + '\n') != 1 for line in lines):
+        return False
+    # in the spec's order, as compare_nx.py checks (a reordered line is another expression)
+    positions = [section.index(line + '\n') for line in lines]
+    if positions != sorted(positions):
         return False
     return all(rule in compiler for rule in REQUIRED_RULES)
 
