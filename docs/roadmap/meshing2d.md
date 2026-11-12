@@ -9,7 +9,7 @@ Part of the [roadmap](../ROADMAP.md).
   run A and the small-angle rule (#394, 2026-11-07) are merged; since then the corner choice (#437), rule C (#441),
   Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed; the QA 2.0 T5 findings and owner decisions of
   2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Open (inventory 2026-11-12): two actionable items (three
-  untraced single triangles from #542, the provenance delta after d9006aa), four blocked on corpus inputs, the rest research.
+  untraced single triangles from #542, the provenance delta after d9006aa: done 2026-11-12, stage 6b-4, no (A) finding), four blocked on corpus inputs, the rest research.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),
@@ -34,7 +34,7 @@ Actionable:
   60° pairs, #512, #526, #553 pair keys), and the oracle much more. A delta check is due before a release that relies on the
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
   must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
-  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side). **In progress:** the dirty-side session started 2026-11-12 with the changed-routine list.
+  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side). **Done (2026-11-12):** stage 6b-4 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md#stage-6b-4-delta-after-d9006aa)) on master `01a7e71` against `triangle.c` 1.6 and Triangle.NET `fa6f2fdb`: **no (A) finding**, every changed routine (B) or (C), no rewrite needed.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 

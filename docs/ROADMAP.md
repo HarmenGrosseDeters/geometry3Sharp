@@ -107,7 +107,7 @@ Status on 2026-11-12 (morning, Berlin).
   no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
   iterated image #526, collapsed stretches #535, #542, near contact #546 with owner decision D). Coarsening closed.
   Inventory 2026-11-12: open are three untraced single triangles from #542 and the provenance delta after d9006aa
-  (needs a dirty-side session before a release).
+  (done 2026-11-12, stage 6b-4: no (A) finding).
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 2
   merged (#448), intersection-free dual contouring options A and B merged (#552, #572), point clouds step C1 merged (#580);
@@ -141,8 +141,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
 - Meshing2D: the three single triangles from #542 traced and fixed (#661, merged 2026-11-12); the rotated-fan
   Steiner-limit bugfix #664 (#666, merged 2026-11-12, fec3b2a9); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
   (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
-  session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; in progress,
-  started 2026-11-12). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
+  session (owner exception 2026-11-12, as in stage 6b): done 2026-11-12, stage 6b-4 on master `01a7e71`, no (A) finding, no
+  rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L1, L3b, L2 (in progress, one PR per lever, fresh session from the hand-over `aw3/HANDOVER-L1.md`; L4 #670 merged). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662 merged,
