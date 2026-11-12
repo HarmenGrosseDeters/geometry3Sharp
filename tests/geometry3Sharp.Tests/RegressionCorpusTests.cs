@@ -103,7 +103,7 @@ namespace geometry3Sharp.Tests
 
         // The robust repair pipeline is split into 13 parts (corpus index mod 13: the cases of 5-6 s alone are in different parts, the
         // largest part takes 6.7 s serial; the pipeline took 30.7 s serial, 18 s in the old test with two cores). The parts together are
-        // the corpus (RobustParts_PartitionTheCorpus), the table is checked against all of it (Tables_HaveExactlyTheCorpusCases)
+        // the corpus (Parts_OfEveryPipeline_CoverTheCorpusExactlyOnce), the table is checked against all of it (Tables_HaveExactlyTheCorpusCases)
         const int RobustParts = 13;
 
         static int PartsOf(string pipeline) => pipeline == "robust repair" ? RobustParts : 1;
@@ -111,16 +111,23 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> PipelineParts() =>
             Pipelines.Keys.SelectMany(k => Enumerable.Range(0, PartsOf(k)).Select(part => new object[] { k, part }));
 
+        // the cases a part runs (the one selection, used by the theory and by the coverage test); the split is by corpus index, so a
+        // new case is appended at the end of Defects.All(): inserting one before the heavy cases (indices 2, 17, 49 of the robust repair
+        // pipeline) could put two of them into one part (the longest part must stay below 10 s)
+        static IEnumerable<(string name, Similarity placement, Func<DMesh3> make)> CasesOfPart(string pipeline, int part) =>
+            Corpus().Where((c, i) => i % PartsOf(pipeline) == part);
+
         [Fact]
-        public void RobustParts_PartitionTheCorpus()
+        public void Parts_OfEveryPipeline_CoverTheCorpusExactlyOnce()
         {
-            int n = Corpus().Count();
-            var seen = new int[n];
-            for (int part = 0; part < RobustParts; ++part)
-                for (int i = 0; i < n; ++i)
-                    if (i % PartsOf("robust repair") == part) ++seen[i];
-            Assert.All(seen, c => Assert.Equal(1, c));
-            Assert.True(n >= RobustParts, "fewer cases than parts");
+            var rows = PipelineParts().Select(r => ((string)r[0], (int)r[1])).ToList();
+            foreach (string pipeline in Pipelines.Keys) {
+                var parts = rows.Where(r => r.Item1 == pipeline).Select(r => r.Item2).ToList();
+                Assert.Equal(Enumerable.Range(0, PartsOf(pipeline)), parts);
+                var names = parts.SelectMany(p => CasesOfPart(pipeline, p).Select(c => c.name)).OrderBy(x => x).ToList();
+                Assert.Equal(Corpus().Select(c => c.name).OrderBy(x => x), names);
+            }
+            Assert.True(Corpus().Count() >= RobustParts, "fewer cases than parts");
         }
 
         // the table of each pipeline has exactly the cases of the corpus (a case missing from the corpus would otherwise be dropped silently)
@@ -138,8 +145,7 @@ namespace geometry3Sharp.Tests
         public void Pipeline_MatchesTheStoredOutcomes(string pipeline, int part)
         {
             // the cases are independent: in parallel (a few robust repairs take several seconds each), in corpus order
-            int parts = PartsOf(pipeline);
-            var corpus = Corpus().Where((c, i) => i % parts == part).ToList();
+            var corpus = CasesOfPart(pipeline, part).ToList();
             var outcomes = new string[corpus.Count];
             // (half the cores: other test classes run at the same time, some with timing checks)
             var po = new System.Threading.Tasks.ParallelOptions() { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
