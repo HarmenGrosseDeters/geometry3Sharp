@@ -46,6 +46,7 @@ jobs:
           Z3_DRIFT_APEX_REPORT: z3-drift-apex-report.json
           Z3_DRIFT_REFERENCE_REPORT: z3-drift-reference-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
+          Z3_STEP_LOOPS_REPORT: z3-step-loops-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -57,3 +58,4 @@ jobs:
             z3-drift-apex-report.json
             z3-drift-reference-report.json
             z3-tritri-report.json
+            z3-step-loops-report.json

@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import pathlib
 import unittest
@@ -22,10 +23,15 @@ class StepLoopsTests(unittest.TestCase):
             self.assertEqual(r['expected'], r['result'], r['name'])
             self.assertEqual('sat', r['assumptions_result'], r['name'])
 
-    def test_the_start_zero_witness_replays(self):
-        row = next(r for r in self.report['obligations'] if r['name'].startswith('mutant_start_0'))
-        s = float(row['witness']['s'])
-        self.assertTrue(s == 0 and s * 4 == s and s <= 1e-300)     # the loop `s <= bound; s *= 4` never advances
+    def test_the_mutant_witnesses_replay(self):
+        by_name = {r['name']: r for r in self.report['obligations']}
+        zero = by_name['mutant_P1_with_a_start_of_0_(the_code_before_#452)']['witness']
+        self.assertTrue(float(zero['s']) == 0 and zero['stuck'])      # the loop `s <= bound; s *= 4` never advances
+        s = float(zero['s'])
+        self.assertTrue(s * 4 == s and s <= float(zero['bound']))
+        infinite = by_name['mutant_P1_with_an_infinite_bound_(no_guard_on_maxLengthC)']['witness']
+        s, bound = float(infinite['s']), float(infinite['bound'])
+        self.assertTrue(math.isinf(s) and math.isinf(bound) and s <= bound and s * 4 == s and infinite['stuck'])
 
     def test_the_progress_claims_replay_on_the_edge_values(self):
         for f in (4, 16):
@@ -40,6 +46,8 @@ class StepLoopsTests(unittest.TestCase):
             sl.source_contracts(text.replace('if (!(s0 > 0)) {', 'if (false) {'))
         with self.assertRaises(ValueError):
             sl.source_contracts(text.replace('if (!(s0 > 0 && s0 < double.PositiveInfinity))', 'if (s0 < 0)'))
+        with self.assertRaises(ValueError):    # the bound may be +infinity: the guard of maxLengthC is deleted
+            sl.source_contracts(text.replace('if (!(ml < double.PositiveInfinity))\n                    ml = double.NaN;', ''))
         with self.assertRaises(ValueError):    # a new step loop that the model does not know
             sl.source_contracts(text.replace('for (double s = s0; s <= bound; s *= 4)', 'for (double s = s0; s <= bound; s *= 2)', 1))
         with self.assertRaises(ValueError):    # ulp changes

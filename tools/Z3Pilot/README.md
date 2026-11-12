@@ -701,12 +701,12 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 The step loops of `MeshRoundingRepair` (`for (double s = s0; s <= bound; s *= 4)` in `fix_degenerate` twice and in `try_separate`, `s *= 16`
 in `fix_intersection` twice), the class of #452 (a start that underflowed to 0 never advanced). Checked in binary64 (Z3 floating point,
 round to nearest even, subnormals included): for every finite s > 0 the product with 4 and with 16 is at least s + s or infinite, so
-the loop advances; with 2^2100 * 2^-1074 above `double.MaxValue` (exact integers) it ends within 2100 iterations for a finite bound; the bit
+the loop advances (P1 for a bound that is finite or NaN, P1b: at least twice or infinite); with 2^2100 * 2^-1074 above `double.MaxValue` (an exact integer check, not a Z3 result) it ends within 2100 iterations for a finite bound; the bit
 manipulation of `ulp` is positive and finite for every finite x >= 0 (so `ulp(bound)` and `4 * ulp(largest)` are never the stuck start 0).
-Mutants: the start 0 (the code before #452) and an infinite bound (inf <= inf) are SAT with witnesses replayed in plain floats. That the
-bound is finite (`maxLengthC`, a component's diagonal behind the `OutsideRange` check) is reviewed, not proved. `source_contracts`
-holds the model to the source (loop headers, the start guards, the `ulp` function); a test shows each kind of drift is detected. Runs in
-under a second; part of the `Z3 pilot` workflow.
+Mutants: the P1 query without the start guard (the code before #452) and without the bound guard (`inf <= inf`) is SAT, with witnesses
+replayed in plain floats. That the bound is finite or NaN is the guard `if (!(ml < double.PositiveInfinity)) ml = double.NaN;` of
+`maxLengthC`, pinned by `source_contracts` together with the loop headers, the start guards and the `ulp` function; a test shows each kind
+of drift is detected. Runs in under a second; part of the `Z3 pilot` workflow (its report is uploaded).
 
 ```sh
 python3 tools/Z3Pilot/step_loops.py --out /tmp/step-loops.json

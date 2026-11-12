@@ -9,11 +9,11 @@ What is checked (binary64, round to nearest even, subnormals included; every obl
 that must return UNSAT with satisfiable assumptions; every mutant must return SAT with a witness replayed in plain
 Python floats; UNKNOWN never counts):
 
-  P1  progress: for every finite s > 0 (subnormals too) and the factors 4 and 16, s * f is +infinity or at least s + s,
-      so strictly larger than s;
-  P2  the bound on the iterations: for a finite bound (<= MaxValue) and a start s0 >= the smallest subnormal, s_k >= 2^k
-      s0 or +infinity (P1), and 2^2100 * 2^-1074 > MaxValue (exact integers), so the condition s <= bound is false
-      after at most 2100 iterations;
+  P1  progress: for s > 0 and a bound that is finite or NaN (the guard of maxLengthC), while the loop runs
+      (s <= bound) the next value s * f is larger than s (the factors 4 and 16; subnormals included);
+  P1b for every finite s > 0, s * f is +infinity or at least s + s;
+  P2  the bound on the iterations (exact integers, not a Z3 result): s_k >= 2^k s0 or +infinity (P1b), and
+      2^2100 * 2^-1074 > MaxValue, so the condition s <= bound is false after at most 2100 iterations for a finite bound;
   P3  the start: ulp(x) of MeshRoundingRepair (a bit manipulation) is a positive finite number for every finite
       x >= 0 (so ulp(bound) and 4 * ulp(largest) cannot be the stuck start 0), checked on the 64 bits;
       NaN gives NaN, for which `s <= bound` is false at once.
@@ -55,6 +55,7 @@ def source_contracts(text=None):
         'if(!(s0>0)){': 1,
         'if(!(s0>0))return;': 1,
         'if(!(ulp>0))ulp=MeshRoundingRepair.ulp(bound);': 1,
+        'if(!(ml<double.PositiveInfinity))ml=double.NaN;maxLengthC[c]=ml;': 1,      # the bound is finite or NaN, never +infinity
         'doubles0=2*h;': 1,
         's0=largest>0?4*ulp(largest):ulp(bound);': 2,
         'if(!(s0>0&&s0<double.PositiveInfinity))returnfalse;': 1,
@@ -107,25 +108,35 @@ def _ulp_bits(bits):
     return z.If(e64 > 52, normal, sub)
 
 
+def _f(x):
+    return z.FPVal(x, F64)
+
+
 def run(timeout_ms=120000):
     contracts = source_contracts()
     rows = []
-    s = z.FP('s', F64)
+    s, bound = z.FPs('s bound', F64)
     zero = z.FPVal(0.0, F64)
-    pos_finite = [z.fpGT(s, zero), z.Not(z.fpIsInf(s)), z.Not(z.fpIsNaN(s))]
+    inf = z.fpPlusInfinity(F64)
+    # the state of a loop `for (s = s0; s <= bound; s *= f)`: s is a start > 0 or a later value, bound is finite or NaN
+    # (the guard of maxLengthC, a source contract); NaN entails `s <= bound` false, a loop that is not entered
+    start_ok = [z.Not(z.fpIsNaN(s)), z.fpGT(s, zero)]
+    bound_ok = [z.Not(z.fpIsInf(bound)), z.Not(z.fpIsNaN(bound))]
     for f in (4, 16):
-        r = z.fpMul(RNE, s, z.FPVal(float(f), F64))
-        twice = z.fpGEQ(r, z.fpAdd(RNE, s, s))                # s + s: exact or +infinity
-        rows.append(_row(f'P1_factor_{f}_gives_at_least_twice_s_(or_infinity)', pos_finite,
-                         z.Not(z.Or(z.fpIsInf(r), twice)), timeout_ms, 'unsat'))
-        rows.append(_row(f'P1_factor_{f}_is_strictly_larger', pos_finite, z.Not(z.fpGT(r, s)), timeout_ms, 'unsat'))
+        r = z.fpMul(RNE, s, _f(float(f)))
+        in_loop = [z.fpLEQ(s, bound)]
+        # P1: while the loop runs (s <= bound, so s is finite), the next value is larger: s * f > s
+        rows.append(_row(f'P1_factor_{f}_advances_while_the_loop_runs', start_ok + bound_ok + in_loop, z.Not(z.fpGT(r, s)), timeout_ms, 'unsat'))
+        # P1b: and at least twice as large or infinite (what P2 uses), for every finite s > 0
+        twice = z.fpGEQ(r, z.fpAdd(RNE, s, s))
+        rows.append(_row(f'P1b_factor_{f}_gives_at_least_twice_s_or_infinity', start_ok + [z.Not(z.fpIsInf(s))], z.Not(z.Or(z.fpIsInf(r), twice)), timeout_ms, 'unsat'))
 
-    # P2: exact integers: s_k >= 2^k * s0 (P1) and 2^2100 * 2^-1074 > MaxValue, so after 2100 steps (at most) the loop is over
+    # P2: exact integers, not a Z3 result: s_k >= 2^k * s0 (P1b) and 2^2100 * 2^-1074 > MaxValue, so the loop is over after 2100 steps
     from fractions import Fraction
     k = 2100
     ok = Fraction(2) ** k * Fraction(MIN_SUBNORMAL) > Fraction(MAX_DOUBLE)
-    rows.append(dict(name=f'P2_doubling_from_the_smallest_subnormal_passes_MaxValue_within_{k}_steps', result='unsat' if ok else 'sat',
-                     expected='unsat', seconds=0.0, ok=ok, assumptions_result='sat', note='exact integer arithmetic'))
+    rows.append(dict(name=f'P2_doubling_from_the_smallest_subnormal_passes_MaxValue_within_{k}_steps_(exact_integers,_not_Z3)',
+                     result='holds' if ok else 'fails', expected='holds', seconds=0.0, ok=ok, assumptions_result='sat'))
 
     # P3: ulp(x) is positive and finite for every finite x >= 0
     x = z.FP('x', F64)
@@ -135,16 +146,17 @@ def run(timeout_ms=120000):
     rows.append(_row('P3_ulp_of_a_finite_nonnegative_number_is_positive_and_finite', x_ok,
                      z.Not(z.And(z.fpGT(u, zero), z.Not(z.fpIsInf(u)), z.Not(z.fpIsNaN(u)))), timeout_ms, 'unsat'))
 
-    # mutants
-    def stuck(model):
-        return dict(s=repr(_value(model, s)), times_4=repr(_value(model, s) * 4))
-    rows.append(_row('mutant_start_0_never_advances_(the_code_before_#452)', [z.fpIsZero(s), z.Not(z.fpIsNegative(s))],
-                     z.BoolVal(True), timeout_ms, 'sat', stuck))
-    bound = z.FP('bound', F64)
-    r4 = z.fpMul(RNE, s, z.FPVal(4.0, F64))
-    rows.append(_row('mutant_infinite_bound_the_loop_sits_at_infinity',
-                     [z.fpIsInf(bound), z.Not(z.fpIsNegative(bound)), s == z.fpPlusInfinity(F64), z.fpLEQ(s, bound), r4 == s],
-                     z.BoolVal(True), timeout_ms, 'sat'))
+    # MUTANTS: the same P1 query with one hypothesis dropped must be SAT, with a witness replayed in plain floats
+    r4 = z.fpMul(RNE, s, _f(4.0))
+    def replay(model):
+        sv, bv = _value(model, s), _value(model, bound)
+        return dict(s=repr(sv), bound=repr(bv), next=repr(sv * 4), stuck=bool(sv <= bv and not (sv * 4 > sv)))
+    # (1) the start may be 0 (the code before #452): s * 4 == s and 0 <= bound
+    rows.append(_row('mutant_P1_with_a_start_of_0_(the_code_before_#452)', [z.Not(z.fpIsNaN(s)), z.fpGEQ(s, zero)] + bound_ok + [z.fpLEQ(s, bound)],
+                     z.Not(z.fpGT(r4, s)), timeout_ms, 'sat', replay))
+    # (2) the bound may be +infinity (no guard on maxLengthC): s reaches +infinity, inf <= inf and inf * 4 == inf
+    rows.append(_row('mutant_P1_with_an_infinite_bound_(no_guard_on_maxLengthC)', start_ok + [z.Not(z.fpIsNaN(bound)), z.fpLEQ(s, bound)],
+                     z.Not(z.fpGT(r4, s)), timeout_ms, 'sat', replay))
     passed = all(r['ok'] and r['assumptions_result'] == 'sat' for r in rows)
     return dict(contracts=contracts, obligations=rows, passed=passed)
 
