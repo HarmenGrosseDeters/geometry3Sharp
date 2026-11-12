@@ -133,7 +133,8 @@ segments that a projection from R lets through (`SegmentProjection`, `pierce_pre
   quotient n / d, with n and d computed within dn = e_x + e_R + u |n| and dd = e_x + e_R + u |d| of the exact ones, is
   within (dn + |n / d| dd) / (|d| - dd) + u |n / d| of the exact quotient. The boxes (each segment's, and the query's
   corners') are widened by 1.01 times that per coordinate, so each contains the exact projections. Where |d| <= 2 dd for
-  any point, the projection is not used and every segment is a candidate.
+  any point, or where x_k - R_k has another sign than at the first segment end (a guard, review of #675: true for
+  far_point's points today), the projection is not used and every segment is a candidate.
 - The segments' boxes are sorted into a uniform grid (only for speed: a box is in every cell its range covers, and a
   query tests the boxes of its cells exactly). The result is ascending, and the hull test then runs on it as before; the
   margin's S stays the maximum over all segments, so the tests are those of the whole set.
@@ -188,7 +189,10 @@ dominating. Each change below keeps every hash (`profile` runs, the same hash as
   triangle's relative interior: pieces have positive area (`ExactMeshArrangement` outputs no zero-area triangles). Then
   the segment meets U's plane only at p, an interior point of U, and it crosses U exactly where the displaced ends lie
   on different sides (p's on the front of its own triangle): the general test's result without the orientation tests.
-  Mixed corner sides fall through to the general test.
+  Mixed corner sides fall through to the general test. An end in U's plane counts on the side its own piece's normal
+  points to, as in the general test; both ends in the plane with opposite normal signs (a flap folded onto U with the
+  opposite orientation) is degenerate, as there (review of #675: a literal "front" for the other end gave no crossing
+  there, off by one).
 - *Shared frames.* A block of at most 4 pieces reached by a step takes the frame of the triangle it is reached from,
   if its corners lie within 16 of its diameters of that frame's origin. The step then needs no second centroid of q,
   and the corners and the far point are converted once. Only the filters' precision depends on the origin (the bounds
@@ -210,8 +214,15 @@ dominating. Each change below keeps every hash (`profile` runs, the same hash as
   curves) the segment runs next to M's triangles there and would often fall back; the identity would hold there too.
 - *Clusters.* A serial pass over the blocks in index order builds clusters by breadth-first search over the blocks'
   adjacency (input triangles of one mesh with an input edge in common, by corner ids), each closed when it reaches a
-  cap of pieces (`TraceClusterPieces` = 2^14, to be measured; the blocks queued then are released) and started anew
-  from the lowest unassigned block (`trace_clusters`). The partition depends only on the output,
+  cap of pieces (`TraceClusterPieces` = 1024; the blocks queued then are released) and started anew from the lowest
+  unassigned block (`trace_clusters`). Measured: with 2^14 the knot benchmark's 615k pieces made 38 clusters, too few
+  for 4 threads (classification 2.4 -> 4.2 s against master); with 1024, 764 clusters and 2.4 s.
+- *Blocks first, and steps only into small blocks.* Within a cluster the search takes a block's own neighbours first
+  (the partners' grid, as within one triangle) and a step into another block only when the blocks entered so far are
+  done, in the order the steps were found. A step goes only into a block of at most `TraceCrossMaxPieces` = 4 pieces;
+  a larger block takes its own reference, whose ray serves all its pieces. Measured on the knot benchmark (dense,
+  about 100 pieces per triangle): without the first rule 222k cross steps, with it 40k, with both 0.7k, and the
+  classification as on master; the single-piece models keep their gain (below). The partition depends only on the output,
   not on threads.
 - *Tracing.* Each cluster is traced serially: references (own rays) only where the breadth-first search over its pieces
   starts a component or a step falls back; the order is fixed (lowest piece first, neighbours in edge order). Clusters
@@ -243,7 +254,7 @@ dominating. Each change below keeps every hash (`profile` runs, the same hash as
   serial against parallel, repeated runs, reuse.
 - Mutants of the new code killed by hand; the boolean shards' incremental run where a baseline fits.
 
-Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 22 test cases), and 20 mutants of the new code by hand:
+Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 24 test cases), and 22 mutants of the new code by hand:
 15 killed. The survivors:
 - The projection without the points' own error e_x: covered by R's error e_R, which is larger (R is 4000 extents
   from the box, so |R| >= |x|).
@@ -255,6 +266,10 @@ Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 22 test cases), and 20 mutant
   edge-adjacent (a self-intersection), t2's corners lie on both sides of t1's plane and the general test runs.
 - The shared frame without its distance condition: a heuristic for the filters' precision; the results do not depend
   on it.
+- The fold fix (review of #675) undone: on the test's folded flaps the steps that meet it are between coincident pieces
+  of the triangle and the flap, where both contributions are counted by the old shortcut too and cancel; the fix gives
+  the general test's degenerate case, which is sound for any configuration.
+- The projection's sign guard removed: no far point today lies within the box's slab.
 
 ## 8. Measurement (step 3)
 

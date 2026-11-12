@@ -325,7 +325,9 @@ namespace g3
         /// </summary>
         internal bool TracedAcrossEdges = true;
         /// <summary> T5: a cluster is closed once it holds this many pieces (the unit of parallel work) </summary>
-        internal int TraceClusterPieces = 1 << 14;
+        internal int TraceClusterPieces = 1 << 10;
+        /// <summary> T5: a step across an edge only into a block of at most this many pieces (larger ones: their own reference) </summary>
+        internal int TraceCrossMaxPieces = 4;
         /// <summary> T5: blocks of few pieces share the frame of the triangle they are reached from (off: one per triangle, for tests) </summary>
         internal bool TraceShareFrames = true;
         /// <summary> tests: evaluate the traced pieces directly as well and count the different thresholds (TracedMismatches) </summary>
@@ -1795,6 +1797,7 @@ namespace g3
                 var rem = new double[len];      // its margin left for carrying the threshold on (<= 0: none)
                 var seen = new bool[len];
                 var queue = new Queue<int>();
+                var crossQueue = new Queue<long>();
                 var boxes = new double[6 * len];
                 var hasBox = new bool[len];
                 for (int j = 0; j < no; ++j) {
@@ -1853,11 +1856,31 @@ namespace g3
                         seen[loc[r]] = true;
                         direct_reference(r, m, j, stack, segments, center(r), representative, po, tr, chi, far, thr, rem, loc, ref direct);
                         queue.Enqueue(r);
-                        while (queue.Count > 0) {
-                            int p = queue.Dequeue();
-                            foreach (int q in adj[loc[p]]) {
+                        // (T5: the pieces of a block first, across its own edges, by its partners' grid; a step into another
+                        // block only when the queue of the blocks entered so far is empty, in the order the steps were found)
+                        while (queue.Count > 0 || crossQueue.Count > 0) {
+                            int p, only = -1;
+                            if (queue.Count > 0)
+                                p = queue.Dequeue();
+                            else {
+                                long e = crossQueue.Dequeue();
+                                p = (int)(e >> 32);
+                                only = (int)(e & 0xFFFFFFFFL);
+                                if (seen[loc[only]])
+                                    continue;
+                            }
+                            List<int> neighbours = adj[loc[p]];
+                            for (int ni = 0; ni < (only >= 0 ? 1 : neighbours.Count); ++ni) {
+                                int q = only >= 0 ? only : neighbours[ni];
                                 if (seen[loc[q]])
                                     continue;
+                                if (only < 0 && output[q].Source != output[p].Source) {
+                                    // (only into a block of few pieces: a larger one takes its own reference, whose ray
+                                    // serves all its pieces, cheaper than a step's box-tree candidates in a dense region)
+                                    if (blockSize[output[q].Source] <= TraceCrossMaxPieces)
+                                        crossQueue.Enqueue(((long)p << 32) | (uint)q);
+                                    continue;
+                                }
                                 seen[loc[q]] = true;
                                 queue.Enqueue(q);
                                 bool wanted = representative[q] && decided_per_patch(po, q, j) == false;
@@ -2296,6 +2319,7 @@ namespace g3
         {
             const double u = 1.1102230246251565e-16;
             readonly int i, j, k;
+            readonly int sk;                // the sign of x_k - R_k at the first segment end; every point must have it
             readonly Vector3d r;
             readonly double er;
             public readonly bool Valid = true;
@@ -2327,6 +2351,7 @@ namespace g3
                 k = Math.Abs(r.x) >= Math.Abs(r.y) && Math.Abs(r.x) >= Math.Abs(r.z) ? 0 : Math.Abs(r.y) >= Math.Abs(r.z) ? 1 : 2;
                 i = (k + 1) % 3; j = (k + 2) % 3;
                 Count = g.Length / 2;
+                sk = Count > 0 ? Math.Sign(g[0][k] - r[k]) : 0;
                 box = new double[4 * Count];
                 double bx0 = double.PositiveInfinity, by0 = double.PositiveInfinity, bx1 = double.NegativeInfinity, by1 = double.NegativeInfinity;
                 for (int s = 0; s < Count && Valid; ++s) {
@@ -2394,6 +2419,11 @@ namespace g3
                 px = ni / d; py = nj / d;
                 double di = ex + er + u * Math.Abs(ni), dj = ex + er + u * Math.Abs(nj);
                 double ad = Math.Abs(d) - dd;
+                // (all points on one side of the plane x_k = R_k: else the projection does not map hulls to hulls)
+                if (Math.Sign(d) != sk) {
+                    pe = double.NaN;
+                    return false;
+                }
                 pe = 1.01 * Math.Max((di + Math.Abs(px) * dd) / ad + u * Math.Abs(px), (dj + Math.Abs(py) * dd) / ad + u * Math.Abs(py)) + 1e-300;
                 return Math.Abs(d) > 2 * dd && double.IsNaN(pe + px + py) == false && double.IsInfinity(pe + px + py) == false;
             }
@@ -2804,7 +2834,16 @@ namespace g3
                     // a crossing exactly where the displaced ends lie on different sides, as the general test finds it)
                     int a0 = ui == srcP ? 0 : interiorSide(ui, srcP), b0 = ui == srcQ ? 0 : interiorSide(ui, srcQ);
                     if (a0 != 2 && b0 != 2) {
-                        int ae0 = a0 != 0 ? a0 : 1, be0 = b0 != 0 ? b0 : 1;
+                        // (an end in U's plane: the side its own piece's normal points to, as in the general test; both
+                        // in the plane on different sides, a flap folded onto U with the opposite orientation (review of
+                        // #675): degenerate)
+                        var U0 = arr.Triangles[ui];
+                        int ae0 = a0 != 0 ? a0 : (sp.NX * U0.NX + sp.NY * U0.NY + sp.NZ * U0.NZ).Sign;
+                        int be0 = b0 != 0 ? b0 : (sq.NX * U0.NX + sq.NY * U0.NY + sq.NZ * U0.NZ).Sign;
+                        if (ae0 == 0 || be0 == 0 || (a0 == 0 && b0 == 0 && ae0 != be0)) {
+                            degenerate = true;
+                            return;
+                        }
                         if (ae0 != be0)
                             crossings += be0;
                         return;

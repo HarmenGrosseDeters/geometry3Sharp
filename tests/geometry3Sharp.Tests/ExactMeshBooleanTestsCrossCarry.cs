@@ -372,15 +372,41 @@ namespace geometry3Sharp.Tests
             Assert.True(across.ReorientedTriangles > 0);
         }
 
+        [Theory]
+        [InlineData(Ops.Union)]
+        [InlineData(Ops.Difference)]
+        public void CrossCarry_FoldedFlaps_SameThresholdsAsOwnRays(Ops op)
+        {
+            // a flat sheet with flaps folded onto some of its triangles: a flap (b, a, d) on the edge a-b of the triangle
+            // (a, b, c), d in its plane on c's side, so the flap lies in that plane with the opposite orientation. A step
+            // between a piece of the triangle and one of the flap meets both pieces' own triangles with both ends in
+            // their planes and opposite normals: degenerate, as the general test decides (review of #675: the shortcut
+            // took the other end as in front and counted no crossing)
+            (DMesh3 a, DMesh3 b) = SheetAndCap(16, 0);
+            foreach (int t in a.TriangleIndices().Where(t => t % 9 == 4).ToList()) {
+                Index3i f = a.GetTriangle(t);
+                Vector3d pa = a.GetVertex(f.a), pb = a.GetVertex(f.b), pc = a.GetVertex(f.c);
+                int d = a.AppendVertex(pa + 0.375 * (pb - pa) + 0.5 * (pc - pa));
+                a.AppendTriangle(f.b, f.a, d);
+            }
+            ExactMeshBoolean own = Computed(a, b, op, false, false);
+            ExactMeshBoolean across = Computed(a, b, op, true, true, verify: true);
+            Assert.Equal(0, across.TracedMismatches);
+            Assert.Equal("", Invariance.Difference(own.Result, across.Result));
+            for (int i = 0; i < own.OpenWindingPerPiece.Length; ++i)
+                Assert.Equal(own.OpenWindingPerPiece[i], across.OpenWindingPerPiece[i]);
+            Assert.True(across.Counts["l2_cross_fallbacks"] > 0, "no step met a folded flap");
+        }
+
         // an open, gently curved sheet (a grid of n x n quads) and an open cap of a sphere through it: most of the sheet's
         // triangles are one piece each, as on the slow open models of the T5 count
-        internal static (DMesh3, DMesh3) SheetAndCap(int n = 40)
+        internal static (DMesh3, DMesh3) SheetAndCap(int n = 40, double amplitude = 0.15)
         {
             var sheet = new DMesh3();
             for (int i = 0; i <= n; ++i)
                 for (int j = 0; j <= n; ++j) {
                     double x = (double)i / n * 2 - 1, y = (double)j / n * 2 - 1;
-                    sheet.AppendVertex(new Vector3d(x, y, 0.15 * Math.Sin(2.1 * x) * Math.Cos(1.7 * y)));
+                    sheet.AppendVertex(new Vector3d(x, y, amplitude * Math.Sin(2.1 * x) * Math.Cos(1.7 * y)));
                 }
             for (int i = 0; i < n; ++i)
                 for (int j = 0; j < n; ++j) {
@@ -428,9 +454,10 @@ namespace geometry3Sharp.Tests
             Assert.True(across.Result.TriangleCount > 0);
             foreach (int v in across.Result.VertexIndices())
                 Assert.True(across.Result.GetVertex(v).IsFinite);
-            // it carries across: few references, most of the sheet's single-piece triangles reached by cross steps
+            // it carries across: the sheet's single-piece triangles reached by cross steps (the cap's larger blocks take
+            // their own references, TraceCrossMaxPieces), fewer references than within triangles
             Assert.True(across.Counts["l2_cross_steps"] > 2000, $"{across.Counts["l2_cross_steps"]} cross steps");
-            Assert.True(across.Counts["l2_direct"] * 50 < within.Counts["l2_direct"], $"{across.Counts["l2_direct"]} direct, within triangles {within.Counts["l2_direct"]}");
+            Assert.True(across.Counts["l2_direct"] * 3 < within.Counts["l2_direct"] * 2, $"{across.Counts["l2_direct"]} direct, within triangles {within.Counts["l2_direct"]}");
         }
 
         [Theory]

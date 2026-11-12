@@ -134,14 +134,15 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(serial.Counts[c], reused.Counts[c]);
             }
             // pinned: how much L2 traces, carries and evaluates directly on this knot (the tracing order, the carry bound and
-            // the fallbacks change it; the results do not depend on it, the verify mode checks each value). T5: with the
-            // steps across input-triangle edges, 8 references for 75k pieces (within triangles only: 14179, 55097, 5054)
-            Assert.Equal(16720, serial.Counts["l2_traced"]);
-            Assert.Equal(58308, serial.Counts["l2_carried"]);
-            Assert.Equal(8, serial.Counts["l2_direct"]);
-            Assert.Equal(29094, serial.Counts["l2_cross_steps"]);
+            // the fallbacks change it; the results do not depend on it, the verify mode checks each value). T5: steps
+            // across input-triangle edges only into blocks of at most 4 pieces, so on this dense knot few (within
+            // triangles only: 14179, 55097, 5054)
+            Assert.Equal(14617, serial.Counts["l2_traced"]);
+            Assert.Equal(55503, serial.Counts["l2_carried"]);
+            Assert.Equal(4916, serial.Counts["l2_direct"]);
+            Assert.Equal(1246, serial.Counts["l2_cross_steps"]);
             Assert.Equal(0, serial.Counts["l2_cross_fallbacks"]);
-            Assert.Equal(4, serial.Counts["l2_exact_centroids"]);
+            Assert.Equal(2458, serial.Counts["l2_exact_centroids"]);
         }
     }
 }
