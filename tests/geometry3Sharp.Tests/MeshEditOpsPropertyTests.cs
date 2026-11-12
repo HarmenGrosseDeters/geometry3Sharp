@@ -74,10 +74,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2 * exposed, m.TriangleCount);
             Close(exposed, Area(m), 1e-12, "area");
             Close(clockwise ? -filled : filled, SignedVolume(m), 1e-9, "volume");
-            // without the cap at the boundary, the faces on the grid boundary are missing
+            // without the cap at the boundary, exactly the exposed faces on the grid boundary are missing
+            int exposedInside = 0;
+            foreach (Vector3i v in grid.NonZeros())
+                foreach (Vector3i d in new[] { new Vector3i(1, 0, 0), new Vector3i(-1, 0, 0), new Vector3i(0, 1, 0), new Vector3i(0, -1, 0), new Vector3i(0, 0, 1), new Vector3i(0, 0, -1) }) {
+                    Vector3i n = v + d;
+                    if (n.x >= 0 && n.y >= 0 && n.z >= 0 && n.x < dims.x && n.y < dims.y && n.z < dims.z && !grid.Get(n)) ++exposedInside;
+                }
+            Assert.True(exposedInside < exposed, "vacuous: no voxel on the grid boundary");
             var open = new VoxelSurfaceGenerator { Voxels = grid, CapAtBoundary = false };
             open.Generate();
-            Assert.True(open.Meshes[0].TriangleCount <= m.TriangleCount);
+            Assert.Equal(2 * exposedInside, open.Meshes[0].TriangleCount);
             // a voxel set is its interior faces too when SkipInteriorFaces is off: 6 faces per voxel
             var all = new VoxelSurfaceGenerator { Voxels = grid, SkipInteriorFaces = false };
             all.Generate();
@@ -183,7 +190,6 @@ namespace geometry3Sharp.Tests
             Assert.InRange(tris.Length, 10, m.TriangleCount - 10);
             double area = Area(m);
             int triCount = m.TriangleCount, vertCount = m.VertexCount;
-            var before = m.VertexIndices().ToDictionary(v => v, v => m.GetVertex(v));
 
             // the plain round trip changes nothing
             var op = new RegionOperator(m, tris);
@@ -194,26 +200,33 @@ namespace geometry3Sharp.Tests
             Close(area, Area(m), 1e-12, "area");
             Assert.True(m.IsClosed());
 
-            // an edit of the interior vertices of the submesh moves exactly the base vertices of the interior
+            // an edit of the interior vertices of the submesh: every interior vertex ends exactly `shift` along x from where it was,
+            // every vertex on the region border and outside the region where it was (ids of the region's vertices are new after
+            // the reinsertion: the submesh vertex maps give the base vertex of each)
             op = new RegionOperator(m, tris);
             var interior = op.CurrentBaseInteriorVertices();
             Assert.NotEmpty(interior);
             double shift = 1e-3 * Pow2(e);
+            var expected = new Dictionary<int, Vector3d>();       // submesh vertex -> its position after the reinsertion
+            int shifted = 0;
             foreach (int sv in op.Region.SubMesh.VertexIndices()) {
                 int bv = op.Region.MapVertexToBaseMesh(sv);
-                if (interior.Contains(bv) && op.Region.BaseBorderV.Contains(bv) == false)
-                    op.Region.SubMesh.SetVertex(sv, op.Region.SubMesh.GetVertex(sv) + shift * Vector3d.AxisX);
+                Vector3d p = op.Region.SubMesh.GetVertex(sv);
+                if (interior.Contains(bv) && op.Region.BaseBorderV.Contains(bv) == false) {
+                    p = p + shift * Vector3d.AxisX;
+                    op.Region.SubMesh.SetVertex(sv, p);
+                    ++shifted;
+                }
+                expected[sv] = p;
             }
+            var outside = m.VertexIndices().Where(v => !op.Region.BaseBorderV.Contains(v) && !interior.Contains(v)).ToDictionary(v => v, v => m.GetVertex(v));
             Assert.True(op.BackPropropagate());
             m.CheckValidity(false, FailMode.Throw);
-            int moved = 0;
-            foreach (int v in m.VertexIndices()) {
-                bool changed = m.GetVertex(v) != before[v];
-                if (changed) ++moved;
-                if (interior.Contains(v) && op.Region.BaseBorderV.Contains(v) == false) continue;
-                Assert.False(changed, $"vertex {v} outside the interior moved");
-            }
-            Assert.True(moved > 0, "vacuous: nothing moved");
+            foreach (var kv in expected)
+                Assert.True(m.GetVertex(op.ReinsertSubToBaseMapV[kv.Key]) == kv.Value, $"submesh vertex {kv.Key} is not where the edit put it");
+            Assert.True(shifted > 10, "vacuous: " + shifted + " vertices shifted");
+            foreach (var kv in outside)
+                Assert.True(m.IsVertex(kv.Key) && m.GetVertex(kv.Key) == kv.Value, $"vertex {kv.Key} outside the region moved");
             Assert.Equal(triCount, m.TriangleCount);
         }
 
