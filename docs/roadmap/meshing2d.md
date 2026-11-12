@@ -28,6 +28,10 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
+- **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
+  Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
+  as z (labels as groups where they fit). Effort S.
+
 - **Three single triangles at 1e-7..1e-9 radian (from #542):** in the near-contact fan (T-junction segments ending 2^-k beside a
   long segment, constrained quality mode), scale 1.13 at k = 26 and 28 leaves three single triangles below the bound that the
   oracle does not excuse (fan factors 1.13; [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md) section 2), not
@@ -40,7 +44,8 @@ Actionable:
   `SnapRounding2.cs` changed by +383 / −61 lines (#394 small-angle rule, #437 corner choice, #441 / #462 rule C, #496 the
   60° pairs, #512, #526, #553 pair keys), and the oracle much more. A delta check is due before a release that relies on the
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
-  must not do it. To arrange: coordinator / owner. The clean side can hand over the list of changed routines. Effort M (dirty side).
+  must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
+  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 

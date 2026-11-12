@@ -123,9 +123,6 @@ Checked line by line against the owner's decisions and git on 2026-11-12; settle
   upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
   library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
-- **Meshing2D provenance delta:** the mesher changes after `d9006aa` (#394 and later) need a dirty-side check before a
-  release that relies on the clean-room claim; that session would read Triangle.NET, which the current rule forbids
-  (asked 2026-11-12). [meshing2d.md](roadmap/meshing2d.md#open)
 - **Exact Boolean 2.0 leftovers (asked 2026-11-12):** re-measure the speed exceptions (519511, 1517923, 519507) and
   manifold M2 (`Generic_Twin_7081`, 20 s) on master, or close them as documented exceptions; delete the superseded
   branches `claude/int256-spike` / `claude/collinear-shortcut` after #633 merges. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
@@ -140,8 +137,11 @@ The next steps per topic, in order ("in progress" where a session works on them)
 
 - Exact Boolean 3.0 after #633: T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
   then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- Meshing2D: the three untraced single triangles from #542 (in progress); SplitSegment speed and the oracle leftovers need
-  corpus inputs that are not in the repository. [meshing2d.md](roadmap/meshing2d.md#open)
+- Meshing2D: the three untraced single triangles from #542 (in progress); a `ConstrainedMesh2` to `DMesh3` helper with the
+  heights as z (2.5D output, additive API; owner 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
+  session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; starts
+  when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
+  repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4, L1, L3b, L2 (in progress, one PR per lever). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update. [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
