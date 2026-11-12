@@ -143,7 +143,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4, L1, L3b, L2 (in progress, one PR per lever). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- Phase 5: the CLI / MCP update. [research.md](roadmap/research.md#open)
+- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12: inventory and command list for the owner
+  first, then small PRs). [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: issue-tracker follow-ups left: the regressions a remesher flip-guard default would cause, the P1 collapse
@@ -159,7 +160,7 @@ The next steps per topic, in order ("in progress" where a session works on them)
   matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: thin walls and opt-in self-intersection cost; Reducer / Remesher 2.0 and its follow-ups are closed (owner
   2026-11-12). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Later list (point clouds, conservative marching cubes, offsets, quad remeshing, deformation, tetrahedral meshing,
+- Later list (point clouds, offsets, quad remeshing, deformation, tetrahedral meshing,
   TPMS, sparse SDF grids, batch ray queries, AI bridges): [research.md](roadmap/research.md#later)
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Open research questions (3D snap rounding, envelope pipeline, metamorphic testing, determinism, and more):
@@ -208,6 +209,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   reviews, re-running numbers) and writes no production code. The owner's local work does not count. The limit
   applies to new starts: when sessions finish, they are not replaced until the count is below it. Each session has
   its own worktree and one PR-sized topic.
+- **Exception (owner 2026-11-12):** two extra medium Sonnet sessions (CLI / MCP update, test-time backlog) on top of
+  the limit; no further starts until the count is back below it.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are

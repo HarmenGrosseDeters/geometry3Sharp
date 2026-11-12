@@ -143,7 +143,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
-- **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
+- **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
@@ -174,7 +174,8 @@ in the tool project.
 #### Later
 
 - Point clouds: normal orientation (Dipole 2021, iPSR 2022, GCNO 2023), screened Poisson reconstruction, fast winding numbers (Barill et al. 2018)
-- Conservative marching cubes (size S; noted 2026-11-05, paper only). Source: A. Jacobson, *A Sharp Conservative Offset
+- Conservative marching cubes (size S; noted 2026-11-05, paper only; done: opt-in `RootfindingModes.LinearEdges`,
+  see docs/design/CONSERVATIVE_MC_AUDIT.md). Source: A. Jacobson, *A Sharp Conservative Offset
   for Marching Cubes*, arXiv 2609.13430, 2026.
   - The result: for a 1-Lipschitz function sampled on a grid of spacing h, the marching-cubes mesh of the level
     sigma > sqrt(3)/2 h contains the true zero-level set, and sqrt(3)/2 h is sharp. It is proven via a convex lift of
