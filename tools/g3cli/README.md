@@ -29,6 +29,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
 | `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
+| `polygon_solids` | solid regions (polygons with holes) from loops: every ring of GeoJSON Polygons / MultiPolygons and every closed LineString is a loop, the nesting is found from containment; absolute (`--simplify-tolerance`, library default 0.1) and relative (`--relative-tolerance`) simplification, `--trust-orientations`, `--allow-overlapping-holes`; the result as GeoJSON (a file, or inline with `--return-geojson`), counts and areas | `PlanarComplex.FindSolidRegions` |
 
 ## Build and run
 
@@ -203,6 +204,11 @@ g3cli polygon2d parcel.geojson building.geojson --op difference --output free.ge
 g3cli polygon2d footprints.geojson --op union                       # merges the overlapping polygons of one file
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --miter-limit 2
 g3cli polygon2d --subject-geojson '{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}' --op offset --delta -1 --return-geojson
+
+# loops from several sources (rings of Polygons, closed lines) to solids with holes; simplification: absolute, library default 0.1
+g3cli polygon_solids loops.geojson solids.geojson
+#   -> "loops": {"input": 3, "open_lines_ignored": 1}, "solids": 2, "holes": 1, "area": 6800, "holes_area": 3600, "used_tolerance": {"absolute": 0.1, "relative": 0}
+g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4    # close loops keep their nesting
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
