@@ -1479,7 +1479,10 @@ namespace g3
         /// (thread-safe). Much faster than WindingNumber for many queries on large meshes. Scale-free: the expansion of a box
         /// is used by its centre and radius only (no absolute tolerance), so scaling the mesh and p by a power of two gives
         /// the same value bit for bit, also for tiny parts or parts far from the origin, as long as the areas (squares of the
-        /// edge lengths) and the terms of the expansion (up to the fifth power of the distance) stay in the normal range.
+        /// edge lengths) and the terms of the expansion (up to the fifth power of the distance) stay in the normal range:
+        /// part sizes and query distances between about 2^-200 (6e-61) and 2^200. Outside that the expansion of a box is
+        /// not used where its fifth power of the distance leaves the normal range (exact sums: right, but slow), and the
+        /// cache's own sums can lose the last bits.
         /// </summary>
         public virtual double FastWindingNumber(Vector3d p)
         {
@@ -1561,25 +1564,35 @@ namespace g3
         /// <summary> Test hook: the number of triangles FastWindingNumber(p) sums exactly (the rest by expansions); the cache must have been built by a FastWindingNumber call. </summary>
         internal int FastWindingExactTriangleCount(Vector3d p)
         {
-            return fast_winding_exact_count(root_index, ref p);
+            return fast_winding_exact(root_index, ref p, null);
         }
-        int fast_winding_exact_count(int iBox, ref Vector3d p)
+        /// <summary> Test hook: the triangles FastWindingNumber(p) sums exactly, added to into (as FastWindingExactTriangleCount). </summary>
+        internal void FastWindingExactTriangles(Vector3d p, List<int> into)
+        {
+            fast_winding_exact(root_index, ref p, into);
+        }
+        int fast_winding_exact(int iBox, ref Vector3d p, List<int> into)
         {
             int idx = box_to_index[iBox];
-            if (idx < triangles_end)
-                return index_list[idx];
+            if (idx < triangles_end) {
+                int n = index_list[idx];
+                if (into != null)
+                    for (int i = 1; i <= n; ++i)
+                        into.Add(index_list[idx + i]);
+                return n;
+            }
             int iChild1 = index_list[idx], count = 0;
             if (iChild1 < 0) {
                 iChild1 = (-iChild1) - 1;
                 if (use_fast_winding_expansion(iChild1, ref p) == false)
-                    count += fast_winding_exact_count(iChild1, ref p);
+                    count += fast_winding_exact(iChild1, ref p, into);
             } else {
                 iChild1 = iChild1 - 1;
                 int iChild2 = index_list[idx + 1] - 1;
                 if (use_fast_winding_expansion(iChild1, ref p) == false)
-                    count += fast_winding_exact_count(iChild1, ref p);
+                    count += fast_winding_exact(iChild1, ref p, into);
                 if (use_fast_winding_expansion(iChild2, ref p) == false)
-                    count += fast_winding_exact_count(iChild2, ref p);
+                    count += fast_winding_exact(iChild2, ref p, into);
             }
             return count;
         }
@@ -1792,8 +1805,13 @@ namespace g3
             ref FWNInfo cacheInfo = ref FastWindingCache[iBox];
 
             double dist_qp = cacheInfo.Center.Distance(ref q);
-            if (dist_qp > FWNBeta * cacheInfo.R)
-                return true;
+            if (dist_qp > FWNBeta * cacheInfo.R) {
+                // (the expansion divides by the fifth power of the distance: only where that is a normal double, ie
+                // distances from about 2^-204 to 2^204. Below, it underflowed to 0 or a subnormal and the value was NaN,
+                // infinite or wrong (a sphere of size 2^-210: NaN for every query); the exact sum is right there)
+                double d2 = dist_qp * dist_qp, d5 = d2 * d2 * dist_qp;
+                return d5 >= 2.2250738585072014e-308 && d5 <= double.MaxValue;
+            }
 
             return false;
         }

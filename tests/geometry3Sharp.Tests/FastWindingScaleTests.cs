@@ -94,6 +94,32 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(-200)]
+        [InlineData(-205)]
+        [InlineData(-210)]
+        [InlineData(-230)]
+        [InlineData(-260)]
+        [InlineData(200)]
+        [InlineData(210)]
+        [InlineData(250)]
+        public void ExtremeScales_FiniteAndClose(int exponent)
+        {
+            // the expansion divides by the fifth power of the distance: where that leaves the normal range (sizes below
+            // about 2^-204 or above 2^204) the exact sum must be taken, not a NaN (a sphere of size 2^-210 gave NaN for
+            // every query once the areas were scale-free and the gate had no range check)
+            double s = BitConverter.Int64BitsToDouble((long)(1023 + exponent) << 52);
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 20 }.Generate().MakeDMesh();
+            MeshTransforms.Scale(m, s);
+            var tree = new DMeshAABBTree3(m, true);
+            var rnd = new Random(2);
+            for (int i = 0; i < 200; ++i) {
+                Vector3d q = s * new Vector3d(6 * rnd.NextDouble() - 3, 6 * rnd.NextDouble() - 3, 6 * rnd.NextDouble() - 3);
+                double fast = tree.FastWindingNumber(q), reference = tree.WindingNumber(q);
+                Assert.True(Math.Abs(fast - reference) < 0.1, $"2^{exponent}, query {i}: fast {fast} vs exact {reference}");
+            }
+        }
+
         [Fact]
         public void FastWindingNumber_Reuse_And_ParallelBuildEqualsSerial()
         {

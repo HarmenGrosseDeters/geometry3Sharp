@@ -67,6 +67,41 @@ namespace geometry3Sharp.Tests
             Assert.True(perQueryHigh < 0.1 * NearTriangles, $"beta sqrt(3): {perQueryHigh} of {NearTriangles} triangles summed exactly per query");
         }
 
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(1e12)]
+        [InlineData(-1.0)]
+        public void PointOnTriangle_ItsTriangleSummedExactly(double far)
+        {
+            // at the default beta 2 (tight-box gate) a point on a triangle never takes the expansion of a box above that
+            // triangle: |p - c| <= R < beta R (ExactMeshBoolean.front_generalized_winding subtracts the exact terms of the
+            // triangles a point lies on). Points: a vertex, an edge midpoint, the centroid; scenes: the spheres unscaled,
+            // with the part at 1e12 (padding 1.8, now not in the gate), and in the unit frame at 1e8 (far -1)
+            double scale = 1;
+            DMesh3 m = far >= 0 ? RobustRepairFarPartTests.Scene(far) : FastWindingScaleTests.UnitFrameScene(1e8, out scale);
+            var tree = new DMeshAABBTree3(m, true);
+            Assert.Equal(2.0, tree.FWNBeta);
+            tree.FastWindingNumber(Vector3d.Zero);
+            var exact = new System.Collections.Generic.List<int>();
+            int checkedPoints = 0;
+            foreach (int t in m.TriangleIndices().Where(t => t % 5 == 0)) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                foreach (Vector3d p in new[] { a, 0.5 * (a + b), (a + b + c) / 3 }) {
+                    exact.Clear();
+                    tree.FastWindingExactTriangles(p, exact);
+                    Assert.True(exact.Contains(t), $"far {far}, triangle {t}, point {p}: not summed exactly ({exact.Count} are)");
+                    checkedPoints++;
+                }
+            }
+            Assert.True(checkedPoints > 1000);
+            // and the count hook is the size of that list
+            Vector3d q = scale * new Vector3d(0.3, 0.2, 0.1);
+            exact.Clear();
+            tree.FastWindingExactTriangles(q, exact);
+            Assert.Equal(exact.Count, tree.FastWindingExactTriangleCount(q));
+        }
+
         // the similarities whose coordinates resolve the spheres of the unit-frame scene at 1e8 (size 4e-8): at UTM
         // coordinates (4e-11 after the millimetre scale) they round to a few units in the last place, degenerate triangles
         // that are summed exactly by right (FastWindingScaleTests.FastWindingNumber_Invariant covers those)
