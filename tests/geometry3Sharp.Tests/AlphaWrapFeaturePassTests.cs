@@ -81,7 +81,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the wrap's guarantees on m: clean (closed, manifold, no self-intersections), no contact with the input (exact), every
-        // vertex at least 0.9 offset (less the rounding) from the input
+        // vertex at least 0.9 offset (less the rounding) from the input, the input enclosed (winding number 1)
         static void AssertGuarantees(DMesh3 m, DMesh3 input, double offset, string what)
         {
             Assert.True(MeshRobustRepair.NotCleanReason(m) == "", what + ": " + MeshRobustRepair.NotCleanReason(m));
@@ -90,6 +90,12 @@ namespace geometry3Sharp.Tests
             Assert.False(Reducer.TrianglesTouch(tree, tris), what + ": touches the input");
             double dmin = m.VertexIndices().Min(v => { tree.FindNearestTriangle(m.GetVertex(v), out double d2); return Math.Sqrt(d2); });
             Assert.True(dmin >= (0.9 - 1e-9) * offset, $"{what}: vertex {dmin / offset} offsets from the input");
+            // enclosure as such: every input vertex and triangle centroid has winding number 1 with respect to m
+            var wt = new DMeshAABBTree3(m, true);
+            foreach (int v in input.VertexIndices())
+                Assert.True(Math.Abs(wt.WindingNumber(input.GetVertex(v)) - 1) < 0.01, $"{what}: input vertex {v} not enclosed");
+            foreach (int t in input.TriangleIndices())
+                Assert.True(Math.Abs(wt.WindingNumber(input.GetTriCentroid(t)) - 1) < 0.01, $"{what}: input triangle {t} not enclosed");
         }
 
         [Fact]
@@ -275,6 +281,42 @@ namespace geometry3Sharp.Tests
             Assert.False(make(input).TryMove(v, x));
             Assert.True(make(box).TryMove(v, x));
             Assert.False(make(box).TryMove(v, new Vector3d(pv.x, pv.y, 4 + 0.5 * delta)));
+        }
+
+        // the sweep's face test: an input triangle that lies in a side face (p, u, x) of the swept tetrahedra has no point
+        // strictly inside one, and the end state does not see it (it touches no new triangle), but the move leaves it outside.
+        // (Where the triangle is not in a face, the winding number of its points changes only across the old or the new fan,
+        // which the end state and the input's distance to the old surface cover; inside the region, a corner or the centroid
+        // is strictly inside a tetrahedron.) A bipyramid over a zigzag link, the face in the plane y = 0 exactly.
+        [Fact]
+        public void TryMove_SweepFaceTest_FindsAnInputTriangleInASideFace()
+        {
+            DMesh3 m = new DMesh3();
+            int top = m.AppendVertex(new Vector3d(0, 0, 1));
+            int[] l = { m.AppendVertex(new Vector3d(1, 0, 0.5)), m.AppendVertex(new Vector3d(0, 1, -0.5)),
+                m.AppendVertex(new Vector3d(-1, 0, 0.5)), m.AppendVertex(new Vector3d(0, -1, -0.5)) };
+            int bot = m.AppendVertex(new Vector3d(0, 0, -1.5));
+            for (int k = 0; k < 4; ++k) { m.AppendTriangle(top, l[k], l[(k + 1) % 4]); m.AppendTriangle(bot, l[(k + 1) % 4], l[k]); }
+            Assert.True(m.IsClosed());
+            Vector3d x = new Vector3d(0.25, 0, 0.6);
+            // in the face (top, l[0], x), away from its edges: inside the bipyramid, outside it after the move
+            Vector3d c0 = new Vector3d(0.375, 0, 0.75), c1 = new Vector3d(0.4375, 0, 0.75), c2 = new Vector3d(0.375, 0, 0.8125);
+            DMesh3 input = PolyCube(1, 1, 1, (i, j, k) => true);
+            MeshTransforms.Scale(input, 0.125); MeshTransforms.Translate(input, new Vector3d(-0.0625, -0.0625, -0.75));
+            int a = input.AppendVertex(c0), b = input.AppendVertex(c1), d = input.AppendVertex(c2);
+            input.AppendTriangle(a, b, d);
+            Vector3d cc = (c0 + c1 + c2) / 3;
+            Assert.True(m.WindingNumber(cc) > 0.5, "inside before");
+            DMesh3 moved = new DMesh3(m); moved.SetVertex(top, x);
+            Assert.True(moved.WindingNumber(cc) < 0.5, "outside after");
+            Func<bool, bool> tryMove = (sweep) => {
+                var p = new AlphaWrapFeaturePass(new DMesh3(m), input, 0.5, 0.01) {
+                    CheckSweep = sweep, MinAngleFloorDegrees = 0, MaxAngleCeilingDegrees = 180, MaxNormalTurnDegrees = 180, MinDistance = 0 };
+                Assert.True(p.Prepare());
+                return p.TryMove(top, x);
+            };
+            Assert.True(tryMove(false), "the end state alone accepts it");
+            Assert.False(tryMove(true), "the sweep test refuses it");
         }
 
         // the normal-turn limit: a spike (the vertex lifted by one alpha) turns its triangles by about 45 degrees: refused at 30

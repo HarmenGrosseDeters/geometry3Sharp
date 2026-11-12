@@ -478,6 +478,10 @@ namespace gs
             for (int i = 0; i < tris.Count; ++i) {
                 Triangle3d A = tris[i];
                 Index3i ia = ids[i];
+                // (for a moved fan this is implied by the test against the rest: if fan triangles (x, e1) and (x, e2) cross, a
+                // ray from x meets both link edges, so the farther triangle contains a point of the nearer edge, beyond the shared
+                // vertices, and touches the rest triangle on that edge; it stays for splits and flips, and for a degenerate rest
+                // triangle, which the grid test skips)
                 for (int j = i + 1; j < tris.Count; ++j) {
                     Triangle3d B = tris[j];
                     if (TriangleTriangleFilter.IntersectsBeyondShared(ia, ref A, ids[j], ref B)) return false;
