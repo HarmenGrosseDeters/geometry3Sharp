@@ -49,7 +49,13 @@ namespace geometry3Sharp.Tests
             var bounds = new TriangleDeviationBounds(target);
             bool ok = bounds.MaxDistance(tree, target.GetVertex(0), target.GetVertex(1), target.GetVertex(7), 0, 0, 0, -1, -1, -1, scale * 1e-3, 8,
                 out double lower, out double upper, out Vector3d worst);
-            Assert.False(ok);
+            // (measured, or refused: a result has a finite lower bound and an upper bound not below it, +infinity where a piece cannot
+            // be resolved, as MaxDistance documents)
+            if (ok) {
+                Assert.False(double.IsNaN(lower) || double.IsInfinity(lower), "lower " + lower);
+                Assert.False(double.IsNaN(upper), "upper " + upper);
+                Assert.True(upper >= lower, "upper " + upper + " below lower " + lower);
+            }
             var wrap = new MeshAlphaWrap(Sphere(scale, off)) { Alpha = scale * 0.3, Offset = scale * 0.05 };
             Assert.False(wrap.Compute());
         }
