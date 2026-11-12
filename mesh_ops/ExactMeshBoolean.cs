@@ -1967,7 +1967,7 @@ namespace g3
             readonly ExactMeshBoolean b;
             readonly BigInteger ox, oy, oz;
             readonly Dictionary<int, Vector3d> corners = new Dictionary<int, Vector3d>();
-            readonly Dictionary<long, Vector3d> others = new Dictionary<long, Vector3d>();
+            readonly Dictionary<long, Vector3d> others = new Dictionary<long, Vector3d>(EdgeKeyComparer.Instance);
 
             public LocalFrame(ExactMeshBoolean b, int originId)
             {
