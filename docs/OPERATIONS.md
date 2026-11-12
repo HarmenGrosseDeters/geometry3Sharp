@@ -207,8 +207,10 @@ if (op.Compute() == false)
   arrangement will have (`Counts["predicted_pieces"]`, always set), a few percent into the work.
 - `Cancellation` is checked between the phases and within the long ones; a cancelled run returns within a fraction of
   a second on 4 cores.
-- The classification of open inputs carries the winding numbers from piece to piece; the counts `l2_traced`,
-  `l2_carried`, `l2_direct` and `l2_exact_centroids` show how. The triangulation's exact predicates show in
+- The classification of open inputs carries the winding numbers from piece to piece, also across the edges between
+  input triangles (clusters of adjacent triangles, so that most pieces need no ray of their own); the counts
+  `l2_traced`, `l2_carried`, `l2_direct`, `l2_exact_centroids`, `l2_cross_steps`, `l2_cross_fallbacks`,
+  `l2_cross_candidates` and `l2_clusters` show how (docs/design/EXACT_BOOLEAN_T5_CROSS_CARRY.md). The triangulation's exact predicates show in
   `l3_local_decided` and `l3_construction_zeros`.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
