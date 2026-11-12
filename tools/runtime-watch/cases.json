@@ -854,6 +854,48 @@
       },
       "time_field": "ms",
       "timeout_s": 600
+    },
+    {
+      "id": "alphawrap-thingi-39368-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 39368 (tail of the 800 run; alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.6 s (AW3 performance study, master 1230482, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "39368"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:39368}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-1514905-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 1514905 (highest time per raw triangle; alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 14.4 s (AW3 performance study, master 1230482, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "1514905"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:1514905}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
     }
   ]
 }
