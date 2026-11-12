@@ -43,7 +43,7 @@ PR or sits in FINDINGS.md / the roadmap. Classification under [QA.md 2.5a](../QA
 First, the three examples named by the coordinator: the `DMeshAABBTree3` ray / `IsInside` failure at radius 1e100 is
 **fixed** (#493, range up to 2^1000 in QA.md); the alpha wrap "result box corners" failure at relative alpha 5-8 is
 **fixed** (platform.md campaign item 3; the extent-2e-15 case is an honest `Failed` with `InvalidInput`, #527);
-`MeshRobustRepair` slow inputs are still **open** (F2).
+`MeshRobustRepair` slow inputs are **fixed** (F2, #636: the alpha wrap of an input below `SmallInputWrapTriangles` = 64 triangles takes its alpha from the input's median edge length; 11 s to 0.4 s on the 62-byte repro).
 
 | # | Finding | Source | Class | Verdict |
 |---|---|---|---|---|

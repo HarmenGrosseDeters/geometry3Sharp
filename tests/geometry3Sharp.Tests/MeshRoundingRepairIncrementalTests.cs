@@ -43,8 +43,8 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "utm Cluster 36 4 0" };
             yield return new object[] { "utm FoldedCluster 30 4 0" };
             yield return new object[] { "utm Cluster 0 2 0" };
-            // (in PastTheLimit_SameAsProposingInFull, with MaxPairTests 5000: its SmallestRejectedDrift comes from a move
-            // past the limit)
+            // (in AtTheLimit_Stops_SameMeshAsProposingOn, with MaxPairTests 5000: without the stop its SmallestRejectedDrift
+            // comes from a move past the limit)
             yield return new object[] { "utm Cluster 0 9 1" };
             foreach (Family f in new[] { Family.Sliver, Family.ShortEdge, Family.Coincident, Family.Collinear, Family.Cluster, Family.FoldedCluster })
                 yield return new object[] { f.ToString() };
@@ -216,39 +216,48 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(Cases))]
-        public void PastTheLimit_SameAsProposingInFull(string name)
+        public void AtTheLimit_Stops_SameMeshAsProposingOn(string name)
         {
-            // past the evaluation limit try_move only computes the drift of the move (the checked run proposes it in
-            // full, through improves): the same result, counts and SmallestRejectedDrift
+            // at the effort limit the passes stop proposing edits (every one would be rejected at the limit): the mesh, the
+            // counts and the status are those of a repair that goes on proposing, as before the stop (ProposePastTheLimit);
+            // only SmallestRejectedDrift may be larger, the smallest over the edits proposed before the limit
             int reached = 0;
             foreach (long limit in new long[] { 200, 2000, 5000, 20000 }) {
-                DMesh3 fast = Input(name), full = new DMesh3(fast);
-                var rf = new MeshRoundingRepair(fast) { SharedPositionsTouch = true, MaxPairTests = limit };
-                rf.Apply();
-                var rc = new MeshRoundingRepair(full) { SharedPositionsTouch = true, MaxPairTests = limit };
+                DMesh3 stop = Input(name), on = new DMesh3(stop), checkedMesh = new DMesh3(stop);
+                var rs = new MeshRoundingRepair(stop) { SharedPositionsTouch = true, MaxPairTests = limit };
+                rs.Apply();
+                var ro = new MeshRoundingRepair(on) { SharedPositionsTouch = true, MaxPairTests = limit, ProposePastTheLimit = true };
+                ro.Apply();
+                var rc = new MeshRoundingRepair(checkedMesh) { SharedPositionsTouch = true, MaxPairTests = limit };
                 MeshRoundingRepair.CheckOnThisThread = true;
                 try {
                     rc.Apply();
                 } finally {
                     MeshRoundingRepair.CheckOnThisThread = false;
                 }
-                Assert.Equal(rc.EvaluationLimitReached, rf.EvaluationLimitReached);
-                // (the checked run proposes in full, the other takes the shortcut)
-                Assert.Equal(0, rc.MovesPastTheLimit);
-                if (rf.EvaluationLimitReached)
+                Assert.Equal(ro.EvaluationLimitReached, rs.EvaluationLimitReached);
+                Assert.Equal(Print(on), Print(stop));
+                Assert.Equal(Print(checkedMesh), Print(stop));
+                Assert.Equal(ro.Moves + ro.Flips + ro.Collapses + ro.Zips + ro.VertexRemovals, rs.Moves + rs.Flips + rs.Collapses + rs.Zips + rs.VertexRemovals);
+                Assert.Equal(ro.RemainingIntersections, rs.RemainingIntersections);
+                Assert.Equal(ro.RemainingDegenerate, rs.RemainingDegenerate);
+                Assert.Equal(ro.RemainingFalseContacts, rs.RemainingFalseContacts);
+                Assert.Equal(ro.IsClean, rs.IsClean);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(ro.MaxDrift), BitConverter.DoubleToInt64Bits(rs.MaxDrift));
+                // no proposal after the limit with the stop; the same value where the limit is not reached
+                Assert.Equal(0, rs.ProposalsPastTheLimit);
+                Assert.True(rs.SmallestRejectedDrift >= ro.SmallestRejectedDrift);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(rc.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(rs.SmallestRejectedDrift));
+                if (rs.EvaluationLimitReached)
                     reached++;
-                Assert.Equal(BitConverter.DoubleToInt64Bits(rc.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(rf.SmallestRejectedDrift));
-                Assert.Equal(rc.Moves + rc.Flips + rc.Collapses + rc.Zips + rc.VertexRemovals, rf.Moves + rf.Flips + rf.Collapses + rf.Zips + rf.VertexRemovals);
-                Assert.Equal(rc.RemainingIntersections, rf.RemainingIntersections);
-                Assert.Equal(Print(full), Print(fast));
-                output.WriteLine($"{name} limit {limit}: reached {rf.EvaluationLimitReached}, moves past it {rf.MovesPastTheLimit}, smallest rejected {rf.SmallestRejectedDrift:R}, bound {rf.MaxLength:R}");
+                else
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(ro.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(rs.SmallestRejectedDrift));
+                output.WriteLine($"{name} limit {limit}: reached {rs.EvaluationLimitReached}, proposals past it without the stop {ro.ProposalsPastTheLimit}, smallest rejected {rs.SmallestRejectedDrift:R} (proposing on: {ro.SmallestRejectedDrift:R}), bound {rs.MaxLength:R}");
                 if (name == "utm Cluster 0 9 1" && limit == 5000) {
-                    // the smallest rejected drift from a move past the limit: without those moves it is larger
-                    Assert.True(rf.EvaluationLimitReached && rf.MovesPastTheLimit > 0);
-                    var none = new MeshRoundingRepair(Input(name)) { SharedPositionsTouch = true, MaxPairTests = limit };
-                    none.SkipMovesPastTheLimit = true;
-                    none.Apply();
-                    Assert.True(none.SmallestRejectedDrift > rf.SmallestRejectedDrift);
+                    // the documented narrowing: here the smallest rejected drift of a repair that proposes on comes from a
+                    // move after the limit, so with the stop the value is larger; and the stop saves those proposals
+                    Assert.True(rs.EvaluationLimitReached && ro.ProposalsPastTheLimit > 0);
+                    Assert.True(rs.SmallestRejectedDrift > ro.SmallestRejectedDrift);
                 }
             }
             if (name.Contains("Cluster"))
@@ -256,9 +265,66 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AtTheLimit_Invariant_Deterministic()
+        {
+            // a repair that stops at the limit: the 2^k scales give the same mesh bit for bit (and the same scaled
+            // SmallestRejectedDrift), every similarity the same counts of what is left; serial equals parallel, repeated
+            DMesh3 m = SafeRoundingDegenerateInputTests.Make(Family.Cluster, 36, 1);
+            Func<DMesh3, bool, MeshRoundingRepair> repair = (mesh, serial) => {
+                var r = new MeshRoundingRepair(mesh) { SharedPositionsTouch = true, MaxPairTests = 2000 };
+                bool was = gParallel.SerialOnThisThread;
+                gParallel.SerialOnThisThread = serial;
+                try { r.Apply(); } finally { gParallel.SerialOnThisThread = was; }
+                return r;
+            };
+            DMesh3 m0 = new DMesh3(m);
+            MeshRoundingRepair r0 = repair(m0, false);
+            Assert.True(r0.EvaluationLimitReached);
+            Assert.Equal(0, r0.ProposalsPastTheLimit);
+            Assert.True(Invariance.AllFinite(m0));
+            foreach (Similarity sim in Similarity.All()) {
+                if (sim.IsExact == false)
+                    continue;
+                DMesh3 ms = Invariance.Transformed(m, sim);
+                MeshRoundingRepair rs = repair(ms, false);
+                Assert.True(rs.EvaluationLimitReached, sim.ToString());
+                Assert.True(Invariance.Difference(m0, Invariance.MappedBack(ms, sim)) == "", sim.ToString());
+                Assert.Equal(r0.RemainingDegenerate, rs.RemainingDegenerate);
+                Assert.Equal(r0.RemainingIntersections, rs.RemainingIntersections);
+                Assert.Equal(r0.SmallestRejectedDrift / r0.MaxLength, rs.SmallestRejectedDrift / rs.MaxLength);
+            }
+            string expected = Print(m0);
+            for (int run = 0; run < 3; ++run) {
+                DMesh3 again = new DMesh3(m);
+                MeshRoundingRepair ra = repair(again, run == 0);
+                Assert.True(expected == Print(again), $"run {run} differs");
+                Assert.Equal(BitConverter.DoubleToInt64Bits(r0.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(ra.SmallestRejectedDrift));
+            }
+        }
+
+        [Fact]
+        public void AtTheLimit_StrictRounding_SaysWhatTheSmallestRejectedEditIs()
+        {
+            // StrictRounding reports the smallest rejected edit: where the repair stopped at its limit, the message says
+            // that it is the smallest of the edits proposed before it; without the limit it does not
+            // (a dense cluster that the repair leaves unclean also without the limit: both runs report an error)
+            DMesh3 m = SafeRoundingDegenerateInputTests.Make(Family.Cluster, 36, 3, 8);
+            var limited = new ExactMeshBoolean(new DMesh3(m), new DMesh3(), ExactMeshBoolean.Operations.Union) { StrictRounding = true, RoundingMaxPairTests = 2000 };
+            Assert.False(limited.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, limited.Status);
+            Assert.True(limited.Rounding.EvaluationLimitReached);
+            Assert.Contains("stopped at its effort limit", limited.Error);
+            var full = new ExactMeshBoolean(new DMesh3(m), new DMesh3(), ExactMeshBoolean.Operations.Union) { StrictRounding = true };
+            Assert.False(full.Compute());
+            Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, full.Status);
+            Assert.False(full.Rounding.EvaluationLimitReached);
+            Assert.DoesNotContain("effort limit", full.Error);
+        }
+
+        [Fact]
         public void PastTheLimit_ReusedInstance_EqualsFreshInstance()
         {
-            // past the limit, the drift of the moves' neighbourhoods is kept per vertex: a reused instance starts again
+            // a reused instance that reached the limit before starts again: the same result as a fresh one
             var reused = new MeshRoundingRepair(Input("utm Cluster 0 4 0")) { SharedPositionsTouch = true, MaxPairTests = 5000 };
             reused.Apply();
             Assert.True(reused.EvaluationLimitReached);
@@ -268,7 +334,7 @@ namespace geometry3Sharp.Tests
             var fresh = new MeshRoundingRepair(copy) { SharedPositionsTouch = true, MaxPairTests = 5000 };
             fresh.Apply();
             Assert.True(fresh.EvaluationLimitReached);
-            Assert.True(fresh.SmallestRejectedDrift < double.PositiveInfinity);
+            // (no edit was rejected by the bound before the limit here: infinity for both, see AtTheLimit_Stops_SameMeshAsProposingOn)
             Assert.Equal(BitConverter.DoubleToInt64Bits(fresh.SmallestRejectedDrift), BitConverter.DoubleToInt64Bits(reused.SmallestRejectedDrift));
             Assert.Equal(Print(copy), Print(m));
         }
