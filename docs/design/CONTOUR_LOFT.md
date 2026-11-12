@@ -1,6 +1,6 @@
 # ContourLoft, stage 1: a band between two closed contours
 
-Status: design note for review (2026-11-12). Roadmap: [research.md](../roadmap/research.md) item 9; background
+Status: approved by the coordinator 2026-11-12; built in #741 (section 9 lists what changed while building). Roadmap: [research.md](../roadmap/research.md) item 9; background
 [TERRAIN.md](TERRAIN.md) §9.2; sources in [SOURCES.md](../SOURCES.md) (contour lofting row).
 
 ## 1. Problem
@@ -134,9 +134,19 @@ connect, so the region always contains a path from (0, s) to (m, s+n), also when
 cross. The search is exact in the count and optimal in the cost up to the rounding of the cost sums (the splice argument
 holds up to a few ulps of the sums); the brute-force oracle test compares against all n starts.
 
-**Complexity**: O(mn) cost and admissibility evaluations (precomputed once into two m x n arrays), O(mn log n) DP cell
-updates. Memory: 2mn doubles + 2mn flags + (m+1)(n+1) step bits + n(m+1) span pairs, about 26 bytes per cell:
-MaxCells = 2^22 (m = n = 2048) is about 110 MB. Above: `TooLarge` (checked in `long` before allocating).
+**Non-manifold fans** (found while building, by the brute-force oracle): FKU's graph also holds the two families of paths
+whose right steps (or down steps) form a single block, `D^i R^n D^(m-i)` and `R^k D^m R^(n-k)`. They fan one vertex over
+the whole other contour, use one spanning edge twice, and give a non-manifold mesh. Valid bands are the paths with at
+least 3 turns. The DP tracks the first step's direction and the turns (0, 1, 2, then 3 / 4 for any odd / even count of
+at least 3, so the parity still gives the last direction): 10 states per node. The non-crossing lemma still holds for the
+valid paths: if the right envelope of two crossing valid paths were a fan, one of the two paths would be that fan (the
+envelope takes its row-0 or row-m extent, or its full column, from one path), and likewise for the left envelope; so the
+exchange argument stays inside the valid set. If a bounded region holds no valid path (only possible through rounding),
+the start is solved again in the full region.
+
+**Complexity**: O(mn) cost and admissibility evaluations (precomputed once into two m x n arrays), O(mn log n) node updates
+of 10 states each. Memory: 2mn doubles + 2mn flags + 10 (m+1)(n+1) predecessor bytes + 2 (n+1)(m+1) span ints, about 36
+bytes per cell: MaxCells = 2^22 (m = n = 2048) is about 150 MB. Above: `TooLarge` (checked in `long` before allocating).
 
 **Upper bound** (to measure before tuning, AGENT_WORKFLOW §3): m = n = 1000 means 2e6 triangle evaluations (exact slope
 test: interval filter, about 50-100 ns each, so ~0.2 s worst case) and 1e6 x log2(1000) = 1e7 DP updates (~0.05 s). The
@@ -146,6 +156,8 @@ benchmark `benchmarks/ContourLoftBenchmark` reports both at n = 250, 1000, 2000.
 ## 7. Result checks (never a silently wrong band)
 
 On every path to `Success`:
+- the start reported is the internal path's first spanning edge (First[0], Second[J]); when the band holds several spanning
+  edges at First[0], any of them may be reported;
 - each band triangle is non-degenerate (exact: not all three of its coordinate-plane orientations, `ExactPredicates.Orient2d`
   on xy, yz and zx, are zero), every vertex finite;
 - the band is a manifold with exactly two boundary loops, equal to P and Q as given (edge for edge);
