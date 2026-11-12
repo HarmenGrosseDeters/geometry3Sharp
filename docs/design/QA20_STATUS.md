@@ -100,3 +100,11 @@ What changed on GitHub after the state above (PR and issue states, not re-measur
 - Replay of the FINDINGS repros on master (1f227db): F1, F3, F6 and the DualContouring throw no longer reproduce, F2 (#636),
   F5 (#637) and F7 (#638) do. The gap-list PRs found three more defects: #644 and #645 (`ConvexHull2`), #647
   (`VoxelSurfaceGenerator` exceeds `MaxMeshElementCount` by up to 17 vertices); each is pinned by a skipped or a pinning test.
+
+## 6. Update, evening of 2026-11-12
+
+- #643 is merged (31ce390a): the Z3 frame lemma `tools/Z3Pilot/clipper_frame.py` is on master, so T10 is done (row T10
+  above says "merge pending").
+- #627 (T12) is ready for review, no longer a draft (row T12 and section 4 say draft).
+- The gap-list defects of section 5 are fixed and their issues closed: #644 by #656, #645 by #657, #647 by #655.
+- F2 (#636), F5 (#637) and F7 (#638) are still open, with the PRs #703, #687 and #688 under review.
