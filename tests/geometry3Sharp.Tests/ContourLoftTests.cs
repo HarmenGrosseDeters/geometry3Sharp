@@ -399,6 +399,24 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(64, 64)]
+        [InlineData(256, 256)]
+        [InlineData(512, 128)]
+        public void SearchWork_IsMNLogN(int m, int n)
+        {
+            // the divide and conquer visits each grid node O(log n) times; a search that touched whole rows per start would be
+            // O(m n^2) (it did once: the per-row reset of the state arrays)
+            var rand = new Random(m + n);
+            var P = Star(rand, m, 0); var Q = Star(rand, n, 0.5, 0.05, 0, 0.8);
+            var r = new ContourLoft { CheckSelfIntersections = false }.Compute(P, Q);
+            Assert.Equal(ContourLoftStatus.Success, r.Status);
+            Assert.Equal(0, r.FullRegionFallbacks);
+            double bound = 4.0 * (m + 1) * (n + 1) * (Math.Log(n, 2) + 2);
+            Assert.True(r.SearchWork <= bound, $"{r.SearchWork} > {bound}");
+            Assert.True(r.SearchWork < (long)(m + 1) * (n + 1) * n / 4, "not below the all-starts cost");
+        }
+
         static void Relax(ref int c, ref double d, int c2, double d2)
         {
             if (c2 < c || c2 == c && d2 < d) { c = c2; d = d2; }

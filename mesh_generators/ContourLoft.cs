@@ -76,6 +76,8 @@ namespace g3
         public int InadmissibleTriangles { get; internal set; }
         /// <summary> starts whose bounded region held no valid path and were solved in the full region (tests: 0 on ordinary input) </summary>
         internal int FullRegionFallbacks;
+        /// <summary> grid nodes the search visited or cleared, over all starts (tests: O(m n log n)) </summary>
+        internal long SearchWork;
     }
 
     /// <summary>
@@ -439,6 +441,7 @@ namespace g3
                 for (int i = 0; i <= m; ++i) {
                     int L = regionL[i], R = regionR[i];
                     int ia = i % m;
+                    result.SearchWork += R - L + 1;
                     for (int j = L; j <= R; ++j) {
                         int c = j - s, cell = (i * w + c) * States;
                         for (int st = 0; st < States; ++st) pred[cell + st] = None;
@@ -466,7 +469,9 @@ namespace g3
                     // the current row becomes the previous one; cells outside the region stay unreachable
                     var ti = cntPrev; cntPrev = cntCur; cntCur = ti;
                     var td = dPrev; dPrev = dCur; dCur = td;
-                    for (int k = 0; k < cntCur.Length; ++k) cntCur[k] = int.MaxValue;
+                    // only the region's columns of the row before were written (resetting all would cost O(n) per row and
+                    // make every start O(m n), the whole search O(m n^2))
+                    if (i > 0) Clear(cntCur, regionL[i - 1] - s, regionR[i - 1] - s);
                 }
                 // at (m, s + n): the states with at least 3 turns (first step down, then first step right)
                 int end = -1; count = int.MaxValue; cost = 0;
@@ -475,8 +480,16 @@ namespace g3
                     if (cc == int.MaxValue) continue;
                     if (end < 0 || Less(cc, dPrev[st * w + n], count, cost)) { end = st; count = cc; cost = dPrev[st * w + n]; }
                 }
-                for (int k = 0; k < cntPrev.Length; ++k) cntPrev[k] = int.MaxValue;
+                Clear(cntPrev, regionL[m] - s, regionR[m] - s);
                 return end;
+            }
+
+            void Clear(int[] cnt, int from, int to)
+            {
+                int w = n + 1;
+                result.SearchWork += to - from + 1;
+                for (int st = 0; st < States; ++st)
+                    for (int c = from; c <= to; ++c) cnt[st * w + c] = int.MaxValue;
             }
 
             // a candidate for state st at column c of the current row (strictly better only: ties keep the earlier offer)
