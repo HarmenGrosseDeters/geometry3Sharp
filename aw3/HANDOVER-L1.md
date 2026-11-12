@@ -8,6 +8,15 @@ PR 2 #670 (L4, manifold step) under review: 269/269 identical, trial + manifold 
 Next, one PR each, from master: L1 (oracle + touch, 15.5 % + 12.1 % of the 189), L3b (parallel certification, 6.5 %,
 bit-identical: per-triangle bound, max-reduce), L2 (insertion, 12.2 %; per-insertion only, no BRIO).
 
+## Baselines
+- 800: f800 on `runs/alpha-wrap-2` (`f800/f800_passoff.jsonl`, master dfc93fdb, the 2.0 final run): 611 of 800 within
+  max(5 s, 50 µs x raw triangles), the 189 over it are `aw3/list_over.txt`; master today is bit-identical to it except for
+  KeepClearOf in the bench (#651), and the container is 1.136x slower than that machine.
+- 189 + 80 on this container: `aw3/prof_over.jsonl`, `aw3/prof_rest80.jsonl` (phase-1 profile), `aw3/l4/l4_269.jsonl`
+  (after #670: same hashes, trial + manifold 0.49x). Phase-1 bounds and the scenario script: `aw3/REPORT-phase1.md`,
+  `aw3/scenarios_aw3.py`.
+- Order: L1 -> L3b -> L2, one PR each from master; L1, L3b and L2 bit-identical to master (target c).
+
 ## Tools (this branch)
 - `aw3/drive.sh <list> <out>`: wrappipe one process at a time (BENCH_FIDELITY=hd), resumable. Lists: list_over.txt (189),
   list_rest80.txt, list_269.txt, l4/list_ab.txt (24: 16 random + 8 pinch-heavy).
