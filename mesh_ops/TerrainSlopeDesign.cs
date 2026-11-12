@@ -400,7 +400,7 @@ namespace gs
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
-            MaxMergeDistance = 0; BandMerges = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
+            MaxMergeDistance = 0; BandMerges = 0; RegionNeedles = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
             undercutThroughDesign = false;
@@ -568,7 +568,7 @@ namespace gs
             UsedToeLowering = Math.Max(c.UsedToeLowering, f.UsedToeLowering);
             UsedMinFeatureSize = Math.Max(c.UsedMinFeatureSize, f.UsedMinFeatureSize);
             FacetAngle = Math.Max(c.FacetAngle, f.FacetAngle);
-            MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips;
+            MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips; RegionNeedles = c.RegionNeedles + f.RegionNeedles;
             MergeLambdaRequired = Math.Max(c.MergeLambdaRequired, f.MergeLambdaRequired);
             RayCount = Math.Max(c.RayCount, f.RayCount);
             if (CheckCanonical) CanonicalProblem = c.CanonicalProblem != "" ? c.CanonicalProblem : f.CanonicalProblem;
@@ -964,6 +964,31 @@ namespace gs
         sealed class CollapseRecord
         {
             public List<Vector2d[]> Made;
+            // the realized triangles (their corners in XY, XYKey) whose clipped parts in the composite's region failed the
+            // exact check: the band merge takes them as failing on the build's later realizations (TERRAIN.md 5.5)
+            public readonly HashSet<XYKey> RegionNeedles = new HashSet<XYKey>();
+        }
+
+        // a triangle in XY, independent of the order of its corners
+        internal struct XYKey : IEquatable<XYKey>
+        {
+            readonly Vector2d a, b, c;
+            public XYKey(Vector2d p, Vector2d q, Vector2d r)
+            {
+                p.x += 0.0; p.y += 0.0; q.x += 0.0; q.y += 0.0; r.x += 0.0; r.y += 0.0;     // (-0 is +0)
+                if (q.CompareTo(p) < 0) { Vector2d t = p; p = q; q = t; }
+                if (r.CompareTo(q) < 0) { Vector2d t = q; q = r; r = t; }
+                if (q.CompareTo(p) < 0) { Vector2d t = p; p = q; q = t; }
+                a = p; b = q; c = r;
+            }
+            public static XYKey Of(DMesh3 m, int t)
+            {
+                Index3i tv = m.GetTriangle(t);
+                return new XYKey(m.GetVertex(tv.a).xy, m.GetVertex(tv.b).xy, m.GetVertex(tv.c).xy);
+            }
+            public bool Equals(XYKey o) { return a == o.a && b == o.b && c == o.c; }
+            public override bool Equals(object obj) { return obj is XYKey k && Equals(k); }
+            public override int GetHashCode() { unchecked { return (a.GetHashCode() * 31 + b.GetHashCode()) * 31 + c.GetHashCode(); } }
         }
 
         sealed class BuildResult
@@ -976,6 +1001,7 @@ namespace gs
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
             public double MergeLambda;
+            public int NewRegionNeedles;       // realized triangles newly taken as failing by the band merge (their region parts failed)
             public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
             public DMesh3 Region, Composite;
@@ -1194,9 +1220,12 @@ namespace gs
                 if (st != Statuses.SlopeViolation)
                     return st;
                 double next = -1;
+                // (realized needles whose clipped parts failed: realized again, where the band merge takes them)
+                if (br.NewRegionNeedles > 0 && realization < 7)
+                    next = lambda;
                 // (a band merge's need stays under λ's bound by the band radius's caps; checked, so λ never passes it: a
                 // need above it goes back to the caller, which raises δ)
-                if (br.MergeLambda > 0 && lambda < br.MergeLambda && (BandMerges == 0 || br.MergeLambda <= lambdaBound))
+                else if (br.MergeLambda > 0 && lambda < br.MergeLambda && (BandMerges == 0 || br.MergeLambda <= lambdaBound))
                     next = br.MergeLambda;
                 // a support failure (ii) only: a larger lowering, measured on the output, while it fits under the bound;
                 // anything else goes back to the caller, which raises the margin δ and builds again
@@ -1298,6 +1327,7 @@ namespace gs
                     mesh.GetTriVertices(t, ref a, ref b, ref c);
                     InPiece pc = pieces[mesh.GetTriangleGroup(t)];
                     if (fill) { a.z = -a.z; b.z = -b.z; c.z = -c.z; }
+                    if (collapsesMade.RegionNeedles.Count > 0 && collapsesMade.RegionNeedles.Contains(XYKey.Of(mesh, t))) return true;
                     return !(ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0 && Slope.IsNotSteeper(a, b, c, pc.Spec) &&
                              Slope.IsPlaneOnOrBelow(a, b, c, pc.A) && Slope.IsPlaneOnOrBelow(a, b, c, pc.B));
                 };
@@ -1452,6 +1482,17 @@ namespace gs
                 if (comp.RegionFailed && comp.CopyTerrain) SkippedTerrainCopies++;
                 CompositeBuilds += comp.Builds;
                 if (regionFailed) {
+                    // (the realized triangles the failing ones were cut from, with an edge the band merge may take: on the
+                    // next realization of this build it takes them as failing, TERRAIN.md 5.5. A realized needle passes
+                    // the check with its own corners, but its clipped part has new corners on its long edges, whose z are
+                    // rounded again, and over its short width that tilts the plane by e_z / width)
+                    if (mergedWithin && bandRadius > mergeRadius)
+                        foreach (int rt in regionBad) {
+                            Vector2d[] par;
+                            if (comp.RegionParent.TryGetValue(rt, out par) == false) continue;
+                            if (Math.Min(par[0].Distance(par[1]), Math.Min(par[1].Distance(par[2]), par[2].Distance(par[0]))) > bandRadius) continue;
+                            if (collapsesMade.RegionNeedles.Add(new XYKey(par[0], par[1], par[2]))) { br.NewRegionNeedles++; RegionNeedles++; }
+                        }
                     br.SlopeFailures += regionSlopeFailures;
                     br.MaxExcess = Math.Max(br.MaxExcess, regionExcess);
                     bad.AddRange(regionBad);
@@ -1602,6 +1643,11 @@ namespace gs
         /// copy of the rest of the terrain; false: after the whole composite (the reference: the same results)
         /// </summary>
         internal bool EarlyRegionCheck = true;
+        /// <summary>
+        /// diagnostics: the realized triangles of this Compute that the band merge took as failing because their clipped
+        /// parts in the composite's region failed the exact check (TERRAIN.md 5.5)
+        /// </summary>
+        internal int RegionNeedles;
         /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
         internal int SkippedTerrainCopies;
         /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>

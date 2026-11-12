@@ -110,6 +110,24 @@ namespace geometry3Sharp.Tests
             Assert.Equal(expected, b, 12);
         }
 
+        // the steps at a corner of the toe: the cut slope at z = -1 outside the quadrant x, y >= 0 (its toe the two half
+        // axes from the corner (0, 0)), the terrain at z = 0, and t from (-e, -0.75 e) to (10, 0) and (0, 10), so it overlaps
+        // the slope in a sliver along each toe segment. No one capsule holds both slivers, but each slope triangle's part
+        // lies within 1.25 e of one segment: within the move m (0.01) that is the step, displaced by the move (not
+        // compared); with the slivers wider than m it counts, 1 (the campaign's open finding 2, #567)
+        [Theory]
+        [InlineData(0.004, 0.0)]
+        [InlineData(0.02, 1.0)]
+        public void StepsAtACornerOfTheToe(double e, double expected)
+        {
+            var cut = new DMesh3();
+            Func<double, double, int> v = (x, y) => cut.AppendVertex(new Vector3d(x, y, -1));
+            int a = v(-20, -20), b = v(40, -20), c = v(40, 0), o = v(0, 0), d = v(0, 40), f = v(-20, 40);
+            cut.AppendTriangle(a, b, c); cut.AppendTriangle(a, c, o); cut.AppendTriangle(a, o, f); cut.AppendTriangle(o, d, f);
+            Assert.Equal(expected, Bound(Plane((x, y) => 0), cut, null, -1, 0.01,
+                                         new Vector3d(-e, -0.75 * e, 0), new Vector3d(10, 0, 0), new Vector3d(0, 10, 0)), 12);
+        }
+
         // a triangle without area in XY (a vertical wall of a step, eg at a toe crossing) holds no point of the height
         // field: 0, whatever the surfaces
         [Fact]
