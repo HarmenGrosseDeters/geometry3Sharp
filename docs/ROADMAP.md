@@ -9,7 +9,6 @@
 - Decisions are recorded with their date and "owner", eg "owner 2026-11-07".
 - When an item changes status, update its line here and its subpage in the same PR. Keep status text in the PR,
   not in the roadmap (see [Session limits](#session-limits)).
-- "(status unclear, check)" marks items whose status the restructuring of 2026-11-08 could not settle from the text.
 
 Subpages: [exact-boolean.md](roadmap/exact-boolean.md), [meshing2d.md](roadmap/meshing2d.md),
 [terrain.md](roadmap/terrain.md), [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md),
@@ -65,8 +64,9 @@ Status on 2026-11-12 (morning, Berlin).
   (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
   classification filter from local corner coordinates, Orient's zeros from the constructions; Difference total 973 -> 370 s,
   hash unchanged). Step 3(a), a second InCircle filter, measured and not taken (no gain). An InCircle limb kernel (E: -20 to
-  -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Open: stage close-out (docs, full CI,
-  independent exact-code review of the new error bounds). Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
+  -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Docs, shard resplit and the full local CI
+  are done (allocations 534 -> 200 GB); waiting for the independent exact-code review of the new error bounds (started
+  2026-11-12). Then T5 / T1b per the execution order; T6 (only all-clean method, <= 2x CGAL EPECK on 1k-100k) is checked at the end. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
   memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
   `DualContouring` allocations bound about 4 % of wall.
@@ -93,8 +93,8 @@ Status on 2026-11-12 (morning, Berlin).
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
-  machine: no kill data (Windows runner failure), so kills only in CI. Next: smaller test sets per shard from the
-  exclusive kills, full runs weekly. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
+  machine: no kill data (Windows runner failure), so kills only in CI. Process since 2026-11-11 (owner): no full shards
+  on PRs, full shard runs nightly on master. Next: smaller test sets per shard from the exclusive kills. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
   the shard's `mutate` filter only skips them (579 tested in boolean-1), so the coverage capture pays for every placed
   mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); the fix (only the shard's files are
   mutated) is in #615 (CI-speed session, open), with the 3.0 process (no full shards on PRs, scheduled full runs).
@@ -116,43 +116,49 @@ Status on 2026-11-12 (morning, Berlin).
 
 ## Open decisions (owner)
 
-- **Meshing2D, Terminator:** a region-based oracle excuse would lower the guarantee near small input angles (a spec
-  change; research item, not scheduled). [meshing2d.md](roadmap/meshing2d.md#open)
-- **Exact booleans, second kernel:** EMBER levers 1 (quantized 26-bit inputs) and 5 (a new architecture) only as a
-  decision on a second, opt-in kernel (owner 2026-11-04); a patent check first. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Exact booleans, arithmetic without `BigInteger`:** `claude/int256-spike` and `claude/collinear-shortcut` are
-  exact code and go to the owner; keep both branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Exact booleans, `coplanar_stack` worst-case latency** (flood fill over the piece adjacency): the owner's
-  decision. [hotspots.md](roadmap/hotspots.md#shared-hotspots-across-sessions)
-- **Boolean allocations:** `System.Buffers`' ArrayPool as a new netstandard2.0 dependency, only if step (3) is
-  reached. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+Checked line by line against the owner's decisions and git on 2026-11-12; settled items moved to "Later" or the subpages.
+
 - **Clipper2 C# sources:** upstream archived 2026-10-28 (C++ only from now on, new maintainer at PolyClipping/Clipper2);
   integrate the frozen C# 2.0.0 sources into the addon and fix FINDINGS item 5 ourselves, or keep the package? No
   upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
-- **Release:** package ID and publishing (the nuget.org ID belongs to upstream). [platform.md](roadmap/platform.md#open)
-- **Ports from geogram and other permissive libraries:** each port is a decision with an A/B.
-  [sources-surveys.md](roadmap/sources-surveys.md#open)
-- **Phase 5 research items:** one that is not small goes back to the owner (owner 2026-11-03).
-  [research.md](roadmap/research.md#open)
+- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
+  library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
+- **Meshing2D provenance delta:** the mesher changes after `d9006aa` (#394 and later) need a dirty-side check before a
+  release that relies on the clean-room claim; that session would read Triangle.NET, which the current rule forbids
+  (asked 2026-11-12). [meshing2d.md](roadmap/meshing2d.md#open)
+- **Exact Boolean 2.0 leftovers (asked 2026-11-12):** re-measure the speed exceptions (519511, 1517923, 519507) and
+  manifold M2 (`Generic_Twin_7081`, 20 s) on master, or close them as documented exceptions; delete the superseded
+  branches `claude/int256-spike` / `claude/collinear-shortcut` after #633 merges. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+
+Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
+from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
+([sources-surveys.md](roadmap/sources-surveys.md#open)).
 
 ## Next / queued
 
-Planned, not started.
+The next steps per topic, in order ("in progress" where a session works on them).
 
-- Exact booleans: superseded by Exact Boolean 2.0 WP2 (the 81 unclean operations are classified there; M3 is #398);
-  M2 of the manifold corpus remains.
-  [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Exact booleans: EMBER levers 2-4 re-ranked after the full Thingi10K run; boolean allocations (not scheduled).
-  [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- Meshing2D: SplitSegment speed (upper-bound check first; its input 373600 is a corpus input); the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
-- Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
-- Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
+- Exact Boolean 3.0 after #633: T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
+  then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
+- Meshing2D: the three untraced single triangles from #542 (in progress); SplitSegment speed and the oracle leftovers need
+  corpus inputs that are not in the repository. [meshing2d.md](roadmap/meshing2d.md#open)
+- Alpha Wrap 3.0: L4, L1, L3b, L2 (in progress, one PR per lever). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- Phase 5: the CLI / MCP update. [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
-- Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
+- Platform: issue-tracker follow-ups left: the regressions a remesher flip-guard default would cause, the P1 collapse
+  (P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
 
 ## Later / research
 
+- Exact booleans, not scheduled: EMBER lever 2 (skip self-pairs of results certified free of self-intersections in chained
+  booleans); levers 1 and 5 (quantized inputs, a new architecture): no rewrite (owner 2026-11-07), patent search done
+  2026-11-10 (nothing found); an InCircle limb kernel (candidate from #633); exact output coordinates of the coplanar 2D
+  clipping. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- Meshing2D research: Shewchuk's Terminator with a region-based oracle excuse (owner 2026-11-06, option c: not built),
+  matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
+- Remeshers: thin walls and opt-in self-intersection cost; Reducer / Remesher 2.0 and its follow-ups are closed (owner
+  2026-11-12). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Later list (point clouds, conservative marching cubes, offsets, quad remeshing, deformation, tetrahedral meshing,
   TPMS, sparse SDF grids, batch ray queries, AI bridges): [research.md](roadmap/research.md#later)
 - Phase 5 candidates from recent research: [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
