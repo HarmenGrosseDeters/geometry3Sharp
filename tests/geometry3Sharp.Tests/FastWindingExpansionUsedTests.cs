@@ -91,6 +91,9 @@ namespace geometry3Sharp.Tests
                     exact.Clear();
                     tree.FastWindingExactTriangles(p, exact);
                     Assert.True(exact.Contains(t), $"far {far}, triangle {t}, point {p}: not summed exactly ({exact.Count} are)");
+                    // (the own term of the triangle is +-0.5 on it: an expanded box above it would be off by about that)
+                    double fast = tree.FastWindingNumber(p), reference = tree.WindingNumber(p);
+                    Assert.True(Math.Abs(fast - reference) < 0.1, $"far {far}, triangle {t}, point {p}: fast {fast} vs exact {reference}");
                     checkedPoints++;
                 }
             }

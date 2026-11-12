@@ -2695,7 +2695,7 @@ namespace g3
         // the stored (tight) box, without box_eps: the gate of the far-field expansion in branch_fast_winding_num. The
         // padding (2^-40 of the mesh's distance from the origin) is there so that queries never miss a triangle; here it
         // only decides whether the expansion of a box may be used, which its centre and radius decide already: R is the
-        // largest distance from the centre to a vertex, so the tight box lies in the cube of half size R around the centre
+        // largest distance from the stored centre (whatever its rounding) to a vertex, so the tight box lies in the cube of half size R around it
         // and every point of it is within sqrt(3) R; with FWNBeta >= sqrt(3) (default 2) a point at more than FWNBeta R
         // is outside the tight box, up to the rounding of the stored box (the margin (2 - sqrt(3)) R = 0.27 R absorbs it).
         // For a smaller FWNBeta the test still matters, and the padded box is used as before. Padded, the boxes of a small
