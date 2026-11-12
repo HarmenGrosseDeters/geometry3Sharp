@@ -44,7 +44,7 @@ in the rest are contacts; 52 real self-intersections remain in the rest (open 7,
 6 models unavailable (81313, 101633, 102610, 242236, 242237, 996816).
 
 **`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
-has merged; that is #501, merged 2026-11-10; in progress since 2026-11-12, owner):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
+has merged; that is #501, merged 2026-11-10; profile done 2026-11-12, result below):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
 boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
 per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
 The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
@@ -62,6 +62,34 @@ internal with a map back where the result does not depend on the order, or a use
 reordered input; the owner decides from the upper bound. Smaller candidates in the same profile: GC / allocations
 (about 7 % of the Reducer; `ArrayPool` for the boolean is an open owner decision) and per-vertex small
 `HashSet<int>` / `List<int>` in hot loops.
+
+**`DMeshAABBTree3` profile result (2026-11-12, no library change):** container, 4 cores, procedural inputs only (no
+mesh files), `dotnet-trace` thread-time sampling with waits dropped (shares are of busy CPU), single runs; the probe
+was a scratch console app, not committed.
+- Tree share of the busy CPU: `Reducer` with `MaxDeviation` 48-62 % (bumpy sphere 200k, terrain 180k, 1e-3 of the
+  diagonal; the nearest queries 14-19 %, the rest `TriangleDeviationBounds`' own code; 4 cores give 1.53x over
+  serial, the per-collapse loop over about 7 triangles); `MeshRobustRepair` on a 114k soup 47 % (rays of
+  `MeshRepairOrientation.compute_statistics` 22 %, the fast-winding cache build 7 %); `ExactMeshBoolean` with open
+  operands of more than 1000 boundary segments 55 % (fast-winding evaluation 37 %, cache build 12 %), with few
+  segments 0 % (Antipodal path); `MeshWindingNumberSolidify` (adaptive, 256) 16 %, next to `DualContouring` 18 %,
+  `WindingNumberOctree` 6 % and GC 16 %.
+- Levers, measured: (1) a slab ray-box test instead of `IntrLine3AxisAlignedBox3.DoClipping`: 0.93-0.96x, dropped;
+  (2) the orientation rays as an early-out first-hit test: 0.81-0.85x, dropped; (3) the fast-winding cache's per-box
+  `HashSet<int>` as a `List<int>` in the same order: 1.27-1.30x on the cache build, bit-identical (no box coefficient
+  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: a bundle candidate for the
+  next PR that touches the fast-winding cache (coordinator 2026-11-12); (4) bottom-up fast-winding moments: the
+  coefficient passes are 65-75 % of the cache build (bound about 5-9 % of that CPU), not bit-identical, not pursued;
+  (5) batch queries for serial loops: the serial tree CPU is at most 4 % per workload and all tree builds, dropped;
+  (6) a parallel tree build: the build is 1.5-3.2 % of the CPU, dropped.
+- (7) Memory layout: on a 780k mesh, a fully shuffled copy makes nearest queries 2.0x slower than generator order
+  (2052 vs 1046 ms per 50k queries), Morton order recovers 1215 ms; rays and fast-winding evaluation change by
+  10 % or less. The gain depends on how incoherent real inputs are: a Thingi10K measurement (file order vs Morton
+  order) on the owner's machine or a runner decides; with the owner.
+- (8) Allocations of the solidify (2.2 GB, GC pauses 0.99 s of 12.3 s wall): about 45 % come from `DualContouring`
+  (`find_crossings` 21 %, `cell_patches` 9 %, `solve_qef` with a new `SymmetricEigenSolver` per call 12.5 %), the
+  fast-winding cache 4 %, `SmallListSet.ValueItr` enumerators 3 %. Upper bound for removing the `DualContouring`
+  share: about 0.45 s of GC pause, 4 % of wall (more if the allocation CPU falls with it). The `Reducer` is no
+  allocation lever (24 GB, 0.12 s of pause).
 
 **Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
