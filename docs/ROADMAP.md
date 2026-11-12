@@ -89,7 +89,7 @@ Status on 2026-11-12 (morning, Berlin).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #642, #643, #646, #648, #657 (#645), #655 (#647); open PRs #627 (draft), #656 (#644); open `local` issues #636-#638;
+  #641, #642, #643, #646, #648, #657 (#645), #655 (#647), #656 (#644); open PRs #627 (draft) and #682 (`Similarity.All2D()`, 2D tests on the similarities of the plane); open `local` issues #636-#638;
   #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
@@ -145,8 +145,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L1, L3b, L2 (in progress, one PR per lever, fresh session from the hand-over `aw3/HANDOVER-L1.md`; L4 #670 merged). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662 merged,
-  B #665, C #667, D #669, E #672 open in that merge order; F, G after A-D). [research.md](roadmap/research.md#open)
+- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667 and D #669
+  merged, E #672 open; F, G next). [research.md](roadmap/research.md#open)
 - Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
   the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
   [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)

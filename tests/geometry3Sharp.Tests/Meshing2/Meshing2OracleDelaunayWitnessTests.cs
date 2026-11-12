@@ -255,7 +255,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary>
-        /// Invariance (CLAUDE.md): random points under every similarity of Similarity.All() and the scales 2^-500 and 2^200 (the mesher takes coordinates up to 1e70), meshed in
+        /// Invariance (CLAUDE.md): random points under every similarity of Similarity.All2D() and the scales 2^-500 and 2^200 (the mesher takes coordinates up to 1e70), meshed in
         /// that frame: the witness is used and the verdicts and details are those of the full pass; under a power of two (exact) the
         /// report is the identity's, bit for bit
         /// </summary>
@@ -265,7 +265,7 @@ namespace geometry3Sharp.Tests
         {
             var baseInput = RandomPoints(31, 200);
             string identity = null;
-            var frames = Similarity.All().Select(s => (s.Name, s.IsExact, (Func<double, double, (double, double)>)((x, y) => { var p = s.Apply(new g3.Vector3d(x, y, 0)); return (p.x, p.y); })))
+            var frames = Similarity.All2D().Select(s => (s.Name, s.IsExact, (Func<double, double, (double, double)>)((x, y) => { var p = s.Apply(new g3.Vector3d(x, y, 0)); return (p.x, p.y); })))
                 .Concat(new[] { -500, 200 }.Select(k => ("scale 2^" + k, true, (Func<double, double, (double, double)>)((x, y) => (x * Math.Pow(2, k), y * Math.Pow(2, k))))));
             foreach (var (name, exact, map) in frames) {
                 var pts = baseInput.X.Select((x, i) => map(x, baseInput.Y[i])).ToList();

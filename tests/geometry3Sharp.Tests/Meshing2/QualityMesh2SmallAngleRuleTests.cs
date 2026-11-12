@@ -67,7 +67,7 @@ namespace geometry3Sharp.Tests
             Assert.True(output.Triangles.Length <= 40, "grid at " + angle + ": " + output.Triangles.Length + " triangles");
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> the wedge under every similarity: the others pass the oracle, the 2^k scales give the same mesh bit for bit </summary>
         [Theory]

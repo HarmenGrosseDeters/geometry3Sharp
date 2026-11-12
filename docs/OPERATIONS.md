@@ -762,6 +762,8 @@ the first `--max-results`, one row per ray or point with its `index` (for rays o
 ```
 g3cli geodesic terrain.ply --sources 0 --targets 120,4711
 g3cli geodesic part.ply --through 12,800,3401 --closed
+g3cli geodesic scan.ply --sources 0 --intrinsic-refine --trace-from 4711     # refined triangulation, descent path to the nearest source
+g3cli curvature part.stl --output curvature.csv                # H and K per vertex (MeshCurvature), statistics over the valid ones
 g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
 g3cli query3d part.stl --rays @rays.json --output hits.csv --max-results 10     # every hit in the file, ten in the JSON result
 ```
@@ -787,6 +789,29 @@ zero polygons; `invalid_input` of the adapter (an unusable extent) is `operation
 ```
 g3cli polygon2d parcel.geojson building.geojson --op difference --output free.geojson
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
+```
+
+The same command works on lines (GeoJSON `LineString` / `MultiLineString` as the subject, a `MultiLineString` or polygons out): `--op clip_lines`
+with clip polygons keeps the pieces of the lines inside (`--clip-type intersection`, default) or outside (`difference`) them; `--op offset_lines
+--delta d` gives the band of width 2 d around each line (`--end-type round` / `square` / `butt` / `joined`; delta must be > 0);
+`--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
+neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
+invariance are those of the booleans (`frame`).
+
+```
+g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
+g3cli polygon2d route.geojson --op offset_lines --delta 15 --end-type butt --output corridor.geojson
+```
+
+**Solid regions from loops** (`polygon_solids`, `PlanarComplex.FindSolidRegions`): every ring of a GeoJSON `Polygon` / `MultiPolygon` and every closed
+`LineString` is one loop, whatever it was written as; the nesting is found from the containment (a loop inside one other loop is its hole, inside two a
+new solid, ...), so loops from different sources and with any orientation give polygons with holes, as a GeoJSON `MultiPolygon`. The loops are
+simplified first: `--simplify-tolerance` is an absolute deviation in input units, **default 0.1 as in the library**, so loops closer than about that
+distance can lose their nesting (choose a smaller one for small or close loops, 0 for none); `--relative-tolerance` is relative to each loop's own
+bounding box diagonal and the smaller of the two applies. Open lines are counted and ignored, at most 4000 loops (the nesting search is quadratic: 4000 nested loops take about 10 s), identical loops are kept once (`loops.duplicates_removed`):
+
+```
+g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with

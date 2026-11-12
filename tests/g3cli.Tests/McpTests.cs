@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -143,6 +143,41 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Polygon2d_LineOps_AreToolArguments()
+        {
+            var server = Server();
+            string line = "{\"type\":\"LineString\",\"coordinates\":[[-5,5],[15,5]]}";
+            string square = "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}";
+            JsonObject r = Handle(server, Call(1, "polygon2d", new JsonObject() { ["op"] = "clip_lines", ["subject_geojson"] = line, ["clip_geojson"] = square, ["clip_type"] = "difference" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(2, I(r["result"]["structuredContent"]["result"]["lines"]));
+            r = Handle(server, Call(2, "polygon2d", new JsonObject() { ["op"] = "offset_lines", ["subject_geojson"] = line, ["delta"] = 1.0, ["end_type"] = "butt" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(40.0, D(r["result"]["structuredContent"]["result"]["area"]), 6);
+            r = Handle(server, Call(3, "polygon2d", new JsonObject() { ["op"] = "simplify", ["subject_geojson"] = square }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void PolygonSolids_IsATool()
+        {
+            var server = Server();
+            string ring(double x, double s) => $"[[{x},{x}],[{x + s},{x}],[{x + s},{x + s}],[{x},{x + s}],[{x},{x}]]";
+            string g = "{\"type\":\"MultiPolygon\",\"coordinates\":[[" + ring(0, 10) + "],[" + ring(3, 4) + "]]}";
+            JsonObject r = Handle(server, Call(1, "polygon_solids", new JsonObject() { ["input_geojson"] = g, ["return_geojson"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(1, I(sc["solids"]));
+            Assert.Equal(1, I(sc["holes"]));
+            Assert.Equal(84, D(sc["area"]));
+            Assert.Equal("MultiPolygon", S(sc["result_geojson"]["features"][0]["geometry"]["type"]));
+            r = Handle(server, Call(2, "polygon_solids", new JsonObject() { ["input_geojson"] = g, ["simplify_tolerance"] = -1.0 }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
         public void Query3d_OutputAndInsideAuto_AreToolArguments()
         {
             var server = Server();
@@ -174,6 +209,22 @@ namespace g3cli.Tests
             r = Handle(server, Call(2, "repair", new JsonObject() { ["input"] = m.Overlapping, ["output"] = m.Path_("mcp_rep2.stl"), ["exact_resolve_rounds"] = 0 }));
             Assert.True(B(r["result"]["isError"]));
             Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void Curvature_AndNewGeodesicFidelityOptions_AreToolArguments()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "curvature", new JsonObject() { ["input"] = m.Sphere }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.InRange(D(r["result"]["structuredContent"]["mean_curvature"]["mean"]), 0.97, 1.03);
+            r = Handle(server, Call(2, "fidelity", new JsonObject() { ["reference"] = m.Sphere, ["mesh"] = m.Sphere, ["outer_offset"] = 0.001, ["sharp_edge_min_height"] = 0.01 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(1e-3, D(r["result"]["structuredContent"]["options"]["outer_offset"]));
+            r = Handle(server, Call(3, "geodesic", new JsonObject() { ["input"] = m.Sphere, ["sources"] = "0", ["intrinsic_refine"] = true, ["refine_min_angle"] = 20.0, ["trace_from"] = "5" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(20.0, D(r["result"]["structuredContent"]["refinement"]["min_angle_bound"]));
+            Assert.True(I(r["result"]["structuredContent"]["trace_point_count"]) >= 2);
         }
 
         [Fact]

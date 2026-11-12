@@ -20,7 +20,7 @@ namespace g3
     /// make refinement run away. Triangles whose small angle lies between two constrained edges are not refined for their angle.
     /// Split points are computed on the original input segment, so they stay within rounding of it however often a piece is
     /// split (spec O12).</para>
-    /// <para>Without <see cref="Conforming"/> (the default), a subsegment counts as encroached only by a vertex in its diametral lens
+    /// <para>Without <see cref="Conforming"/> (the default), only a vertex inside the diametral lens of a subsegment encroaches on it
     /// (Shewchuk 2002, section 6.4: the points that see it under at least 120 degrees, a narrower region than the diametral circle)
     /// when the angle bound is at most arcsin(sqrt 3 / 4) = 25.65 degrees, the bound the paper proves for lenses; above it the
     /// diametral circle is used. As the paper's rule says (after Chew 1993), before a subsegment is bisected the free vertices (made by

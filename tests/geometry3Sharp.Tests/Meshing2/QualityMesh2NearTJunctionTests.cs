@@ -75,7 +75,7 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Report.Ok, r.Report.ToString());
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> under every similarity (applied to the rotated fan) the mesh terminates and the oracle accepts it; the 2^k scales give
         /// the same mesh bit for bit </summary>

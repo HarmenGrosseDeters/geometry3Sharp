@@ -154,6 +154,14 @@ results mapped back to the original frame.
 - The other similarities compare with a tolerance derived from the coordinate resolution
   (`Similarity.Resolution`), not with a hand-picked constant.
 
+**2D inputs** (`Similarity.All2D()`, `Apply2d`, `Inverse2d`, `Angle2d`): the rotations of `All()` also tilt about x and y, so
+the xy part of their image is a rotation with a squash, not a similarity of the plane. Tests whose input is a set of points,
+segments or polygons in the plane use `All2D()` (tests that map a planar loop into the orthonormal frame of the transformed plane,
+as `PlanarComplexNestingProbeTests` and `PolygonSignedAreaTests` do, keep `All()`: for them the tilted members are valid inputs): the identity, UTM, the scales 2^-10, 2^10, 1e-3 and 1e3, a rotation about z
+by 31 degrees, and a rotation about z by 23 degrees with the scale 1e-3 and the UTM translation. A pinned case that needs the
+squash (`QualityMesh2NearTJunctionTests.RotatedFan`, `QualityMesh2GridRerouteSweepTests`) keeps `ByName("rotated")`. Operations on
+3D points with a height (the quadtree adapters, which project) keep `All()`.
+
 **Permutation of the input** (`Invariance.Permuted`): vertex order, triangle order and the starting corner of
 each triangle.
 

@@ -71,7 +71,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, report.ToString());
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary>
         /// The fuzz in every similarity frame (the tolerance scaled alike): every mesh passes the oracle, and the 2^k scales give the

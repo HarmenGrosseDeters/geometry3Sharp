@@ -99,13 +99,13 @@ namespace geometry3Sharp.Tests
             o.Triangles.Select(t => string.Join(" ", t)).OrderBy(s => s, StringComparer.Ordinal)
             .Concat(o.Subsegments.Select(s => "S " + Math.Min(s.A, s.B) + " " + Math.Max(s.A, s.B) + " " + s.Marker).OrderBy(s => s, StringComparer.Ordinal)).ToArray();
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         [Theory]
         [MemberData(nameof(Similarities))]
         public void Similarity_KeepsTheResult(string name)
         {
-            var s = Similarity.All().First(x => x.Name == name);
+            var s = Similarity.All2D().First(x => x.Name == name);
             var input = Sample();
             var e = s.Rotation * Vector3d.AxisX;
             double norm = Math.Sqrt(e.x * e.x + e.y * e.y), cos = e.x / norm, sin = e.y / norm;
