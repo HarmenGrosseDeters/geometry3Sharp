@@ -1,6 +1,6 @@
 # 2D Meshing: Behavioural Specification
 
-Status: draft for review by the repository owner. Written as the *specification side* of a
+Status: accepted by the owner (2026-11-12; implemented as specified in M1-M3). Written as the *specification side* of a
 clean-room process. It describes **observable behaviour only**: what goes in, what must come
 out, which inputs are known to be hard, and what the correct result is. It deliberately says
 nothing about how any existing implementation works or how any defect was fixed. The

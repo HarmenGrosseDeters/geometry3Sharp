@@ -442,7 +442,7 @@ namespace g3cli.Tests
             var tool = Commands.Find("polygon2d");
             Assert.NotNull(tool);
             var schema = tool.InputSchema();
-            Assert.Equal(new[] { "union", "intersection", "difference", "xor", "offset" },
+            Assert.Equal(new[] { "union", "intersection", "difference", "xor", "offset", "simplify", "simplify_lines", "clip_lines", "offset_lines" },
                 schema["properties"]["op"]["enum"].AsArray().Select(S).ToArray());
             Assert.Contains("op", schema["required"].AsArray().Select(S));
         }

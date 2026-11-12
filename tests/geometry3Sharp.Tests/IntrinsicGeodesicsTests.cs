@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 using gs;
 using Xunit;
 using Xunit.Abstractions;
@@ -772,7 +773,7 @@ namespace geometry3Sharp.Tests
             int iv = T.VertexIndex(v);
             Vector3d e1, e2, n;
             T.GetTangentBasis(v, out e1, out e2, out n);
-            Func<Vector3d, double> proj = d => Math.Atan2(d.Dot(e2), d.Dot(e1));
+            Func<Vector3d, double> proj = d => CoreMath.Atan2(d.Dot(e2), d.Dot(e1));
 
             // the edges in signpost order, with their projected directions; the projection must fold
             var edges = new List<KeyValuePair<double, Vector3d>>();
@@ -815,7 +816,7 @@ namespace geometry3Sharp.Tests
             double prevW = 0;
             while (true) {
                 Vector3d d = mesh.GetVertex(T.VertexID(T.Head(hh))) - p;
-                double w = Math.Atan2(d.Dot(e2), d.Dot(e1));
+                double w = CoreMath.Atan2(d.Dot(e2), d.Dot(e1));
                 if (sign.Count == 0) w = 0;
                 else { while (w < prevW) w += 2 * Math.PI; }
                 sign.Add(T.Signpost(hh)); world.Add(w);
@@ -823,7 +824,7 @@ namespace geometry3Sharp.Tests
                 int nh = T.NextAroundVertex(hh);
                 if (nh < 0) {
                     Vector3d dl = mesh.GetVertex(T.VertexID(T.Head(IntrinsicTriangulation.Next(hh)))) - p;
-                    double wl = Math.Atan2(dl.Dot(e2), dl.Dot(e1));
+                    double wl = CoreMath.Atan2(dl.Dot(e2), dl.Dot(e1));
                     while (wl < prevW) wl += 2 * Math.PI;
                     sign.Add(T.LastSignpost(i)); world.Add(wl);
                     break;
@@ -860,7 +861,7 @@ namespace geometry3Sharp.Tests
 
         /// <summary>
         /// ToWorld and FromWorld at every vertex without a zero-length edge, bit for bit against the reference; returns
-        /// the number of vertices compared
+        /// the number of vertices compared (the reference uses the same correctly rounded sin, cos and atan2 as the production code)
         /// </summary>
         static int AssertToWorldUnchanged(DMesh3 mesh)
         {
@@ -873,14 +874,14 @@ namespace geometry3Sharp.Tests
                 for (int k = 0; k < 23; ++k) {
                     double a = -3 + 0.5 * k;    // also outside [0, 2 pi): wrapped
                     double len = 0.75 + 0.125 * (k % 3);
-                    var t = new Vector2d(len * Math.Cos(a), len * Math.Sin(a));
-                    double am = ReferenceMap(Math.Atan2(t.y, t.x), sign, world);
-                    Vector3d expected = t.Length * (Math.Cos(am) * e1 + Math.Sin(am) * e2);
+                    var t = new Vector2d(len * CoreMath.Cos(a), len * CoreMath.Sin(a));
+                    double am = ReferenceMap(CoreMath.Atan2(t.y, t.x), sign, world);
+                    Vector3d expected = t.Length * (CoreMath.Cos(am) * e1 + CoreMath.Sin(am) * e2);
                     Assert.Equal(expected, T.ToWorld(v, t));
-                    Vector3d w = len * (Math.Cos(a) * e1 + Math.Sin(a) * e2) + 0.3 * e1.Cross(e2);
+                    Vector3d w = len * (CoreMath.Cos(a) * e1 + CoreMath.Sin(a) * e2) + 0.3 * e1.Cross(e2);
                     Vector2d tw = new Vector2d(w.Dot(e1), w.Dot(e2));
-                    double aw = ReferenceMap(Math.Atan2(tw.y, tw.x), world, sign);
-                    Assert.Equal(new Vector2d(tw.Length * Math.Cos(aw), tw.Length * Math.Sin(aw)), T.FromWorld(v, w));
+                    double aw = ReferenceMap(CoreMath.Atan2(tw.y, tw.x), world, sign);
+                    Assert.Equal(new Vector2d(tw.Length * CoreMath.Cos(aw), tw.Length * CoreMath.Sin(aw)), T.FromWorld(v, w));
                 }
                 count++;
             }

@@ -104,11 +104,16 @@ def summary(rs, budget, name):
         if T:
             # top-level phases (wrap, simplify, quality) add up to about the pipeline; their parts (wrap.*, ...) are
             # shown separately, also as shares of the whole pipeline (wrap's parts are timed inside its loop and overlap)
-            top = {k: v for k, v in tot.items() if "." not in k}
-            sub = {k: v for k, v in tot.items() if "." in k}
+            top = {k: v for k, v in tot.items() if "." not in k and "/" not in k}
+            sub = {k: v for k, v in tot.items() if "." in k and "/" not in k}
+            split = {k: v for k, v in tot.items() if "/" in k}
             print(f"phases ({label}, {len(sel)} meshes, sum {T / 1000:.0f} s): "
                   + ", ".join(f"{k} {100 * v / T:.1f}%" for k, v in sorted(top.items(), key=lambda kv: -kv[1])))
             print(f"  parts: " + ", ".join(f"{k} {100 * v / T:.1f}%" for k, v in sorted(sub.items(), key=lambda kv: -kv[1])))
+            if split:
+                # (per phase, not overlapping: "<phase>/<part>"; carve is the whole carving loop of that phase, trial the
+                # manifold-step trials of the pinch passes)
+                print(f"  per phase: " + ", ".join(f"{k} {100 * v / T:.1f}%" for k, v in sorted(split.items(), key=lambda kv: -kv[1])))
     return ok
 
 def main():

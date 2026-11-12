@@ -193,7 +193,7 @@ namespace geometry3Sharp.Tests
             Assert.True(withRestore >= 30, "seeds with restore pixels: " + withRestore);
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         static Mesh2Input Moved(Mesh2Input plain, Similarity s)
         {

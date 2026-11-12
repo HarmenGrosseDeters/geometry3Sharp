@@ -48,37 +48,59 @@ namespace g3
             public Segment(int p, int q, int line) { P = p; Q = q; Line = line; }
         }
 
-        public class InputTriangle
+        /// <summary>
+        /// A handle on an input triangle (the arrangement and its index in Triangles): the data live in arrays of the
+        /// arrangement, about 37 bytes per triangle instead of an object of 88 and a slot of 8 (the triangles live through
+        /// the whole computation, every byte of them is copied by the GC). Copies are the same triangle.
+        /// </summary>
+        public readonly struct InputTriangle
         {
-            public int Mesh, Tid;
-            public Index3i Corners;                 // point ids
-            // (a field, not an array of its own, and the input coordinates in an array of the arrangement: the
-            // triangles live through the whole computation, every object and byte of them is copied by the GC)
-            internal int Index;                     // in Triangles
+            internal readonly ExactMeshArrangement arr;
+            internal readonly int Index;            // in Triangles
+            internal InputTriangle(ExactMeshArrangement arr, int index) { this.arr = arr; Index = index; }
+
+            public int Mesh { get { return arr.triMesh[Index]; } }
+            public int Tid { get { return arr.triTid[Index]; } }
+            public Index3i Corners { get { return arr.triCorners[Index]; } }
             /// <summary> input coordinates of the corners </summary>
-            public Vector3d V0 { get { return arr.triangleCoords[3 * Index]; } }
-            public Vector3d V1 { get { return arr.triangleCoords[3 * Index + 1]; } }
-            public Vector3d V2 { get { return arr.triangleCoords[3 * Index + 2]; } }
-            public bool Degenerate;
+            /// (those of the input points: welded by position, and -0.0 is +0.0 there; every consumer compares or adds
+            /// coordinates, so the sign of a zero changes no result)
+            public Vector3d V0 { get { return arr.inputCoords[arr.triCorners[Index].a]; } }
+            public Vector3d V1 { get { return arr.inputCoords[arr.triCorners[Index].b]; } }
+            public Vector3d V2 { get { return arr.inputCoords[arr.triCorners[Index].c]; } }
+            public bool Degenerate { get { return arr.triDegenerate[Index]; } }
+            /// <summary> mutual exclusion for adding to this triangle (a handle is a value: one of the arrangement's stripes) </summary>
+            internal object Lock { get { return arr.triLocks[Index & (arr.triLocks.Length - 1)]; } }
             // (allocated when the triangle is touched: most are not; the shared empty ones must not be changed, not
             // even sorted)
-            List<Segment> segments;
-            HashSet<int> points;
-            List<int> coplanar;
+            internal sealed class Touch
+            {
+                public List<Segment> Segments;
+                public HashSet<int> Points;
+                public List<int> Coplanar;
+                public List<int> Partners;
+            }
             static readonly List<Segment> noSegments = new List<Segment>();
             static readonly HashSet<int> noPoints = new HashSet<int>();
             static readonly List<int> noCoplanar = new List<int>();
-            public List<Segment> Segments { get { return segments ?? noSegments; } set { segments = value; } }
-            public HashSet<int> Points { get { return points ?? noPoints; } set { points = value; } }
+            Touch touch() { return arr.triTouch[Index] ?? (arr.triTouch[Index] = new Touch()); }
+            public List<Segment> Segments { get { return arr.triTouch[Index]?.Segments ?? noSegments; } set { touch().Segments = value; } }
+            public HashSet<int> Points { get { return arr.triTouch[Index]?.Points ?? noPoints; } set { touch().Points = value; } }
             /// <summary> input triangles of other meshes in the same plane, intersecting </summary>
-            public List<int> Coplanar { get { return coplanar ?? noCoplanar; } }
-            internal void AddSegment(Segment s) { (segments ?? (segments = new List<Segment>())).Add(s); }
-            internal void AddPoint(int p) { (points ?? (points = new HashSet<int>())).Add(p); }
-            internal void AddCoplanar(int t) { (coplanar ?? (coplanar = new List<int>())).Add(t); }
+            public List<int> Coplanar { get { return arr.triTouch[Index]?.Coplanar ?? noCoplanar; } }
+            internal void AddSegment(Segment s) { Touch t = touch(); (t.Segments ?? (t.Segments = new List<Segment>())).Add(s); }
+            internal void AddPoint(int p) { Touch t = touch(); (t.Points ?? (t.Points = new HashSet<int>())).Add(p); }
+            internal void AddCoplanar(int c) { Touch t = touch(); (t.Coplanar ?? (t.Coplanar = new List<int>())).Add(c); }
+            /// <summary>
+            /// the input triangles that meet this one along a segment (not coplanar), in the order the intersections were
+            /// found (it depends on the thread schedule: for uses that do not depend on the order). Not the triangles named by
+            /// Segments: the unique segments keep one of several equal ones, so a triangle can be missing there
+            /// </summary>
+            internal List<int> Partners { get { return arr.triTouch[Index]?.Partners ?? noCoplanar; } }
+            internal void AddPartner(int u) { Touch t = touch(); (t.Partners ?? (t.Partners = new List<int>())).Add(u); }
 
             // planes are computed when first needed (most triangles are far from all intersections), in an object of
             // their own (published at once: other threads may compute and read them at the same time)
-            internal ExactMeshArrangement arr;
             internal sealed class PlaneData
             {
                 public Plane P;
@@ -89,8 +111,6 @@ namespace g3
                 public double[] PlaneApprox;
                 public int Axis, Sign;
             }
-            PlaneData planes;
-
             public Plane P { get { return ensure().P; } }
             /// <summary> edge k: Corners[k] -> Corners[k+1], plane through the edge perpendicular to the triangle </summary>
             public Plane[] EdgePlanes
@@ -112,7 +132,7 @@ namespace g3
 
             PlaneData ensure()
             {
-                return System.Threading.Volatile.Read(ref planes) ?? compute_planes();
+                return System.Threading.Volatile.Read(ref arr.triPlanes[Index]) ?? compute_planes();
             }
 
             [MethodImpl(JitHints.Optimize)]
@@ -123,7 +143,7 @@ namespace g3
                 PlaneData fd = compute_planes_fixed();
                 if (fd != null) {
                     // (another thread may store the same values)
-                    System.Threading.Volatile.Write(ref planes, fd);
+                    System.Threading.Volatile.Write(ref arr.triPlanes[Index], fd);
                     return fd;
                 }
                 ExactPoint3 a = arr.Exact(Corners[0]), b = arr.Exact(Corners[1]), c = arr.Exact(Corners[2]);
@@ -142,7 +162,7 @@ namespace g3
                 }
                 // (another thread may store the same values)
                 var d = new PlaneData() { P = tp, Axis = ta, Sign = ts, PlaneApprox = pa };
-                System.Threading.Volatile.Write(ref planes, d);
+                System.Threading.Volatile.Write(ref arr.triPlanes[Index], d);
                 return d;
             }
 
@@ -200,8 +220,31 @@ namespace g3
 
         public List<DMesh3> Meshes;
         public int ScaleExp;        // input coordinate = integer coordinate * 2^ScaleExp
-        public List<InputTriangle> Triangles = new List<InputTriangle>();
-        Vector3d[] triangleCoords;          // per input triangle: the input coordinates of its corners
+        public readonly TriangleList Triangles;
+        // the input triangles, per index (InputTriangle is a handle on these)
+        int triangleCount;
+        int[] triMesh, triTid;
+        Index3i[] triCorners;               // point ids
+        bool[] triDegenerate;
+        InputTriangle.PlaneData[] triPlanes;
+        InputTriangle.Touch[] triTouch;
+        object[] triLocks = new object[0];      // stripes (a power of two), sized by build_triangles before any parallel phase
+        static object[] make_locks(int n) { var l = new object[n]; for (int i = 0; i < n; ++i) l[i] = new object(); return l; }
+
+        /// <summary> the input triangles as a list of handles </summary>
+        public sealed class TriangleList : IReadOnlyList<InputTriangle>
+        {
+            readonly ExactMeshArrangement arr;
+            internal TriangleList(ExactMeshArrangement arr) { this.arr = arr; }
+            public int Count { get { return arr.triangleCount; } }
+            public InputTriangle this[int index] { get { return new InputTriangle(arr, index); } }
+            public IEnumerator<InputTriangle> GetEnumerator()
+            {
+                for (int i = 0; i < arr.triangleCount; ++i)
+                    yield return new InputTriangle(arr, i);
+            }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return GetEnumerator(); }
+        }
         public List<OutputTriangle> Output = new List<OutputTriangle>();
         public HashSet<long> ConstraintEdges = new HashSet<long>(EdgeKeyComparer.Instance);     // undirected point id pairs on intersection curves
         public int[][] VertexPoints;        // per mesh: vertex id -> point id
@@ -217,12 +260,21 @@ namespace g3
         public int SegmentCrossings;        // points where two intersection segments cross inside a triangle
         /// <summary> segment pairs and segment-point pairs examined in the triangles (for tests: about linear in their number) </summary>
         public long CandidateTests;
+        /// <summary> exact stages of the triangulation's Orient and InCircle that the local filter decided (LocalPoints) </summary>
+        internal long LocalFilterDecided;
+        /// <summary> points converted to local coordinates for that filter (LocalPoints) </summary>
+        internal long LocalFilterPoints;
+        /// <summary> Orient calls of the triangulation decided 0 by the points' constructions (LocalPoints.CollinearByConstruction) </summary>
+        internal long ConstructionZeros;
+        /// <summary> for tests: the local filter of the triangulation (LocalPoints) on; off gives the same results </summary>
+        internal bool LocalFilters = true;
         /// <summary> points that were merged because different constructions gave the same point </summary>
         public int MergedPoints;
 
         public ExactMeshArrangement(List<DMesh3> meshes)
         {
             Meshes = meshes;
+            Triangles = new TriangleList(this);
         }
 
         public static long EdgeKey(int a, int b)
@@ -1051,31 +1103,90 @@ namespace g3
         /// <summary> bytes allocated per phase (by all threads; 0 on netstandard2.0), for profiling </summary>
         internal Dictionary<string, long> PhaseAllocatedBytes = new Dictionary<string, long>();
 
+        /// <summary>
+        /// the budget of Compute: when the pieces of its triangulation (PredictedPieces, known before it) would be more,
+        /// Compute stops before the triangulation (Stopped is Budget, Output gets nothing); 0: no limit
+        /// </summary>
+        internal long MaxPieces;
+        /// <summary> Compute stops at the next phase or block of work once this is cancelled (Stopped is Cancelled) </summary>
+        internal System.Threading.CancellationToken Cancellation;
+        /// <summary> why the last Compute stopped early (None: it ran to the end) </summary>
+        internal StopReason Stopped;
+        internal enum StopReason { None, Budget, Cancelled }
+        /// <summary>
+        /// the number of pieces the triangulation of the last Compute adds to Output, computed before it (exact): a
+        /// touched input triangle with i points inside it and e on its edges (its corners not counted) is triangulated into
+        /// 2 i + e + 1 triangles (Euler's formula, whatever the constraints: the triangulation has exactly these
+        /// vertices); an untouched one is one piece, a degenerate or culled one none
+        /// </summary>
+        public long PredictedPieces;
+
+        // the cancellation as a stop (true: stop now)
+        bool cancelled()
+        {
+            if (Cancellation.IsCancellationRequested == false)
+                return false;
+            Stopped = StopReason.Cancelled;
+            return true;
+        }
+
         [MethodImpl(JitHints.Optimize)]
         public void Compute()
         {
             var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
             var total = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
+            Stopped = StopReason.None;
+            PredictedPieces = 0;
+            if (cancelled())
+                return;
             build_points();
             clock.Lap("setup.points");
             build_triangles();
             clock.Lap("setup.triangles");
             total.Lap("setup");
+            if (cancelled())
+                return;
             find_intersections(clock);
             total.Lap("intersections");
+            if (cancelled())
+                return;
             merge_points();
             clock.Lap("merge.points");
             int before = PointCount;
-            gParallel.ForRange(Triangles.Count, (ti) => prepare_triangle(ti));
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    prepare_triangle(ti);
+            });
             clock.Lap("merge.crossings");
+            if (cancelled())
+                return;
             if (PointCount > before)
                 merge_points();
             clock.Lap("merge.points2");
+            if (cancelled())
+                return;
+            PredictedPieces = predict_pieces();
+            clock.Lap("merge.predict");
             total.Lap("merge");
+            if (cancelled()) {
+                touchedPoints = null;
+                return;
+            }
+            if (MaxPieces > 0 && PredictedPieces > MaxPieces) {
+                Stopped = StopReason.Budget;
+                touchedPoints = null;
+                return;
+            }
             var pieces = new List<OutputTriangle>[Triangles.Count];
             var constraints = new List<long>[Triangles.Count];
             // (a culled triangle has no pairs, so it is not split: it stays one piece, which the output leaves out)
-            gParallel.ForRange(Triangles.Count, (ti) => triangulate(ti, out pieces[ti], out constraints[ti]));
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    triangulate(ti, out pieces[ti], out constraints[ti]);
+            });
+            touchedPoints = null;
+            if (cancelled())
+                return;
             int pieceCount = 0;
             TriangulatedTriangles = 0;
             for (int ti = 0; ti < Triangles.Count; ++ti) {
@@ -1100,6 +1211,65 @@ namespace g3
         }
 
 
+
+        // the points of each touched input triangle as triangulate_touched inserts them (touched_points), from
+        // predict_pieces to the triangulation, which releases them
+        int[][] touchedPoints;
+
+        // the points of a touched input triangle that its triangulation inserts: the canonical ids of its points without
+        // its corners, in the order of ComparePoints (deterministic: point ids are not, they are assigned in parallel)
+        [MethodImpl(JitHints.Optimize)]
+        int[] touched_points(InputTriangle t)
+        {
+            var set = new HashSet<int>();
+            foreach (int p in t.Points)
+                set.Add(Canonical(p));
+            for (int k = 0; k < 3; ++k)
+                set.Remove(t.Corners[k]);
+            var ordered = new int[set.Count];
+            set.CopyTo(ordered);
+            Array.Sort(ordered, ComparePoints);
+            return ordered;
+        }
+
+        // PredictedPieces: the pieces of each input triangle as the triangulation will give them (Euler), summed in index order
+        [MethodImpl(JitHints.Optimize)]
+        long predict_pieces()
+        {
+            touchedPoints = new int[Triangles.Count][];
+            var per = new int[Triangles.Count];
+            // (cancelled: the triangles left are skipped, and the sum is partial; Compute then stops with Cancelled)
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    per[ti] = predicted_pieces(ti);
+            });
+            long sum = 0;
+            for (int ti = 0; ti < per.Length; ++ti)
+                sum += per[ti];
+            return sum;
+        }
+
+        // the pieces of input triangle ti: those of triangulate (its points as triangulate_touched takes them, the corners
+        // left out; a point on an edge has orientation 0 to it, in the projection that the triangulation uses)
+        [MethodImpl(JitHints.Optimize)]
+        int predicted_pieces(int ti)
+        {
+            InputTriangle t = Triangles[ti];
+            if (Culled[ti] || t.Degenerate)
+                return 0;
+            if (t.Points.Count == 0 && t.Segments.Count == 0)
+                return 1;
+            int[] pts = touched_points(t);
+            touchedPoints[ti] = pts;
+            int inner = 0, onEdge = 0;
+            foreach (int p in pts) {
+                bool edge = false;
+                for (int k = 0; k < 3 && edge == false; ++k)
+                    edge = Orient(t, t.Corners[k], t.Corners[(k + 1) % 3], p) == 0;
+                if (edge) onEdge++; else inner++;
+            }
+            return 2 * inner + onEdge + 1;
+        }
 
         [MethodImpl(JitHints.Optimize)]
         void build_points()
@@ -1198,36 +1368,48 @@ namespace g3
         void build_triangles()
         {
             MeshTriangles = new List<int>[Meshes.Count];
-            int total = Triangles.Count;
+            int have = triangleCount, total = have;
             foreach (DMesh3 mesh in Meshes)
                 total += mesh.TriangleCount;
-            Vector3d[] earlier = triangleCoords;
-            triangleCoords = new Vector3d[3 * total];
-            if (earlier != null)
-                Array.Copy(earlier, triangleCoords, 3 * Triangles.Count);
+            triMesh = grown(triMesh, have, total);
+            triTid = grown(triTid, have, total);
+            triCorners = grown(triCorners, have, total);
+            triDegenerate = grown(triDegenerate, have, total);
+            triPlanes = grown(triPlanes, have, total);
+            triTouch = grown(triTouch, have, total);
+            int stripes = 1;
+            while (stripes < 4096 && stripes < total)
+                stripes <<= 1;
+            if (stripes > triLocks.Length)
+                triLocks = make_locks(stripes);
             for (int mi = 0; mi < Meshes.Count; ++mi) {
                 DMesh3 mesh = Meshes[mi];
                 var tids = new List<int>(mesh.TriangleIndices());
-                var built = new InputTriangle[tids.Count];
-                int first = Triangles.Count;
-                gParallel.ForRange(tids.Count, (k) => built[k] = input_triangle(mi, mesh, tids[k], first + k));
-                MeshTriangles[mi] = new List<int>(built.Length);
-                foreach (InputTriangle it in built) {
-                    MeshTriangles[mi].Add(Triangles.Count);
-                    Triangles.Add(it);
-                }
+                int first = triangleCount;
+                gParallel.ForRange(tids.Count, (k) => input_triangle(mi, mesh, tids[k], first + k));
+                MeshTriangles[mi] = new List<int>(tids.Count);
+                for (int k = 0; k < tids.Count; ++k)
+                    MeshTriangles[mi].Add(first + k);
+                triangleCount = first + tids.Count;
             }
         }
 
+        static T[] grown<T>(T[] earlier, int used, int size)
+        {
+            T[] a = new T[size];
+            if (earlier != null)
+                Array.Copy(earlier, a, used);
+            return a;
+        }
+
         [MethodImpl(JitHints.Optimize)]
-        InputTriangle input_triangle(int mi, DMesh3 mesh, int tid, int index)
+        void input_triangle(int mi, DMesh3 mesh, int tid, int index)
         {
             Index3i t = mesh.GetTriangle(tid);
-            InputTriangle it = new InputTriangle() { Mesh = mi, Tid = tid, Index = index };
-            it.Corners = new Index3i(VertexPoints[mi][t.a], VertexPoints[mi][t.b], VertexPoints[mi][t.c]);
-            it.arr = this;
+            triMesh[index] = mi;
+            triTid[index] = tid;
+            triCorners[index] = new Index3i(VertexPoints[mi][t.a], VertexPoints[mi][t.b], VertexPoints[mi][t.c]);
             Vector3d a = mesh.GetVertex(t.a), b = mesh.GetVertex(t.b), c = mesh.GetVertex(t.c);
-            triangleCoords[3 * index] = a; triangleCoords[3 * index + 1] = b; triangleCoords[3 * index + 2] = c;
             // degenerate iff the corners are collinear, ie collinear in all three coordinate projections (exact); the
             // projection along the largest component of the normal (in doubles) first: it is not degenerate for a
             // triangle that is not, so its filter decides without the exact stage (a projection along a direction in
@@ -1235,19 +1417,174 @@ namespace g3
             Vector3d n = (b - a).Cross(c - a);
             double nx = Math.Abs(n.x), ny = Math.Abs(n.y), nz = Math.Abs(n.z);
             int first = (nz >= nx && nz >= ny) ? 2 : (nx >= ny) ? 0 : 1;
-            it.Degenerate = true;
-            for (int k = 0; k < 3 && it.Degenerate; ++k) {
+            bool degenerate = true;
+            for (int k = 0; k < 3 && degenerate; ++k) {
                 int axis = (first + k) % 3;     // projection dropping this axis
                 int i = (axis + 1) % 3, j = (axis + 2) % 3;
-                it.Degenerate = ExactPredicates.Orient2d(new Vector2d(a[i], a[j]), new Vector2d(b[i], b[j]), new Vector2d(c[i], c[j])) == 0;
+                degenerate = ExactPredicates.Orient2d(new Vector2d(a[i], a[j]), new Vector2d(b[i], b[j]), new Vector2d(c[i], c[j])) == 0;
             }
-            return it;
+            triDegenerate[index] = degenerate;
         }
 
+
+        /// <summary>
+        /// The points of one input triangle in coordinates relative to its first corner, in the projection of the
+        /// triangle (L3, docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 4): the second filter of Orient and InCircle in
+        /// the triangulation, where the points are close together against their distance from the origin and the
+        /// approximations' absolute errors exceed their distances. Each coordinate is the exact difference x - o,
+        /// rounded once (ExactPoint3.ToDouble: a 64-bit truncated quotient, then the conversion to double), so its error
+        /// is below 2^-52 of its magnitude; o cancels exactly in both determinants, which are polynomials in the
+        /// differences of the points. Computed when a point first needs it; one instance per triangle and thread.
+        /// </summary>
+        internal sealed class LocalPoints
+        {
+            readonly ExactMeshArrangement arr;
+            readonly InputTriangle t;
+            readonly int i, j;
+            ExactPoint3 o;
+            // (created when a point first needs its local coordinates: most triangles never ask)
+            Dictionary<int, int> index;
+            List<Vector3d> points;
+            /// <summary> exact stages that the local filter decided </summary>
+            public long Decided;
+            /// <summary> points converted </summary>
+            public int Count { get { return points == null ? 0 : points.Count; } }
+            /// <summary> Orient calls that CollinearByConstruction decided (0) </summary>
+            public long Zeros;
+            // (per plane key: whether that plane meets the triangle's plane in a line, exactly)
+            Dictionary<int, bool> cuts;
+
+            /// <summary>
+            /// p, q, r collinear by their constructions (sufficient, not necessary): all three lie on one plane K that
+            /// meets the triangle's plane in a line (every point of the triangle's arrangement lies in its plane, so they
+            /// lie on that line), or all three on the line of one of the triangle's edges. A point lies on K by
+            /// construction if K is one of the planes it was constructed from (Planes: three planes, EdgePlane: the plane
+            /// and, through the edge's ends, the planes of the triangles they are corners of), or it is a corner of the
+            /// triangle whose plane is K. Exact: then Orient is 0, without arithmetic on the points
+            /// </summary>
+            public bool CollinearByConstruction(int p, int q, int r)
+            {
+                int tp = arr.CanonicalPlane(4 * t.Index);
+                for (int n = 0; n < 3; ++n) {
+                    PointKey key = arr.keys[arr.Canonical(n == 0 ? p : n == 1 ? q : r)];
+                    if (key.Kind == PointKind.Planes) {
+                        if (on_common((int)key.A, tp, p, q, r) || on_common((int)key.B, tp, p, q, r) || on_common((int)key.C, tp, p, q, r))
+                            return true;
+                    } else if (key.Kind == PointKind.EdgePlane) {
+                        if (on_common((int)key.B, tp, p, q, r))
+                            return true;
+                    }
+                }
+                Index3i c = t.Corners;
+                for (int k = 0; k < 3; ++k) {
+                    int a = c[k], b = c[(k + 1) % 3];
+                    if (on_edge(p, a, b) && on_edge(q, a, b) && on_edge(r, a, b))
+                        return true;
+                }
+                return false;
+            }
+
+            bool on_common(int plane, int tp, int p, int q, int r)
+            {
+                plane = arr.CanonicalPlane(plane);
+                if (plane == tp || arr.OnPlaneByConstruction(p, plane) == false || arr.OnPlaneByConstruction(q, plane) == false
+                    || arr.OnPlaneByConstruction(r, plane) == false)
+                    return false;
+                if (cuts == null)
+                    cuts = new Dictionary<int, bool>();
+                bool v;
+                if (cuts.TryGetValue(plane, out v) == false) {
+                    // (the normals not parallel: the cross product of the exact normals is not 0)
+                    Plane P = t.P, K = arr.PlaneOf(plane);
+                    v = (P.B * K.C - P.C * K.B).IsZero == false || (P.C * K.A - P.A * K.C).IsZero == false || (P.A * K.B - P.B * K.A).IsZero == false;
+                    cuts[plane] = v;
+                }
+                return v;
+            }
+
+            // x on the line of the triangle's edge a-b by its construction: a corner of it, or constructed on that edge
+            bool on_edge(int x, int a, int b)
+            {
+                if (x == a || x == b)
+                    return true;
+                PointKey key = arr.keys[arr.Canonical(x)];
+                return key.Kind == PointKind.EdgePlane && key.A == EdgeKey(a, b);
+            }
+
+            public LocalPoints(ExactMeshArrangement arr, InputTriangle t)
+            {
+                this.arr = arr;
+                this.t = t;
+                i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
+            }
+
+            /// <summary> the local coordinates of p (x, y, and the bound of their errors as z), false if not usable </summary>
+            public bool Get(int p, out Vector3d l)
+            {
+                int k;
+                if (index == null) {
+                    index = new Dictionary<int, int>();
+                    points = new List<Vector3d>();
+                    o = arr.Exact(t.Corners[0]);
+                    // (an input point: an integer grid point)
+                    if (o.W.IsOne == false)
+                        throw new InvalidOperationException("ExactMeshArrangement: the first corner of a triangle is not a grid point");
+                }
+                if (index.TryGetValue(p, out k) == false) {
+                    ExactPoint3 x = arr.Exact(p);
+                    double lx = ExactPoint3.ToDouble(x[i] - o[i] * x.W, x.W, 0), ly = ExactPoint3.ToDouble(x[j] - o[j] * x.W, x.W, 0);
+                    double m = Math.Max(Math.Abs(lx), Math.Abs(ly));
+                    // (an infinite or NaN value, or a nonzero one near the subnormal range, where the relative bound
+                    // does not hold: not usable)
+                    if (!(m < 1e300) || tiny(lx) || tiny(ly))
+                        lx = double.NaN;
+                    k = points.Count;
+                    points.Add(new Vector3d(lx, ly, 2.3e-16 * m));
+                    index.Add(p, k);
+                }
+                l = points[k];
+                return double.IsNaN(l.x) == false;
+            }
+
+            static bool tiny(double v) { return v != 0 && Math.Abs(v) < 1e-290; }
+        }
+
+        /// <summary>
+        /// point id lies on plane (a canonical plane key) by its construction (sufficient, not necessary): Planes with that
+        /// plane among its three, EdgePlane with that plane or with both ends of its edge on it, an input point that is a
+        /// corner of the triangle whose plane it is. Exact: a constructed point lies exactly on the planes it was
+        /// constructed from, a corner on its triangle's plane, and an edge with both ends on a plane lies in it
+        /// </summary>
+        internal bool OnPlaneByConstruction(int id, int plane)
+        {
+            PointKey key = keys[Canonical(id)];
+            switch (key.Kind) {
+                case PointKind.Planes:
+                    return key.A == plane || key.B == plane || key.C == plane;
+                case PointKind.EdgePlane:
+                    return key.B == plane || (OnPlaneByConstruction((int)(key.A >> 32), plane) && OnPlaneByConstruction((int)(key.A & 0xFFFFFFFF), plane));
+                case PointKind.Input: {
+                    if ((plane & 3) != 0)
+                        return false;
+                    Index3i c = Triangles[plane >> 2].Corners;
+                    int x = Canonical(id);
+                    return Canonical(c.a) == x || Canonical(c.b) == x || Canonical(c.c) == x;
+                }
+                default:
+                    return false;
+            }
+        }
 
         /// <summary> orientation of three points in the projection of triangle t, +1 if counter-clockwise like t </summary>
         [MethodImpl(JitHints.Optimize)]
         public int Orient(InputTriangle t, int p, int q, int r)
+        {
+            return Orient(t, p, q, r, null);
+        }
+
+        /// <summary> Orient, with the local points of t as a second filter (null: none) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal int Orient(InputTriangle t, int p, int q, int r, LocalPoints local)
         {
             if (p == q || q == r || r == p)
                 return 0;
@@ -1269,6 +1606,20 @@ namespace g3
             }
             if (ra > 0 && rb > 0 && rc > 0)
                 return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
+            // (in the triangulation, before the BigInteger stage: points collinear by their constructions, the points on a
+            // segment or on an edge of the triangle, give 0 without arithmetic; then the local filter, which the stages
+            // above beat: they cost less than the conversion)
+            if (local != null && local.CollinearByConstruction(p, q, r)) {
+                local.Zeros++;
+                return 0;
+            }
+            Vector3d lp, lq, lr;
+            if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr)) {
+                double err;
+                double fdet = orient2d_approx(lp, lq, lr, 0, 1, Math.Max(lp.z, Math.Max(lq.z, lr.z)), out err);
+                if (fdet > err) { local.Decided++; return t.Sign; }
+                if (-fdet > err) { local.Decided++; return -t.Sign; }
+            }
             ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
             return det.Sign * t.Sign;
@@ -1309,6 +1660,13 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public int InCircle(InputTriangle t, int p, int q, int r, int s)
         {
+            return InCircle(t, p, q, r, s, null);
+        }
+
+        /// <summary> InCircle, with the local points of t as a second filter (null: none) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal int InCircle(InputTriangle t, int p, int q, int r, int s, LocalPoints local)
+        {
             PredicateStats.Call(PredicateStats.Kind.ArrInCircle);
             if (DisableFilters == false) {
                 int f = InCircleFiltered(t, p, q, r, s);
@@ -1331,6 +1689,14 @@ namespace g3
             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
             if (ra > 0 && rb > 0 && rc > 0 && rd > 0)
                 return FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
+            // (the local filter only before the BigInteger stage, as in Orient)
+            Vector3d lp, lq, lr, ls;
+            if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
+                double bound;
+                double fdet = incircle_approx(lp, lq, lr, ls, 0, 1, Math.Max(Math.Max(lp.z, lq.z), Math.Max(lr.z, ls.z)), out bound);
+                if (fdet > bound) { local.Decided++; return t.Sign; }
+                if (-fdet > bound) { local.Decided++; return -t.Sign; }
+            }
             ExactPoint3 pd = Exact(s);
             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
             incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
@@ -1483,7 +1849,7 @@ namespace g3
         /// query per triangle (each pair found twice, once dropped): the same pairs, in another order
         /// </summary>
         internal bool SelfJoin = true;
-        /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() </summary>
+        /// <summary> per mesh: box tree of its triangles (in the order of MeshTriangles), after Compute() (ExactMeshBoolean releases them after its classification) </summary>
         public TriangleBoxTree[] Trees;
 
         [MethodImpl(JitHints.Optimize)]
@@ -1557,6 +1923,9 @@ namespace g3
                 self += self_pairs(boxes, trees, pairs);
             SelfIntersectingPairs += self;
             clock.Lap("intersections.pairs");
+            // (cancelled: Compute stops after this phase, with no intersections)
+            if (Cancellation.IsCancellationRequested)
+                return;
             // planes of the triangles involved (computed once, before the parallel use)
             var needed = new bool[Triangles.Count];
             foreach (long pr in pairs) {
@@ -1592,7 +1961,11 @@ namespace g3
             }
             planeRep = rep;
             clock.Lap("intersections.planes");
-            gParallel.ForRange(pairs.Count, (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
+            // (cancelled: the pairs left are skipped; Compute stops after this phase)
+            gParallel.ForRange(pairs.Count, (k) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
+            });
             clock.Lap("intersections.intersect");
             CandidatePairs = pairs.Count;
             if (KeepCandidatePairs)
@@ -1975,11 +2348,11 @@ namespace g3
                 return;
             System.Threading.Interlocked.Increment(ref IntersectingPairs);
             if (c == 0) {
-                lock (T) T.AddPoint(lo);
-                lock (U) U.AddPoint(lo);
+                lock (T.Lock) T.AddPoint(lo);
+                lock (U.Lock) U.AddPoint(lo);
             } else {
-                lock (T) T.AddSegment(new Segment(lo, hi, 4 * ui));
-                lock (U) U.AddSegment(new Segment(lo, hi, 4 * ti));
+                lock (T.Lock) { T.AddSegment(new Segment(lo, hi, 4 * ui)); T.AddPartner(ui); }
+                lock (U.Lock) { U.AddSegment(new Segment(lo, hi, 4 * ti)); U.AddPartner(ti); }
             }
         }
 
@@ -2046,8 +2419,8 @@ namespace g3
             }
             if (any) {
                 System.Threading.Interlocked.Increment(ref IntersectingPairs);
-                lock (T) T.AddCoplanar(ui);
-                lock (U) U.AddCoplanar(ti);
+                lock (T.Lock) T.AddCoplanar(ui);
+                lock (U.Lock) U.AddCoplanar(ti);
             }
         }
 
@@ -2075,7 +2448,7 @@ namespace g3
                 return false;
             int lo, hi;
             min_max(cands, d, out lo, out hi);
-            lock (t) {
+            lock (t.Lock) {
                 if (compare_along(d, lo, hi) == 0)
                     t.AddPoint(lo);
                 else
@@ -2180,28 +2553,29 @@ namespace g3
         void triangulate_touched(int ti, InputTriangle t, out List<OutputTriangle> output, out List<long> constraints)
         {
             constraints = null;
-            var pts = new HashSet<int>();
-            foreach (int p in t.Points)
-                pts.Add(Canonical(p));
-            for (int k = 0; k < 3; ++k)
-                pts.Remove(t.Corners[k]);
+            // (the points from predict_pieces, released here)
+            int[] pts = touchedPoints != null ? touchedPoints[ti] : null;
+            if (pts == null)
+                pts = touched_points(t);
+            else
+                touchedPoints[ti] = null;
             output = new List<OutputTriangle>();
-            if (pts.Count == 0 && t.Segments.Count == 0) {
+            if (pts.Length == 0 && t.Segments.Count == 0) {
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = t.Corners[0], B = t.Corners[1], C = t.Corners[2] });
                 return;
             }
             constraints = new List<long>();
 
+            var local = LocalFilters ? new LocalPoints(this, t) : null;
             var tri = new ExactTriangulation2(t.Corners[0], t.Corners[1], t.Corners[2],
-                (a, b, c) => Orient(t, a, b, c), (a, b, c, d) => InCircle(t, a, b, c, d));
-            var ordered = new List<int>(pts);
-            ordered.Sort(ComparePoints);    // deterministic (point ids are not, they are assigned in parallel)
+                (a, b, c) => Orient(t, a, b, c, local), (a, b, c, d) => InCircle(t, a, b, c, d, local));
+            int[] ordered = pts;
             foreach (int p in ordered)
                 tri.InsertPoint(p);
             tri.MakeDelaunay();
 
             // segments split at the points on them (the points whose boxes overlap the segment's, from a grid)
-            var grid = new BoxGrid2(this, t, ordered.Count);
+            var grid = new BoxGrid2(this, t, ordered.Length);
             foreach (int p in ordered)
                 grid.Add(p, p);
             var candidates = new List<int>();
@@ -2214,7 +2588,7 @@ namespace g3
                 candidates.Add(t.Corners[0]); candidates.Add(t.Corners[1]); candidates.Add(t.Corners[2]);
                 foreach (int r in candidates) {
                     if (r == sp || r == sq) continue;
-                    if (Orient(t, sp, sq, r) == 0 && between(d, sp, sq, r))
+                    if (Orient(t, sp, sq, r, local) == 0 && between(d, sp, sq, r))
                         on.Add(r);
                 }
                 on.Sort((a, b) => compare_along(d, a, b));
@@ -2225,6 +2599,11 @@ namespace g3
             }
             System.Threading.Interlocked.Add(ref CandidateTests, grid.Examined);
             tri.MakeDelaunay();
+            if (local != null) {
+                System.Threading.Interlocked.Add(ref LocalFilterDecided, local.Decided);
+                System.Threading.Interlocked.Add(ref LocalFilterPoints, local.Count);
+                System.Threading.Interlocked.Add(ref ConstructionZeros, local.Zeros);
+            }
             foreach (Index3i f in tri.Triangles())
                 output.Add(new OutputTriangle() { Mesh = t.Mesh, Source = ti, A = f.a, B = f.b, C = f.c });
         }
@@ -2495,14 +2874,14 @@ namespace g3
     /// </summary>
     internal class TriangleBoxTree
     {
-        readonly List<AxisAlignedBox3d> boxes;
+        List<AxisAlignedBox3d> boxes;       // the input of the build; released at its end (the trees live through the classification)
         readonly int[] order;
         const int LeafSize = 8;
         // small trees (eg SafeRounding's tree of the changed triangles, rebuilt often) take the median split on the
         // longest axis per node, which is cheaper to build; larger ones the Morton order
         const int MedianSplitBelow = 4096;
         readonly bool median;
-        readonly double[] keys;     // the median split's sort keys while building
+        double[] keys;              // the median split's sort keys while building (released with boxes)
         long[] sortedCodes;         // the Morton codes in order (while building)
         // nodes (in the order of construction, the root first): box (min x, y, z, max x, y, z), first index into
         // order and count, children (-1 for a leaf)
@@ -2529,15 +2908,151 @@ namespace g3
                 morton_order(n);
             // Stryker restore all
             // (at most 2 n / LeafSize * 2 + 1 nodes: every inner node splits a range of more than LeafSize in halves)
-            int cap = 4 * (n / LeafSize) + 3;
+            int cap = capacity(n);
             nodeBox = new double[6 * cap];
             nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
-            if (n > 0)
-                build(0, n);
+            if (n > 0) {
+                if (median == false && n >= ParallelBuildFrom)
+                    build_parallel(n);
+                else {
+                    var nodes = new Nodes(nodeBox, nodeStart, nodeSize, nodeLeft, nodeRight);
+                    build(nodes, 0, n);
+                    nodeCount = nodes.Count;
+                }
+            }
             sortedCodes = null;
             leafBox = new double[6 * n];
-            for (int i = 0; i < n; ++i)
-                put(leafBox, i, boxes[order[i]]);
+            if (n >= ParallelBuildFrom && median == false)
+                gParallel.ForRange(blocks(n), (b) => {
+                    for (int i = b * BlockSize; i < Math.Min(n, (b + 1) * BlockSize); ++i)
+                        put(leafBox, i, boxes[order[i]]);
+                });
+            else
+                for (int i = 0; i < n; ++i)
+                    put(leafBox, i, boxes[order[i]]);
+            // (queries read leafBox and the nodes only: the list of boxes, 48 bytes per triangle, and the sort keys
+            // would live as long as the tree)
+            this.boxes = null;
+            keys = null;
+        }
+
+        static int capacity(int n) { return 4 * (n / LeafSize) + 3; }
+
+        // from this many boxes on the tree is built (Morton order, codes, sort, nodes) in parallel over fixed blocks and
+        // subtrees, to the same tree as the serial build (tests set it)
+        internal static volatile int ParallelBuildFrom = 262144;
+        const int BlockSize = 4096;
+        static int blocks(int n) { return (n + BlockSize - 1) / BlockSize; }
+        // the top of the tree down to this depth is built serially, the subtrees below it in parallel
+        const int TopDepth = 4;
+
+        // the nodes of a tree or subtree (arrays of the capacity), numbered in the order of construction
+        sealed class Nodes
+        {
+            public readonly double[] Box;
+            public readonly int[] Start, Size, Left, Right;
+            public int Count;
+            public Nodes(int cap) : this(new double[6 * cap], new int[cap], new int[cap], new int[cap], new int[cap]) { }
+            public Nodes(double[] box, int[] start, int[] size, int[] left, int[] right)
+            {
+                Box = box; Start = start; Size = size; Left = left; Right = right;
+            }
+        }
+
+        // a node of the serially built top of the tree: a range split in two top nodes, or a subtree (task) built apart
+        sealed class Top
+        {
+            public int Start, Count, Left = -1, Right = -1, Task = -1;
+        }
+
+        // The tree of the Morton order, built the same as by build(): the top levels serially (only the split points),
+        // the subtrees below TopDepth in parallel, each into its own node arrays, then renumbered in the order of
+        // construction (the root first, each node before its subtrees, left before right) as the serial build numbers them
+        void build_parallel(int n)
+        {
+            var tops = new List<Top>();
+            var tasks = new List<Top>();
+            make_top(tops, tasks, 0, n, 0);
+            var parts = new Nodes[tasks.Count];
+            gParallel.ForRange(tasks.Count, (i) => {
+                parts[i] = new Nodes(capacity(tasks[i].Count));
+                build(parts[i], tasks[i].Start, tasks[i].Count);
+            });
+            var all = new Nodes(nodeBox, nodeStart, nodeSize, nodeLeft, nodeRight);
+            assign(tops, parts, all, 0);
+            nodeCount = all.Count;
+        }
+
+        int make_top(List<Top> tops, List<Top> tasks, int start, int count, int depth)
+        {
+            var t = new Top() { Start = start, Count = count };
+            int id = tops.Count;
+            tops.Add(t);
+            if (depth == TopDepth || count <= LeafSize) {
+                t.Task = tasks.Count;
+                tasks.Add(t);
+                return id;
+            }
+            int half = split(start, count);
+            t.Left = make_top(tops, tasks, start, half, depth + 1);
+            t.Right = make_top(tops, tasks, start + half, count - half, depth + 1);
+            return id;
+        }
+
+        // gives the nodes of top node ti their numbers in `all` (the next free ones, parents first) and returns its number
+        int assign(List<Top> tops, Nodes[] parts, Nodes all, int ti)
+        {
+            Top t = tops[ti];
+            int id = all.Count;
+            if (t.Task >= 0) {
+                Nodes p = parts[t.Task];
+                Array.Copy(p.Box, 0, all.Box, 6 * id, 6 * p.Count);
+                Array.Copy(p.Start, 0, all.Start, id, p.Count);
+                Array.Copy(p.Size, 0, all.Size, id, p.Count);
+                for (int j = 0; j < p.Count; ++j) {
+                    all.Left[id + j] = p.Left[j] < 0 ? -1 : p.Left[j] + id;
+                    all.Right[id + j] = p.Right[j] < 0 ? -1 : p.Right[j] + id;
+                }
+                all.Count += p.Count;
+                return id;
+            }
+            all.Count++;
+            all.Start[id] = t.Start;
+            all.Size[id] = t.Count;
+            int left = assign(tops, parts, all, t.Left);
+            int right = assign(tops, parts, all, t.Right);
+            all.Left[id] = left;
+            all.Right[id] = right;
+            // (the box of a node: that of the boxes of its range, which is the union of its children's)
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            for (int c = 0; c < 2; ++c) {
+                int ch = c == 0 ? left : right;
+                box.Contain(new AxisAlignedBox3d(new Vector3d(all.Box[6 * ch], all.Box[6 * ch + 1], all.Box[6 * ch + 2]),
+                    new Vector3d(all.Box[6 * ch + 3], all.Box[6 * ch + 4], all.Box[6 * ch + 5])));
+            }
+            put(all.Box, id, box);
+            return id;
+        }
+
+        // tests: the same nodes, order and leaf boxes
+        internal bool SameAs(TriangleBoxTree o)
+        {
+            if (nodeCount != o.nodeCount || order.Length != o.order.Length)
+                return false;
+            for (int i = 0; i < nodeCount; ++i) {
+                if (nodeStart[i] != o.nodeStart[i] || nodeSize[i] != o.nodeSize[i] || nodeLeft[i] != o.nodeLeft[i] || nodeRight[i] != o.nodeRight[i])
+                    return false;
+                for (int k = 0; k < 6; ++k)
+                    if (BitConverter.DoubleToInt64Bits(nodeBox[6 * i + k]) != BitConverter.DoubleToInt64Bits(o.nodeBox[6 * i + k]))
+                        return false;
+            }
+            for (int i = 0; i < order.Length; ++i)
+                if (order[i] != o.order[i])
+                    return false;
+            for (int i = 0; i < leafBox.Length; ++i)
+                if (BitConverter.DoubleToInt64Bits(leafBox[i]) != BitConverter.DoubleToInt64Bits(o.leafBox[i]))
+                    return false;
+            return true;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -2547,15 +3062,16 @@ namespace g3
             a[6 * i + 3] = b.Max.x; a[6 * i + 4] = b.Max.y; a[6 * i + 5] = b.Max.z;
         }
 
+        // the node of the range [start, start + count) and, below it, the nodes of the halves, into nd (numbered from nd.Count)
         [MethodImpl(JitHints.Optimize)]
-        int build(int start, int count)
+        int build(Nodes nd, int start, int count)
         {
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
             for (int i = start; i < start + count; ++i)
                 box.Contain(boxes[order[i]]);
-            int node = nodeCount++;
-            put(nodeBox, node, box);
-            nodeStart[node] = start; nodeSize[node] = count; nodeLeft[node] = -1; nodeRight[node] = -1;
+            int node = nd.Count++;
+            put(nd.Box, node, box);
+            nd.Start[node] = start; nd.Size[node] = count; nd.Left[node] = -1; nd.Right[node] = -1;
             if (count <= LeafSize)
                 return node;
             int half = count / 2;
@@ -2567,38 +3083,47 @@ namespace g3
                     keys[i] = boxes[order[i]].Min[axis] + boxes[order[i]].Max[axis];
                 select(start, start + count - 1, start + half);
             }
-            else {
-                // the boxes are in Morton order: split where the highest bit in which the range's codes differ changes,
-                // so that the halves are octree cells and not the two ends of a jump of the curve; equal codes, or a
-                // split that leaves too little on a side: the middle
-                long a = sortedCodes[start], b = sortedCodes[start + count - 1];
-                if (a != b) {
-                    long bit = highest_bit(a ^ b);
-                    int lo = start, hi = start + count - 1;
-                    // (the codes ascend and share the bits above: the first one with the bit set)
-                    while (lo < hi) {
-                        int mid = (lo + hi) >> 1;
-                        if ((sortedCodes[mid] & bit) != 0) hi = mid; else lo = mid + 1;
-                    }
-                    // Stryker restore all
-                    // (not performance only, the safety of the arrays: each side at least LeafSize / 2, so the leaves hold
-                    // 4 or more and the nodes fit the capacity, at most n / 2 - 1; without it a crafted input peels single
-                    // boxes off and overflows it, BoxTreeMortonTests. And an eighth, so the depth stays below
-                    // log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack of 256; the depth is also
-                    // bounded without it, by the 63 bits of the codes (one highest-bit split each per path) plus the
-                    // middle splits of equal codes, so the eighth is balance, and the tests do not see it)
-                    int h = lo - start, least = Math.Max(count / 8, LeafSize / 2);
-                    if (h >= least && count - h >= least)
-                        half = h;
-                    // Stryker disable all
+            else
+                half = split(start, count);
+            // Stryker restore all
+            int left = build(nd, start, half);
+            int right = build(nd, start + half, count - half);
+            nd.Left[node] = left;
+            nd.Right[node] = right;
+            return node;
+        }
+
+        // the size of the left half of a range of Morton-ordered boxes of more than LeafSize
+        int split(int start, int count)
+        {
+            int half = count / 2;
+            // Stryker disable all: the split only decides which boxes share a node (performance, not results)
+            // the boxes are in Morton order: split where the highest bit in which the range's codes differ changes,
+            // so that the halves are octree cells and not the two ends of a jump of the curve; equal codes, or a
+            // split that leaves too little on a side: the middle
+            long a = sortedCodes[start], b = sortedCodes[start + count - 1];
+            if (a != b) {
+                long bit = highest_bit(a ^ b);
+                int lo = start, hi = start + count - 1;
+                // (the codes ascend and share the bits above: the first one with the bit set)
+                while (lo < hi) {
+                    int mid = (lo + hi) >> 1;
+                    if ((sortedCodes[mid] & bit) != 0) hi = mid; else lo = mid + 1;
                 }
+                // Stryker restore all
+                // (not performance only, the safety of the arrays: each side at least LeafSize / 2, so the leaves hold
+                // 4 or more and the nodes fit the capacity, at most n / 2 - 1; without it a crafted input peels single
+                // boxes off and overflows it, BoxTreeMortonTests. And an eighth, so the depth stays below
+                // log(n / 4) / log(8 / 7) + 1, 110 for 1e7 boxes, within the query stack of 256; the depth is also
+                // bounded without it, by the 63 bits of the codes (one highest-bit split each per path) plus the
+                // middle splits of equal codes, so the eighth is balance, and the tests do not see it)
+                int h = lo - start, least = Math.Max(count / 8, LeafSize / 2);
+                if (h >= least && count - h >= least)
+                    half = h;
+                // Stryker disable all
             }
             // Stryker restore all
-            int left = build(start, half);
-            int right = build(start + half, count - half);
-            nodeLeft[node] = left;
-            nodeRight[node] = right;
-            return node;
+            return half;
         }
 
         // tests: the nodes, their capacity, and the depth of the tree (the root at depth 1)
@@ -2705,10 +3230,16 @@ namespace g3
             Vector3d lo = all.Min, ext = all.Max - all.Min;
             const double cells = 2097151;   // 2^21 - 1
             double sx = ext.x > 0 ? cells / ext.x : 0, sy = ext.y > 0 ? cells / ext.y : 0, sz = ext.z > 0 ? cells / ext.z : 0;
-            for (int i = 0; i < n; ++i) {
-                Vector3d c = boxes[i].Center;
-                codes[i] = spread(quantize((c.x - lo.x) * sx)) << 2 | spread(quantize((c.y - lo.y) * sy)) << 1 | spread(quantize((c.z - lo.z) * sz));
-            }
+            Action<int, int> encode = (from, to) => {
+                for (int i = from; i < to; ++i) {
+                    Vector3d c = boxes[i].Center;
+                    codes[i] = spread(quantize((c.x - lo.x) * sx)) << 2 | spread(quantize((c.y - lo.y) * sy)) << 1 | spread(quantize((c.z - lo.z) * sz));
+                }
+            };
+            if (n >= ParallelBuildFrom)
+                gParallel.ForRange(blocks(n), (b) => encode(b * BlockSize, Math.Min(n, (b + 1) * BlockSize)));    // (per box)
+            else
+                encode(0, n);
             sort_codes(codes, n);
             int distinct = 1;
             for (int k = 1; k < n; ++k)
@@ -2738,12 +3269,64 @@ namespace g3
         // results' order could depend on it, across net48 and net10, not the results; the runs are short)
         void sort_codes(long[] codes, int n)
         {
+            if (n >= ParallelBuildFrom) {
+                sort_codes_parallel(codes, n);
+                return;
+            }
             Array.Sort(codes, order);
-            for (int s0 = 0, s1; s0 < n; s0 = s1) {
-                for (s1 = s0 + 1; s1 < n && codes[s1] == codes[s0]; ++s1) { }
+            fix_ties(codes, 0, n);
+        }
+
+        // the runs of equal codes in [from, to) by box index
+        void fix_ties(long[] codes, int from, int to)
+        {
+            for (int s0 = from, s1; s0 < to; s0 = s1) {
+                for (s1 = s0 + 1; s1 < to && codes[s1] == codes[s0]; ++s1) { }
                 if (s1 - s0 > 1)
                     Array.Sort(order, s0, s1 - s0);
             }
+        }
+
+        // the same order by (code, box index), a total order: SortRuns runs of equal length sorted apart, then merged
+        // pairwise (the result does not depend on the schedule, nor on how the ranges are cut)
+        const int SortRuns = 8;
+        void sort_codes_parallel(long[] codes, int n)
+        {
+            int len = (n + SortRuns - 1) / SortRuns;
+            gParallel.ForRange(SortRuns, (r) => {
+                int from = Math.Min(n, r * len), to = Math.Min(n, from + len);
+                Array.Sort(codes, order, from, to - from);
+                fix_ties(codes, from, to);
+            });
+            long[] sc = codes, dc = new long[n];
+            int[] so = order, dord = new int[n];
+            for (long w = len; w < n; w *= 2) {
+                int width = (int)w;
+                long pairs = (n + 2L * width - 1) / (2L * width);
+                long[] fromC = sc, toC = dc;
+                int[] fromO = so, toO = dord;
+                gParallel.ForRange((int)pairs, (pi) => {
+                    long lo = pi * 2L * width, mid = Math.Min(n, lo + width), hi = Math.Min(n, lo + 2L * width);
+                    merge_runs(fromC, fromO, toC, toO, (int)lo, (int)mid, (int)hi);
+                });
+                long[] tc = sc; sc = dc; dc = tc;
+                int[] to2 = so; so = dord; dord = to2;
+            }
+            if (sc != codes) {
+                Array.Copy(sc, codes, n);
+                Array.Copy(so, order, n);
+            }
+        }
+
+        static void merge_runs(long[] c, int[] o, long[] dc, int[] dord, int lo, int mid, int hi)
+        {
+            int i = lo, j = mid, k = lo;
+            while (i < mid && j < hi) {
+                if (c[j] < c[i] || (c[j] == c[i] && o[j] < o[i])) { dc[k] = c[j]; dord[k++] = o[j++]; }
+                else { dc[k] = c[i]; dord[k++] = o[i++]; }
+            }
+            while (i < mid) { dc[k] = c[i]; dord[k++] = o[i++]; }
+            while (j < hi) { dc[k] = c[j]; dord[k++] = o[j++]; }
         }
 
         // a coordinate scaled to the grid; not finite (NaN, an infinite extent): the low end

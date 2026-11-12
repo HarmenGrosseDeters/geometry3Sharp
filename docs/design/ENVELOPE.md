@@ -1,6 +1,6 @@
 # Polyhedral envelope containment (design, for the owner's approval)
 
-**Status:** approved by the owner (decisions in section 7; ROADMAP stage 7, tier L). PR 1 (double inputs) and PR 2 (`PolyhedralEnvelope`, internal: polyhedra, point and segment queries) are on #263; PR 3 (triangle queries) is next. It builds on the indirect
+**Status:** approved by the owner (decisions in section 7; ROADMAP stage 7, tier L). PR 1 (double inputs) and PR 2 (`PolyhedralEnvelope`, internal: polyhedra, point and segment queries) are on #263; PR 3 (triangle queries, #268) ended at the stop rule: stopped by the owner on 2026-11-01 (section 6, "Stopped"). It builds on the indirect
 predicates of `docs/design/INDIRECT_PREDICATES.md` (#246, #250, #257).
 
 ## 1. Goal

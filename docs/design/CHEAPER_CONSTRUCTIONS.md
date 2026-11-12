@@ -1,7 +1,7 @@
 # Cheaper exact constructions and pair tests in the arrangement
 
-Status: **approved by the owner (decisions 1-3 as proposed); steps B and A1 built, section 12** (tier L, [AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)). Nothing
-in the library is changed yet. Base: #248 (`claude/pair-search`, on #223). This document has the step-0
+Status: **approved by the owner (decisions 1-3 as proposed); steps B and A1 built, section 12** (tier L, [AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)). Merged in
+#256 (2026-11-01); `coplanar_stack` not built (owner). Base at the time of writing: #248 (`claude/pair-search`, on #223). This document has the step-0
 measurements (section 2), what they change in the plan (section 3), the design (section 4), the bounds derived by
 the generator (section 5), and the plan with its stop rule (section 6).
 

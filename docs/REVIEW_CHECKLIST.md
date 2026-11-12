@@ -189,6 +189,8 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   `CompatibilitySuppressions.xml` with a reason).
 - A changed result of an existing method goes into [UPSTREAM_CHANGES.md](UPSTREAM_CHANGES.md).
 - Limits of a new operation are documented at the class and in [OPERATIONS.md](OPERATIONS.md).
+- A PR that starts, finishes or changes a roadmap item updates it ([ROADMAP.md](ROADMAP.md) "Now" and the `docs/roadmap/` or
+  `docs/design/` page of the item: status, date, PR numbers), see [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) section 6.
 
 ## 12. Test oracles and generators (#229)
 

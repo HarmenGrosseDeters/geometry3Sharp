@@ -5,9 +5,10 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `MeshAlphaWrap` and the wrap fallback of `MeshRobustRepair` (quality pass, raw-wrap fixes, wrap
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
-- **Status (2026-11-08):** milestone Alpha Wrap 2.0 started (session session_01AaGT5CSm6ZjSih3jZRg7HJ, see below). Wrap quality (#292), wrap resolution (#280), raw-wrap fixes (#311,
-  #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01). The
-  remesher items of Phase 2 stay open.
+- **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
+  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now)). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
+  fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
+  The remesher items of Phase 2 stay open; the Remesher rim folds (#621) are fixed by #640 (merged 2026-11-12).
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
   [ALPHA_WRAP_PAPER_NOTES.md](../design/ALPHA_WRAP_PAPER_NOTES.md), [ENVELOPE.md](../design/ENVELOPE.md),
   [VOLUME_CHECK_SAMPLING.md](../design/VOLUME_CHECK_SAMPLING.md),
@@ -38,7 +39,8 @@ self-intersections in 14 of 19, not bit-identical under 2^k in 4 cases. Targets:
 genus limit, T2 Remesher clean with p01 >= 5°, T3 self-intersection check by default at <= 4x / <= 8x (via #432's
 slabs), T5 bit-identical 2^k scaling, T6 a fidelity gate; T4 (Remesher speed 1.3-1.5x) later. Opt-in first; the default
 flips only after an 800-mesh run shows nowhere worse and the speed target met. Partitioned reduction stays internal
-until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each.
+until T3 is measured. Order: T5, T2, T1, T3, T6, one PR each. **Closed 2026-11-09** (REDUCER_REMESHER_20.md section 11: #466 T5, #468 T2,
+#469 T1, #470 T3; T4 below).
 **Alpha Wrap 3.0 (owner 2026-11-09; starts once Exact Boolean 2.0 is closed):** speed and parallelism on top of 2.0.
 Starting point (final 800 run, the 189 meshes over budget): pinch passes 18 %, reduction 17 %, intersection oracle 14 %,
 Delaunay insertion 13 %, touch test 12 %, certification 7 %. Levers: (1) intersection oracle and touch test through
@@ -56,6 +58,41 @@ lever, a short literature check (papers only, never CGAL code) and proposes targ
 guarantees and angles unchanged, deterministic); the owner sets them; one PR per lever, measured with the 800 harness on
 the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
 and memory): both use "evaluate in parallel, apply serially".
+
+**Alpha Wrap 3.0, phase 1 and targets (measured 2026-11-12 on a measurement build; PR 0 adds only the timing keys; owner set the targets 2026-11-12).**
+Profile of the 189 over budget in f800 plus 80 of the other 611, master (bit-identical to f800, 16/16 hashes) with the
+contact fix's `KeepClearOf`, which the bench left out (f800 misses about 3 %); raw rows, scripts and the report on
+`runs/alpha-wrap-3` (`aw3/REPORT-phase1.md`). The 2.0 split overlapped (oracle, touch and insert were totals over the
+pinch passes too); separated, on the over-budget set: intersection oracle 15.5 %, touch test 12.1 %, Delaunay
+insertion 12.2 %, the manifold-step trials of the pinch passes 15.8 % (about 3 full trials per mesh, only the last
+needed; a confirming full trial never found a spot the local one missed, 269/269), carving bookkeeping 9.2 %,
+reduction 18.8 % (regions already parallel 13.3 %), certification 6.5 %. Upper bounds (speedup on the 189, M
+measured / E estimated): L1 oracle + touch free 1.40x M, 1.07x E; L2 insertion free 1.14x M, 1.02x E (BRIO / Hilbert
+order does not apply: the points come online from the carving); L3 gate tests perfect on 4 cores 1.31x M, 1.23x E,
+bit-identical (pure tests on stamped cells, applied serially in queue order; deterministic reservations, Blelloch et
+al. 2012); L3b parallel certification 1.05x; L4 trials free 1.19x M, 1.12x E; L5 reduction free 1.23x, its serial
+parts 1.04x (Reducer 2.0's area); L1+L3+L3b+L4 1.57x E, about 99 % of the 800 within budget; ceiling without parallel
+insertion 1.67x. **Targets (owner 2026-11-12):** (a) >= 95 % of the 800 within budget on the reference machine
+(stretch 98 %; f800: 76 %); (b) >= 1.4x pipeline speedup on the 189 against master on 4 cores; (c) guarantees, angle
+floors, fidelity and determinism unchanged, PRs 1, 3 and 4 bit-identical to master. PR order: 0 bench and phase keys
+(this), 1 L3 (independent determinism review), 2 L4 (not guaranteed bit-identical: where its output differs, and the
+guarantees there), 3 L1, 4 L3b, 5 L2. Lever 6 re-measured on DC A+B: B clean 20/20 (before 19/20), Chamfer 0.22x, still
+no offset and 17870 triangles > 170 deg at 3.3x time; C3 unchanged (+40 % time); not built now (owner 2026-11-12).
+**L3 dropped (owner 2026-11-12).** The bit-identical spike (gate tests of the queue's top gates precomputed in parallel,
+used only while the stamps of both cells match; output hashes identical) is slower: only 36-40 % of the tests are in the
+window before the carving pops them (the priority flood mostly pops gates it just pushed; a deeper window covers less),
+which bounds it at <= 1.085x at zero overhead (`runs/alpha-wrap-3`, `aw3/L3-SPIKE.md`, the reference). Decision: (A) go on
+with L4, L1, L3b, L2; target (b) lowered to about 1.25x on the 189 against master on 4 cores, (a) and (c) unchanged. (B), a
+deterministic round-based parallel carving (independent gates per round, deterministic reservations; serial = parallel and
+2^k bit-identical, but not master's output), is a future research item: a guarantee argument first, then a probe, then
+an owner decision on (c) for it.
+**L4 (PR 2):** the manifold step faster, bit-identical (no star search for a vertex whose result facets form
+one closed cycle in its link, Jordan; stamp arrays instead of dictionaries in the same order; volumes only when needed;
+stars kept between trials without an insertion), and the first pinch pass leaves its confirming full trial to the
+second (output different only where that trial would find a spot the local ones missed). Measured (4-core container):
+A/B against master alternating on 24 meshes (16 random of the 269, 8 with the most pinch points): 24/24 identical,
+trial + manifold step 0.49x (median), pipeline 0.93x (median and sum); the 269 meshes of phase 1: 269/269 identical
+output (the confirmation skipped on 126), all closed and free of self-intersections, trial + manifold 0.49x.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
@@ -126,7 +163,7 @@ item; not built until a variant is shown to keep the T6 fidelity gate.
   run; cold times, about 2-2.5 s JIT more, are reported but not gated), alone on the 4-core cloud machine.
 A stop rule reports the cases the known levers cannot reach; the owner decides on exceptions. Work packages: (1) baseline,
 phase profile, upper bounds; (2) quality (pinch caps, slivers, caps; bug-or-inherent against the paper first); (3) speed;
-(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), draft #404 (`BENCH_REPAIR=wrappipe`). Long benchmark runs go to a runner session on Haiku
+(4) control run. Session session_01AaGT5CSm6ZjSih3jZRg7HJ (started 2026-11-08), #404 (`BENCH_REPAIR=wrappipe`, merged 2026-11-08). Long benchmark runs go to a runner session on Haiku
 (session_01AaGT5AcURraKzWZfZRtW6r, owner 2026-11-08: runs only, no code; raw results on the data branch
 `runs/alpha-wrap-2`, never merged).
 
@@ -185,10 +222,13 @@ better; 0.75 is 1.09-1.22x.
   compiled): stays while we compare against CGAL; remove it in its own PR once no comparison needs it (owner
   2026-11-08).
 
-- **Raw alpha wrap** (now part of Alpha Wrap 2.0): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
+- **Raw alpha wrap** (done in Alpha Wrap 2.0: the final 800 run has no triangle < 0.5° or > 170°, and the raw p01 is
+  >= CGAL's on the T1 100): the remaining pinch caps (102793, 118678, 1505037) and the p01 angle gap to CGAL's
   alpha wrap (about 2°); the ideas are recorded under [item 2](#wrap-resolution-raw-wrap-and-volume-checks-slot-order-item-2).
 - **Quality pass after `SimplifyAlphaWrap`:** the Phase 2 checkbox is still open, but stage 7b merged the quality
-  pass in #292 (2026-11-02), ON by default in the wrap fallback (status unclear, check: probably done).
+  pass in #292 (2026-11-02), ON by default in the wrap fallback; the goal (the min angle after the simplification) is met by Alpha Wrap 2.0
+  (the #405 guard among its changes; final 800 run: p01 median 11.34°, before 2.0 7.62°), so the item is done; #413
+  (2026-11-08) turned it off by default (`MeshRobustRepair.AlphaWrapQualityPass = false`).
 - **Reducer / Remesher 2.0: done 2026-11-09** (baseline, T5, T2, T1, T3, T6; results, measured limits and open items T4 / feature-curve operators in
   [design/REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) sections 6 to 11; no default changed). The milestone idea as first written (owner 2026-11-08, upper bounds first):
   (1) bring the parallel slab reduction of (A) (#432; deterministic, independent of the core count) and the #405
@@ -196,24 +236,27 @@ better; 0.75 is 1.09-1.22x.
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
   `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
   and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
-  (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
-  "status unclear" items below (the Remesher session, shared BVH queries per collapse). The Alpha Wrap session writes a
+  (`MinTriangleQuality` 0, `PreventSelfIntersections` off; the flip guard is moot: the owner kept the Remesher defaults upstream's, November 2026); (5) settle the
+  "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
   self-intersections (`PreventSelfIntersections` is opt-in, about 6-10x the time; what is left is the number of
   candidate pairs); walls folding through each other far above the wall thickness (135363 with the sizing: 1.1M
-  triangles, 22613 pairs; with the check as well more than 90 minutes). Leads in
+  triangles, 22613 pairs; with the check as well more than 90 minutes). Done: the new self-intersections that
+  `MinTriangleQuality` created at the bottom rim of cones and tapers (#621, fixed by #640; 1.16-1.22x on Thingi10K,
+  accepted by the owner; [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 13). Leads in
   [hotspots.md](hotspots.md#open-tasks-and-where-their-answer-may-already-be).
 - **Reducer / Remesher upper bounds** (2026-11-02): B (the union-box query in the Remesher, 4-6 %) not built; D (the
   permission-grid accept filter) not built (owner 2026-11-02). Shared BVH queries per collapse were "being tried in
-  the envelope session" (status unclear, check).
-- **Remesher session** on the cost of `PreventSelfIntersections` (started 2026-11-02) (status unclear, check: the
-  coplanar 2D shortcut and the clearance filter were measured and closed).
+  the envelope session" (done: #275, merged 2026-11-01, shares the MaxDeviation check's tree queries within a
+  collapse, 1.03-1.12x, bit-identical).
+- **Remesher session** on the cost of `PreventSelfIntersections` (started 2026-11-02) (done: #298, merged 2026-11-02, profile and
+  upper bounds; the coplanar 2D shortcut and the clearance filter were measured and closed).
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
-  research), S2 and S3 open, pinned and documented; the regressions a remesher flip-guard default would cause; the
-  P1 collapse.
+  research), S2 and S3 open, pinned and documented. Closed: the P1 collapse (a limitation, [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); the real fix is research); the regressions a remesher flip-guard default
+  would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
 - The slow `exact.resolve` on small inputs (67709, 42327) went to the boolean-performance session
   ([exact-boolean.md](exact-boolean.md#other-open-items)).
@@ -279,10 +322,11 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 - [x] Alpha wrapping (`MeshAlphaWrap`, Portaneri et al. 2022): closed, manifold, intersection-free wrap with an offset
   around any input (soups, open meshes, point clouds), on an own exact 3D Delaunay triangulation (`Delaunay3`).
   Benchmark on Thingi10K: `BENCH_REPAIR=wrap`, `analyze_wrap.py` (comparison with the solidify fallback).
-  - [ ] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
+  - [x] Quality pass after `MeshRobustRepair.SimplifyAlphaWrap`: the simplification keeps the fidelity (F-score, edges,
     normals equal at a quarter of the triangles) but the 1%-worst min angle drops from 16.2 to 3.8 degrees (17 wrap
     results of Thingi10K, benchmarks/MeshRepairBenchmark README, re-evaluation); eg a short remesh pass with
-    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification. Trials so far: `fix/alpha-wrap-simplification-quality`, none passes every gate (unverified, see Next, stage 7)
+    `Remesher.MinTriangleQuality` on the simplified wrap, or a min angle bound in the simplification. Trials so far: `fix/alpha-wrap-simplification-quality`, none passes every gate (unverified, see Next, stage 7).
+    Met by Alpha Wrap 2.0 (the #405 guard among its changes; final 800 run p01 median 11.34°), see [Alpha Wrap 2.0](#alpha-wrap-20-milestone).
 - [ ] Remeshers must not leave degenerate triangles. `Remesher` and `RemesherPro` (`g3cli remesh` settings) leave
   degenerate triangles or self-intersections on 18 of 20 clean Thingi10K meshes, 99% of the triangles with q < 0.1 at
   feature constraints (`benchmarks/RemeshBenchmark`). `RemesherPro` (8 x `RemeshIteration` and a full pass without
@@ -297,8 +341,11 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
   results have self-intersecting triangle pairs (19768 pairs, the inputs 1522), mostly from valence flips and collapses
   (no geometric check by default). `MinTriangleQuality` (0.2, the `g3cli` default now) reduces them (17 of 20 results,
   3105 pairs; far fewer are created during the passes)
-  but does not prevent them, and 9 of 150 procedural primitives end with a few more pairs than without it, all at the
-  bottom rim where the flat cap meets the side (projection moves across the rim, no normal flips): repro cases in
+  but does not prevent them. Before #640 (fold check, merged 2026-11-12) 9 of 150 procedural primitives ended with a few
+  more pairs than without it, all at the bottom rim where the flat cap meets the side (folds onto the cap, no normal
+  flips); with #640 the primitives have 129 pairs (from 281; only the flattened cones cone12_x0.6, cone16_x0.6 left) and
+  the 20 Thingi10K meshes 1186 new pairs at x1 (from 2113), most of them not local (no shared vertex), so the fold check
+  cannot see them ([REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 13). The repro cases of #621 in
   `benchmarks/RemeshQualityBenchmark`: taper10_x0.15 (12 -> 16 pairs), taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12),
   taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15 (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31),
   cone32_x0.6 (0 -> 8) (and cone12_x0.6, cone16_x0.6, flattened to zero volume without `RejectInvertingPasses`).

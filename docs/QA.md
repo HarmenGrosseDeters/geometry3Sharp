@@ -88,11 +88,12 @@ done since and what is open.
     - non-finite coordinates are now rejected by every reader (#136);
   - a test gap: no test caught an InSphere filter bound that was too small (#137).
 - Open, in this order:
-  1. defect generators and fuzzing of mesh inputs (2.1, 2.5);
+  1. defect generators and fuzzing of mesh inputs (2.1, 2.5; done since: `Harness/Defects.cs`, coverage-guided fuzzing in
+     ReaderFuzzPilot and MeshFuzzPilot);
   2. result validation in the existing success tests (2.3);
   3. mutation testing of `mesh_ops/ExactMesh*` (2.2; done, open gaps in tests/mutation/README.md) and the open
      `AdaptivePredicates` survivors;
-  4. coverage (2.6);
+  4. coverage (2.6; done since: the changed-line gate in `coverage.yml`, #434);
   5. the regression corpus (2.7; first part done: `RegressionCorpusTests`);
   6. performance (3.1, 3.2).
 
@@ -143,6 +144,14 @@ results mapped back to the original frame.
 - The other similarities compare with a tolerance derived from the coordinate resolution
   (`Similarity.Resolution`), not with a hand-picked constant.
 
+**2D inputs** (`Similarity.All2D()`, `Apply2d`, `Inverse2d`, `Angle2d`): the rotations of `All()` also tilt about x and y, so
+the xy part of their image is a rotation with a squash, not a similarity of the plane. Tests whose input is a set of points,
+segments or polygons in the plane use `All2D()` (tests that map a planar loop into the orthonormal frame of the transformed plane,
+as `PlanarComplexNestingProbeTests` and `PolygonSignedAreaTests` do, keep `All()`: for them the tilted members are valid inputs): the identity, UTM, the scales 2^-10, 2^10, 1e-3 and 1e3, a rotation about z
+by 31 degrees, and a rotation about z by 23 degrees with the scale 1e-3 and the UTM translation. A pinned case that needs the
+squash (`QualityMesh2NearTJunctionTests.RotatedFan`, `QualityMesh2GridRerouteSweepTests`) keeps `ByName("rotated")`. Operations on
+3D points with a height (the quadtree adapters, which project) keep `All()`.
+
 **Permutation of the input** (`Invariance.Permuted`): vertex order, triangle order and the starting corner of
 each triangle.
 
@@ -186,7 +195,7 @@ determinism tests.
 `Similarity.All()`, a reuse test if it has a `Compute()`, and a determinism test if it has a parallel
 path. The tests run in the normal suite, so they gate every PR.
 
-**Defect generators** (next step): procedural inputs for the degenerate, open, bowtie and nested cases of
+**Defect generators** (built: `tests/geometry3Sharp.Tests/Harness/Defects.cs`): procedural inputs for the degenerate, open, bowtie and nested cases of
 the checklist, so that each operation runs over the same set of awkward inputs:
 - zero-area ears;
 - T-junctions;
@@ -333,7 +342,8 @@ the module outside the range, or "not guaranteed".
 - coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage in its own workflow, `.github/workflows/coverage.yml`,
   **not on pull requests**: coverlet makes the suites about 3x slower (a first version in the PR jobs took 59 min for
   the core fast tier alone, and eight parallel shards were limited by the runner quota), so the gate runs cyclically
-  (owner decision 2026-11-10): every night on master (`schedule`) and on demand (`workflow_dispatch`, optional `ref`
+  (owner decision 2026-11-10): every night on master (`schedule`; on 2026-11-12 the schedule had not fired yet, see
+  [platform.md](roadmap/platform.md#open)) and on demand (`workflow_dispatch`, optional `ref`
   input: a branch is then checked against the last evaluated master run) and once on a pull request that changes the workflow or the gate (that run reports but never fails: its findings belong to other pull requests). The existing Microsoft.NET.Test.Sdk 17.8.0
   supplies the integration; Windows/net48 runs do not collect coverage.
 - The `core` jobs run the core suite in four shards by test class (`tools/coverage/shard_filter.py`), **including the
@@ -778,8 +788,8 @@ not depend on the implementer's own tests. Order of priority:
 |---|---|---|---|
 | Invariance and property tests | High: covers scale and stale state, with the defect generators also degenerate and open input | Low (harness, seeded) | Done for the core operations; required for new ones |
 | FsCheck | Shrinking of counterexamples | A dependency, F# runtime on net48 | Optional, for the predicates only; seeded theories are enough elsewhere |
-| Differential tests against exact results | High for `math/`, filters | Low | Done for the predicates (#137); boolean identities open |
-| Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing: done for the readers (#127), next for mesh inputs |
+| Differential tests against exact results | High for `math/`, filters | Low | Done for the predicates (#137); boolean identities done since (`ExactBooleanMetamorphicTests`, [BOOLEAN_PROPERTY_TESTS.md](design/BOOLEAN_PROPERTY_TESTS.md)) |
+| Fuzzing | High for readers / CLI (4 security fixes) | Low in-suite, high coverage-guided | Seeded in-suite fuzzing: done for the readers (#127); coverage-guided for readers and mesh operations since (2.5) |
 | Stryker.NET mutation tests | High for exact arithmetic | Long runs (scheduled) | Scheduled workflow for `math/Exact*`, `AdaptivePredicates.cs` and the exact mesh pipeline (sharded) |
 | Coverage in CI | Medium (shows gaps) | Low | Changed executable lines: 100%; no whole-library threshold |
 | Determinism tests | High: found three bugs at once | Low | Done; required for parallel paths |

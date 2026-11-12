@@ -86,6 +86,7 @@ Implemented from the papers, no code taken over.
 | Implicit intersection points (edge crossing a plane, three planes) with floating-point filters, exact evaluation only when needed | M. Attene, *Indirect Predicates for Geometric Constructions*, Computer-Aided Design 2020; G. Cherchi, M. Livesu, R. Scateni, M. Attene, *Fast and Robust Mesh Arrangements using Floating-point Arithmetic*, ACM TOG (SIGGRAPH Asia) 2020 |
 | Booleans on arrangements | G. Cherchi, F. Pellacini, M. Attene, M. Livesu, *Interactive and Robust Mesh Booleans*, ACM TOG (SIGGRAPH Asia) 2022 |
 | Generalized winding numbers of open operands with few boundary segments (`antipodal_front_winding`, `BoundarySegments`): an exact signed crossing count of a ray plus a sum over the boundary segments of the area of the spherical triangle with the opposite ray direction (Van Oosterom-Strackee); implemented from the paper (eq. 6 and 9; the MIT reference code was not used or ported). Owner's patent check 2026-11-10: no patents or applications | C. Martens, P. Trettner, M. Bessmeltsev, *The Antipodal Method*, ACM TOG 45(4) 2026 (arXiv 2605.01536, CC BY 4.0); A. Van Oosterom, J. Strackee, *The Solid Angle of a Plane Triangle*, IEEE TBME 1983 |
+| The open winding numbers and the triangulation of the 55928 tail case (docs/design/EXACT_BOOLEAN_TAIL_55928.md): L1, the bound of the gradient of the winding number of an open mesh by the Biot-Savart law of its boundary (the gradient of a solid angle is the field of a unit current around the boundary), per segment min(|s| / (4 pi d^2), 1 / (2 pi d)), derived here; L2, the crossings carried from piece to piece within an input triangle (the change of an exact crossing count along a segment, and the boundary segments that pierce the triangle of the segment and the far point, a linking number), derived here, after EMBER's tracing of integer winding numbers along segments to local references; L2 and L3, filters on coordinates relative to a grid point of the triangle (each the exact difference rounded once; orientation and in-circle determinants are invariant under translation), with Shewchuk's error terms | J. D. Jackson, *Classical Electrodynamics*, 3rd ed., Wiley 1999, 5.3 (Biot-Savart); P. Trettner, J. Nehring-Wirxel, L. Kobbelt, *EMBER: Exact Mesh Booleans via Efficient & Robust Local Arrangements*, ACM TOG 41(4) 2022; J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18(3) 1997 |
 | Operation-aware early-out of n-ary Difference and Intersection (`ExactMeshArrangement.cull`, `ExactMeshBoolean.cull_outside_a`): triangles of the other operands whose box meets no box of the closed first operand and that lie outside it (one exact ray per connected set) are left out of the arrangement; implemented from the papers (the idea of pruning primitives outside the active zone of a CSG node) | J. Rossignac, H. Voelcker, *Active zones in CSG for accelerating boundary evaluation, redundancy elimination, interference detection, and shading algorithms*, ACM TOG 8(1) 1989; S. Cameron, *Efficient bounds in constructive solid geometry*, IEEE CG&A 11(3) 1991 |
 | Expansion arithmetic, error bounds and adaptive stages B, C, D of orient2d / orient3d / incircle (`AdaptivePredicates`, own implementation from the paper, not from `predicates.c` or Triangle.NET) | J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, Discrete & Computational Geometry 1997 |
 | Constrained Delaunay triangulation (constraint insertion by flips) | S. W. Sloan, *A fast algorithm for generating constrained Delaunay triangulations*, Computers & Structures 1993; C. L. Lawson 1977 (flips) |
@@ -615,10 +616,10 @@ mesh operations) use [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
 LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
 ported into geometry3Sharp and no dependency is added to the library package.
 
-## Batch ray and point queries (design note; the library PR follows)
+## Batch ray and point queries (`spatial/MeshBatchQueries.cs`, #448)
 
 Design references of [BATCH_QUERIES.md](design/BATCH_QUERIES.md); papers only, no code read or ported (Embree, Apache-2.0,
-not read). The planned `MeshBatchQueries` runs the existing single queries in Morton-sorted order, in parallel.
+not read). `MeshBatchQueries` (merged in #448) runs the existing single queries in Morton-sorted order, in parallel.
 
 | Topic | Source |
 |---|---|
@@ -695,3 +696,31 @@ Implemented from the papers below; no code of any of them was read.
 | Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
 | Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
 | Marching cubes | the library's `MarchingCubes` |
+
+
+## Correctly rounded sin, cos, atan2, exp, log (`math/CoreMath`, internal; C1 of `docs/design/DETERMINISM.md`)
+
+**Vendored third-party source (MIT)**, not implemented from a paper: the files `math/CoreMath/CoreMath{Sin,Cos,Atan2,Exp,Log,Fma}.cs`
+carry the MIT notices in their headers. Chain of sources:
+
+| Part | Source | Licence |
+|---|---|---|
+| The algorithms (correctly rounded binary64 `sin`, `cos`, `atan2`, `exp`, `log`) | CORE-MATH, https://core-math.gitlabpages.inria.fr/ (repository https://gitlab.inria.fr/core-math/core-math, `LICENSE`: "MIT license"; read at commit `018fa97`, 2026-11-10); Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN | MIT |
+| The C# code | CoreMathSharp, https://github.com/andanteyk/CoreMathSharp, commit `77505b1bdb34c73655740b7d08947654d8b7eb63` (version 1.0.0, 2026-02-06); Copyright (c) 2026 Andante; a port of an earlier state of CORE-MATH (the `Dint` / `Tint` based paths; not the 2026 `cos.c` / `sin.c` rewrite) | MIT |
+| Software fused multiply-add (the integer algorithm and the exponent handling) and `CoreMath.Ldexp` (the scalbn algorithm) | musl libc `fma.c`, Copyright (c) 2005-2020 Rich Felker, et al., as ported in CoreMathSharp | MIT |
+| Fast FMA emulation by error-free transformations (`isNot1Or3TimesPowerOf2`, Dekker product) | the paper referenced in CoreMathSharp's `FusedMultiplyAdd.cs`: https://hal.science/hal-04575249 (title and authors not verified: the site refused automated access; only the algorithm names are taken from it, and the code is validated against an exact reference by `CoreMathFmaTests`) | paper |
+
+Changes to the vendored code: namespace and `internal` visibility; tables as `static readonly` arrays instead of `ReadOnlySpan`
+(netstandard2.0 has no `Span`); no hardware intrinsics (`Math.Round` for the nearest-even rounding; `Math.FusedMultiplyAdd` on
+.NET Core 3.0 and later behind one helper, the software version elsewhere: both are correctly rounded and give the same bits,
+pinned by a test); own `IsNormal` / `IsFinite` / `Ldexp` / `BigMul` / bit-count helpers; and two defects of the port fixed
+(`Tint.Lshift` lost the bits of the low limb for shifts of 64 to 127; `Dint.Mul21` returned a product twice too large,
+which doubled the highest polynomial term of the accurate `sin` / `cos` paths), both found by the verification below.
+
+Not re-derived, so "correctly rounded" is an empirical claim backed by the tests below, not a proof: the error bounds of the accurate (128-bit `Dint`) paths of the port; its `Add` truncates a shifted operand and its `Mul` drops the low cross terms, where the C code rounds (the independent review). The campaign below and the hard cases are the evidence, not a proof. Dead code of the port (`Mul11`, `MulPow`, `Add11`, `MulInt64`, `Mul21Tan` and the 128-bit division, used by none of the five functions) was removed.
+
+Verification (tests, independent of the vendored code): `CoreMathReference` computes the five functions and the FMA with
+`System.Numerics.BigInteger` fixed point (1600 fractional bits); `CoreMathTests` compares bit for bit on random arguments and
+on evenly spread hard-to-round arguments taken from the CORE-MATH worst-case lists (`CoreMathHardCases`, inputs only, MIT);
+`CoreMathTintTests` / `CoreMathDintTests` pin the 192-bit and 128-bit helper types; `CoreMathCampaignTests` (Nightly tier) runs
+the large comparison (1 000 000 random arguments and up to 30 000 worst cases per function for the PR).

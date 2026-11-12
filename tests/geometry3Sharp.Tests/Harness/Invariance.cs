@@ -67,6 +67,40 @@ namespace geometry3Sharp.Tests
         public static readonly Similarity RotatedUtmMillimetre = new Similarity("rotated, scale 1e-3, utm",
             1e-3, Matrix3d.AxisAngleD(Vector3d.AxisY, 23), new Vector3d(632117.25, 5712043.5, 113.75));
 
+        /// <summary>
+        /// Rotation about the z axis only (a similarity of the xy plane: the plane maps to itself), for 2D inputs at z = 0. Use
+        /// it, and All2D, where the operation works on points of the plane; Rotated and RotatedUtmMillimetre also tilt about x
+        /// and y, so the xy part of their image is a rotation with a squash, not a similarity.
+        /// </summary>
+        public static readonly Similarity RotatedZ = new Similarity("rotated z", 1, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), Vector3d.Zero);
+        public static readonly Similarity RotatedZUtmMillimetre = new Similarity("rotated z, scale 1e-3, utm",
+            1e-3, Matrix3d.AxisAngleD(Vector3d.AxisZ, 23), new Vector3d(632117.25, 5712043.5, 113.75));
+
+        /// <summary>
+        /// The similarities of the plane for 2D tests: scales, the UTM translation and rotations about z. Same as All() without
+        /// the two that tilt out of the plane, plus the two z rotations. Apply2d / Inverse2d give the xy part.
+        /// </summary>
+        public static IEnumerable<Similarity> All2D()
+        {
+            yield return Identity;
+            yield return Utm;
+            yield return Pow2Small;
+            yield return Pow2Large;
+            yield return Millimetre;
+            yield return Kilometre;
+            yield return RotatedZ;
+            yield return RotatedZUtmMillimetre;
+        }
+
+        /// <summary> The xy image of (x, y, 0): a similarity of the plane for the members of All2D. </summary>
+        public Vector2d Apply2d(Vector2d p) { Vector3d q = Apply(new Vector3d(p.x, p.y, 0)); return new Vector2d(q.x, q.y); }
+
+        /// <summary> The inverse of Apply2d for the members of All2D. </summary>
+        public Vector2d Inverse2d(Vector2d p) { Vector3d q = Inverse(new Vector3d(p.x, p.y, Translation.z)); return new Vector2d(q.x, q.y); }
+
+        /// <summary> The in-plane angle in radians of the rotation: atan2 of the image of the x axis (the angle of the members of All2D). </summary>
+        public double Angle2d { get { Vector3d e = Rotation * Vector3d.AxisX; return Math.Atan2(e.y, e.x); } }
+
         public static IEnumerable<Similarity> All()
         {
             yield return Identity;
@@ -91,7 +125,11 @@ namespace geometry3Sharp.Tests
         /// <summary>For xunit [MemberData]: the names of All().</summary>
         public static IEnumerable<object[]> Names() => All().Select(s => new object[] { s.Name });
 
-        public static Similarity ByName(string name) => All().First(s => s.Name == name);
+        /// <summary>For xunit [MemberData]: the names of All2D().</summary>
+        public static IEnumerable<object[]> Names2D() => All2D().Select(s => new object[] { s.Name });
+
+        /// <summary>The member of All() or All2D() with this name.</summary>
+        public static Similarity ByName(string name) => All().Concat(All2D()).First(s => s.Name == name);
     }
 
     public static class Invariance

@@ -26,7 +26,8 @@ def main():
         for name in ('Program.cs', 'FuzzTarget.cs', 'ReaderTargets.cs', 'ReaderTargetsMcp.cs', 'ReplayMutations.cs'):
             shutil.copy(HERE / name, work / name)
         source = (work / 'FuzzTarget.cs').read_text()
-        needle = '            string problem = Check(data);'
+        # FuzzTarget.Run calls Check inside a try/finally (culture restore); inject before that call
+        needle = '            try { problem = Check(data); }'
         if source.count(needle) != 1:
             raise SystemExit('source drift: cannot inject the synthetic crash')
         (work / 'FuzzTarget.cs').write_text(source.replace(needle,

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -304,7 +305,7 @@ namespace gs
                     Vector2d o = pos[kv.Key];
                     kv.Value.Sort((x, y) => {
                         Vector2d ex = pos[dTo[x]] - o, ey = pos[dTo[y]] - o;
-                        return Math.Atan2(ex.y, ex.x).CompareTo(Math.Atan2(ey.y, ey.x));
+                        return CoreMath.Atan2(ex.y, ex.x).CompareTo(CoreMath.Atan2(ey.y, ey.x));
                     });
                     for (int m = 0; m < kv.Value.Count; ++m) rank[kv.Value[m]] = m;
                 }

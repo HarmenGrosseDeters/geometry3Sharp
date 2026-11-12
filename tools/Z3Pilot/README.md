@@ -695,3 +695,52 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 - (b3): the geometric step that an encroaching vertex projects into the piece.
 - Not encoded at all: Shewchuk's termination theorems, the 25.65 degree value as a number (`arcsin(sqrt 3 / 4) = 25.659 degrees` is a numeric
   fact, not checked by Z3), and every termination argument of #394 and rule C beyond the inequalities above (they are measured, not proved).
+
+## Split termination (pilot 4, `split_termination.py`, QA 2.0 T14, 2026-11-12)
+
+The termination of the midpoint split of the `DMeshAABBTree3` top-down build (`split_tri_set_midpoint`), the rule that #451 broke: with
+centers that are adjacent doubles the midpoint `(b + a) * 0.5` rounds onto the upper end, the right side is empty and the same set was
+split again without end. Checked in binary64 (Z3 floating point, round to nearest even, subnormals included) for finite centers of any
+magnitude (the overflow fallback of the build gives finite centers up to `MaxValue`): where the sum does not overflow the midpoint lies in
+[a, b] (O1: three sign cases, two claims each); it can round onto b and onto a, and the sum can overflow to +infinity and to -infinity
+(SAT witnesses, replayed in plain floats; O1 does not hold there and is not needed); for any size n0 of the left side, after the guard
+`n0 < 1 || n1 < 1` with the half and half fallback both sides are non-empty and smaller than the set (O3, integers); a split without the
+guard is SAT. `source_contracts` pins the text of the leaf test, the leaf limit passed as `minTriCount`, the two scans, the guard, the
+fallback and the recursion on the two sides, each with a drift test. Not modelled as loops: the swap loop and the scans (their bounds are
+source contracts); the expansion sums of `AdaptivePredicates` (the owner decides whether they are wanted). About 30 s; part of the `Z3 pilot`
+workflow (its report is uploaded; the paths filter includes `DMeshAABBTree.cs` and `Interval1d.cs`).
+
+```sh
+python3 tools/Z3Pilot/split_termination.py --out /tmp/split-termination.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_split_termination.py' -v
+
+## Step loops (pilot 5, `step_loops.py`, QA 2.0 T14, 2026-11-12)
+
+The step loops of `MeshRoundingRepair` (`for (double s = s0; s <= bound; s *= 4)` in `fix_degenerate` twice and in `try_separate`, `s *= 16`
+in `fix_intersection` twice), the class of #452 (a start that underflowed to 0 never advanced). Checked in binary64 (Z3 floating point,
+round to nearest even, subnormals included): for every finite s > 0 the product with 4 and with 16 is at least s + s or infinite, so
+the loop advances (P1 for a bound that is finite or NaN, P1b: at least twice or infinite); with 2^2100 * 2^-1074 above `double.MaxValue` (an exact integer check, not a Z3 result) it ends within 2100 iterations for a finite bound; the bit
+manipulation of `ulp` is positive and finite for every finite x >= 0 (so `ulp(bound)` and `4 * ulp(largest)` are never the stuck start 0).
+Mutants: the P1 query without the start guard (the code before #452) and without the bound guard (`inf <= inf`) is SAT, with witnesses
+replayed in plain floats. That the bound is finite or NaN is the guard `if (!(ml < double.PositiveInfinity)) ml = double.NaN;` of
+`maxLengthC`, pinned by `source_contracts` together with the loop headers, the start guards and the `ulp` function; a test shows each kind
+of drift is detected. Runs in under a second; part of the `Z3 pilot` workflow (its report is uploaded).
+
+```sh
+python3 tools/Z3Pilot/step_loops.py --out /tmp/step-loops.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
+
+## Clipper2 frame (pilot 6, `clipper_frame.py`, QA 2.0 T10, 2026-11-12)
+
+The frame of the Clipper2 adapter (`ClipperFrame.ForBounds`): `CeilExponent` on the 64 bits of a normal number is the smallest power of two above it
+(Z3 on the bits), the subnormal loop ends within 52 steps with the same property (Z3, unrolled bit vectors), `PowerOfTwo` is exactly 2^n for
+all 2046 exponents and every accepted frame (86 817 combinations of `precisionBits` 8..50 and exponent) maps the extent to at most 2^bits <= 2^50,
+below `MaxIntegerCoordinate` = 2^52, with a finite `1 / scale` (exhaustive), and the extent plus margin is never below the larger distance (binary64).
+Mutants: a floor instead of the ceiling (SAT, witness replayed) and the enumeration with `precisionBits` up to 53 (finds a frame with integers above 2^52, replayed). Not proved by Z3 (it does not finish on the bit-blasted
+monotonicity of a rounded subtraction or product): that a coordinate within the bounds scales to an integer of magnitude at most 2^bits
+(monotone rounding of `p - Origin` and `d * Scale`; reviewed). `source_contracts` holds the model to the source. `source_contracts` also pins the `precisionBits` range guard and the extent with its margin (drift tests). About 5 s; part of the `Z3 pilot` workflow (paths filter, uploaded report).
+
+```sh
+python3 tools/Z3Pilot/clipper_frame.py --out /tmp/clipper-frame.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_clipper_frame.py' -v
+```

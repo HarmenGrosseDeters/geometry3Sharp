@@ -76,6 +76,7 @@ namespace DeterminismHarness
             list.Add(new Case("geodesic.heat.intrinsic", serial => GeodesicHeatIntrinsic(serial)));
             list.Add(new Case("geodesic.vectorheat.logmap", serial => LogMap(serial)));
             list.Add(new Case("geodesic.path", serial => GeodesicPath(serial)));
+            list.Add(new Case("geodesic.bezier", serial => GeodesicBezier(serial)));
             return list;
         }
 
@@ -448,6 +449,22 @@ namespace DeterminismHarness
             var t = new Trace();
             t.Add(m, "input");
             foreach (Vector2d v in vhm.ComputeLogMap(Inputs.Nearest(m, new Vector3d(0, 1, 0)))) t.Add(v);
+            return t;
+        }
+
+        static Trace GeodesicBezier(bool serial)
+        {
+            DMesh3 m = Inputs.BumpySphere(12);
+            var g = new MeshGeodesicBezier(m);
+            var t = new Trace();
+            t.Add(m, "input");
+            var control = new List<int> {
+                Inputs.Nearest(m, new Vector3d(1, 0, 0)), Inputs.Nearest(m, new Vector3d(0.3, 0.9, 0.2)),
+                Inputs.Nearest(m, new Vector3d(-0.6, 0.5, 0.6)), Inputs.Nearest(m, new Vector3d(-0.5, -0.7, -0.5)) };
+            t.Add((int)g.Compute(control, 8));
+            t.Add(g.Length);
+            foreach (Vector3d p in g.Points) t.Add(p);
+            foreach (Vector3d p in g.Path) t.Add(p);
             return t;
         }
 

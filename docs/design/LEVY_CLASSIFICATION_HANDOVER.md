@@ -2,6 +2,7 @@
 
 Superseded by [LEVY_CLASSIFICATION.md](LEVY_CLASSIFICATION.md) (phase 1 done 2026-11-08).
 
+Status: superseded; phase 1 (#428) and phase 2 (#501) are done, see [LEVY_CLASSIFICATION.md](LEVY_CLASSIFICATION.md).
 Status 2026-11-08: paused by the owner after reading only; no runs, no profile, no library code. This note saves the
 next session the reading.
 

@@ -105,7 +105,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        [MemberData(nameof(Similarity.Names2D), MemberType = typeof(Similarity))]
         public void FullReportsAgree_InEveryHarnessFrame(string name)
         {
             var s = Similarity.ByName(name); var input = Lens(17);

@@ -564,6 +564,20 @@ namespace g3
                 return cx * cx + cy * cy;
             }
 
+            /// <summary> an end of one closed segment lies within the automatic tolerance of the other closed segment (in scaled units,
+            /// as InsertPiece and MergeNearPoints decide): the two chains share a vertex there, at that end (returned) </summary>
+            internal bool EndWithinTolerance(Source s, Source o, out Vector2d end)
+            {
+                end = default(Vector2d);
+                if (!(scaledTolerance > 0)) return false;
+                double t2 = scaledTolerance * scaledTolerance;
+                if (ScaledDist2(s.AX, s.AY, o.AX, o.AY, o.BX, o.BY, out _) <= t2) { end = new Vector2d(s.AX, s.AY); return true; }
+                if (ScaledDist2(s.BX, s.BY, o.AX, o.AY, o.BX, o.BY, out _) <= t2) { end = new Vector2d(s.BX, s.BY); return true; }
+                if (ScaledDist2(o.AX, o.AY, s.AX, s.AY, s.BX, s.BY, out _) <= t2) { end = new Vector2d(o.AX, o.AY); return true; }
+                if (ScaledDist2(o.BX, o.BY, s.AX, s.AY, s.BX, s.BY, out _) <= t2) { end = new Vector2d(o.BX, o.BY); return true; }
+                return false;
+            }
+
             bool WithinTolerance(double px, double py, double ax, double ay, double bx, double by)
             {
                 double d2 = ScaledDist2(px, py, ax, ay, bx, by, out bool inside);

@@ -4,8 +4,10 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** items that are not scheduled: the "Later" list, the Phase 5 candidates from recent research, the open
   research questions, and the SMT pilot.
-- **Status (2026-11-08):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
-  stopped at its gate (#371); everything else is not started.
+- **Status (2026-11-12):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
+  stopped at its gate (#371). Since then: batch queries stage 2 (#448), intersection-free dual contouring options A and
+  B (#552, #572), geodesic Bézier curves (#540), point clouds step C1 (#580) merged; the D1 drift rule (hard problem 2)
+  built in #513. Not started: collision detection, tet meshing, TPMS, the rest of the Later list.
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -20,7 +22,7 @@ Part of the [roadmap](../ROADMAP.md).
   item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection) and 7
   (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
   feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
-  upper bound, design note) started; item 3 (tet meshing) waits until the alpha wrap has sharp features.
+  upper bound, design note) started, then built up to step C1 (#580, see item 6); item 3 (tet meshing) waits until the alpha wrap has sharp features.
   Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
 - **Priority by return on investment (owner 2026-11-08; after the 2.0 milestones, next to the CLI / MCP update;
   each item starts with an upper bound / prior-art check, Sonnet with review; design commands for the CLI / MCP
@@ -36,8 +38,14 @@ Part of the [roadmap](../ROADMAP.md).
      Status 2026-11-09: stage 2 merged (#448, fb114adf): `MeshBatchQueries.IntersectBatch` / `AnyHitBatch` /
      `IsInsideBatch` (crossings or winding number) / `NearestPointBatch`, bit-identical to the single calls (48 tests;
      benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
-     (a new session after Lévy phase 2):
-     - Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
+     (a new session after Lévy phase 2; owner 2026-11-12: queued as a Sonnet session after the dirty-side provenance
+     session):
+     - Profile run 2026-11-12 (docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
+       parallel (`gParallel`), so a switch adds only the sort (0.9-1.4x on the query part for random input, a loss on the
+       callers' coherent order: MeshDeviation 3-12 % slower); no caller reaches the 10 % rule, nothing is switched. The
+       only serial query loop is `TerrainSafety`'s source mapping (below 10 % of a terrain case; not switched).
+       Item 1 is closed unless a new serial caller appears.
+     - (Earlier hand-over text:) Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
        single queries (grep, not profiled): `MeshFidelityMetrics`, `MeshDeviation` (MaxDeviation / IsWithin),
        `WindingContouring`, `WindingNumberOctree`, `RemoveOccludedTriangles`, `MeshSignedDistanceGrid`,
        `TerrainSafety`, `TerrainOffset`, `AlphaWrapQualityPass`, `MeshRepairOrientation` (the ray time of the repair, 6-7 % of its CPU
@@ -141,7 +149,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
-- **Later:** point clouds, conservative marching cubes, feature-preserving offsets, quad remeshing, deformation,
+- **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
 - **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
@@ -165,14 +173,15 @@ bound review CLAUDE.md demands. This is consistent with "not a fit" above: the r
 are not proved as a whole. Pilot 1 used the Python package `z3-solver` (MIT), not the NuGet `Microsoft.Z3`; still only
 in the tool project.
 
-**Pilot 2, step (1) result (2026-11-08, draft PR #416):** the D1 drift lemma of SafeRounding (the apex rule of `docs/design/ROUNDING_DRIFT_APEX.md`) in `tools/Z3Pilot/drift_apex.py`, derived from the rule's specification in the file: I1, I2, `d' >= d` and `max d' <= maxLength` per illustrative edit shape (moves, 25 contractions, removal, flip, strip zips of a 3-vertex loop with the middle chain vertex as apex; zip, 4-vertex strip loop and ear contraction without an apex) and shape-free (only "apex in every added triangle" and "M over R and A" are used): 168 obligations unsat with satisfiable, replayed assumptions; 13 mutants sat (a non-apex vertex charged, `M` without `δ`, `M` over `A` only, no acceptance, an ear with one vertex charged). Zips, longer strip loops and ear contractions (the kept boundary vertex is never moved) have no apex and keep today's rule. The chain bound `d <= d̂ (1 + u)^k + k ε` holds with Higham (2.5) and is SAT with the note's first model (2.4), now a documented witness (note corrected in fd931c69). Review only: (E1)/(E2) per edit type, untouched triangles keep their geometry, the distance model, I1/I2 => Hausdorff, the induction over edits, one chain counter for all vertices; the source contract waits for the D1 implementation (skipped test).
+**Pilot 2, step (1) result (2026-11-08, PR #416, merged 2026-11-08):** the D1 drift lemma of SafeRounding (the apex rule of `docs/design/ROUNDING_DRIFT_APEX.md`) in `tools/Z3Pilot/drift_apex.py`, derived from the rule's specification in the file: I1, I2, `d' >= d` and `max d' <= maxLength` per illustrative edit shape (moves, 25 contractions, removal, flip, strip zips of a 3-vertex loop with the middle chain vertex as apex; zip, 4-vertex strip loop and ear contraction without an apex) and shape-free (only "apex in every added triangle" and "M over R and A" are used): 168 obligations unsat with satisfiable, replayed assumptions; 13 mutants sat (a non-apex vertex charged, `M` without `δ`, `M` over `A` only, no acceptance, an ear with one vertex charged). Zips, longer strip loops and ear contractions (the kept boundary vertex is never moved) have no apex and keep today's rule. The chain bound `d <= d̂ (1 + u)^k + k ε` holds with Higham (2.5) and is SAT with the note's first model (2.4), now a documented witness (note corrected in fd931c69). Review only: (E1)/(E2) per edit type, untouched triangles keep their geometry, the distance model, I1/I2 => Hausdorff, the induction over edits, one chain counter for all vertices; the source contract waits for the D1 implementation (skipped test).
 
-**Pilot 2, step (2) result (2026-11-08, draft PR):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
+**Pilot 2, step (2) result (2026-11-08, PR #407, merged):** the filter rules of `tools/PredicateCompiler` (leaf, sum, product, magnitude, decision, zero shortcut, gate exponents, no-underflow grid, overflow, and the value rule) as 20 lemmas in `tools/Z3Pilot/filter_rules.py`: all unsat with satisfiable assumptions, 17 mutants (a constant one ulp too small, a missing `cx cy` or `/(1 - u)`, `>=` for `>`, the leaf rule under cancellation, a NaN magnitude that decides) sat with witnesses replayed outside Z3; about 84 s of solver time locally. No rule failed, no library change. A drift check ties the lemmas to `Compiler.cs`, and the generated filters' constants and the gates that run are re-derived from the generated code. Not proved by Z3: the rounding model itself (Higham (2.4)/(2.5); bit-precise binary64 attempts were UNKNOWN or too slow), the monotonicity of rounding (modelled as an axiom), the binary64-to-grid frame, and the structural induction over the expression graph (reviewed; see the README).
 
 #### Later
 
 - Point clouds: normal orientation (Dipole 2021, iPSR 2022, GCNO 2023), screened Poisson reconstruction, fast winding numbers (Barill et al. 2018)
-- Conservative marching cubes (size S; noted 2026-11-05, paper only). Source: A. Jacobson, *A Sharp Conservative Offset
+- Conservative marching cubes (size S; noted 2026-11-05, paper only; done: opt-in `RootfindingModes.LinearEdges`,
+  see docs/design/CONSERVATIVE_MC_AUDIT.md). Source: A. Jacobson, *A Sharp Conservative Offset
   for Marching Cubes*, arXiv 2609.13430, 2026.
   - The result: for a 1-Lipschitz function sampled on a grid of spacing h, the marching-cubes mesh of the level
     sigma > sqrt(3)/2 h contains the true zero-level set, and sqrt(3)/2 h is sharp. It is proven via a convex lift of
@@ -239,6 +248,8 @@ started. The owner runs them locally (2026-11-03); the coordinator reviews and m
 no caller yet, Neumann boundaries need a new closest-silhouette query, and Monte Carlo results conflict with the
 bit-for-bit determinism and invariance tests.
 
+**Planar nesting probe (#620, 2026-11-11):** With two sampled circles and sampling spacing scaled with the input, the default absolute simplification tolerance changes nesting at small gaps and scales; even a correctly nested hole can lose area to simplification. `SortPolygons` preserves nesting for these cases except at the combined large translation / millimetre scale, where nesting or the reported hole area also fails. The passing cases are regression tests; the failures are tracked in #628, fixed by #634 (2026-11-12). This probe does not test the default absolute sampling spacing or establish a need for generalized winding numbers.
+
 | # | Feature | Research / port source | License of reference code | Why / builds on |
 |---|---|---|---|---|
 | 1 | Geodesic paths, loops and Bézier curves on surfaces (FlipOut). **Done:** paths, waypoints, loops (`MeshGeodesicPath`); Bézier curves open | Sharp & Crane 2020 *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*; geometry-central | MIT | Almost entirely on `IntrinsicTriangulation`; cut lines (orthotics), UV seams, curves on surfaces |
@@ -289,7 +300,7 @@ Problems where the library already has a head start and that could be researched
   **Libm rule (owner 2026-11-11):** only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`,
   `Log`, general `Pow`) differ between platforms (harness: macOS arm64 differs only in libm and its consumers; `+ - * /`,
   `Sqrt`, `Floor`, `Round`, `Abs`, `Min`/`Max` are IEEE-exact everywhere). The correctly rounded `DMath` (C1, from the
-  CoreMathSharp port of CORE-MATH, MIT; #611) is used only where the library promises cross-platform bit identity (first the
+  CoreMathSharp port of CORE-MATH, MIT; **merged 2026-11-11 in #617**, 6ce03ee5, as the internal `CoreMath`, analyzer G3E0004; `geodesic.*` bit-identical on linux x64, windows x64 (net10, net48, net48 32-bit) and linux arm64 in CI, macOS arm64 opt-in via `determinism.yml` input `macos`, identical in the run on f3737ba) is used only where the library promises cross-platform bit identity (first the
   geodesic family), not as a global replacement of `System.Math` (cost 1.5-4x per call, more with the software FMA on net48;
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
@@ -396,13 +407,16 @@ Ordered by expected value for the library.
      chain rules and the conforming-mode completion witness, with an equivalence argument per replacement.
 8. **Open-operand classification in the exact booleans.**
    - Generalized winding numbers on open meshes: a defect found 2026-11-09 (an intersection is empty although
-     w_B = 0.86), fix in progress.
+     w_B = 0.86), fixed: open operands are classified per piece (#528, owner decision A, 2026-11-10).
    - The open cohort also has 736 ops > 5 s.
-   - Open: Lévy 2024-style propagation across intersection curves (phase 2 running) and a robust, scale-invariant
-     inside threshold for open operands.
+   - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
+     parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
+     (exact Antipodal Method merged in #539; per-patch evaluation L1 in draft #633).
    - A stronger-model review of the classification design pays here.
 9. **Robust repair at extreme scale disparity (F1b / F1c).**
-   - Problem: cleanups relative to all triangles erode or drop far parts; a first-stage design change is in progress.
+   - Problem: cleanups relative to all triangles erode or drop far parts. Design note
+     [ROBUST_REPAIR_SCALE_FREE.md](../design/ROBUST_REPAIR_SCALE_FREE.md) (#547); option A with guard G merged in #560,
+     B stage 0 in #578.
    - Open: a scale-free formulation of the repair stage, so that no cleanup depends on the global box.
    - Related: the 183 `robust` misses of the strict criterion, 137 of them Hausdorff >= 1 % after solidify
      ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)).

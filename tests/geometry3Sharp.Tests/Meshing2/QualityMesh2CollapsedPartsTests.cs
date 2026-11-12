@@ -67,7 +67,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(pointsExcused, report.CollapsedPoints);
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary>
         /// the same under every similarity: snapped alone and refined, the oracle accepts the mesh in every frame; refined, the 2^k scales

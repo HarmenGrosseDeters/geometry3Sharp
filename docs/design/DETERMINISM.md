@@ -130,6 +130,12 @@ Predictions before the runs:
 - `Vector128` / `Vector<T>` paths and `Math.Sqrt` are exactly rounded; `Math.Round`, `Floor` are exact.
 - Denormal handling (flush to zero) differs only if a process sets it; not set by the library.
 
+Gate (owner 2026-11-11): the determinism workflow checks bit identity in CI on linux x64, windows x64 (net10, net48, and net48 as a
+32-bit process) and linux arm64. macOS arm64 is **not** checked in CI because of the capacity of GitHub's macOS arm64 runners; it is
+an opt-in of the workflow (`workflow_dispatch`, input `macos`), and `compare` prints "macos-arm64 skipped (not run)" without it.
+Linux arm64 covers the same arm64 code generation of RyuJIT, and `CoreMath` does not depend on the platform libm. The macOS results
+below are from the one-time run of PR #574.
+
 Result (workflow run of PR #574; GitHub-hosted runners `ubuntu-24.04-arm` (Ubuntu 24.04, glibc aarch64) and
 `macos-latest` (macOS 26, Apple silicon), .NET 10.0.15; the x64 side is the existing linux x64 run on Ubuntu 26.04):
 
@@ -157,6 +163,20 @@ One runner type, 4 cores; small inputs; 49 cases, not the whole API (not covered
 ICP, smoothers, `MeshLocalParam`, the Boolean on large inputs, text IO other than OBJ and STL); `Parallel.For` outside
 `gParallel` and the three per-class flags cannot be switched to serial; core counts other than 4 only on Linux; no
 arm64. Absence of a difference is evidence on these inputs, not a proof.
+
+## 6a. The libm rule (owner 2026-11-11)
+
+Only the transcendental functions (`Sin`, `Cos`, `Tan`, `Atan2`, `Asin`, `Acos`, `Exp`, `Log`, general `Pow`) differ between
+platforms (the harness: macOS arm64 differs from x64 only in libm and its consumers; `+ - * /`, `Sqrt`, `Floor`, `Round`,
+`Abs`, `Min` / `Max` are IEEE-exact everywhere). The correctly rounded `CoreMath` (C1, vendored from CoreMathSharp, a port of
+CORE-MATH, MIT; `docs/SOURCES.md`, design note `DMATH.md`) is used **only where the library promises cross-platform bit
+identity** (first the geodesic family: `IntrinsicTriangulation*`, `IntrinsicCommonSubdivision`, `VectorHeatMethod`,
+`MeshGeodesicDistance`, `MeshGeodesicPath`, `MeshGeodesicBezier` and `SparseCholesky.LogAdd`), not as a global replacement of
+`System.Math` (cost 1.5 to 4 times per call, more with the software FMA on net48; no gain in accuracy that matters to
+geometry tolerances). It is extended to further code only when the determinism harness shows a real difference that the
+result depends on, with a harness case and benchmark numbers. Files using `CoreMath` may not call the `System.Math`
+transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
+tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.
 
 ## 7. Contract and fix proposals
 

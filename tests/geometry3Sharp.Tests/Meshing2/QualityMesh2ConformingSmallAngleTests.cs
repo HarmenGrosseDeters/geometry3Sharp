@@ -125,7 +125,7 @@ namespace geometry3Sharp.Tests
             Assert.DoesNotContain(ok.Violations, v => v.Kind == Violation.RefinementCoincidence);
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> under every similarity the oracle accepts it, and the 2^k scales give the same mesh bit for bit </summary>
         [Theory]

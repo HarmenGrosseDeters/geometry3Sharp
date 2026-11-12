@@ -181,7 +181,7 @@ namespace geometry3Sharp.Tests
 
         // ------------------------------------------------------------ invariance, reuse, determinism
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         [Theory]
         [MemberData(nameof(Similarities))]

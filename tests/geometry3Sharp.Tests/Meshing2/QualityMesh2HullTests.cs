@@ -46,7 +46,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.MergeZoneExcused > 0, "no triangle excused in a merge zone: the case no longer reaches the apex");
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> the case under every similarity: 2^k scales bit for bit, the others pass the oracle </summary>
         [Trait("Category", "Slow")]

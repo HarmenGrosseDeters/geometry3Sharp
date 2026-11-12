@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -226,7 +227,7 @@ namespace gs
                 int i = T.Tail(h), j = T.Head(h);
                 double c = t * heatWeight[h];
                 double rho = transport_angle(h);
-                double cr = Math.Cos(rho), sr = Math.Sin(rho);
+                double cr = CoreMath.Cos(rho), sr = CoreMath.Sin(rho);
                 if (i == j) {
                     // a loop edge: c |x_i - r x_i|^2 = 2c (1 - cos rho) |x_i|^2
                     v.Add(entry(2 * i, 2 * i, 2 * c * (1 - cr)));
@@ -438,8 +439,8 @@ namespace gs
                     // triangle to vertex: rotate back by the direction of the corner's edge in the layout
                     // minus its signpost
                     Vector2d e = q[(k + 1) % 3] - q[k];
-                    double rot = T.Signpost(h) - Math.Atan2(e.y, e.x);
-                    double cr = Math.Cos(rot), sr = Math.Sin(rot), w = T.CornerAngle(h);
+                    double rot = T.Signpost(h) - CoreMath.Atan2(e.y, e.x);
+                    double cr = CoreMath.Cos(rot), sr = CoreMath.Sin(rot), w = T.CornerAngle(h);
                     int i = tv[k];
                     gx[i] += w * (cr * g.x - sr * g.y);
                     gy[i] += w * (sr * g.x + cr * g.y);
@@ -468,7 +469,7 @@ namespace gs
                 if (j != x && (shortest.TryGetValue(j, out cur) == false || l < cur)) {
                     shortest[j] = l;
                     double a = T.Signpost(hh);
-                    log[j] = new Vector2d(l * Math.Cos(a), l * Math.Sin(a));
+                    log[j] = new Vector2d(l * CoreMath.Cos(a), l * CoreMath.Sin(a));
                 }
                 int next = T.NextAroundVertex(hh);
                 if (next < 0) {
@@ -479,7 +480,7 @@ namespace gs
                     if (k != x && (shortest.TryGetValue(k, out cur) == false || lk < cur)) {
                         shortest[k] = lk;
                         double a = T.ReverseSignpost(hin);
-                        log[k] = new Vector2d(lk * Math.Cos(a), lk * Math.Sin(a));
+                        log[k] = new Vector2d(lk * CoreMath.Cos(a), lk * CoreMath.Sin(a));
                     }
                 }
                 hh = next;

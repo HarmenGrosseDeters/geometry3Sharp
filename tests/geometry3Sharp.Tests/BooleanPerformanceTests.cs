@@ -185,8 +185,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void InputTriangles_CornersAndCoordinatesOfTheirMeshTriangles()
         {
-            // two meshes with removed triangles (ids with gaps), a degenerate triangle and signed zeros (the input
-            // coordinates, not those of the merged point); a second Compute appends the triangles again (as before
+            // two meshes with removed triangles (ids with gaps), a degenerate triangle and signed zeros (equal values); a second Compute appends the triangles again (as before
             // the coordinates moved out of the triangles), the first ones keep their coordinates
             DMesh3 a = new Sphere3Generator_NormalizedCube() { EdgeVertices = 5 }.Generate().MakeDMesh();
             foreach (int t in a.TriangleIndices().Where(t => t % 7 == 3).ToList())
@@ -219,8 +218,10 @@ namespace geometry3Sharp.Tests
                     if (i >= expected / 2)     // (the point ids of the second Compute)
                         Assert.Equal(arr.VertexPoints[t.Mesh][tv[k]], t.Corners[k]);
                     Vector3d want = m.GetVertex(tv[k]);
+                    // (the coordinates of the input points: -0.0 is +0.0 there, which no consumer can tell apart,
+                    // ArrangementMemoryTests.NegativeZeroCoordinates_GiveTheSameResult)
                     for (int c = 0; c < 3; ++c)
-                        Assert.Equal(BitConverter.DoubleToInt64Bits(want[c]), BitConverter.DoubleToInt64Bits(got[k][c]));
+                        Assert.True(want[c] == got[k][c], $"triangle {i} corner {k} component {c}: {want[c]} vs {got[k][c]}");
                 }
             }
         }

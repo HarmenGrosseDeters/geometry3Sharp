@@ -1,6 +1,6 @@
 # 2D meshing: `m2.snap`, look before you build
 
-Status: design note, 2026-11-01, before any code. It records the two checks of "Look before you build" (AGENT_WORKFLOW section 3)
+Status: design note, 2026-11-01, before any code; built as `m2.snap` in #277. It records the two checks of "Look before you build" (AGENT_WORKFLOW section 3)
 for the plan's hand-over item 1 (D14: iterated snap rounding at the explicit tolerance), and the questions they raise for the owner.
 Implementation starts after #233, #252 and #265 are merged; the gates are the catalogue rows F-10 to F-18, F-20 and F-22/b
 (F-19 is `m4.wedge`).

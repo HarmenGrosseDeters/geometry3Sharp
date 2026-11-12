@@ -13,16 +13,16 @@ namespace g3
     // destruction, set bOwner to 'true'.  Otherwise, you own the vertices and
     // must delete them yourself.
     //
-    // You have a choice of speed versus accuracy.  The fastest choice is
-    // Query::QT_INT64, but it gives up a lot of precision, scaling the points
-    // to [0,2^{20}]^3.  The choice Query::QT_INTEGER gives up less precision,
-    // scaling the points to [0,2^{24}]^3.  The choice Query::QT_RATIONAL uses
-    // exact arithmetic, but is the slowest choice.  The choice Query::QT_REAL
-    // uses floating-point arithmetic, but is not robust in all cases.
+    // You have a choice of speed versus accuracy: QT_INT64 is the fastest, but it gives up a lot of precision,
+    // scaling the points to [0,2^{20}]^2; QT_DOUBLE uses floating-point arithmetic, which is not robust in all
+    // cases. These two are the only supported modes. The modes of the original (QT_INTEGER, scaling to
+    // [0,2^{24}]^2; QT_RATIONAL, exact arithmetic; QT_FILTERED) were never ported: the constructor throws a
+    // NotImplementedException for them.
 
 
     /// <summary>
-    /// Construct convex hull of a set of 2D points, with various accuracy levels.
+    /// Construct convex hull of a set of 2D points. Supported query types: QT_DOUBLE (floating point) and QT_INT64
+    /// (points scaled to a 2^20 grid); QT_INTEGER, QT_RATIONAL and QT_FILTERED throw NotImplementedException.
     /// 
     /// HullIndices provides ordered indices of vertices of input points that form hull.
     /// </summary>
@@ -98,8 +98,30 @@ namespace g3
             mLineOrigin = Vector2d.Zero;
             mLineDirection = Vector2d.Zero;
 
+            // The dimension and the queries are computed on a copy of the points scaled by an exact power of two so that the
+            // extent is in [1, 2): Vector2d.GetInformation normalizes a direction with the absolute MathUtil.Epsilon, which
+            // made a set with an extent of about 2^-52 and below one-dimensional (or gave a wrong ring), whatever epsilon.
+            // The scaling is exact, so ordinary extents give the same results bit for bit. The test for a single point
+            // (extent below epsilon, an absolute length) is made here on the original extent. The hull indices and the hull
+            // polygon refer to the original points.
+            IList<Vector2d> work = vertices;
+            if (mNumVertices > 0 && epsilon < 1) {
+                int k;
+                double extent = Extent(vertices, out k);
+                if (extent < epsilon) {
+                    mDimension = 0;
+                    return;
+                }
+                if (k != 0) {
+                    var scaled = new Vector2d[mNumVertices];
+                    for (int i = 0; i < mNumVertices; ++i)
+                        scaled[i] = new Vector2d(ExactPoint3.ScaleB(vertices[i].x, -k), ExactPoint3.ScaleB(vertices[i].y, -k));
+                    work = scaled;
+                }
+            }
+
             Vector2d.Information info;
-            Vector2d.GetInformation(mVertices, mEpsilon, out info);
+            Vector2d.GetInformation(work, mEpsilon, out info);
             if (info.mDimension == 0) {
                 mDimension = 0;
                 mIndices = null;
@@ -110,7 +132,7 @@ namespace g3
                 // The set is (nearly) collinear.  The caller is responsible for
                 // creating a ConvexHull1 object.
                 mDimension = 1;
-                mLineOrigin = info.mOrigin;
+                mLineOrigin = mVertices[info.mExtreme[0]];      // (info.mOrigin is that point of the scaled copy)
                 mLineDirection = info.mDirection0;
                 return;
             }
@@ -129,7 +151,7 @@ namespace g3
                 Vector2d minValue = new Vector2d(info.mMin[0], info.mMin[1]);
                 double scale = ((double)1) / info.mMaxRange;
                 for (int i = 0; i < mNumVertices; ++i) {
-                    mSVertices[i] = (mVertices[i] - minValue) * scale;
+                    mSVertices[i] = (work[i] - minValue) * scale;
                 }
 
                 double expand;
@@ -140,7 +162,7 @@ namespace g3
                     mQuery = new Query2Int64(mSVertices);
 
                 } else if (queryType == QueryNumberType.QT_INTEGER) {
-                    throw new NotImplementedException("ConvexHull2: Query type QT_INTEGER not currently supported");
+                    throw new NotImplementedException("ConvexHull2: Query type QT_INTEGER is not implemented; the supported query types are QT_DOUBLE and QT_INT64");
                     // Scale the vertices to the square [0,2^{24}]^2 to allow use of
                     // Integer.
                     //expand = (double)(1 << 24);
@@ -155,7 +177,7 @@ namespace g3
                     mSVertices[i] *= expand;
 
             } else {
-                throw new NotImplementedException("ConvexHull2: Query type QT_RATIONAL/QT_FILTERED not currently supported");
+                throw new NotImplementedException("ConvexHull2: Query type " + queryType + " is not implemented; the supported query types are QT_DOUBLE and QT_INT64");
 
                 // No transformation needed for exact rational arithmetic or filtered
                 // predicates.
@@ -210,6 +232,34 @@ namespace g3
             hull.GetIndices(ref mNumSimplices, ref mIndices);
         }
 
+
+
+        // the larger side of the bounding box of the points, and its exponent k with extent in [2^k, 2^(k+1)): for a difference
+        // that overflows (coordinates of both signs near the double range) the extent is infinite and k is taken from half of it
+        static double Extent(IList<Vector2d> v, out int k)
+        {
+            double minx = v[0].x, maxx = minx, miny = v[0].y, maxy = miny;
+            for (int i = 1; i < v.Count; ++i) {
+                minx = Math.Min(minx, v[i].x); maxx = Math.Max(maxx, v[i].x);
+                miny = Math.Min(miny, v[i].y); maxy = Math.Max(maxy, v[i].y);
+            }
+            double range = Math.Max(maxx - minx, maxy - miny);
+            k = double.IsInfinity(range) ? ExtentExponent(Math.Max(0.5 * maxx - 0.5 * minx, 0.5 * maxy - 0.5 * miny)) + 1 : ExtentExponent(range);
+            return range;
+        }
+
+        // k with extent in [2^k, 2^(k+1)); 0 for an extent that is zero, or not finite
+        internal static int ExtentExponent(double extent)
+        {
+            if (!(extent > 0) || double.IsInfinity(extent))
+                return 0;
+            int shift = 0;
+            if (extent < 2.2250738585072014e-308) {         // subnormal: scale up (exact) to read the exponent
+                extent *= 18446744073709551616.0;           // 2^64
+                shift = 64;
+            }
+            return (int)((BitConverter.DoubleToInt64Bits(extent) >> 52) & 0x7FF) - 1023 - shift;
+        }
 
 
         /// <summary>

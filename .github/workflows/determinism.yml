@@ -8,8 +8,14 @@ on:
   pull_request:
     paths:
       - 'tools/DeterminismHarness/**'
+      - 'benchmarks/CoreMathBenchmark/**'
       - '.github/workflows/determinism.yml'
   workflow_dispatch:
+    inputs:
+      macos:
+        description: 'Also run macos-arm64 (not in the default set: GitHub macOS arm64 runner capacity)'
+        type: boolean
+        default: false
 
 jobs:
   linux:
@@ -29,19 +35,22 @@ jobs:
           $H run --out out/linux-net10-serial --serial
           # the partitioning of the library's parallel loops depends on the processor count
           for n in 1 2 3 8; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/linux-net10-cpu$n; done
+      - name: Cost of the correctly rounded CoreMath (benchmarks/CoreMathBenchmark)
+        run: |
+          dotnet build benchmarks/CoreMathBenchmark -c Release
+          dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
       - uses: actions/upload-artifact@v4
         with:
           name: traces-linux
           path: out
 
-  # arm64: the same harness on GitHub-hosted arm64 runners (Linux and macOS); compared with the x64 traces in `compare`
+  # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is
+  # opt-in (workflow_dispatch input `macos`): its runners queue for a long time and the job was cancelled in the queue.
   arm64:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: linux-arm64, os: ubuntu-24.04-arm }
-          - { name: macos-arm64, os: macos-latest }
+        include: ${{ fromJSON(inputs.macos && '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"},{"name":"macos-arm64","os":"macos-latest"}]' || '[{"name":"linux-arm64","os":"ubuntu-24.04-arm"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -58,6 +67,8 @@ jobs:
           $H run --out out/${{ matrix.name }}-net10-parallel2
           $H run --out out/${{ matrix.name }}-net10-serial --serial
           for n in 1 3; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/${{ matrix.name }}-net10-cpu$n; done
+          dotnet build benchmarks/CoreMathBenchmark -c Release
+          dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
       - uses: actions/upload-artifact@v4
         with:
           name: traces-${{ matrix.name }}
@@ -86,6 +97,12 @@ jobs:
         run: |
           dotnet build tools/DeterminismHarness -c Release -f net48 -p:PlatformTarget=x86 -o tools/DeterminismHarness/bin/x86
           tools/DeterminismHarness/bin/x86/DeterminismHarness.exe run --out out/windows-net48x86-serial --serial
+      - name: Cost of the correctly rounded CoreMath, net10.0 (hardware FMA) and net48 (software FMA)
+        shell: bash
+        run: |
+          dotnet build benchmarks/CoreMathBenchmark -c Release
+          dotnet benchmarks/CoreMathBenchmark/bin/Release/net10.0/CoreMathBenchmark.dll
+          benchmarks/CoreMathBenchmark/bin/Release/net48/CoreMathBenchmark.exe
       - uses: actions/upload-artifact@v4
         with:
           name: traces-windows
@@ -122,13 +139,14 @@ jobs:
           # processor counts, and 32-bit
           for n in 1 2 3 8; do cmp linux-net10-serial linux-net10-cpu$n; done
           cmp windows-net48-serial windows-net48x86-serial
-          # arm64 (Linux, macOS) against x64, and inside arm64
+          # arm64 (Linux; macOS only when it was run) against x64, and inside arm64
           for a in linux-arm64 macos-arm64; do
+            if [ ! -d traces/$a-net10-serial ]; then echo "$a skipped (not run)"; continue; fi
             cmp $a-net10-parallel $a-net10-parallel2
             cmp $a-net10-parallel $a-net10-serial
             for n in 1 3; do cmp $a-net10-serial $a-net10-cpu$n; done
             cmp linux-net10-serial $a-net10-serial
             cmp windows-net48-serial $a-net10-serial
           done
-          cmp linux-arm64-net10-serial macos-arm64-net10-serial
+          if [ -d traces/macos-arm64-net10-serial ]; then cmp linux-arm64-net10-serial macos-arm64-net10-serial; fi
           for d in traces/*/; do echo "--- $d"; head -5 "$d/summary.txt"; done

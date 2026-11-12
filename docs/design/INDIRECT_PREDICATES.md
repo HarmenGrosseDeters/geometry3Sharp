@@ -1,7 +1,7 @@
 # Indirect predicates from the predicate compiler (design, for review)
 
-**Status:** design reviewed by the owner (decisions in section 5). Step (a) is built (section 7). Stacked on #244 (the
-predicate compiler as a bounds tool).
+**Status:** design reviewed by the owner (decisions in section 5). Steps (a) and (b) are built (sections 7 and 9), step (c) is decided
+(section 10); merged with #246 and its stack (#250, #257, #258). Stacked on #244 (the predicate compiler as a bounds tool).
 
 ## 1. Goal
 

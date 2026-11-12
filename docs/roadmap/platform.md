@@ -4,15 +4,17 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** the CLI / MCP server `g3cli`, analysis building blocks and evaluation metrics, verifiable agent work
   (machine checks, mutation shards, property tests), the CLI / MCP docs for the new operations, the Clipper2 adapter,
-  the DAP audit, the upstream ledger, the test suite on other locales, and the release.
-- **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
-  issue-tracker fix list is complete (2026-11-03). Open: the upstream ledger, the release, a few small items.
+  the DAP audit, the test suite on other locales, and the release.
+- **Status (2026-11-12):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
+  issue-tracker fix list is complete (2026-11-03). QA 2.0 rollout continuing (status table
+  [QA20_STATUS.md](../design/QA20_STATUS.md), #635); the mutation 3.0 process and coverage-pass fix are in #615 (open).
+  Open: the release, the unreliable scheduled runs, a few small items.
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
   so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
   when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
-  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (draft, measured 8 November 2026): (1) `--verbosity debug` / `trace` log no line per test during capture
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (measured 8 November 2026, merged 2026-11-09 as 9c76be0a): (1) `--verbosity debug` / `trace` log no line per test during capture
   (a 51-test filter: the capture test host logs `InProgressTests is null` / `Sending test run statistics` lines in batches,
   20 and 6 of them after 10 min), so the ticker shows elapsed time only; (2) the Stryker logs are uploaded with `if: always()`
   (`mutation-logs-mesh-<shard>`, 7 days); (3) `run_stryker.sh` stops a shard early when the projection after the capture
@@ -38,24 +40,50 @@ Part of the [roadmap](../ROADMAP.md).
   nothing above. Backlog on master before #447: 113 tests at 5-10 s, 44 at 10-30 s, 14 above 30 s (68 classes).
   Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
-  borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours.
+  borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
+  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now).
+  Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
+  4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
+  6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
+  >= 5 s but costs about 30 % wall. **Owner 2026-11-12:** a solution so the run does not overload the machine and slow tests
+  artificially. A harness-only scheduler does not work: `Parallel.For` uses `TaskScheduler.Default`, not the current
+  one, and a thread-pool cap starved the `Timed` workers (9 failures, 21 min wall). Plan (coordinator, 2026-11-12):
+  (A) now, `tools/trx_durations.py` re-runs the flagged tests alone and judges the 5 s / 10 s rule on those times (the
+  CI-speed session adds the workflow step); (D) next, every library `Parallel.For` / `ForEach` goes through an internal
+  `gParallel` options hook (production default unchanged), the test assembly sets one limited-concurrency scheduler at
+  the core count, a scan test keeps loops from bypassing it (exact-code files reviewed if touched), measured against
+  the current run; then Terrain Slope (one scenario per PR, with counters and mutants; reducing coverage only via the
+  owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
+  diagnosis (starvation, hang, pathological input or algorithm): a library operation on one input in a benchmark or
+  reference run (first the Alpha Wrap 800 tail, see alpha-wrap-and-repair.md), and a test in any run (the full run
+  included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
+  isolated re-run time of the flagged tests (#685 changes CLAUDE.md and docs/QA.md with it); the 20 s rule above
+  covers what hides behind load in the full run.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
   7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
   touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
   decision, not needed for the gate).
-- **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
+- **CLI / MCP update (owner 2026-11-08; in progress, Sonnet session started 2026-11-12):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
+  Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
+  section 11); PR A (`repair` options and result fields, #662), PR B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665)
+  and PR C (`polygon_solids`, #667) are merged; D (`polygon2d` line ops, #669) and E (`curvature`, `fidelity` / `geodesic` options, #672) are in
+  review; F and G as in its section 10.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
-  [design/UPSTREAM_LEDGER_PLAN.md](../design/UPSTREAM_LEDGER_PLAN.md), [tools/g3cli](../../tools/g3cli/README.md).
+  [tools/g3cli](../../tools/g3cli/README.md).
 
 ### Open
 
+- **Scheduled workflows do not fire reliably** (found 2026-11-12): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
+  has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
+  2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
+  runs of the 3.0 process (#615) would depend on the same mechanism.
 - **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-11, open) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
@@ -77,11 +105,10 @@ Part of the [roadmap](../ROADMAP.md).
   `geometry3Sharp` belongs to upstream).
 - **Hard cases from issue trackers:** the fix list is complete (2026-11-03). Open, pinned and documented as decided:
   P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept). Follow-ups: the ray batch API
-  ([research.md](research.md#later)), the regressions a remesher flip-guard default would cause, the P1 collapse.
-- **Upstream deviation ledger** (task 6, E.5): open, see [below](#plans-fact-checked-2026-10-30). Contact with rms80
-  is prepared, not initiated.
-- **Verifiable agent work** (QA.md 4a): the parent item is still open; the other items go with the modules they touch
-  (status unclear, check).
+  ([research.md](research.md#later)). Closed: the P1 collapse (a documented limitation, the real fix is research) and the regressions a remesher flip-guard default would cause
+  (the Remesher defaults stay upstream's, owner November 2026; S2 stays pinned).
+- **Verifiable agent work** (QA.md 4a): the parent item is still open; the remaining items are carried by the QA 2.0
+  milestone (owner 2026-11-09; status in [QA20_STATUS.md](../design/QA20_STATUS.md)).
 - **Two wall-clock tests** (`QualityMesh2CollapsedPartsReportTests.Oracle_ManyCollapsedPointsAreCheap`,
   `Predicates_MatchTheOracle_AtAllSizes`): closed 2026-11-08, not reproduced (owner, local): on current master the full
   suite passed all 7866 tests and ten isolated runs of both passed. The oracle test already sits in the
@@ -95,7 +122,7 @@ Part of the [roadmap](../ROADMAP.md).
 
 #### Stage 8: planned follow-ups
 
-Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on; the upstream ledger last, because it records what is merged. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list.
+Boolean property tests, DAP audit and honest terrain metrics, next to any stage from 4 on. Terrain phase 1 after stage 5. After this wave: **CLI / MCP and docs for the new operations** (quadtree, mesher, n-ary and SafeRounding booleans in `g3cli`, examples in OPERATIONS.md), so that agents can use what was built (Direction, points 2 and 3). Candidate: a **Clipper2 adapter** as an optional package (`geometry3Sharp.Clipper2`; Clipper2 is Boost-licensed): robust integer 2D polygon booleans and offsets for terrain / GIS footprints and slicing, written against Clipper2's public API, not taken from the DAP fork; the core stays dependency-free and API compatible. Decide after the DAP audit's provenance list.
 
 Done: property tests, DAP audit (nothing to adopt), Clipper2 adapter (#243). The CLI / MCP docs session waits until quadtree, mesher M2 / M3, n-ary and SafeRounding are merged, so that it documents the finished state in one pass. **CLI / MCP done 2026-11-02** (#284, #291, #299: mesh2d, query2d, xor, Triangle .poly/.node/.ele, snap and SafeRounding options, Meshing2Benchmark `mesh`). Parked: the `.poly` reader keeps crossing / touching / overlapping segment groups as constraints only (Triangle nodes them first), and a vertex with d segments costs about d² comparisons (20k: about 6 s); mesh2d report areas underflow to 0 below coordinates of about 1e-160
 
@@ -242,7 +269,8 @@ and the test tiers and time limit (#447, the backlog program).
   (`MeshRoundingRepair.fix_degenerate` hang for components below ~1e-154). Sweep list, not fixed yet:
   `DMeshAABBTree3` ray and inside queries fail on a sphere of radius 1e100 (`FindNearestHitTriangle` -1,
   `IsInside(centre)` false; probably absolute tolerances in the ray code); `MeshRobustRepair` takes 4-11 s on 4-12
-  triangle inputs through the wrap / solidify fallbacks (performance, not a hang).
+  triangle inputs through the wrap / solidify fallbacks (performance, not a hang). Later state (QA20_STATUS.md): the
+  ray / inside failure is fixed (#493); the repair time is bugfix issue #636 (open).
 - **Step 1 done (2026-11-09, analysis session):** [design/QA20_INVENTORY.md](../design/QA20_INVENTORY.md) has the matrix
   tool x area, the gap list of public operations without a fuzz harness or property campaign, and the rollout order
   (T1-T15, each with its "done when"). Top of the order: sweep table extension, mesh-ops fuzz harness on master, CsCheck repair / rounding.
@@ -256,6 +284,14 @@ and the test tiers and time limit (#447, the backlog program).
   "Supported input range" paragraphs; range-check bugfix PRs per module and the generator / fuzz domain changes follow.
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
+- **Rollout status (2026-11-12):** step 0, the status of T1-T15 against their done-when, is
+  [design/QA20_STATUS.md](../design/QA20_STATUS.md) (#635). Merged 2026-11-12: #639 (spatial structures, inventory cell K),
+  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), and the three bugfix PRs they led to: #655 (#647,
+  `VoxelSurfaceGenerator` honours `MaxMeshElementCount`), #656 (#644, `ConvexHull2` is scale free: it works on a copy scaled by a power of
+  two, also for an overflowing extent) and #657 (#645, only `QT_DOUBLE` and `QT_INT64` are supported, said in the comment and the
+  message). Open: #627 (T12 FPTaylor, draft) and #682 (`Similarity.All2D()`: the 2D tests use the similarities of the plane, see
+  QA.md, "Similarities").
+  Open `local` issues: #636 (repair time, F2), #637 (F5), #638 (F7). #628 was fixed by #634 (merged).
 
 #### Test suite on German Windows
 
@@ -273,10 +309,11 @@ Tasks 4 to 6 can start independently once those are made; for task 4 they are ma
 
 Task 5 (honest terrain metrics) is on [terrain.md](terrain.md#task-5-honest-terrain-metrics).
 
-- [ ] **6. Upstream deviation ledger (E.5):** [documentation plan](../design/UPSTREAM_LEDGER_PLAN.md). Create
-  `docs/UPSTREAM.md` with pinned baselines, implemented additions, behavior/API differences and source/test/commit
-  evidence. Complement the existing [migration notes](../UPSTREAM_CHANGES.md); do not include uncommitted work as
-  shipped. Prepare, but do not initiate, later contact with rms80.
+- **6. Upstream deviation ledger (E.5): dropped (owner 2026-11-11).** The fork differs too much for a per-file
+  inventory to stay useful, and there is no package or upstream contact to serve. What users of 1.0.324 need stays in
+  [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md): every changed semantics of an inherited class gets a row there, and
+  `dotnet pack` validates the API against 1.0.324. If a release or upstream contact comes, write only a short list of
+  separable fixes.
 
 #### Release: when it's done
 
@@ -286,6 +323,6 @@ without tuning, and it compares with the leading geometry processing libraries (
 cinolib, geometry-central, Manifold) on the operations it shares with them. Publishing a package makes us a
 maintainer with users to support; that pays off only then.
 
-- [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing. Booleans done (`ExactBooleanIssueCasesTests`); repair and alpha wrap merged in #326 (24 failure modes, MinimalHoleFill fix); groups 2-4 merged in #330 (2026-11-02); P3 by design (#349); Q2/Q3 (watertight exact ray-triangle: repair CPU +0.9 %, tree queries +2-29 %, single Intersects 4.2x, 260/260 boolean hashes) in #341 G3 (relative path-trace tolerance) in #343 and P1 (FlippedTriangles status, degenerate-UV rule relative to the surface triangle; UVAtlas A/B identical) in #346 and G2 in #347 (2026-11-03). **The fix list is complete** (2026-11-03): fixed R1, S1, G1-G3, P1, P4, Q1-Q3 and the Reducer and constraint bowties; P3 by design; R2 a limitation; P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept, OPERATIONS.md recommends the guards) open, pinned and documented as decided. Follow-ups: the ray batch API (Later), the regressions a remesher flip-guard default would cause, the P1 collapse itself (virtual fan vertices or spectral conformal); the other operations started 2026-11-02 in a QA session (repair and alpha wrap, Reducer / Remesher, geodesics and parameterization, queries; mesher and terrain failure modes collected only). Findings in [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); owner 2026-11-02: every finding is fixed (correct first, then fast), distributed: QA session Q2+Q3 (exact ray/triangle crossings, IsInside), G3, P1, then G2, P2, S2, S3, P3; 7b session R1 (orientation rule for crossing components; merged in #333 on 2026-11-03: crossing components keep their orientation, A/B 3 inputs now accepted exactly instead of falling back, controls 1.008×), then S1 merged in #336 (2026-11-03; Reducer fold-over guard from area-weighted original normals plus a boundary ear rule, owner: PreventFoldOver default on, UPSTREAM_CHANGES row; noisy terrains 20/110 → 7/0 folds/walls, time on/off 1.00-1.14x, with MaxDeviation 1.01-1.02x)
+- [ ] Hard cases from the issue trackers of those libraries reproduced as tests here (docs/QA.md 2.11), and passing. Booleans done (`ExactBooleanIssueCasesTests`); repair and alpha wrap merged in #326 (24 failure modes, MinimalHoleFill fix); groups 2-4 merged in #330 (2026-11-02); P3 by design (#349); Q2/Q3 (watertight exact ray-triangle: repair CPU +0.9 %, tree queries +2-29 %, single Intersects 4.2x, 260/260 boolean hashes) in #341 G3 (relative path-trace tolerance) in #343 and P1 (FlippedTriangles status, degenerate-UV rule relative to the surface triangle; UVAtlas A/B identical) in #346 and G2 in #347 (2026-11-03). **The fix list is complete** (2026-11-03): fixed R1, S1, G1-G3, P1, P4, Q1-Q3 and the Reducer and constraint bowties; P3 by design; R2 a limitation; P2 (Disk iteration, parked as research), S2 and S3 (upstream defaults kept, OPERATIONS.md recommends the guards) open, pinned and documented as decided. Follow-ups: the ray batch API (Later), the P1 collapse itself (closed 2026-11-12 as a limitation; the real fix, virtual fan vertices or spectral conformal, is research); the flip-guard follow-up (the regressions a remesher flip-guard default would cause) is closed: the Remesher defaults stay upstream's (owner November 2026); the other operations started 2026-11-02 in a QA session (repair and alpha wrap, Reducer / Remesher, geodesics and parameterization, queries; mesher and terrain failure modes collected only). Findings in [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); owner 2026-11-02: every finding is fixed (correct first, then fast), distributed: QA session Q2+Q3 (exact ray/triangle crossings, IsInside), G3, P1, then G2, P2, S2, S3, P3; 7b session R1 (orientation rule for crossing components; merged in #333 on 2026-11-03: crossing components keep their orientation, A/B 3 inputs now accepted exactly instead of falling back, controls 1.008×), then S1 merged in #336 (2026-11-03; Reducer fold-over guard from area-weighted original normals plus a boundary ear rule, owner: PreventFoldOver default on, UPSTREAM_CHANGES row; noisy terrains 20/110 → 7/0 folds/walls, time on/off 1.00-1.14x, with MaxDeviation 1.01-1.02x)
 - [ ] Package ID and publishing (nuget.org ID `geometry3Sharp` belongs to upstream); the pack and package smoke
   test already run in CI

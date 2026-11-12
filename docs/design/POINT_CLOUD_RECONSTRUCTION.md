@@ -1,6 +1,7 @@
 # Point cloud reconstruction: "alpha wrap + Poisson" (ROADMAP Phase 5 priority 6, stage 1)
 
-Status: stage 1 (prior art, building blocks, upper bound, options). No library code in this PR.
+Status: stage 1 (prior art, building blocks, upper bound, options), written without library code; since then steps A, B and
+C1 are built (section 7; #566, #568, #571, #575, #580, all merged).
 
 ## 0. Owner decision (2026-11-10, relayed by the coordinator)
 
@@ -143,7 +144,7 @@ sign and of the condition thresholds.
 ## 7. Status and follow-ups (2026-11-10)
 
 Built: step A (`AlphaWrapPointCloudTests`, OPERATIONS.md note; #566), step B (`PointCloudNormals`; #568), the XYZ reader and writer (#571) the residuals of the review of B (#575) and,
-in review, step C1 (`PointCloudSurface`; #580, section 8). Still open:
+step C1 (`PointCloudSurface`; #580, section 8; in review at the time, merged 2026-11-11). Still open:
 the check of the paper references against the papers themselves before the `docs/SOURCES.md` entries (section 2 marks what is unverified).
 
 Residuals of the independent review of `PointCloudNormals` (fixed in #575: a limited wrap must be clean, `DegenerateCount`, `MaxSteinerPoints`):

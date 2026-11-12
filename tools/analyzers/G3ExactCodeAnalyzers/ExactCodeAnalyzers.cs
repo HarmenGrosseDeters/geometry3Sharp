@@ -152,6 +152,7 @@ namespace G3ExactCodeAnalyzers
     {
         public const string ParallelId = "G3E0002";
         public const string FmaId = "G3E0003";
+        public const string LibmId = "G3E0004";
 
         static readonly DiagnosticDescriptor ParallelRule = new DiagnosticDescriptor(
             ParallelId,
@@ -169,7 +170,34 @@ namespace G3ExactCodeAnalyzers
             DiagnosticSeverity.Warning,
             isEnabledByDefault: true);
 
-        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ParallelRule, FmaRule);
+        static readonly DiagnosticDescriptor LibmRule = new DiagnosticDescriptor(
+            LibmId,
+            "No platform libm in code that promises cross-platform bit identity",
+            "'{0}' is a transcendental function of the platform's libm (its last bit differs between Windows, Linux, macOS and .NET Framework); use g3.CoreMathPort.CoreMath (correctly rounded)",
+            "Reliability",
+            DiagnosticSeverity.Warning,
+            isEnabledByDefault: true);
+
+        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(ParallelRule, FmaRule, LibmRule);
+
+        /// <summary> the transcendental functions whose last bit depends on the platform (docs/design/DETERMINISM.md, libm rule);
+        /// + - * / Sqrt Floor Ceiling Round Truncate Abs Min Max CopySign ScaleB are exact everywhere and not listed </summary>
+        public static readonly ImmutableHashSet<string> LibmNames = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
+            "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Atan2", "Sinh", "Cosh", "Tanh", "Asinh", "Acosh", "Atanh",
+            "Exp", "Log", "Log2", "Log10", "Pow", "Cbrt", "SinCos", "Exp2", "Exp10", "Hypot", "SinPi", "CosPi", "TanPi",
+            "AsinPi", "AcosPi", "AtanPi", "Atan2Pi", "ExpM1", "LogP1", "Log2P1", "Log10P1", "Exp2M1", "Exp10M1", "RootN", "Compound",
+            // estimates that differ between x64 and ARM
+            "ReciprocalEstimate", "ReciprocalSqrtEstimate");
+
+        /// <summary> a platform libm function of System.Math / MathF / double / float </summary>
+        public static bool IsPlatformLibm(IMethodSymbol m)
+        {
+            string type = m.ContainingType?.ToDisplayString() ?? "";
+            if (type != "System.Math" && type != "System.MathF" && type != "double" && type != "float"
+                && type != "System.Double" && type != "System.Single")
+                return false;
+            return LibmNames.Contains(m.Name);
+        }
 
         /// <summary> the types whose members run work in parallel </summary>
         public static readonly ImmutableHashSet<string> ParallelTypes = ImmutableHashSet.Create(
@@ -212,6 +240,8 @@ namespace G3ExactCodeAnalyzers
                 ctx.ReportDiagnostic(Diagnostic.Create(ParallelRule, ctx.Operation.Syntax.GetLocation(), type.Name + "." + member.Name));
             if (member is IMethodSymbol m && IsFusedMultiplyAdd(m))
                 ctx.ReportDiagnostic(Diagnostic.Create(FmaRule, ctx.Operation.Syntax.GetLocation(), type?.Name + "." + m.Name));
+            if (member is IMethodSymbol lm && IsPlatformLibm(lm))
+                ctx.ReportDiagnostic(Diagnostic.Create(LibmRule, ctx.Operation.Syntax.GetLocation(), type?.Name + "." + lm.Name));
         }
     }
 }

@@ -26,6 +26,22 @@ the §6.2 comparison below ("an incident segment at an angle between θ and 60°
 - **Termination is still measured, not proven**, as before (end of section 2).
 - Where the text below says "below θ", read "below 60 degrees" for the pair angle.
 
+## Update 2026-11-12: constraints that meet within the tolerance (#664)
+
+A T-junction rotated or scaled into doubles leaves the end of one segment a rounding beside the other (the near-contact fan under the
+`rotated` similarity: 4e-17; under a scale of 1e3: 1.9e-14), on the side where the closed input segments no longer meet. O11 still makes
+that end a vertex of the other's chain (InsertPiece, MergeNearPoints), so the chains meet there, but the rule asked for the input segments
+to meet exactly: no exemption, and a cascade of encroachment splits along the whole pair to the Steiner limit (400 000 vertices; with the
+end on the other side, triangle splits instead).
+
+- **Mesher** (`PairOf`, off the grid): a pair whose closed segments do not meet also meets, at that end, when an end of one lies within
+  the mesher's tolerance of the other closed segment (`Builder.EndWithinTolerance`); that end is the apex for `ApexExempt` and for
+  `SpansSmallAngle`.
+- **Oracle** (`SpansSmallInputAngle`): after the exact rule, an end of one constraint inside the tube of the other (twice the mesher's
+  tolerance) is the apex; such excuses are counted as `NearMeetAngleExcused`. Self-checks: an exact end, an end 1e-13 off (in the tube),
+  an end 1e-6 off (judged). Owner decision 2026-11-12: accepted, shipped together with the mesher part (the O11 exemptions are an owner decision of 2026-11-02).
+- Measured: the rotated fan stops at 4 659 vertices (identity: 4 515), oracle-valid (`QualityMesh2NearTJunctionTests`).
+
 ## 1. Diagnosis (measured, master 14d744f0)
 
 The large triangle-count outliers of the reference comparison come from a cascade of subsegment splits towards the apex of a small input angle. The
@@ -244,10 +260,13 @@ off-centres, petal candidates, the grid, lenses and lens deletion are not covere
       but along them by up to that error over the sine, which exceeds 3 tube once the sine is below about 4e-4 (the near-contact fan of the
       QualityMesh2 campaign, T5: 1e-11 along against 3e-12; 8 ulps is a conservative envelope, not a derived bound). Open and documented,
       not fixed: a split point exactly at the mesher's tolerance (2^-41) from another source, which only a dyadic input produces, is
-      refused by the mesher (`<=`) and not excused by the oracle, whose `O11Unsplittable` margin is 2^-7 inside the tolerance; and three
-      single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28), not traced.
-  - `exempt`, a triangle given up: its circumcentre failed, or the kernel refused the insertion, or the subsegment it would split is locked or
-    unsplittable;
+      refused by the mesher (`<=`) and not excused by the oracle, whose `O11Unsplittable` margin is 2^-7 inside the tolerance. The three
+      single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28) were traced on 2026-11-12: each lay below A at
+      a T-junction apex, its off-centre in the diametral circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave
+      such a triangle up, which the oracle's O11 exemptions (a circumcentre behind the piece) do not cover. Fixed in the mesher: the
+      encroachment of an unsplittable piece no longer stops the point, as on the grid (`QualityMesh2UnsplittableEncroachmentTests`).
+  - `exempt`, a triangle given up: its circumcentre failed, or the kernel refused the insertion, or a locked or unsplittable subsegment
+    lies between it and its point (since 2026-11-12 not when the point only encroaches on an unsplittable piece: it is then inserted);
   - the grid floor;
   - the Steiner limit (reported).
 

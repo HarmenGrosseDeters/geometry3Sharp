@@ -1,0 +1,353 @@
+// MIT License (the sources of this file are not under the Boost license of the rest of the repository).
+//
+// Copyright (c) 2022-2026 Alexei Sibidanov, Paul Zimmermann, INRIA and CERN (CORE-MATH, https://core-math.gitlabpages.inria.fr/)
+// Copyright (c) 2026 Andante (CoreMathSharp, https://github.com/andanteyk/CoreMathSharp)
+// Copyright (c) 2005-2020 Rich Felker, et al. (musl libc, the integer fma algorithm)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+// documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of
+// the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+// WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
+// Correctly rounded fused multiply-add for the vendored CORE-MATH port.
+//
+// FusedMultiplyAdd(x, y, z) = x * y + z rounded once. A correctly rounded FMA has exactly one result, so the hardware
+// instruction (through Math.FusedMultiplyAdd on .NET Core 3.0 and later) and the software version below give the same
+// bits; netstandard2.0 / .NET Framework have no Math.FusedMultiplyAdd and use the software version. A test pins
+// hardware == software == a BigInteger reference on hard cases.
+//
+// Software version: vendored from CoreMathSharp (https://github.com/andanteyk/CoreMathSharp, commit
+// 77505b1bdb34c73655740b7d08947654d8b7eb63, MIT, Copyright (c) 2026 Andante): a fast emulation with error-free
+// transformations (as referenced in CoreMathSharp: https://hal.science/hal-04575249) and, when that gives up, the
+// integer algorithm of musl's fma.c (MIT, Copyright (c) 2005-2020 Rich Felker, et al.). Changes: no intrinsics, own
+// IsNormal / IsFinite for .NET Framework, Ldexp from CoreMathBase.cs. See docs/SOURCES.md.
+using System;
+using System.Runtime.CompilerServices;
+
+namespace g3.CoreMathPort
+{
+    internal static partial class CoreMath
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static double FusedMultiplyAdd(double x, double y, double z)
+        {
+#if NETCOREAPP3_0_OR_GREATER && !G3_COREMATH_SOFT_FMA     // G3_COREMATH_SOFT_FMA: run the whole port on the software path (tests)
+            return Math.FusedMultiplyAdd(x, y, z);
+#else
+            return SoftwareFusedMultiplyAdd(x, y, z);
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool IsFiniteD(double x) { return ((Polyfill.DoubleToUInt64Bits(x) >> 52) & 0x7ff) != 0x7ff; }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool IsNormalD(double x)
+        {
+            ulong e = (Polyfill.DoubleToUInt64Bits(x) >> 52) & 0x7ff;
+            return e != 0 && e != 0x7ff;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool IsNaND(double x) { return double.IsNaN(x); }
+
+        internal static double SoftwareFusedMultiplyAdd(double x, double y, double z)
+        {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static (ulong mantissa, int exponent, int sign) normalize(double x)
+        {
+            ulong ix = Polyfill.DoubleToUInt64Bits(x);
+            int e = (int)(ix >> 52) & 0x7ff;
+            int sign = (int)(ix >> 63);
+
+            if (e == 0)
+            {
+                ix = Polyfill.DoubleToUInt64Bits(x * 9223372036854775808.0);
+                e = (int)(ix >> 52) & 0x7ff;
+                e = e != 0 ? e - 63 : 0x800;
+            }
+
+            ix &= (1ul << 52) - 1;
+            ix |= (1ul << 52);
+            ix <<= 1;
+            e -= 0x3ff + 52 + 1;
+            return (ix, e, sign);
+        }
+
+        // https://git.musl-libc.org/cgit/musl/tree/src/math/fmaf.c
+        static double Fallback(double x, double y, double z)
+        {
+            const int ZeroInfNaN = 0x7ff - 0x3ff - 52 - 1;
+
+            var nx = normalize(x);
+            var ny = normalize(y);
+            var nz = normalize(z);
+
+            if (nx.exponent >= ZeroInfNaN || ny.exponent >= ZeroInfNaN)
+            {
+                return x * y + z;
+            }
+            if (nz.exponent >= ZeroInfNaN)
+            {
+                if (nz.exponent > ZeroInfNaN)
+                {
+                    return x * y;
+                }
+                return z;
+            }
+
+            ulong rhi = Polyfill.BigMul(nx.mantissa, ny.mantissa, out ulong rlo);
+            ulong zhi, zlo;
+
+            int e = nx.exponent + ny.exponent;
+            int d = nz.exponent - e;
+
+            if (d > 0)
+            {
+                if (d < 64)
+                {
+                    zlo = nz.mantissa << d;
+                    zhi = nz.mantissa >> -d;
+                }
+                else
+                {
+                    zlo = 0;
+                    zhi = nz.mantissa;
+                    e = nz.exponent - 64;
+                    d -= 64;
+
+                    if (d != 0)
+                    {
+                        if (d < 64)
+                        {
+                            rlo = rhi << -d | rlo >> d | (rlo << -d != 0 ? 1ul : 0ul);
+                            rhi = rhi >> d;
+                        }
+                        else
+                        {
+                            rlo = 1;
+                            rhi = 0;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                zhi = 0;
+                d = -d;
+
+                if (d == 0)
+                {
+                    zlo = nz.mantissa;
+                }
+                else if (d < 64)
+                {
+                    zlo = nz.mantissa >> d | (nz.mantissa << -d != 0 ? 1ul : 0ul);
+                }
+                else
+                {
+                    zlo = 1;
+                }
+            }
+
+            int sign = nx.sign ^ ny.sign;
+            bool sameSign = (sign ^ nz.sign) == 0;
+            bool nonzero = true;
+
+            if (sameSign)
+            {
+                rlo += zlo;
+                rhi += zhi + (rlo < zlo ? 1ul : 0ul);
+            }
+            else
+            {
+                ulong t = rlo;
+                rlo -= zlo;
+                rhi = rhi - zhi - (t < rlo ? 1ul : 0ul);
+
+                if (rhi >> 63 != 0)
+                {
+                    rlo = 0 - rlo;
+                    rhi = 0 - rhi - (rlo != 0 ? 1ul : 0ul);
+                    sign ^= 1;
+                }
+
+                nonzero = rhi != 0;
+            }
+
+            if (nonzero)
+            {
+                e += 64;
+                d = Polyfill.LeadingZeroCount(rhi) - 1;
+                rhi = rhi << d | rlo >> -d | (rlo << d != 0 ? 1ul : 0ul);
+            }
+            else if (rlo != 0)
+            {
+                d = Polyfill.LeadingZeroCount(rlo) - 1;
+                if (d < 0)
+                {
+                    rhi = rlo >> 1 | (rlo & 1);
+                }
+                else
+                {
+                    rhi = rlo << d;
+                }
+            }
+            else
+            {
+                return x * y + z;
+            }
+            e -= d;
+
+            long i = (long)rhi;
+            if (sign != 0)
+            {
+                i = -i;
+            }
+
+            double r = i;
+
+            if (e < -1022 - 62)
+            {
+                if (e == -1022 - 63)
+                {
+                    double c = 9223372036854775808.0;
+
+                    if (sign != 0)
+                    {
+                        c = -c;
+                    }
+                    if (r == c)
+                    {
+                        float fltmin = (float)(1.08420214017376175615e-19 * 1.17549435082228750797e-38 * r);
+                        return 2.22507385850720138309e-308 / 1.17549435082228750797e-38 * fltmin;
+                    }
+
+                    if (rhi << 53 != 0)
+                    {
+                        i = (long)(rhi >> 1 | (rhi & 1) | 1ul << 62);
+                        if (sign != 0)
+                        {
+                            i = -i;
+                        }
+                        r = i;
+                        r = 2 * r - c;
+
+                        // nop?
+                    }
+                }
+                else
+                {
+                    d = 10;
+                    i = (long)((rhi >> d | (rhi << -d != 0 ? 1ul : 0ul)) << d);
+                    if (sign != 0)
+                    {
+                        i = -i;
+                    }
+                    r = i;
+                }
+            }
+            double result = Ldexp(r, e);
+            return result;
+        }
+
+
+        // https://hal.science/hal-04575249/document
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static bool isNot1Or3TimesPowerOf2(double x)
+        {
+            double delta = (2251799813685249.0 * x) - (2251799813685248.0 * x);
+            return delta != x;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static (double h, double l) twoSum(double a, double b)
+        {
+            double h = a + b;
+            double aprime = h - b;
+            double l = (a - aprime) + (b - (h - aprime));
+            return (h, l);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static (double h, double l) split(double x)
+        {
+            const double k = 134217729.0;
+            double gamma = k * x;
+            double h = gamma + (x - gamma);
+            double l = x - h;
+            return (h, l);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static (double h, double l) dekkerProd(double a, double b)
+        {
+            (double ah, double al) = split(a);
+            (double bh, double bl) = split(b);
+
+            double h = a * b;
+            double l = (((-h + ah * bh) + (ah * bl)) + al * bh) + al * bl;
+            return (h, l);
+        }
+
+
+        static double FastEmulation(double x, double y, double z)
+        {
+            double xl, xh, sl, sh, vl, vh;
+            (xh, xl) = dekkerProd(x, y);
+
+            if (!IsNormalD(xh))
+            {
+                return double.NaN;
+            }
+
+            (sh, sl) = twoSum(xh, z);
+            (vh, vl) = twoSum(xl, sl);
+
+            if (!IsNormalD(vh))
+            {
+                return double.NaN;
+            }
+
+            if (!IsFiniteD(sh) || !IsFiniteD(xl))
+            {
+                if (IsFiniteD(x) && IsFiniteD(y) && !IsFiniteD(z))
+                {
+                    return z;
+                }
+                return sh;
+            }
+
+            if (isNot1Or3TimesPowerOf2(vh) || vl == 0.0)
+            {
+                return sh + vh;
+            }
+            if ((vl < 0.0) ^ (vh < 0.0))
+            {
+                return sh + (0.875 * vh);
+            }
+            return sh + (1.125 * vh);
+        }
+
+
+
+
+            double fastPath = FastEmulation(x, y, z);
+            if (!IsNaND(fastPath))
+            {
+                return fastPath;
+            }
+
+            return Fallback(x, y, z);
+        }
+    }
+}
