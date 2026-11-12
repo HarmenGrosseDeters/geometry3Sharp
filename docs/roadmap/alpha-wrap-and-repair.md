@@ -6,7 +6,8 @@ Part of the [roadmap](../ROADMAP.md).
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
 - **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
-  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now)). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
+  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now); L4 #670 and L1 #681 merged,
+  L3, L3b and L2 dropped; the 800 run with a tail report started 2026-11-12). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
   The remesher items of Phase 2 stay open; the Remesher rim folds (#621) are fixed by #640 (merged 2026-11-12).
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -93,7 +94,7 @@ second (output different only where that trial would find a spot the local ones 
 A/B against master alternating on 24 meshes (16 random of the 269, 8 with the most pinch points): 24/24 identical,
 trial + manifold step 0.49x (median), pipeline 0.93x (median and sum); the 269 meshes of phase 1: 269/269 identical
 output (the confirmation skipped on 126), all closed and free of self-intersections, trial + manifold 0.49x.
-**L1 (#681):** the intersection oracle and the touch test faster, bit-identical (`AlphaWrapOracle`: the segment query
+**L1 (#681, merged 2026-11-12, 14a27e45):** the intersection oracle and the touch test faster, bit-identical (`AlphaWrapOracle`: the segment query
 computes the direction's reciprocals once, no longer repeats the child box test, tests each triangle's vertex balls once;
 the tetrahedron query skips BVH nodes that a face plane of the tetrahedron separates, proven without a rounding slack by
 monotone rounding and the summation order of `Vector3d.Dot`; nodes as one array of structs). Measured (4-core container):
@@ -112,7 +113,8 @@ chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Pr
 `aw3/l3b_l2/`. With these, target (b) (about 1.25x) is out of reach of the bit-identical levers (about 1.13-1.15x);
 the gap and the round-based parallel carving (B) go to the owner.
 **Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
-come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681, in this order:
+come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681 (merged
+2026-11-12), in this order (step (1) started on master 2026-11-12):
 (1) the 800 run (runner) with a tail report: every mesh above 20 s (owner rule 2026-11-12, `docs/roadmap/platform.md`:
 anything above 20 s is a potential defect and gets a diagnosis: pathological input, algorithmic hotspot or size), at least the 20 slowest, raw / final triangles, time, phase split, the share
 already parallel, Amdahl ceilings on 4 and 16 cores, time per raw triangle on the tail against the median (big meshes or

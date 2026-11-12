@@ -81,10 +81,10 @@ Status on 2026-11-12 (morning, Berlin).
   L3 (batched gate tests) measured at <= 1.085x and dropped (owner 2026-11-12, option A): target (b) lowered to about
   1.25x; L4, L1, L3b, L2 follow. Future research item (owner 2026-11-12, option B): deterministic round-based parallel
   carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651; L4 (manifold step) merged 2026-11-12 (#670, cab88798: trial + manifold 0.49x,
-  pipeline 0.93x, 269/269 identical). L1 (#681, oracle and touch: pipeline 0.949 on the 24, 269/269 identical) under
-  review, running product about 1.13x; L3b and L2 measured at <= about 1.02x each and dropped (coordinator 2026-11-12);
-  owner 2026-11-12: focus on the worst case (tail times) and a competitor comparison; next the 800 run with a tail
-  report, the black-box comparison, then the (B) probe on the tail (parallel only if it cuts the tail substantially). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+  pipeline 0.93x, 269/269 identical). L1 merged 2026-11-12 (#681, 14a27e45; oracle and touch: pipeline 0.949 on the 24, 269/269 identical),
+  running product about 1.13x; L3b and L2 measured at <= about 1.02x each and dropped (coordinator 2026-11-12);
+  owner 2026-11-12: focus on the worst case (tail times) and a competitor comparison; the 800 run with a tail report
+  started on master 2026-11-12 (after #681); next the black-box comparison, then the (B) probe on the tail (parallel only if it cuts the tail substantially). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
   #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fixed by #640 (merged 2026-11-12, 36ef5a18; owner accepted the missed time gate,
   1.16-1.22x on Thingi, opt-in via `MinTriangleQuality`). Follow-ups closed (owner 2026-11-12): the snapshot PR is not
@@ -148,7 +148,7 @@ The next steps per topic, in order ("in progress" where a session works on them)
   session (owner exception 2026-11-12, as in stage 6b): done 2026-11-12, stage 6b-4 on master `01a7e71`, no (A) finding, no
   rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
-- Alpha Wrap 3.0: L4 merged (#670), L1 under review (#681), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report, a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- Alpha Wrap 3.0: L4 merged (#670), L1 merged (#681, 2026-11-12), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report (in progress, started 2026-11-12), a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667 and D #669
   merged, E #672 open; F, G next). [research.md](roadmap/research.md#open)
 - Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
