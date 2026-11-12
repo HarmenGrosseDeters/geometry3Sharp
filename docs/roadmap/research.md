@@ -38,7 +38,8 @@ Part of the [roadmap](../ROADMAP.md).
      Status 2026-11-09: stage 2 merged (#448, fb114adf): `MeshBatchQueries.IntersectBatch` / `AnyHitBatch` /
      `IsInsideBatch` (crossings or winding number) / `NearestPointBatch`, bit-identical to the single calls (48 tests;
      benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
-     (a new session after Lévy phase 2):
+     (a new session after Lévy phase 2; owner 2026-11-12: queued as a Sonnet session after the dirty-side provenance
+     session):
      - Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
        single queries (grep, not profiled): `MeshFidelityMetrics`, `MeshDeviation` (MaxDeviation / IsWithin),
        `WindingContouring`, `WindingNumberOctree`, `RemoveOccludedTriangles`, `MeshSignedDistanceGrid`,

@@ -145,6 +145,9 @@ The next steps per topic, in order ("in progress" where a session works on them)
 - Alpha Wrap 3.0: L4, L1, L3b, L2 (in progress, one PR per lever). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12: inventory and command list for the owner
   first, then small PRs). [research.md](roadmap/research.md#open)
+- Phase 5: batch queries, the internal caller switches (spatial profile first, then switch only serial loops over many
+  independent queries, bit-identical; Sonnet; owner 2026-11-12: queued, starts after the dirty-side provenance session
+  when a slot is free). [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: issue-tracker follow-ups left: the regressions a remesher flip-guard default would cause, the P1 collapse
