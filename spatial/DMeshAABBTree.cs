@@ -1599,7 +1599,7 @@ namespace g3
             FastWindingCache = new FWNInfo[box_centers.size];
             fast_winding_cached = new bool[box_centers.size];
             List<int> root_list;
-            build_fast_winding_cache(root_index, 0, WINDING_CACHE_THRESH, out root_list, triCache);
+            build_fast_winding_cache_lists(root_index, 0, WINDING_CACHE_THRESH, out root_list, triCache);
         }
         // the levels of the tree whose two subtrees build their caches concurrently (2^3 = 8 tasks at most): each
         // subtree writes only the cache entries of its own boxes, its triangle set is its own, and the work per box and
@@ -1607,7 +1607,7 @@ namespace g3
         // recursion, the reference of FastWindingParallelBuildTests; any value gives the same cache)
         internal static int FastWindingParallelDepth = 3;
 
-        protected int build_fast_winding_cache(int iBox, int depth, int tri_count_thresh, out List<int> tri_list, MeshTriInfoCache triCache)
+        int build_fast_winding_cache_lists(int iBox, int depth, int tri_count_thresh, out List<int> tri_list, MeshTriInfoCache triCache)
         {
             tri_list = null;
 
@@ -1620,7 +1620,7 @@ namespace g3
                 int iChild1 = index_list[idx];
                 if (iChild1 < 0) {                 // 1 child, descend if nearer than cur min-dist
                     iChild1 = (-iChild1) - 1;
-                    int num_child_tris = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_list, triCache);
+                    int num_child_tris = build_fast_winding_cache_lists(iChild1, depth + 1, tri_count_thresh, out tri_list, triCache);
 
                     // if count in child is large enough, we already built a cache at lower node
                     return num_child_tris;
@@ -1636,12 +1636,12 @@ namespace g3
                     if (depth < FastWindingParallelDepth) {
                         var lists = new List<int>[2];
                         var counts = new int[2];
-                        gParallel.ForRange(2, (k) => counts[k] = build_fast_winding_cache(k == 0 ? iChild1 : iChild2, depth + 1, tri_count_thresh, out lists[k], triCache));
+                        gParallel.ForRange(2, (k) => counts[k] = build_fast_winding_cache_lists(k == 0 ? iChild1 : iChild2, depth + 1, tri_count_thresh, out lists[k], triCache));
                         num_tris_1 = counts[0]; num_tris_2 = counts[1];
                         tri_list = lists[0]; child2_list = lists[1];
                     } else {
-                        num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_list, triCache);
-                        num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_list, triCache);
+                        num_tris_1 = build_fast_winding_cache_lists(iChild1, depth + 1, tri_count_thresh, out tri_list, triCache);
+                        num_tris_2 = build_fast_winding_cache_lists(iChild2, depth + 1, tri_count_thresh, out child2_list, triCache);
                     }
                     bool build_cache = (num_tris_1 + num_tris_2 > tri_count_thresh);
 
@@ -1669,6 +1669,74 @@ namespace g3
                     }
                     if (build_cache)
                         make_box_fast_winding_cache(iBox, tri_list, triCache);
+
+                    return (num_tris_1 + num_tris_2);
+                }
+            }
+        }
+
+
+        // The build with a HashSet per box that the tree used until 2026-11-12; kept (unused: protected, so part of the API of
+        // upstream 1.0.324) while build_fast_winding_cache_lists above is the one the cache uses
+        protected int build_fast_winding_cache(int iBox, int depth, int tri_count_thresh, out HashSet<int> tri_hash, MeshTriInfoCache triCache)
+        {
+            tri_hash = null;
+
+            int idx = box_to_index[iBox];
+            if (idx < triangles_end) {            // triange-list case, array is [N t1 t2 ... tN]
+                int num_tris = index_list[idx];
+                return num_tris;
+
+            } else {                                // internal node, either 1 or 2 child boxes
+                int iChild1 = index_list[idx];
+                if (iChild1 < 0) {                 // 1 child, descend if nearer than cur min-dist
+                    iChild1 = (-iChild1) - 1;
+                    int num_child_tris = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
+
+                    // if count in child is large enough, we already built a cache at lower node
+                    return num_child_tris;
+
+                } else {                            // 2 children, descend closest first
+                    iChild1 = iChild1 - 1;
+                    int iChild2 = index_list[idx + 1] - 1;
+
+                    // let each child build its own cache if it wants. If so, it will return the
+                    // list of its child tris
+                    HashSet<int> child2_hash;
+                    int num_tris_1, num_tris_2;
+                    if (depth < FastWindingParallelDepth) {
+                        var hashes = new HashSet<int>[2];
+                        var counts = new int[2];
+                        gParallel.ForRange(2, (k) => counts[k] = build_fast_winding_cache(k == 0 ? iChild1 : iChild2, depth + 1, tri_count_thresh, out hashes[k], triCache));
+                        num_tris_1 = counts[0]; num_tris_2 = counts[1];
+                        tri_hash = hashes[0]; child2_hash = hashes[1];
+                    } else {
+                        num_tris_1 = build_fast_winding_cache(iChild1, depth + 1, tri_count_thresh, out tri_hash, triCache);
+                        num_tris_2 = build_fast_winding_cache(iChild2, depth + 1, tri_count_thresh, out child2_hash, triCache);
+                    }
+                    bool build_cache = (num_tris_1 + num_tris_2 > tri_count_thresh);
+
+                    if (depth == 0)
+                        return num_tris_1 + num_tris_2;  // cannot build cache at level 0...
+
+                    // collect up the triangles we need. there are various cases depending on what children already did
+                    if (tri_hash != null || child2_hash != null || build_cache) {
+                        if (tri_hash == null && child2_hash != null) {
+                            collect_triangles(iChild1, child2_hash);
+                            tri_hash = child2_hash;
+                        } else {
+                            if (tri_hash == null) {
+                                tri_hash = new HashSet<int>();
+                                collect_triangles(iChild1, tri_hash);
+                            }
+                            if (child2_hash == null)
+                                collect_triangles(iChild2, tri_hash);
+                            else
+                                tri_hash.UnionWith(child2_hash);
+                        }
+                    }
+                    if (build_cache)
+                        make_box_fast_winding_cache(iBox, tri_hash, triCache);
 
                     return (num_tris_1 + num_tris_2);
                 }
