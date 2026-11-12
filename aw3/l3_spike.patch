@@ -1,0 +1,368 @@
+diff --git a/benchmarks/MeshRepairBenchmark/Program.cs b/benchmarks/MeshRepairBenchmark/Program.cs
+index ce7740e..17c728d 100644
+--- a/benchmarks/MeshRepairBenchmark/Program.cs
++++ b/benchmarks/MeshRepairBenchmark/Program.cs
+@@ -562,7 +562,15 @@ class Program
+         Func<bool> never = () => false;
+         var phases = new System.Collections.Generic.Dictionary<string, long>();
+         var sw = Stopwatch.StartNew();
+-        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
++        // (BENCH_WRAP_GATES=0: the gate tests serially, MeshAlphaWrap.ParallelGateTests off; the result is the same)
++        var wrap = new MeshAlphaWrap(input) { RelativeAlpha = relAlpha, RelativeOffset = relOffset,
++            ParallelGateTests = Environment.GetEnvironmentVariable("BENCH_WRAP_GATES") != "0" };
++        // (BENCH_WRAP_GATEP=batch,misses,min: the internal batch parameters, for probes)
++        string gp = Environment.GetEnvironmentVariable("BENCH_WRAP_GATEP");
++        if (gp != null) {
++            var g = gp.Split(',').Select(int.Parse).ToArray();
++            wrap.GateBatchSize = g[0]; wrap.MissesPerBatch = g[1]; wrap.MinNewTests = g[2];
++        }
+         wrap.Compute();
+         long wrapMs = sw.ElapsedMilliseconds;
+         r["wrap_ms"] = wrapMs;
+diff --git a/mesh_ops/MeshAlphaWrap.cs b/mesh_ops/MeshAlphaWrap.cs
+index 62b2dd8..f2b1f93 100644
+--- a/mesh_ops/MeshAlphaWrap.cs
++++ b/mesh_ops/MeshAlphaWrap.cs
+@@ -125,6 +125,19 @@ namespace gs
+         public bool RefineNonManifold = true;
+         const int MaxNonManifoldRounds = 10;
+ 
++        /// <summary>
++        /// Evaluate the gate tests (rule 1's crossing of the dual Voronoi edge with the offset surface, and whether the
++        /// cell touches the input) of the next gates of the queue in parallel batches; the carving applies them serially
++        /// in queue order, as before. The result is bit-identical to false: a test is a function of its cell, the
++        /// neighbour across the gate and the input only, and a precomputed result is used only while both cells are
++        /// unchanged (their stamps); else the test runs again (docs/design/ALPHA_WRAP_30_PARALLEL_GATES.md). Default on.
++        /// </summary>
++        public bool ParallelGateTests = true;
++        /// <summary> threads of the parallel gate tests (0: the platform default); the result does not depend on it </summary>
++        public int MaxThreads = 0;
++        /// <summary> (tests, benchmarks) gates evaluated per batch </summary>
++        internal int GateBatchSize = 256;
++
+         /// <summary>
+         /// Refine result facets whose smallest angle is below this (degrees; 0 = off) before the manifold step: such a
+         /// facet gets the center of its surface Delaunay ball as a Steiner point (where its dual Voronoi edge crosses the
+@@ -221,13 +234,13 @@ namespace gs
+ 
+         // the parts of each refinement phase (wrap, wrap.pinches, wrap.quality, wrap.pinches2) as "<phase>/<part>": the
+         // time in that phase only (the wrap.intersection / .touch / .insert keys are the totals over all of them)
+-        static readonly string[] splitParts = { "intersection", "touch", "insert", "carve", "trial" };
+-        readonly long[] splitLast = new long[5];
++        static readonly string[] splitParts = { "intersection", "touch", "insert", "carve", "trial", "batch" };
++        readonly long[] splitLast = new long[6];
+         long ticksCarve, ticksTrial;
+ 
+         void split_phase(string name)
+         {
+-            long[] now = { ticksIntersection, ticksTouch, ticksInsert, ticksCarve, ticksTrial };
++            long[] now = { ticksIntersection, ticksTouch, ticksInsert, ticksCarve, ticksTrial, ticksBatch };
+             for (int k = 0; k < now.Length; ++k) {
+                 if (name != null) PhaseMilliseconds[name + "/" + splitParts[k]] = (now[k] - splitLast[k]) * 1000 / Stopwatch.Frequency;
+                 splitLast[k] = now[k];
+@@ -505,7 +518,10 @@ namespace gs
+         void reset_refinement_counts()
+         {
+             ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
+-            ticksCarve = ticksTrial = 0;
++            ticksCarve = ticksTrial = ticksBatch = 0;
++            batches = batchTests = batchUsed = 0;
++            // (a new triangulation: its cells' stamps start again, the tests of the last one must not match them)
++            clear_precomputed();
+             split_phase(null);
+             rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
+             staleGates = requeuedGates = 0;
+@@ -549,12 +565,17 @@ namespace gs
+                 Vector3d steinerPoint;
+                 bool insert = false;
+                 int which = 0;
+-                long t0 = Stopwatch.GetTimestamp();
+-                bool crossing = rule_intersection(from, to, out steinerPoint);
+-                long t1 = Stopwatch.GetTimestamp();
+-                ticksIntersection += t1 - t0;
+-                bool touching = !crossing && cell_touches_input(c);
+-                ticksTouch += Stopwatch.GetTimestamp() - t1;
++                bool crossing, touching;
++                if (ParallelGateTests && precomputed_gate(c, i, n, out crossing, out touching, out steinerPoint)) {
++                    // (the batch's tests; their time is in ticksBatch)
++                } else {
++                    long t0 = Stopwatch.GetTimestamp();
++                    crossing = rule_intersection(from, to, out steinerPoint);
++                    long t1 = Stopwatch.GetTimestamp();
++                    ticksIntersection += t1 - t0;
++                    touching = !crossing && cell_touches_input(c);
++                    ticksTouch += Stopwatch.GetTimestamp() - t1;
++                }
+                 if (crossing) {
+                     insert = true; which = 1;
+                 } else if (touching) {
+@@ -611,6 +632,13 @@ namespace gs
+             PhaseMilliseconds["wrap.intersection"] = ticksIntersection * 1000 / Stopwatch.Frequency;
+             PhaseMilliseconds["wrap.touch"] = ticksTouch * 1000 / Stopwatch.Frequency;
+             PhaseMilliseconds["wrap.insert"] = ticksInsert * 1000 / Stopwatch.Frequency;
++            // (the parallel gate tests: wall time of the batches, tests evaluated, and those used by the carving)
++            if (batches > 0) {
++                PhaseMilliseconds["wrap.batch"] = ticksBatch * 1000 / Stopwatch.Frequency;
++                Counts["gate_batches"] = batches;
++                Counts["gate_batch_tests"] = batchTests;
++                Counts["gate_batch_used"] = batchUsed;
++            }
+             return status;
+         }
+ 
+@@ -696,7 +724,10 @@ namespace gs
+         /// The Voronoi edge dual to facet i of the inside cell c, from the circumcenter of the outside cell to
+         /// that of c (centers of the empty balls through the facet; a ray for a facet on the box)
+         /// </summary>
+-        void dual_edge(int c, int i, out Vector3d from, out Vector3d to)
++        void dual_edge(int c, int i, out Vector3d from, out Vector3d to) { dual_edge(c, i, out from, out to, true); }
++
++        // (cached false: the gate batches, from several threads; dt.Circumcenter is what the cache holds, the same values)
++        void dual_edge(int c, int i, out Vector3d from, out Vector3d to, bool cached)
+         {
+             Index3i f = dt.FacetVertices(c, i);
+             Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
+@@ -704,12 +735,12 @@ namespace gs
+             double w2 = w.LengthSquared;
+             Vector3d nrm = w / Math.Sqrt(w2);       // outwards of c
+             Vector3d fc = a + (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
+-            to = clamp_center(circumcenter(c), fc, nrm, -1);
++            to = clamp_center(cached ? circumcenter(c) : dt.Circumcenter(c), fc, nrm, -1);
+             int n = dt.Neighbour(c, i);
+             if (n < 0)
+                 from = fc + (Math.Max((to - fc).Dot(nrm), 0) + 4 * dt.Box.DiagonalLength) * nrm;
+             else
+-                from = clamp_center(circumcenter(n), fc, nrm, 1);
++                from = clamp_center(cached ? circumcenter(n) : dt.Circumcenter(n), fc, nrm, 1);
+         }
+ 
+         // circumcenters of flat cells can be far away or not finite: keep them on the facet's normal line,
+@@ -749,6 +780,13 @@ namespace gs
+             return true;
+         }
+ 
++        // (the gate batches, from several threads: the cached distance, or the same distance computed without caching it)
++        double vertex_distance_readonly(int v)
++        {
++            double d = vertexDistance[v];
++            return double.IsNaN(d) ? oracle.Distance(dt.GetVertex(v)) : d;
++        }
++
+         double vertex_distance(int v)
+         {
+             double d = vertexDistance[v];
+@@ -770,7 +808,10 @@ namespace gs
+             return touchCache[c] == 1;
+         }
+ 
+-        bool touches_input(int c)
++        bool touches_input(int c) { return touches_input(c, vertex_distance); }
++
++        // (vd: vertex_distance serially, vertex_distance_readonly in the gate batches; the same values)
++        bool touches_input(int c, Func<int, double> vertex_distance)
+         {
+             Index4i t = dt.GetCell(c);
+             for (int j = 0; j < 4; ++j)
+@@ -1485,6 +1526,147 @@ namespace gs
+         }
+ 
+         /// <summary> max-heap of gates (facet i of inside cell c, with the cell's stamp), by facet radius </summary>
++        // ---- parallel gate tests (ParallelGateTests) ----
++
++        // the tests of one gate, valid while cell c and its neighbour n across facet i keep their stamps
++        struct GateTest
++        {
++            public int C, I, StampC, N, StampN;
++            public bool Crossing, Touching;
++            public Vector3d Point;
++        }
++
++        // precomputed tests, by gate (4 c + i): kept until the carving uses them (or the pool is full), checked against
++        // the cells' stamps when used
++        GateTest[] pool = new GateTest[0];
++        readonly Stack<int> freeSlots = new Stack<int>();
++        readonly Dictionary<long, int> slotOf = new Dictionary<long, int>();
++        readonly List<int> topGates = new List<int>(), newSlots = new List<int>();
++        long batches, batchTests, batchUsed;
++        int missesSinceBatch;
++        long ticksBatch;
++        const int MinBatchGates = 16;
++        /// <summary> (tests, benchmarks) serial misses before a new batch, and the fewest new tests a parallel batch runs with </summary>
++        internal int MissesPerBatch = 8, MinNewTests = 32;
++
++        void clear_precomputed()
++        {
++            slotOf.Clear();
++            freeSlots.Clear();
++            for (int k = pool.Length - 1; k >= 0; --k) freeSlots.Push(k);
++            missesSinceBatch = 0;
++        }
++
++        // the tests of gate (c, i): precomputed if its cells are unchanged since; else, after MissesPerBatch such misses,
++        // from a new batch of the next gates of the queue (with this one). False: the caller runs the test serially
++        bool precomputed_gate(int c, int i, int n, out bool crossing, out bool touching, out Vector3d p)
++        {
++            crossing = touching = false; p = Vector3d.Zero;
++            long key = 4L * c + i;
++            int k;
++            if (!(slotOf.TryGetValue(key, out k) && valid_test(ref pool[k]))) {
++                // (one thread, or a nearly empty queue: the serial test)
++                if (MaxThreads == 1 || gates.Count < MinBatchGates || ++missesSinceBatch < MissesPerBatch)
++                    return false;
++                missesSinceBatch = 0;
++                if (!run_batch(c, i, n) || !slotOf.TryGetValue(key, out k))
++                    return false;
++            }
++            slotOf.Remove(key);
++            freeSlots.Push(k);
++            ref GateTest g = ref pool[k];
++            crossing = g.Crossing; touching = g.Touching; p = g.Point;
++            // (what the serial test leaves in the caches: the touch result of c)
++            if (!crossing) {
++                touchCache[c] = (sbyte)(touching ? 1 : 0);
++                touchStamp[c] = g.StampC;
++            }
++            batchUsed++;
++            return true;
++        }
++
++        bool valid_test(ref GateTest g)
++        {
++            return dt.IsCell(g.C) && dt.CellStamp(g.C) == g.StampC && dt.Neighbour(g.C, g.I) == g.N
++                && (g.N < 0 || dt.CellStamp(g.N) == g.StampN);
++        }
++
++        // evaluates gate (c, i) and those of the next GateBatchSize gates of the queue that are still gates (inside cell,
++        // outside neighbour) and have no valid precomputed test, in parallel, if there are at least MinNewTests of them;
++        // each test is computed from the cells and the input only (no cache is written by the threads)
++        bool run_batch(int c0, int i0, int n0)
++        {
++            long t0 = Stopwatch.GetTimestamp();
++            newSlots.Clear();
++            gates.Top(GateBatchSize, topGates);
++            int needed = 1;
++            foreach (int h in topGates) {
++                gates.Entry(h, out int c, out int i, out int st);
++                if (dt.IsCell(c) && dt.CellStamp(c) == st && label[c] == Inside && label_of(dt.Neighbour(c, i)) == Outside) needed++;
++            }
++            if (needed < MinNewTests) {
++                ticksBatch += Stopwatch.GetTimestamp() - t0;
++                return false;
++            }
++            if (slotOf.Count + needed > 64 * GateBatchSize) clear_precomputed();
++            if (freeSlots.Count < needed) {
++                int old = pool.Length, size = Math.Max(2 * old, old + needed);
++                Array.Resize(ref pool, size);
++                for (int k = size - 1; k >= old; --k) freeSlots.Push(k);
++            }
++            add_test(c0, i0, n0);
++            foreach (int h in topGates) {
++                gates.Entry(h, out int c, out int i, out int st);
++                if (!dt.IsCell(c) || dt.CellStamp(c) != st || label[c] != Inside) continue;
++                int n = dt.Neighbour(c, i);
++                if (label_of(n) != Outside) continue;
++                add_test(c, i, n);
++            }
++            if (newSlots.Count < MinNewTests) {
++                ticksBatch += Stopwatch.GetTimestamp() - t0;
++                // (the gates are queued; their slots stay free for the next batch)
++                return slotOf.ContainsKey(4L * c0 + i0) && evaluate_serially();
++            }
++            Action<int> test = (j) => evaluate_test(newSlots[j]);
++            var opt = new System.Threading.Tasks.ParallelOptions();
++            if (MaxThreads > 0) opt.MaxDegreeOfParallelism = MaxThreads;
++            System.Threading.Tasks.Parallel.For(0, newSlots.Count, opt, test);
++            batches++;
++            batchTests += newSlots.Count;
++            ticksBatch += Stopwatch.GetTimestamp() - t0;
++            return true;
++        }
++
++        // (few new tests: evaluated here, the same function)
++        bool evaluate_serially()
++        {
++            foreach (int k in newSlots) evaluate_test(k);
++            batchTests += newSlots.Count;
++            return true;
++        }
++
++        void evaluate_test(int k)
++        {
++            ref GateTest g = ref pool[k];
++            dual_edge(g.C, g.I, out Vector3d from, out Vector3d to, false);
++            g.Crossing = rule_intersection(from, to, out g.Point);
++            g.Touching = !g.Crossing && touches_input(g.C, vertex_distance_readonly);
++        }
++
++        // a slot for the test of gate (c, i), unless it has a valid one
++        void add_test(int c, int i, int n)
++        {
++            long key = 4L * c + i;
++            if (slotOf.TryGetValue(key, out int k)) {
++                if (valid_test(ref pool[k])) return;
++            } else {
++                k = freeSlots.Pop();
++                slotOf[key] = k;
++            }
++            pool[k] = new GateTest { C = c, I = i, StampC = dt.CellStamp(c), N = n, StampN = n >= 0 ? dt.CellStamp(n) : 0 };
++            newSlots.Add(k);
++        }
++
+         class GateQueue
+         {
+             double[] key = new double[256];
+@@ -1533,6 +1715,54 @@ namespace gs
+             {
+                 key[to] = key[from]; cell[to] = cell[from]; facet[to] = facet[from]; stamp[to] = stamp[from];
+             }
++
++            /// <summary> the gate at heap position h </summary>
++            public void Entry(int h, out int c, out int f, out int s) { c = cell[h]; f = facet[h]; s = stamp[h]; }
++
++            // (Top: a best-first walk of the heap, its own small max-heap of positions; the queue is not changed)
++            int[] frontier = new int[64];
++
++            /// <summary>
++            /// the heap positions of the (up to) max largest keys, largest first (ties in heap order); the queue is not
++            /// changed. The order only decides which gates a batch evaluates, not the result
++            /// </summary>
++            public void Top(int max, List<int> result)
++            {
++                result.Clear();
++                if (count == 0) return;
++                int fn = 0;
++                Action<int> add = (h) => {
++                    if (fn == frontier.Length) Array.Resize(ref frontier, 2 * fn);
++                    int j = fn++;
++                    while (j > 0) {
++                        int p = (j - 1) / 2;
++                        if (key[frontier[p]] >= key[h]) break;
++                        frontier[j] = frontier[p];
++                        j = p;
++                    }
++                    frontier[j] = h;
++                };
++                add(0);
++                while (fn > 0 && result.Count < max) {
++                    int h = frontier[0];
++                    result.Add(h);
++                    // (pop the frontier's top)
++                    int last = frontier[--fn];
++                    int j = 0;
++                    while (true) {
++                        int l = 2 * j + 1;
++                        if (l >= fn) break;
++                        int r = l + 1;
++                        int m = (r < fn && key[frontier[r]] > key[frontier[l]]) ? r : l;
++                        if (key[frontier[m]] <= key[last]) break;
++                        frontier[j] = frontier[m];
++                        j = m;
++                    }
++                    if (fn > 0) frontier[j] = last;
++                    if (2 * h + 1 < count) add(2 * h + 1);
++                    if (2 * h + 2 < count) add(2 * h + 2);
++                }
++            }
+         }
+     }
+ }
