@@ -31,7 +31,8 @@ time (Thingi10K) and never committed.
 - **Idea 3 is not falsified; it is the lead of problem 1 that survives.** After D1, SafeRounding leaves 29 of 198
   generated clusters and 6 of 114 UTM cases. A random search over representable positions with the triangles
   unchanged makes **29 of these 35 clean** within the drift that is left, in a median of 0.6 s; moves of a single
-  vertex that each remove a defect already reach 15. So most leftovers are local minima of the repair's own narrow
+  vertex that each remove a defect already reach 15. On the real leftovers, the 5 operations of the 16 239 D1 cohort
+  that the rounding leaves, single-vertex moves that each remove a defect make **4 of 5 clean**. So most leftovers are local minima of the repair's own narrow
   proposals, not cases without a solution.
 - **No guarantee.** Nothing found, in the literature or here, gives "always clean within the bound" at practical cost;
   Diazzi et al. 2023 call the conversion to floating point without flips "an unsolved problem (though rare in
@@ -306,9 +307,28 @@ left from where SafeRounding put it, and no triangle above 100 times the degener
 - Most clean ends used most of the drift left (the random walk wanders), so the probe says a solution exists within the
   bound, not how near one is.
 
-**Limits of the probe.** Generated families only: the closed Thingi10K results with leftovers (6 of the 400 set in
-SAFE_ROUNDING.md 8.4, and the unclean operations of the 16 239 cohort) were not run. The search checks the whole mesh
-per step, which is only possible on 450 triangles. It is a random search: it proves existence where it ends clean and
+**The real leftovers (owner 2026-11-12: run the probe on the D1 cohort).** Of the 16 239 operations of the D1 cohort
+run (branch `runs/d1-cohort`, `runs/d1/results/cand.jsonl`) 54 are unclean; 49 of them are rounding clean (contacts and
+bowties of the inputs) and **5 are left by the rounding**, each with 1-3 degenerate triangles in a result of 40k-285k
+triangles. The probe on these five (60 s, the defects counted at the moved vertices only, against a box tree grown by
+the drift left; `lattice_cohort_2026-11-12.jsonl`):
+
+| operation | triangles | drift used | defects | up to 3 vertices, plateau | 1 vertex, each step improves |
+|---|---:|---:|---:|---|---|
+| 837999 intersection | 40 510 | 0.02 | 3 | clean, 60 evaluations | clean, 15 evaluations, 3 moves |
+| 837999 difference | 146 844 | 0.79 | 1 | clean, 29 | clean, 605 evaluations, 1 move |
+| 838003 difference | 146 950 | 0.97 | 2 | 1 left after 60 s | 2 left (no improving move in 907k) |
+| 958469 difference | 285 052 | 0.37 | 3 | clean, 159 | clean, 15 evaluations, 3 moves |
+| 958470 difference | 274 934 | 0.54 | 2 | clean, 30 | clean, 40 evaluations, 2 moves |
+
+Four of the five become clean (`NotCleanReasons` empty for the whole result) with one move per degenerate triangle,
+within today's rule; the search itself takes under 0.1 s after the boolean. The moves are large (0.95 of the drift
+left): a degenerate triangle needs its corner moved by about the bound, which the repair's own moves (a few fixed
+sizes along one direction) do not try. 838003, which had used 97 % of its bound, stays.
+
+**Limits of the probe.** The generated families and these five operations; the closed leftovers of the Thingi10K
+self-unions (6 of the 400 set in SAFE_ROUNDING.md 8.4) were not run. On the small cases the search checks the whole mesh
+per step. It is a random search: it proves existence where it ends clean and
 nothing where it does not. The earlier probe of this kind (SAFE_ROUNDING.md 8.1: 5 of 33 clusters) ran before D1, when
 two thirds of the clusters had spent their drift.
 
@@ -324,8 +344,7 @@ the seed is the vertex id and the pass), each evaluated by the existing `improve
 - *Cost:* bounded by the evaluation budget that exists.
 - *Invariance:* the sizes are multiples of the ulp of the component and of the drift left, both 2^k-scale
   invariant; the directions must be so too (drawn in units of the bound).
-Before a design: the same probe on the real leftovers (the D1 cohort list), which is the falsification run that would
-kill it.
+The probe on the real leftovers did not kill it (6.3: 4 of 5 within this rule).
 
 ### 6.5 Z3 as the rule checker (research.md, step 3)
 
@@ -351,12 +370,14 @@ kill it.
 | # | Option | Expected gain (measured) | Risk | Effort |
 |---|---|---|---|---|
 | 1 | **Stop the passes at the evaluation limit** (or make every `try_*` past the limit compute only its drift, as `try_move` does since #327) | rounding −33 %, booleans −9 % on the 33 operations; the two worst rotated cases 17.3 to 3.1 s and 10.3 to 3.0 s; meshes bit-identical | `SmallestRejectedDrift` (and `StrictRounding`'s message) is no longer the minimum over all proposals where the limit was reached; the drift-only variant keeps it at more code | S for the stop (a decision on the reported value), M for drift-only in every `try_*`; tier M, rounding mutation shards |
-| 2 | **Seeded single-vertex position search after the passes** (6.4), preceded by the probe on the real D1 leftovers | on the generated leftovers 15 of 35 within today's rule, 28-29 with plateau steps; unknown on Thingi10K | results change (more clean results, other coordinates); the plateau variant needs a termination lemma; invariance of the random directions | probe on the cohort leftovers: one runner job and half a day; the build M-L (tier L: it changes rounding results) |
+| 2 | **Seeded single-vertex position search after the passes** (6.4) | on the generated leftovers 15 of 35 within today's rule, 28-29 with plateau steps; on the D1 cohort 4 of its 5 rounding leftovers within today's rule | results change (more clean results, other coordinates); the plateau variant needs a termination lemma; invariance of the random directions | the build M-L (tier L: it changes rounding results) |
 | 3 | `near` and the linear setup (5.5) | upper bounds: `near` 14-56 % of the rounding where edits are evaluated; tree and setup 0.1-0.6 s per large operation | none for results (bit-identical); the diagnosis of `near` is open | S-M each, after a profile of `near` |
 | 4 | Separating-axis prefilter (5.3) | −1.6 % in the sum; about 1 s of the 4.5 s rounding of 519511 union, its boolean within the noise | a new floating-point margin in the rounding (checked by Z3, needs the bounds review) | M; **not recommended** |
 | 5 | Distance certificates, clearance skins, node culling (5.1, 5.2, 5.3) | below the stop rule | | **closed** |
 
-Recommended order: 1 (decide the reported value), then the probe of 2 on the real leftovers before any design, then 3
+Owner 2026-11-12: option 1 is built in the variant that keeps `SmallestRejectedDrift` (every `try_*` past the limit
+drift-only), as its own PR; the probe of option 2 was run on the cohort (6.3), the design decision follows.
+Recommended order: 1, then the design of 2, then 3
 if the 5 s target still needs it. Problem 3 should be restated in the roadmap: the open cost is the box-neighbour
 enumeration on results with long thin triangles and the linear setup, not exact arithmetic and not the lack of a
 certificate. Problem 1 stays open as a guarantee; its practical lead is option 2.

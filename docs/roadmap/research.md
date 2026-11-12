@@ -348,8 +348,9 @@ Ordered by expected value for the library.
      it could clear are 8 % of the rounding in the median); its directional form (a separating-axis prefilter, lemma
      checked with Z3) is correct and gains −1.6 % in a real A/B, not built. Idea 3 survives: after D1 a random search
      over representable positions with the triangles unchanged makes 29 of the 35 generated leftovers clean within the
-     drift left (15 with single-vertex moves that each improve). Open, owner decision: the same probe on the real
-     cohort leftovers, then a seeded position search after the passes (the note, section 8, option 2).
+     drift left (15 with single-vertex moves that each improve). On the real leftovers (the 5 operations of the D1
+     cohort that the rounding leaves) single-vertex moves that each remove a defect make 4 of 5 clean. Open, owner
+     decision: a seeded position search after the passes (the note, section 8, option 2).
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -366,10 +367,11 @@ Ordered by expected value for the library.
      2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
      session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
-3. **Rounding cost on large or rotated results.**
-   - Measured:
-     - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
-     - rounding a 520k-triangle result costs 3-5 s, so 519511 / 1517923 are documented exceptions to the 5 s target.
+3. **Rounding cost: box-neighbour enumeration and linear setup** (restated 2026-11-12, owner; before: "rounding cost on
+   large or rotated results").
+   - Measured before (2026-11-01 to 11-08, out of date since #327, #335, #397, L1, the dirty tree and D1):
+     - SafeRounding was 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
+     - rounding a 520k-triangle result cost 3-5 s; 519511 / 1517923 are documented exceptions to the 5 s target.
    - The architecture survey (EMBER, BSPs, Cherchi 2022, Manifold, Lévy 2024) found no candidate that produces doubles
      with a no-intersection guarantee.
    - Result (2026-11-12, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md)): the figures above are out of date.
@@ -381,8 +383,12 @@ Ordered by expected value for the library.
      already, the first search is linear in the rounded triangles. Found: stopping the passes at the limit gives
      rounding −33 %, booleans −9 %, 33 of 33 hashes identical (changes `SmallestRejectedDrift`; owner decision, option
      1 of the note); `near` is 14-56 % of the rounding where edits are evaluated (not diagnosed).
-   - Question: is there a rounding scheme that is sub-linear in the result size for local edits (incremental
-     self-intersection search, certified clearances)? Shares leads with item 1.
+   - The old question (a rounding scheme sub-linear in the result size, by an incremental search or certified
+     clearances) is answered: no, and the certificates do not pay (the note, sections 5.1 to 5.4).
+   - Open now: (a) the passes past the evaluation limit, drift-only in every `try_*` (owner 2026-11-12: build it, its own
+     PR, results bit-identical); (b) the box-neighbour enumeration of the first search on results with long thin
+     triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
+     (d) the tree and the setup over all triangles where few are rounded.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
    - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
    - Closed without gain:
