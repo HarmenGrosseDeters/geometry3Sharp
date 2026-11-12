@@ -339,8 +339,8 @@ namespace geometry3Sharp.Tests
         public void SafetyLine_Guaranteed_OutsideTheDistanceAndCertified()
         {
             // 12 m from the top crest: outside on flat ground, inside down the bench face and onto the berm. Only the top
-            // bench matters (12 m along the surface do not get past its face), so the pit has two benches and a small
-            // floor: 5 s instead of 23 s, and the same checks (the full pit of four benches gives the same kind of lines)
+            // bench matters (the 12.8 m long face is not left within 12 m along the surface), so the pit has two benches and a small
+            // floor: about 5 s instead of 14 s of work, and the same checks (the full pit of four benches gives the same lines)
             DMesh3 terrain = SmallPit(10, 6, 2, 60, out List<Vector3d> crest);
             var safety = new TerrainSafetyLines(terrain, new[] { crest }, 12) { Mode = TerrainSafetyLines.Modes.Guaranteed };
             Assert.True(safety.Compute());
