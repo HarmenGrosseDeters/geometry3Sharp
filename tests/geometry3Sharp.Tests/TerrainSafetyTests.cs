@@ -55,6 +55,44 @@ namespace geometry3Sharp.Tests
             return tdc.Result;
         }
 
+        // a smaller pit of the same bench profile for the tests that need only the top bench: bottom rectangle hu x hv
+        // (half sizes), the given number of benches, terrain +-extent with 0.5 m cells. Returns the terrain and the
+        // top crest (the rectangle at r = 14 * benches - 6)
+        static DMesh3 SmallPit(double hu, double hv, int benches, double extent, out List<Vector3d> topCrest)
+        {
+            double c = Math.Cos(Angle * MathUtil.Deg2Rad), s = Math.Sin(Angle * MathUtil.Deg2Rad);
+            Func<double, double, double> pit = (x, y) => {
+                double r = Math.Max(Math.Abs(c * x + s * y) - hu, Math.Abs(-s * x + c * y) - hv), z = -10 * benches;
+                for (int bench = 0; bench < benches; ++bench) {
+                    if (r <= 0) return z;
+                    z += 10 * Math.Min(r, 8) / 8;
+                    r -= 8;
+                    if (r <= 0) return z;
+                    r -= 6;
+                }
+                return z;
+            };
+            int n = (int)(4 * extent) + 1;
+            DMesh3 mesh = new DMesh3();
+            int[,] vid = new int[n, n];
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    double x = -extent + 2 * extent * i / (n - 1), y = -extent + 2 * extent * j / (n - 1);
+                    vid[i, j] = mesh.AppendVertex(new Vector3d(x, y, pit(x, y)));
+                }
+            for (int j = 0; j + 1 < n; ++j)
+                for (int i = 0; i + 1 < n; ++i) {
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j], vid[i + 1, j + 1]);
+                    mesh.AppendTriangle(vid[i, j], vid[i + 1, j + 1], vid[i, j + 1]);
+                }
+            var tdc = new TerrainDualContouring(mesh) { GridResolution = (int)extent * 2 };
+            Assert.True(tdc.Compute());
+            double ru = hu + 14 * benches - 6, rv = hv + 14 * benches - 6;
+            Func<double, double, Vector3d> P = (u, v) => new Vector3d(c * u - s * v, s * u + c * v, 0);
+            topCrest = new List<Vector3d>() { P(-ru, -rv), P(ru, -rv), P(ru, rv), P(-ru, rv), P(-ru, -rv) };
+            return tdc.Result;
+        }
+
         static double Length(List<Vector3d> l) { double s = 0; for (int i = 1; i < l.Count; ++i) s += l[i].Distance(l[i - 1]); return s; }
 
         static double RectanglePerimeter(double r) { return 2 * (2 * (30 + r) + 2 * (15 + r)); }
@@ -127,17 +165,20 @@ namespace geometry3Sharp.Tests
         [InlineData(TerrainSafetyLines.Modes.AlongSurface, 0.7)]
         public void SafetyLine_FiveMetresBehindTheTopCrest(TerrainSafetyLines.Modes mode, double tolerance)
         {
-            DMesh3 terrain = PitTerrain();
-            var safety = new TerrainSafetyLines(terrain, new[] { TopCrest() }, 5.0) { Mode = mode };
+            // a pit of two benches and a small floor (the top bench alone matters here): crest at r = 22, half sizes 10 x 6
+            const double hu = 10, hv = 6, rc = 22;
+            DMesh3 terrain = SmallPit(hu, hv, 2, 60, out List<Vector3d> crest);
+            var safety = new TerrainSafetyLines(terrain, new[] { crest }, 5.0) { Mode = mode };
             Assert.True(safety.Compute());
             Assert.NotEmpty(safety.Lines);
-            // the line on the ground outside the pit (r > 50): 5 m from the crest rectangle
+            // the line on the ground outside the pit (r > rc): 5 m from the crest rectangle
             int checkedPoints = 0;
             foreach (var line in safety.Lines)
                 foreach (Vector3d p in line) {
-                    if (R(p.x, p.y) < 50) continue;
-                    double d = R(p.x, p.y) - 50;    // Chebyshev-like: exact away from the corners
-                    if (Math.Abs(Math.Abs(UV(p).x) - 30 - 50) < 6 && Math.Abs(Math.Abs(UV(p).y) - 15 - 50) < 6) continue;   // round corners
+                    double r = Math.Max(Math.Abs(UV(p).x) - hu, Math.Abs(UV(p).y) - hv);
+                    if (r < rc) continue;
+                    double d = r - rc;    // Chebyshev-like: exact away from the corners
+                    if (Math.Abs(Math.Abs(UV(p).x) - hu - rc) < 6 && Math.Abs(Math.Abs(UV(p).y) - hv - rc) < 6) continue;   // round corners
                     Assert.True(Math.Abs(d - 5) < tolerance, $"{p}: {d} m from the crest");
                     checkedPoints++;
                 }
@@ -297,9 +338,10 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SafetyLine_Guaranteed_OutsideTheDistanceAndCertified()
         {
-            // 12 m from the top crest: outside on flat ground, inside down the bench face and onto the berm
-            DMesh3 terrain = PitTerrain();
-            var crest = TopCrest();
+            // 12 m from the top crest: outside on flat ground, inside down the bench face and onto the berm. Only the top
+            // bench matters (12 m along the surface do not get past its face), so the pit has two benches and a small
+            // floor: 5 s instead of 23 s, and the same checks (the full pit of four benches gives the same kind of lines)
+            DMesh3 terrain = SmallPit(10, 6, 2, 60, out List<Vector3d> crest);
             var safety = new TerrainSafetyLines(terrain, new[] { crest }, 12) { Mode = TerrainSafetyLines.Modes.Guaranteed };
             Assert.True(safety.Compute());
             Assert.True(safety.Lines.Count >= 2);
