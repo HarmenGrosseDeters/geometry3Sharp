@@ -695,3 +695,20 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 - (b3): the geometric step that an encroaching vertex projects into the piece.
 - Not encoded at all: Shewchuk's termination theorems, the 25.65 degree value as a number (`arcsin(sqrt 3 / 4) = 25.659 degrees` is a numeric
   fact, not checked by Z3), and every termination argument of #394 and rule C beyond the inequalities above (they are measured, not proved).
+
+## Step loops (pilot 5, `step_loops.py`, QA 2.0 T14, 2026-11-12)
+
+The step loops of `MeshRoundingRepair` (`for (double s = s0; s <= bound; s *= 4)` in `fix_degenerate` twice and in `try_separate`, `s *= 16`
+in `fix_intersection` twice), the class of #452 (a start that underflowed to 0 never advanced). Checked in binary64 (Z3 floating point,
+round to nearest even, subnormals included): for every finite s > 0 the product with 4 and with 16 is at least s + s or infinite, so
+the loop advances; with 2^2100 * 2^-1074 above `double.MaxValue` (exact integers) it ends within 2100 iterations for a finite bound; the bit
+manipulation of `ulp` is positive and finite for every finite x >= 0 (so `ulp(bound)` and `4 * ulp(largest)` are never the stuck start 0).
+Mutants: the start 0 (the code before #452) and an infinite bound (inf <= inf) are SAT with witnesses replayed in plain floats. That the
+bound is finite (`maxLengthC`, a component's diagonal behind the `OutsideRange` check) is reviewed, not proved. `source_contracts`
+holds the model to the source (loop headers, the start guards, the `ulp` function); a test shows each kind of drift is detected. Runs in
+under a second; part of the `Z3 pilot` workflow.
+
+```sh
+python3 tools/Z3Pilot/step_loops.py --out /tmp/step-loops.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_step_loops.py' -v
+```
