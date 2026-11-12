@@ -80,3 +80,71 @@ The check preserves the tool result as an exact rational, requires it not to exc
 changes to the modeled input, source expressions, or generator rules. The input includes potentially
 subnormal coordinates; no claim is made for an ungated execution of the real filter. The other cross-product
 components, gate, sign decision and complete predicate remain outside this check.
+
+## Further Orient3dLPI and Orient3dTPI expressions (issue #625)
+
+These comparisons extend the two above to the other leaves and composed expressions of `indirect.spec`.
+Each model is one expression under a restricted domain: points in `[1,2]`, `r` (LPI) in `[0,0.5]`, and the
+Orient3d point `c` (or `o` in the TPI model) in `[1,2]`. Each operation is rounded to binary64, as in the spec.
+The generator bound is the relative rule of `Compiler.cs` applied to the expression tree, times the magnitude
+of the expression over that domain; the derivations are in `compare_filter_expressions.py`.
+
+- LPI leaf `prx = p.x - r.x`: magnitude at most 2, bound `2u`.
+- `ny`, `nz`: the same structure as `nx`, bound `8C` as in the `nx` comparison.
+- `d = lq - lp` with the full chain `nx, ny, nz`, `lp = nx*prx + ny*pry + nz*prz`, `lq` likewise with `q - r`.
+  Magnitudes: `|nx|,|ny|,|nz| <= 8`, `lp, lq <= 48`, `d <= 96`. Bound `96 C_d` (about `864u`).
+- LPI coordinate numerator `Nx = pcx*lq - qcx*lp` with `pcx = p.x - c.x`, `|pcx| <= 1`: magnitude 96,
+  bound `96 C` (about `1056u`).
+- TPI leaf `u1_x = b1.x - a1.x`: magnitude at most 1, bound `u`.
+- TPI `n1x = u1_y*w1_z - u1_z*w1_y`: magnitude at most 2, bound `2 C_nx` (about `8u`).
+- TPI `D1 = n1x*a1cx + n1y*a1cy + n1z*a1cz` with `a1cx = a1.x - c.x`: magnitude 6, bound `6 C` (about `48u`).
+
+```sh
+python3 tools/FPTaylorPilot/compare_filter_expressions.py "$base"          # all expressions
+python3 tools/FPTaylorPilot/compare_filter_expressions.py "$base" d coord_x  # a subset
+python3 -I -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py'
+```
+
+| Expression | FPTaylor bound (hex) | FPTaylor (decimal) | Generator bound (decimal) | Ratio | Result |
+|---|---|---|---|---|---|
+| LPI `prx` (leaf) | `0x1p-53` | 1.11e-16 | 2.22e-16 | 0.500 | pass |
+| LPI `ny` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
+| LPI `nz` | `0x1.0080000000001p-49` | 1.78e-15 | 3.55e-15 | 0.501 | pass |
+| LPI `d` | `0x1.c480000000001p-46` | 2.51e-14 | 9.59e-14 | 0.262 | pass |
+| LPI `Nx` (coordinate) | `0x1.16f8000000001p-45` | 3.10e-14 | 1.17e-13 | 0.264 | pass |
+| TPI leaf `u1_x` | `0x1p-54` | 5.55e-17 | 1.11e-16 | 0.500 | pass |
+| TPI `n1x` | `0x1.0100000000001p-51` | 4.46e-16 | 8.88e-16 | 0.502 | pass |
+| TPI `D1` | `0x1.3000000000001p-49` | 2.11e-15 | 5.33e-15 | 0.396 | pass |
+
+The run was on Linux x86-64 in a Podman container (Ubuntu 24.04), since the owner's machine has no WSL
+distribution; `install.sh` and `run.sh` ran unchanged there. The `d` run took about 9 minutes and `Nx` about
+17 minutes (the full set about 35 minutes), so these are on-demand checks, not CI.
+
+Not covered: the full determinant `t1 - t2 + t3` and the sign decision of `Orient3dLPI` and `Orient3dTPI`,
+the other TPI planes and the other cross-product components of the TPI model, and any input outside the
+restricted ranges above. As for the earlier comparisons, each result is a bounded-domain, single-expression
+check, not a proof of the filter.
+
+## Windows: a standalone WSL2 setup
+
+`wsl_setup.ps1` runs the whole pilot in a WSL2 distribution (default Ubuntu 24.04), without Podman or Docker.
+Run it from the repository root in Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\FPTaylorPilot\wsl_setup.ps1          # smoke, Python tests, ux and nx
+powershell -ExecutionPolicy Bypass -File tools\FPTaylorPilot\wsl_setup.ps1 -Full     # plus the generated expressions (about 35 min)
+```
+
+It installs the distribution if it is missing (`wsl --install`; this needs administrator rights and a download
+of a few GB, so run it from an elevated PowerShell in that case), installs the build packages, copies `tools/`
+into the distribution's Linux file system with LF line endings, and runs `wsl_run.sh`. The FPTaylor toolchain
+is built once into `/root/fptaylor-local` in the distribution (`-InstallDir` changes it); a second run reuses it.
+Nothing is installed on Windows itself.
+
+`wsl_run.sh` is the Linux part and can be run on any Linux x86-64 host:
+`bash tools/FPTaylorPilot/wsl_run.sh <LF copy of the repository root> <fresh installation directory> [--full]`.
+`PYTHON` selects the interpreter (default `python3`). Its control flow is checked by `check_wsl_run.py` with a stub
+FPTaylor; that check needs Linux, since it runs the stub as a program.
+
+The script has not been run on a real WSL distribution yet: this session could not install one (no administrator
+rights). The Linux part ran in an Ubuntu 24.04 container, with the same steps as the script.

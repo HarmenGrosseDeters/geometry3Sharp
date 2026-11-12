@@ -5,6 +5,10 @@ decisions in section 11. Tier S (docs only). Each command is public surface, so 
 Basis: `master` at b25eb46 (2026-11-12), compared with `tools/g3cli` (`Name = "..."` of every `Command`, their
 `Param` lists) and the public classes of the library and of the Clipper2 addon.
 
+Update 2026-11-12 (evening): PRs A to E of section 10 are merged (#662, #665, #667, #669, #672). F (#689), G1 `hull2d`
+(#690) and G2 Minkowski (#702) are open; G3 is in work. The owner dropped `voxelize` on 2026-11-12; #702 records that
+in sections 10 and 11.
+
 Conventions for all new commands (existing ones, [tools/g3cli/README.md](../../tools/g3cli/README.md)): one JSON
 object with `status`, `code`, `warnings`, `elapsed_ms`; snake_case options, the same `Param` list for the CLI and the
 MCP tool; failures are result codes, never stack traces; no output file on failure; large inputs go through files,
@@ -197,7 +201,7 @@ the sessions that added the library options (Alpha Wrap 2.0, SafeRounding) expec
 | P2 | D | `polygon2d` ops `simplify`, `clip_lines`, `offset_lines` (6) | M |
 | P2 | E | `curvature` (4), `fidelity` / `geodesic` options (2, 3) | M |
 | P2 | F | `offset` with `--root-mode` (1), after Q1 | M |
-| P3 | G | `hull2d` (8), Minkowski (6), `voxelize` (1), `query3d --camera` (5.4) | each S-M |
+| P3 | G | `hull2d` (8), Minkowski (6), `query3d --camera` (5.4); `voxelize` (1) dropped, see section 11 | each S-M |
 
 Each PR: tests in `tests/g3cli.Tests` (`McpTests` for the MCP schema and call, `CliTests`-style for the command, `McpFuzzReplayTests` /
 `ReaderFuzzTests` where an input format is read), `tools/g3cli/README.md`, `docs/OPERATIONS.md`, and the roadmap line
@@ -211,6 +215,10 @@ Each PR: tests in `tests/g3cli.Tests` (`McpTests` for the MCP schema and call, `
 - **Q3** `hull2d` exposes `double` and `int64`.
 - **Q4** Order: PR A, PR B, then C to G as in section 10.
 - **Q5** `tetquality` and `--mode all` stay out of this update.
+- **Later decisions (owner 2026-11-12):** `voxelize` (section 1) is dropped: no `MeshVoxelizer` library class and no CLI command. First approved as
+  proposed (voxel = center inside, Parity and WindingNumber, cell-count guard), then withdrawn the same day: simulation will be covered by tet meshing
+  ([research.md](../roadmap/research.md), item 3), and block models come back as a small feature only if the owner needs them. G is therefore
+  `hull2d` (#690), the Minkowski ops of `polygon2d` and `query3d --camera`.
 
 The questions as asked:
 

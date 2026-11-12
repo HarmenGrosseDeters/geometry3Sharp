@@ -22,7 +22,7 @@ help: specification vs implementation, and implementation vs review and acceptan
 
 | Tier | Examples | Process |
 |---|---|---|
-| **S** | docs, comments, a one-line fix, benchmark README | One session. The author re-reads the diff. No extra review. Code changes run the local CI steps; docs-only changes (only `*.md`) run no CI, locally or on GitHub. |
+| **S** | docs, comments, a one-line fix, benchmark README | One session. The author re-reads the diff. No extra review. Code changes run the local CI steps; docs-only changes (only `*.md`) run no CI, locally or on GitHub, except `docs/design/FIXED_WIDTH_EXACT_POINTS.md` (its bound table is a test input: CI and the generator tests run). |
 | **M** | a bug fix or small feature outside exact code | All of S, plus: tests that fail on the old code (mutation check), the CLAUDE.md tests (invariance / reuse / determinism) and **one** independent review agent. |
 | **L** | exact arithmetic, error bounds, `ExactMesh*`, a new module, spec-driven work | All of M, plus: a design doc or spec first, reviewed by the owner; **acceptance against references** ([strategy](design/ACCEPTANCE_STRATEGY.md): oracle, differential, golden master); a bounds review; mutation runs; benchmark A/B numbers. |
 
@@ -65,10 +65,18 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - The inner loop is fast: filtered `dotnet test` runs and a small benchmark subset. The full local CI steps run
   before a push that changes existing library code; for changes to tools, tests or new files only, run the filtered
   tests, the builds of all targets including net48, and `dotnet pack` (its API validation against 1.0.324). GitHub
-  CI runs the full suite on every push anyway. Docs-only pushes skip all of it.
+  CI runs the full suite on every push anyway (a draft PR skips the tests tagged `Slow`). Docs-only pushes skip all of it.
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).
+- **Name the stratum and the cost boundary of every share** (owner, 2026-11-12): a reported share ("exact arithmetic is
+  X %", "GC is Y %", "it cannot get faster, that is the exact code") states (1) the workload it was measured on (normal
+  operations, a study set such as the 66 boolean ops, or the slow tail) and (2) whether it is self time in the functions
+  or includes the GC and allocation cost they cause. A share from one stratum does not justify a stop rule in another.
+  "The exact code is the floor" is a claim about a fundamental limit (section 2): separate what exactness requires from
+  what the current representation costs. (Case: exact arithmetic was ~5-6 % self time on normal ops while the
+  `BigInteger` path dominated the slow tail through allocations and GC; the allocation-free kernel P2 took the 60 slow
+  units from 298 to 64 s, bit-identical.)
 - **Look before you build** (owner, 2026-11-01): before designing an optimization or a new algorithm, do two short
   checks and record them in the design note or PR:
   1. **The library:** search it for existing solutions and building blocks (predicates and filters, `tools/
@@ -253,4 +261,9 @@ from secret tests, which a public repository cannot keep.
     - Targets are a floor, not a stop (owner 2026-11-09): when a target is met, the remaining levers are still
       measured (upper bound) and every one with a noticeable gain at reasonable effort is built, in order of gain per
       effort, until the bounds show nothing worth building. The stop rule only drops levers without a measurable gain.
+    - Build what is never slower and gains somewhere (owner 2026-11-12): a lever is built, even below a 10 % share, when
+      it is measured never slower (normal stratum and tail separately, median of 5) and gains measurably somewhere (wall
+      time or allocations / GC), unless another lever already covers the same work faster. It is dropped only for no
+      measurable gain or for being dominated, and the report names which. The cost that remains is code and review (for
+      exact code: the exact-code review, mutation shards, a checked bound table), so the gain is stated per effort.
 

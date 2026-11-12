@@ -126,5 +126,135 @@ class Trx(unittest.TestCase):
         self.assertEqual(t.class_of("N.B+C.Row(x: 1.5)"), "N.B+C")
 
 
+ISOLATED = """<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testId="3" testName="N.A.SlowUntagged" duration="00:00:02.0000000" outcome="Passed" />
+    <UnitTestResult testId="4" testName="N.B+C.Row(x: 1.5)" duration="00:00:20.0000000" outcome="Failed" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="N.A.SlowUntagged" id="3"><TestMethod className="N.A" name="SlowUntagged" /></UnitTest>
+    <UnitTest name="N.B+C.Row(x: 1.5)" id="4"><TestMethod className="N.B+C" name="Row" /></UnitTest>
+  </TestDefinitions>
+</TestRun>
+"""
+
+
+class Isolated(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.full = os.path.join(self.dir.name, "full.trx")
+        self.alone = os.path.join(self.dir.name, "alone.trx")
+        for path, text in ((self.full, TRX), (self.alone, ISOLATED)):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def test_flag_filter_names_each_method_once_with_namespace_and_nesting(self):
+        out = os.path.join(self.dir.name, "flag.txt")
+        self.assertEqual(t.main([self.full, "--threshold", "5", "--flag-filter", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "FullyQualifiedName~N.A.SlowTagged|FullyQualifiedName~N.A.SlowUntagged|FullyQualifiedName~N.B+C.Row")
+        # a higher limit flags fewer
+        self.assertEqual(t.main([self.full, "--threshold", "5", "--flag-from", "100", "--flag-filter", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "FullyQualifiedName~N.B+C.Row")
+
+    def test_merge_uses_the_time_alone_for_passed_reruns_only(self):
+        rows, full = t.merge_isolated(t.read_trx(self.full), t.read_trx(self.alone))
+        by = {r[0]: r[1] for r in rows}
+        self.assertAlmostEqual(by["N.A.SlowUntagged"], 2.0)          # re-run alone: 7.25 s in the full run
+        self.assertAlmostEqual(by["N.B+C.Row(x: 1.5)"], 120.0)        # the re-run failed: the full-run time stays
+        self.assertAlmostEqual(by["N.A.Fast"], 0.5)
+        self.assertEqual(full, {"N.A.SlowUntagged": 7.25})
+
+    def test_ratchet_judges_the_time_alone(self):
+        backlog = os.path.join(self.dir.name, "backlog.txt")
+        with open(backlog, "w", encoding="utf-8") as f:
+            f.write("B+C.Row\nA.SlowTagged\n")
+        out = os.path.join(self.dir.name, "summary.md")
+        # full run alone: N.A.SlowUntagged is 7.25 s without Slow and not on the list, a violation
+        self.assertEqual(t.main([self.full, "--backlog", backlog, "--summary", out]), 1)
+        # with the isolated re-run it took 2 s: no violation, and the report shows the full-run time
+        self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", backlog, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("(full run 7.2 s)", text)
+        self.assertIn("1 of them as measured alone", text)
+        # a violation keeps its full-run time in the message
+        small = os.path.join(self.dir.name, "small.txt")
+        with open(small, "w", encoding="utf-8") as f:
+            f.write("B+C.Row\nA.SlowTagged\n")
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", small, "--max-seconds", "1"]), 1)
+        self.assertIn("N.A.SlowUntagged", buf.getvalue())
+        # a name with ": " in its theory arguments keeps the note too
+        passed = ISOLATED.replace('outcome="Failed"', 'outcome="Passed"').replace('00:00:20.0000000', '00:00:03.0000000')
+        path2 = os.path.join(self.dir.name, "alone3.trx")
+        with open(path2, "w", encoding="utf-8") as f:
+            f.write(passed)
+        only_tagged = os.path.join(self.dir.name, "tagged.txt")
+        with open(only_tagged, "w", encoding="utf-8") as f:
+            f.write("A.SlowTagged\n")
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            t.main([self.full, "--isolated", path2, "--backlog", only_tagged, "--max-seconds", "1"])
+        self.assertIn("3.0 s > 1 s, not on the backlog: N.B+C.Row(x: 1.5)  (full run 120.0 s)", buf2.getvalue())
+        self.assertIn("2.0 s > 1 s, not on the backlog: N.A.SlowUntagged  (full run 7.2 s)", buf.getvalue())
+
+    def test_a_flagged_test_missing_from_the_rerun_is_listed_and_keeps_its_time(self):
+        out = os.path.join(self.dir.name, "summary.md")
+        # ISOLATED has N.A.SlowUntagged (passed) and N.B+C.Row (failed); N.A.SlowTagged (90 s) was flagged but is not in it
+        rows = t.read_trx(self.full)
+        missing = t.missing_from_rerun(rows, t.read_trx(self.alone), 5.0)
+        self.assertEqual([n for n, _ in missing], ["N.B+C.Row(x: 1.5)", "N.A.SlowTagged"])
+        self.assertEqual(t.main([self.full, "--isolated", self.alone, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("without a passed result in the re-run alone: 2", text)
+
+    def test_equal_display_names_in_the_rerun_take_the_slowest(self):
+        twice = ISOLATED.replace('<Results>', '<Results><UnitTestResult testId="3" testName="N.A.SlowUntagged" duration="00:00:09.0000000" outcome="Passed" />')
+        path = os.path.join(self.dir.name, "twice.trx")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(twice)
+        rows, full = t.merge_isolated(t.read_trx(self.full), t.read_trx(path))
+        self.assertAlmostEqual({r[0]: r[1] for r in rows}["N.A.SlowUntagged"], 9.0)
+
+    def test_tests_above_20_s_are_listed_as_potential_defects_with_the_time_alone(self):
+        out = os.path.join(self.dir.name, "summary.md")
+        self.assertEqual(t.main([self.full, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("Potential defects: 2 tests above 20 s", text)       # the 90 s tagged and the 120 s untagged row
+        self.assertIn("(not re-run alone)", text)
+        alone = ISOLATED.replace('00:00:20.0000000', '00:00:03.0000000').replace('outcome="Failed"', 'outcome="Passed"')
+        path = os.path.join(self.dir.name, "alone2.trx")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(alone)
+        self.assertEqual(t.main([self.full, "--isolated", path, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read().split("Potential defects:", 2)[-1]
+        self.assertIn("120.0 s  N.B+C.Row(x: 1.5)  (alone 3.0 s)", text)     # the time in the full run stays the finding
+        self.assertEqual(t.potential_defects(t.read_trx(self.full), {}, 100)[0][0], "N.B+C.Row(x: 1.5)")
+        self.assertEqual(len(t.potential_defects(t.read_trx(self.full), {}, 200)), 0)
+
+    def test_rerun_filter_names_the_slow_tagged_and_the_backlog_methods_without_a_trx(self):
+        listing = os.path.join(self.dir.name, "slow.txt")
+        with open(listing, "w", encoding="utf-8") as f:
+            f.write("The following Tests are available:\n    N.A.SlowTagged\n    N.B+C.Row(x: 1.5)\n    N.B+C.Row(x: 2)\n")
+        backlog = os.path.join(self.dir.name, "backlog.txt")
+        with open(backlog, "w", encoding="utf-8") as f:
+            f.write("# c\nD.Other\nA.SlowTagged\n")
+        out = os.path.join(self.dir.name, "rerun.txt")
+        self.assertEqual(t.main(["--rerun-filter", out, "--slow-list", listing, "--backlog", backlog]), 0)
+        with open(out, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "FullyQualifiedName~A.SlowTagged|FullyQualifiedName~D.Other|FullyQualifiedName~N.A.SlowTagged|FullyQualifiedName~N.B+C.Row")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -43,15 +43,15 @@ PR or sits in FINDINGS.md / the roadmap. Classification under [QA.md 2.5a](../QA
 First, the three examples named by the coordinator: the `DMeshAABBTree3` ray / `IsInside` failure at radius 1e100 is
 **fixed** (#493, range up to 2^1000 in QA.md); the alpha wrap "result box corners" failure at relative alpha 5-8 is
 **fixed** (platform.md campaign item 3; the extent-2e-15 case is an honest `Failed` with `InvalidInput`, #527);
-`MeshRobustRepair` slow inputs are still **open** (F2).
+`MeshRobustRepair` slow inputs are **fixed** (F2, #636: the alpha wrap of an input below `SmallInputWrapTriangles` = 64 triangles takes its alpha from the input's median edge length; 11 s to 0.4 s on the 62-byte repro).
 
 | # | Finding | Source | Class | Verdict |
 |---|---|---|---|---|
 | F1 | `MeshRoundingRepair` / Boolean `RoundingClean` claims clean but is not (degenerate triangles, invalid mesh, inside-out); rank 1 and 2, 41 + 56 artifacts | FINDINGS.md T13 | the replay inputs are scale < 2^-200 or > 2^200: **out**, false success | range check in `MeshRoundingRepair` was "held until #513"; #513 and #593 are merged, so re-replay the artifacts first, then a bugfix issue if one still gives a false success |
 | F2 | `MeshRobustRepair` 2.7-10.8 s on 4-12 triangle inputs (wrap / solidify fallbacks) | platform.md, FINDINGS rank 8 | **in** (normal-range inputs) | performance bug: issue with the 62-byte repro; the 5 s test limit makes it binding for campaigns |
-| F3 | `DualContouring.find_crossings` throws "ray direction is not normalized" (AggregateException) on finite input, found via robust-repair-soup | FINDINGS rank 3 | in (an exception on finite input; origin is a degenerate solidify step) | bug: issue with the 79-byte repro |
+| F3 | `DualContouring.find_crossings` throws "ray direction is not normalized" (AggregateException) on finite input, found via robust-repair-soup | FINDINGS rank 3 | in (an exception on finite input; origin is a degenerate solidify step) | no longer reproduces on master 1f227db (section 5), no issue |
 | F4 | `Clipper.Union` of two self-intersecting rings returns an area neither input fills (Clipper2 2.0.0) | FINDINGS item 5 | in, in the dependency | roadmap Open item (integrate the C# sources or document); not a library bug |
-| F5 | `QualityMesh2` `AngleBelowBound` about 1 in 700 inputs in every quality mode | FINDINGS second wave 1 | in (extent about 1) | bug: issue; mesher is another session's area, so the issue needs the oracle check first |
+| F5 | `QualityMesh2` `AngleBelowBound` about 1 in 700 inputs in every quality mode | FINDINGS second wave 1 | in (extent about 1) | oracle, fixed by #664, pinned by #687 (#637: a T-junction whose end misses the other segment by a rounding; the mesh was right) |
 | F6 | `QualityMesh2` `VertexUnused` / `SegmentMissing` with `Success` at 2^35 extents from the origin and with a coordinate 1e-119 beside extent 1 | FINDINGS second wave 2, 3 | in (documented up to 1e70): false success | bug: issue |
 | F7 | `QualityMesh2` `Failed (RefinementLimit)` on a valid input: livelock for a point 1e-286 of the extent away | FINDINGS rank 7 | out (magnitude disparity), honest `Failed` but after 296 225 steps | range check or documented limit: issue only if the time is large |
 | F8 | `Reducer` `PreventFoldOver` leaves a triangle slightly past vertical on noisy terrain | platform.md campaign item 5 | in | counted by the campaign (`G3_PROPERTY_STRICT=1`); issue with the 200-seed recipe |
@@ -100,3 +100,11 @@ What changed on GitHub after the state above (PR and issue states, not re-measur
 - Replay of the FINDINGS repros on master (1f227db): F1, F3, F6 and the DualContouring throw no longer reproduce, F2 (#636),
   F5 (#637) and F7 (#638) do. The gap-list PRs found three more defects: #644 and #645 (`ConvexHull2`), #647
   (`VoxelSurfaceGenerator` exceeds `MaxMeshElementCount` by up to 17 vertices); each is pinned by a skipped or a pinning test.
+
+## 6. Update, evening of 2026-11-12
+
+- #643 is merged (31ce390a): the Z3 frame lemma `tools/Z3Pilot/clipper_frame.py` is on master, so T10 is done (row T10
+  above says "merge pending").
+- #627 (T12) is ready for review, no longer a draft (row T12 and section 4 say draft).
+- The gap-list defects of section 5 are fixed and their issues closed: #644 by #656, #645 by #657, #647 by #655.
+- F2 (#636), F5 (#637) and F7 (#638) are still open, with the PRs #703, #687 and #688 under review.

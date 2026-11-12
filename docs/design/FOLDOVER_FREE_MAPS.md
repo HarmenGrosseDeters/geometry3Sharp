@@ -3,6 +3,9 @@
 Date: 2026-11-04. Tier L. **Owner approved the design and bounded budget exception, and explicitly accepted
 hand mutations without mutation-tooling changes, at the design checkpoint.**
 
+Status: built and merged in #374 (d2164ed9, 2026-11-04) as `parameterization/FoldoverFreeParameterization.cs`. The
+branch `feature/foldover-free-maps` named below is deleted; its commits are on master.
+
 ## Scope, isolation and budget
 
 One additive operation, `FoldoverFreeParameterization(DMesh3 mesh, IList<Vector2d> startUV)` with

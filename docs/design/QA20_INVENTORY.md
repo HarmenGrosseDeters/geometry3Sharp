@@ -292,7 +292,8 @@ Stryker filters exclude (a one-line convention, to be fixed in T3's PR).
 ## 6. Open points for the owner and the coordinator
 
 1. The mesh-ops harness is not on master (task T2). If the Boolean session's branch is still open, T2 is "merge and
-   extend"; if not, it is "rebuild from its README".
+   extend"; if not, it is "rebuild from its README". (Update 2026-11-12: answered; the harness is on master as
+   `tools/MeshFuzzPilot`, [QA20_STATUS.md](QA20_STATUS.md), T2.)
 2. FPTaylor stays a local tool (OCaml / Num toolchain): it does not run in CI, so its comparison tests do not gate a
    change to a filter bound. The checklist can name it as an item of the bounds review instead.
 3. Cost numbers are estimates; the first PR of each tool replaces them. The mutation cost figures (>= 29 runner-hours

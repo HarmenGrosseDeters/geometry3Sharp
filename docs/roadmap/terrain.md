@@ -26,6 +26,11 @@ Part of the [roadmap](../ROADMAP.md).
   ~270 planes (~100 ms per piece), linear in the number of pieces. The slow terrain tests are handled as test design /
   Nightly. A real gain would need fewer planes per fan, which changes the accuracy budget (owner: not wanted).
 
+- **Terrain Slope rows in the rotated / 1e-3 / utm frame (owner 2026-11-12): no library change.** A first-δ shortcut was
+  approved, then withdrawn (the formula gives no fraction, so it would be a constant tuned on one design); TERRAIN.md 5.8.1
+  states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
+  limit, #696).
+
 Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
@@ -74,7 +79,7 @@ Nothing is open. The items below are **parked until a concrete use case** (owner
 
 #### Phase 4 items: showcase domain, slope construction, 2D spatial index
 
-- A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
+- A showcase domain: terrain / GIS (closed out, owner 2026-11-09) and biomedical / orthotics
   - [ ] Slope construction and daylighting on TINs (open-pit mining; design in
     [design/TERRAIN.md](../design/TERRAIN.md)): per-segment slopes, never steeper than specified (verified per
     triangle), catch line with the terrain, cut / fill volumes. Phase 1 in three PRs, each usable and tested on its

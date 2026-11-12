@@ -1,6 +1,6 @@
 # 2D Spatial Index (Quadtree) — Behavioural Specification
 
-Status: owner decisions and first-version implementation brief approved (October 2026). Written as the *specification side* of a
+Status: owner decisions and first-version implementation brief approved (October 2026). Update 2026-11-12: built and merged in #195 (2026-11-01); section 9 records the code and where it departs from section 8. Written as the *specification side* of a
 clean-room process. The owner has an existing 2D quadtree whose origin is under a licence that is
 not compatible with this library (CPOL), and which lives in an employer code base. This document
 describes **observable behaviour, test situations and performance targets only**. It says nothing
