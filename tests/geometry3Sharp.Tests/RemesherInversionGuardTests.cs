@@ -42,6 +42,14 @@ namespace geometry3Sharp.Tests
         static DMesh3 Tube135363() => Tube(48, 1, 6.9, 0.75, 33);
         const double Target135363 = 11.6;
 
+        // with MinTriangleQuality the rim fold check (#621) keeps the 135363 tube from turning inside out (the flips it
+        // rejects at the rims were part of the inversion), so the guard is tested with MinTriangleQuality on a tube with
+        // fewer slices that still turns inside out without it, with both remeshers
+        static DMesh3 QualityTube() => Tube(24, 1, 6.9, 0.75, 33);
+        const double QualityTarget = 10;
+        // (the cavity likewise: a tube of 32 slices at 11, which turns inside out with RemesherPro and MinTriangleQuality)
+        const double CavityQualityTarget = 11;
+
         // as g3cli remesh (20 passes, smoothing 0.5, projection onto the input, 30 degree creases)
         static Remesher Remesh(DMesh3 mesh, DMesh3 input, double edge, double minQuality, bool guard, bool pro,
             int passes = 20, bool parallel = true)
@@ -152,11 +160,12 @@ namespace geometry3Sharp.Tests
         [InlineData(true, 0.2)]
         public void Tube135363_NotInsideOut(bool pro, double minQuality)
         {
-            DMesh3 input = Tube135363();
+            DMesh3 input = (minQuality > 0) ? QualityTube() : Tube135363();
+            double target = (minQuality > 0) ? QualityTarget : Target135363;
             DMesh3 without = new DMesh3(input), with = new DMesh3(input);
-            Remesh(without, input, Target135363, minQuality, false, pro);
+            Remesh(without, input, target, minQuality, false, pro);
             Assert.True(InsideOut(without));
-            Remesher r = Remesh(with, input, Target135363, minQuality, true, pro);
+            Remesher r = Remesh(with, input, target, minQuality, true, pro);
             Assert.False(InsideOut(with));
             Assert.InRange(r.InvertingPassesRejected, 1, 20);
         }
@@ -170,17 +179,18 @@ namespace geometry3Sharp.Tests
         public void Cavity_NotTurnedInsideOut(bool pro, double minQuality)
         {
             DMesh3 input = new GridBox3Generator() { Box = new Box3d(new Vector3d(0, 0, 16.5), new Vector3d(30, 30, 40)), EdgeVertices = 3, NoSharedVertices = false }.Generate().MakeDMesh();
-            DMesh3 cavity = Tube(24, 4, 6.9, 0.75, 33);
+            DMesh3 cavity = (minQuality > 0) ? Tube(32, 4, 6.9, 0.75, 33) : Tube(24, 4, 6.9, 0.75, 33);
+            double target = (minQuality > 0) ? CavityQualityTarget : Target135363;
             cavity.ReverseOrientation();
             new MeshEditor(input).AppendMesh(cavity);
             Assert.Equal(new Index2i(1, 1), Remesher.ClosedComponentSigns(input));
             Assert.False(InsideOut(input));
 
             DMesh3 without = new DMesh3(input), with = new DMesh3(input);
-            Remesh(without, input, Target135363, minQuality, false, pro);
+            Remesh(without, input, target, minQuality, false, pro);
             Assert.Equal(new Index2i(2, 0), Remesher.ClosedComponentSigns(without));
             Assert.True(InsideOut(without));
-            Remesher r = Remesh(with, input, Target135363, minQuality, true, pro);
+            Remesher r = Remesh(with, input, target, minQuality, true, pro);
             Assert.Equal(new Index2i(1, 1), Remesher.ClosedComponentSigns(with));
             Assert.False(InsideOut(with));
             Assert.True(r.InvertingPassesRejected > 0);
@@ -336,13 +346,13 @@ namespace geometry3Sharp.Tests
         [InlineData(true)]
         public void ParallelEqualsSerial_RepeatedRuns(bool pro)
         {
-            DMesh3 input = Tube135363();
+            DMesh3 input = QualityTube();
             DMesh3 serial = new DMesh3(input);
-            Remesher rs = Remesh(serial, input, Target135363, 0.2, true, pro, parallel: false);
+            Remesher rs = Remesh(serial, input, QualityTarget, 0.2, true, pro, parallel: false);
             Assert.True(rs.InvertingPassesRejected > 0);
             for (int k = 0; k < 2; ++k) {
                 DMesh3 parallel = new DMesh3(input);
-                Remesher rp = Remesh(parallel, input, Target135363, 0.2, true, pro);
+                Remesher rp = Remesh(parallel, input, QualityTarget, 0.2, true, pro);
                 Assert.Equal(rs.InvertingPassesRejected, rp.InvertingPassesRejected);
                 Assert.Equal("", Invariance.Difference(serial, parallel));
             }

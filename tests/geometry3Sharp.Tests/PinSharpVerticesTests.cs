@@ -127,8 +127,12 @@ namespace geometry3Sharp.Tests
                         var hd = new MeshHausdorffDistance(input, mesh) { Tolerance = 0.01 * edge };
                         Assert.True(hd.Compute());
                         // 0.20..0.66 target in these 24 cases (without the pin 1.37..3.15; the same ranges over all
-                        // 48 cone cases of benchmarks/RemeshQualityBenchmark with and without MinTriangleQuality)
-                        Assert.True(hd.UpperBound < 0.75 * edge, $"{name}: {hd.UpperBound / edge} target from the input");
+                        // 48 cone cases of benchmarks/RemeshQualityBenchmark with and without MinTriangleQuality).
+                        // With MinTriangleQuality the rim fold check (#621) rejects a few flips at the rim, and the
+                        // passes end elsewhere: 0.22..0.87 target in the 12 cases with q 0.2 (before: 0.25..0.66), the
+                        // mean lower (0.44, before 0.47), the maximum at cone12_x0.1 (0.87, before 0.66)
+                        double bound = (q > 0) ? 0.9 : 0.75;
+                        Assert.True(hd.UpperBound < bound * edge, $"{name}: {hd.UpperBound / edge} target from the input");
                         if (f == 0.1 && q == 0) {
                             // the reason: without the pin it is rounded off
                             var hd0 = new MeshHausdorffDistance(input, Remesh(input, edge, q, false)) { Tolerance = 0.01 * edge };

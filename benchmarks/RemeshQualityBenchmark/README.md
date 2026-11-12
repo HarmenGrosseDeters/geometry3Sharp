@@ -123,7 +123,7 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   moves, collapses and flips, so the vertices end in other places; these meshes also lose most of their flat triangles
   and self-intersections (eg 1053376: 292 -> 66 pairs, 48 -> 9 flat; 63709: 1366 -> 876 pairs, 12 -> 1 flat).
 
-### Rim self-intersections: diagnosis and a fold check that was not adopted (#621)
+### Rim self-intersections: diagnosis and the fold check (#621)
 Per-operation trace on master (every flip, collapse, split, smoothing and projection pass; pairs identified by their
 triangles' vertex ids), the nine cases above plus cone12_x0.15:
 - **One configuration.** Every pair left at the end involves a *fold*: a side triangle lying in the cap's plane,
@@ -138,33 +138,40 @@ triangles' vertex ids), the nine cases above plus cone12_x0.15:
   pairs summed, quality 0 -> 0.2: taper16_x0.1 0 -> 66, taper32_x0.1 0 -> 46, cone24_x0.6 0 -> 248, cone32_x0.6
   0 -> 64, taper32_x0.6 0 -> 32, cone16_x0.45 0 -> 54, cone24_x0.3 20 -> 44, cone24_x0.15 16 -> 26, taper10_x0.15
   108 -> 128; better with the option: cone12_x0.15 137 -> 16, taper10_x0.3 160 -> 48, taper12_x0.15 27 -> 12. A
-  gate on the single axis-aligned count overfits; the ensemble is the measure.
+  gate on the single axis-aligned count overfits; the ensemble is the measure (`RemesherRimFoldTests`).
 - **No large-coordinate bug.** cone24_x0.3 under the UTM translation ends 0.51 edges from the untranslated result,
   but a translation by (0.5, 0.25, 0.125) gives 0.25..0.53 and quality 0 gives 0.28 (master): rounding tips ties of
   the symmetric input and the passes amplify them. A vertex-distance bound of 0.25 edges holds for cylinder12 (the
-  existing similarity test), not for these cones.
+  existing similarity test), not for these cones; `Rim_SameResultUnderSimilarity` checks the 2^k scales bit for bit
+  and the other transforms by their result.
 
-The fold check (`docs/research/REMESH_RIM_FOLD_CHECK.diff`, against master c013f31, with its tests): with
-MinTriangleQuality, a flip or collapse is rejected if a new triangle with two or more feature vertices intersects
-(exactly, `pair_intersects`) more triangles around its feature corners, facing more than 120 degrees away, than the
-old triangles did; flips whose new edge is longer than 4 x the split length (the coarse input) are exempt. Results:
-the ensemble above ends with 0 pairs in all cases except cone12_x0.15 (6); primitives 281 -> 134 pairs, cases with
-pairs 16 -> 2 (the flattened cones cone12_x0.6, cone16_x0.6); mean Hausdorff/target 0.341 -> 0.344; time about
-1.09x (paired, alternating runs of an earlier variant). It is not adopted:
-- with `PinSharpVertices` (30 and 75 degrees; the 12 rim vertices of cone12 are pinned too) cone12_x0.3 ends with
-  264 pairs (8 translations: 2023, master 0) and 2.5 target from the input, cone12_x0.2 with 81 (master 0): the 2..5
-  fold flips rejected on the coarse input in passes 0..1 change the evolution, and from pass 2 projection carries
-  long side triangles across the cap (transversal crossings, not folds; checking projection moves the same way
-  reduces the count only to about 165);
-- existing tests fail: `RemesherInversionGuardTests` (Tube135363 and the cavity end inside out with the option,
-  RemesherPro parallel/serial), `PinSharpVerticesTests.Remeshed_ApexKept`, and RemesherPro on cone16_x0.45 under a
-  translation (4 pairs);
-- without the coarse-input exemption the pinned cases are worse (cone12_x0.1 893 pairs), with an exemption at 1 x
-  the split length the rim folds come back (10 primitives with more pairs). Variants that also checked smoothing and
-  projection moves changed nothing in the default setting.
+**The fold check** (`Remesher.flip_creates_feature_fold`, `collapse_creates_feature_fold`): with MinTriangleQuality,
+a flip or collapse is rejected if a new triangle with two or more feature vertices intersects (exactly,
+`pair_intersects`) more triangles around its feature corners that face away from it than the old triangles did.
+Collapses are checked only when a vertex off the features joins one on them. Flips that remove an edge longer than
+3 x the split length are not checked: on a coarse input (the 12 edges from the rim to the apex of cone12) those fold
+flips are part of the way the passes refine it, and rejecting them sent cone12 with PinSharpVertices into hundreds of
+crossings at the cap (264 pairs at x0.3); at 2 x, RemesherPro, which revisits only queued edges, kept folds of coarse
+cones (cone24_x0.6: 136 pairs in 4 runs). Smoothing and projection moves are not checked (a variant that did changed
+nothing in the default setting).
 
-`PreventSelfIntersections` remains the guarantee. A remaining idea, not tried: refine the coarse input to the target
-before the guarded passes, so that the fold flips of the first passes do not arise.
+Translation ensemble (4 runs each, 18 cones and tapers incl. the nine, final pairs summed), master -> fold check:
+Remesher 2..285 per setting -> 0 (default), RemesherPro 189 -> 0, PinSharpVertices(30) 285 -> 18 (cone12_x0.15,
+x0.2 and x0.3 have 6, 7 and 4 where master has none; cone12_x0.1 15 -> 2). The full benchmark (`runs=1`, above):
+
+| setting | self-intersecting pairs master / fold check | cases with pairs | cases not clean | mean hausdorff/target |
+|---|---:|---:|---:|---:|
+| primitives, quality 0.2 | 281 / 134 | 16 / 2 | 16 / 2 | 0.341 / 0.356 |
+| primitives, quality 0.2, `pin=75` | 168 / 14 | 16 / 4 | | 0.115 / 0.123 |
+| gears, quality 0.2 | 0 / 0 | 0 / 0 | 0 / 0 | 0.010 / 0.010 |
+| tubes, quality 0.2 | 5352 / 5094 | 24 / 23 | 24 / 23 | 0.311 / 0.297 |
+
+The two primitives left with pairs are the flattened cones cone12_x0.6 and cone16_x0.6 (67 each; master 70 and 52,
+a separate item). F-scores, normal consistency, Edge Chamfer and the 1% worst angle are equal or better
+(primitives F 0.1% 0.8282 -> 0.8289, Edge Chamfer 0.0154 -> 0.0146). The Hausdorff distance is the cones' apex
+(not a feature, rounded off by 1.4..3.4 target in both): APEXNOTE. Time with the option: TIMENOTE.
+The tube135363 tube no longer turns inside out with the option (the rejected flips at its rims were part of the
+inversion); `RemesherInversionGuardTests` test the guard with MinTriangleQuality on tubes that still do.
 
 ## PreventSelfIntersections (opt-in)
 `Remesher.PreventSelfIntersections` rejects the collapses, flips and splits whose new triangles would intersect
