@@ -155,6 +155,11 @@ namespace g3
             /// </summary>
             internal int HullSegmentsFrom = int.MaxValue, HullSegmentsTo = int.MaxValue;
             internal bool HullFromSegments => HullSegmentsFrom != int.MaxValue;
+            /// <summary> the source of input segment i is sources[SegmentSourcesFrom + i] (ring edges come first) </summary>
+            internal int SegmentSourcesFrom;
+            /// <summary> input points and input segments that refinement left in no triangle (QualityMesh2: parts narrower than the
+            /// tolerance); published on the mesh for the tests </summary>
+            internal int[] DroppedInputPoints = new int[0], DroppedInputSegments = new int[0];
             internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
             internal readonly CancellationToken cancel;
@@ -320,7 +325,7 @@ namespace g3
                 }
             }
 
-            int KV(int inputIndex) => k.Vertex[rank[inputIndex]];
+            internal int KV(int inputIndex) => k.Vertex[rank[inputIndex]];
 
             void InitHeights()
             {
@@ -479,6 +484,7 @@ namespace g3
                         Add(a, b, Make(a, b, rings.Count + g, 0, false));
                     }
                 }
+                SegmentSourcesFrom = sources.Count;
                 if (input.Segments != null)
                     for (int si = 0; si < input.Segments.Count; ++si) {
                         var s = input.Segments[si];
@@ -1042,6 +1048,7 @@ namespace g3
                     for (int t = 0; t < slots; ++t) if (id[t] >= 0 && IsBad(t)) bad.Add(id[t]);
                 mesh.BadTriangles = bad.AsReadOnly();
                 mesh.SteinerLimitReached = SteinerLimitReached;
+                mesh.DroppedInputPoints = DroppedInputPoints; mesh.DroppedInputSegments = DroppedInputSegments;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;
                 return new ConstrainedTriangulation2Result(status, Triangulation2FailureKind.None, mesh, diagnostics);
             }
