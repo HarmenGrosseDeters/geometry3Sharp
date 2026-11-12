@@ -149,20 +149,27 @@ namespace gs
             Subdivisions = 0;
             var ab = new OneSided(meshA, spatialB, tol, 0, this);
             ab.Run();
-            double lower = ab.Lower, upper = ab.Upper;
+            // (the certified lower bounds; the second direction is pruned against the first one's computed Lower, which the upper
+            // bound of the first direction is never below, so the pruned triangles stay bounded)
+            double lower = ab.CertifiedLower, upper = ab.Upper, computed = ab.Lower;
             Converged = ab.Converged;
-            Vector3d worst = ab.Worst, worstClosest = ab.WorstClosest; WorstPointOnB = false;
+            Vector3d worst = ab.CertifiedWorst, worstClosest = ab.CertifiedWorstClosest; WorstPointOnB = false;
             if (Symmetric && CancelF() == false) {
                 var ba = new OneSided(meshB, spatialA, tol, ab.Lower, this);
                 ba.Run();
                 Converged = Converged && ba.Converged;
-                if (ba.Lower > lower) {
-                    lower = ba.Lower;
-                    worst = ba.Worst; worstClosest = ba.WorstClosest; WorstPointOnB = true;
+                computed = Math.Max(computed, ba.Lower);
+                if (ba.CertifiedLower > lower) {
+                    lower = ba.CertifiedLower;
+                    worst = ba.CertifiedWorst; worstClosest = ba.CertifiedWorstClosest; WorstPointOnB = true;
                 }
                 upper = Math.Max(upper, ba.Upper);
             }
             upper = Math.Max(upper, lower);
+            // where the certified lower bound is below the computed one (a rounded point off the triangles, #738), the gap to the upper
+            // bound may exceed the tolerance
+            if (lower < computed && !(upper - lower <= tol))
+                Converged = false;
             // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue). A distance beyond MaxValue
             // (meshes near opposite ends of the double range) has no bounds in doubles: refused, the outputs NaN
             double lo = pow2(lower, e), up = (upper == double.MaxValue) ? double.MaxValue : pow2(upper, e);
@@ -241,9 +248,9 @@ namespace gs
             List<int> near = new List<int>();
             List<Vector3d> closest = new List<Vector3d>();
             // how far a point may be from the triangle of From it stands for (0 for the input vertices): a subdivision point is the
-            // midpoint of two points rounded to doubles, so it may lie off the triangle. Its distance minus this is a distance of a
-            // point of the triangle (a lower bound), and a triangle's bound plus the largest of its corners' bounds the distances of
-            // the points it stands for (#738)
+            // midpoint of two points rounded to doubles, so it may lie off the triangle. A triangle's bound plus the largest of its
+            // corners' off bounds the distances of the points it stands for; the certified lower bound subtracts the worst point's
+            // (#738)
             List<double> off = new List<double>();
             // the largest bound of a triangle that is not refined further, kept in Upper (#738): one that cannot be split (in doubles
             // a child is the triangle itself, every midpoint rounding onto a corner), or one whose corners may be off by more than
@@ -253,6 +260,14 @@ namespace gs
             public double Lower, Upper;
             public bool Converged;
             public Vector3d Worst, WorstClosest;
+            // the off of Worst; the input vertex farthest from To (its off is 0) and its distance
+            double worstOff;
+            int vertexWorst = -1;
+            // certified: a lower bound that is never above the exact distance (Lower is the largest computed distance of a point,
+            // which may be above it by the rounding of the distance query and, for a subdivision point, by its off); the point and
+            // its closest point
+            public double CertifiedLower;
+            public Vector3d CertifiedWorst, CertifiedWorstClosest;
 
             public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner)
             {
@@ -279,9 +294,8 @@ namespace gs
             {
                 pos.Add(p); dist.Add(d); near.Add(t); closest.Add(c); off.Add(o);
                 int i = pos.Count - 1;
-                double l = (o > 0) ? down(d - o) : d;
-                if (l > Lower) {
-                    Lower = l; Worst = p; WorstClosest = c;
+                if (d > Lower) {
+                    Lower = d; Worst = p; WorstClosest = c; worstOff = o;
                 }
                 return i;
             }
@@ -332,8 +346,10 @@ namespace gs
                 Lower = 0;
                 Worst = (nv > 0) ? vp[0] : Vector3d.Zero;
                 WorstClosest = (nv > 0) ? vc[0] : Vector3d.Zero;
-                for (int i = 0; i < nv; ++i)
+                for (int i = 0; i < nv; ++i) {
                     add_point(vp[i], vd[i], vt[i], vc[i]);
+                    if (vertexWorst < 0 || vd[i] > vd[vertexWorst]) vertexWorst = i;
+                }
 
                 // initial upper bounds (in parallel)
                 List<Index3i> tris = new List<Index3i>();
@@ -409,6 +425,26 @@ namespace gs
                 // dropped triangles were below max(Lower, prune), so for the pruned (second) direction this is
                 // only an upper bound where it is above prune, which is all the symmetric distance needs
                 Upper = Math.Max(Math.Max(Lower, stuck), (heap.Count > 0) ? heap.TopKey : 0);
+                certify();
+            }
+
+            // the certified lower bound: the exact distance of the worst point, minus its off, and of the farthest input vertex,
+            // rounded down (CertifiedPointMeshDistance); never above Lower, so where Lower holds it is Lower, bit for bit
+            void certify()
+            {
+                CertifiedLower = 0; CertifiedWorst = Worst; CertifiedWorstClosest = WorstClosest;
+                if (pos.Count == 0)
+                    return;
+                double w = CertifiedPointMeshDistance.LowerBound(to, Worst);
+                double cw = (worstOff > 0) ? down(ExactInterval.Down(w - worstOff)) : w;
+                if (!(cw > 0)) cw = 0;
+                double cv = 0;
+                if (vertexWorst >= 0 && pos[vertexWorst] != Worst)
+                    cv = CertifiedPointMeshDistance.LowerBound(to, pos[vertexWorst]);
+                if (cv > cw) {
+                    CertifiedLower = Math.Min(Lower, cv); CertifiedWorst = pos[vertexWorst]; CertifiedWorstClosest = closest[vertexWorst];
+                } else
+                    CertifiedLower = Math.Min(Lower, cw);
             }
 
             double threshold() { return Math.Max(Lower, prune); }
