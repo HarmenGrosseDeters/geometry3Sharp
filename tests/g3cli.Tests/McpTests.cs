@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -155,6 +155,58 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal(40.0, D(r["result"]["structuredContent"]["result"]["area"]), 6);
             r = Handle(server, Call(3, "polygon2d", new JsonObject() { ["op"] = "simplify", ["subject_geojson"] = square }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void PolygonSolids_IsATool()
+        {
+            var server = Server();
+            string ring(double x, double s) => $"[[{x},{x}],[{x + s},{x}],[{x + s},{x + s}],[{x},{x + s}],[{x},{x}]]";
+            string g = "{\"type\":\"MultiPolygon\",\"coordinates\":[[" + ring(0, 10) + "],[" + ring(3, 4) + "]]}";
+            JsonObject r = Handle(server, Call(1, "polygon_solids", new JsonObject() { ["input_geojson"] = g, ["return_geojson"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(1, I(sc["solids"]));
+            Assert.Equal(1, I(sc["holes"]));
+            Assert.Equal(84, D(sc["area"]));
+            Assert.Equal("MultiPolygon", S(sc["result_geojson"]["features"][0]["geometry"]["type"]));
+            r = Handle(server, Call(2, "polygon_solids", new JsonObject() { ["input_geojson"] = g, ["simplify_tolerance"] = -1.0 }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void Query3d_OutputAndInsideAuto_AreToolArguments()
+        {
+            var server = Server();
+            string csv = m.Path_("mcp_q3.csv");
+            JsonObject r = Handle(server, Call(1, "query3d", new JsonObject() { ["input"] = m.Cube, ["points"] = "[[0,0,0],[3,0,0]]", ["inside"] = "auto", ["output"] = csv }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal("crossings", S(sc["points"]["method_used"]));
+            Assert.Equal(2, I(sc["output_rows"]));
+            Assert.Equal(3, System.IO.File.ReadAllLines(csv).Length);
+            r = Handle(server, Call(2, "query3d", new JsonObject() { ["input"] = m.Cube, ["rays"] = "[{\"origin\":[-5,0,0],\"direction\":[1,0,0]}]", ["normalize"] = false }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(4.0, D(r["result"]["structuredContent"]["rays"]["results"][0]["t"]), 9);
+        }
+
+        [Fact]
+        public void Repair_NewOptions_AreToolArguments()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "repair", new JsonObject() { ["input"] = m.Overlapping, ["output"] = m.Path_("mcp_rep.stl"),
+                ["exact_resolve_rounds"] = 3, ["wrap_relative_alpha"] = 200.0, ["passthrough_clean_parts"] = false, ["separate_fraction"] = 0.001 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var o = r["result"]["structuredContent"]["robust_options"];
+            Assert.Equal(3, I(o["exact_resolve_rounds"]));
+            Assert.Equal(200.0, D(o["wrap_relative_alpha"]));
+            Assert.False(B(o["passthrough_clean_parts"]));
+            Assert.Equal(1e-3, D(o["separate_fraction"]));
+
+            r = Handle(server, Call(2, "repair", new JsonObject() { ["input"] = m.Overlapping, ["output"] = m.Path_("mcp_rep2.stl"), ["exact_resolve_rounds"] = 0 }));
             Assert.True(B(r["result"]["isError"]));
             Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
         }

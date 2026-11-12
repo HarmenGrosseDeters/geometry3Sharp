@@ -51,7 +51,7 @@ namespace g3cli
             }
         }
 
-        const long MaxTextBytes = 256L * 1024 * 1024;
+        internal const long MaxTextBytes = 256L * 1024 * 1024;
 
         public static Result ReadFile(string path, bool lines = false)
         {
@@ -81,7 +81,7 @@ namespace g3cli
             return Parse(text, ResultCodes.ReadError, "'" + path + "'", lines);
         }
 
-        const int MaxPolygons = 1000000, MaxVertices = 20000000, MaxRings = 2000000;
+        internal const int MaxPolygons = 1000000, MaxVertices = 20000000, MaxRings = 2000000;
 
         static void Node(JsonElement e, Result r, string code, string what, int depth)
         {
@@ -187,7 +187,7 @@ namespace g3cli
             return root;
         }
 
-        static Polygon2d Ring(JsonElement ring, Result r, string code, string what, int index)
+        internal static Polygon2d Ring(JsonElement ring, Result r, string code, string what, int index)
         {
             if (ring.ValueKind != JsonValueKind.Array)
                 throw new CommandException(code, what + ": a ring is an array of positions");
