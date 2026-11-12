@@ -190,6 +190,35 @@ DMesh3[] cut = ExactMeshBoolean.DifferenceEach(part, tools);
 `IntersectEach` is fast where each body covers a small part of A (only that part enters each arrangement).
 `DifferenceEach` keeps all of A outside the body in every result, so its work per body does not shrink in the same way.
 
+Very large or crumpled inputs (heavily self-intersecting open models, many millions of pieces) can take minutes. A
+budget stops early instead, and a token cancels a running boolean:
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference) {
+    AllowOpenMeshes = true,
+    MaxPieces = 5_000_000,          // more pieces: Status BudgetExceeded, no Result (0, the default: no limit)
+    Cancellation = cts.Token };     // cancelled: Status Cancelled, no Result; the instance can be computed again
+if (op.Compute() == false)
+    Console.WriteLine(op.Status + ": " + op.Error + ", predicted pieces " + op.Counts["predicted_pieces"]);
+```
+
+- `MaxPieces` is checked after the intersections, before the triangulation, against the exact number of pieces the
+  arrangement will have (`Counts["predicted_pieces"]`, always set), a few percent into the work.
+- `Cancellation` is checked between the phases and within the long ones; a cancelled run returns within a fraction of
+  a second on 4 cores.
+- The classification of open inputs carries the winding numbers from piece to piece; the counts `l2_traced`,
+  `l2_carried`, `l2_direct` and `l2_exact_centroids` show how. The triangulation's exact predicates show in
+  `l3_local_decided` and `l3_construction_zeros`.
+- Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
+  from 973 s to about 370-420 s in this release, with bit-identical results
+  (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
+- Long booleans allocate a lot, so the GC setting of the application matters. On 55928, server GC, non-concurrent GC
+  and a 1 GB gen0 budget (`DOTNET_gcServer=1 DOTNET_gcConcurrent=0 DOTNET_GCgen0size=0x40000000`) made it 474 -> 358 s
+  (GC pauses 131 -> 44 s, peak memory unchanged at about 10 GB). Small inputs can be 5-25 % slower with server GC
+  ([BooleanComparison](../benchmarks/BooleanComparison/README.md)). The setting belongs to the application; a library
+  cannot set it.
+
 One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
 once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one
 pass ([BooleanComparison](../benchmarks/BooleanComparison/README.md#many-meshes-in-one-operation)).
