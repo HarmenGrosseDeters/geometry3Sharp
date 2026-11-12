@@ -202,6 +202,29 @@ Ranked (a wrong result that claims to be right first):
 10. **The flip test of the edge collapse accepts a collapse when its normals overflow to NaN** (`MeshRefinerBase.edge_flip_metric`, found in the second review of #595): above an edge length of about 1e154 the cross products of the face normals overflow; a component that is infinite refuses the collapse, but inf - inf is NaN, `NaN <= tol` is false and the flip is accepted blindly. Refusing a NaN metric is safer, but two existing tests pin the reduction at those sizes: `RobustnessSweepRemainingTests.Reducer_ExtremeMidpointsRemainFinite` (1e308, 1.7e308) and `ReducerFoldOverOptionsTests.HugeCoordinates_NoReference_SameReductionAsWithoutTheCheck` (2^540); a change has to rescale the normals (the edges are the better input: the cross product of unit-sized edges) rather than refuse. **Fixed**: the edges of a triangle are scaled by one factor (the reciprocal of the longest component) outside [1e-70, 1e70] before the cross products, for the old and the new normal (`FlipTestHugeScaleTests`); the two pinning tests needed no change (the sphere still reduces at 1e308 and 2^540); the same scaling also removes the lower limit of #595 (a tiny sphere reduces down to 1e-300).
 
 Not found in 10 minutes: alpha-wrap, remesher, tree-ray, tree-winding. reducer and batch-queries ran only 18 600 and 2 300 executions (7 and 3 per second): a longer run is needed before they count as clean.
+## Third wave (QA 2.0 gap list, 2026-11-12): MarchingCubes, TerrainGreedyTIN, MeshMeshCut, MeshInsertPolygon, MeshTrimLoop
+
+Smoke runs of `MeshFuzzPilot random` (no coverage guidance, uninstrumented), 2 500 to 4 000 inputs per target and seed, domains as in the README.
+`marching-cubes` and `terrain-tin`: no finding in 15 000 inputs each (all four root modes; the 2^40 copy bit for bit). The first runs found
+classes that were limits of the representation or of the target's input, now domains: a mesh farther than 2^16 extents from the origin (the TIN
+nodes and the sphere of the trim collapse: `terrain-tin` covered 1.0054 of its rectangle, `trim-loop` ran 2 minutes and grew the area 800 times at a
+sphere of radius 0.5 at 2.6e14), a hull polygon with a repeated vertex (`ConvexHull2` of nearly equal points), slivers along the inserted polygon's edge
+(their centroid is on it), a cutting mesh of 1e-300 of the target's size, a target of area 1e-11.
+
+Open, gated or outside the domain (none has a procedural reproduction inside the supported range yet):
+1. **`mesh-cut`: `DMeshAABBTree3.find_intersections: found quantity 0`** (an exception of `MeshMeshCut.Compute()`, `IntrTriangle3Triangle3.Test()` true and
+   `Find()` true with `Quantity` 0). 177 of 3 000 random inputs when B may be smaller than 2^-16 of A (B of 1e-307 beside A), 4 of 4 000 with B in [2^-16, 2^20]
+   (A with a corner at 1e-61 beside others at 1e18: a size disparity inside one mesh), none otherwise. `MESH_FUZZ_STRICT=1` reports it; the smallest of the
+   four (replay with `MESH_FUZZ_STRICT=1 MESH_FUZZ_OPS=mesh-cut`, dump for the numbers) is `73a219d11972a490c422af60b2184bbcbbe61be3e17774276233fe16a6930083322144f0dee20269b9092bfb0ec223a65dfb5274e84a7cfc2df26ee6738de9`. A cheap fix would be to treat `Quantity` 0 as no intersection.
+2. **`insert-polygon`: a hole close to the outer ring or with short edges.** With holes of arbitrary position 3 of 4 000 inputs gave `find_cut_paths: how did this
+   possibly happen?!?`, an `ArgumentOutOfRangeException` at `MeshInsertPolygon.Insert()` (`insertion.Loops[0]` when the hole's insertion produced no loop), or
+   `InteriorTriangles` that cover 0.1499 instead of 0.1426 (5 %) on a 3 by 3 grid. With the hole kept 1e-2 of the width from the ring and its edges at least 1e-3 of
+   it, none in 4 000. The exceptions are the unchecked result of `insert.Apply()` for a hole; the class belongs to the hole's tolerance (`SpatialEpsilon`, absolute).
+3. **`insert-polygon`: "could not find seed triangle!"** (documented in the code as a TODO, gated).
+4. **`trim-loop`: `ArgumentOutOfRangeException` from `MeshTrimLoop.Trim()` (`loops[0]` of a mesh with no boundary loop left)**, only seen at 2.6e14 from the origin (out of
+   the domain); the code returns false for more than one loop but not for none.
+5. **`mesh-cut`: the snap tolerance is absolute (1e-5).** A target of area 4e-11 (a flat mesh of the size 1) lost 2 % of its area to the snap.
+
 ## Judgement notes
 
 - **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with

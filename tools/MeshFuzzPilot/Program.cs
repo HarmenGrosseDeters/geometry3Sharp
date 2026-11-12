@@ -33,7 +33,7 @@ public static partial class Program
 
     public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
         "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer",
-        "remesher", "reducer", "quality-mesh2", "clipper2" };
+        "remesher", "reducer", "quality-mesh2", "clipper2", "marching-cubes", "terrain-tin", "mesh-cut", "insert-polygon", "trim-loop" };
 
     /// <summary>
     /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
@@ -464,8 +464,18 @@ public static partial class Program
             RunReducer(c, what);
         } else if (c.Op == 15) {
             RunQualityMesh2(c, what);
-        } else {
+        } else if (c.Op == 16) {
             RunClipper(c, what);
+        } else if (c.Op == 17) {
+            RunMarchingCubes(c, what);
+        } else if (c.Op == 18) {
+            RunTerrain(c, what);
+        } else if (c.Op == 19) {
+            RunMeshCut(c, what);
+        } else if (c.Op == 20) {
+            RunInsertPolygon(c, what);
+        } else {
+            RunTrimLoop(c, what);
         }
     }
 
@@ -778,6 +788,44 @@ public static partial class Program
         CheckReduce("t", true, cube, cube, cube, cube, 1, 0.1);
         CheckMesher2("t", "Success", "", true, "");
         CheckClipper("t", "Success", "", true, true, 0, "");
+        // the third wave: contradictions, then clean results
+        var mcMode = MarchingCubes.RootfindingModes.Bisection;
+        var mcSolid = new DMesh3(cube);
+        ExpectFinding("an exception of marching cubes outside LinearEdges", () => CheckMarchingCubes("t", mcMode, null, new InvalidOperationException("x"), null, null, null, null, null, 1), "threw");
+        ExpectFinding("an exception other than the documented ones in LinearEdges", () => CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new IndexOutOfRangeException("x"), null, null, null, null, null, 1), "threw");
+        ExpectFinding("no mesh and no exception", () => CheckMarchingCubes("t", mcMode, null, null, null, null, null, null, null, 1), "no mesh");
+        ExpectFinding("an invalid marching cubes mesh", () => CheckMarchingCubes("t", mcMode, NotFinite(cube), null, cube, null, cube, ScaledBy(cube, 2), null, 2), "not finite");
+        ExpectFinding("parallel and serial differ", () => CheckMarchingCubes("t", mcMode, cube, null, ShiftedBy(cube, 1), null, cube, ScaledBy(cube, 2), null, 2), "serial");
+        ExpectFinding("two runs differ", () => CheckMarchingCubes("t", mcMode, cube, null, cube, null, ShiftedBy(cube, 1), ScaledBy(cube, 2), null, 2), "two runs");
+        ExpectFinding("the scaled run is not the scaled mesh", () => CheckMarchingCubes("t", mcMode, cube, null, cube, null, cube, ShiftedBy(cube, 1), null, 2), "scaled");
+        CheckMarchingCubes("t", mcMode, cube, null, cube, null, cube, ScaledBy(cube, 2), null, 2);
+        CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new InvalidOperationException("x"), null, null, null, null, null, 1);
+        ExpectFinding("Compute() false for a valid grid", () => CheckTerrain("t", false, null, 0, 0, false, 1, 0, 0, 1e-9, null, null, 2), "Compute()");
+        ExpectFinding("a clockwise TIN triangle", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 1, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "counter-clockwise");
+        ExpectFinding("a TIN that does not tile the rectangle", () => CheckTerrain("t", true, cube, 0, 0, false, 0.9, 0, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "cover");
+        ExpectFinding("a grid node farther than AchievedError", () => CheckTerrain("t", true, cube, 0.1, 1, false, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2), "AchievedError says");
+        ExpectFinding("AchievedError above MaxError", () => CheckTerrain("t", true, cube, 0.5, 0.1, false, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2), "above MaxError");
+        ExpectFinding("a TIN that depends on the run", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 0, 0, 1e-9, ShiftedBy(cube, 1), ScaledBy(cube, 2), 2), "two runs");
+        ExpectFinding("a TIN that is not scale free", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 0, 0, 1e-9, cube, ShiftedBy(cube, 1), 2), "scaled TIN");
+        CheckTerrain("t", true, cube, 0.5, 0.1, true, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2);
+        CheckTerrain("t", true, cube, 0.05, 0.1, false, 1, 0, 0.05, 1e-9, cube, ScaledBy(cube, 2), 2);
+        ExpectFinding("a cut mesh with a vertex that is not finite", () => CheckMeshCut("t", true, false, 12, 20, 6, 6, true), "finite");
+        ExpectFinding("an invalid cut mesh", () => CheckMeshCut("t", false, true, 12, 20, 6, 6, true), "valid");
+        ExpectFinding("a cut mesh with fewer triangles", () => CheckMeshCut("t", true, true, 12, 11, 6, 6, true), "triangles");
+        ExpectFinding("a cut mesh with another area", () => CheckMeshCut("t", true, true, 12, 20, 6, 5, true), "area");
+        ExpectFinding("a cut that depends on the run", () => CheckMeshCut("t", true, true, 12, 20, 6, 6, false), "two runs");
+        CheckMeshCut("t", true, true, 12, 20, 6, 6 * (1 + 1e-6), true);
+        ExpectFinding("an invalid mesh after Insert()", () => CheckInsertPolygon("t", false, 4, 4, 1, 1, 0), "valid");
+        ExpectFinding("another area after Insert()", () => CheckInsertPolygon("t", true, 4, 3, 1, 1, 0), "area changed");
+        ExpectFinding("interior triangles that do not cover the polygon", () => CheckInsertPolygon("t", true, 4, 4, 0.5, 1, 0), "interior");
+        ExpectFinding("a triangle selected against the centroid test", () => CheckInsertPolygon("t", true, 4, 4, 1, 1, 2), "centroid");
+        CheckInsertPolygon("t", true, 4, 4, 1, 1 + 1e-9, 0);
+        ExpectFinding("a trimmed mesh with a vertex that is not finite", () => CheckTrimLoop("t", true, false, 1, 4, 3, 0), "finite");
+        ExpectFinding("an invalid trimmed mesh", () => CheckTrimLoop("t", false, true, 1, 4, 3, 0), "valid");
+        ExpectFinding("two boundary loops after Trim()", () => CheckTrimLoop("t", true, true, 2, 4, 3, 0), "boundary loops");
+        ExpectFinding("a trim that did not shrink the mesh", () => CheckTrimLoop("t", true, true, 1, 4, 4, 0), "shrink");
+        ExpectFinding("vertices on the removed side", () => CheckTrimLoop("t", true, true, 1, 4, 3, 5), "removed side");
+        CheckTrimLoop("t", true, true, 1, 4, 3, 0);
         return 0;
     }
 
