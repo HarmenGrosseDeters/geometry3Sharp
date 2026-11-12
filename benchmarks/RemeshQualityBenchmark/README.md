@@ -179,6 +179,10 @@ the 42 cones the mean is 1.078 (master) and 1.088 target, 6 cones worse and 6 be
 6 pairs of master and fold-check runs alternating (M F, F M, ...): 4.67 -> 5.13 s, 1.097 x (per pair 1.02..1.24,
 median 1.087; the unchanged runs without the option 1.017 x between the same runs). The exact tests are about 3..6%
 of a run (box6, taper16); the rest comes from the other evolution of the meshes.
+On the 20 Thingi10K meshes (`ReducerRemesherBaseline`, quality 0.2, design note section 13) the check costs more:
+x1 9.60 -> 11.14 s (1.16 x), x2 3.95 -> 4.83 s (1.22 x), because 35..94 % of their vertices are feature vertices (30 degree
+creases on faceted models); new pairs 2113 -> 1186 (x1), 2833 -> 2047 (x2). The owner accepted the missed 1.1 x gate
+(2026-11-12).
 The tube135363 tube no longer turns inside out with the option (the rejected flips at its rims were part of the
 inversion); `RemesherInversionGuardTests` test the guard with MinTriangleQuality on tubes that still do.
 
