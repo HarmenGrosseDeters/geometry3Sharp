@@ -212,46 +212,95 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, r.Mesh.TriangleCount);
         }
 
-        [Trait("Category", "Slow")]
+        // a timeout without a wall clock: a predicate that cannot finish (a mesh of fewer than 3 triangles) says so and blocks;
+        // the runner counts exactly those calls as timed out, however loaded the machine is. (With a real limit of 500 ms the
+        // fast calls timed out too on a loaded runner and the run ended NotReproduced, #676.) The blocked threads are
+        // released at the end.
+        sealed class HangingPredicate : IDisposable
+        {
+            readonly ManualResetEventSlim hung = new ManualResetEventSlim(false), release = new ManualResetEventSlim(false);
+            public int Hangs;
+            public bool Fails(DMesh3 x)
+            {
+                if (x.TriangleCount < 3) { Interlocked.Increment(ref Hangs); hung.Set(); release.Wait(); }
+                return true;
+            }
+            // true if the action ended; false if it blocked in the hanging case (a generous safety limit for a bug in the test)
+            public bool Run(Action a)
+            {
+                hung.Reset();
+                var done = new ManualResetEventSlim(false);
+                var t = new Thread(() => { try { a(); } finally { done.Set(); } }) { IsBackground = true };
+                t.Start();
+                int which = WaitHandle.WaitAny(new[] { done.WaitHandle, hung.WaitHandle }, TimeSpan.FromSeconds(120));
+                Assert.NotEqual(WaitHandle.WaitTimeout, which);
+                return done.IsSet || which == 0;
+            }
+            public void Dispose() { release.Set(); }
+        }
+
         [Fact]
         public void Timeouts_CountAsDifferentError()
         {
             DMesh3 m = Defects.ByName("open sheet").Make();
             foreach (int t in m.TriangleIndices().Skip(6).ToList()) m.RemoveTriangle(t);
-            Func<DMesh3, bool> fails = x => { if (x.TriangleCount < 3) Thread.Sleep(10000); return true; };
-            var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromMilliseconds(500), MaxTimeouts = 1000, SimplifyCoordinates = false };
-            var r = MeshMinimizer.Minimize(m, fails, options);
-            Assert.Equal(MeshMinimizer.MinimizeStatus.Minimized, r.Status);
-            Assert.Equal(3, r.Mesh.TriangleCount);
-            Assert.True(r.Timeouts > 0);
+            using (var p = new HangingPredicate()) {
+                var options = new MinimizeOptions() { TimeoutRunner = p.Run, MaxTimeouts = 1000, SimplifyCoordinates = false };
+                var r = MeshMinimizer.Minimize(m, p.Fails, options);
+                Assert.Equal(MeshMinimizer.MinimizeStatus.Minimized, r.Status);
+                Assert.Equal(3, r.Mesh.TriangleCount);
+                Assert.True(r.Timeouts > 0);
+                Assert.Equal(r.Timeouts, p.Hangs);
 
-            // MaxTimeouts stops the run, with a failing result
-            options.MaxTimeouts = 1;
-            r = MeshMinimizer.Minimize(m, fails, options);
-            Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
-            Assert.Equal(1, r.Timeouts);
-            Assert.True(r.Mesh.TriangleCount >= 3);
+                // MaxTimeouts stops the run, with a failing result
+                options.MaxTimeouts = 1;
+                int hangsBefore = p.Hangs;
+                r = MeshMinimizer.Minimize(m, p.Fails, options);
+                Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
+                Assert.Equal(1, r.Timeouts);
+                Assert.Equal(1, p.Hangs - hangsBefore);
+                Assert.True(r.Mesh.TriangleCount >= 3);
+            }
         }
 
-        [Trait("Category", "Slow")]
+        // the wall-clock timeout itself (Timed.Finishes): a call that blocks past the limit counts, one that ends does not
+        [Fact]
+        public void WallClockTimeout_CountsOnlyTheCallsThatDoNotEnd()
+        {
+            DMesh3 m = Defects.ByName("open sheet").Make();
+            foreach (int t in m.TriangleIndices().Skip(6).ToList()) m.RemoveTriangle(t);
+            var release = new ManualResetEventSlim(false);
+            try {
+                Func<DMesh3, bool> fails = x => { if (x.TriangleCount < 3) release.Wait(); return true; };
+                var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromSeconds(1), MaxTimeouts = 1, SimplifyCoordinates = false };
+                var r = MeshMinimizer.Minimize(m, fails, options);
+                Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
+                Assert.Equal(1, r.Timeouts);
+            } finally { release.Set(); }
+        }
+
+        // the time budget on a clock the test advances: the run stops with a failing, reduced result
         [Fact]
         public void TimeBudget_StopsWithAFailingResult()
         {
             DMesh3 m = SphereWithDuplicate();
-            // (about 13 calls before the first reduction, a few dozen more for the whole run). The first calls are
-            // fast, so a reduction exists before the budget even on a loaded CI runner (3 s were not enough once on
-            // the net48 runner); the rest are slow, so the whole run takes far longer than the budget
+            // (about 13 calls before the first reduction, a few dozen more for the whole run). The first calls take no time,
+            // so a reduction exists before the budget; every later call takes a second, so the run would take far longer
+            // than the budget
             int calls = 0;
+            long ticks = 0;
             Func<DMesh3, bool> slow = x => {
-                if (Interlocked.Increment(ref calls) > 20) Thread.Sleep(1000);
+                if (Interlocked.Increment(ref calls) > 20) Interlocked.Add(ref ticks, TimeSpan.TicksPerSecond);
                 return HasCoincidentPair(x);
             };
             var budget = TimeSpan.FromSeconds(8);
-            var r = MeshMinimizer.Minimize(m, slow, new MinimizeOptions() { TimeBudget = budget });
+            var r = MeshMinimizer.Minimize(m, slow, new MinimizeOptions() { TimeBudget = budget, Clock = () => TimeSpan.FromTicks(Interlocked.Read(ref ticks)) });
             Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
-            Assert.True(r.Elapsed < budget + TimeSpan.FromSeconds(5), r.Elapsed.ToString());
+            // (checked before each call, so the run overshoots by at most one call)
+            Assert.True(r.Elapsed >= budget && r.Elapsed < budget + TimeSpan.FromSeconds(1.5), r.Elapsed.ToString());
             Assert.True(r.Mesh.TriangleCount < m.TriangleCount, $"not reduced: {r}, {calls} calls");
             Assert.True(HasCoincidentPair(r.Mesh), $"result does not fail: {r}, {calls} calls");
+            Assert.True(calls > 20 && calls < 40, $"{calls} calls");
         }
 
         // an error with many minimal cases (any 3 triangles above z = 0.5): the seed picks one, reproducibly
