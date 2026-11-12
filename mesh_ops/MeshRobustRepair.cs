@@ -1014,7 +1014,14 @@ namespace gs
                 r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
             if (slabs > 0) {
-                m = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF }.Reduce(m, quadricDistance * quadricDistance);
+                var partitioned = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF };
+                m = partitioned.Reduce(m, quadricDistance * quadricDistance);
+                // (benchmarks: the parts of the reduction; the rounds run the slabs in parallel, setup and the last pass are serial)
+                if (phases != null) {
+                    phases["reduce/setup"] = partitioned.SetupMs;
+                    phases["reduce/rounds"] = partitioned.RegionMs;
+                    phases["reduce/last"] = partitioned.LastMs;
+                }
             } else {
                 Reducer reducer = new Reducer(m);
                 configure(reducer);

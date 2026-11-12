@@ -547,7 +547,9 @@ class Program
 
     // the wrap fallback pipeline of MeshRobustRepair (raw wrap, simplification within half the offset, quality pass), as
     // MeshRobustRepair.Apply runs it after a failed solidify; pipe_ms is the time of the three steps, pipe_phases their
-    // sub-steps (wrap.* = MeshAlphaWrap.PhaseMilliseconds; simplify.reduce / .check / .certify; quality.pass / .check / .certify)
+    // sub-steps (wrap.* = MeshAlphaWrap.PhaseMilliseconds; simplify.reduce / .check / .certify; quality.pass / .check / .certify).
+    // Keys with a "/" are the parts of one phase: wrap/intersection ... wrap.pinches2/trial (the time of that part in that phase
+    // only; wrap.intersection / .touch / .insert are the totals over the four refinement phases), simplify.reduce/setup / rounds / last
     static DMesh3 WrapPipeline(DMesh3 input, System.Collections.Generic.Dictionary<string, object> r, double alphaOverride = 0)
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -582,7 +584,11 @@ class Program
         if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {
             var sp = new System.Collections.Generic.Dictionary<string, long>();
             long t0 = sw.ElapsedMilliseconds;
-            result = MeshRobustRepair.SimplifyWithin(raw, 0.5 * wrap.UsedOffset, 0.5 * wrap.UsedOffset, true, never, out int subdiv, sp) ?? raw;
+            // (with the wrap's input as KeepClearOf, as MeshRobustRepair.simplify_wrap does since the contact fix; BENCH_WRAP_THREADS:
+            // the reduction's threads, 0 = the platform default; the result does not depend on it)
+            int threads = int.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_THREADS") ?? "0");
+            result = MeshRobustRepair.SimplifyWithin(raw, 0.5 * wrap.UsedOffset, 0.5 * wrap.UsedOffset, true, never, out int subdiv,
+                MeshRobustRepair.WrapSimplifyMinQuality, true, MeshRobustRepair.WrapSimplifySlabs, threads, sp, input) ?? raw;
             phases["simplify"] = sw.ElapsedMilliseconds - t0;
             foreach (var kv in sp) phases["simplify." + kv.Key] = kv.Value;
             r["pipe_simplified"] = result != raw;

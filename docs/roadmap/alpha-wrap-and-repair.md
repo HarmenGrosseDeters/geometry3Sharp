@@ -59,6 +59,26 @@ guarantees and angles unchanged, deterministic); the owner sets them; one PR per
 the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
 and memory): both use "evaluate in parallel, apply serially".
 
+**Alpha Wrap 3.0, phase 1 and targets (measured 2026-11-12 on a measurement build; PR 0 adds only the timing keys; owner set the targets 2026-11-12).**
+Profile of the 189 over budget in f800 plus 80 of the other 611, master (bit-identical to f800, 16/16 hashes) with the
+contact fix's `KeepClearOf`, which the bench left out (f800 misses about 3 %); raw rows, scripts and the report on
+`runs/alpha-wrap-3` (`aw3/REPORT-phase1.md`). The 2.0 split overlapped (oracle, touch and insert were totals over the
+pinch passes too); separated, on the over-budget set: intersection oracle 15.5 %, touch test 12.1 %, Delaunay
+insertion 12.2 %, the manifold-step trials of the pinch passes 15.8 % (about 3 full trials per mesh, only the last
+needed; a confirming full trial never found a spot the local one missed, 269/269), carving bookkeeping 9.2 %,
+reduction 18.8 % (regions already parallel 13.3 %), certification 6.5 %. Upper bounds (speedup on the 189, M
+measured / E estimated): L1 oracle + touch free 1.40x M, 1.07x E; L2 insertion free 1.14x M, 1.02x E (BRIO / Hilbert
+order does not apply: the points come online from the carving); L3 gate tests perfect on 4 cores 1.31x M, 1.23x E,
+bit-identical (pure tests on stamped cells, applied serially in queue order; deterministic reservations, Blelloch et
+al. 2012); L3b parallel certification 1.05x; L4 trials free 1.19x M, 1.12x E; L5 reduction free 1.23x, its serial
+parts 1.04x (Reducer 2.0's area); L1+L3+L3b+L4 1.57x E, about 99 % of the 800 within budget; ceiling without parallel
+insertion 1.67x. **Targets (owner 2026-11-12):** (a) >= 95 % of the 800 within budget on the reference machine
+(stretch 98 %; f800: 76 %); (b) >= 1.4x pipeline speedup on the 189 against master on 4 cores; (c) guarantees, angle
+floors, fidelity and determinism unchanged, PRs 1, 3 and 4 bit-identical to master. PR order: 0 bench and phase keys
+(this), 1 L3 (independent determinism review), 2 L4 (not guaranteed bit-identical: where its output differs, and the
+guarantees there), 3 L1, 4 L3b, 5 L2. Lever 6 re-measured on DC A+B: B clean 20/20 (before 19/20), Chamfer 0.22x, still
+no offset and 17870 triangles > 170 deg at 3.3x time; C3 unchanged (+40 % time); not built now (owner 2026-11-12).
+
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
 (C) vertex post-pass toward the QEF points, all exact checks kept (C1 offset miter, C2 input crease, C3 = C1 before the simplification): Chamfer 0.87x / 0.68x / 0.86x, edge F 0.1 % 0.75-0.76, crease normal 0.58x, 20/20 clean, angle floors and offset band unchanged, +15-35 % time: recovers 17-42 % of B's Chamfer gain, about 40 % of its edge F; (D1) alpha / 2 as the bound of a locally smaller alpha (option 4): Chamfer 0.75x at 1.7x triangles and 2.5x time (9 meshes); the QEF-guided Steiner idea (D2) was not built (needs library changes; C3 is its cheap proxy). Side finding: the simplified wrap grazes the input on 20/20 meshes (the raw wrap never does).
