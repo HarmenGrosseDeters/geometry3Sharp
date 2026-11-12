@@ -118,7 +118,7 @@ namespace gs
             foreach (int vid in mesh.VertexIndices()) {
                 if (mesh.GetVtxEdgeCount(vid) == 0) continue;
                 Vector3d v = mesh.GetVertex(vid);
-                if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z)) return false;
+                if (!v.IsFinite) return false;   // (each component: their sum overflows for finite large values)
             }
             return true;
         }
