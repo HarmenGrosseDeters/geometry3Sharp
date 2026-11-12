@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage is in progress (draft #633).
+  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage in review (#633).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -32,7 +32,7 @@ Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-
 docs/design/LEVY_CLASSIFICATION.md 4.3: -40 to -45 % classification on the tree-bound open ops, -23 % on both samples,
 hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; the section 4.1 probe gave -29 to -42 % on tree-bound open
 ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
-so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
+so it is optional; the Antipodal Method for open operands is merged (#539, owner 2026-11-10, after the patent search); its PR 2 is 3.0 T5.
 
 **Sign-off run (2026-11-11, runner; `runs/boolean2-final` f0d5194e, `runs/final/results/SIGNOFF.md`):** target set
 on the D1 head f2245b6f (#513): 5413 models, 16239 ops, 15752 clean, 49 contacts only, 412 empty, 26 unclean (all
@@ -43,7 +43,7 @@ OutOfMemory on 252786 and 376253). Contact checks (4038d8e2): 49 of 49 target se
 in the rest are contacts; 52 real self-intersections remain in the rest (open 7, selfint 43, unknown 2), unexplained.
 6 models unavailable (81313, 101633, 102610, 242236, 242237, 996816).
 
-**`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
+**`DMeshAABBTree3` profile (owner 2026-11-08; done 2026-11-12, no library change; after the Lévy phase-2 PR with the parallel fast-winding build
 has merged; that is #501, merged 2026-11-10; profile done 2026-11-12, result below):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
 boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
 per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
@@ -60,7 +60,7 @@ and spatially reordered mesh (vertices and triangles in Morton / Hilbert order; 
 edits), on the boolean set and the T1 wrap / repair meshes. Many algorithms break ties by ID, so reordering is either
 internal with a map back where the result does not depend on the order, or a user option whose result holds for the
 reordered input; the owner decides from the upper bound. Smaller candidates in the same profile: GC / allocations
-(about 7 % of the Reducer; `ArrayPool` for the boolean is an open owner decision) and per-vertex small
+(about 7 % of the Reducer; `ArrayPool` dropped: pooling measured without gain, memory went into 3.0 T2 #619) and per-vertex small
 `HashSet<int>` / `List<int>` in hot loops.
 
 **`DMeshAABBTree3` profile result (2026-11-12, no library change):** container, 4 cores, procedural inputs only (no
@@ -96,7 +96,7 @@ was a scratch console app, not committed.
   share: about 0.45 s of GC pause, 4 % of wall (more if the allocation CPU falls with it). The `Reducer` is no
   allocation lever (24 GB, 0.12 s of pause).
 
-**Exact Boolean 3.0 (idea, owner 2026-11-08; after 2.0, not scheduled):** tighten the speed target again with two
+**Exact Boolean 3.0 (owner 2026-11-08; in progress since 2026-11-10):** tighten the speed target again with two
 levers that 2.0 does not use: (1) parallel algorithms beyond the current per-phase parallel loops — the cloud
 machines have 4 cores, but the trend is to many more, so the arrangement, the classification (e.g. the Lévy-style
 propagation or the open-mesh GWN, which were not worth it serially) and rounding should be re-measured for scaling
@@ -256,7 +256,7 @@ Topics: (1) parallel scaling per phase at 1/2/4 cores with an upper bound per le
 arrangement on the large inputs; (3) N-ary booleans / CSG trees in one arrangement pass vs chained binary ops (time,
 roundings, clean status); (4) an exact-output option without rounding (additive API); (5) fast open-operand
 classification (batched / dual-tree fast winding per patch) against the per-piece path; (6) positioning against the
-published numbers of Manifold, CGAL, EMBER (paper only, patent check first) and Cherchi et al. 2022.
+published numbers of Manifold, CGAL, EMBER (paper only; patent search 2026-11-10 found nothing) and Cherchi et al. 2022.
 - Closed inputs, self-intersection free or self-intersecting: a clean result (closed, manifold, free of self-intersections, no degenerate triangles or bowties). Self-intersecting inputs are read as solids by winding number (inside = winding >= 1).
 - Inputs of unknown status: classified first.
 - Open inputs: no degenerate triangles and no crash; closedness is not required.
@@ -322,56 +322,46 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 
 #### Other open items
 
-- **Degeneracy criterion (open question for 2.x, owner 2026-11-08):** `DegenerateArea` = 1e-12 × diag² counts
-  well-shaped but tiny triangles as degenerate. 119829/119830 carry about 13.4k of them (longest edge about 3.3e-6 ×
-  diag, shortest / longest edge median 0.15); SafeRounding contracts them as D′ prescribes (union 13 439 edits, about
-  2.3 s) and 23 / 5 stay where the accumulated drift reaches the bound. Leaving well-shaped tiny triangles alone (a
-  shape criterion, eg aspect ratio, next to the area) would make both clean and faster, but reopens D′: an owner
-  decision with data (how many inputs of the Thingi10K run carry such triangles, and what changes) after 2.0.
-- **Default-hashed `long` keys** (found 2026-11-08, low priority): `ExactPlanarSimplify`'s flip-queue
-  `HashSet<long>` used the default `long` hash (a ^ b), which collides for dense point ids; after the DG prefilter
-  (#419) simplify on 519511 union doubled (fix: `EdgeKeyComparer`, own PR from master, Boolean session). Audit the
-  other default-hashed `long` sets and dictionaries outside the exact boolean (terrain, geodesics,
-  `WindingContouring`, `DualContouring`'s cell dictionaries) with a dense-key measurement before changing any;
-  done in #431 (2026-11-08).
-  Audit implementation and measurements: [LongHashAudit](../../benchmarks/LongHashAudit/README.md); packed tables
-  use the existing comparer, linear indices and scalar-only `containerOf` keep the default hash.
-- **Thingi10K full-run findings** (draft #385; superseded by the WP2 triage and the sign-off run above): the 29 unclean operations on clean closed inputs and M1 become one
-  bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
-  results to check; the report should stratify by input class. Details under
-  [External boolean corpora](#external-boolean-corpora-2026-11-04).
-- **manifold corpus findings** (2026-11-04): M1 (`hull-body - hull-mask`, 2 self-intersections left after
-  SafeRounding on clean inputs); M2 (`Generic_Twin_7081` union takes 20 s); M3 (RoundingClean true but
-  `NotCleanReason` reports self-intersections: clarify which is right and align them).
-- **`thingi-pairs` class in `BooleanComparison`** (local task, owner 2026-11-04; done, #418 merged 2026-11-09): a pinned list of 1000 pairs after
-  the EMBER protocol, a size class of 100k-1M triangles, the volume identities and `NotCleanReason` as the oracle.
-- **EMBER levers** (order owner 2026-11-04): re-evaluate after the full Thingi10K run; rank 2 (skip self-pairs of
-  results certified free of self-intersections), 3 and 4 against the open ideas of the perf doc; 1 and 5 only as an
-  owner decision on a second, opt-in kernel. A patent check before building its plane-based kernel.
-- **Boolean allocations** (owner 2026-11-04, not scheduled): bytes per phase, an upper bound with a very large gen0,
-  a PR only if that shows >= 10 % on large inputs. `System.Buffers`' ArrayPool would be a new netstandard2.0
-  dependency, an owner decision.
+Checked against the owner's decisions and git on 2026-11-12.
+
+Open:
+
+- **Exact Boolean 2.0 leftovers (owner question 2026-11-12):** the speed exceptions over 5 s (519511, 1517923, 519507) were
+  not re-measured after D1 (#513; the sign-off has no timing section), and manifold M2 (`Generic_Twin_7081` union 20 s,
+  self-intersecting inputs, outside the 2.0 target set) not since the 2.0 levers: re-measure on master or close as
+  documented exceptions. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
+- **Degeneracy criterion (`DegenerateArea` = 1e-12 × diag²):** its motivating cases 119829 / 119830 are clean since D1
+  (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
+- **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
+- **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
+  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
+- **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
+  coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
   solver, exact convex polyhedron cutting, small filters, the procedural star-shaped test corpus.
-- **Boolean performance leftovers:** planes in fixed width (section 12 of the fixed-width design; CSR dropped as a
-  step of its own, a GC trace on cherchi decides later); the generator reused for the envelope predicates (done:
-  the generated indirect predicates on doubles are in the envelope code kept on #263 / #268, ENVELOPE.md section 6;
-  the envelope itself stopped on 2026-11-01); the slow `exact.resolve` on small inputs (67709, 42327),
-  handed over from the raw-wrap work as a diagnosis (done: CHEAPER_CONSTRUCTIONS.md section 10a, rounding on rotated
-  inputs and `coplanar_stack`; the `coplanar_stack` fix was not built, owner decision).
-- **Exact arithmetic without `BigInteger`** (Phase 2 item, perf doc section 3): branches `claude/int256-spike` and
-  `claude/collinear-shortcut`. Exact code, so it goes to the owner. Keep both branches.
-- **`coplanar_stack` worst-case latency** (a flood fill over the piece adjacency): the owner's decision; numbers in
-  [hotspots.md](hotspots.md#shared-hotspots-across-sessions).
-- **Open inputs, winding numbers propagated across patches** (Phase 2): heuristic, no clear gain, not merged (branch
-  `claude/exact-boolean-gwn-propagation`). Leads in [hotspots.md](hotspots.md#open-tasks-and-where-their-answer-may-already-be);
-  the related Phase 5 #5 spike stopped (#331).
-- **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
-  coordinates stay open.
-- **SafeRounding:** a patch-wise B is parked behind an off option (first measure whether a patch fits back); A's
-  library code stays on `claude/snap-rounding-A-archive`.
-- **GPU** (asked 2026-11-04): not now; if ever, ILGPU in an optional add-on for the pair search only. **SIMD** for
-  the `Orient3d` filter was tried (about 2 %, [research.md](research.md#later)).
+
+Settled:
+
+- **EMBER levers 1 and 5** (quantized 26-bit inputs, a new architecture): no rewrite (owner 2026-11-07); patent search
+  done by the owner 2026-11-10 (nothing found). Lever 3 went into T3a (#612), lever 4 into #633 L2.
+- **Exact arithmetic without `BigInteger`** (branches `claude/int256-spike`, `claude/collinear-shortcut`): superseded.
+  The collinear idea is built in #633 step 2 (`CollinearByConstruction`); fixed width does not reach (three-plane points up
+  to 309 bits, centroids up to 807 bits; #633, 2026-11-12); the Int384 planes spike gave about 0 % in total. Deleting the
+  branches after #633 is an owner question.
+- **`coplanar_stack` worst-case latency:** not built, closed (owner 2026-11-01; CHEAPER_CONSTRUCTIONS.md section 10a).
+- **Boolean allocations / `ArrayPool`:** superseded by 3.0 T2 (#619) and the #633 GC measurement (server GC is the
+  application's choice, OPERATIONS.md); pooling was measured without gain; no new dependency.
+- **Boolean performance leftovers:** planes in fixed width dropped (see above); the generator for the envelope predicates
+  done (ENVELOPE.md section 6); the slow `exact.resolve` on 67709 / 42327 diagnosed (CHEAPER_CONSTRUCTIONS.md section 10a).
+- **Open inputs, winding propagated across patches** (branch `claude/exact-boolean-gwn-propagation`): superseded by the
+  per-piece open classification (#528), Antipodal (#539) and #633 L1.
+- **SafeRounding patch-wise B:** not pursued; the snap-rounding experiment closed in #313, D1 (#513) covers the drift
+  failures; A's library code stays on `claude/snap-rounding-A-archive`.
+- **Default-hashed `long` keys:** done in #431 (2026-11-08); [LongHashAudit](../../benchmarks/LongHashAudit/README.md).
+- **Thingi10K full-run findings** (draft #385): superseded by the WP2 triage and the sign-off run.
+- **`thingi-pairs` class:** done (#418, 2026-11-09); its baseline and final runs are queued behind 3.0 (owner 2026-11-12).
+- **GPU / SIMD:** GPU not now (owner 2026-11-04; if ever, ILGPU in an add-on for the pair search only); SIMD for the
+  `Orient3d` filter measured at 2-4 % ([research.md](research.md#later)).
 
 ### Done / history
 

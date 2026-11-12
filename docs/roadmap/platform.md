@@ -40,18 +40,21 @@ Part of the [roadmap](../ROADMAP.md).
   nothing above. Backlog on master before #447: 113 tests at 5-10 s, 44 at 10-30 s, 14 above 30 s (68 classes).
   Same Sonnet session after #447: a ratchet in tools/trx_durations.py with a shrinking backlog list, then one PR per
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
-  borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours.
+  borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
+  session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
   7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
   touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
   decision, not needed for the gate).
-- **CLI / MCP update (owner 2026-11-08, queued):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
+- **CLI / MCP update (owner 2026-11-08; in progress, Sonnet session started 2026-11-12):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
+  Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
+  section 11); PR A (repair options) is next.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
