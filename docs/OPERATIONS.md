@@ -800,7 +800,8 @@ invariance are those of the booleans (`frame`).
 `--op minkowski_sum` / `minkowski_difference` sweep a pattern polygon (`--pattern` file or `--pattern-geojson`: one polygon without holes, its coordinates
 relative to the reference point, eg a circle around (0, 0)) along the subject: with `--path-closed` (default) one polygon without holes, its interior
 included; with `--path-closed=false` one `LineString` as an open path. The difference uses the pattern mirrored at its reference point; the result has holes
-where the sweep encloses one (`Clipper2Polygons.MinkowskiSum` / `MinkowskiDifference`).
+where the sweep encloses one (`Clipper2Polygons.MinkowskiSum` / `MinkowskiDifference`). The pattern times the path may have at most 100000 vertex pairs (the time grows
+faster than the product: 200 x 200 vertices about 1 s, 1000 x 1000 about 90 s); the result keeps collinear vertices of the sweep (`--preserve-collinear` is refused).
 
 ```
 g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson

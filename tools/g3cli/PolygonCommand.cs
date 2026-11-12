@@ -431,6 +431,8 @@ namespace g3cli
         }
 
         /// <summary> minkowski_sum and minkowski_difference of polygon2d: the pattern swept along a closed polygon or an open line (Clipper2Polygons.MinkowskiSum / MinkowskiDifference) </summary>
+        const long MinkowskiMaxVertexProduct = 100000;
+
         static JsonObject Polygon2dMinkowski(Args args, string op)
         {
             if (args.Has("subject") == args.Has("subject_geojson"))
@@ -442,6 +444,8 @@ namespace g3cli
             if (args.Has("delta") || args.Has("miter_limit") || args.Has("arc_tolerance") || args.Has("fill_rule") || args.Has("epsilon")
                 || args.String("end_type") != "round" || args.String("join") != "round" || args.String("clip_type") != "intersection")
                 throw new CommandException(ResultCodes.InvalidArguments, "delta, join, miter_limit, arc_tolerance, end_type, fill_rule, clip_type and epsilon are not options of " + op);
+            if (args.Bool("preserve_collinear"))
+                throw new CommandException(ResultCodes.InvalidArguments, "preserve_collinear has no effect on " + op + " (the result keeps the collinear vertices of the sweep)");
             bool closed = args.Bool("path_closed");
             var options = new Clipper2Options();
             if (args.Has("precision_bits")) {
@@ -469,6 +473,10 @@ namespace g3cli
                 path = new Polygon2d(subject.Lines[0].Vertices);
             }
             Polygon2d patternRing = pattern.Polygons[0].Outer;
+            // (the time grows much faster than the product: 200 x 200 vertices take about 1 s, 1000 x 1000 about 90 s)
+            if ((long)patternRing.VertexCount * path.VertexCount > MinkowskiMaxVertexProduct)
+                throw new CommandException(ResultCodes.InvalidArguments,
+                    $"the pattern ({patternRing.VertexCount} vertices) times the path ({path.VertexCount} vertices) is more than {MinkowskiMaxVertexProduct}: simplify one of them first");
 
             Clipper2Result res = null;
             Exception failure = null;

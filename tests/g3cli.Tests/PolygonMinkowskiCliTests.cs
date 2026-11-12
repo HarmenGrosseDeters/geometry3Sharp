@@ -112,6 +112,48 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void ClosedPath_ConcaveClockwiseSubject_AsymmetricPattern_FarReferencePoint()
+        {
+            // an L shape (area 3), written clockwise, with the triangle (0,0), (2,0), (0,2) as the pattern
+            double[] l = { 0, 0, 0, 2, 1, 2, 1, 1, 2, 1, 2, 0, 0, 0 };
+            string lCcw = Poly(1, 0, 0, 2, 0, 2, 1, 1, 1, 1, 2, 0, 2, 0, 0), lCw = Poly(1, l);
+            string tri = Poly(1, 0, 0, 2, 0, 0, 2, 0, 0);
+            var (e1, sumCcw) = M("minkowski_sum", lCcw, tri);
+            var (e2, sumCw) = M("minkowski_sum", lCw, tri);
+            Assert.Equal(0, e1); Assert.Equal(0, e2);
+            Assert.Equal(D(sumCcw["result"]["area"]), D(sumCw["result"]["area"]), 9);
+            Assert.Equal(0.0, D(sumCcw["result"]["bounds"]["min"][0]), 6);                       // the pattern lies in x, y >= 0
+            Assert.Equal(4.0, D(sumCcw["result"]["bounds"]["max"][0]), 6);
+            Assert.Equal(0, I(sumCcw["result"]["holes"]));                                       // interior included: no hole in the L
+            var (e3, diff) = M("minkowski_difference", lCcw, tri);                                // the pattern mirrored: x, y <= 0
+            Assert.Equal(0, e3);
+            Assert.Equal(-2.0, D(diff["result"]["bounds"]["min"][0]), 6);
+            Assert.Equal(2.0, D(diff["result"]["bounds"]["max"][0]), 6);
+            Assert.Equal(-2.0, D(diff["result"]["bounds"]["min"][1]), 6);
+            Assert.Equal(2.0, D(diff["result"]["bounds"]["max"][1]), 6);
+            Assert.True(D(diff["result"]["area"]) > 3 && D(sumCcw["result"]["area"]) > 3);          // both contain the L (area 3); the areas differ for a concave shape
+            // the same pattern with its reference point 1e6 away: the result is shifted by 1e6
+            var (e4, far) = M("minkowski_sum", lCcw, Poly(1, 1e6, 1e6, 1e6 + 2, 1e6, 1e6, 1e6 + 2, 1e6, 1e6));
+            Assert.Equal(0, e4);
+            Assert.Equal(1e6, D(far["result"]["bounds"]["min"][0]), 3);
+            Assert.Equal(D(sumCcw["result"]["area"]), D(far["result"]["area"]), 3);
+        }
+
+        [Fact]
+        public void TheVertexProductIsCapped_PreserveCollinearIsRefused()
+        {
+            string Circle(int n) => "{\"type\":\"Polygon\",\"coordinates\":[[" + string.Join(",", Enumerable.Range(0, n).Select(i => $"[{N(Math.Cos(2 * Math.PI * i / n))},{N(Math.Sin(2 * Math.PI * i / n))}]")) + $",[{N(1.0)},{N(0.0)}]]]}}";
+            var (e1, r1) = M("minkowski_sum", Circle(400), Circle(300));                           // 120000 pairs
+            AssertError(e1, r1, "invalid_arguments");
+            Assert.Contains("100000", S(r1["message"]));
+            var (e2, ok) = M("minkowski_sum", Circle(100), Circle(100));
+            Assert.Equal(0, e2);
+            Assert.Equal(1, I(ok["result"]["polygons"]));
+            var (e3, r3) = M("minkowski_sum", Poly(1, Square10), Poly(1, Square2), "--preserve-collinear");
+            AssertError(e3, r3, "invalid_arguments");
+        }
+
+        [Fact]
         public void FilesAndOutput()
         {
             string subject = m.Path_("mk_subject.geojson"), pattern = m.Path_("mk_pattern.geojson"), output = m.Path_("mk_out.geojson");
