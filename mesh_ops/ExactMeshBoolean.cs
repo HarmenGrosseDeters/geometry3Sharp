@@ -1728,6 +1728,7 @@ namespace g3
                     // the input triangle's, in a grid of those boxes in the triangle's plane)
                     var src = arr.Triangles[output[s0].Source];
                     var grid = new CrossingGrid(this, src, m);
+                    var frame = new LocalFrame(this, src.Corners[0]);
                     // (per far point: the boundary segments that can pierce a triangle of two of the block's centroids and
                     // the far point, those meeting the tetrahedron of the input triangle and the far point)
                     var pierceCandidates = new Dictionary<int, int[]>();
@@ -1753,7 +1754,7 @@ namespace g3
                                 queue.Enqueue(q);
                                 bool wanted = representative[q] && decided_per_patch(po, q, j) == false;
                                 int f = far[p - s0], delta, crossed;
-                                if (f >= 0 && carried_crossings(p, q, m, f, center(p), center(q), grid, candidates(f), out delta, out crossed)) {
+                                if (f >= 0 && carried_crossings(p, q, m, f, center(p), center(q), grid, candidates(f), frame, out delta, out crossed)) {
                                     chi[q - s0] = chi[p - s0] + delta;
                                     far[q - s0] = f;
                                     // the threshold carried from p where the bound of the change along the segment keeps it
@@ -1955,6 +1956,63 @@ namespace g3
         }
 
         /// <summary>
+        /// L2: coordinates relative to an origin (an input triangle's first corner, an integer grid point), as doubles: each
+        /// the exact difference rounded once (relative error at most 2^-53, or NaN below TinyCoordinate, grid_coord). The
+        /// filters of orient3d are translation-invariant in exact arithmetic, so they decide on these the same signs as
+        /// on the grid coordinates, but the pieces of a dense region, far smaller than the model, keep their relative
+        /// precision. Cached per point id, far point and boundary segment end.
+        /// </summary>
+        internal sealed class LocalFrame
+        {
+            readonly ExactMeshBoolean b;
+            readonly BigInteger ox, oy, oz;
+            readonly Dictionary<int, Vector3d> corners = new Dictionary<int, Vector3d>();
+            readonly Dictionary<long, Vector3d> others = new Dictionary<long, Vector3d>();
+
+            public LocalFrame(ExactMeshBoolean b, int originId)
+            {
+                this.b = b;
+                ExactPoint3 o = b.arr.Exact(originId);
+                // (an input point: an integer grid point)
+                if (o.W.IsOne == false)
+                    throw new InvalidOperationException("ExactMeshBoolean: the origin of a local frame is not a grid point");
+                ox = o.X; oy = o.Y; oz = o.Z;
+            }
+
+            public Vector3d Point(ExactPoint3 p)
+            {
+                return new Vector3d(grid_coord(p.X - ox * p.W, p.W), grid_coord(p.Y - oy * p.W, p.W), grid_coord(p.Z - oz * p.W, p.W));
+            }
+
+            public Vector3d Corner(int id)
+            {
+                Vector3d v;
+                if (corners.TryGetValue(id, out v) == false)
+                    corners[id] = v = Point(b.arr.Exact(id));
+                return v;
+            }
+
+            // the far point f of mesh m (key 2 m + 1 + 4 f... as a long), the end k of a boundary segment of mesh m
+            public Vector3d Far(int m, int f)
+            {
+                long key = ((long)m << 40) | ((long)1 << 39) | (uint)f;
+                Vector3d v;
+                if (others.TryGetValue(key, out v) == false)
+                    others[key] = v = Point(b.antipodalFar[m].R[f]);
+                return v;
+            }
+
+            public Vector3d BoundaryEnd(int m, int k)
+            {
+                long key = ((long)m << 40) | (uint)k;
+                Vector3d v;
+                if (others.TryGetValue(key, out v) == false)
+                    others[key] = v = Point(b.antipodalExact[m][k]);
+                return v;
+            }
+        }
+
+        /// <summary>
         /// L2: the triangles of mesh m that a segment between two points of input triangle t can cross. A triangle crossed
         /// there meets t along a segment through the crossing point, so it is one of t's Partners (the triangles that met
         /// t along a segment in the arrangement; not the triangles named by t's Segments, which keep one of several equal
@@ -2059,14 +2117,16 @@ namespace g3
         /// opposite sign every traced piece behind a pierce differs from its own evaluation).
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        bool carried_crossings(int p, int q, int m, int f, Center cp, Center cq, CrossingGrid grid, int[] pierceCandidates, out int delta, out int crossed)
+        bool carried_crossings(int p, int q, int m, int f, Center cp, Center cq, CrossingGrid grid, int[] pierceCandidates, LocalFrame frame,
+            out int delta, out int crossed)
         {
             delta = 0;
             crossed = 0;
             ExactPoint3 P = cp.P, Q = cq.P;
             var sp = arr.Triangles[arr.Output[p].Source];
             var sq = arr.Triangles[arr.Output[q].Source];
-            Vector3d gp = cp.Grid(), gq = cq.Grid();
+            // (the filters on coordinates in the input triangle's frame, the exact stages on the exact points)
+            Vector3d gp = cp.Local(frame), gq = cq.Local(frame);
             if (double.IsNaN(gp.x + gp.y + gp.z + gq.x + gq.y + gq.z))
                 return false;
             int crossings = 0;
@@ -2074,7 +2134,9 @@ namespace g3
             grid.Query(cp.Input, cq.Input, (ui) => {
                 if (degenerate) return;
                 var U = arr.Triangles[ui];
-                int a = side(U, P, gp), b = side(U, Q, gq);
+                int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
+                Vector3d d0 = frame.Corner(c0), d1 = frame.Corner(c1), d2 = frame.Corner(c2);
+                int a = local_side(U, P, ref d0, ref d1, ref d2, ref gp), b = local_side(U, Q, ref d0, ref d1, ref d2, ref gq);
                 // (a centroid in the plane: the side its piece's front points to)
                 int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
                 int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
@@ -2083,8 +2145,6 @@ namespace g3
                 // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
                 // determined here)
                 if (a == 0 && b == 0) { degenerate = true; return; }
-                int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
-                Vector3d d0 = corner_double(c0), d1 = corner_double(c1), d2 = corner_double(c2);
                 int o0 = orient3d_filter(ref gp, ref gq, ref d0, ref d1);
                 int o1 = orient3d_filter(ref gp, ref gq, ref d1, ref d2);
                 int o2 = orient3d_filter(ref gp, ref gq, ref d2, ref d0);
@@ -2107,12 +2167,11 @@ namespace g3
             // the boundary segments piercing the triangle (p, q, R)
             FarPoints far = antipodalFar[m];
             ExactPoint3 R = far.R[f];
-            Vector3d gr = far.Grid[f];
-            Vector3d[] g = antipodalSegments[m];
+            Vector3d gr = frame.Far(m, f);
             ExactPoint3[] e = antipodalExact[m];
             int pierces = 0;
             foreach (int t in pierceCandidates) {
-                Vector3d ga = g[t], gb = g[t + 1];
+                Vector3d ga = frame.BoundaryEnd(m, t), gb = frame.BoundaryEnd(m, t + 1);
                 int sa = orient3d_filter(ref gp, ref gq, ref gr, ref ga);
                 if (sa == 2) sa = orient3d_exact(P, Q, R, e[t]);
                 int sb = orient3d_filter(ref gp, ref gq, ref gr, ref gb);
@@ -2138,6 +2197,17 @@ namespace g3
             delta = pierces - crossings;
             crossed = crossings;
             return true;
+        }
+
+        // the side of the exact point P of triangle U's plane: the filter of -orient3d(corners, P) on frame coordinates
+        // (orient3d's sign is that of -(b - a) x (c - a) . (d - a), the plane's normal), else exact
+        [MethodImpl(JitHints.Optimize)]
+        int local_side(ExactMeshArrangement.InputTriangle U, ExactPoint3 P, ref Vector3d d0, ref Vector3d d1, ref Vector3d d2, ref Vector3d g)
+        {
+            int o = orient3d_filter(ref d0, ref d1, ref d2, ref g);
+            if (o != 2)
+                return -o;
+            return (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
         }
 
         // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
@@ -2434,8 +2504,8 @@ namespace g3
             Vector3d grid;
             bool hasGrid;
             public Center(ExactPoint3 p) { P = p; }
-            Vector3d gridDouble;
-            bool hasGridDouble;
+            Vector3d gridDouble, local;
+            bool hasGridDouble, hasLocal;
             // the grid coordinates as doubles, without the tiny-coordinate check of Grid (for the Antipodal boundary sum),
             // when first needed (L2 asks for them several times per piece)
             public Vector3d GridDouble()
@@ -2445,6 +2515,16 @@ namespace g3
                     hasGridDouble = true;
                 }
                 return gridDouble;
+            }
+            // L2: the coordinates relative to a frame's origin as doubles (each the exact difference rounded once), when
+            // first needed (a Center belongs to one input triangle, so to one frame)
+            public Vector3d Local(LocalFrame frame)
+            {
+                if (hasLocal == false) {
+                    local = frame.Point(P);
+                    hasLocal = true;
+                }
+                return local;
             }
             // the grid coordinates as doubles (grid_coord), when first needed
             public Vector3d Grid()

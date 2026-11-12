@@ -195,6 +195,33 @@ M, and the rest of p's margin. Its boundary sum is not computed.
 - *The boundary segments that N can count.* Those not wholly outside a face of the tetrahedron of t and R, per far point,
   in doubles with a margin.
 
+**Filters in a local frame (the tests of I and N).** The centroids of a dense region are far smaller than the model, so
+in grid coordinates their differences carry little relative precision, and the double filters of the side and
+orientation tests fail often; the exact stages on the rational centroids then dominate (55928: about 40 % of the samples in
+BigInteger arithmetic). L2 therefore gives the filters coordinates relative to an origin O, the first corner of the input
+triangle (an input point, so an integer grid point):
+
+- Each coordinate is the exact value of x - O, rounded once: `ExactPoint3.ToDouble` takes a 64-bit truncated quotient
+  (relative error below 2^-63), then one rounding to double (2^-53). That is below 2^-52 relative per coordinate, the
+  input assumption of `orient3d_filtered`; coordinates below `TinyCoordinate` give NaN, which the filter refuses.
+- `orient3d_filtered` certifies the sign of the exact determinant of points within that relative error of its inputs. Its
+  bound already carries the input term: eu, ev, ew are 3 * 2^-52 of the inputs' magnitudes per row, 2^-52 for each of the
+  two inputs plus 2^-53 for the subtraction, and they are propagated through the determinant as
+  (|u| + eu)(|v| + ev)(|w| + ew) - |u||v||w|, plus Shewchuk's 1e-15 times the permanent for the evaluation.
+- The exact determinant of the translated points equals that of the original ones: orient3d is a polynomial in the
+  differences b - a, c - a, d - a, and O cancels exactly. So the sign certified for the local values is the sign for the
+  exact points.
+- The plane sides become -orient3d(U's corners, x) on local coordinates, with the same exact fallback as before (the
+  plane equation on the exact point). The sign of orient3d is that of -((b - a) x (c - a)) . (d - a), the plane's normal
+  dotted with the point's offset.
+- Corners, far points and boundary ends are converted the same way, once per input triangle (cached).
+
+Measured on 55928: classification 295 -> 262 s, the result hash unchanged (61550C3C2F352E72), and verify mode on the
+sub-balls as before (176 triangles: 0 differences; 441 triangles: 4, each where the piece's own evaluation is
+undecided). What remains is the exact centroid of every piece and its conversion, which together with the GC took 118 s of
+pauses. The next step is filters on the centroids' approximations with absolute error bounds, so that the exact centroid
+is computed only where a filter fails.
+
 **The threshold.**
 - Every traced value is that of an Antipodal evaluation with another ray. Its threshold can differ from the piece's own
   evaluation only where the snap decision depends on the ray, that is, where w lies within the bound (at most 1e-6) of a
