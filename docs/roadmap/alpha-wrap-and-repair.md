@@ -221,7 +221,7 @@ better; 0.75 is 1.09-1.22x.
   both act only inside `SimplifyWithin`; (2) check the slab partition for the Remesher, above all with
   `PreventSelfIntersections` (6-10x cost today); (3) make `PreventSelfIntersections` cheaper with the batch queries
   and the mesh memory-layout results of the spatial-structure profile; (4) re-evaluate the defaults
-  (`MinTriangleQuality` 0, `PreventSelfIntersections` off, a flip guard and its known regressions); (5) settle the
+  (`MinTriangleQuality` 0, `PreventSelfIntersections` off; the flip guard is moot: the owner kept the Remesher defaults upstream's, November 2026); (5) settle the
   "status unclear" items below (the Remesher session, shared BVH queries per collapse; settled 2026-11-12: #298, #275). The Alpha Wrap session writes a
   hand-over note on (A) for this before it is archived; the #422 speedups already apply to every Reducer user.
 - **Remeshers, open Phase 2 items:** degenerate triangles (`MinTriangleQuality` is opt-in, library default 0);
@@ -240,8 +240,8 @@ better; 0.75 is 1.09-1.22x.
 - **Envelope** (Phase 5 #2): stopped (owner decision 2026-11-01); the code is an internal tool. Open in Phase 5: the
   paper's algorithm ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Issue-tracker follow-ups** ([platform.md](platform.md#release-when-its-done)): P2 (Disk iteration, parked as
-  research), S2 and S3 open, pinned and documented; the regressions a remesher flip-guard default would cause; the
-  P1 collapse.
+  research), S2 and S3 open, pinned and documented. Closed: the P1 collapse (a limitation, [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md); the real fix is research); the regressions a remesher flip-guard default
+  would cause (the Remesher defaults stay upstream's, owner November 2026).
 - **Inside / outside for open inputs** (Phase 5 #5): stopped (#331); the wrap fallback stays the answer.
 - The slow `exact.resolve` on small inputs (67709, 42327) went to the boolean-performance session
   ([exact-boolean.md](exact-boolean.md#other-open-items)).

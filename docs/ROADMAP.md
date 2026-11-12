@@ -137,7 +137,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
 
 - Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
   then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- Meshing2D: the three untraced single triangles from #542 (in progress); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
+- Meshing2D: the three single triangles from #542 traced and fixed (#661, merged 2026-11-12); the rotated-fan
+  Steiner-limit bugfix #664 (#666, reviewed, after master merge); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
   (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
   session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; starts
   when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
@@ -150,8 +151,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   when a slot is free). [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
-- Platform: issue-tracker follow-ups left: the regressions a remesher flip-guard default would cause, the P1 collapse
-  (P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
+- Platform: no issue-tracker follow-up left (the flip-guard default follow-up is closed: the Remesher
+  defaults stay upstream's, owner November 2026; the P1 collapse is a documented limitation, the real fix is research; P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
 
 ## Later / research
 
@@ -214,7 +215,7 @@ The next steps per topic, in order ("in progress" where a session works on them)
   its own worktree and one PR-sized topic.
 - **Exception (owner 2026-11-12):** three extra medium Sonnet sessions (CLI / MCP update, test-time backlog,
   short pipeline topics: fast-winding cache lever 3, DualContouring allocations, the
-  issue-tracker follow-ups (flip-guard, P1), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
+  issue-tracker follow-ups (flip-guard and P1, both closed), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
   no further starts until the count is back below it.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
