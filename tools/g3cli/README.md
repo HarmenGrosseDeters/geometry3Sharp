@@ -341,12 +341,12 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   (`[x, y, z]` of an intersection, degenerate triangle or false contact left, `null` if none is left).
 - `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is, or contains, the
   long text of that reason, else `null`; they are also in the data of a failed repair (`operation_failed`).
-- `repair` (robust, additive): `robust_options` (the values the library used: `exact_resolve_rounds`, `wrap_relative_alpha`, `wrap_relative_offset`,
+- `repair` (`--method robust` only; `--method auto` ignores these options and does not report these fields; additive): `robust_options` (the values the library used: `exact_resolve_rounds`, `wrap_relative_alpha`, `wrap_relative_offset`,
   `alpha_wrap_quality_pass`, `passthrough_clean_parts`, `separate_fraction`), `exact_resolve_rounds_used`, `passed_through_triangles` (triangles of
   clean components passed through untouched), `alpha_wrap_quality_improved`, `alpha_wrap_min_angle` / `alpha_wrap_max_angle` /
   `alpha_wrap_share_above_170` (measured on the alpha wrap result; `null` if the result is not a wrap) and `phase_milliseconds` (milliseconds per
-  phase, eg `repair`, `exact`, `solidify`, `wrap`). `result_code` also is `outside_range`, `lost_far_part` or `wrap_too_coarse` where `result_reason`
-  contains that reason's text. Ranges: `exact_resolve_rounds` 1..64, `wrap_relative_*` finite and > 0, `separate_fraction` in (0, 1).
+  phase, eg `repair`, `exact`, `exact.resolve`, `solidify`, `wrap`; the phases present and their times vary between runs and are not for diffing results; see `MeshRobustRepair.PhaseMilliseconds`). `result_code` also is `outside_range`, `lost_far_part` or `wrap_too_coarse` where `result_reason`
+  contains that reason's text. Ranges: `exact_resolve_rounds` 1..64, `wrap_relative_*` 1..1e6, `separate_fraction` in (0, 1).
 - `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
   triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).
 

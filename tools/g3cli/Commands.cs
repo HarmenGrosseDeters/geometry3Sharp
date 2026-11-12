@@ -173,8 +173,8 @@ namespace g3cli
             c.Params.Add(new Param("alpha_wrap", ParamType.Boolean, "robust: last resort, alpha wrap the mesh if the solidify fails or is not clean (MeshRobustRepair.AlphaWrapFallback)") { Default = true });
             c.Params.Add(new Param("simplify_alpha_wrap", ParamType.Boolean, "robust: simplify the alpha wrap, kept only if clean and certified within half the wrap offset of the unsimplified wrap") { Default = true });
             c.Params.Add(new Param("exact_resolve_rounds", ParamType.Integer, "robust: resolves of the exact stage at most (rounding the new vertices to double can create tiny self-intersections: resolve again), 1..64") { Default = 4 });
-            c.Params.Add(new Param("wrap_relative_alpha", ParamType.Number, "robust alpha wrap fallback: alpha = bounding box diagonal / this value (> 0)") { Default = 300.0 });
-            c.Params.Add(new Param("wrap_relative_offset", ParamType.Number, "robust alpha wrap fallback: offset = bounding box diagonal / this value (> 0)") { Default = 3000.0 });
+            c.Params.Add(new Param("wrap_relative_alpha", ParamType.Number, "robust alpha wrap fallback: alpha = bounding box diagonal / this value, 1..1e6") { Default = 300.0 });
+            c.Params.Add(new Param("wrap_relative_offset", ParamType.Number, "robust alpha wrap fallback: offset = bounding box diagonal / this value, 1..1e6") { Default = 3000.0 });
             c.Params.Add(new Param("alpha_wrap_quality_pass", ParamType.Boolean, "robust alpha wrap fallback: improve the triangle quality after the simplification (about 30 % more time, adds little)") { Default = false });
             c.Params.Add(new Param("passthrough_clean_parts", ParamType.Boolean, "robust: a closed component that is clean on its own and whose bounding box meets no other component is passed through untouched (false: the whole input goes through the stages)") { Default = true });
             c.Params.Add(new Param("separate_fraction", ParamType.Number, "robust exact stage: how far vertices at the same position are moved towards the centroid of their neighbours to separate touching sheets, in (0, 1)") { Default = 1e-4 });
@@ -218,8 +218,8 @@ namespace g3cli
                     if (resolveRounds < 1 || resolveRounds > 64)
                         throw new CommandException(ResultCodes.InvalidArguments, "'exact_resolve_rounds' must be in 1..64");
                     foreach (string name in new[] { "wrap_relative_alpha", "wrap_relative_offset" })
-                        if (!(args.Number(name) > 0) || double.IsInfinity(args.Number(name)))
-                            throw new CommandException(ResultCodes.InvalidArguments, "'" + name + "' must be finite and > 0");
+                        if (!(args.Number(name) >= 1 && args.Number(name) <= 1e6))
+                            throw new CommandException(ResultCodes.InvalidArguments, "'" + name + "' must be in 1..1e6");
                     double separate = args.Number("separate_fraction");
                     if (!(separate > 0 && separate < 1))
                         throw new CommandException(ResultCodes.InvalidArguments, "'separate_fraction' must be in (0, 1)");

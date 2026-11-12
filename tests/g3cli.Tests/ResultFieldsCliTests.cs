@@ -167,9 +167,10 @@ namespace g3cli.Tests
         {
             string[][] bad = {
                 new[] { "--exact-resolve-rounds", "0" }, new[] { "--exact-resolve-rounds", "65" },
-                new[] { "--wrap-relative-alpha", "0" }, new[] { "--wrap-relative-alpha", "-3" },
-                new[] { "--wrap-relative-offset", "0" }, new[] { "--wrap-relative-offset", "-3" },
-                new[] { "--separate-fraction", "0" }, new[] { "--separate-fraction", "1" },
+                new[] { "--exact-resolve-rounds", "-1" },
+                new[] { "--wrap-relative-alpha", "0" }, new[] { "--wrap-relative-alpha", "-3" }, new[] { "--wrap-relative-alpha", "0.99" }, new[] { "--wrap-relative-alpha", "1e7" }, new[] { "--wrap-relative-alpha", "NaN" },
+                new[] { "--wrap-relative-offset", "0" }, new[] { "--wrap-relative-offset", "-3" }, new[] { "--wrap-relative-offset", "0.99" }, new[] { "--wrap-relative-offset", "1e7" }, new[] { "--wrap-relative-offset", "NaN" },
+                new[] { "--separate-fraction", "0" }, new[] { "--separate-fraction", "1" }, new[] { "--separate-fraction", "NaN" }, new[] { "--separate-fraction", "-0.1" },
             };
             foreach (var a in bad) {
                 string output = m.Path_("rep_bad.obj");
@@ -177,6 +178,17 @@ namespace g3cli.Tests
                 Assert.Equal(ResultCodes.ExitCode("invalid_arguments"), exit);
                 Assert.Equal("invalid_arguments", S(r["code"]));
                 Assert.False(File.Exists(output));
+            }
+        }
+
+        [Fact]
+        public void Repair_NewOptions_AcceptTheirBoundaries()
+        {
+            foreach (var a in new[] { new[] { "--exact-resolve-rounds", "1" }, new[] { "--exact-resolve-rounds", "64" },
+                new[] { "--wrap-relative-alpha", "1" }, new[] { "--wrap-relative-alpha", "1e6" },
+                new[] { "--wrap-relative-offset", "1" }, new[] { "--wrap-relative-offset", "1e6" }, new[] { "--separate-fraction", "0.999" } }) {
+                var (exit, r) = Run(new[] { "repair", m.Overlapping, m.Path_("rep_ok.obj"), "--compact" }.Concat(a).ToArray());
+                Assert.Equal(0, exit);
             }
         }
 
