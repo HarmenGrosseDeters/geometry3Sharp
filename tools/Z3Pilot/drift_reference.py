@@ -681,16 +681,6 @@ RULE_METHODS = [
                         most = Math.Max(most, ghost_bound(g, v, gone, p));
             return most;
         }"""),
-    ('double move_bound(', r"""double move_bound(int v, Vector3d p)
-        {
-            double most = ghosts_bound(v, v, -1, p);
-            foreach (int t in Mesh.VtxTrianglesItr(v)) {
-                Index3i tv = Mesh.GetTriangle(t);
-                most = Math.Max(most, triangle_bound(t, tv.a == v ? p : Mesh.GetVertex(tv.a), tv.b == v ? p : Mesh.GetVertex(tv.b),
-                    tv.c == v ? p : Mesh.GetVertex(tv.c)));
-            }
-            return most;
-        }"""),
     ('double proposed_drift(', r"""double proposed_drift(double step)
         {
             editGhosts.Clear(); editLost.Clear();
@@ -945,7 +935,7 @@ def source_contract():
             raise ValueError(signature + ' is gone; review drift_reference.py')
         if norm(_method(text, signature)) != norm(expected):
             raise ValueError(signature + ' changed; review it against the rule and update RULE_METHODS in drift_reference.py')
-    if text.count('within_bound(') != 3 or text.count('proposed_drift(') != 2 or text.count('commit_drift();') != 6:
+    if text.count('within_bound(') != 2 or text.count('proposed_drift(') != 2 or text.count('commit_drift();') != 6:
         raise ValueError('within_bound, proposed_drift or commit_drift is called elsewhere; review drift_reference.py')
     # improves: the drift is the first thing checked, with the bound of the edit's component
     improves = norm(_method(text, 'bool improves('))
@@ -956,9 +946,10 @@ def source_contract():
     if not improves.startswith(norm('bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, '
                                     'bool removesContact = false)') + '{' + accept):
         raise ValueError('improves: the drift is not checked first, or not by proposed_drift; review drift_reference.py')
-    # the moves past the evaluation limit compute what proposed_drift computes for a move
-    if 'within_bound(move_bound(v, p), maxLength_of(v));' not in _method(text, 'bool try_move('):
-        raise ValueError('try_move: the moves past the limit do not use move_bound; review drift_reference.py')
+    # no move is proposed past the evaluation limit (before, a shortcut computed its drift with a second copy of the
+    # rule, move_bound): every drift an edit is judged by, or SmallestRejectedDrift reports, comes from proposed_drift
+    if norm('if (stopped) return false; begin_edit();') not in norm(_method(text, 'bool try_move(')) or 'move_bound' in text:
+        raise ValueError('try_move: a move past the limit, or a second drift computation; review drift_reference.py')
     # every generic edit names its added triangles before commit_drift
     for edit, ids in (('bool try_flip(', 'addedIds.Add(et.a); addedIds.Add(et.b);'), ('bool try_zip(', 'addedIds.AddRange(tids);'),
                       ('bool zip_strip(', 'addedIds.AddRange(tids);'), ('bool try_remove_vertex(', 'addedIds.Add(tid);')):
