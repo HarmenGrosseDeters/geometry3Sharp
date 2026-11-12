@@ -38,6 +38,13 @@ Actionable:
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
+**Owner 2026-11-12:** the inputs are free, but are not taken from the owner's Triangle.NET fork repository: fetch them from
+their original sources at run time, never committed. The Herne tiles: ALKIS parcels and buildings from Geobasis NRW
+(opengeodata.nrw.de, dl-de/zero-2-0, the host `benchmarks/TerrainBenchmark/fetch_data.py` already uses), prepared by our own
+script for the tiles 371800_5710600, 373600_5709000 and 381000_5710400 (UTM 32N, origin of the tile); the public fixtures as
+today by `corpus/fetch.py`. No GEOS- or CGAL-derived data. This unblocks the Herne items below; run-A outputs (produced by
+the fork) and stmlf stay blocked.
+
 - **SplitSegment speed:** the next mesher speed item outside grading (3.4 s of 7.3 s refinement on cq 373600 q30). An
   upper-bound check comes before any optimisation; it needs that input or a procedural input with the same profile
   (to be shown first). Effort M.
@@ -90,6 +97,19 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in #666: the
   mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
   widens an excuse: accepted by the owner 2026-11-12. Effort M.
+- **Refinement defect cap on narrow channels (#638, bugfix): #688.** A channel 2^-38 wide (a projected cube, MeshFuzzPilot F7) gave
+  `Failed (RefinementLimit)` at SteinerLimit 1500: splits across the channel flip the same triangles many times, `Collect` queues a
+  triangle once per flip (up to 31 536 entries on 1600 triangles for one insertion), and the burst of about 600k dequeues, mostly
+  stale, exceeded the cap `64 (limit + slots) + 100000`, which counted dequeues. Fix (coordinator 2026-11-12): the cap counts split
+  attempts; every other mesh stays the same bit for bit, the channel gives `Success` with `SteinerLimitReached` (split attempts at most
+  13 (limit + slots) over w = 2^-20 .. 2^-39). A test hook (`StallForTests`) shows the cap still stops a livelock.
+  **Measured, not taken: deduplicating `Dirty` in `Collect`** (each rewritten triangle queued once). On the #638 input 611k -> 34k
+  dequeues (1.4 s -> 1.0 s; limit 3000 / 6000: 0.95 / 0.90 s -> 0.64 / 0.62 s), at most 8.2 dequeues per (limit + slots) over that
+  family. Not taken because it changes the refinement order: the golden rows f-4/a, f-4/b, f-5, f-23/angle-20, f-23/angle-30 and f-34
+  change (f-5 1047 -> 1058 vertices, f-4/b 2889 -> 2883; constrained f-4/a 1266 -> 1269, f-4/b 4649 -> 4648), four pinned counts change
+  (`RuleC_PinnedCounts` 27 -> 25, `HoleTriangleAcrossTheExemptSubsegment` 285 -> 308, 68 -> 70, 137 -> 141), and the quality bound of
+  `Cluster_GradesWithFewerTriangles` is missed (241 triangles, at most 235). Taking it needs a re-recording of the golden rows with a
+  reason and a look at the grading bound.
 
 - **Drift promise on the snap grid (owner 2026-11-10, option A): done.** The QA 2.0 T5 campaign found chains at sub-pixel
   wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources), caused by Q17, against the promise of half a pixel.

@@ -427,7 +427,7 @@ the server until they finish.
 cubes, sphere) and generated 2D domains and terrains: format round trips, quality bounds and labels of `mesh2d`, heights
 and box queries of `query2d` against brute force, fuzzed `mesh2d` JSON, expected volumes of booleans and repairs, error cases with their result
 and exit codes, the MCP protocol in process and the real executable as a child process (stdio). CI runs it
-on every push.
+on every pull request and master push that changes the library, its tests or `tools/g3cli` (`tools/ci_scope.py`).
 
 ```
 dotnet test tests/g3cli.Tests

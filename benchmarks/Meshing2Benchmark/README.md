@@ -115,6 +115,7 @@ That pass costs about 20 % of the time.
 
 Registered for M2 with the features `m2.cdt`, `m2.domain`, `m2.regions`, `m2.noding`: their 26 catalogue rows of milestone M2 are covered and their golden rows
 recorded (`golden/m2.json`); rows of these features that need refinement (milestone M3) wait for M3, and `m2.snap` (explicit tolerance) is not built yet.
+Update 2026-11-12: `m2.snap` is built since #277 (2026-11-02); its rows are covered (`Catalogue.CoveredFeatures`).
 
 ```
 $ dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- perf --m2 --repeats 3 --sizes 1000,4000,100000,400000
@@ -145,7 +146,7 @@ the outside that tracks, per triangle, the set of rings it lies inside of (even-
 ## M3: quality refinement (`g3.QualityMesh2`), 2026-11-01
 
 Registered for M3 with the feature `m3.refine`; its rows and the M3 rows of the M2 features are covered (41 rows), golden M3 recorded for the 28 rows that are
-not slow. `m3.locks`, `m3.refine-again` and `m2.snap` are not built. The slow rows (`Catalogue.SlowRows`: results of 16 000 to 200 000 vertices, mostly at
+not slow. `m3.locks`, `m3.refine-again` and `m2.snap` are not built (update 2026-11-12: `m2.snap` since #277; the other two are still pending). The slow rows (`Catalogue.SlowRows`: results of 16 000 to 200 000 vertices, mostly at
 a Steiner limit) are judged by
 
 ```
@@ -161,6 +162,7 @@ the candidate does not pass `SnapTolerance` on (the library has only the automat
 5) and F-22/b (20 007, at most 1 000) fail; the other snap rows pass, F-15 and F-18/a only because the oracle allows a merge within the tolerance
 without demanding it; both lie in the gap band of D14 (pixel width tol), where merged and unmerged pass (`Meshing2SnapGateTests`,
 `docs/design/MESHING2D_SNAP.md` section 3c). F-17/b (a hole marker inside a collapsing hole) fails as well.
+Update 2026-11-12: since #277 the candidates pass `SnapTolerance` on and the `m2.snap` rows are covered.
 
 ## Corpus: public test fixtures (2026-11-01)
 

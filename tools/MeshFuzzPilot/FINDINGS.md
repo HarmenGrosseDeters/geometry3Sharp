@@ -43,16 +43,17 @@ PR #493 and #495 where noted.
 |---|---|---|---|
 | 3 | robust repair: magnitude 2^-200 .. 2^400, extent >= 2^-40 of it | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
 | 4 | alpha wrap: magnitude 2^-128 .. 2^128 | out (1e-276, 3e17) **false success** | range check, `InvalidInput` (bugfix PR) |
-| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (follows, held until #513) |
+| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (#593): the Boolean keeps its exact result, `RoundingClean` false |
 | 5c, 5d | robust repair: no subnormal coordinates | out **false success** | range check (bugfix PR) |
-| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (follows, held until #513): not clean, mesh not touched |
+| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (#593): `OutsideRange`, not clean, mesh not touched |
 | 7 | alpha wrap: usable 2^-160 .. 2^160 | out, honest `Failed` / hang at 2^+-180..200 | range check (hang), rest documented |
 | 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | range check (#527): `InvalidInput` |
 
 Since 2026-11-10 the decoder samples the scale exponents inside the supported ranges (QA.md 2.5a) three times in four and
 judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
 cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
-return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 follow with the range check of the rounding repair (held until #513).
+return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 are covered by the range check of the rounding repair
+(#593, merged 2026-11-11: 6 `OutsideRange`; 5a, 5b `RoundingClean` false, `StrictRounding` fails; not replayed here).
 
 ## Second wave (QA 2.0 T13, 2026-11-10): smoke runs of the new targets
 
@@ -68,15 +69,17 @@ bytes now and the numbers below are from the second round.
 | clipper2 | 2 000 + 4 000 | no finding; coordinates more than 2^16 extents from the origin (1e14 against an extent of 1) gave rings of zero area (the grid, 2^-40 of the extent, is finer than a double there): a limit of the representation, judged there only for no crash, Success and finite vertices |
 | quality-mesh2 | 2 000 + 2 500 | the open classes below |
 
-Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; both are gated in the target, `MESH_FUZZ_STRICT=1`
-judges them):
+Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; the open classes 2 and 3 are gated in the target,
+`MESH_FUZZ_STRICT=1` judges them):
 
-1. `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, **in every quality mode** (constrained,
-   conforming and neither) with a minimum angle of 20 or 25 degrees, on a projected polyhedron with 17 to 36 crossing segments over 8 to 16 points (the
-   Steiner limit is not reached). The first guess "constrained mode only" was wrong (the options were constants then). Whether the mesher or the oracle's notion of a
-   forced small angle at crossings is at fault is not known: the shortest first-round input had points about 1e-25 from zero next to coincident points,
-   so a snap or tube interplay is as likely as the crossings. Replay with `MESH_FUZZ_OPS=quality-mesh2` (the options are the last four bytes of an input; the
-   hex of the first-round input, whose options are the old constants, is no longer a valid reproducer; `random 2500 22` with that filter finds it again).
+1. (fixed in the oracle, #637) `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, in every
+   quality mode, on a projected polyhedron with crossing segments. Triage: the oracle was too strict. A corner of the projection lies a rounding (1.6e-40 in the
+   shortest input) beside another projected edge, where in exact arithmetic it would end on it: a T-junction at a small input angle (16.7 degrees there)
+   whose closed segments miss each other. The mesher's O11 rule makes that end a vertex of both chains, so the constraints meet there at that angle and the
+   triangles at it are forced (Shewchuk 2002, small input angles), but the oracle excused a small input angle only where the closed segments meet exactly.
+   #664 added the near-meeting apex (`NearMeetAngleExcused`); the mesher's part of #664 does not change the verdict on this input.
+   `QualityMesh2ProjectedPolyhedronTests` pins the shortest input (it fails on 1f227db, before #664). The target no longer gates the class; on master
+   `MESH_FUZZ_STRICT=1 MESH_FUZZ_OPS=quality-mesh2 random 4000 22` and `random 4000 23`, `random 3000 24` and `random 3000 25` give 0 findings.
 2. `VertexUnused` / `SegmentMissing` with status Success for coordinates more than 2^16 extents from the origin (about 2^35 seen: automatic snap grid): a false
    success inside the documented range (up to 1e70).
 3. `VertexUnused` / `SegmentMissing` with status Success for a coordinate of a tiny magnitude beside an extent of about 1 (1e-119 seen): the same gate.
@@ -136,7 +139,7 @@ beside others of 1 (the case's offset against its extent) gave a mesh that is no
 
 ### Independent review of the second wave (2026-11-10) and what was done
 
-Done in this PR: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
+Done in #577: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
 judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
 every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
 `ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
@@ -171,6 +174,8 @@ Clipper2 result classification (#583, item 5 above).
 Ranked (a wrong result that claims to be right first):
 
 1. **MeshRoundingRepair: results that claim to be clean are not** (41 crashes; #513 (D1, head b26f016d) replayed: all 41 behave exactly as on master).
+   **Update 2026-11-12:** the range check of #593 (merged 2026-11-11) covers this rank and rank 2; on master 0861e828 the seven hex inputs of
+   ranks 1 and 2 below replay without a finding (same `MESH_FUZZ_OPS`, uninstrumented build). The other saved artifacts were not replayed here.
    - "the mesh is not valid after the rounding repair" (21), 8 bytes: `000000101e000105`.
    - "IsClean but N degenerate triangles (at the rounding's scale)" (20, N from 1 to 8), 4 bytes: `3f1e6040` (an open cube of edge 5e-293 and a tetrahedron of 3.6e-307).
 2. **ExactMeshBoolean with `RoundingClean`: results that claim to be clean are not** (union 24, intersection 12, difference 20).
@@ -179,6 +184,7 @@ Ranked (a wrong result that claims to be right first):
    - "RoundingClean but self-intersections" (difference, 1), 139 bytes: `00fffffffffe0000000000000000000000000000000000000000000103fe030002030000000103fe03000203fe03fe04030200000000002c0505fe0000004b0000fe0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000050000002c0505fe0000004b050505050505050505050505050505050505`.
 3. **DualContouring.find_crossings throws on finite input** (robust-repair-soup, 2 artifacts): `DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized`,
    an `AggregateException` from the parallel loop at `DualContouring.cs:1122`. The crash input (79 bytes): `000103fe03fe0004034848484848484848484848484848484848484848484848480000ffffffff000000000000abffff00000000000002fe03fe000000000000000000000000000002fe03fe000300`; the timeout input (51 bytes, 146 s before the same throw): `000103fe15001103fe03fe0000000000000000000000000000000100000000040d061403fe0614030000000000010000000004`.
+   **Update 2026-11-12:** both inputs no longer reproduce on master 1f227db (replay in [QA20_STATUS.md](../../docs/design/QA20_STATUS.md) section 5), so no issue is opened.
 4. **Clipper2 2.0.0 itself** (item 5): a Union of degenerate self-intersecting rings returns an area that neither input fills; independent of `PrecisionBits`;
    not reported upstream (owner 2026-11-11): AngusJohnson/Clipper2 was archived on 2026-10-28 and its C# port is no longer
    developed; Clipper2 continues as a C++ only library at PolyClipping/Clipper2 (maintainer Seth Hillibrand). Whether to

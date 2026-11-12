@@ -38,6 +38,13 @@ namespace geometry3Sharp.Tests
         /// </summary>
         public static bool MakesProgress(Action<Action> action, TimeSpan stall, TimeSpan? total = null)
         {
+            return MakesProgress(action, stall, total, out _);
+        }
+
+        /// <summary> as above; tripped says which limit ended a failed run ("stall of N s" or "total of N s"), "" if it finished </summary>
+        public static bool MakesProgress(Action<Action> action, TimeSpan stall, TimeSpan? total, out string tripped)
+        {
+            tripped = "";
             // (total: an optional generous ceiling for the whole run, so that a run that is uniformly far slower still fails)
             long started = Stopwatch.GetTimestamp();
             Exception error = null;
@@ -48,10 +55,14 @@ namespace geometry3Sharp.Tests
             thread.Start();
             while (!thread.Join(100)) {
                 long idle = Stopwatch.GetTimestamp() - Interlocked.Read(ref last);
-                if (idle > stall.TotalSeconds * Stopwatch.Frequency)
+                if (idle > stall.TotalSeconds * Stopwatch.Frequency) {
+                    tripped = $"no progress for {stall.TotalSeconds:G} s";
                     return false;
-                if (total.HasValue && Stopwatch.GetTimestamp() - started > total.Value.TotalSeconds * Stopwatch.Frequency)
+                }
+                if (total.HasValue && Stopwatch.GetTimestamp() - started > total.Value.TotalSeconds * Stopwatch.Frequency) {
+                    tripped = $"total of {total.Value.TotalSeconds:G} s exceeded";
                     return false;
+                }
             }
             if (error != null)
                 ExceptionDispatchInfo.Capture(error).Throw();

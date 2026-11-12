@@ -1,5 +1,7 @@
 # Arrangement: decide the proper candidate pairs from signs (Devillers-Guigue prefilter)
 
+Status: built; merged with Exact Boolean 2.0 in #446 (2026-11-09).
+
 ## 1. Goal and evidence
 
 `ExactMeshArrangement.intersect(ti, ui)` decides every candidate pair of the pair search. For a pair whose triangles

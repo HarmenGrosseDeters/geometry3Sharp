@@ -85,8 +85,8 @@ changed key can only lose baselines, and a shard without a baseline runs in full
 comment or blank line counts with its neighbours. A workflow that uses YAML anchors, aliases or merge keys is not
 classified: any edit of it runs everything (the real one has none; `test_select_shards` checks that). The shards themselves come from the configs (the matrix is
 `fromJSON` of the selection), so a new or changed shard runs in full through its own config file, and the others do not.
-`max-parallel` is 12: a full run is 12 mesh shards, the arithmetic job and the selection job, which leaves 6 of the
-account's 20 concurrent jobs for CI.
+`max-parallel` is 12: a full run has 25 mesh shards (the table below), at most 12 of them at a time; with the
+arithmetic job and the selection job that is 14, which leaves 6 of the account's 20 concurrent jobs for CI.
 
 Stryker's own `--with-baseline` (5.0, experimental) is not used: it looks the baseline up by relative path while its
 report stores absolute paths, so it never matches; and it matches mutants by source text and mutator name, which is

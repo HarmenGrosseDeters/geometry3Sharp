@@ -141,14 +141,16 @@ vs 1120 and 905 vs 900, uncovered source points within 1%).
   triangles depended on the AABB traversal, whose order the fixed box padding of `DMeshAABBTree3` changed with the scale.
   Fixed there (padding relative to the mesh); the numbers of this paragraph are those before the fix.
 - Poor triangles: both remeshers leave degenerate triangles or self-intersections on 18 of the 20 Thingi10K meshes
-  (`MeshRobustRepair.NotCleanReason`); 99% of the triangles with q < 0.1 touch a feature constraint. A separate
-  opt-in quality pass follows in its own PR.
+  (`MeshRobustRepair.NotCleanReason`); 99% of the triangles with q < 0.1 touch a feature constraint. The separate
+  opt-in quality pass is `Remesher.MinTriangleQuality` (#158; `g3cli remesh` uses 0.2), measured in
+  [RemeshQualityBenchmark](../RemeshQualityBenchmark/README.md).
 
 ### Decision
 - `g3cli remesh` keeps Remesher: RemesherPro is not faster at equal quality on real meshes.
 - `TerrainSafetyLines` keeps Remesher: `FastestRemesh` is slower on simplified real terrain, and 8 x
   `RemeshIteration` is with the final #151 slower on the band and leaves a degenerate triangle in an existing
-  test. To be measured again with the quality pass.
+  test. To be measured again with the quality pass (not done since #158 merged; the roadmap item is open in
+  `docs/roadmap/alpha-wrap-and-repair.md`).
 
 Open bug (docs/roadmap/alpha-wrap-and-repair.md, Phase 2 items): a remesher must not leave degenerate triangles; RemesherPro leaves a zero-area
 triangle in the band of `TerrainSafetyTests.SafetyLine_AlongSurface_BandIsOneCleanPiece`, and both remeshers leave
@@ -183,7 +185,7 @@ Hausdorff (ratio 1.00 between the configurations) and `q < 0.1` do not show:
 
 **Curvature fidelity** (`fm_h_*`, `fm_k_*`: `MeshCurvature` after Meyer et al. 2003 at corresponding points, mean of
 both directions; H * size and K * size², W1 = 1-Wasserstein distance of the distributions). Procedural cases,
-`runs=1`, this branch:
+`runs=1`, the branch of #179:
 
 | case | config | H error | K error | H W1 | K W1 |
 |---|---|---:|---:|---:|---:|

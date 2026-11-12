@@ -6,6 +6,11 @@ There is no library code yet. It is implemented as one Opus stage after the T1 S
 files and the stages run serially. The stage's exact-code review is done by a separate fresh agent that sees only the
 diff.
 
+Update 2026-11-12: implemented and merged in #633 (d6f6fe9d, 2026-11-12): the fail-fast budget (`MaxPieces`,
+`BudgetExceeded`, `Counts["predicted_pieces"]`), `Cancelled`, and the levers L1, L2 and L3. The sentence "There is no
+library code yet" above describes the state at approval. Roadmap `exact-boolean.md` records that
+`MaxOpenWindingEvaluations` is not needed.
+
 ## 1. The case and the measurements
 
 Thingi10K 55928 is an open model of 88,353 triangles: one component of 88,348, 133 boundary edges and 32 non-manifold

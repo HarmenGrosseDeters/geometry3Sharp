@@ -25,8 +25,9 @@ Part of the [roadmap](../ROADMAP.md).
 - **Foldover-free maps** (Phase 5 #7, #374): open the paper's energy-decrease stop instead of epsilon <= 1e-6; the SLIM
   quality target is not universally met; the torus global-overlap fallback remains. Local flip freedom does not close
   the global-injectivity gap (cones are not guaranteed globally injective, eg on a torus).
-- **P1 collapse** (issue-tracker follow-up): virtual fan vertices or spectral conformal; foldover-free maps are a lead
-  ([platform.md](platform.md#release-when-its-done)).
+- **P1 collapse** (issue-tracker follow-up): closed 2026-11-12 as a documented limitation
+  ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices or spectral
+  conformal; foldover-free maps are a lead ([platform.md](platform.md#release-when-its-done)).
 
 ### Done / history
 
