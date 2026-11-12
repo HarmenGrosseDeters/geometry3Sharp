@@ -1,7 +1,7 @@
 # Sharp-feature study, raw rows (2026-11-12)
 
 Data only: JSON rows, analysis scripts and the tables printed from them. No library changes, no meshes. The probe prototypes
-(variants K, L, WDC, BS and the class metric) were local patches to `benchmarks/SharpFeatureProbe` and are not on this branch.
+(variants K, L, WDC, BS and the class metric) were local patches to `benchmarks/SharpFeatureProbe` and are on this branch only as a patch file: `probe/kobbelt.patch` (base 30099f6, caveats at its top; never merged).
 
 **Commit set:** master `30099f659c8436a2f29e9ef001a9ec994b34097e`, no open PR merged; plus local probe patches (not pushed):
 new variants in `benchmarks/SharpFeatureProbe`, and for variants L / KL a gate hook in `mesh_ops/MeshAlphaWrap.cs`.
