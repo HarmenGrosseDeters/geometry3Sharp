@@ -102,10 +102,15 @@ namespace gs
             // the distance queries square lengths of the meshes' extent: beyond about 2^500 they overflowed (the nearest-triangle
             // search found no triangle and threw; from about 1e120 the upper bound was double.MaxValue), below about 2^-500 they
             // underflowed (a distance of 1e-202 was measured as 0). Such meshes are measured on copies scaled by 2^-e (#731)
-            // (half extents: Max - Min overflows for coordinates of opposite sign near MaxValue)
-            double half = 0;
-            for (int k = 0; k < 3; ++k) half = Math.Max(half, 0.5 * bounds.Max[k] - 0.5 * bounds.Min[k]);
-            int e = (half > 0) ? exponent(half) + 1 : 0;      // extent = 2 half in [2^e, 2^(e+1))
+            // (the extent is the largest span Max - Min; where that overflows, twice the half span, which is exact there. Halving
+            // every span would round a span of 2^-1074 to 0; review of #735)
+            int e = int.MinValue;
+            for (int k = 0; k < 3; ++k) {
+                double span = bounds.Max[k] - bounds.Min[k];
+                if (double.IsInfinity(span)) e = Math.Max(e, exponent(0.5 * bounds.Max[k] - 0.5 * bounds.Min[k]) + 1);
+                else if (span > 0) e = Math.Max(e, exponent(span));
+            }
+            if (e == int.MinValue) e = 0;      // (the extent is in [2^e, 2^(e+1)); a single point stays as it is)
             if (e >= MinPlainExponent && e <= MaxPlainExponent)
                 return compute(MeshA, MeshB, SpatialA, SpatialB, (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength,
                     0, Vector3d.Zero, true);
@@ -147,6 +152,9 @@ namespace gs
             // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue). A distance beyond MaxValue
             // (meshes near opposite ends of the double range) has no bounds in doubles: refused, the outputs NaN
             double lo = pow2(lower, e), up = (upper == double.MaxValue) ? double.MaxValue : pow2(upper, e);
+            // (a subnormal result may round: outward then, the lower bound down, the upper bound up; review of #735)
+            if (pow2(lo, -e) != lower) lo = Math.Max(0, ExactInterval.Down(lo));
+            if (up != double.MaxValue && !double.IsInfinity(up) && pow2(up, -e) != upper) up = ExactInterval.Up(up);
             if (double.IsInfinity(lo) || double.IsInfinity(up)) {
                 Converged = false;
                 return false;
