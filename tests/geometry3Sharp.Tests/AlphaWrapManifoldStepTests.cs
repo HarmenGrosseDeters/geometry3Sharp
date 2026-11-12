@@ -104,6 +104,7 @@ namespace geometry3Sharp.Tests
             // (and on another instance after a different input: no state carried between instances either)
             var other = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(17)) { RelativeAlpha = 20, RelativeOffset = 200 };
             Assert.True(other.Compute(), other.Error);
+            Assert.Equal("614F77D53A96BA60", Hash(other.Result));        // (soup 17's pinned hash)
             Assert.Equal(first, Hash(new MeshAlphaWrap(AlphaWrapTests.RandomSoup(3)) { RelativeAlpha = 20, RelativeOffset = 200 }.ComputeAndGet()));
         }
 

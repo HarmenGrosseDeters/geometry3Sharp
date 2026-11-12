@@ -281,6 +281,7 @@ namespace gs
 
             reset_refinement_counts();
             labelsManifold = false;
+            skippedConfirm = false;
             changedSinceTrial = null;
             lastTrialVertices.Clear();
             localTrials = localFound = confirmTrials = confirmFound = 0;
