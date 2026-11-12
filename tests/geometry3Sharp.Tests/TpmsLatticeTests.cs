@@ -343,6 +343,8 @@ namespace geometry3Sharp.Tests
             Expect(l => { l.Enclosure = true; l.VolumeFractionAt = p => 0.3; }, TpmsStatus.InvalidOptions);
             Expect(l => l.Box = new AxisAlignedBox3d(Vector3d.Zero, Vector3d.Zero), TpmsStatus.InvalidDomain);
             Expect(l => l.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, double.PositiveInfinity, 1)), TpmsStatus.InvalidDomain);
+            Expect(l => { l.Enclosure = true; l.DomainMesh = Sphere(1, Vector3d.Zero); }, TpmsStatus.InvalidOptions);
+            Expect(l => { l.Enclosure = true; l.Box = new AxisAlignedBox3d(new Vector3d(1e9, 0, 0), new Vector3d(1e9 + 2, 2, 2)); }, TpmsStatus.InvalidOptions);
             // enclosure needs an exact dyadic grid
             Expect(l => { l.Enclosure = true; l.CellSize = 0.3; }, TpmsStatus.InvalidOptions);
             var cancelled = Make(TpmsType.Gyroid, TpmsStyle.Sheet);
@@ -467,6 +469,37 @@ namespace geometry3Sharp.Tests
             lattice.Compute();
             Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
             AssertContainsLatticePoints(lattice, TpmsType.SchwarzP, TpmsStyle.Sheet, 0.3, 16, 4000);
+        }
+
+        [Fact]
+        public void Enclosure_HoldsWhenTheGridIsShifted_AndInAFrame()
+        {
+            // (an enclosure level is never exactly hit by the box distance, so no retry is needed here; the dyadic shifts are
+            // used only when a sample does hit the level, which this input cannot be made to do)
+            // the whole box including the cut planes must be inside the solid, in a translated frame
+            double h = L / 16;
+            var lattice = Make(TpmsType.SchwarzP, TpmsStyle.SkeletalLow, 0.3, 16, 2);
+            lattice.Box = new AxisAlignedBox3d(new Vector3d(h / 2, h / 2, h / 2), new Vector3d(2 + h / 2, 2 + h / 2, 2 + h / 2));
+            lattice.Enclosure = true;
+            lattice.Origin = new Vector3d(8, -4, 2);   // a dyadic world position
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
+            var tree = new DMeshAABBTree3(lattice.Mesh, true);
+            double lw = TpmsLattice.GradientBound(TpmsType.SchwarzP) * 2 * Math.PI / L;
+            double level = TpmsLattice.LevelForFraction(TpmsLattice.QuantileTable(TpmsType.SchwarzP, TpmsStyle.SkeletalLow), 0.3);
+            var rand = new Random(21);
+            int tested = 0;
+            for (int i = 0; i < 300000 && tested < 3000; ++i) {
+                // anywhere in the box, including right at its faces: the cut plane belongs to the solid
+                var q = new Vector3d(h / 2 + 2 * rand.NextDouble(), h / 2 + 2 * rand.NextDouble(), h / 2 + 2 * rand.NextDouble());
+                double g = (G(TpmsType.SchwarzP, TpmsStyle.SkeletalLow, q) - level) / lw;
+                bool nearFace = q.x < h || q.y < h || q.z < h || q.x > 2 || q.y > 2 || q.z > 2;
+                if (g > 0 || (g < -0.1 * h && !nearFace)) continue;
+                ++tested;
+                Assert.True(tree.IsInside(q + lattice.Origin), "box point " + q + " outside (g " + g + ")");
+            }
+            Assert.True(tested >= 1000, "only " + tested);
         }
 
         static void AssertContainsLatticePoints(TpmsLattice lattice, TpmsType type, TpmsStyle style, double fraction, int divisions, int samples)

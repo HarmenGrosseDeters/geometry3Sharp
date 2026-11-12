@@ -53,7 +53,7 @@ namespace g3
         /// fraction = (A / L^2) (w / L) with A the area of the surface per period L^3. Approximate; MeanWallThickness reports the result.
         /// </summary>
         public double WallThickness = 0;
-        /// <summary> Optional grading: the volume fraction at a world position (replaces VolumeFraction; not with Enclosure). </summary>
+        /// <summary> Optional grading: the volume fraction at a world position (replaces VolumeFraction; not with Enclosure). Called from several threads with ParallelCompute, so it must be thread-safe; a NaN gives ContouringFailed, a fraction outside (0, 1) is clamped to [0.001, 0.999]. </summary>
         public Func<Vector3d, double> VolumeFractionAt;
         /// <summary> Lattice frame: the world position of the local origin (lattice phase zero). </summary>
         public Vector3d Origin = Vector3d.Zero;
@@ -99,6 +99,8 @@ namespace g3
         const double MinFraction = 0.001, MaxFraction = 0.999;
         // fractions of a cube the grid is moved down on a retry; defined in the lattice frame, so similarity-invariant
         static readonly double[] GridShifts = { 0.5, 0.2360679774997897, 0.7639320225002103, 0.3819660112501051 };
+        // with Enclosure the shifted grid must stay exactly representable (dyadic fractions of a cube)
+        static readonly double[] DyadicGridShifts = { 0.5, 0.25, 0.75, 0.125 };
 
         // ================= the nodal approximations =================
 
@@ -359,6 +361,7 @@ namespace g3
 
             // ---- enclosure preconditions ----
             double isoValue = 0;
+            double enclosureUnit = 0;
             if (Enclosure) {
                 double maxCoord = 0;
                 for (int d = 0; d < 3; ++d)
@@ -367,6 +370,11 @@ namespace g3
                 double s = Math.Pow(2, Math.Ceiling(Math.Log(maxCoord, 2)));
                 while (s < maxCoord) s *= 2;
                 double unit = s * Math.Pow(2, -40);
+                enclosureUnit = unit;
+                if (s / CellSize > Math.Pow(2, 20)) {
+                    Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain extends over too many periods for the proven phase error bound (coordinate / CellSize > 2^20)");
+                    return;
+                }
                 if (h > s || !IsMultiple(h, unit) || !IsMultiple(h * kmin[0], unit) || !IsMultiple(h * kmin[1], unit) || !IsMultiple(h * kmin[2], unit)) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure needs an exact dyadic grid: the cube size and the grid origin must be multiples of 2^-40 of the power of two above the largest coordinate (eg a dyadic CellSize / Divisions)");
                     return;
@@ -379,6 +387,11 @@ namespace g3
                     return;
                 }
                 isoValue = Math.Sqrt(3.0) * h / 2 + s * (Math.Pow(2, -26) + 4 * eNorm);
+                // the samples of the outermost nodes are at least 1.2 cubes above the box; they must stay above the level
+                if (!(isoValue < 1.2 * h)) {
+                    Fail(TpmsStatus.InvalidOptions, "Enclosure: the cube is too small against the coordinates for the proven level pad (reduce the number of cubes)");
+                    return;
+                }
             }
 
             var field = new FieldFunction {
@@ -401,8 +414,11 @@ namespace g3
             for (int attempt = 0; attempt < GridShifts.Length; ++attempt) {
                 if (CancelF()) { Fail(TpmsStatus.Cancelled, "cancelled"); return; }
                 GridShiftsUsed = attempt;
-                double shift = GridShifts[attempt];
+                double shift = Enclosure ? DyadicGridShifts[attempt] : GridShifts[attempt];
                 var min = new Vector3d(h * (kmin[0] - shift), h * (kmin[1] - shift), h * (kmin[2] - shift));
+                if (Enclosure && !(IsMultiple(min.x, enclosureUnit) && IsMultiple(min.y, enclosureUnit) && IsMultiple(min.z, enclosureUnit))) {
+                    last = "the shifted grid is not exactly representable"; result = null; continue;   // never an inexact grid under Enclosure
+                }
                 // (int)((Max - Min) / h) + 1 = cells, independent of rounding: Max is half a cube above the last full cube
                 var max = new Vector3d(min.x + h * (cells[0] - 0.5), min.y + h * (cells[1] - 0.5), min.z + h * (cells[2] - 0.5));
                 mc = new MarchingCubes {

@@ -116,7 +116,7 @@ solid and the result is closed.
   are the common case, so the first grid is the lattice grid moved down by half a cube (fractions 0.5, 0.236, 0.764,
   0.382 of `h` for the four attempts, all inside the pad, defined in the lattice frame, hence the same under
   similarities), and `Compute` moves to the next shift when the contouring throws or the result has degenerate
-  triangles only. The shift moves only the grid, not the lattice phase; `ContouringFailed` if all four fail
+  triangles only. The shift moves only the grid, not the lattice phase; with `Enclosure` only the dyadic shifts 0.5, 0.25, 0.75, 0.125 are used and a shift whose grid is not exactly representable is skipped (review finding); `ContouringFailed` if all four fail
   (`GridShiftsUsed` reports the attempt). Found by the tests: Neovius with a box on grid planes gave a sliver at a box
   edge on the unshifted grid.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
