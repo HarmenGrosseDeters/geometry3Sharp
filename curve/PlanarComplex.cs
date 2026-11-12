@@ -462,6 +462,18 @@ namespace g3
 		public struct FindSolidsOptions
 		{
 			public double SimplifyDeviationTolerance;
+
+			/// <summary>
+			/// Optional relative tolerance of the simplification of each loop, off (0) by default: with it the loops keep their
+			/// nesting when they are closer together than the absolute SimplifyDeviationTolerance. The deviation tolerance used for a
+			/// loop is SimplifyRelativeTolerance times the diagonal of that loop's own bounding box; if SimplifyDeviationTolerance is
+			/// also greater than 0, the smaller of the two is used for every loop, and if it is 0 the relative tolerance alone
+			/// simplifies. A value that is 0, negative or NaN switches the option off (the results are then exactly those without it);
+			/// it must otherwise be finite (+infinity with SimplifyDeviationTolerance 0 is an infinite tolerance). A degenerate loop whose
+			/// bounding box has diagonal 0 gets tolerance 0 and is not simplified, even if SimplifyDeviationTolerance is greater than 0.
+			/// The tolerance scales with the loop, so a 2^k scale of the input gives the same decisions bit for bit.
+			/// </summary>
+			public double SimplifyRelativeTolerance;
 			public bool WantCurveSolids;
 			public bool TrustOrientations;
 			public bool AllowOverlappingHoles;
@@ -519,11 +531,18 @@ namespace g3
 			// copy polygons, simplify if desired
 			double fClusterTol = 0.0;		// don't do simple clustering, can lose corners
 			double fDeviationTol = options.SimplifyDeviationTolerance;
+			// (SimplifyRelativeTolerance: per loop, relative to its own bounding box; 0, negative and NaN are off)
+			double fRelativeTol = options.SimplifyRelativeTolerance > 0 ? options.SimplifyRelativeTolerance : 0.0;
 			Polygon2d[] polygons = new Polygon2d[maxid];
 			foreach ( var v in validLoops ) {
 				Polygon2d p = new Polygon2d(v.polygon);
-				if ( fClusterTol > 0 || fDeviationTol > 0 )
-					p.Simplify(fClusterTol, fDeviationTol);
+				double fLoopTol = fDeviationTol;
+				if ( fRelativeTol > 0 ) {
+					double fRelative = fRelativeTol * Math.Sqrt(bounds[v.ID].Width * bounds[v.ID].Width + bounds[v.ID].Height * bounds[v.ID].Height);
+					fLoopTol = (fDeviationTol > 0) ? Math.Min(fDeviationTol, fRelative) : fRelative;
+				}
+				if ( fClusterTol > 0 || fLoopTol > 0 )
+					p.Simplify(fClusterTol, fLoopTol);
 				polygons[v.ID] = p;
 			}
 

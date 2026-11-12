@@ -219,8 +219,25 @@ namespace gs
         GateQueue gates = new GateQueue();
         Stopwatch phaseTimer = new Stopwatch();
 
+        // the parts of each refinement phase (wrap, wrap.pinches, wrap.quality, wrap.pinches2) as "<phase>/<part>": the
+        // time in that phase only (the wrap.intersection / .touch / .insert keys are the totals over all of them)
+        static readonly string[] splitParts = { "intersection", "touch", "insert", "carve", "trial" };
+        readonly long[] splitLast = new long[5];
+        long ticksCarve, ticksTrial;
+
+        void split_phase(string name)
+        {
+            long[] now = { ticksIntersection, ticksTouch, ticksInsert, ticksCarve, ticksTrial };
+            for (int k = 0; k < now.Length; ++k) {
+                if (name != null) PhaseMilliseconds[name + "/" + splitParts[k]] = (now[k] - splitLast[k]) * 1000 / Stopwatch.Frequency;
+                splitLast[k] = now[k];
+            }
+        }
+
         void end_phase(string name)
         {
+            if (name == "wrap" || name == "wrap.pinches" || name == "wrap.quality" || name == "wrap.pinches2")
+                split_phase(name);
             PhaseMilliseconds[name] = phaseTimer.ElapsedMilliseconds;
             phaseTimer.Restart();
         }
@@ -488,6 +505,8 @@ namespace gs
         void reset_refinement_counts()
         {
             ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
+            ticksCarve = ticksTrial = 0;
+            split_phase(null);
             rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
             staleGates = requeuedGates = 0;
             steiner = 0;
@@ -497,6 +516,14 @@ namespace gs
         long staleGates, requeuedGates;
 
         WrapStatus refine_and_carve()
+        {
+            long carveStart = Stopwatch.GetTimestamp();
+            WrapStatus status = refine_and_carve_loop();
+            ticksCarve += Stopwatch.GetTimestamp() - carveStart;
+            return status;
+        }
+
+        WrapStatus refine_and_carve_loop()
         {
             WrapStatus status = WrapStatus.Success;
             while (gates.Count > 0) {
@@ -831,7 +858,9 @@ namespace gs
             for (int round = 0; round < MaxNonManifoldRounds && status == WrapStatus.Success; ++round) {
                 if (cancelled())
                     return WrapStatus.Cancelled;
+                long tt = Stopwatch.GetTimestamp();
                 WrapStatus trial = cells_moved_by_manifold_step(pinch, out bool local);
+                ticksTrial += Stopwatch.GetTimestamp() - tt;
                 if (trial == WrapStatus.Cancelled)
                     return trial;
                 if (trial == WrapStatus.Success && pinch.Count > 0 && local) localFound++;
@@ -840,7 +869,9 @@ namespace gs
                 // nothing either, its labels are kept as usual)
                 if (trial == WrapStatus.Success && pinch.Count == 0 && local) {
                     confirmTrials++;
+                    tt = Stopwatch.GetTimestamp();
                     trial = cells_moved_by_manifold_step(pinch, out local, true);
+                    ticksTrial += Stopwatch.GetTimestamp() - tt;
                     if (trial == WrapStatus.Cancelled)
                         return trial;
                     if (pinch.Count > 0) confirmFound++;

@@ -387,3 +387,44 @@ allocation in the operations 0.2 GB (from 3.7). The per-pass snapshot of `Reject
 | (a) `NearestPointBatch` | probe above | 0.5-1.2 x. Not built |
 
 Result of T4: one lever pays (PR 1, 1.49 x / 1.29 x); every other lever of the list was measured, six of them with a code change, none gained.
+
+## 13. Follow-up: the rim fold check (#621, #640; owner decisions 2026-11-12)
+
+`Remesher.MinTriangleQuality` now rejects a flip or collapse that folds a triangle onto the cap at a feature curve (#640,
+merged as 36ef5a18; diagnosis and primitive numbers in [benchmarks/RemeshQualityBenchmark](../../benchmarks/RemeshQualityBenchmark/README.md),
+"Rim self-intersections"). The time gate of #621 (1.1 x) is missed on real meshes; the owner accepted it (recorded in the
+merge commit).
+
+**Measurement 1** (`ReducerRemesherBaseline ops=remesh remesh_q=0.2 runs=2`, the 20 Thingi10K meshes, base 1f227dbf
+against the #640 head, alternating M F F M, local 4 cores):
+
+| target | new self-intersecting pairs | meshes with new pairs | time | p01 median | Hausdorff in->out median | F 0.1 % median |
+|---|---:|---:|---:|---:|---:|---:|
+| x1 | 2113 -> 1186 | 13 -> 10 | 9.60 -> 11.14 s (1.16 x) | 5.65 -> 6.16 deg | 0.0186 -> 0.0175 | 0.771 -> 0.772 |
+| x2 | 2833 -> 2047 | 15 -> 11 | 3.95 -> 4.83 s (1.22 x) | 1.81 -> 1.95 deg | 0.0338 -> 0.0367 | 0.619 -> 0.618 |
+
+No mesh is unclean or changes topology in either; repeat and serial runs give the same result on all cases. Free of
+new pairs now: 129918, 299291, 39460 (x1), 1043471, 242225, 299291, 39460 (x2).
+
+**Cost of the check and its root cause** (instrumented build, not committed; 93370 x1, 104582 x2, 63709 x1, the three
+largest increases): the check is 240 / 1723, 137 / 740 and 161 / 728 ms, 14-22 % of the run, flips and collapses about
+half each. 77 %, 94 % and 35 % of the vertices of these meshes are feature vertices (30 degree creases on faceted
+models), so the filter "two or more feature vertices" lets most operations through: that is why real meshes pay
+1.16-1.22 x where the primitives pay 1.10 x. The exact tests are 36-43 ms (2-6 % of the run); a box prefilter gains
+nothing (no exact test had disjoint boxes: the neighbours share a corner); the rest is visiting 450k-890k neighbour
+triangles (set-up, normal, degeneracy test). A cheaper check needs a tighter candidate filter, which changes what is
+caught.
+
+**Where the remaining pairs are** (x1, 93370, 78295, 125069, 135363, 267659; by the feature corners of the two triangles
+and whether they share a vertex): many share no vertex, so no check around a corner can see them (93370 about 250 of
+458, 125069 all 93, 135363 all 180, the thin-walled tube); the local ones with two or more feature corners (93370 about
+120, 267659 about 40) come from moves and splits, which are not checked; some local ones have at most one feature
+corner (78295: 17 with none). A crease-general fold check would reach only part of them: **closed as exhausted** (owner
+2026-11-12); `PreventSelfIntersections` remains the guarantee.
+
+**`RejectInvertingPasses` snapshot (PR 2), bound** (plain Remesher, quality 0, 20 passes; 93370, 78295, 299291 and a 170k
+triangle sphere): the guard is 9-13 % of the run, about 60 % of it the component signs (union-find, signed volume and
+area per component) and 40 % the mesh copy. The bit-identical parts: the square root in the area sum (an L1 bound with
+an exact fallback) measured no change; reusing the snapshot buffer can save at most the allocation share of the copy
+(at most 4-5 % of the run, about 2 % expected). **Not built** (owner 2026-11-12). A real saving needs component labels
+kept through the edge operations, which can change which pass is rolled back (section 12.4).
