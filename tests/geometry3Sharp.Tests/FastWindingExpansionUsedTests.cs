@@ -106,9 +106,9 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(3e-4)]
-        [InlineData(1e-3)]
-        public void CollapsedPartFarFromTheOrigin_PointsOnItsTriangles_AsTheExactSum(double radius)
+        [InlineData(3e-4, 2)]
+        [InlineData(1e-3, 8)]
+        public void CollapsedPartFarFromTheOrigin_PointsOnItsTriangles_AsTheExactSum(double radius, int stride)
         {
             // a sphere at 1e12 whose edges are below or near the coordinates' resolution (1.2e-4 there): at r = 3e-4 its
             // vertices round onto a few grid points (collapsed). Points on its triangles must get the triangles under
@@ -119,7 +119,9 @@ namespace geometry3Sharp.Tests
             var tree = new DMeshAABBTree3(m, true);
             int wrong = 0, points = 0;
             string first = null;
-            foreach (int t in m.TriangleIndices().Where(t => t % 2 == 0)) {
+            // (every stride-th triangle: the exact sums of the reference are the cost; without the slack 8 of the 6498
+            // points at r = 3e-4 were off, r = 1e-3 is the control where the shape is resolved)
+            foreach (int t in m.TriangleIndices().Where(t => t % stride == 0)) {
                 Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                 m.GetTriVertices(t, ref a, ref b, ref c);
                 foreach (Vector3d p in new[] { a, 0.5 * (a + b), (a + b + c) / 3 }) {
