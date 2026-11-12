@@ -124,11 +124,27 @@ namespace geometry3Sharp.Tests
         [InlineData(QueryNumberType.QT_RATIONAL)]
         [InlineData(QueryNumberType.QT_FILTERED)]
         [InlineData(QueryNumberType.QT_INTEGER)]
-        public void ExactAndFilteredModes_AreNotImplemented(QueryNumberType q)
+        public void ExactAndFilteredModes_AreNotImplemented_AndTheMessageSaysWhatIsSupported(QueryNumberType q)
         {
-            // pinned (https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/645): the class comment names these modes, the constructor throws
+            // https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/645: the exception type is kept (no API break), its message names the modes
             var pts = Points(Family.Random, 10, new Random(5));
-            Assert.Throws<NotImplementedException>(() => new ConvexHull2(pts, 1e-12, q));
+            var e = Assert.Throws<NotImplementedException>(() => new ConvexHull2(pts, 1e-12, q));
+            Assert.Contains(q.ToString(), e.Message);
+            Assert.Contains("QT_DOUBLE", e.Message);
+            Assert.Contains("QT_INT64", e.Message);
+        }
+
+        [Fact]
+        public void TheClassComment_NamesOnlyTheSupportedModes()
+        {
+            string dir = AppContext.BaseDirectory;
+            while (dir != null && System.IO.File.Exists(System.IO.Path.Combine(dir, "CLAUDE.md")) == false) dir = System.IO.Path.GetDirectoryName(dir);
+            Assert.NotNull(dir);
+            string text = System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "comp_geom", "ConvexHull2.cs"));
+            Assert.DoesNotContain("uses exact arithmetic", text);                // the comment of the original offered an exact mode
+            Assert.DoesNotContain("various accuracy levels", text);
+            Assert.Contains("QT_DOUBLE", text);
+            Assert.Contains("never ported", text);
         }
 
         static HashSet<Vector2d> Ring(List<Vector2d> pts, double eps, QueryNumberType q)
