@@ -143,6 +143,23 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Polygon2d_LineOps_AreToolArguments()
+        {
+            var server = Server();
+            string line = "{\"type\":\"LineString\",\"coordinates\":[[-5,5],[15,5]]}";
+            string square = "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}";
+            JsonObject r = Handle(server, Call(1, "polygon2d", new JsonObject() { ["op"] = "clip_lines", ["subject_geojson"] = line, ["clip_geojson"] = square, ["clip_type"] = "difference" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(2, I(r["result"]["structuredContent"]["result"]["lines"]));
+            r = Handle(server, Call(2, "polygon2d", new JsonObject() { ["op"] = "offset_lines", ["subject_geojson"] = line, ["delta"] = 1.0, ["end_type"] = "butt" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(40.0, D(r["result"]["structuredContent"]["result"]["area"]), 6);
+            r = Handle(server, Call(3, "polygon2d", new JsonObject() { ["op"] = "simplify", ["subject_geojson"] = square }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
         public void ToolErrors_AreResults()
         {
             var server = Server();

@@ -755,6 +755,17 @@ g3cli polygon2d parcel.geojson building.geojson --op difference --output free.ge
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
 ```
 
+The same command works on lines (GeoJSON `LineString` / `MultiLineString` as the subject, a `MultiLineString` or polygons out): `--op clip_lines`
+with clip polygons keeps the pieces of the lines inside (`--clip-type intersection`, default) or outside (`difference`) them; `--op offset_lines
+--delta d` gives the band of width 2 d around each line (`--end-type round` / `square` / `butt` / `joined`; a negative delta is refused);
+`--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
+neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
+invariance are those of the booleans (`frame`).
+```
+g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
+g3cli polygon2d route.geojson --op offset_lines --delta 15 --end-type butt --output corridor.geojson
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,

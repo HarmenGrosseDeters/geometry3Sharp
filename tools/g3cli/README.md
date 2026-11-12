@@ -28,7 +28,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
-| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
+| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`), simplification (`--op simplify --epsilon e`), and on lines: `simplify_lines`, `clip_lines` (the pieces of GeoJSON LineStrings inside / outside the clip polygons, `--clip-type`) and `offset_lines` (the band of width 2 delta around lines, `--end-type round/square/butt/joined`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
 
 ## Build and run
 
@@ -203,6 +203,12 @@ g3cli polygon2d parcel.geojson building.geojson --op difference --output free.ge
 g3cli polygon2d footprints.geojson --op union                       # merges the overlapping polygons of one file
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --miter-limit 2
 g3cli polygon2d --subject-geojson '{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}' --op offset --delta -1 --return-geojson
+# lines: clip LineStrings by polygons (the pieces inside, or with --clip-type difference outside), a band around a line, simplification
+g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
+#   -> "result": { "lines": 12, "vertices": 340, "length": 4180.2, "bounds": {...} }   (GeoJSON MultiLineString)
+g3cli polygon2d route.geojson --op offset_lines --delta 15 --end-type butt --output corridor.geojson
+g3cli polygon2d parcel.geojson --op simplify --epsilon 0.05          # vertices closer than 0.05 to the line through their neighbours
+g3cli polygon2d track.geojson --op simplify_lines --epsilon 0.5
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
