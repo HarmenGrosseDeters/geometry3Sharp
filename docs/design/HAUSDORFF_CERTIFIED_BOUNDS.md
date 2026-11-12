@@ -127,12 +127,39 @@ then rounds to nearest once, and once more in the subnormal range: at most one u
 twice, so the result is ≤ the exact value. Then `sqrt`, which rounds to nearest within half an ulp, and `Down` once more:
 ≤ the exact distance.
 
-## 4. Behaviour on ordinary inputs
-- The refinement is unchanged: the same subdivisions on every case compared.
-- The lower bound changes only where the computed distance of the worst point was above its exact distance, typically by
-  1 to 3 ulps. It then becomes the certified value.
-- The upper bound grows by the off terms where midpoints round: about 1e-16 relative near the origin, 8.5e-10 at UTM
-  coordinates (an ulp of 5.7e6 is 9.3e-10).
-- `WorstPoint` can move to an equally distant point: the input vertex, when its certified value is the larger.
+## 4. Behaviour on ordinary inputs (measured, 18 cases, symmetric and one-sided)
+- **Refinement.** Unchanged: the same subdivisions in every case.
+- **Lower bound.** Changes only where the computed distance of the worst point was above its exact distance, then by 1 to
+  3 ulps down to the certified value. Examples:
+  - spheres: 0.010000000000000142 → 0.009999999999999981;
+  - two parallel grids 0.125 apart (closed form): the base reports 0.12500000000000003, above the exact distance; it is now
+    ≤ 0.125.
+- **Upper bound.** It grows by the off terms where midpoints round: 2e-16 relative near the origin, 1.1e-13 at offset 1e3,
+  8.9e-10 at UTM coordinates (an ulp of 5.7e6 is 9.3e-10).
+- **`WorstPoint`.** It can move to an equally distant point: the input vertex, when its certified value is the larger.
+- **Time.** Up to about 40 ms more on 21k triangles, for the exact re-evaluation: two passes over B for two points. Other
+  cases add 0 to 15 ms.
 
-The before/after numbers are in the PR.
+## 5. Tests and mutation
+**Tests.**
+- `HausdorffRoundedMidpointTests`:
+  - folded spheres at offsets from 2^24 to 2^52;
+  - the certified lower bound against the exactly shifted reference, also measured as given;
+  - parallel grids at a closed-form distance (k = -40 … 20, offsets up to 2^49 times the size);
+  - dense sampling, an independent brute force;
+  - an interior maximum, children nearest one triangle, a needle that is its own child;
+  - subnormal midpoints;
+  - `Similarity.All()`, reuse, serial.
+- `HausdorffRoundingTests`: the midpoint allowance against the exact error in integers, including subnormal sums and
+  remainders and random pairs at all exponents.
+
+**Mutation: 23 mutants, 20 killed.**
+- **Equivalent:** the strict region test (`s > 0` instead of `s >= 0`). On the boundary of the region the face formula and
+  the edge formula give the same distance.
+- **Not killed:**
+  - The guard on a child identical to its parent. It is reachable only when the tolerance exceeds the off of the rounded
+    midpoint and the bound still exceeds lower + tol. In every constructed case the bound of such a needle was below that.
+    It is kept as the stop against an otherwise endless loop.
+  - The off term in a triangle's upper bound. In every constructed case a sibling with a looser bound covered the distance.
+    It is needed for soundness wherever a tight bound (all corners nearest one triangle, or a polygon split) is taken on a
+    rounded triangle.
