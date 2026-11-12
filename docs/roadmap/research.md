@@ -317,9 +317,10 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (after D1 has merged), 11 (the proof part, after the net48 / net10 measurement).
-Useful, not must-win: 10, 12. Running or decided: 2 (D1 build), 13 (DC build, option A then B), 8 (fixed; Antipodal),
-6 (option D, B reopenable). Not now: 1 alone, 4, 5 (tet), 7, 14.
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12), 11 (the proof
+part, after the net48 / net10 measurement). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
+Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
+Not now: 1 alone, 4, 5 (tet), 7, 14.
 
 Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
 solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them
@@ -342,6 +343,9 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
+     (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
+     checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -358,6 +362,8 @@ Ordered by expected value for the library.
      2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
      session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
+   - **Done:** merged 2026-11-11 as 69f13be3 (#513, counted as Boolean 2.1), after its 8 rounding mutation shards passed
+     ([exact-boolean.md](exact-boolean.md)).
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
