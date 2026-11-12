@@ -192,17 +192,15 @@ public static partial class Program
 
     /// <summary>
     /// The open findings of the 2D mesher that this target meets (FINDINGS.md, second wave), so that a campaign goes on to other findings;
-    /// MESH_FUZZ_STRICT=1 turns the gate off. 1: AngleBelowBound only, with a minimum angle, in any quality mode (about 1 in 700
-    /// random inputs, a projected polyhedron with 17 to 36 crossing segments, the Steiner limit not reached). 2: VertexUnused / SegmentMissing only,
-    /// for coordinates more than 2^16 extents from the origin (the automatic snap grid).
+    /// MESH_FUZZ_STRICT=1 turns the gate off. VertexUnused / SegmentMissing only, for coordinates more than 2^16 extents from the origin
+    /// (the automatic snap grid). (AngleBelowBound alone was gated too, until #637: the oracle's small-input-angle rule missed T-junctions
+    /// whose end lies a rounding beside the other segment, fixed with #664; it is judged again.)
     /// </summary>
     static string? KnownMesher2Class(Mesh2Input input, OracleReport report)
     {
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") == "1")
             return null;
         var kinds = new HashSet<Violation>(report.Violations.Select(v => v.Kind));
-        if (kinds.Count > 0 && kinds.IsSubsetOf(new[] { Violation.AngleBelowBound }) && input.MinAngleDeg != null)
-            return "AngleBelowBound";
         double far = Math.Max(input.X.Max(v => Math.Abs(v)), input.Y.Max(v => Math.Abs(v)));
         if (kinds.Count > 0 && kinds.IsSubsetOf(new[] { Violation.VertexUnused, Violation.SegmentMissing, Violation.ChainSkipsHotPixel }))
             return far > Pow2(16) ? "VertexUnused / SegmentMissing far from the origin" : "VertexUnused / SegmentMissing";

@@ -77,8 +77,8 @@ from the three components of the first query's direction (bytes 0, 1, 2).
   vertex within `MaxDeviation` of the input, a second run and (inside the Reducer's range, nonzero coordinates 2^-200 .. 2^150) the copy scaled by 2^40 equal bit for bit.
 - `quality-mesh2`: the projection of A to xy, its corners as points and its triangle edges as segments (they cross), no minimum angle or
   20 / 25 degrees, constrained or conforming mode, Steiner limit 1500. The status is not Failed and the acceptance oracle of the mesher
-  (milestone M3) reports no violation. Coordinates are judged at any distance from the origin (the mesher's range is up to 1e70, QA.md 2.5a). Coordinates above 1e70 must raise the `ArgumentException` of the contract. Two open
-  classes are gated (`MESH_FUZZ_STRICT=1` judges them): `AngleBelowBound` alone, and `VertexUnused` / `SegmentMissing` alone (FINDINGS.md).
+  (milestone M3) reports no violation. Coordinates are judged at any distance from the origin (the mesher's range is up to 1e70, QA.md 2.5a). Coordinates above 1e70 must raise the `ArgumentException` of the contract. One open
+  class is gated (`MESH_FUZZ_STRICT=1` judges it): `VertexUnused` / `SegmentMissing` alone (FINDINGS.md). `AngleBelowBound` is judged again since #637.
 - `clipper2`: `BooleanPaths` of the rings of A's and B's corners (in index order, so simple, self-intersecting or degenerate; B moved onto
   A) with one of the four operations, then `Offset` (round or miter, both signs) and `Simplify` of the union. The status is Success, vertices
   finite, outer rings counterclockwise and holes clockwise, and on a 12 x 12 grid of points beyond four grid resolutions from every ring the

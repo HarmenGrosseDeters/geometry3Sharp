@@ -68,15 +68,17 @@ bytes now and the numbers below are from the second round.
 | clipper2 | 2 000 + 4 000 | no finding; coordinates more than 2^16 extents from the origin (1e14 against an extent of 1) gave rings of zero area (the grid, 2^-40 of the extent, is finer than a double there): a limit of the representation, judged there only for no crash, Success and finite vertices |
 | quality-mesh2 | 2 000 + 2 500 | the open classes below |
 
-Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; both are gated in the target, `MESH_FUZZ_STRICT=1`
-judges them):
+Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; the open classes 2 and 3 are gated in the target,
+`MESH_FUZZ_STRICT=1` judges them):
 
-1. `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, **in every quality mode** (constrained,
-   conforming and neither) with a minimum angle of 20 or 25 degrees, on a projected polyhedron with 17 to 36 crossing segments over 8 to 16 points (the
-   Steiner limit is not reached). The first guess "constrained mode only" was wrong (the options were constants then). Whether the mesher or the oracle's notion of a
-   forced small angle at crossings is at fault is not known: the shortest first-round input had points about 1e-25 from zero next to coincident points,
-   so a snap or tube interplay is as likely as the crossings. Replay with `MESH_FUZZ_OPS=quality-mesh2` (the options are the last four bytes of an input; the
-   hex of the first-round input, whose options are the old constants, is no longer a valid reproducer; `random 2500 22` with that filter finds it again).
+1. (fixed in the oracle, #637) `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, in every
+   quality mode, on a projected polyhedron with crossing segments. Triage: the oracle was too strict. A corner of the projection lies a rounding (3e-41 in the
+   shortest input) beside another projected edge, where in exact arithmetic it would end on it: a T-junction at a small input angle (16.7 degrees there)
+   whose closed segments miss each other. The mesher's O11 rule makes that end a vertex of both chains, so the constraints meet there at that angle and the
+   triangles at it are forced (Shewchuk 2002, small input angles), but the oracle excused a small input angle only where the closed segments meet exactly.
+   #664 added the near-meeting apex (`NearMeetAngleExcused`); the mesher's part of #664 does not change the verdict on this input.
+   `QualityMesh2ProjectedPolyhedronTests` pins the shortest input (it fails on 1f227db, before #664). The target no longer gates the class; on master
+   `MESH_FUZZ_STRICT=1 MESH_FUZZ_OPS=quality-mesh2 random 4000 22` and `random 4000 23`, `random 3000 24` and `random 3000 25` give 0 findings.
 2. `VertexUnused` / `SegmentMissing` with status Success for coordinates more than 2^16 extents from the origin (about 2^35 seen: automatic snap grid): a false
    success inside the documented range (up to 1e70).
 3. `VertexUnused` / `SegmentMissing` with status Success for a coordinate of a tiny magnitude beside an extent of about 1 (1e-119 seen): the same gate.
