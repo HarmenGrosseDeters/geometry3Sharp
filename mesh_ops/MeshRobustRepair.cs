@@ -189,6 +189,20 @@ namespace gs
         /// (benchmarks/MeshRepairBenchmark README, "Alpha wrap quality pass"). true runs it as before.
         /// </summary>
         public bool AlphaWrapQualityPass = false;
+        /// <summary>
+        /// alpha wrap fallback: before the simplification, recover the input's sharp edges on the raw wrap (AlphaWrapFeaturePass:
+        /// vertices onto the offset surface's planes, vertices and split points onto its creases near the input's sharp edges,
+        /// edges flipped along them). Every operation is checked exactly: no self-intersection, no contact with the input, no
+        /// input triangle in the region it sweeps, vertices at least 0.9 offset from the input, angle floors; so the wrap's
+        /// guarantees are kept. Off by default (opt-in, Alpha Wrap 3.0 lever 6; the default is decided on the 800 mesh run).
+        /// On the 20 T1 meshes of the sharp-feature study: edge F 0.61 -> 0.88, crease normal error 14.7 -> 4.6 degrees,
+        /// 0.72x the triangles, about +25 % time (benchmarks/SharpFeatureProbe, variant KP).
+        /// </summary>
+        public bool AlphaWrapSharpFeatures = false;
+        /// <summary> alpha wrap fallback: true if AlphaWrapSharpFeatures ran and changed the raw wrap </summary>
+        public bool AlphaWrapSharpFeaturesApplied;
+        /// <summary> (benchmarks, tests) sets the switches of the sharp-feature pass (AlphaWrapSharpFeatures) </summary>
+        internal Action<AlphaWrapFeaturePass> ConfigureWrapFeatures;
         /// <summary> (benchmarks, tests) sets the variant switches of the quality pass (AlphaWrapQualityPass) </summary>
         internal Action<AlphaWrapQualityPass> ConfigureWrapQuality;
 
@@ -534,6 +548,7 @@ namespace gs
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
             AlphaWrapSimplified = false;
+            AlphaWrapSharpFeaturesApplied = false;
             AlphaWrapQualityImproved = false;
             AlphaWrapMinAngleDegrees = AlphaWrapMaxAngleDegrees = AlphaWrapShareAbove170 = double.NaN;
             SolidifyReason = "";
@@ -761,15 +776,28 @@ namespace gs
                         WrapReason = WrapTooCoarse;
                     else {
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
-                    DMesh3 wrapped = AlphaWrap.Result;
+                    DMesh3 raw = AlphaWrap.Result;
+                    if (AlphaWrapSharpFeatures) {
+                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) { CancelF = CancelF };
+                        ConfigureWrapFeatures?.Invoke(features);
+                        bool computed = features.Compute();
+                        end_phase("wrap.features");
+                        if (!computed || CancelF())
+                            return false;
+                        if (features.PlaneMoves + features.CreaseSnaps + features.Splits + features.Flips > 0) {
+                            raw = new DMesh3(features.Mesh, true);
+                            AlphaWrapSharpFeaturesApplied = true;
+                        }
+                    }
+                    DMesh3 wrapped = raw;
                     if (SimplifyAlphaWrap) {
-                        wrapped = simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset, solidifyFrom) ?? AlphaWrap.Result;
+                        wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, solidifyFrom) ?? raw;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
                     }
-                    if (AlphaWrapQualityPass && wrapped != AlphaWrap.Result) {
-                        DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
+                    if (AlphaWrapQualityPass && wrapped != raw) {
+                        DMesh3 improved = ImproveWrapQuality(wrapped, raw, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
                             (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(solidifyFrom, true); ConfigureWrapQuality?.Invoke(p); });
                         end_phase("wrap.quality");
                         if (CancelF())
@@ -779,7 +807,7 @@ namespace gs
                             AlphaWrapQualityImproved = true;
                         }
                     }
-                    AlphaWrapSimplified = wrapped != AlphaWrap.Result;
+                    AlphaWrapSimplified = wrapped != raw;
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
