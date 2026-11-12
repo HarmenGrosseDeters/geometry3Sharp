@@ -62,17 +62,17 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> the same without a rotation: the B_i start one ulp (2^-53) above A, on the side where they no longer meet A. On master
-        /// this runs to the limit of 20 000 (the triangle exemption SpansSmallAngle needed the lines to meet on both segments). Only the
-        /// termination is asserted: the triangle left at the T-junction vertex is the case of #661 (an encroached O11-unsplittable piece) </summary>
+        /// this runs to the limit of 20 000 (the triangle exemption SpansSmallAngle needed the lines to meet on both segments); now it stops,
+        /// oracle-valid (the triangle at the T-junction vertex needs #661 too) </summary>
         [Theory]
         [InlineData(26)]
         [InlineData(28)]
-        public void LiftedTJunctions_Terminate(int k)
+        public void LiftedTJunctions_Terminate_AndAreOracleValid(int k)
         {
-            var output = new QualityMesh2Candidate().Run(Fan(k, 1.13, Math.Pow(2, -53), 20000));
-            Assert.True(output.Status == Mesh2Status.Success, output.Status + " " + output.FailureKind);
-            Assert.False(output.SteinerLimitReached, "the Steiner limit was reached: " + output.VertexCount + " vertices");
-            Assert.True(output.VertexCount < 8000, output.VertexCount + " vertices");
+            var r = Run(Fan(k, 1.13, Math.Pow(2, -53), 20000));
+            Assert.False(r.Output.SteinerLimitReached, "the Steiner limit was reached: " + r.Output.VertexCount + " vertices");
+            Assert.True(r.Output.VertexCount < 8000, r.Output.VertexCount + " vertices");
+            Assert.True(r.Report.Ok, r.Report.ToString());
         }
 
         public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });

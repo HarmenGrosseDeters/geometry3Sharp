@@ -59,7 +59,7 @@ Add both: `using g3; using gs;`.
 | Height grid (DGM / DTM raster) files and the TIN of a grid: read XYZ ASCII and ESRI ASCII Grid (`HeightGridReader`, status instead of exceptions, no-data gaps), write them (`HeightGridWriter`), the grid TIN (`HeightGrid.BuildMesh`, `Height`); a TIN with far fewer triangles and a **guaranteed surface error** (`TerrainGridTin`: the exact maximum of the TIN's distance to the grid surface is at most `Epsilon`, reported as `SurfaceError`), breaklines kept as edge chains with heights from the grid or from the survey (`TerrainBreaklineHeights`, `BreaklineError`), no-data cells left out; the rounding of the output to world coordinates is in the reported error | `HeightGrid`, `HeightGridReader`, `HeightGridWriter`, `gs.TerrainGridTin`, `TerrainBreakline` | tests: `HeightGridTests`, `TerrainGridTinTests`; design: [TERRAIN_DGM_TO_TIN.md](design/TERRAIN_DGM_TO_TIN.md); CLI: `g3cli dgm`, `g3cli dgm_tin` |
 | Cut and fill volume per cell of a regular XY lattice (grid cells, block-model columns) between two terrain surfaces (TINs, or height grids as their grid TINs): exact up to rounding, the sum over the cells equals the `TerrainVolumeDifference` total, the part outside the lattice is reported, swapping the surfaces swaps cut and fill; the sums are deterministic | `gs.TerrainCellVolumes`, `gs.TerrainVolumeDifference` | tests: `TerrainCellVolumesTests`; design: [TERRAIN.md](design/TERRAIN.md) 9.3; CLI: `g3cli cell_volumes` |
 | 2D Delaunay of points; constrained Delaunay of points, segments, rings, holes and regions with crossings split (noding). Exact predicates, output in doubles valid on those doubles. Limits: coordinates up to 1e70; a crossing is rounded to nearest, so a piece may lie a few ulps off its segment (in the subnormal range, farther); vertices within 2^-41 of max(coordinate, extent) of a segment become its vertices; exact duplicates only are merged | `DelaunayMesh2`, `ConstrainedDelaunayMesh2`, `TriangulationMesh2`, `ConstrainedMesh2` | tests: `DelaunayMesh2Tests`, `ConstrainedDelaunayMesh2Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d --quality false`](#command-line-and-mcp-g3cli) |
-| 2D quality mesh: Delaunay refinement (Ruppert, Shewchuk) of the constrained triangulation to a minimum angle, a maximum area (also per region) and a size function, with a Steiner point limit; locked segments. Two modes: constrained Delaunay (the default, `Conforming = false`; up to a minimum angle of 25.65° a segment is encroached only by a vertex in its diametral lens, Shewchuk 2002 §6.4, above by its diametral circle) and conforming Delaunay (`Conforming = true`, every triangle Delaunay also across segments, O2). Off-centres (Üngör 2004) for triangles bad by their angle. A small angle forced by the input stays and is reported (`BadTriangles`); at the Steiner limit the mesh is valid but the bounds are not guaranteed (`SteinerLimitReached`). With a snap tolerance every vertex, also those refinement adds, lies on the grid | `QualityMesh2`, `ConstrainedMesh2Input`, `Mesh2Region` | tests: `QualityMesh2Tests`, `QualityMesh2LensTests`, `Meshing2TrackerCasesTests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d`](#command-line-and-mcp-g3cli) |
+| 2D quality mesh: Delaunay refinement (Ruppert, Shewchuk) of the constrained triangulation to a minimum angle, a maximum area (also per region) and a size function, with a Steiner point limit; locked segments. Two modes: constrained Delaunay (the default, `Conforming = false`; up to a minimum angle of 25.65° a segment is encroached only by a vertex in its diametral lens, Shewchuk 2002 §6.4, above by its diametral circle) and conforming Delaunay (`Conforming = true`, every triangle Delaunay also across segments, O2). Off-centres (Üngör 2004) for triangles bad by their angle. A small angle forced by the input stays and is reported (`BadTriangles`); at the Steiner limit the mesh is valid but the bounds are not guaranteed (`SteinerLimitReached`). With a snap tolerance every vertex, also those refinement adds, lies on the grid. `ConstrainedMesh2.ToDMesh3()` gives the 2.5D mesh: z = the heights (Q9: interpolated at made vertices), or 0 without heights; region labels as triangle groups; the same vertex and triangle ids | `QualityMesh2`, `ConstrainedMesh2Input`, `Mesh2Region` | tests: `QualityMesh2Tests`, `QualityMesh2LensTests`, `Meshing2TrackerCasesTests`, `ConstrainedMesh2ToDMesh3Tests`; design: [MESHING2D_PLAN](design/MESHING2D_PLAN.md); CLI: [`g3cli mesh2d`](#command-line-and-mcp-g3cli) |
 | UV atlas of any mesh: seams, charts, BFF with cones, packing, exact overlap test | `UVAtlasGenerator`, `MeshDiscCut`, `MeshChartSegmentation`, `ConeFlattening`, `UVOverlap`, `UVPacker` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | Parameterize a disc | `BoundaryFirstFlattening`, `LSCMParameterization`, `ARAPParameterization`, `SLIMParameterization`, `ParameterizationDistortion` | [UVAtlasExample](examples/UVAtlasExample.cs) |
 | 2D polygon booleans, polyline clipping, offsets, Minkowski sums, simplification (optional package `geometry3Sharp.Clipper2`) | `g3.Clipper2.Clipper2Polygons`, `ClipperFrame`, `Clipper2Options`, `Clipper2Result` | [Clipper2Example](examples/Clipper2/Clipper2Example.cs) |
@@ -189,6 +189,35 @@ DMesh3[] cut = ExactMeshBoolean.DifferenceEach(part, tools);
 
 `IntersectEach` is fast where each body covers a small part of A (only that part enters each arrangement).
 `DifferenceEach` keeps all of A outside the body in every result, so its work per body does not shrink in the same way.
+
+Very large or crumpled inputs (heavily self-intersecting open models, many millions of pieces) can take minutes. A
+budget stops early instead, and a token cancels a running boolean:
+
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Difference) {
+    AllowOpenMeshes = true,
+    MaxPieces = 5_000_000,          // more pieces: Status BudgetExceeded, no Result (0, the default: no limit)
+    Cancellation = cts.Token };     // cancelled: Status Cancelled, no Result; the instance can be computed again
+if (op.Compute() == false)
+    Console.WriteLine(op.Status + ": " + op.Error + ", predicted pieces " + op.Counts["predicted_pieces"]);
+```
+
+- `MaxPieces` is checked after the intersections, before the triangulation, against the exact number of pieces the
+  arrangement will have (`Counts["predicted_pieces"]`, always set), a few percent into the work.
+- `Cancellation` is checked between the phases and within the long ones; a cancelled run returns within a fraction of
+  a second on 4 cores.
+- The classification of open inputs carries the winding numbers from piece to piece; the counts `l2_traced`,
+  `l2_carried`, `l2_direct` and `l2_exact_centroids` show how. The triangulation's exact predicates show in
+  `l3_local_decided` and `l3_construction_zeros`.
+- Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
+  from 973 s to about 370-420 s in this release, with bit-identical results
+  (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
+- Long booleans allocate a lot, so the GC setting of the application matters. On 55928, server GC, non-concurrent GC
+  and a 1 GB gen0 budget (`DOTNET_gcServer=1 DOTNET_gcConcurrent=0 DOTNET_GCgen0size=0x40000000`) made it 474 -> 358 s
+  (GC pauses 131 -> 44 s, peak memory unchanged at about 10 GB). Small inputs can be 5-25 % slower with server GC
+  ([BooleanComparison](../benchmarks/BooleanComparison/README.md)). The setting belongs to the application; a library
+  cannot set it.
 
 One operation over all inputs is faster than a chain of pairwise booleans and rounds the new vertices only
 once: the 10×10×10 cube grid with a void in each cube (2000 meshes, 1999 pairwise booleans) takes 27 s in one

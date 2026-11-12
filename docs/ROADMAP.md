@@ -61,7 +61,7 @@ Status on 2026-11-12 (morning, Berlin).
   (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Exact Boolean 3.0** (in progress, serial, one PR per stage): merged 2026-11-11: T3a cull (#612), T3b
   `IntersectEach` / `DifferenceEach` (#616), T3 input range of the rounding (#593), T2 memory (#619), T1 scaling levers
-  (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
+  (#631). The 55928 tail-case stage #633 merged 2026-11-12 (d6f6fe9d): budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
   classification filter from local corner coordinates, Orient's zeros from the constructions; Difference total 973 -> 370 s,
   hash unchanged). Step 3(a), a second InCircle filter, measured and not taken (no gain). An InCircle limb kernel (E: -20 to
   -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Docs, shard resplit and the full local CI
@@ -88,7 +88,7 @@ Status on 2026-11-12 (morning, Berlin).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #642, #643, #646, #648; open PRs #627 (draft), #655 (#647), #656 (#644), #657 (#645); open `local` issues #636-#638;
+  #641, #642, #643, #646, #648, #657 (#645), #655 (#647); open PRs #627 (draft), #656 (#644); open `local` issues #636-#638;
   #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
@@ -135,10 +135,10 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 The next steps per topic, in order ("in progress" where a session works on them).
 
-- Exact Boolean 3.0 after #633: T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
+- Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
   then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- Meshing2D: the three untraced single triangles from #542 (in progress); a `ConstrainedMesh2` to `DMesh3` helper with the
-  heights as z (2.5D output, additive API; owner 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
+- Meshing2D: the three untraced single triangles from #542 (in progress); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
+  (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
   session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; starts
   when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
@@ -212,8 +212,10 @@ The next steps per topic, in order ("in progress" where a session works on them)
   reviews, re-running numbers) and writes no production code. The owner's local work does not count. The limit
   applies to new starts: when sessions finish, they are not replaced until the count is below it. Each session has
   its own worktree and one PR-sized topic.
-- **Exception (owner 2026-11-12):** two extra medium Sonnet sessions (CLI / MCP update, test-time backlog) on top of
-  the limit; no further starts until the count is back below it.
+- **Exception (owner 2026-11-12):** three extra medium Sonnet sessions (CLI / MCP update, test-time backlog,
+  short pipeline topics: fast-winding cache lever 3, DualContouring allocations, the
+  issue-tracker follow-ups (flip-guard, P1), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
+  no further starts until the count is back below it.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
