@@ -1277,15 +1277,26 @@ namespace g3
                             // for ApexExempt (which excuses no triangle): the closed segments meet, decided exactly (the oracle's t in
                             // [0, 1]); the test in doubles below misses a shared endpoint when t rounds to 1 + eps
                             int kind = MeetKind(s1, s2);
+                            // off the grid an end within the tolerance of the other segment is a vertex of its chain (O11, InsertPiece and
+                            // MergeNearPoints), so the chains meet there, at that end, although the input segments miss each other by a
+                            // rounding: a T-junction rotated or scaled into doubles is one (#664: an end 4e-17 beside the other segment, no
+                            // exemption, a cascade along the whole pair to the Steiner limit). The oracle's small-input-angle excuse takes
+                            // the same end as the apex, within its tube (twice this tolerance)
+                            bool nearMeet = false;
+                            Vector2d nearEnd = default(Vector2d);
+                            if (kind == 0 && grid == null && b.EndWithinTolerance(s1, s2, out nearEnd)) { kind = 2; nearMeet = true; }
+                            var apex = nearMeet ? new Vector2d(ExactPoint3.ScaleB(nearEnd.x - s1.AX, -ex), ExactPoint3.ScaleB(nearEnd.y - s1.AY, -ex))
+                                : new Vector2d(t1 * d1x, t1 * d1y);
                             if (kind > 0) {
                                 pair.Meets = true; pair.Kind = kind; pair.Scale = ex;
-                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
+                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = apex;
                             }
                             // for SpansSmallAngle: the apex is on both segments, an input angle, not two lines that would meet far away
-                            // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not)
-                            if (!(t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0)) {
+                            // (slightly stricter than the oracle's exact test, so that rounding never exempts what it would not); or the
+                            // chains meet at an end within the tolerance
+                            if (nearMeet || !(t1 < 1e-12 && t1 != 0 || t1 > 1 || t2 < 1e-12 && t2 != 0 || t2 > 1 || t1 < 0 || t2 < 0)) {
                                 pair.Small = true; pair.Scale = ex;
-                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = new Vector2d(t1 * d1x, t1 * d1y);
+                                pair.From = new Vector2d(s1.AX, s1.AY); pair.Apex = apex;
                             }
                         }
                     }

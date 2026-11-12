@@ -206,6 +206,11 @@ namespace Meshing2Acceptance
         /// circumcentre lies behind it. Findings to look at, as the merge zone's.
         /// </summary>
         public int O11LocalExcused, O11GlobalExcused, O11AngleExcused;
+        /// <summary>
+        /// Triangles below the angle excused as spanning a small input angle whose two constraints do not meet exactly but an end of one
+        /// lies in the tube of the other (O11 makes it a vertex of both chains; #664). Findings to look at, as the merge zone's.
+        /// </summary>
+        public int NearMeetAngleExcused;
         /// <summary> the squared tolerance the O11 rule gives the mesher (a quarter of the squared tube without the subnormal floor of
         /// Oracle.AutoTolerance: the mesher's own tolerance has none); 0 at M1 </summary>
         public Q O11Tolerance2;
@@ -251,6 +256,7 @@ namespace Meshing2Acceptance
             if (MergeZoneExcused > 0) parts.Add(MergeZoneExcused + " excused in merge zones");
             if (O11LocalExcused + O11GlobalExcused + O11AngleExcused > 0)
                 parts.Add("excused at O11-unsplittable pieces: " + O11LocalExcused + " local, " + O11GlobalExcused + " global, " + O11AngleExcused + " angle");
+            if (NearMeetAngleExcused > 0) parts.Add(NearMeetAngleExcused + " excused at a small angle of constraints that meet in the tube");
             return string.Join(", ", parts);
         }
         public bool Has(Violation v) { foreach (var r in Violations) if (r.Kind == v) return true; return false; }

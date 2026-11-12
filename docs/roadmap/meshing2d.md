@@ -51,6 +51,10 @@ Actionable:
 - **2.5D output (owner 2026-11-12):** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
   so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
   isolated). Additive API. Done: #663, merged 2026-11-12 (f0578fb6).
+- **Near T-junctions under a rotation (#664, bugfix):** a T-junction end rounded a hair beside the other segment lost the small-angle
+  exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in #666: the
+  mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
+  widens an excuse: accepted by the owner 2026-11-12. Effort M.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
