@@ -106,40 +106,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0, MeshConstraintUtil.PinSharpVertices(new MeshConstraints(), m, -deficit + 1));
         }
 
-        [Fact]
-        public void Remeshed_ApexKept()
+        // one case per slice count (the 24 remeshes of all four took about 6 s in CI)
+        [Theory]
+        [InlineData(12)]
+        [InlineData(16)]
+        [InlineData(24)]
+        [InlineData(32)]
+        public void Remeshed_ApexKept(int s)
         {
             // without pinning the apex is rounded off by 1.4..2.8 target edges (benchmarks/RemeshQualityBenchmark)
-            foreach (int s in new[] { 12, 16, 24, 32 })
-                foreach (double f in new[] { 0.1, 0.3, 0.6 })
-                    foreach (double q in new[] { 0, 0.2 }) {
-                        DMesh3 input = Cone(s);
-                        double edge = f * MeanEdge(input);
-                        Vector3d apex = Apex(input);
-                        DMesh3 mesh = Remesh(input, edge, q, true);
-                        string name = $"cone{s}_x{f} q{q}";
-                        Assert.Contains(mesh.Vertices(), v => v == apex);
-                        Assert.True(mesh.IsClosed(), name);
-                        Assert.Empty(MeshIterators.BowtieVertices(mesh));
-                        Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(mesh));
-                        Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
-                        Assert.True(mesh.Vertices().All(v => v.IsFinite), name);
-                        var hd = new MeshHausdorffDistance(input, mesh) { Tolerance = 0.01 * edge };
-                        Assert.True(hd.Compute());
-                        // 0.20..0.66 target in these 24 cases (without the pin 1.37..3.15; the same ranges over all
-                        // 48 cone cases of benchmarks/RemeshQualityBenchmark with and without MinTriangleQuality).
-                        // With MinTriangleQuality the rim fold check (#621) rejects a few flips at the rim, and the
-                        // passes end elsewhere: 0.22..0.87 target in the 12 cases with q 0.2 (before: 0.25..0.66), the
-                        // mean lower (0.44, before 0.47), the maximum at cone12_x0.1 (0.87, before 0.66)
-                        double bound = (q > 0) ? 0.9 : 0.75;
-                        Assert.True(hd.UpperBound < bound * edge, $"{name}: {hd.UpperBound / edge} target from the input");
-                        if (f == 0.1 && q == 0) {
-                            // the reason: without the pin it is rounded off
-                            var hd0 = new MeshHausdorffDistance(input, Remesh(input, edge, q, false)) { Tolerance = 0.01 * edge };
-                            Assert.True(hd0.Compute());
-                            Assert.True(hd0.UpperBound > edge, $"{name}: {hd0.UpperBound / edge} target without the pin");
-                        }
+            foreach (double f in new[] { 0.1, 0.3, 0.6 })
+                foreach (double q in new[] { 0, 0.2 }) {
+                    DMesh3 input = Cone(s);
+                    double edge = f * MeanEdge(input);
+                    Vector3d apex = Apex(input);
+                    DMesh3 mesh = Remesh(input, edge, q, true);
+                    string name = $"cone{s}_x{f} q{q}";
+                    Assert.Contains(mesh.Vertices(), v => v == apex);
+                    Assert.True(mesh.IsClosed(), name);
+                    Assert.Empty(MeshIterators.BowtieVertices(mesh));
+                    Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(mesh));
+                    Assert.Empty(MeshPostRepairCleanup.FindInvertedComponents(mesh));
+                    Assert.True(mesh.Vertices().All(v => v.IsFinite), name);
+                    var hd = new MeshHausdorffDistance(input, mesh) { Tolerance = 0.01 * edge };
+                    Assert.True(hd.Compute());
+                    // 0.20..0.67 target in these 24 cases (without the pin 1.37..3.15; the same ranges over all
+                    // 48 cone cases of benchmarks/RemeshQualityBenchmark with and without MinTriangleQuality)
+                    Assert.True(hd.UpperBound < 0.75 * edge, $"{name}: {hd.UpperBound / edge} target from the input");
+                    if (f == 0.1 && q == 0) {
+                        // the reason: without the pin it is rounded off
+                        var hd0 = new MeshHausdorffDistance(input, Remesh(input, edge, q, false)) { Tolerance = 0.01 * edge };
+                        Assert.True(hd0.Compute());
+                        Assert.True(hd0.UpperBound > edge, $"{name}: {hd0.UpperBound / edge} target without the pin");
                     }
+                }
         }
 
         [Fact]

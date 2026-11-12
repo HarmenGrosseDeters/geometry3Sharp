@@ -984,7 +984,7 @@ namespace g3 {
         bool is_feature_vertex(int vid) => vertex_is_constrained(vid);
 
         // the flip of edge [a,b] (triangles t0, t1, opposite vertices c, d) creates a feature fold
-        bool flip_creates_feature_fold(int a, int b, int c, int d, int t0, int t1, double maxEdgeLen)
+        internal bool flip_creates_feature_fold(int a, int b, int c, int d, int t0, int t1, double maxEdgeLen)
         {
             // not where the mesh is still far coarser than the target (an edge longer than 3 x the split length, as on
             // the input of a coarse cone, where the edges from the rim to the apex are flipped into rim chords): a fold
@@ -1004,13 +1004,18 @@ namespace g3 {
             var n1 = new Index3i(d, c, oa);
             int after = 0;
             if (nFeature + (is_feature_vertex(ob) ? 1 : 0) >= 2)
-                after += fold_count(n0, n1, t0, t1, -1, -1, -1, Vector3d.Zero, false);
+                after += fold_count(n0, n1, t0, t1, -1, -1, -1, Vector3d.Zero);
             if (nFeature + (is_feature_vertex(oa) ? 1 : 0) >= 2)
-                after += fold_count(n1, n0, t0, t1, -1, -1, -1, Vector3d.Zero, false);
+                after += fold_count(n1, n0, t0, t1, -1, -1, -1, Vector3d.Zero);
             if (after == 0)
                 return false;
+            // the old triangles, counted the same way (two or more feature vertices, at their feature corners)
             Index3i o0 = mesh.GetTriangle(t0), o1 = mesh.GetTriangle(t1);
-            int before = fold_count(o0, o1, t0, t1, -1, -1, -1, Vector3d.Zero, true) + fold_count(o1, o0, t0, t1, -1, -1, -1, Vector3d.Zero, true);
+            int before = 0;
+            if (feature_count(o0) >= 2)
+                before += fold_count(o0, o1, t0, t1, -1, -1, -1, Vector3d.Zero);
+            if (feature_count(o1) >= 2)
+                before += fold_count(o1, o0, t0, t1, -1, -1, -1, Vector3d.Zero);
             return after > before;
         }
 
@@ -1036,21 +1041,29 @@ namespace g3 {
                     if (t[i] != v && is_feature_vertex(t[i])) nFeature++;
                 if (nFeature >= 2) {
                     Index3i mt = map_collapsed(t, a, b, vKeep);
-                    after += fold_count(mt, mt, t0, t1, a, b, vKeep, newPos, false);
+                    after += fold_count(mt, mt, t0, t1, a, b, vKeep, newPos);
                 }
             }
             if (after == 0)
                 return false;
+            // the same triangles before the collapse, counted the same way: the same filter, and v (which becomes
+            // vKeep) as a feature corner
             int before = 0;
+            Vector3d vPos = mesh.GetVertex(v);
             foreach (int tid in foldRing) {
+                if (tid == t0 || tid == t1)
+                    continue;
                 Index3i t = mesh.GetTriangle(tid);
-                before += fold_count(t, t, -1, -1, -1, -1, -1, Vector3d.Zero, true);
+                if (feature_count(t) + 1 >= 2)
+                    before += fold_count(t, t, -1, -1, -1, -1, v, vPos);
             }
             return after > before;
         }
 
         // (scratch lists of the fold checks, which run in ProcessEdge, serially)
         readonly List<int> foldRing = new List<int>(), foldNbrs = new List<int>(), foldSeen = new List<int>();
+
+        int feature_count(Index3i t) => (is_feature_vertex(t.a) ? 1 : 0) + (is_feature_vertex(t.b) ? 1 : 0) + (is_feature_vertex(t.c) ? 1 : 0);
 
         static Index3i map_collapsed(Index3i t, int a, int b, int vKeep)
         {
@@ -1065,10 +1078,10 @@ namespace g3 {
         Vector3d mapped_vertex(int v, int vKeep, Vector3d newPos) => (v == vKeep) ? newPos : mesh.GetVertex(v);
 
         // the number of triangles that triangle nt (vertex ids after the operation) intersects and that face away from it
-        // (faces_against): the other new triangle other (a flip; nt itself otherwise), and the current triangles
-        // around the feature corners of nt (all its corners if allCorners) other than nt, r0 and r1, with a and b
-        // collapsed to vKeep at newPos (a < 0: no collapse)
-        int fold_count(Index3i nt, Index3i other, int r0, int r1, int a, int b, int vKeep, Vector3d newPos, bool allCorners)
+        // (faces_against): the other new triangle other (a flip; nt itself otherwise), and the current triangles around
+        // the feature corners of nt other than nt, r0 and r1. vKeep is at newPos and counts as a feature corner; with
+        // a >= 0, a and b are collapsed to it (its triangles are those of a and b), with a < 0 it is a vertex of the mesh
+        int fold_count(Index3i nt, Index3i other, int r0, int r1, int a, int b, int vKeep, Vector3d newPos)
         {
             var T = new Triangle3d(mapped_vertex(nt.a, vKeep, newPos), mapped_vertex(nt.b, vKeep, newPos), mapped_vertex(nt.c, vKeep, newPos));
             if (ExactTriangleIntersection.IsDegenerate(ref T))
@@ -1083,10 +1096,10 @@ namespace g3 {
             foldSeen.Clear();
             for (int i = 0; i < 3; ++i) {
                 int w = nt[i];
-                if (allCorners == false && w != vKeep && is_feature_vertex(w) == false)
+                if (w != vKeep && is_feature_vertex(w) == false)
                     continue;       // (the triangles a fold overlaps lie at its feature corners)
                 for (int k = 0; k < 2; ++k) {
-                    int src = (w == vKeep) ? (k == 0 ? a : b) : (k == 0 ? w : -1);
+                    int src = (w == vKeep && a >= 0) ? (k == 0 ? a : b) : (k == 0 ? w : -1);
                     if (src < 0)
                         continue;
                     foldNbrs.Clear();
@@ -1112,7 +1125,8 @@ namespace g3 {
         // the triangle U faces more than 90 degrees away from the (unnormalized) normal nT: a fold lies on the cap facing
         // against it (180 degrees), a side triangle crossing the cap along a rim chord 100..125 degrees for these cones
         // and tapers (with 120 degrees, RemesherPro, which does not revisit them, kept such crossings). The sign of a dot
-        // product of cross products: no absolute thresholds
+        // product of cross products, in floating point: no absolute threshold, the same decision under 2^k scaling, but
+        // not exact near 90 degrees (a pair there may be tested or not; it only filters which pairs get the exact test)
         static bool faces_against(ref Vector3d nT, ref Triangle3d U)
         {
             Vector3d nU = (U.V1 - U.V0).Cross(U.V2 - U.V0);

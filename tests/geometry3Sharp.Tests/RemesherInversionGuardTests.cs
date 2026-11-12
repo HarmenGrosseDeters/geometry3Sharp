@@ -170,6 +170,19 @@ namespace geometry3Sharp.Tests
             Assert.InRange(r.InvertingPassesRejected, 1, 20);
         }
 
+        // the reason the guard tests with MinTriangleQuality use other tubes: the rim fold check (#621) keeps the 135363
+        // tube from turning inside out even without the guard
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Tube135363_WithMinTriangleQuality_NotInsideOutWithoutTheGuard(bool pro)
+        {
+            DMesh3 input = Tube135363();
+            DMesh3 mesh = new DMesh3(input);
+            Remesh(mesh, input, Target135363, 0.2, false, pro);
+            Assert.False(InsideOut(mesh));
+        }
+
         // a cavity (the reversed 135363 tube inside a box) that the remeshers turn inside out: one more positive and
         // one fewer negative component
         [Theory]

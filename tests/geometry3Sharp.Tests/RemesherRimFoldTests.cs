@@ -99,15 +99,23 @@ namespace geometry3Sharp.Tests
         public void Rim_NoNewSelfIntersections(string name)
         {
             var (input, edge) = Case(name);
-            DMesh3 before = Remesh(input, edge, 0), after = Remesh(input, edge, 0.2);
-            int pairsBefore = MeshRepairMetrics.SelfIntersections(before), pairsAfter = MeshRepairMetrics.SelfIntersections(after);
-            Assert.True(pairsAfter == 0, $"{name}: {pairsAfter} self-intersecting pairs with the option, {pairsBefore} without");
+            DMesh3 after = Remesh(input, edge, 0.2);
+            int pairs = MeshRepairMetrics.SelfIntersections(after);
+            Assert.True(pairs == 0, $"{name}: {pairs} self-intersecting pairs with the option");
             AssertValid(after, name);
-            // on the input as closely as without the option (cones: both round off the apex, which is no feature)
             var hd = new MeshHausdorffDistance(input, after) { Tolerance = 0.01 * edge };
-            var hd0 = new MeshHausdorffDistance(input, before) { Tolerance = 0.01 * edge };
-            Assert.True(hd.Compute() && hd0.Compute());
-            Assert.True(hd.UpperBound <= hd0.UpperBound + 0.5 * edge, $"{name}: {hd.UpperBound / edge} edges from the input, {hd0.UpperBound / edge} without the option");
+            Assert.True(hd.Compute());
+            if (name.StartsWith("taper")) {
+                // on the input: 0.06..0.23 target in these cases (and without the option)
+                Assert.True(hd.UpperBound < 0.3 * edge, $"{name}: {hd.UpperBound / edge} edges from the input");
+            } else {
+                // a cone's apex is no feature: both variants round it off by 1.4..3.4 target, and which pass ends where
+                // is chance (over 8 small translations of the 42 cones of benchmarks/RemeshQualityBenchmark the mean
+                // is the same with and without the fold check, single cases differ by up to 0.5 target either way)
+                var hd0 = new MeshHausdorffDistance(input, Remesh(input, edge, 0)) { Tolerance = 0.01 * edge };
+                Assert.True(hd0.Compute());
+                Assert.True(hd.UpperBound <= hd0.UpperBound + 0.5 * edge, $"{name}: {hd.UpperBound / edge} edges from the input, {hd0.UpperBound / edge} without the option");
+            }
         }
 
         // which pairs survive the last pass depends on rounding: the same cases moved by small translations (master:
@@ -131,10 +139,13 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        // with PinSharpVertices (30 degrees: the apex and, on cone12, the rim vertices pinned). master: 0, 30 and 24 pairs
-        // in the 4 runs of each; cone12_x0.3 ended with 264 pairs when the fold check also rejected the flips on the
-        // coarse input (the edges from the rim to the apex)
+        // with PinSharpVertices (30 degrees: the apex and, on cone12, the rim vertices pinned). master: 0, 0, 0, 30 and 24
+        // pairs in the 4 runs of each; cone12_x0.3 ended with 264 pairs when the fold check also rejected the flips on
+        // the coarse input (the edges from the rim to the apex), cone12_x0.15 / x0.2 / x0.3 with 6 / 7 / 4 when the
+        // old triangles were counted at all their corners (an intersection at a corner off the features hid new folds)
         [Theory]
+        [InlineData("cone12_x0.15")]
+        [InlineData("cone12_x0.2")]
         [InlineData("cone12_x0.3")]
         [InlineData("cone24_x0.3")]
         [InlineData("cone16_x0.45")]
@@ -172,6 +183,73 @@ namespace geometry3Sharp.Tests
                 Assert.True(hd.Compute() && hd0.Compute());
                 Assert.True(hd.UpperBound <= hd0.UpperBound + 0.5 * edge, $"{name}, {s.Name}: {hd.UpperBound / edge} edges from the input, {hd0.UpperBound / edge} untransformed");
             }
+        }
+
+        // a flip of edge B-U at a rim A-B-C (feature vertices) would fold the side onto the cap: the new triangle B-A-C
+        // overlaps the cap triangles O-A-B, O-B-C. Fins at U (a corner off the features) already cross the old side
+        // triangles; the old triangles are counted at the same (feature) corners as the new ones, so these crossings,
+        // which the flip does not change, do not hide the fold
+        [Theory]
+        [InlineData(0)]
+        [InlineData(6)]
+        public void FoldFlip_Rejected_NotHiddenByCrossingsElsewhere(int fins)
+        {
+            var m = new DMesh3();
+            double c30 = Math.Cos(Math.PI / 6);
+            int O = m.AppendVertex(new Vector3d(0, 0, 0)), A = m.AppendVertex(new Vector3d(1, 0, 0)), B = m.AppendVertex(new Vector3d(c30, 0, 0.5)),
+                C = m.AppendVertex(new Vector3d(0.5, 0, c30)), U = m.AppendVertex(new Vector3d(0.7, 0.5, 0.4));
+            m.AppendTriangle(O, A, B); m.AppendTriangle(O, B, C);
+            int tBAU = m.AppendTriangle(B, A, U), tCBU = m.AppendTriangle(C, B, U);
+            Vector3d u = m.GetVertex(U), nb = m.GetTriNormal(tBAU), nc = m.GetTriNormal(tCBU);
+            Vector3d mid1 = (m.GetVertex(A) + m.GetVertex(B)) / 2, mid2 = (m.GetVertex(B) + m.GetVertex(C)) / 2;
+            for (int k = 0; k < fins; ++k) {
+                // a thin triangle at U through the inside of a side triangle, facing partly against it
+                bool first = k % 2 == 0;
+                Vector3d n = first ? nb : nc, p = Vector3d.Lerp(u, first ? mid1 : mid2, 0.5 + 0.1 * (k / 2));
+                Vector3d side = (p - u).Cross(n).Normalized;
+                Vector3d p1 = p + 0.3 * n + 0.2 * side, p2 = p - 0.3 * n - 0.2 * side;
+                int i1 = m.AppendVertex(p1), i2 = m.AppendVertex(p2);
+                if (MathUtil.Normal(u, p1, p2).Dot(n) < 0) m.AppendTriangle(U, i1, i2); else m.AppendTriangle(U, i2, i1);
+            }
+            Assert.Equal(fins == 0 ? 0 : 7, MeshRepairMetrics.SelfIntersections(m));
+            var r = new Remesher(m) { MinTriangleQuality = 0.2 };
+            var cons = new MeshConstraints();
+            var rim = MeshProjectionTarget.Auto(new DMesh3(m));
+            foreach (int v in new[] { A, B, C })
+                cons.SetOrUpdateVertexConstraint(v, new VertexConstraint(rim));
+            r.SetExternalConstraints(cons);
+            int e = m.FindEdge(B, U);
+            Index2i ev = m.GetEdgeV(e), ov = m.GetEdgeOpposingV(e), et = m.GetEdgeT(e);
+            Assert.True(r.flip_creates_feature_fold(ev.a, ev.b, ov.a, ov.b, et.a, et.b, 10));
+        }
+
+        // one Remesher instance used twice (the mesh reset to the input, the constraints set again): the same result
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Rim_ReusedRemesher_SameResult(bool pro)
+        {
+            var (input, edge) = Case("cone24_x0.3");
+            DMesh3 mesh = new DMesh3(input);
+            Remesher r = pro ? new RemesherPro(mesh) : new Remesher(mesh);
+            r.SmoothSpeedT = 0.5;
+            r.MinTriangleQuality = 0.2;
+            r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
+            var results = new List<DMesh3>();
+            for (int run = 0; run < 2; ++run) {
+                mesh.Copy(input);
+                r.SetExternalConstraints(new MeshConstraints());
+                MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
+                r.SetTargetEdgeLength(edge);
+                if (pro) ((RemesherPro)r).ResetQueue();
+                for (int k = 0; k < 20; ++k) {
+                    if (pro) ((RemesherPro)r).RemeshIteration();
+                    else r.BasicRemeshPass();
+                }
+                results.Add(new DMesh3(mesh));
+            }
+            Assert.Equal("", Invariance.Difference(results[0], results[1]));
+            Assert.Equal("", Invariance.Difference(results[0], Remesh(input, edge, 0.2, true, pro)));
         }
 
         [Theory]
