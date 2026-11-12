@@ -11,6 +11,9 @@
 //     --exact                                also hash the exact result vertices (ComputeExactVertices; slower)
 //     --safe-rounding                        SafeRounding = true (reports rounding_clean and rounding_limit, ie
 //                                            Rounding.EvaluationLimitReached)
+//     --rounding-max-pair-tests <n>          RoundingMaxPairTests (the rounding's pair-test budget; default 5M)
+//     --antipodal-unlimited                  AntipodalMaxBoundarySegments and AntipodalMaxTriangles unlimited (the
+//                                            open-operand classification on the Antipodal path everywhere; T5 option A)
 // Filter failures are counted only by a library built with -p:G3PredicateStats=true (PredicateStats); in a normal
 // build they are absent. The process uses all cores; run it under `taskset -c 0` (and DOTNET_PROCESSOR_COUNT=1)
 // for one core.
@@ -30,13 +33,16 @@ static class Profile
     {
         var ops = new List<string> { "union", "intersection", "difference" };
         int repeat = 3;
-        bool exact = false, safe = false;
+        bool exact = false, safe = false, antipodalUnlimited = false;
+        long maxPairTests = -1;
         var cases = new List<string>();
         for (int i = 0; i < args.Length; ++i) {
             if (args[i] == "--ops") ops = args[++i].Split(',').ToList();
             else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
             else if (args[i] == "--exact") exact = true;
             else if (args[i] == "--safe-rounding") safe = true;
+            else if (args[i] == "--antipodal-unlimited") antipodalUnlimited = true;
+            else if (args[i] == "--rounding-max-pair-tests") maxPairTests = long.Parse(args[++i]);
             else if (File.Exists(args[i]) && Directory.Exists(args[i]) == false)
                 cases.AddRange(File.ReadAllLines(args[i]).Select(l => l.Trim()).Where(l => l.Length > 0 && l.StartsWith("#") == false));
             else cases.Add(args[i]);
@@ -102,6 +108,12 @@ static class Profile
                     var boolean = run.Value();
                     boolean.ComputeExactVertices = exact;
                     boolean.SafeRounding = safe;
+                    if (maxPairTests >= 0)
+                        boolean.RoundingMaxPairTests = maxPairTests;
+                    if (antipodalUnlimited) {
+                        boolean.AntipodalMaxBoundarySegments = int.MaxValue;
+                        boolean.AntipodalMaxTriangles = int.MaxValue;
+                    }
                     var sw = Stopwatch.StartNew();
                     bool ok;
                     string error = null;
