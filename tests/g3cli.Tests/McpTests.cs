@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -140,6 +140,24 @@ namespace g3cli.Tests
             r = Handle(server, Call(3, "simplify", new JsonObject() { ["input"] = m.Sphere, ["output"] = m.Path_("mcp_s.off"), ["triangles"] = 50.0 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.InRange(I(r["result"]["structuredContent"]["mesh"]["triangles"]), 1, 50);
+        }
+
+        [Fact]
+        public void PolygonSolids_IsATool()
+        {
+            var server = Server();
+            string ring(double x, double s) => $"[[{x},{x}],[{x + s},{x}],[{x + s},{x + s}],[{x},{x + s}],[{x},{x}]]";
+            string g = "{\"type\":\"MultiPolygon\",\"coordinates\":[[" + ring(0, 10) + "],[" + ring(3, 4) + "]]}";
+            JsonObject r = Handle(server, Call(1, "polygon_solids", new JsonObject() { ["input_geojson"] = g, ["return_geojson"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(1, I(sc["solids"]));
+            Assert.Equal(1, I(sc["holes"]));
+            Assert.Equal(84, D(sc["area"]));
+            Assert.Equal("MultiPolygon", S(sc["result_geojson"]["features"][0]["geometry"]["type"]));
+            r = Handle(server, Call(2, "polygon_solids", new JsonObject() { ["input_geojson"] = g, ["simplify_tolerance"] = -1.0 }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
         }
 
         [Fact]

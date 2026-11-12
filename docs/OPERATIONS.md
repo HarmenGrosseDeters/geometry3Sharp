@@ -789,6 +789,17 @@ g3cli polygon2d parcel.geojson building.geojson --op difference --output free.ge
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
 ```
 
+**Solid regions from loops** (`polygon_solids`, `PlanarComplex.FindSolidRegions`): every ring of a GeoJSON `Polygon` / `MultiPolygon` and every closed
+`LineString` is one loop, whatever it was written as; the nesting is found from the containment (a loop inside one other loop is its hole, inside two a
+new solid, ...), so loops from different sources and with any orientation give polygons with holes, as a GeoJSON `MultiPolygon`. The loops are
+simplified first: `--simplify-tolerance` is an absolute deviation in input units, **default 0.1 as in the library**, so loops closer than about that
+distance can lose their nesting (choose a smaller one for small or close loops, 0 for none); `--relative-tolerance` is relative to each loop's own
+bounding box diagonal and the smaller of the two applies. Open lines are counted and ignored, at most 4000 loops (the nesting search is quadratic: 4000 nested loops take about 10 s), identical loops are kept once (`loops.duplicates_removed`):
+
+```
+g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,
