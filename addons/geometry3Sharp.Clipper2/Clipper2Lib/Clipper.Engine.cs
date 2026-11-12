@@ -2930,9 +2930,9 @@ private void DoHorizontal(Active horz)
       // So the only way for these areas to have the same sign is if
       // the split triangle is larger than the path containing prevOp or
       // if there's more than one self=intersection.
-      if (!(absArea2 > 1) ||
-          (!(absArea2 > absArea1) &&
-           ((area2 > 0) != (area1 > 0)))) return;
+      if (!(absArea2 > 1)) return;
+      if (!(absArea2 > absArea1) && ((area2 > 0) != (area1 > 0)) &&
+        !TriangleInsidePath(ip, splitOp.pt, splitOp.next.pt, prevOp)) return;
       OutRec newOutRec = NewOutRec();
       newOutRec.owner = outrec.owner;
       splitOp.outrec = newOutRec;
@@ -2957,6 +2957,21 @@ private void DoHorizontal(Active horz)
         outrec.splits.Add(newOutRec.idx);
       }
       //else { splitOp = null; splitOp.next = null; }
+    }
+
+    // geometry3Sharp change (FINDINGS item 5, see README.md): DoSplitOp drops a split-off triangle whose area has the
+    // other sign than its path, as a twist (a figure-eight lobe outside the path). Such a triangle can also be a hole
+    // inside the path that touches it at a vertex, the touch turned into a crossing by the rounding of an intersection
+    // point to the grid; dropping it fills the hole. It is kept as a path of its own if it lies inside the rest of
+    // the path (Path1InsidePath2, the test DoSplitOp uses for the nesting of splits).
+    private static bool TriangleInsidePath(Point64 pt1, Point64 pt2, Point64 pt3, OutPt path)
+    {
+      var op1 = new OutPt(pt1, path.outrec);
+      var op2 = new OutPt(pt2, path.outrec);
+      var op3 = new OutPt(pt3, path.outrec);
+      op1.next = op2; op2.next = op3; op3.next = op1;
+      op1.prev = op3; op2.prev = op1; op3.prev = op2;
+      return Path1InsidePath2(op1, path);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
