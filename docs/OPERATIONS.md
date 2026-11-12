@@ -149,7 +149,10 @@ area is kept instead, counted in `Rounding.ScaleDisparity`, and the result is no
 coordinate per edit). Edits beyond the bound are not applied. The volume changes per edit by at most about the edit's
 displacement times the area of the triangles it replaces, plus the volume of removed components (class comment of
 `MeshRoundingRepair`). `MeshRobustRepair` can run a second repair after its separation step, with a budget of its
-own: there the total is at most twice the bound.
+own: there the total is at most twice the bound. Where the passes of the repair leave a degenerate triangle or an
+intersecting pair, a position search moves one of its corners to one of a fixed set of positions within the bound
+that is left (26 directions, 8 sizes, the smallest first; `Rounding.PositionSearchMoves`), checked like every edit
+(docs/design/SAFE_ROUNDING.md section 9).
 
 More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
 inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):

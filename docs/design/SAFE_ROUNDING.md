@@ -12,6 +12,9 @@ the library (8.7), so `math/DenseSimplex.cs` (section 8) exists only on the bran
 The LP question of section 6.4 was answered by that experiment: a floating-point dense simplex, with correctness from
 the exact check.
 
+Update 2026-11-12 (second): section 9, a position search after the passes for what they leave (idea 3 of
+docs/design/SNAP_ROUNDING_3D.md, owner decisions of 2026-11-12), is built.
+
 `ExactMeshBoolean` computes its result exactly and rounds the new vertices to double. `SafeRounding`
 (`MeshRoundingRepair`, on by default) then repairs what the rounding leaves: self-intersections and degenerate
 triangles (area below `1e-12` of the squared diagonal, as `MeshRobustRepair.NotCleanReason`). It uses local edits,
@@ -1139,3 +1142,73 @@ patch-fitting and the Hausdorff check above.
 
 The findings that come out of the experiment regardless: the scale-invariance bugfix (#316), the exact d-separation
 certificate and the harness, and the hang of the arrangement on snapped coincident geometry (section 8.5).
+
+## 9. Position search after the passes (owner 2026-11-12)
+
+What the passes leave is mostly a degenerate triangle or an intersecting pair that one vertex move would repair, in a
+direction or at a size the passes do not try: `fix_degenerate` moves the apex away from its base, `fix_intersection`
+along the other triangle's normal or towards the neighbours, each at a few sizes. The probe of
+docs/design/SNAP_ROUNDING_3D.md section 6.3 (#721) showed that a clean configuration with the same triangles often
+exists within the drift that is left. `MeshRoundingRepair` now searches for it (`position_search`).
+
+**The rule.**
+- *When:* in `Apply`, after the passes and the contact steps, while degenerate triangles or intersecting pairs remain
+  and the effort limit is not reached. After a search that moved a vertex the passes run again, then the search, until
+  a search accepts nothing.
+- *Order:* the degenerate triangles by id, then the intersecting pairs in their sorted order. A degenerate triangle is
+  searched at its three corners, a pair at the three corners of its first triangle. Corners that `FixedVertexF` keeps
+  come last. Boundary vertices (they move only along the boundary, `try_slide`) and bowties are not moved.
+- *Candidates:* p = pos(v) + s d. The directions d are the 26 unit vectors along (a, b, c) with a, b, c in −1, 0, 1,
+  in a fixed order. The sizes are s = room / 2^j, j = 7 down to 0, the smallest first, where room is the bound of the
+  vertex's component minus the largest bound of its triangles and ghosts now (`room_at`). No random numbers.
+- *Accepted:* the first candidate that `try_move` accepts, so `improves` decides as for every edit: the drift from
+  `proposed_drift` within the bound, no new intersection, no new degenerate triangle, no triangle turned over, and at
+  least one defect fewer. No plateau steps.
+- *Cost:* at most 26 · 8 · 3 proposals per defect and round, inside `MaxEvaluationsPerDefect` and `MaxPairTests`: the
+  candidates count as evaluations like the edits of the passes, so on a result with many defects that no position
+  repairs the search can be what reaches the limit (`EvaluationLimitReached`; the defects are then searched in their
+  order as far as the budget goes). A vertex whose search found no move is not searched again until a move of the
+  search changes the mesh (a corner of several defects is searched once).
+- `PositionSearchMoves` counts the accepted moves; they are also counted in `Moves`.
+
+**Guarantees, unchanged.**
+- A search move is a displacement edit of the reference rule (section 1): no new lemma, and the theorem's bound holds.
+  `room_at` only chooses the sizes; the drift of each proposal is computed and checked by `proposed_drift`, like every
+  edit's (the Z3 source contract, `tools/Z3Pilot/drift_reference.py`, holds `room_at` to that one use).
+- No edit adds a defect, so the counts never grow.
+- *Termination:* every accepted move lowers the number of defects (degenerate triangles plus intersecting pairs) by at
+  least one (`improves`), and no edit of the passes raises it. A round that accepts no move ends the loop, so there are
+  at most as many rounds as defects after the passes.
+- *Invariance:* the directions are constants and the sizes are the room times powers of two, so a 2^k scale gives the
+  same result bit for bit. Under a rotation the candidates are other points, as the passes' moves already are where
+  they are not along the mesh's own directions.
+- Results that are clean after the passes are unchanged bit for bit: the search does not run on them.
+
+**What changes in results.** Only operations that are not rounding clean today. On those, more edits are applied, and
+`MaxDrift` can rise, at most to the bound.
+
+**The choices, measured** (prototype on the head of #725; `SnapRoundingExperiment run <case> safe` on the 35 generated
+leftovers of section 6.1, 29 clusters and 6 UTM cases, and the five operations the rounding leaves in the 16 239 of
+the D1 cohort: Thingi10K 837999 intersection and difference, 838003, 958469 and 958470 difference):
+
+| variant | generated, clean of 35 | cohort, clean of 5 |
+|---|---:|---:|
+| no search | 0 | 0 |
+| local frame of the defect, J = 8, one round | 8 | 4 |
+| axis-aligned, J = 8, one round | 9 | 4 |
+| axis-aligned, J = 24, one round | 12 | |
+| local frame, J = 8, rounds | 8 | 4 |
+| axis-aligned, J = 8, rounds, largest size first | 11 | 4 |
+| **axis-aligned, J = 8, rounds, smallest size first (built)** | **10** | **4** |
+
+- The random probe of #721 reached 13 (J = 8) and 17 (J = 24) of 35 by drawing from the same set for 20 s; a single
+  enumeration finds fewer.
+- A frame of the defect (its longest edge, the corner's offset from it, their normal) was no better than the axes at
+  any size, so the axes are used: less code and no fallback.
+- A pair searched at all six corners gained nothing over the three of its first triangle (8 of 35 either way).
+- The smallest size first loses one generated case against the largest first and keeps the surface closer: on the four
+  cohort operations `MaxDrift / MaxLength` after the search is 0.06, 0.79, 0.37 and 0.54 (what the passes had used)
+  instead of 1.0, 0.79, 1.0 and 1.0. The passes' own moves go smallest first, too.
+- 838003 difference keeps one of its two degenerate triangles: it had used 97 % of its bound.
+- The search is not measurable in the time of the cohort operations (at most 1433 proposals in results of 40k to 285k
+  triangles).
