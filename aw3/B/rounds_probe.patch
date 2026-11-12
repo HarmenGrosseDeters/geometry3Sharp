@@ -1,0 +1,152 @@
+diff --git a/comp_geom/Delaunay3.cs b/comp_geom/Delaunay3.cs
+index 5c9d1a5a..027e0971 100644
+--- a/comp_geom/Delaunay3.cs
++++ b/comp_geom/Delaunay3.cs
+@@ -379,6 +379,34 @@ namespace g3
+         }
+ 
+ 
++        /// <summary>
++        /// (probe) the cells Insert(p, hint) would remove, without changing the triangulation (empty if it would fail early)
++        /// </summary>
++        internal void ConflictCells(Vector3d p, int hint, List<int> outCells)
++        {
++            outCells.Clear();
++            uint rngSaved = rng;        // (the walk's random choices stay those of the serial run)
++            int c0 = Locate(p, hint);
++            rng = rngSaved;
++            if (c0 < 0 || InCircumsphere(c0, p) <= 0) return;
++            if (++markValue == int.MaxValue) { Array.Clear(mark, 0, mark.Length); markValue = 1; }
++            outCells.Add(c0); mark[c0] = markValue;
++            for (int k = 0; k < outCells.Count; ++k) {
++                int c = outCells[k];
++                for (int i = 0; i < 4; ++i) {
++                    int n = cn[4 * c + i];
++                    if (n >= 0 && mark[n] != markValue && InCircumsphere(n, p) > 0) { mark[n] = markValue; outCells.Add(n); }
++                }
++            }
++            // (the cavity's boundary neighbours change their adjacency too)
++            int m = outCells.Count;
++            for (int k = 0; k < m; ++k)
++                for (int i = 0; i < 4; ++i) {
++                    int n = cn[4 * outCells[k] + i];
++                    if (n >= 0 && mark[n] != markValue) { mark[n] = markValue; outCells.Add(n); }
++                }
++        }
++
+         /// <summary>
+         /// Checks orientation, adjacency (symmetric, matching facets) and, if checkDelaunay, the empty sphere
+         /// property against all vertices (quadratic, for tests). Returns null if valid, otherwise the problem.
+diff --git a/mesh_ops/MeshAlphaWrap.cs b/mesh_ops/MeshAlphaWrap.cs
+index 25761d2b..effb2a82 100644
+--- a/mesh_ops/MeshAlphaWrap.cs
++++ b/mesh_ops/MeshAlphaWrap.cs
+@@ -532,15 +532,16 @@ namespace gs
+         WrapStatus refine_and_carve_loop()
+         {
+             WrapStatus status = WrapStatus.Success;
+-            while (gates.Count > 0) {
++            while (next_gate(out double key, out int c, out int i, out int stampC)) {
+                 if ((++popped & 1023) == 0 && cancelled())
+                     return WrapStatus.Cancelled;
+-                gates.Pop(out double key, out int c, out int i, out int stampC);
+                 if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)
+                     continue;
+                 int n = dt.Neighbour(c, i);
+                 if (label_of(n) != Outside)
+                     continue;
++                // (probe (B): a gate whose cells an earlier gate of this round touched waits for the next round)
++                if (RoundWindow > 0 && (round_marked(c) || round_marked(n))) { defer(key, c, i, stampC); continue; }
+                 // (traversable: only such gates are queued. Phi(f) also depends on the outside cell's circumcenter, and that
+                 // cell can have been replaced since the push while c was not: compute it again; a gate that is no longer
+                 // traversable is dropped, one whose radius changed goes back into the queue under its new key)
+@@ -576,6 +577,15 @@ namespace gs
+                         status = WrapStatus.PointLimitReached;
+                         break;
+                     }
++                    if (RoundWindow > 0) {
++                        dt.ConflictCells(steinerPoint, c, roundCavity);
++                        bool clash = false;
++                        foreach (int q in roundCavity) if (round_marked(q)) { clash = true; break; }
++                        if (clash) { defer(key, c, i, stampC); continue; }
++                        foreach (int q in roundCavity) round_mark(q);
++                        round_mark(c); round_mark(n);
++                        roundApplied++;
++                    }
+                     // (rejected: too close to a vertex, or outside the box; see the result check)
+                     if (!insert_steiner(steinerPoint, c, which)) {
+                         rejected++;
+@@ -586,6 +596,7 @@ namespace gs
+                     continue;
+                 }
+                 // carve
++                if (RoundWindow > 0) { round_mark(c); round_mark(n); roundApplied++; }
+                 labelsManifold = false;
+                 label[c] = Outside;
+                 carved++;
+@@ -597,6 +608,7 @@ namespace gs
+                         push_gate(m, dt.FacetTo(m, c));
+                 }
+             }
++            if (RoundWindow > 0) round_report();
+             Counts["steiner_points"] = steiner;
+             if (staleGates > 0) Counts["gates_stale"] = staleGates;
+             if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
+@@ -620,6 +632,57 @@ namespace gs
+             return status;
+         }
+ 
++        // ---- probe (B): serial rounds of gates with pairwise disjoint touched cells ----
++        internal static int RoundWindow = int.Parse(Environment.GetEnvironmentVariable("AW3_ROUNDW") ?? "0");
++        readonly List<(double key, int c, int i, int st)> roundBatch = new List<(double, int, int, int)>(), roundDeferred = new List<(double, int, int, int)>();
++        readonly List<int> roundCavity = new List<int>();
++        readonly List<int> roundSizes = new List<int>();
++        int roundPos = 0, roundMarkValue = 0, roundApplied = 0;
++        int[] roundMark = new int[0];
++        bool round_marked(int c) { return c >= 0 && c < roundMark.Length && roundMark[c] == roundMarkValue; }
++        void round_mark(int c) { if (c < 0) return; if (c >= roundMark.Length) Array.Resize(ref roundMark, Math.Max(c + 1, 2 * roundMark.Length)); roundMark[c] = roundMarkValue; }
++        void defer(double key, int c, int i, int st) { roundDeferred.Add((key, c, i, st)); }
++        bool next_gate(out double key, out int c, out int i, out int st)
++        {
++            if (RoundWindow <= 0) {
++                key = 0; c = i = st = 0;
++                if (gates.Count == 0) return false;
++                gates.Pop(out key, out c, out i, out st);
++                return true;
++            }
++            if (roundPos >= roundBatch.Count) {
++                if (roundBatch.Count > 0) roundSizes.Add(roundApplied);
++                foreach (var g in roundDeferred) gates.Push(g.key, g.c, g.i, g.st);
++                roundDeferred.Clear(); roundBatch.Clear(); roundPos = 0; roundApplied = 0;
++                roundMarkValue++;
++                while (roundBatch.Count < RoundWindow && gates.Count > 0) {
++                    gates.Pop(out double k, out int cc, out int ii, out int ss);
++                    roundBatch.Add((k, cc, ii, ss));
++                }
++                if (roundBatch.Count == 0) { key = 0; c = i = st = 0; return false; }
++            }
++            var x = roundBatch[roundPos++];
++            key = x.key; c = x.c; i = x.i; st = x.st;
++            return true;
++        }
++        void round_report()
++        {
++            if (roundBatch.Count > 0 && roundApplied > 0) roundSizes.Add(roundApplied);
++            var sz = new List<int>(roundSizes); sz.Sort();
++            long total = 0; foreach (int z in roundSizes) total += z;
++            Counts["rounds"] = roundSizes.Count; Counts["round_applied"] = total;
++            if (sz.Count > 0) { Counts["round_p10"] = sz[sz.Count / 10]; Counts["round_p50"] = sz[sz.Count / 2]; Counts["round_max"] = sz[sz.Count - 1]; }
++            foreach (int P in new[] { 4, 16 }) {
++                long steps = 0; foreach (int z in roundSizes) steps += (z + P - 1) / P;
++                Counts["round_ceiling_x100_p" + P] = steps > 0 ? 100 * total / steps : 0;
++            }
++            // the last 10 % of the applied gates: their rounds
++            long acc = 0, lateRounds = 0, lateGates = 0;
++            for (int k = roundSizes.Count - 1; k >= 0 && acc < total / 10; --k) { acc += roundSizes[k]; lateRounds++; lateGates += roundSizes[k]; }
++            Counts["round_late_rounds"] = lateRounds; Counts["round_late_gates"] = lateGates;
++            roundSizes.Clear();
++        }
++
+         // inserts a Steiner point on the offset surface (from cell hint); its new cells are inside, and their facets
+         // towards outside cells are queued as gates. False if the triangulation rejects it (unchanged then)
+         bool insert_steiner(Vector3d p, int hint, int which)
