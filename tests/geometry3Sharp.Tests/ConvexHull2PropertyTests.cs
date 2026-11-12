@@ -224,6 +224,37 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void OrdinaryScales_KeepTheDimensionOfTheUnscaledDecision()
+        {
+            // For extents between 1e-3 and 1e8, the decisions (point: extent below epsilon, absolute; line: distance below
+            // epsilon times the extent, relative) are those of Vector2d.GetInformation on the original points, the code the
+            // constructor used to call; near-collinear sets put the line decision at the edge of epsilon.
+            int dims0 = 0, dims1 = 0, dims2 = 0;
+            foreach (double ext in new[] { 1e-3, 0.37, 1, 1000, 123456.789, 1e6, 3e8 })
+                foreach (double eps in new[] { 1e-12, 1e-9, 1e-6, 1e-3, 0.05 })
+                    for (int seed = 0; seed < 60; ++seed) {
+                        var r = new Random(seed * 31 + 7);
+                        int m = 3 + r.Next(40);
+                        double off = seed % 3 == 0 ? ext * 100 : 0;
+                        var pts = new List<Vector2d>();
+                        for (int i = 0; i < m; ++i) {
+                            double u = r.NextDouble();
+                            switch (seed % 4) {
+                                case 0: pts.Add(new Vector2d(off + ext * r.NextDouble(), off + ext * r.NextDouble())); break;
+                                case 1: pts.Add(new Vector2d(off + ext * u, off + ext * (2 * u + (r.NextDouble() - 0.5) * Math.Pow(10, -(seed % 12) - 1)))); break;
+                                case 2: pts.Add(new Vector2d(off + ext * r.Next(6), off + ext * r.Next(6))); break;
+                                default: pts.Add(new Vector2d(off + ext * Math.Cos(6.28 * u), off + ext * Math.Sin(6.28 * u))); break;
+                            }
+                        }
+                        Vector2d.GetInformation(pts, eps, out Vector2d.Information info);
+                        var hull = new ConvexHull2(pts, eps, QueryNumberType.QT_DOUBLE);
+                        Assert.True(info.mDimension == hull.Dimension, $"extent {ext} epsilon {eps} seed {seed}: dimension {hull.Dimension}, unscaled decision {info.mDimension}");
+                        if (hull.Dimension == 0) ++dims0; else if (hull.Dimension == 1) ++dims1; else ++dims2;
+                    }
+            Assert.True(dims0 > 30 && dims1 > 100 && dims2 > 1000, $"vacuous: {dims0} / {dims1} / {dims2}");
+        }
+
+        [Fact]
         public void OneDimensionalAndPointSets_KeepTheirDimension_AtATinyScale()
         {
             foreach (int e in new[] { -100, 0, 100 }) {
