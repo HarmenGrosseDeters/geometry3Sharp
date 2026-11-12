@@ -183,7 +183,9 @@ namespace geometry3Sharp.Tests
                 }
                 case "Fidelity": {
                     var f = new MeshFidelityMetrics(m, Sphere(0.404e308, off));
-                    f.Compute();
+                    // a refusal leaves the metrics NaN; a computed result must have finite distances
+                    if (f.Compute())
+                        Assert.False(double.IsNaN(f.Chamfer) || double.IsInfinity(f.Chamfer), "chamfer " + f.Chamfer);
                     break;
                 }
                 case "ICP": {
@@ -207,7 +209,10 @@ namespace geometry3Sharp.Tests
                     break;
                 }
                 case "PointCloudSurface": {
-                    new PointCloudSurface(m.Vertices().ToList()).Compute();
+                    var p = new PointCloudSurface(m.Vertices().ToList());
+                    // a refusal names its reason; a result is a mesh with finite vertices
+                    if (p.Compute()) AssertFinite(p.Result, op);
+                    else Assert.False(string.IsNullOrEmpty(p.Error), "a refusal without a reason");
                     break;
                 }
                 case "RemoveOccluded": {
