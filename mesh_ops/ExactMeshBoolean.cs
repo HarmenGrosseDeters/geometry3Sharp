@@ -1115,6 +1115,7 @@ namespace g3
                     antipodalSegments[m] = antipodal_grid(segments);
                     antipodalExact[m] = antipodal_exact(segments);
                     antipodalFar[m] = far_points(m, 64);
+                    antipodalFar[m].Segments = antipodalFar[m].Shift > 0 ? antipodal_grid(segments, antipodalFar[m].Shift) : antipodalSegments[m];
                 }
             }
             // the fast-winding trees of the other open meshes, concurrently (each is independent, built from its own
@@ -1482,12 +1483,12 @@ namespace g3
             double g;
             if (d >= near) {
                 int ns = b.Lengths.Length;
-                g = Math.Min(b.Total / (4 * Math.PI * d * d), ns / (2 * Math.PI * d));
+                g = far_term(b.Total, ns, d);
             } else {
                 g = 0;
                 for (int t = 0; t < b.Lengths.Length && double.IsInfinity(g) == false; ++t) {
                     double dt = box_distance(box, 0, b.Boxes, 6 * t) - slack;
-                    g = dt >= near ? g + Math.Min(b.Lengths[t] / (4 * Math.PI * dt * dt), 1 / (2 * Math.PI * dt)) : double.PositiveInfinity;
+                    g = dt >= near ? g + far_term(b.Lengths[t], 1, dt) : double.PositiveInfinity;
                 }
             }
             cost = g * (1 + 1e-12) * diam;
@@ -1559,14 +1560,68 @@ namespace g3
         }
 
         // the distance of two boxes (min x, y, z, max x, y, z at offsets a and b), 0 where they overlap
-        static double box_distance(double[] x, int a, double[] y, int b)
+        internal static double box_distance(double[] x, int a, double[] y, int b)
         {
             double sum = 0;
             for (int q = 0; q < 3; ++q) {
                 double gap = Math.Max(0, Math.Max(x[a + q] - y[b + q + 3], y[b + q] - x[a + q + 3]));
                 sum += gap * gap;
             }
-            return Math.Sqrt(sum);
+            // (#719: an overflowed sum of squares would give an infinite distance and far_term a zero bound: then the norm
+            // of the gaps without squaring them; an underflowed one gives a smaller distance, which only weakens the bound)
+            return sum <= 1e300 ? Math.Sqrt(sum) : box_distance_scaled(x, a, y, b);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static double box_distance_scaled(double[] x, int a, double[] y, int b)
+        {
+            double g0 = Math.Max(0, Math.Max(x[a] - y[b + 3], y[b] - x[a + 3]));
+            double g1 = Math.Max(0, Math.Max(x[a + 1] - y[b + 4], y[b + 1] - x[a + 4]));
+            double g2 = Math.Max(0, Math.Max(x[a + 2] - y[b + 5], y[b + 2] - x[a + 5]));
+            return scaled_norm(g0, g1, g2);
+        }
+
+        /// <summary>
+        /// #719: the norm of (x, y, z) without the overflow or underflow of its squares: the vector scaled exactly by
+        /// 2^-e, e the exponent of its largest component, the norm of that (rounded as the plain one) scaled back. 0 for
+        /// the zero vector, +infinity for an infinite component, NaN for a NaN one. Only the out-of-range paths of the
+        /// Antipodal sum and of box_distance call it (not inlined: the callers keep their vectors in registers)
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static double scaled_norm(double x, double y, double z)
+        {
+            double m = Math.Max(Math.Abs(x), Math.Max(Math.Abs(y), Math.Abs(z)));
+            if (m == 0 || double.IsNaN(m) || double.IsInfinity(m))
+                return m;           // (Math.Max propagates NaN on every target)
+            int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF) - 1023;
+            if (e == -1023)
+                e = -1022;          // (subnormal: 2^1022 brings it to at least 2^-52)
+            double u = ExactPoint3.ScaleB(x, -e), v = ExactPoint3.ScaleB(y, -e), w = ExactPoint3.ScaleB(z, -e);
+            return ExactPoint3.ScaleB(Math.Sqrt(u * u + v * v + w * w), e);
+        }
+
+        /// <summary>
+        /// the Biot-Savart terms of L1 and L2's gradient bounds: min(length / (4 pi d^2), count / (2 pi d)) for a set of
+        /// segments of that total length and count at distance at least d. Where 4 pi d^2 is a finite double the old
+        /// expression (bit-identical); where it overflowed (#719: the term became 0, an unsound bound of a gradient that is
+        /// not zero) the quotients one at a time, at least the smallest positive double where that underflows (the true
+        /// term is below it but not 0), and +infinity where it is not a number (an infinite length or a NaN distance)
+        /// </summary>
+        internal static double far_term(double length, double count, double d)
+        {
+            double q = 4 * Math.PI * d * d;
+            if (q <= double.MaxValue)
+                return Math.Min(length / q, count / (2 * Math.PI * d));
+            return far_term_overflow(length, count, d);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static double far_term_overflow(double length, double count, double d)
+        {
+            double r = Math.Min(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
+            if (double.IsNaN(r))
+                return double.PositiveInfinity;
+            return length > 0 ? Math.Max(r, double.Epsilon) : r;
         }
 
         // open_winding with L1: the open meshes decided for piece i's patch take the patch's value, the first piece of a
@@ -1926,8 +1981,17 @@ namespace g3
                                     // (the boundary sum at the centroid's approximation: its error, sqrt(3) times the bound
                                     // per coordinate, enters the terms' errors, and the direction to the far point's)
                                     Vector3d g = cq.Approx(out ge);
+                                    // (#719: at the mesh's scale, exact: a power of two, and an approximation too large for
+                                    // doubles is infinite at any scale, the evaluation then at the exact centroid)
+                                    FarPoints farM = antipodalFar[m];
+                                    Vector3d[] segs = segments;
+                                    if (farM.Shift > 0) {
+                                        g *= farM.Scale;
+                                        ge *= farM.Scale;
+                                        segs = farM.Segments;
+                                    }
                                     double pm = Math.Abs(g.x) + Math.Abs(g.y) + Math.Abs(g.z);
-                                    Vector3d toFar = antipodalFar[m].Grid[f] - g;
+                                    Vector3d toFar = farM.Scaled[f] - g;
                                     Vector3d x1 = -toFar.Normalized;
                                     double pointError = 1.7320508075688774 * ge * (1 + 1e-15);
                                     // (a value at the approximation, with a bound up to 1e-4, is taken only where it gives
@@ -1941,17 +2005,17 @@ namespace g3
                                     // does not snap either, and no half-integer lies between w and w_ref: the same
                                     // threshold. Else the exact centroid, rare)
                                     double roundingBound;
-                                    int status = antipodal_value(g, pm, x1, chi[loc[q]], segments, out w, out bound, out roundingBound,
+                                    int status = antipodal_value(g, pm, x1, chi[loc[q]], segs, out w, out bound, out roundingBound,
                                         pointError, 2 * pointError / toFar.Length, 1e-4);
                                     if (status == 0 && !(Math.Abs(w - (Math.Floor(w) + 0.5)) > bound + 2.002 * roundingBound && roundingBound <= 0.99e-6))
                                         status = 2;
                                     if (status != 0) {
                                         // (no value within the bound at the approximation, or undecided there: at the exact
                                         // centroid, as an Antipodal evaluation with this ray computes it)
-                                        g = cq.GridDouble();
+                                        g = cq.GridDouble(farM.Shift);
                                         pm = Math.Abs(g.x) + Math.Abs(g.y) + Math.Abs(g.z);
-                                        x1 = -(antipodalFar[m].Grid[f] - g).Normalized;
-                                        status = antipodal_value(g, pm, x1, chi[loc[q]], segments, out w, out bound);
+                                        x1 = -(farM.Scaled[f] - g).Normalized;
+                                        status = antipodal_value(g, pm, x1, chi[loc[q]], segs, out w, out bound);
                                     }
                                     if (status == 0 || status == 1) {
                                         double value = status == 1 ? 0.5 : snap_half(w, bound);
@@ -2083,19 +2147,19 @@ namespace g3
             double g;
             if (d >= near) {
                 int ns = b.Lengths.Length;
-                g = Math.Min(b.Total / (4 * Math.PI * d * d), ns / (2 * Math.PI * d));
+                g = far_term(b.Total, ns, d);
             } else if (c == null) {
                 g = 0;
                 for (int t = 0; t < b.Lengths.Length && double.IsInfinity(g) == false; ++t) {
                     double dt = box_distance(box, 0, b.Boxes, 6 * t) - slack;
-                    g = dt >= near ? g + Math.Min(b.Lengths[t] / (4 * Math.PI * dt * dt), 1 / (2 * Math.PI * dt)) : double.PositiveInfinity;
+                    g = dt >= near ? g + far_term(b.Lengths[t], 1, dt) : double.PositiveInfinity;
                 }
             } else {
                 // (T5: the far segments' terms at the cluster's box, the near ones at this box)
                 g = c.Far;
                 foreach (int t in c.Near) {
                     double dt = box_distance(box, 0, b.Boxes, 6 * t) - slack;
-                    g = dt >= near ? g + Math.Min(b.Lengths[t] / (4 * Math.PI * dt * dt), 1 / (2 * Math.PI * dt)) : double.PositiveInfinity;
+                    g = dt >= near ? g + far_term(b.Lengths[t], 1, dt) : double.PositiveInfinity;
                     if (double.IsInfinity(g))
                         break;
                 }
@@ -2127,7 +2191,7 @@ namespace g3
             for (int t = 0; t < b.Lengths.Length; ++t) {
                 double dt = box_distance(cbox, 0, b.Boxes, 6 * t) - slack;
                 if (dt >= near)
-                    c.Far += Math.Min(b.Lengths[t] / (4 * Math.PI * dt * dt), 1 / (2 * Math.PI * dt));
+                    c.Far += far_term(b.Lengths[t], 1, dt);
                 else
                     list.Add(t);
             }
@@ -2369,7 +2433,9 @@ namespace g3
                 k = Math.Abs(r.x) >= Math.Abs(r.y) && Math.Abs(r.x) >= Math.Abs(r.z) ? 0 : Math.Abs(r.y) >= Math.Abs(r.z) ? 1 : 2;
                 i = (k + 1) % 3; j = (k + 2) % 3;
                 Count = g.Length / 2;
-                sk = Count > 0 ? Math.Sign(g[0][k] - r[k]) : 0;
+                // (#719: sign, not Math.Sign, which throws on the NaN of an infinite grid double; the projection is then
+                // invalid, every segment a candidate)
+                sk = Count > 0 ? sign(g[0][k] - r[k]) : 0;
                 box = new double[4 * Count];
                 double bx0 = double.PositiveInfinity, by0 = double.PositiveInfinity, bx1 = double.NegativeInfinity, by1 = double.NegativeInfinity;
                 for (int s = 0; s < Count && Valid; ++s) {
@@ -2422,6 +2488,8 @@ namespace g3
             }
             // (a cell index; the cells only sort the boxes, so rounding here costs no soundness: every box is in every
             // cell its clamped range covers, and a query visits the cells of its own clamped range, with the exact box test)
+            // (Math.Sign without its exception for NaN, which gives 0)
+            static int sign(double v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
             static int clamp(double t, int n)
             {
                 if (double.IsNaN(t) || t < 0) return 0;
@@ -2438,7 +2506,7 @@ namespace g3
                 double di = ex + er + u * Math.Abs(ni), dj = ex + er + u * Math.Abs(nj);
                 double ad = Math.Abs(d) - dd;
                 // (all points on one side of the plane x_k = R_k: else the projection does not map hulls to hulls)
-                if (Math.Sign(d) != sk) {
+                if (sign(d) != sk) {
                     pe = double.NaN;
                     return false;
                 }
@@ -3329,6 +3397,13 @@ namespace g3
                 }
                 return gridDouble;
             }
+            // (#719: in grid units times 2^-shift, FarPoints.Shift; GridDouble for 0)
+            public Vector3d GridDouble(int shift)
+            {
+                if (shift == 0)
+                    return GridDouble();
+                return new Vector3d(ExactPoint3.ToDouble(P.X, P.W, -shift), ExactPoint3.ToDouble(P.Y, P.W, -shift), ExactPoint3.ToDouble(P.Z, P.W, -shift));
+            }
             Vector3d local;
             double localError;
             bool hasLocal;
@@ -3396,6 +3471,12 @@ namespace g3
         {
             public ExactPoint3[] R;
             public Vector3d[] Grid, Input;
+            // (#719: the Antipodal sums of the mesh in grid units times 2^-Shift, Shift > 0 only where a difference of two
+            // points of the far points' box could exceed 2^500, so that no square overflows; Scaled the far points and
+            // Segments the boundary segments at that scale, Grid and the mesh's antipodalSegments themselves for Shift 0)
+            public int Shift;
+            public double Scale = 1;
+            public Vector3d[] Scaled, Segments;
         }
 
         FarPoints far_points(int mesh, int count)
@@ -3419,6 +3500,20 @@ namespace g3
                 f.Grid[j] = new Vector3d((double)f.R[j].X, (double)f.R[j].Y, (double)f.R[j].Z);
                 f.Input[j] = arr.ToInputVector(f.R[j]);
             }
+            // (#719: the far points lie within 4001 ext of the box's centre on each axis, so every difference of the
+            // Antipodal sum, of a far point, a centroid or a segment end, has a norm below 2^13 ext; above 2^500 its square
+            // could overflow, and the doubles of the grid themselves above 2^1024: the sums of this mesh are then evaluated
+            // at the exact scale 2^-Shift, converted from the exact coordinates, which leaves every term's angle and the
+            // ratios of its error bound as they are)
+            f.Shift = Math.Max(0, (int)ExactPoint3.BitLength(ext) + 13 - 500);
+            if (f.Shift > 0) {
+                f.Scale = ExactPoint3.ScaleB(1, -f.Shift);
+                f.Scaled = new Vector3d[count];
+                for (int j = 0; j < count; ++j)
+                    f.Scaled[j] = new Vector3d(ExactPoint3.ToDouble(f.R[j].X, BigInteger.One, -f.Shift),
+                        ExactPoint3.ToDouble(f.R[j].Y, BigInteger.One, -f.Shift), ExactPoint3.ToDouble(f.R[j].Z, BigInteger.One, -f.Shift));
+            } else
+                f.Scaled = f.Grid;
             return f;
         }
 
@@ -3600,14 +3695,17 @@ namespace g3
             usedFar = -1;
             // (in grid coordinates, relative to the arrangement's centre: their rounding is relative to the model's size,
             // not to its distance from the origin, eg UTM coordinates; the segments are converted once, antipodal_grid)
-            Vector3d p = center.GridDouble();
-            double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
             FarPoints far = antipodalFar[mesh];
+            // (#719: at the mesh's scale, the segments of that scale)
+            Vector3d p = center.GridDouble(far.Shift);
+            double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
+            if (far.Shift > 0)
+                segments = far.Segments;
             for (int attempt = 0; attempt < 20; ++attempt) {
                 int j;
                 // (attempts continue the hash sequence of front_crossings: a new far point each time)
                 int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, far, out j, 200 * attempt);
-                Vector3d x1 = -(far.Grid[j] - p).Normalized;
+                Vector3d x1 = -(far.Scaled[j] - p).Normalized;
                 double w, bound;
                 int status = antipodal_value(p, pm, x1, chi, segments, out w, out bound);
                 if (status == 1) {
@@ -3658,13 +3756,42 @@ namespace g3
         internal static int antipodal_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound,
             out double roundingBound, double pointError, double directionError, double maxBound)
         {
+            // (#719: the sum with the plain norms; where a squared norm leaves [1e-200, 1e300], which the scale of the
+            // mesh's sums (FarPoints.Shift) leaves only to differences next to the underflow range, once more with
+            // scaled_norm out of it: no call and no further branch in the loop of the normal case)
+            int status = antipodal_sum<PlainNorms>(p, pm, x1, chi, segments, out w, out bound, out roundingBound, pointError, directionError, maxBound);
+            if (status == 3)
+                status = antipodal_sum<SafeNorms>(p, pm, x1, chi, segments, out w, out bound, out roundingBound, pointError, directionError, maxBound);
+            return status;
+        }
+
+        interface INormPolicy { bool Safe { get; } }
+        struct PlainNorms : INormPolicy { public bool Safe { get { return false; } } }
+        struct SafeNorms : INormPolicy { public bool Safe { get { return true; } } }
+
+        // antipodal_value's sum; with PlainNorms 3 where a squared norm is out of range
+        [MethodImpl(JitHints.Optimize)]
+        static int antipodal_sum<T>(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound,
+            out double roundingBound, double pointError, double directionError, double maxBound) where T : struct, INormPolicy
+        {
             w = 0.5;
             bound = 0;
             roundingBound = 0;
             double sum = 0, err = 0, abs = 0, errRounding = 0;
             for (int k = 0; k < segments.Length; k += 2) {
                 Vector3d a = segments[k] - p, b = segments[k + 1] - p;
-                double la = a.Length, lb = b.Length;
+                // (#719: the squares in range, as Vector3d.Length computes the norm; out of it without them)
+                double sa = a.x * a.x + a.y * a.y + a.z * a.z, sb = b.x * b.x + b.y * b.y + b.z * b.z;
+                double la, lb;
+                if (default(T).Safe) {
+                    la = sa >= 1e-200 && sa <= 1e300 ? Math.Sqrt(sa) : scaled_norm(a.x, a.y, a.z);
+                    lb = sb >= 1e-200 && sb <= 1e300 ? Math.Sqrt(sb) : scaled_norm(b.x, b.y, b.z);
+                } else {
+                    if (!(sa >= 1e-200 && sa <= 1e300 && sb >= 1e-200 && sb <= 1e300))
+                        return 3;
+                    la = Math.Sqrt(sa);
+                    lb = Math.Sqrt(sb);
+                }
                 // the error of the unit vectors: the rounding of p and of the ends (relative 2^-52 of their L1 size, as
                 // a distance), divided by the distance, plus the normalization; num and den are sums of a few products
                 // of unit vectors, so their errors are a small multiple of it (taken generously: 16 times)
@@ -3791,6 +3918,17 @@ namespace g3
             var g = new Vector3d[segments.Length];
             for (int k = 0; k < segments.Length; ++k)
                 g[k] = new Vector3d((double)arr.GridValue(segments[k].x, 0), (double)arr.GridValue(segments[k].y, 1), (double)arr.GridValue(segments[k].z, 2));
+            return g;
+        }
+
+        // (#719: the same in grid units times 2^-shift, each coordinate rounded once from its exact value)
+        Vector3d[] antipodal_grid(Vector3d[] segments, int shift)
+        {
+            var g = new Vector3d[segments.Length];
+            for (int k = 0; k < segments.Length; ++k)
+                g[k] = new Vector3d(ExactPoint3.ToDouble(arr.GridValue(segments[k].x, 0), BigInteger.One, -shift),
+                    ExactPoint3.ToDouble(arr.GridValue(segments[k].y, 1), BigInteger.One, -shift),
+                    ExactPoint3.ToDouble(arr.GridValue(segments[k].z, 2), BigInteger.One, -shift));
             return g;
         }
 
