@@ -132,6 +132,10 @@ for both; (3) the (B) round simulation is next.
 A second black-box competitor (alecjacobson/alpha-wrap, MIT by its README, claims about 2x CGAL): not now (owner
 2026-11-12); building and running such a tool is acceptable in principle once its licence is verified as permissive, but
 only with a concrete question the CGAL comparison cannot answer.
+(B) serial-round probe done (`aw3/B/`, master 14a27e45): round sizes stay ~100 to the end (ceiling 3.9x on 4 cores,
+14.8x on 16), quality equal except order-sensitive min angles, not bit-identical with master; but the main carve is only
+45-60 % of the time, so 40118 goes 67 s to 40 s (4 cores) / 21 s (16). Not built for now (owner 2026-11-12): the lever
+choice (size budget, alpha per component, (B), the serial rest phases) waits for the performance study's ranking.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a

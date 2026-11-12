@@ -377,6 +377,14 @@ Open:
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
 - **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
   (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
+- **Extreme-runtime boolean levers (owner 2026-11-12, study #734, `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`):**
+  (1) a hierarchical antipodal boundary sum (Barnes-Hut far field with a certified fallback to the full sum, decisions
+  unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression), design note and
+  bound review first; (4) boolean allocations (the >= 10 % trigger of the settled item below is met: GC 11.3 % of the
+  inventory, 23-27 % on four ops). Both go into the serial exact-code queue after #711 (T3a), ranked by measured gain.
+  (3) A cost-weighted rounding budget for #711-type inputs (a `BigInteger` stage counts as k pair tests; #711 rounding
+  15.6 s to 3.0 / 0.66 s; bit-identical on inputs without `BigInteger` stages) is approved and built in
+  `MeshRoundingRepair` after #725, after a check of the 60 slow fuzz units. Server GC advice goes into OPERATIONS.md.
 - **Exact number representation beyond `BigInteger` (study, owner 2026-11-12):** a Fable study (branch
   `runs/exact-numbers`, measurement only, no library code) measures what the `BigInteger` / expansion share costs and what
   a better representation could gain: an upper bound first (stop if it is under 10 % of the profiled time), then
