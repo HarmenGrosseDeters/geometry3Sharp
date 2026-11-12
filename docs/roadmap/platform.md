@@ -53,9 +53,10 @@ Part of the [roadmap](../ROADMAP.md).
   `gParallel` options hook (production default unchanged), the test assembly sets one limited-concurrency scheduler at
   the core count, a scan test keeps loops from bypassing it (exact-code files reviewed if touched), measured against
   the current run; then Terrain Slope (one scenario per PR, with counters and mutants; reducing coverage only via the
-  owner). In progress: the backlog session. **Owner 2026-11-12:** a test above 20 s in any run (the full run included)
-  is a potential defect: it gets an issue with a diagnosis (starvation, hang, pathological input or algorithm), not only
-  a backlog line; the ratchet lists such tests separately (#685).
+  owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
+  diagnosis (starvation, hang, pathological input or algorithm): a library operation on one input in a benchmark or
+  reference run (first the Alpha Wrap 800 tail, see alpha-wrap-and-repair.md), and a test in any run (the full run
+  included; an issue, not only a backlog line; the ratchet lists such tests separately, #685).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
