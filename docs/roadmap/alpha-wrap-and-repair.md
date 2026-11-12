@@ -143,7 +143,7 @@ runs/alpha-wrap-3-fable, master 1230482): the tail is size, not pathology (unit 
 parameter, off by default (it closes lattice cavities: 40118 wrap-to-input 0.46 to 20.7 % of the diagonal), which is the
 only lever under 20 s on 4 cores (13 s with (B)). Alpha relative to the largest component is dropped (slower on 3 tail
 meshes). #692 (185k raw triangles from 144) goes to the AW3 session as a diagnosis (alpha for tiny inputs or the test
-input); #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) has its own session; the
+input); #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) has its own session (cause: two absolute thresholds in `DMeshAABBTree3.FastWindingNumber`, the area / normal epsilon and the padded box test, so tiny triangles in the unit frame make every query brute force; owner 2026-11-12: option A, both made scale-relative, 62 s -> 2-2.5 s, FWN bit-identical under 2^k scaling, values on tiny-triangle meshes move to the documented approximation); the
 simplification sometimes not applied (175914, 51909 at diag / 245) is a defect check for the AW3 session.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
