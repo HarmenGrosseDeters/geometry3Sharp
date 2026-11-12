@@ -64,6 +64,15 @@ workers ran on the same VM: 12 s to 35 s, too high. Re-timed on the idle machine
 including about 0.2 s .NET start): all 60 pass (rc 0), 59 above 5 s; union 47 units 4.7 to 16.4 s, intersection 12 units
 6.8 to 12.7 s, difference 1 unit 6.7 s. The same operations as the timeout above, so one performance item: #711.
 
+The 60 inputs are in `units/` (owner request 2026-11-12): fuzzer bytes of about 150 bytes each, decoded procedurally by
+`Program.Decode`, not mesh files. Each file is named by the SHA-1 of its content; `units/.gitattributes` keeps git from
+converting line endings. Replay or time one with the same filter and the decoder of master 05d1332b:
+
+```sh
+MESH_FUZZ_OPS=union,intersection,difference dotnet MeshFuzzPilot.dll replay runs/mesh-fuzz/grp-a/units/slow-unit-<sha1>
+MESH_FUZZ_OPS=union,intersection,difference dotnet MeshFuzzPilot.dll dump runs/mesh-fuzz/grp-a/units/slow-unit-<sha1>
+```
+
 ## Issues
 
 - #710: item 2 (ExactTriangulation2 exception).
