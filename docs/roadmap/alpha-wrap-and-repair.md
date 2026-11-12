@@ -123,6 +123,12 @@ built) on the 20 tail meshes plus about 30 random ones at the same alpha / offse
 min / p01 angle, certified Hausdorff; (3) the (B) probe on the tail meshes: a guarantee note, a round simulation
 (independent-set sizes per round, late rounds especially) and a serial-round prototype for quality against master, with the
 projected tail time on 4 and 16 cores. No PR for (B) before the owner has the results.
+Status 2026-11-12: (1) done (`aw3/f800/TAIL-REPORT.md`: 99.2 % within budget, time linear in the raw size); (2) done
+(`aw3/cgal/cmp50.txt`, master 14a27e45, CGAL 5.6 black box, CGAL single-threaded, ours 4 threads on 4 cores): tail 20 raw
+wrap median 19.8 s / max 54.9 s vs CGAL 84.7 / 204.7 s (pipeline with simplify + certify 28.5 / 66.5 s), random 30 raw
+3.5 / 10.9 s vs 18.8 / 97.3 s; guarantees 50/50 both, certified Hausdorff equal, raw triangles 5-10 % fewer, raw p01
+angle 20.9° vs CGAL 21.6° (tail) and 20.1° (random), global min angle 0.72° vs 1.89° (860049). The tail is the resolution
+for both; (3) the (B) round simulation is next.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
