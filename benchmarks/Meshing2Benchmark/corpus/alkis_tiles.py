@@ -54,7 +54,7 @@ def get(url, path):
     if os.path.exists(path):
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    print("download", url, flush=True)
+    print("download", url, file=sys.stderr, flush=True)
     urllib.request.urlretrieve(url, path + ".part")
     os.replace(path + ".part", path)
 
