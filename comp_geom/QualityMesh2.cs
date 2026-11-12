@@ -1717,9 +1717,11 @@ namespace g3
                     splitCause = 2;
                     var failure = SplitSegment(first);
                     if (failure != null) return failure;
-                    // a piece too short to split stays: then t cannot be helped this way. On the grid t is tried again (it is queued): the
-                    // encroachment of an unsplittable subsegment no longer stops its circumcentre, which may still fit on the grid
-                    if (unsplittable.Contains(key) && grid == null) { exempt.Add(tKey); Note(11); }
+                    // a piece that cannot be split stays, and t is tried again (it is queued): the encroachment of an unsplittable
+                    // subsegment no longer stops its point (EncroachedByPoint skips such pieces), on the grid and off it. Off the grid t was
+                    // given up here until the near-contact fan of #542 left a triangle below a T-junction whose off-centre lay in the
+                    // diametral circle of an O11-unsplittable piece, a case the oracle's O11 exemptions (a circumcentre behind such a
+                    // piece) do not excuse
                     return null;
                 }
                 // (a refused off-centre falls back to the circumcentre's pixel once before t counts as grid-blocked; review)
