@@ -69,7 +69,7 @@ Status on 2026-11-12 (morning, Berlin).
   2026-11-12). Then T5 / T1b per the execution order; T6 (only all-clean method, <= 2x CGAL EPECK on 1k-100k) is checked at the end. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
   memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
-  `DualContouring` allocations bound about 4 % of wall (below the 5 % threshold: dropped, 2026-11-12); lever (3), the fast-winding cache's `List<int>` per box, is done in the cache PR (1.1-1.4x on the build).
+  `DualContouring` allocations bound about 4 % of wall (below the 5 % threshold: dropped, 2026-11-12); lever (3), the fast-winding cache's `List<int>` per box, is done (#674, merged 2026-11-12, e48dd964: cache build 1.13-1.42x serial, 1.15-1.31x parallel, bit-identical).
   [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
