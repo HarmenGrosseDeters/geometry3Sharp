@@ -85,7 +85,7 @@ jobs:
           rm -f "$ALKIS_DIR/sample/results.jsonl"
           python3 benchmarks/Meshing2Benchmark/corpus/alkis_run.py --sample "$ALKIS_DIR/sample" --known benchmarks/Meshing2Benchmark/corpus/alkis_known.json --expect-runs 50 --timeout 300
       - name: Table
-        if: always()
+        if: ${{ always() && hashFiles('alkis-data/sample/results.jsonl') != '' }}
         run: |
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           python3 benchmarks/Meshing2Benchmark/corpus/alkis_run.py --sample "$ALKIS_DIR/sample" --summary >> "$GITHUB_STEP_SUMMARY"

@@ -11,6 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import alkis_run as runner  # noqa: E402
+import alkis_tiles as tiles  # noqa: E402
 import alkis_sample as sample  # noqa: E402
 
 
@@ -169,6 +170,56 @@ class KnownFindings(unittest.TestCase):
         self.assertEqual(self.run_check([], {})[0], 1)
         self.manifest = [{"stratum": "a", "tile": "1_2", "files": {n: "x" for n in self.names}}]
         self.assertEqual(self.run_check(self.valid(), {}, expect=50)[0], 1)
+
+
+class Download(unittest.TestCase):
+    """The district archives are large; a transient network error must not fail the night (run 43312208041: connection reset)."""
+
+    def run_get(self, errors, attempts=5):
+        calls, pauses = [], []
+
+        def fake(url, part):
+            calls.append(part)
+            if len(calls) <= len(errors):
+                open(part, "wb").write(b"half")       # a partial file stays behind
+                raise errors[len(calls) - 1]
+            open(part, "wb").write(b"zip")
+
+        old = tiles.urllib.request.urlretrieve
+        tiles.urllib.request.urlretrieve = fake
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "sub", "a.zip")
+                try:
+                    tiles.get("https://example.invalid/a.zip", path, attempts=attempts, pause=5, sleep=pauses.append)
+                    result = open(path, "rb").read()
+                except Exception as e:                  # noqa: BLE001
+                    result = e
+                leftover = os.path.exists(path + ".part")
+        finally:
+            tiles.urllib.request.urlretrieve = old
+        return result, len(calls), pauses, leftover
+
+    def test_retries_a_reset_connection(self):
+        result, calls, pauses, leftover = self.run_get([ConnectionResetError(104, "reset"), tiles.urllib.error.URLError("reset")])
+        self.assertEqual(result, b"zip")
+        self.assertEqual((calls, pauses, leftover), (3, [5, 10], False))
+
+    def test_gives_up_after_the_last_attempt(self):
+        result, calls, pauses, leftover = self.run_get([ConnectionResetError(104, "reset")] * 5, attempts=3)
+        self.assertIsInstance(result, ConnectionResetError)
+        self.assertEqual((calls, len(pauses), leftover), (3, 2, False))
+
+    def test_a_client_error_is_not_retried(self):
+        err = tiles.urllib.error.HTTPError("https://example.invalid", 404, "not found", {}, None)
+        result, calls, pauses, leftover = self.run_get([err])
+        self.assertIsInstance(result, tiles.urllib.error.HTTPError)
+        self.assertEqual((calls, pauses), (1, []))
+
+    def test_a_server_error_is_retried(self):
+        err = tiles.urllib.error.HTTPError("https://example.invalid", 503, "unavailable", {}, None)
+        result, calls, _, _ = self.run_get([err])
+        self.assertEqual((result, calls), (b"zip", 2))
 
 
 if __name__ == "__main__":

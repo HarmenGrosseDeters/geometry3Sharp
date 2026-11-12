@@ -32,6 +32,8 @@ import re
 import sqlite3
 import struct
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -49,14 +51,27 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def get(url, path):
-    """Downloads url to path through a .part file; an existing file is kept (the cache)."""
+def get(url, path, attempts=5, pause=10, sleep=time.sleep):
+    """Downloads url to path through a .part file; an existing file is kept (the cache). A transient network error (a reset
+    connection, a timeout, a 5xx answer) is retried from the start after a growing pause; the last error is raised."""
     if os.path.exists(path):
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    print("download", url, file=sys.stderr, flush=True)
-    urllib.request.urlretrieve(url, path + ".part")
-    os.replace(path + ".part", path)
+    for attempt in range(1, attempts + 1):
+        print("download", url, file=sys.stderr, flush=True)
+        try:
+            urllib.request.urlretrieve(url, path + ".part")
+            os.replace(path + ".part", path)
+            return
+        except (urllib.error.URLError, OSError) as e:
+            if os.path.exists(path + ".part"):
+                os.remove(path + ".part")
+            if isinstance(e, urllib.error.HTTPError) and e.code < 500:
+                raise                           # a 4xx answer is not transient
+            if attempt == attempts:
+                raise
+            print(f"  attempt {attempt} of {attempts} failed ({e}); retrying in {pause * attempt} s", file=sys.stderr, flush=True)
+            sleep(pause * attempt)
 
 
 def index(cache):
