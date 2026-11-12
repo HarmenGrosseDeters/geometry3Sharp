@@ -1788,17 +1788,20 @@ namespace g3
                                     Vector3d toFar = antipodalFar[m].Grid[f] - g;
                                     Vector3d x1 = -toFar.Normalized;
                                     double pointError = 1.7320508075688774 * ge * (1 + 1e-15);
-                                    // (a bound up to 1e-4 at the approximation, where the value is farther than the bound
-                                    // plus 1e-6 from every half-integer: the evaluation at the exact centroid, within that
-                                    // bound of it, has the same threshold and does not snap)
-                                    // (and only where the bound without the approximation's error stays below 0.99e-6, so the
-                                    // exact centroid's evaluation with this ray gives a value too: the displacement changes
-                                    // each distance and each term's conditioning by at most the relative amounts the full
-                                    // bound's terms already carry, below pi 1e-4, so that bound by less than a factor 1.001)
+                                    // (a value at the approximation, with a bound up to 1e-4, is taken only where it gives
+                                    // what the evaluation at the exact centroid with this ray gives: that one's bound is
+                                    // within a factor 1.001 of roundingBound, the bound without the approximation's error
+                                    // (the displacement changes each distance and each term's conditioning by at most the
+                                    // relative amounts the full bound's terms already carry, below pi 1e-4), so with
+                                    // roundingBound <= 0.99e-6 it gives a value, w_ref, within 1.001 roundingBound of the true
+                                    // one, and w is within bound of it. If |w - h| > bound + 2.002 roundingBound for the
+                                    // nearest half-integer h, then |w_ref - h| exceeds w_ref's bound (it does not snap), w
+                                    // does not snap either, and no half-integer lies between w and w_ref: the same
+                                    // threshold. Else the exact centroid, rare)
                                     double roundingBound;
                                     int status = antipodal_value(g, pm, x1, chi[q - s0], segments, out w, out bound, out roundingBound,
                                         pointError, 2 * pointError / toFar.Length, 1e-4);
-                                    if (status == 0 && bound > 1e-6 && !(Math.Abs(w - (Math.Floor(w) + 0.5)) > bound + 1e-6 && roundingBound <= 0.99e-6))
+                                    if (status == 0 && !(Math.Abs(w - (Math.Floor(w) + 0.5)) > bound + 2.002 * roundingBound && roundingBound <= 0.99e-6))
                                         status = 2;
                                     if (status != 0) {
                                         // (no value within the bound at the approximation, or undecided there: at the exact
@@ -1948,43 +1951,88 @@ namespace g3
 
         /// <summary>
         /// L2: the boundary segments of mesh m that can pierce a triangle of two points of input triangle t and far point f:
-        /// those not wholly outside a face of the tetrahedron of t's corners and the far point (in doubles, each face's
-        /// test widened by 1e-9 of the coordinates' size, so no segment that meets it is left out)
+        /// those not wholly outside a face of the tetrahedron of t's corners and the far point (pierce_prefilter)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         int[] pierce_candidates(ExactMeshArrangement.InputTriangle t, int m, int f)
         {
-            Vector3d[] g = antipodalSegments[m];
             Vector3d r = antipodalFar[m].Grid[f];
             Vector3d[] v = { corner_double(t.Corners[0]), corner_double(t.Corners[1]), corner_double(t.Corners[2]), r };
+            return pierce_prefilter(v, antipodalSegments[m]);
+        }
+
+        /// <summary>
+        /// The segments g[s], g[s + 1] (s even) not wholly outside a face of the tetrahedron v[0..3], as the indices s: a
+        /// segment with both ends strictly outside one face's plane cannot meet the tetrahedron, nor a triangle in it.
+        /// Every point is a double within e_x = 2.3e-16 max_k |x_k| per coordinate of the exact one (the exact value
+        /// rounded once). A face a, b, c's test is certified against the exact points (u = 2^-53):
+        /// - the rows d1 = b - a, d2 = c - a are within ε1 = e_a + e_b + u max_k (|a_k| + |b_k|) (and ε2) per coordinate
+        ///   of the exact rows; m1 = max_k |d1_k|, M1 = m1 + ε1 bound the computed and the exact one;
+        /// - a component of n = d1 x d2 is within dn = 2 (ε1 M2 + M1 ε2) + 7 u m1 m2 of the exact normal's: two products,
+        ///   each within ε1 M2 + M1 ε2 of the exact one, and the roundings of the two products and the subtraction;
+        /// - so for a point x, n . x - n . a is within err(x) = (|x|_1 + |a|_1) (dn + 7e-16 |n|_1) of N . (X - A): the
+        ///   normal's error against |x - a|_1, the points' errors against |N|_1 <= |n|_1 + 3 dn (e_x + e_a <=
+        ///   2.3e-16 (|x|_1 + |a|_1)), and the roundings of the two dot products and their difference (at most 4.5e-16
+        ///   |n|_1 (|x|_1 + |a|_1)); dn's own share of the points' term is in the factor 1.01.
+        /// A point is outside a face if n . x - n . a exceeds 1.01 err(x) plus the margin 1e-9 S |n|_1 kept from before (S
+        /// the largest |x|_1 of all points). This does not shrink with |n| for a sliver face (an angle below about 1e-10),
+        /// where the margin alone left out segments that pierce (review of #633). A face whose fourth vertex is on its
+        /// plane within the same bound is not used: its normal's orientation is not certain.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int[] pierce_prefilter(Vector3d[] v, Vector3d[] g)
+        {
+            const double u = 1.1102230246251565e-16;
             double size = 0;
             foreach (Vector3d x in v)
-                size = Math.Max(size, Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z));
-            for (int k = 0; k < g.Length; ++k)
-                size = Math.Max(size, Math.Abs(g[k].x) + Math.Abs(g[k].y) + Math.Abs(g[k].z));
+                size = Math.Max(size, l1(x));
+            var gl = new double[g.Length];
+            for (int k = 0; k < g.Length; ++k) {
+                gl[k] = l1(g[k]);
+                size = Math.Max(size, gl[k]);
+            }
             int[][] faces = { new[] { 0, 1, 2, 3 }, new[] { 0, 1, 3, 2 }, new[] { 1, 2, 3, 0 }, new[] { 2, 0, 3, 1 } };
             var normal = new Vector3d[4];
             var offset = new double[4];
-            var tol = new double[4];
+            var slope = new double[4];      // err(x) = slope (|x|_1 + |a|_1)
+            var al = new double[4];
+            var margin = new double[4];
+            var usable = new bool[4];
             for (int k = 0; k < 4; ++k) {
                 Vector3d a = v[faces[k][0]], b = v[faces[k][1]], c = v[faces[k][2]], o = v[faces[k][3]];
-                Vector3d n = (b - a).Cross(c - a);
-                if (n.Dot(o - a) > 0)
+                Vector3d d1 = b - a, d2 = c - a;
+                Vector3d n = d1.Cross(d2);
+                double ea = 2.3e-16 * max_abs(a), eb = 2.3e-16 * max_abs(b), ec = 2.3e-16 * max_abs(c);
+                double e1 = ea + eb + u * max_sum(a, b), e2 = ea + ec + u * max_sum(a, c);
+                double m1 = max_abs(d1), m2 = max_abs(d2);
+                double dn = 2 * (e1 * (m2 + e2) + (m1 + e1) * e2) + 7 * u * m1 * m2;
+                double n1 = l1(n);
+                slope[k] = 1.01 * (dn + 7e-16 * n1);
+                al[k] = l1(a);
+                margin[k] = 1e-9 * size * n1 + 1e-300;
+                double side = n.Dot(o) - n.Dot(a);
+                // (the fourth vertex on the face's plane within the bound: the normal's orientation is not certain)
+                usable[k] = Math.Abs(side) > slope[k] * (l1(o) + al[k]) + margin[k] && slope[k] < double.MaxValue && margin[k] < double.MaxValue;
+                if (side > 0)
                     n = -n;
                 normal[k] = n;
                 offset[k] = n.Dot(a);
-                tol[k] = 1e-9 * size * (Math.Abs(n.x) + Math.Abs(n.y) + Math.Abs(n.z)) + 1e-300;
             }
             var list = new List<int>();
             for (int s = 0; s < g.Length; s += 2) {
                 bool outside = false;
                 for (int k = 0; k < 4 && outside == false; ++k)
-                    outside = normal[k].Dot(g[s]) - offset[k] > tol[k] && normal[k].Dot(g[s + 1]) - offset[k] > tol[k];
+                    outside = usable[k] && normal[k].Dot(g[s]) - offset[k] > slope[k] * (gl[s] + al[k]) + margin[k]
+                        && normal[k].Dot(g[s + 1]) - offset[k] > slope[k] * (gl[s + 1] + al[k]) + margin[k];
                 if (outside == false)
                     list.Add(s);
             }
             return list.ToArray();
         }
+
+        static double l1(Vector3d x) { return Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z); }
+        static double max_abs(Vector3d x) { return Math.Max(Math.Abs(x.x), Math.Max(Math.Abs(x.y), Math.Abs(x.z))); }
+        static double max_sum(Vector3d x, Vector3d y) { return Math.Max(Math.Abs(x.x) + Math.Abs(y.x), Math.Max(Math.Abs(x.y) + Math.Abs(y.y), Math.Abs(x.z) + Math.Abs(y.z))); }
 
         /// <summary>
         /// L2: coordinates relative to an origin (an input triangle's first corner, an integer grid point), as doubles: each
@@ -2662,8 +2710,9 @@ namespace g3
             /// L2: the centroid in the frame of its input triangle, from its corners there (each the exact difference to the
             /// frame's origin, rounded once: error at most LocalFrame.PointError per coordinate), and a bound of its absolute
             /// error per coordinate: the exact centroid is (A + B + C) / 3 (centroid_point), so a third of the corners'
-            /// bounds, plus the rounding of the two sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 for
-            /// m the sum of the corners' magnitudes (u = 2^-53), taken as 2.3e-16 m. NaN where a corner is (tiny coordinates)
+            /// bounds, plus the rounding of the two sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 <=
+            /// u m (1 + 3u) for m the sum of the corners' magnitudes (u = 2^-53), taken as 1.2e-16 m. NaN where a corner is
+            /// (tiny coordinates)
             /// </summary>
             public Vector3d Local(out double error)
             {
@@ -2673,7 +2722,7 @@ namespace g3
                     double m = 0;
                     for (int k = 0; k < 3; ++k)
                         m = Math.Max(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
-                    localError = (LocalFrame.PointError(a) + LocalFrame.PointError(b) + LocalFrame.PointError(c)) / 3 * (1 + 1e-15) + 2.3e-16 * m;
+                    localError = (LocalFrame.PointError(a) + LocalFrame.PointError(b) + LocalFrame.PointError(c)) / 3 * (1 + 1e-15) + 1.2e-16 * m;
                     hasLocal = true;
                 }
                 error = localError;
@@ -2959,7 +3008,7 @@ namespace g3
         /// and of the terms' conditioning under the displacement, which the full bound's terms bound)
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        static int antipodal_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound,
+        internal static int antipodal_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound,
             out double roundingBound, double pointError, double directionError, double maxBound)
         {
             w = 0.5;

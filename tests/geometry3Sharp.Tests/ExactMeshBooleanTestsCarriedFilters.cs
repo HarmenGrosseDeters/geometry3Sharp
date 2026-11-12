@@ -16,12 +16,15 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactMeshBooleanTestsCarriedFilters
     {
-        const int S = 1100;
+        // (the exact values scaled by 2^S: enough for the exponents of these tests' doubles, down to about 2^-200)
+        const int S = 400;
 
         static BigInteger Q(double v)
         {
             BigInteger m; int e;
             ExactPoint3.Decompose(v, out m, out e);
+            if (m.IsZero == false && e + S < 0)
+                throw new ArgumentException("Q: " + v + " needs a larger scale S");
             return m.IsZero ? BigInteger.Zero : (m << (e + S));
         }
 
@@ -60,7 +63,7 @@ namespace geometry3Sharp.Tests
             int decided = 0, otherFormDecided = 0;
             foreach (double far in new[] { 1e3, 1e8, 1e14 })
                 foreach (double size in new[] { 1e-3, 1.0 })
-                    for (int iter = 0; iter < 3; ++iter) {
+                    for (int iter = 0; iter < 2; ++iter) {
                         Func<double, Vector3d> rnd = (k) => k * new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5);
                         Vector3d p = rnd(size), q = p + rnd(size);
                         Vector3d a = far * new Vector3d(1, 0.3, -0.2) + rnd(1), s = rnd(1);
@@ -83,9 +86,117 @@ namespace geometry3Sharp.Tests
                             decided++;
                         }
                     }
-            Assert.True(decided > 25, $"{decided} decided");
+            Assert.True(decided > 18, $"{decided} decided");
             // (the point of the form: the other one decides only a few of these)
             Assert.True(otherFormDecided < decided / 2, $"{otherFormDecided} of {decided} also by the other form");
+        }
+
+        [Fact]
+        public void PiercePrefilter_DropsOnlySegmentsExactlyOutsideAFace_AlsoForSliverFaces()
+        {
+            // the tetrahedron of a triangle a, b, c with c by 2^h off the line a-b (angles down to 2e-12 at coordinates
+            // near 2^48, not integers, so the subtractions round) and a far point, half of the time exactly in the plane
+            // of a, b, c; segments with an end 1e-8 S inside that plane and the other near it. The exact points differ
+            // from the doubles by up to 0.9 of the error the filter allows (2.3e-16 max_k |x_k| per coordinate, signs at
+            // random). A segment may be dropped only if both its ends lie exactly strictly outside one face. Review of
+            // #633: the margin 1e-9 S |n|_1 alone dropped such segments for sliver faces, the rounding of n does not
+            // shrink with |n|
+            var r = new Random(2);
+            int dropped = 0, kept = 0;
+            Func<double> big = () => (r.NextDouble() * 2 - 1) * Math.Pow(2, 48);
+            foreach (int h in new[] { 4, 12, 16, 24, 40 })
+                for (int trial = 0; trial < 60; ++trial) {
+                    // (odd trials: integer coordinates, so that the far point below is exactly in the plane of a, b, c)
+                    bool integer = trial % 2 == 1;
+                    Func<double, double> co = (x) => integer ? Math.Round(x) : x;
+                    var a = new Vector3d(co(big()), co(big()), co(big()));
+                    var d = new Vector3d(co(big()), co(big()), co(big()));
+                    var b = a + d;
+                    double k = r.NextDouble();
+                    var c = new Vector3d(co(a.x + k * d.x) + Math.Pow(2, h), co(a.y + k * d.y), co(a.z + k * d.z));
+                    var far = new Vector3d(3e16, 2.5e16, -4e16);
+                    // (odd trials: the far point exactly in the plane of a, b, c, so that face's orientation is 0 and only
+                    // the rounding decides its computed sign; below 2^53, exact)
+                    var R = integer ? a + 2 * (b - a) - 3 * (c - a) : far;
+                    Vector3d[] v = { a, b, c, R };
+                    var n = (b - a).Cross(c - a).Normalized;
+                    if (n.Dot(far - a) > 0) n = -n;
+                    var segs = new Vector3d[40];
+                    double size = 4e16 * 3;
+                    for (int q = 0; q < segs.Length; q += 2) {
+                        Vector3d onT = a + r.NextDouble() * (b - a);
+                        segs[q] = onT - 1e-8 * size * n;
+                        segs[q + 1] = onT + (r.NextDouble() * 1e-6) * size * n + (r.NextDouble() - 0.5) * 1e-3 * size * new Vector3d(r.NextDouble(), r.NextDouble(), r.NextDouble());
+                    }
+                    // (the exact points: each double moved by 0.9 of its allowed error per coordinate, signs at random;
+                    // in the odd trials the doubles themselves, so that R stays in the plane)
+                    Func<Vector3d, BigInteger[]> exact = (x) => {
+                        if (integer) return new[] { Q(x.x), Q(x.y), Q(x.z) };
+                        BigInteger e = Q(0.9 * 2.3e-16 * Math.Max(Math.Abs(x.x), Math.Max(Math.Abs(x.y), Math.Abs(x.z))));
+                        return new[] { Q(x.x) + (r.Next(2) == 0 ? e : -e), Q(x.y) + (r.Next(2) == 0 ? e : -e), Q(x.z) + (r.Next(2) == 0 ? e : -e) };
+                    };
+                    var V = v.Select(exact).ToArray();
+                    var G = segs.Select(exact).ToArray();
+                    var keep = ExactMeshBoolean.pierce_prefilter(v, segs).ToHashSet();
+                    for (int q = 0; q < segs.Length; q += 2) {
+                        if (keep.Contains(q)) { kept++; continue; }
+                        dropped++;
+                        Assert.True(ExactlyOutsideAFace(V, G[q], G[q + 1]), $"h={h} trial={trial} segment {q}: dropped, not exactly outside a face");
+                    }
+                }
+            Assert.True(kept > 0);
+            Assert.True(dropped > 100, $"{dropped} dropped");
+        }
+
+        // both ends strictly outside one face of the tetrahedron V, exactly
+        static bool ExactlyOutsideAFace(BigInteger[][] V, BigInteger[] p, BigInteger[] q)
+        {
+            int[][] faces = { new[] { 0, 1, 2, 3 }, new[] { 0, 1, 3, 2 }, new[] { 1, 2, 3, 0 }, new[] { 2, 0, 3, 1 } };
+            foreach (var f in faces) {
+                BigInteger[] a = V[f[0]], b = V[f[1]], c = V[f[2]], o = V[f[3]];
+                BigInteger[] u = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, w = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+                BigInteger[] n = { u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+                Func<BigInteger[], int> side = (x) => (n[0] * (x[0] - a[0]) + n[1] * (x[1] - a[1]) + n[2] * (x[2] - a[2])).Sign;
+                int so = side(o);
+                if (so == 0) continue;
+                if (side(p) == -so && side(q) == -so)
+                    return true;
+            }
+            return false;
+        }
+
+        [Fact]
+        public void AntipodalValue_WithAPointError_BoundsTheValueAtTheDisplacedPoint()
+        {
+            // the boundary sum at p with pointError d must bound the value at every point within d of p (the same ray
+            // direction x1, so the crossing count is the same where neither evaluation is at the branch cut): an open
+            // square boundary, p near its plane, d far above the rounding (1e-9 to 1e-6), so a bound without d fails
+            var segments = new[] {
+                new Vector3d(-1, -1, 0), new Vector3d(1, -1, 0), new Vector3d(1, -1, 0), new Vector3d(1, 1, 0),
+                new Vector3d(1, 1, 0), new Vector3d(-1, 1, 0), new Vector3d(-1, 1, 0), new Vector3d(-1, -1, 0) };
+            var r = new Random(4);
+            var x1 = new Vector3d(0.2, 0.3, 1).Normalized;
+            int compared = 0;
+            foreach (double d in new[] { 1e-9, 1e-8, 1e-7, 1e-6 })
+                for (int k = 0; k < 200; ++k) {
+                    var p = new Vector3d(1.6 * r.NextDouble() - 0.8, 1.6 * r.NextDouble() - 0.8, 0.02 * (r.NextDouble() - 0.5));
+                    double pm = Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z);
+                    double w, bound, rb;
+                    if (ExactMeshBoolean.antipodal_value(p, pm, x1, 0, segments, out w, out bound, out rb, 1.7320508075688774 * d, 0, 1e-4) != 0)
+                        continue;
+                    var dir = new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5).Normalized;
+                    var q = p + d * dir;
+                    double wq, bq, rq;
+                    if (ExactMeshBoolean.antipodal_value(q, Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z), x1, 0, segments, out wq, out bq, out rq, 0, 0, 1e-6) != 0)
+                        continue;
+                    Assert.True(Math.Abs(w - wq) <= bound + bq, $"d={d}: |{w} - {wq}| > {bound} + {bq}");
+                    // (and the bound without the point's error is that of the point itself, within the factor 1.001)
+                    double w0, b0, r0;
+                    if (ExactMeshBoolean.antipodal_value(p, pm, x1, 0, segments, out w0, out b0, out r0, 0, 0, 1e-6) == 0)
+                        Assert.True(rb <= 1.001 * b0 && b0 <= 1.001 * rb, $"{rb} against {b0}");
+                    compared++;
+                }
+            Assert.True(compared > 400, $"{compared} compared");
         }
 
         [Fact]

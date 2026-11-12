@@ -198,8 +198,21 @@ M, and the rest of p's margin. Its boundary sum is not computed.
   - With the partners, both give none. So does a box-tree query of t's box, which is complete but slower: classification
     on 55928 took 443 s with it.
   - The test case "duplicate triangles" kills the first version.
-- *The boundary segments that N can count.* Those not wholly outside a face of the tetrahedron of t and R, per far point,
-  in doubles with a margin.
+- *The boundary segments that N can count.* Those not wholly outside a face of the tetrahedron of t and R, per far point
+  (`pierce_prefilter`), in doubles with a derived bound. Each point is within e_x = 2.3e-16 max_k |x_k| per coordinate
+  of the exact one. For a face a, b, c (u = 2^-53):
+  - The rows d1 = b - a, d2 = c - a are within ε1 = e_a + e_b + u max_k (|a_k| + |b_k|) (and ε2) of the exact rows, with
+    magnitudes m1, m2.
+  - A component of n = d1 x d2 is within dn = 2 (ε1 (m2 + ε2) + (m1 + ε1) ε2) + 7 u m1 m2 of the exact normal's.
+  - So n . x - n . a is within err(x) = (|x|_1 + |a|_1) (dn + 7e-16 |n|_1) of N . (X - A). That covers the normal's
+    error against |x - a|_1, the points' errors against |N|_1, and the dot products' roundings.
+  - A segment is dropped only if both ends exceed 1.01 err(x) plus the earlier margin 1e-9 S |n|_1 outside one face.
+  - A face whose fourth vertex is within that bound of its plane is not used, since its normal's orientation is
+    uncertain.
+
+  Found by the review of #633: the margin alone does not shrink with |n|. For a sliver face (an angle below about
+  1e-10 at grid coordinates near 2^50) it dropped segments that pierce: up to 28 % of the ends 1e-8 S inside, in the
+  review's emulation. That loses ±1 in N, unnoticed outside verify mode.
 
 **Filters in a local frame (the tests of I and N).** The centroids of a dense region are far smaller than the model, so
 in grid coordinates their differences carry little relative precision, and the double filters of the side and
@@ -252,16 +265,28 @@ bounds, per coordinate (u = 2^-53):
   local coordinate is within e_X = 2.3e-16 max_k |x_k| of the exact one (`LocalFrame.PointError`). The computed
   fl(fl(fl(a + b) + c) / 3) is within (e_A + e_B + e_C) / 3 + 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 of the exact value,
   with m = |a_k| + |b_k| + |c_k|: the corners' errors through the exact average, the two additions' roundings divided
-  by 3, the division's. That is below (e_A + e_B + e_C) / 3 + 1.01 u m; the code uses 2.3e-16 m. NaN where a corner is
+  by 3, the division's. That is below (e_A + e_B + e_C) / 3 + u m (1 + 3u); the code uses 1.2e-16 m. NaN where a corner is
   (tiny coordinates): the carried test then falls back to the piece's own ray.
 - *Its grid coordinates* (`LocalFrame.ToGrid`), for the crossing grid's query and the boundary sum: g = fl(l + o) with o
   the origin rounded to double. The conversion of a BigInteger to double is taken as relative 2^-52 (not guaranteed to
   round to nearest on every runtime), so the error is e_l + 2.3e-16 max|o_k| + 1.2e-16 max_k (|l_k| + |o_k|).
 - *The carry length*: |q - p| <= |l_q - l_p| + sqrt(3) (e_p + e_q), from the local coordinates (their errors are small
   against the distance), plus 1e-15 of the coordinates for the distance's rounding.
-- *The boundary sum* at g with pointError = sqrt(3) e_g and the direction's error 2 pointError / |R - g|, and the
-  larger limit 1e-4 with the two conditions above. On the sub-balls e_g is about 1.5 times the exact point's own
-  rounding, not 15 times, so that limit is rarely needed.
+- *The boundary sum* at g, with pointError = sqrt(3) e_g and the direction's error 2 pointError / |R - g|.
+  - The term errors and the limit: each term's unit vectors move by at most 2 pointError / distance, which enters the
+    tolerance of every term (16 times, as for the rounding). The direction's error is added to it, and the bound may
+    reach 1e-4, under which the arcsin form of the term's error holds.
+  - roundingBound is the same bound without the point's and the direction's errors. It is the bound of the
+    evaluation at the exact centroid with this ray up to a factor 1.001: the displacement changes each distance and
+    each term's conditioning by at most the relative amounts the full bound already carries, below pi 1e-4.
+  - The value is taken only if roundingBound <= 0.99e-6 and |w - h| > bound + 2.002 roundingBound, for h the nearest
+    half-integer. Then the exact centroid's evaluation gives a value w_ref within 1.001 roundingBound of the true one.
+    It does not snap, w does not snap, and no half-integer lies between w and w_ref: the same threshold.
+  - Otherwise L2 evaluates at the exact centroid. Every traced threshold is thus that of an Antipodal evaluation with
+    the ray toward R at the exact centroid. Until the review of #633 the condition applied only to bounds above 1e-6,
+    and a value within 1e-6 could snap with the approximation's bound instead of the exact evaluation's (finding 3).
+  - On the sub-balls e_g is about 1.5 times the exact point's own rounding, not 15 times, so that the exact centroid
+    is rarely needed.
 
 **A boundary segment in the triangle's plane, and the pierce test's rows.** Counting the remaining exact centroids by
 call site showed one dominant cause: on the 441-triangle sub-ball, 702k of 817k came from the pierce test
@@ -285,9 +310,21 @@ hash 61550C3C2F352E72 unchanged. Knot benchmark: hash unchanged.
 Tests (`ExactMeshBooleanTestsCarriedFilters`): the new filter against exact signs at all corners of its absolute error
 boxes, and that it decides where the old form fails; exactly coplanar points undecided; the local centroids and their
 grid coordinates against the exact centroids, exactly; the near copy of section 4 against the pieces' own rays with
-verify; and that few exact centroids are computed (`Counts["l2_exact_centroids"]`). Two bound mutants survive: the
-carry length without its error term (the 1e-15 term covers it) and ToGrid without the addition's rounding (the origin's
-2^-52 covers it where the conversion rounds to nearest).
+verify; that few exact centroids are computed (`Counts["l2_exact_centroids"]`).
+
+From the review of #633:
+- `pierce_prefilter` against exact points (the doubles moved within their allowed error) for sliver faces and for a
+  far point in a face's plane.
+- `antipodal_value` with a point error against the value at a point displaced by it.
+- L3's `LocalPoints` against the exact differences.
+
+Bound mutants that survive, each covered by another term:
+- The carry length without its error term (the 1e-15 term covers it).
+- ToGrid without the addition's rounding (the origin's 2^-52 covers it where the conversion rounds to nearest).
+- `Center.Local` with half its corners' term, or half its rounding term. The corners' errors are taken as 2^-52 for
+  runtimes that truncate; rounding to nearest gives half.
+- In `pierce_prefilter`: the rows' point errors in dn, and the points' term. The margin 1e-9 S |n|_1 covers them; the
+  decisive term, the whole err(x), and the orientation guard are killed.
 
 **The threshold.**
 - Every traced value is that of an Antipodal evaluation with another ray. Its threshold can differ from the piece's own

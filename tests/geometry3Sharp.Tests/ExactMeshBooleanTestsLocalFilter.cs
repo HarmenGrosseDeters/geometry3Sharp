@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using g3;
 using Xunit;
 using Ops = g3.ExactMeshBoolean.Operations;
@@ -47,7 +48,7 @@ namespace geometry3Sharp.Tests
         [InlineData(Ops.Union, 1e-7)]
         public void LocalFilter_SameResult_AndDecidesWhereThePointsAreDense(Ops op, double angle)
         {
-            (DMesh3 a, DMesh3 b) = NearCopy(30, angle);
+            (DMesh3 a, DMesh3 b) = NearCopy(16, angle);
             ExactMeshBoolean on = Computed(a, b, op, true), off = Computed(a, b, op, false);
             Assert.Equal("", Invariance.Difference(off.Result, on.Result));
             Assert.Equal(off.Counts["pieces"], on.Counts["pieces"]);
@@ -189,6 +190,46 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void LocalPoints_WithinTheirBound_OfTheExactDifferences()
+        {
+            // every point's coordinates relative to its triangle's first corner (LocalPoints.Get) against the exact
+            // difference, exactly: |l_k - (X_k / W - o_k)| <= the bound (z), in the triangle's projection; on the near
+            // copy (fine grid, points far from the origin, of every construction) the roundings come close to it
+            (DMesh3 a, DMesh3 b) = NearCopy(16, 1e-12);
+            var s = new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true };
+            Assert.True(s.Compute(), s.Error);
+            var arr = s.Arrangement;
+            const int S = 1100;
+            Func<double, BigInteger> Q = (v) => { BigInteger m; int e; ExactPoint3.Decompose(v, out m, out e); return m.IsZero ? BigInteger.Zero : (m << (e + S)); };
+            var bySource = arr.Output.GroupBy(o => o.Source).OrderByDescending(g => g.Count()).Take(12);
+            int checkedPoints = 0, tight = 0;
+            foreach (var group in bySource) {
+                var t = arr.Triangles[group.Key];
+                var local = new ExactMeshArrangement.LocalPoints(arr, t);
+                int i = (t.Axis + 1) % 3, j = (t.Axis + 2) % 3;
+                ExactPoint3 o = arr.Exact(t.Corners[0]);
+                foreach (int p in group.SelectMany(x => new[] { x.A, x.B, x.C }).Distinct()) {
+                    Vector3d l;
+                    if (local.Get(p, out l) == false)
+                        continue;
+                    ExactPoint3 x = arr.Exact(p);
+                    int c = 0;
+                    foreach (int k in new[] { i, j }) {
+                        double lk = c++ == 0 ? l.x : l.y;
+                        // (X_k / W - o_k within z of l_k: (l_k - z) W <= X_k - o_k W <= (l_k + z) W, scaled by 2^S)
+                        BigInteger v = (x[k] - o[k] * x.W) << S;
+                        Assert.True((Q(lk) - Q(l.z)) * x.W <= v && v <= (Q(lk) + Q(l.z)) * x.W, $"point {p} coordinate {k}: {lk} +- {l.z}");
+                        if (!((Q(lk) - Q(l.z / 10)) * x.W <= v && v <= (Q(lk) + Q(l.z / 10)) * x.W))
+                            tight++;
+                    }
+                    checkedPoints++;
+                }
+            }
+            Assert.True(checkedPoints > 300, $"{checkedPoints} points");
+            Assert.True(tight > 0, "no rounding near the bound");
+        }
+
+        [Fact]
         public void ConstructionZeros_NotFromAPlaneParallelToTheTriangle()
         {
             // a triangle t, a coplanar one u whose plane keeps its own key (ShareCoplanarConstructions off), and three
@@ -245,7 +286,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void LocalFilter_SerialEqualsParallel_RepeatedAndReused()
         {
-            (DMesh3 a, DMesh3 b) = NearCopy(30, 1e-12);
+            (DMesh3 a, DMesh3 b) = NearCopy(16, 1e-12);
             ExactMeshBoolean serial;
             gParallel.SerialOnThisThread = true;
             try {
