@@ -113,7 +113,8 @@ chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Pr
 the gap and the round-based parallel carving (B) go to the owner.
 **Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
 come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681, in this order:
-(1) the 800 run (runner) with a tail report: the 20 slowest meshes, raw / final triangles, time, phase split, the share
+(1) the 800 run (runner) with a tail report: every mesh above 20 s (owner rule 2026-11-12, `docs/roadmap/platform.md`:
+anything above 20 s is a potential defect and gets a diagnosis: pathological input, algorithmic hotspot or size), at least the 20 slowest, raw / final triangles, time, phase split, the share
 already parallel, Amdahl ceilings on 4 and 16 cores, time per raw triangle on the tail against the median (big meshes or
 something pathological?); (2) a black-box competitor comparison as for CGAL 5.6 before (no source read, nothing cloned and
 built) on the 20 tail meshes plus about 30 random ones at the same alpha / offset: wall time (threads stated), triangles,
