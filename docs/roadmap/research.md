@@ -239,6 +239,8 @@ started. The owner runs them locally (2026-11-03); the coordinator reviews and m
 no caller yet, Neumann boundaries need a new closest-silhouette query, and Monte Carlo results conflict with the
 bit-for-bit determinism and invariance tests.
 
+**Planar nesting probe (#620, 2026-11-11):** With two sampled circles and sampling spacing scaled with the input, the default absolute simplification tolerance changes nesting at small gaps and scales; even a correctly nested hole can lose area to simplification. `SortPolygons` preserves nesting for these cases except at the combined large translation / millimetre scale, where nesting or the reported hole area also fails. The passing cases are regression tests; the failures are tracked in #628. This probe does not test the default absolute sampling spacing or establish a need for generalized winding numbers.
+
 | # | Feature | Research / port source | License of reference code | Why / builds on |
 |---|---|---|---|---|
 | 1 | Geodesic paths, loops and Bézier curves on surfaces (FlipOut). **Done:** paths, waypoints, loops (`MeshGeodesicPath`); Bézier curves open | Sharp & Crane 2020 *You Can Find Geodesic Paths in Triangle Meshes by Just Flipping Edges*; geometry-central | MIT | Almost entirely on `IntrinsicTriangulation`; cut lines (orthotics), UV seams, curves on surfaces |
