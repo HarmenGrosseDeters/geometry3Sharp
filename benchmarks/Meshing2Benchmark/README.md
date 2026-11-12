@@ -435,7 +435,8 @@ Reproduce: write the tile with `alkis_tiles.py --district <key> --tile <tile>` (
 `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input <file> --output <out> --milestone M3`.
 
 **Scheduled job.** `.github/workflows/nightly.yml`, job `alkis`: the first tile of each stratum (10 tiles, 50 runs, about 11 minutes). `alkis_run.py --known
-alkis_known.json` exits 1 on a failing run that is not listed and on a listed run that now passes (a ratchet like `herne_ratchet.py`). The rest of the sample runs by hand.
+alkis_known.json` exits 1 on a failing run that is not listed and on a listed run that now passes (a ratchet like `herne_ratchet.py`). The rest of the sample runs by hand. `alkis_known.json` is empty since #724 (the one finding of the subset, #723, is fixed).
+Cost on GitHub (ubuntu-latest, `workflow_dispatch` with `alkis_only`, 2026-11-12): cold (cache miss) 10.6 min of job time: fetch and prepare 60 s (about 1 GB of district archives), build 19 s, mesher and oracle 9.0 min; warm (cache hit, the prepared inputs of about 2 MB) 6.2 min: build 13 s, mesher and oracle 5.7 min. The runs differ by the runner, not only by the cache; the cache saves the download and the preparation (about 1 min and 1 GB).
 
 ## Herne ratchet and the snapped-area report (2026-11-03)
 
