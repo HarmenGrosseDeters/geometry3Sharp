@@ -1,7 +1,7 @@
 # CLI / MCP update: what g3cli does not expose yet
 
-Status: proposal for the owner's approval (step 1 of the queued CLI / MCP update, owner 2026-11-08; no code before
-approval). Tier S (docs only). Each command is public surface, so every entry below is a decision for the owner.
+Status: approved by the owner 2026-11-12 as proposed (step 1 of the queued CLI / MCP update, owner 2026-11-08), with the
+decisions in section 11. Tier S (docs only). Each command is public surface, so every entry below is a decision for the owner.
 Basis: `master` at b25eb46 (2026-11-12), compared with `tools/g3cli` (`Name = "..."` of every `Command`, their
 `Param` lists) and the public classes of the library and of the Clipper2 addon.
 
@@ -204,7 +204,15 @@ Each PR: tests in `tests/g3cli.Tests` (`McpTests` for the MCP schema and call, `
 (`docs/roadmap/platform.md`) in the same PR; draft first, full local list of CLAUDE.md before ready, independent review.
 `CliCoverageTests` checks that every command and `Param` has a test; no mesh files are committed (generated meshes only).
 
-## 11. Open questions for the owner
+## 11. Decisions (owner 2026-11-12) and the questions they answer
+
+- **Q1** `offset` exposes `linear_edges` as an option only, `enclosure_claim: "none"`; no certified offset.
+- **Q2** `polygon_solids` keeps the library default (absolute 0.1), stated in the help.
+- **Q3** `hull2d` exposes `double` and `int64`.
+- **Q4** Order: PR A, PR B, then C to G as in section 10.
+- **Q5** `tetquality` and `--mode all` stay out of this update.
+
+The questions as asked:
 
 - **Q1** `offset`: expose `linear_edges` as an option without an enclosure claim (proposed), or first define a certified offset
   (a quantified SDF error bound, a padded level) as a library step? The second is library work with a bounds review (tier L).
