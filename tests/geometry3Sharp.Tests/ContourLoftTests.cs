@@ -680,6 +680,16 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void StateArraysFit_AtTheIntLimit()
+        {
+            // 10 bytes per node: 14654 x 14654 nodes are the largest square grid within int.MaxValue
+            Assert.True(ContourLoft.StateArraysFit(14653, 14653));
+            Assert.False(ContourLoft.StateArraysFit(14654, 14654));
+            Assert.False(ContourLoft.StateArraysFit(int.MaxValue - 1, 3));
+            Assert.True(ContourLoft.StateArraysFit(3, 3));
+        }
+
+        [Fact]
         public void ThinContour_IsNotZeroArea()
         {
             // an area of 1e-170 of the extent: its squared Newell normal underflows, the normal itself does not
@@ -817,6 +827,9 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(Q.Count - 1, b.FullRegionFallbacks);
                     Assert.Equal(a.Status, b.Status);
                     Assert.Equal(a.TotalCost, b.TotalCost, 12);
+                    Assert.Equal(a.StartOffset, b.StartOffset);
+                    Assert.Equal(a.Mesh.TriangleIndices().Select(t => Canon(a.Mesh.GetTriangle(t))).OrderBy(x => x, StringComparer.Ordinal),
+                                 b.Mesh.TriangleIndices().Select(t => Canon(b.Mesh.GetTriangle(t))).OrderBy(x => x, StringComparer.Ordinal));
                 }
             }
         }

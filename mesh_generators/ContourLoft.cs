@@ -158,6 +158,9 @@ namespace g3
             return new Run(this, first, second, cancellationToken).Execute();
         }
 
+        /// <summary> the predecessor array, States bytes per node of the (m + 1) x (n + 1) grid, fits an int-indexed array </summary>
+        internal static bool StateArraysFit(int m, int n) => (long)(m + 1) * (n + 1) * Run.States <= int.MaxValue;
+
         sealed class Run
         {
             readonly ContourLoft o;
@@ -195,7 +198,7 @@ namespace g3
                 if ((long)first.Count * second.Count > o.MaxCells)
                     return Fail(ContourLoftStatus.TooLarge, "m * n = " + ((long)first.Count * second.Count) + " is above MaxCells = " + o.MaxCells);
                 // the largest array: the predecessors, States bytes per node of the (m + 1) x (n + 1) grid, indexed in int
-                if ((long)(first.Count + 1) * (second.Count + 1) * States > int.MaxValue)
+                if (!StateArraysFit(first.Count, second.Count))
                     return Fail(ContourLoftStatus.TooLarge, "m * n = " + ((long)first.Count * second.Count) + " is above what the arrays can hold");
 
                 // The working frame: the inputs scaled by a power of two so that the largest coordinate is in [1, 2). Scaling by 2^k is
@@ -410,7 +413,7 @@ namespace g3
             // a fan of one vertex over the whole other contour: not a manifold band. Valid paths have at least 3 turns, tracked as
             // 10 states per node: the first step's direction f and the turns t, where 3 and 4 stand for any odd and even count
             // of at least 3 (the parity gives the last step's direction; st = 5 f + t).
-            const int States = 10, FromStart = 10, None = 255;
+            internal const int States = 10, FromStart = 10, None = 255;
             int[] spanLo, spanHi;            // (n + 1) x (m + 1): the row spans of the path of start s
             int[] boundLo, boundHi;          // per start: the starts whose paths bound its region (-1: the full region)
             byte[] pred;                      // (m + 1) x (n + 1) x 10: the predecessor's state, FromStart or None
