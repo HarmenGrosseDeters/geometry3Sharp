@@ -142,6 +142,11 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 ## Next / queued
 
+- Started 2026-11-12 (owner), one session each: platform-independent number formatting in `MeshIOUtil` (bugfix, Sonnet);
+  TPMS lattices (research item 5, Sonnet); a Fable study of topology-certified contouring (item 4 follow-up); Clipper2
+  option (b): vendor the C# 2.0.0 sources and fix FINDINGS item 5 (Opus); foldover-free maps: the energy-decrease stop and
+  the SLIM gap (Sonnet); the terrain close-out of the parked items (Opus); `ContourLoft` stage 1.
+
 The next steps per topic, in order ("in progress" where a session works on them).
 
 - Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2; in progress, #675 draft, cost count done), T1b (parallel SafeRounding edits), the T6 check;
