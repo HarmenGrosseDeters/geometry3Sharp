@@ -377,6 +377,15 @@ Open:
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
 - **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
   (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
+- **Exact number representation beyond `BigInteger` (study, owner 2026-11-12):** a Fable study (branch
+  `runs/exact-numbers`, measurement only, no library code) measures what the `BigInteger` / expansion share costs and what
+  a better representation could gain: an upper bound first (stop if it is under 10 % of the profiled time), then
+  prototypes (expansions with an extended exponent for spans like the 2^840 of #711, more fixed limbs, a pooled fallback,
+  lazy filters), a literature check and a ranked plan. Code generation extends `tools/PredicateCompiler` (checked-in,
+  reviewable output, as in stage B) rather than a Roslyn source generator. It does not overlap the settled
+  `int256`/`Int384` spike above: that measured fixed width for the planes, this measures the fallback representation.
+  #711 is measured first; results go into the serial exact-code queue (T3a: #710, #719, (A), #711) and do not change
+  its order. The study shares rows directly with the boolean study, T3a, snap rounding and the AW3 performance study.
 - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
   coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
