@@ -219,7 +219,11 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
   clean; plateau steps need a termination lemma and a separate decision); design accepted (owner): deterministic
   enumeration (26 directions in the defect's local frame, sizes room / 2^j for J = 8, largest first, through try_move /
-  improves()), only on results that are not rounding clean, built after (1), same file;
+  improves()), only on results that are not rounding clean, built after (1), same file; variant fixed after the
+  pre-check (owner 2026-11-12): axis-aligned directions instead of the local frame (equal or better everywhere, less
+  code), J = 8, search and passes repeated until a search accepts nothing, a pair searched at the 3 corners of its first
+  triangle (11 of 35 generated and 4 of 5 D1 cohort leftovers clean, 41.5 s against 36.4 s without search on the 35;
+  local frame one round: 8 of 35; J = 24 gains 1-3 at 2-2.5x the proposals);
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
