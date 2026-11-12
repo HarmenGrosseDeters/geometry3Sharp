@@ -420,10 +420,12 @@ A silent drop (an unused input vertex, an uncovered segment) is a verdict of the
 
 | Run | Verdict | Minimal input | Issue |
 |---|---|---|---|
-| default q20, Euskirchen 332400_5586800 (forest, 3 huge parcels) | AngleBelowBound (q30 and constrained mode VALID) | 7 points, 4 segments, nearly collinear disjoint pieces of a hull diagonal | #723 |
-| default q30, Rhein-Erft 315200_5639000 (mining) | NotDelaunayLocal / NotDelaunayGlobal (a vertex inside a circumcircle) | 6 points, 4 segments (`min_angle_deg 30`, `conforming 1`) | to be filed |
-| default q20 and q30, Düsseldorf 343600_5678000 and Köln 366200_5642600 (centre; 4 runs) | NotDelaunayLocal / Global, the same signature as the mining run | not minimized (25 000 to 128 000 triangles) | with the mining one |
-| constrained q30, Köln 366200_5642600 | AngleBelowBound, below 30 degrees | 6 points, 3 segments (`mode constrained`) | to be filed (may be the class of #723) |
+| default q20, Euskirchen 332400_5586800 (forest, 3 huge parcels) | AngleBelowBound (q30 and constrained mode VALID) | 7 points, 4 segments, nearly collinear disjoint pieces of a hull diagonal | #723 (fixed for this input by #724) |
+| default q30, Rhein-Erft 315200_5639000 (mining) | NotDelaunayLocal / NotDelaunayGlobal (a vertex inside a circumcircle) | 6 points, 4 segments (`min_angle_deg 30`, `conforming 1`) | #728 |
+| default q20 and q30, Düsseldorf 343600_5678000 and Köln 366200_5642600 (centre; 4 runs) | NotDelaunayLocal / Global, the same signature as the mining run | not minimized (25 000 to 128 000 triangles) | #728 |
+| constrained q30, Köln 366200_5642600 | AngleBelowBound, below 30 degrees | 6 points, 3 segments (`mode constrained`) | #729 |
+
+The oracle time is a finding of its own, not a mesher defect: 39 runs above 20 s, up to 127 s (default q30, Düsseldorf 343600_5678000). An independent exact check of the output of the mining input (#728) finds the same non-Delaunay edge as the oracle.
 
 Reproduce: write the tile with `alkis_tiles.py --district <key> --tile <tile>` (or take the minimal inputs from the issues) and run
 `dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 -- mesh --input <file> --output <out> --milestone M3`.
