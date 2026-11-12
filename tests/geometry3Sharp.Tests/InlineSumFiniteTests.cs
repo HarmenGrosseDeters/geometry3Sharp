@@ -10,9 +10,9 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// Follow-up of the IsFinite fix (#705): inline checks that tested IsNaN / IsInfinity of a sum of coordinates (which overflows for
     /// finite large values) now test each component (ClothSimulationFilter, MeshHausdorffDistance, TerrainDualContouring, PrimitiveFit3,
-    /// TriangleDeviationBounds, MeshAlphaWrap). Each of these operations refuses or overflows further on at such coordinates anyway (a
-    /// range check, or squares beyond about 1e154), so the results do not change; these tests pin that each gives a defined result there
-    /// (false, no exception, no NaN output) at ordinary and at huge coordinates, where the sums overflow.
+    /// TriangleDeviationBounds, MeshAlphaWrap). With the per-component Vector3d.IsFinite (#705) such inputs now reach the operations;
+    /// these tests pin a defined result at huge coordinates, where the sums overflow (the ordinary scale is in each class's own tests): a
+    /// refusal (false), or for TriangleDeviationBounds a measured, consistent bound; never an exception.
     /// </summary>
     public class InlineSumFiniteTests
     {
