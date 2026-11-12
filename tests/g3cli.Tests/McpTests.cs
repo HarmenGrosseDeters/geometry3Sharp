@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "curvature" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -140,6 +140,22 @@ namespace g3cli.Tests
             r = Handle(server, Call(3, "simplify", new JsonObject() { ["input"] = m.Sphere, ["output"] = m.Path_("mcp_s.off"), ["triangles"] = 50.0 }));
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.InRange(I(r["result"]["structuredContent"]["mesh"]["triangles"]), 1, 50);
+        }
+
+        [Fact]
+        public void Curvature_AndNewGeodesicFidelityOptions_AreToolArguments()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "curvature", new JsonObject() { ["input"] = m.Sphere }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.InRange(D(r["result"]["structuredContent"]["mean_curvature"]["mean"]), 0.97, 1.03);
+            r = Handle(server, Call(2, "fidelity", new JsonObject() { ["reference"] = m.Sphere, ["mesh"] = m.Sphere, ["outer_offset"] = 0.001, ["sharp_edge_min_height"] = 0.01 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(1e-3, D(r["result"]["structuredContent"]["options"]["outer_offset"]));
+            r = Handle(server, Call(3, "geodesic", new JsonObject() { ["input"] = m.Sphere, ["sources"] = "0", ["intrinsic_refine"] = true, ["refine_min_angle"] = 20.0, ["trace_from"] = "5" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(20.0, D(r["result"]["structuredContent"]["refinement"]["min_angle_bound"]));
+            Assert.True(I(r["result"]["structuredContent"]["trace_point_count"]) >= 2);
         }
 
         [Fact]

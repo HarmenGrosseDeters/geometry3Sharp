@@ -700,7 +700,7 @@ namespace g3cli.Tests
             var (exit, r) = Run();
             AssertOk(exit, r);
             var names = r["commands"].AsArray().Select(c => S(c["name"])).ToArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "mcp" }, names);
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "curvature", "mcp" }, names);
             Assert.Equal(3, I(r["result_codes"]["read_error"]));
 
             (exit, r) = Run("help", "boolean");

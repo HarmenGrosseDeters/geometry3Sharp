@@ -729,6 +729,8 @@ mesh as read. `query3d` answers each query as the single query would (a ray's `t
 ```
 g3cli geodesic terrain.ply --sources 0 --targets 120,4711
 g3cli geodesic part.ply --through 12,800,3401 --closed
+g3cli geodesic scan.ply --sources 0 --intrinsic-refine --trace-from 4711     # refined triangulation, descent path to the nearest source
+g3cli curvature part.stl --output curvature.csv                # H and K per vertex (MeshCurvature), statistics over the valid ones
 g3cli query3d part.stl --rays "0,0,-10,0,0,1" --points "0,0,0" --nearest --inside winding_number
 ```
 
