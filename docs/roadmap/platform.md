@@ -91,6 +91,13 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **.NET 11 (owner 2026-11-12: released, migrate later, not scheduled).** Today the library targets net10.0 (LTS) plus
+  netstandard2.0, and the tests target net10.0 plus net48. .NET 11 is a standard-term release. Proposed scope when it is
+  scheduled: build and test on the .NET 11 SDK in CI (a test matrix leg); add a net11.0 library target only if it brings
+  measurable gains (eg new intrinsics or runtime improvements, backed by a benchmark); keep net10.0 and netstandard2.0, and
+  keep API compatibility with 1.0.324 (`dotnet pack` validation). Check the analyzers (BannedSymbols, G3E0001-3), the
+  Stryker and coverage tooling, and the bit-identical results of the exact code and the 2^k invariance tests on the new
+  runtime (JIT changes must not change results: FMA contraction stays banned there).
 - **Scheduled workflows do not fire reliably** (found 2026-11-12): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
   has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
   2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
