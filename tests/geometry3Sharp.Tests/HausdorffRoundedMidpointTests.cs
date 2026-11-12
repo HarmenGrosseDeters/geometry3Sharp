@@ -99,6 +99,9 @@ namespace geometry3Sharp.Tests
                 var oneSidedRef = symmetric ? reference : new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z)) { Symmetric = false };
                 if (!symmetric) Assert.True(oneSidedRef.Compute());
                 AssertValid(given, oneSidedRef, "as given, z = " + z + ", symmetric " + symmetric);
+                // (converged means the certified gap is within the tolerance, 1e-4 of the diagonal)
+                if (given.Converged)
+                    Assert.True(given.UpperBound - given.LowerBound <= 1e-4 * 2.01 * Math.Sqrt(3) * 1.0001, "converged with a gap of " + (given.UpperBound - given.LowerBound));
             }
         }
 
