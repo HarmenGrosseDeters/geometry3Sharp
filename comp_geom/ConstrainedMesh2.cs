@@ -70,6 +70,9 @@ namespace g3
         /// enabled and the group of each triangle is its region label (<see cref="TriangleLabels"/>, 0 outside all regions). No per-vertex
         /// normals, colours or UVs are allocated. Coordinates are copied as they are; nothing is rounded or moved.
         /// </summary>
+        /// <exception cref="InvalidOperationException">A triangle could not be added to the <see cref="DMesh3"/> (a non-manifold edge
+        /// or a repeated vertex). Not reachable for a mesh this class returns, whose triangles form a valid triangulation; the check
+        /// guards the id correspondence.</exception>
         public DMesh3 ToDMesh3(bool labelsAsGroups = true)
         {
             var mesh = new DMesh3(false, false, false, labelsAsGroups);
