@@ -502,6 +502,358 @@
       },
       "time_field": "pipe_ms",
       "timeout_s": 400
+    },
+    {
+      "id": "boolean-thingi-55928-difference",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 55928 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean difference, SafeRounding on. Last isolated time 380 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "55928"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:55928}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "difference",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-117959-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 117959 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 110.6 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "117959"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:117959}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-1087141-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 1087141 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 108.8 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "1087141"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:1087141}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-1005586-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 1005586 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 69.8 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "1005586"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:1005586}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-112798-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 112798 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 53.7 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "112798"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:112798}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-42327-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 42327 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 40.2 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "42327"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:42327}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-1368057-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 1368057 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 39.0 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "1368057"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:1368057}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-107554-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 107554 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 30.6 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "107554"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:107554}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-113906-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 113906 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 28.6 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "113906"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:113906}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-519511-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 519511 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 20.3 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "519511"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:519511}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-498458-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 498458 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 17.0 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "498458"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:498458}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
     }
   ]
 }
