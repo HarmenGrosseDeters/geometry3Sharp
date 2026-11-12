@@ -213,7 +213,7 @@ The next steps per topic, in order ("in progress" where a session works on them)
   applies to new starts: when sessions finish, they are not replaced until the count is below it. Each session has
   its own worktree and one PR-sized topic.
 - **Exception (owner 2026-11-12):** three extra medium Sonnet sessions (CLI / MCP update, test-time backlog,
-  short pipeline topics: 2.5D output helper, fast-winding cache lever 3, DualContouring allocations, the
+  short pipeline topics: fast-winding cache lever 3, DualContouring allocations, the
   issue-tracker follow-ups (flip-guard, P1), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
   no further starts until the count is back below it.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a

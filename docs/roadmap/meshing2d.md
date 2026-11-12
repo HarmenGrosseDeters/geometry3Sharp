@@ -36,7 +36,7 @@ Actionable:
 
 - **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
   Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
-  as z (labels as groups where they fit). Effort S. In progress (short-topics Sonnet session, 2026-11-12).
+  as z (labels as groups where they fit). Effort S.
 
 - **Three single triangles at 1e-7..1e-9 radian (from #542):** in the near-contact fan (T-junction segments ending 2^-k beside a
   long segment, constrained quality mode), scale 1.13 at k = 26 and 28 leaves three single triangles below the bound that the
