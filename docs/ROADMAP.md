@@ -75,11 +75,11 @@ Status on 2026-11-12 (morning, Berlin).
   the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
   Levers follow as PRs 0-5. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
-  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fix in draft #640.
+  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fix in draft #640 (review fixes re-checked 2026-11-12, one collapse test to add).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
-  a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); open PRs #639,
-  #641-#643, #646, #648; open bugfix issues #636-#638, #644, #645, #647; #628 fixed by #634.
+  a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
+  #641, #648; open PRs #642, #643, #646; open bugfix issues #636-#638, #644, #645, #647 (labelled `local`); #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
