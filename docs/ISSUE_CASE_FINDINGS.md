@@ -198,7 +198,7 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
 - Cause (analysis): with automatic pins, `farBoundaryPair` (parameterization/LSCMParameterization.cs:127) pins two
   vertices of one boundary loop (both loops have 8 vertices: the first is taken). The free-boundary energy
   E_D - A(uv) (line 104: A is the signed area over all boundary loops, the inner loop counted negatively) is lowered by
-  shrinking the hole; on a coarse cylinder the minimizer with free inner boundary is the collapsed ring. On the flat
+  shrinking the hole; on a coarse cylinder the minimizer with free inner boundary is the collapsed ring. Not a matter of the pin choice: pinning one vertex on each of the two loops instead of two on one loop was tried on 8x3, 16x4 and 24x6 cylinders of several heights and still gives 2 flipped triangles. On the flat
   annulus (`LSCM_Annulus_TwoBoundaries`) the exact conformal embedding has E_C = 0 and wins.
 - Fix (owner: a status check only, the algorithms unchanged): LSCM and ARAP (the methods without a flip-free
   promise) return the new status `ParameterizationStatus.FlippedTriangles` instead of `Success` when their map has a
@@ -222,10 +222,9 @@ Tests: `tests/geometry3Sharp.Tests/ParameterizationIssueCasesTests.cs`.
   flips, times within the noise of the shared machine. `UVAtlasBenchmark` (`auto`, the 250 meshes of the
   first selection, master 99b314ce against the fix): all 250 results identical (status, charts per method, coverage,
   seams, overlaps, distortion), total time 1116 s against 1114 s.
-- Closed as a limitation (2026-11-12): LSCM and ARAP on a seam-free annulus report `FlippedTriangles`; the workaround is a seam
-  cut (the atlas does this) or BFF / SLIM. Pinning one vertex on each of two loops instead of two on one loop does not
-  help (tried on 8x3, 16x4 and 24x6 cylinders of several heights: still 2 flipped triangles), so the pin choice is not the
-  cause. The real fix stays in research (the options below).
+- Closed as a limitation (2026-11-12): LSCM and ARAP on a low-poly open cylinder (a non-flat annulus) report
+  `FlippedTriangles`; the flat annulus is fine (`LSCM_Annulus_TwoBoundaries`). The workaround is a seam cut (the atlas does
+  this); SLIM, Tutte and BFF return `InvalidTopology` on the annulus. The real fix stays in research (the options below).
 - Research (the collapse itself, not done: changes LSCM results on annuli): for several boundary loops, close the inner
   loops with virtual fan vertices for the area term (the hole's area then enters positively), or use the spectral
   conformal parameterization (Mullen, Tong, Alliez, Desbrun 2008), which has no pins. Medium cost.
