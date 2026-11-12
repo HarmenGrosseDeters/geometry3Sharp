@@ -10,10 +10,11 @@ namespace geometry3Sharp.Tests
     /// #638 (MeshFuzzPilot, QA 2.0 F7): a cube projected to xy gave Failed (RefinementLimit), "refinement did not settle within 296225
     /// steps", at SteinerLimit 1500. Not a livelock and not the point 1e-286 of the extent away (at the origin it fails the same): the box
     /// [-w, 1 - w] x [0, 1] with a point at the origin makes a channel of width w = 2^-38 between segments 0-3 and 3-4. Splits across it
-    /// flip the same triangles many times, and Collect queued a triangle once per flip (up to 31 536 entries on 1600 triangles for one
-    /// insertion): a fixed burst of 600k queue steps, above the defect cap 64 (limit + slots) + 100000 at a small Steiner limit, while
-    /// refinement goes on linearly after it. Collect now queues each rewritten triangle once; the run reaches the Steiner limit, an honest
-    /// Success with SteinerLimitReached (as at w = 2^-30, where the burst stays below the cap).
+    /// flip the same triangles many times, and Collect queues a triangle once per flip (up to 31 536 entries on 1600 triangles for one
+    /// insertion): a fixed burst of 600k dequeues, most of them stale, above the defect cap 64 (limit + slots) + 100000 at a small Steiner
+    /// limit, while refinement goes on linearly after it. The cap now counts split attempts, not dequeues (stale entries are only made by
+    /// work and drain); the run reaches the Steiner limit, an honest Success with SteinerLimitReached (as at w = 2^-30), and every other
+    /// mesh is the same as before bit for bit.
     /// </summary>
     public class QualityMesh2NarrowChannelTests
     {
@@ -33,7 +34,7 @@ namespace geometry3Sharp.Tests
         /// <summary> the issue's input, exactly as MeshFuzzPilot builds it (x0 = 1.0176044597843959E-286, w = 2^-38) </summary>
         internal static Mesh2Input Issue638() => Channel(1.0176044597843959E-286, Math.Pow(2, -38));
 
-        static Mesh2Output Run(Mesh2Input input, string what, bool channelKept = true)
+        internal static Mesh2Output Run(Mesh2Input input, string what, bool channelKept = true)
         {
             var o = new QualityMesh2Candidate().Run(input);
             Assert.True(o.Status == Mesh2Status.Success, what + ": " + o.Status + " " + o.FailureKind);
@@ -85,7 +86,8 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        /// <summary> one mesher, two computes, and a fresh mesher: the same mesh (Collect's set of queued triangles is reused) </summary>
+        /// <summary> one mesher, two computes, and a fresh mesher: the same mesh (the settings QualityMesh2Candidate gives a constrained-quality
+        /// input) </summary>
         [Fact]
         public void Issue638_Reuse_SameInstance()
         {
@@ -94,6 +96,7 @@ namespace geometry3Sharp.Tests
             var a = mesher.Compute(c); var b = mesher.Compute(c);
             var fresh = new QualityMesh2 { MinAngle = 25, Conforming = false, SteinerLimit = 1500 }.Compute(c);
             Assert.Equal(Triangulation2Status.Success, a.Status);
+            Assert.True(a.Mesh.SteinerLimitReached, "the Steiner limit was not reported");
             Assert.Equal(a.Mesh.Vertices, b.Mesh.Vertices);
             Assert.Equal(a.Mesh.Triangles, b.Mesh.Triangles);
             Assert.Equal(a.Mesh.Vertices, fresh.Mesh.Vertices);
