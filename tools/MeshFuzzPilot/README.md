@@ -16,6 +16,7 @@ No mesh files, corpus files or instrumented binaries are committed (owner decisi
 | 3 | the offset, three signed bytes times 2^f |
 | per corner: 1 + 3, or 1 + 24 | a mode byte. Grid mode: the corner times 16 plus three signed bytes (used if bit 0 is set), times 2^e, plus the offset. Raw mode (top three bits set): three raw doubles |
 | 8 times 6 | the queries of the tree and batch targets: an origin kind (a vertex of A or B, a triangle centroid, an edge midpoint, a point of A's box, a vertex nudged by 1/1024 of the diagonal, the box centre), three index bytes, a direction kind (the six axes, towards a vertex of A, three signed bytes) and a byte for it |
+| 4 | the options of the second-wave targets (below) |
 
 So the inputs reach coplanar, coincident and collinear corners, inverted and self-intersecting shapes, and every
 binary scale up to near 1e308 (grid corners are multiples of 2^-1022; subnormal ones come from raw mode). A coordinate that is not finite becomes 0: the operations reject such
@@ -68,7 +69,7 @@ squared diagonal of the largest component, or exactly collinear corners.
   result is finite, valid, closed, without bowties, and every input vertex is inside it.
 
 **Second wave (QA 2.0 T13).** The four targets run on the power-of-two normalized copy of A (box diagonal in [1, 2)); their options come
-from the three components of the first query's direction (bytes 0, 1, 2).
+from the four option bytes after the queries (`Case.Options`, `ParamByte` in `Targets2.cs`).
 - `remesher`: A subdivided once, three passes with a target edge length of 0.45 to 1.6 mean edges; flips, collapses, splits, smoothing,
   parallel smoothing and `PreventNormalFlips` on or off. Valid, finite, a closed input stays closed with the same Euler characteristic and
   number of components, parallel and serial smoothing and a second run equal bit for bit.
@@ -94,7 +95,7 @@ of every input that gives a finding or an exception: a smoke test without covera
 supported range every claim applies. Outside it only the second property is judged, by the operation's own range (the table
 in QA.md 2.5a): `robust-repair` (outside [2^-200, 2^400] or an extent below 2^-40 of the largest magnitude) must return false,
 `alpha-wrap` (outside [2^-128, 2^128], or an extent below
-2^-40 of the largest magnitude) must return `InvalidInput`; `rounding-repair` and the Boolean operations are judged as always (the rounding repair's range check follows in its own PR) (the exact arrangement has
+2^-40 of the largest magnitude) must return `InvalidInput`; `rounding-repair` and the Boolean operations are judged as always (the rounding repair has its range check since #593: outside it `Apply()` is false and not clean; the exact arrangement has
 no range; `RoundingClean` must not be claimed where the rounding result is not clean). Inputs recorded before this change decode
 to other cases: the hex reproducers of FINDINGS.md belong to the earlier decoder (`dump` of an old file shows what it was).
 
@@ -124,8 +125,8 @@ bash tools/MeshFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet 
 ```
 
 `run.sh` refuses an existing work directory. It publishes a clean `replay/` build, runs its self-test, writes the
-102 seeds (every operation on each of the six shapes), copies the build into `bin/` and instruments only the copy of
-`geometry3Sharp.dll`. The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
+102 seeds (every operation on each of the six shapes), copies the build into `bin/` and instruments only the copies of
+`geometry3Sharp.dll` and, for the `clipper2` target, `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`. The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
 wrap of a flat input with the default alpha takes about 4 s uninstrumented and more than 10 s instrumented: slow,
 not hung), a libFuzzer-side 3 GiB RSS limit (it covers the libFuzzer process, not the .NET child: use an external limit for
 the child if needed), and stops after the given number of runs or seconds, or at the first

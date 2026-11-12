@@ -43,16 +43,17 @@ PR #493 and #495 where noted.
 |---|---|---|---|
 | 3 | robust repair: magnitude 2^-200 .. 2^400, extent >= 2^-40 of it | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
 | 4 | alpha wrap: magnitude 2^-128 .. 2^128 | out (1e-276, 3e17) **false success** | range check, `InvalidInput` (bugfix PR) |
-| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (follows, held until #513) |
+| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (#593): the Boolean keeps its exact result, `RoundingClean` false |
 | 5c, 5d | robust repair: no subnormal coordinates | out **false success** | range check (bugfix PR) |
-| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (follows, held until #513): not clean, mesh not touched |
+| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (#593): `OutsideRange`, not clean, mesh not touched |
 | 7 | alpha wrap: usable 2^-160 .. 2^160 | out, honest `Failed` / hang at 2^+-180..200 | range check (hang), rest documented |
 | 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | range check (#527): `InvalidInput` |
 
 Since 2026-11-10 the decoder samples the scale exponents inside the supported ranges (QA.md 2.5a) three times in four and
 judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
 cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
-return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 follow with the range check of the rounding repair (held until #513).
+return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 are covered by the range check of the rounding repair
+(#593, merged 2026-11-11: 6 `OutsideRange`; 5a, 5b `RoundingClean` false, `StrictRounding` fails; not replayed here).
 
 ## Second wave (QA 2.0 T13, 2026-11-10): smoke runs of the new targets
 
@@ -136,7 +137,7 @@ beside others of 1 (the case's offset against its extent) gave a mesh that is no
 
 ### Independent review of the second wave (2026-11-10) and what was done
 
-Done in this PR: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
+Done in #577: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
 judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
 every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
 `ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
@@ -171,6 +172,8 @@ Clipper2 result classification (#583, item 5 above).
 Ranked (a wrong result that claims to be right first):
 
 1. **MeshRoundingRepair: results that claim to be clean are not** (41 crashes; #513 (D1, head b26f016d) replayed: all 41 behave exactly as on master).
+   **Update 2026-11-12:** the range check of #593 (merged 2026-11-11) covers this rank and rank 2; on master 0861e828 the seven hex inputs of
+   ranks 1 and 2 below replay without a finding (same `MESH_FUZZ_OPS`, uninstrumented build). The other saved artifacts were not replayed here.
    - "the mesh is not valid after the rounding repair" (21), 8 bytes: `000000101e000105`.
    - "IsClean but N degenerate triangles (at the rounding's scale)" (20, N from 1 to 8), 4 bytes: `3f1e6040` (an open cube of edge 5e-293 and a tetrahedron of 3.6e-307).
 2. **ExactMeshBoolean with `RoundingClean`: results that claim to be clean are not** (union 24, intersection 12, difference 20).
