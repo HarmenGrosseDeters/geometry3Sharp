@@ -70,7 +70,7 @@ public static partial class Program
         if (again == null || !SameMesh(result, again, 1))
             throw new Finding($"{what}: two runs give different meshes");
         if (scaledError != null || scaled == null || !SameMesh(result, scaled, 1 / scale))
-            throw new Finding($"{what}: the 2^40 scaled run is not the scaled mesh{(scaledError != null ? " (it threw " + scaledError.GetType().Name + ")" : "")}");
+            throw new Finding($"{what}: the 2^40 scaled run is not the scaled mesh{(scaledError != null ? " (it threw " + scaledError.GetType().Name + ": " + scaledError.Message + ")" : "")}");
     }
 
     static void RunMarchingCubes(Case c, string what)
@@ -79,6 +79,8 @@ public static partial class Program
         if (s == null)
             return;
         DMesh3 m = s.Norm;
+        if (FarFromOrigin(m.GetBounds()))
+            return; // far from the origin (> 2^16 extents) is the representation limit, QA 2.5a
         Vector3d[] centers = m.VertexIndices().Select(v => m.GetVertex(v)).Distinct().Take(4).ToArray();
         if (centers.Length == 0)
             return;
