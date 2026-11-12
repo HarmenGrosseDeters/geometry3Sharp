@@ -61,6 +61,14 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        static PointAABBTree3 BuiltTree(DMesh3 m, Func<int, bool> filter = null)
+        {
+            // (a property initializer runs after the constructor's build: build explicitly with the leaf size set)
+            var tree = new PointAABBTree3(m, false) { LeafMaxPointCount = 4, PointFilterF = filter };
+            tree.Build();
+            return tree;
+        }
+
         static int BruteNearest(DMesh3 m, Vector3d q, double maxDist, Func<int, bool> filter, out double bestSqr)
         {
             bestSqr = maxDist < double.MaxValue ? maxDist * maxDist : double.MaxValue;
@@ -96,12 +104,15 @@ namespace geometry3Sharp.Tests
                         Assert.True(found != DMesh3.InvalidID, $"{fam} 2^{e} query {qi}: no point found");
                         Assert.Equal(bestSqr, m.GetVertex(found).DistanceSquared(q));
 
-                        double maxDist = Math.Sqrt(bestSqr) * (qi % 2 == 0 ? 2 : 0.5);
-                        int foundMax = tree.FindNearestPoint(q, maxDist);
-                        int bruteMax = BruteNearest(m, q, maxDist, null, out double bestMaxSqr);
-                        Assert.Equal(bruteMax == DMesh3.InvalidID, foundMax == DMesh3.InvalidID);
-                        if (foundMax != DMesh3.InvalidID)
-                            Assert.Equal(bestMaxSqr, m.GetVertex(foundMax).DistanceSquared(q));
+                        // twice the nearest distance, half of it, and a hair above and below it (the limit is strict; within an ulp of it the
+                        // box distances of the tree and the point distance of the brute force may round either way, so not exactly at it)
+                        foreach (double maxDist in new[] { Math.Sqrt(bestSqr) * 2, Math.Sqrt(bestSqr) * 0.5, Math.Sqrt(bestSqr) * (1 + 1e-9), Math.Sqrt(bestSqr) * (1 - 1e-9) }) {
+                            int foundMax = tree.FindNearestPoint(q, maxDist);
+                            int bruteMax = BruteNearest(m, q, maxDist, null, out double bestMaxSqr);
+                            Assert.True(bruteMax == DMesh3.InvalidID == (foundMax == DMesh3.InvalidID), $"{fam} 2^{e} query {qi} limit {maxDist} (nearest {Math.Sqrt(bestSqr)}): brute {bruteMax}, tree {foundMax}");
+                            if (foundMax != DMesh3.InvalidID)
+                                Assert.Equal(bestMaxSqr, m.GetVertex(foundMax).DistanceSquared(q));
+                        }
                     }
                 }
         }
@@ -114,7 +125,7 @@ namespace geometry3Sharp.Tests
                 List<Vector3d> pts = Points(fam, 120, rng);
                 DMesh3 m = PointMesh(pts, 1);
                 Func<int, bool> filter = v => v % 3 != 0;
-                var tree = new PointAABBTree3(m, true) { LeafMaxPointCount = 4, PointFilterF = filter };
+                PointAABBTree3 tree = BuiltTree(m, filter);
                 for (int qi = 0; qi < 30; ++qi) {
                     Vector3d q = new Vector3d(rng.NextDouble() * 3, rng.NextDouble() * 3, rng.NextDouble());
                     int found = tree.FindNearestPoint(q);
@@ -136,12 +147,12 @@ namespace geometry3Sharp.Tests
                 // the point found (not its id: among identical points the tree may return another one)
                 var reference = new List<Vector3d>();
                 DMesh3 m0 = PointMesh(pts, 1);
-                var t0 = new PointAABBTree3(m0, true) { LeafMaxPointCount = 4 };
+                PointAABBTree3 t0 = BuiltTree(m0);
                 foreach (Vector3d q in queries) reference.Add(m0.GetVertex(t0.FindNearestPoint(q)));
                 foreach (int e in Exponents) {
                     double s = Math.Pow(2, e);
                     DMesh3 ms = PointMesh(pts, s);
-                    var tree = new PointAABBTree3(ms, true) { LeafMaxPointCount = 4 };
+                    PointAABBTree3 tree = BuiltTree(ms);
                     for (int i = 0; i < queries.Count; ++i)
                         Assert.True(Scale(reference[i], s) == ms.GetVertex(tree.FindNearestPoint(Scale(queries[i], s))), $"{fam} 2^{e} query {i}: another point");
                 }
@@ -160,6 +171,8 @@ namespace geometry3Sharp.Tests
                     // two spheres and a flat sheet: ties, coplanar triangles and several components
                     m = Defects.Sphere(new Vector3d(-2, 0, 0), 1, 3);
                     MeshEditor.Append(m, Defects.Sphere(new Vector3d(2, 0, 0), 1, 3));
+                    // a flat sheet in the plane z = 0 through both centres (coplanar triangles, rays in its plane)
+                    MeshEditor.Append(m, new TrivialRectGenerator { Width = 6, Height = 3, IndicesMap = new Index2i(1, 2) }.Generate().MakeDMesh());
                     break;
                 }
             }
@@ -172,7 +185,7 @@ namespace geometry3Sharp.Tests
             var rays = new Ray3d[n];
             for (int i = 0; i < n; ++i) {
                 Vector3d o;
-                if (i % 4 == 0) o = m.GetVertex(rng.Next(m.MaxVertexID) % m.MaxVertexID);       // on the surface
+                if (i % 4 == 0) o = m.GetVertex(rng.Next(m.MaxVertexID));       // on the surface
                 else o = Scale(new Vector3d(rng.NextDouble() * 6 - 3, rng.NextDouble() * 6 - 3, rng.NextDouble() * 6 - 3), scale);
                 Vector3d d = i % 5 == 0 ? Vector3d.AxisY * (rng.Next(2) == 0 ? 1 : -1)          // axis aligned (edges, ties)
                     : new Vector3d(rng.NextDouble() - 0.5, rng.NextDouble() - 0.5, rng.NextDouble() - 0.5);
@@ -206,13 +219,13 @@ namespace geometry3Sharp.Tests
             DMesh3 m = BatchMesh(kind, s);
             var tree = new DMeshAABBTree3(m, true);
             var rng = new Random(2026111210 + kind * 100 + e);
-            Ray3d[] rays = Rays(m, s, rng, 300);
+            Ray3d[] rays = Rays(m, s, rng, 2100);   // above MinSortCount and BlockSize (1024): the sorted and the parallel path
 
             var single = new RayHit[rays.Length];
             var singleAny = new bool[rays.Length];
             for (int i = 0; i < rays.Length; ++i) {
                 int tid = tree.FindNearestHitTriangle(rays[i]);
-                single[i] = new RayHit { Triangle = tid, T = double.MaxValue };
+                single[i] = new RayHit { Triangle = tid, T = tid == DMesh3.InvalidID ? double.MaxValue : MeshQueries.TriangleIntersection(m, tid, rays[i]).RayParameter };
                 singleAny[i] = tid != DMesh3.InvalidID;
             }
             foreach (bool parallel in new[] { false, true })
@@ -224,6 +237,7 @@ namespace geometry3Sharp.Tests
                     for (int i = 0; i < rays.Length; ++i) {
                         Assert.Equal(RayStatus.Ok, status[i]);
                         Assert.True(single[i].Triangle == hits[i].Triangle, $"2^{e} kind {kind} parallel {parallel} sort {sort} ray {i}: triangle {hits[i].Triangle}, single {single[i].Triangle}");
+                        Assert.Equal(BitConverter.DoubleToInt64Bits(single[i].T), BitConverter.DoubleToInt64Bits(hits[i].T));
                     }
                     var any = new bool[rays.Length];
                     Assert.Equal(BatchStatus.Ok, MeshBatchQueries.AnyHitBatch(tree, rays, any, null, opt));
@@ -249,8 +263,8 @@ namespace geometry3Sharp.Tests
             DMesh3 m = BatchMesh(kind, s);
             var tree = new DMeshAABBTree3(m, true);
             var rng = new Random(2026111410 + kind * 100 + e);
-            Ray3d[] rays = Rays(m, s, rng, 200);
-            Vector3d[] pts = QueryPoints(s, rng, 200);
+            Ray3d[] rays = Rays(m, s, rng, 2100);
+            Vector3d[] pts = QueryPoints(s, rng, 2100);
             foreach (double limit in new[] { 0.25 * s, 1.5 * s }) {
                 var opt = new BatchOptions { Parallel = true, MaxDistance = limit };
                 var hits = new RayHit[rays.Length];
@@ -281,7 +295,7 @@ namespace geometry3Sharp.Tests
             DMesh3 m = BatchMesh(kind, s);
             var tree = new DMeshAABBTree3(m, true);
             var rng = new Random(2026111310 + kind * 100 + e);
-            Vector3d[] pts = QueryPoints(s, rng, 300);
+            Vector3d[] pts = QueryPoints(s, rng, 2100);   // see above
 
             var singleNearest = new int[pts.Length];
             var singleDist = new double[pts.Length];
@@ -295,8 +309,8 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(BatchStatus.Ok, MeshBatchQueries.NearestPointBatch(tree, pts, res, null, opt));
                 for (int i = 0; i < pts.Length; ++i) {
                     Assert.True(singleNearest[i] == res[i].Triangle, $"2^{e} kind {kind} point {i}: triangle {res[i].Triangle}, single {singleNearest[i]}");
-                    // the distance is the one of the closest point on the triangle
-                    Assert.True(Math.Abs(res[i].Distance * res[i].Distance - singleDist[i]) <= 1e-12 * Math.Max(singleDist[i], double.Epsilon), $"point {i}: distance");
+                    // the distance is the square root of the tree's squared distance
+                    Assert.Equal(BitConverter.DoubleToInt64Bits(Math.Sqrt(singleDist[i])), BitConverter.DoubleToInt64Bits(res[i].Distance));
                 }
                 var inside = new InsideStatus[pts.Length];
                 Assert.Equal(BatchStatus.Ok, MeshBatchQueries.IsInsideBatch(tree, pts, inside, InsideMethod.Crossings, opt));
@@ -339,27 +353,35 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [MemberData(nameof(OctreeCases))]
-        public void Octree_PropagationAndRepeatedBuild_DoNotChangeTheNodeValues(int kind, int e)
+        public void Octree_PropagationAndRebuildOnTheSameInstance_DoNotChangeTheNodeValues(int kind, int e)
         {
             double s = Math.Pow(2, e);
             DMesh3 m = BatchMesh(kind, s);
             var tree = new DMeshAABBTree3(m, true);
             var with = new WindingNumberOctree(m, tree) { MaxDepth = 5, PropagateValues = true };
             var without = new WindingNumberOctree(m, tree) { MaxDepth = 5, PropagateValues = false };
-            var again = new WindingNumberOctree(m, tree) { MaxDepth = 5, PropagateValues = true };
-            with.Build(); without.Build(); again.Build();
+            with.Build(); without.Build();
             Assert.Equal(with.SurfaceCells.Count, without.SurfaceCells.Count);
-            Assert.True(with.SurfaceCells.SequenceEqual(again.SurfaceCells));
             int n = with.LeafCount;
+            var first = new List<double>();
             for (int k = 0; k <= n; k += 2)
                 for (int j = 0; j <= n; j += 2)
                     for (int i = 0; i <= n; i += 2) {
                         var node = new Vector3i(i, j, k);
-                        double a = with.NodeValue(node), b = without.NodeValue(node), c = again.NodeValue(node);
-                        Assert.Equal(a, c);     // by value: a propagated value may be -0 where a computed one is +0
+                        double a = with.NodeValue(node), b = without.NodeValue(node);
+                        first.Add(a);
                         // away from the surface the propagated value is the rounded integer, the other the fast approximation
                         if (Math.Abs(b - 0.5) > 0.3) Assert.True((a > 0.5) == (b > 0.5), $"node ({i},{j},{k}): {a} against {b}");
                     }
+            // reuse: Build() again on the same instance gives the same surface cells and node values (by value: -0 and +0)
+            List<Vector3i> cells = with.SurfaceCells.ToList();
+            with.Build();
+            Assert.True(cells.SequenceEqual(with.SurfaceCells), "the surface cells changed on the second Build()");
+            int idx = 0;
+            for (int k = 0; k <= n; k += 2)
+                for (int j = 0; j <= n; j += 2)
+                    for (int i = 0; i <= n; i += 2)
+                        Assert.Equal(first[idx++], with.NodeValue(new Vector3i(i, j, k)));
         }
     }
 }
