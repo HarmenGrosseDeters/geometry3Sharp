@@ -1,0 +1,13 @@
+runs: base 252, candidate 252, common 252
+base verdicts: {'ok': 250, 'unjudged': 2}
+candidate verdicts: {'ok': 250, 'unjudged': 2}
+
+verdict changes:
+  none
+
+triangles, both ok (235 runs): base 490683, candidate 490729; ratio 5% 1.000 / median 1.000 / 95% 1.000; changed 1
+  largest savings: [('delaunator/issue43 M1', 5, 5), ('delaunator/issue43 M3@20', 5, 5), ('delaunator/issue43 M3@30', 7, 7), ('delaunator/issue44 M1', 5599, 5599), ('delaunator/issue44 M3@20', 16815, 16815)]
+  largest increases: [('earcut/water-huge M3@30', 29219, 29265)]
+
+meshing time (sum of the ms of both-ok runs): base 6250 ms, candidate 6042 ms
+Steiner limit: base ['poly2tri/debug2 M3@20', 'poly2tri/debug2 M3@30'] candidate ['poly2tri/debug2 M3@20', 'poly2tri/debug2 M3@30']
