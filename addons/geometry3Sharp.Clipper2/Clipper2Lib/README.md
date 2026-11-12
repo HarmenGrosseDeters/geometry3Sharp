@@ -32,4 +32,10 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the
   NuGet package side by side (booleans in every clip type, fill rule and PreserveCollinear setting, open paths,
   offsets in every join and end type, Minkowski sums and differences, SimplifyPaths, Area, bounds, point in polygon)
-  and requires the same output point for point.
+  and requires the same output point for point, at the adapter's magnitudes (±2^20 to ±2^50) and with degenerate
+  paths. The review of #751 compared the netstandard2.0 build with the package's DLL by IL: the same types, members
+  and method bodies, apart from a method-group delegate cache of the newer compiler in `ConvertHorzSegsToJoins`. In the
+  net10.0 build, `x.EnsureCapacity(n)` (`Clipper.Engine.cs`, `ClipperEngine.AddPathsToVertexList`) binds to
+  `List<T>.EnsureCapacity` instead of the extension method of the sources, which changes list capacities only.
+- Licences in the package: `THIRD-PARTY-NOTICES.txt` (next to the addon's csproj) holds the BSL-1.0 text and the
+  notices of `HashCode.cs`; the package licence expression is `BSL-1.0 AND MIT AND BSD-2-Clause`.

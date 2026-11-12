@@ -19,7 +19,7 @@
     <Title>geometry3Sharp.Clipper2</Title>
     <Authors>Harmen Grosse Deters</Authors>
     <Description>2D polygon booleans (union, intersection, difference, xor), offsets, Minkowski sums and simplification for the geometry3Sharp polygon types (Polygon2d, GeneralPolygon2d, PolyLine2d), on top of Clipper2</Description>
-    <PackageLicenseExpression>BSL-1.0</PackageLicenseExpression>
+    <PackageLicenseExpression>BSL-1.0 AND MIT AND BSD-2-Clause</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/HarmenGrosseDeters/geometry3Sharp</PackageProjectUrl>
     <RepositoryUrl>https://github.com/HarmenGrosseDeters/geometry3Sharp</RepositoryUrl>
@@ -43,6 +43,8 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <!-- the licences of the vendored Clipper2 sources (Boost-1.0, and MIT / BSD-2 for HashCode.cs) -->
+    <None Include="THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

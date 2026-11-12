@@ -401,7 +401,7 @@ public documentation only. The user's company code was not looked at.
 
 ## 2D polygon booleans and offsets (`addons/geometry3Sharp.Clipper2`: `Clipper2Polygons`, `ClipperFrame`)
 
-An optional package that calls a library; no code taken over.
+An optional package on top of Clipper2, whose C# 2.0.0 sources it carries (vendored, internal; since 2026-11-12, row below). The licence notices ship in the package as `THIRD-PARTY-NOTICES.txt`.
 
 | Part | Source |
 |---|---|

@@ -12,34 +12,50 @@ namespace geometry3Sharp.Clipper2.Tests
     /// as the engine: every operation the adapter uses, on the same procedural inputs, must give the same output paths,
     /// point for point and in the same order, and the same PolyTree nesting. Inputs: self-intersecting rings on a coarse
     /// lattice (vertices on other edges, collinear overlaps: the degenerate cases) and on a fine one (generic positions),
-    /// and open polylines.
+    /// and open polylines, at the magnitudes of the adapter's grid (±2^20 to ±2^50), with degenerate paths mixed in.
+    /// On net48 (Windows CI) this compares the netstandard2.0 builds; the net10.0 build of the vendored sources binds
+    /// List.EnsureCapacity to the BCL method instead of Clipper2's extension, which changes only list capacities.
     /// </summary>
     public class Clipper2VendoredDifferentialTests
     {
         static readonly Pkg.ClipType[] ClipTypes = { Pkg.ClipType.Union, Pkg.ClipType.Intersection, Pkg.ClipType.Difference, Pkg.ClipType.Xor };
         static readonly Pkg.FillRule[] FillRules = { Pkg.FillRule.EvenOdd, Pkg.FillRule.NonZero, Pkg.FillRule.Positive, Pkg.FillRule.Negative };
 
-        static Pkg.Path64 RandomRing(Random rand, int n, long range)
+        static Pkg.Path64 RandomRing(Random rand, int n, long range, int bits = 20)
         {
-            long step = (1L << 20) / range;
+            long step = (1L << bits) / range;
             var path = new Pkg.Path64(n);
             for (int i = 0; i < n; ++i)
                 path.Add(new Pkg.Point64(rand.Next(-(int)range, (int)range + 1) * step, rand.Next(-(int)range, (int)range + 1) * step));
             return path;
         }
 
-        /// <summary> pairs of random rings: n-gons with coordinates on a lattice of 2 range + 1 values per axis </summary>
-        static IEnumerable<(Pkg.Paths64 a, Pkg.Paths64 b, string name)> Pairs(int seed, int count)
+        /// <summary>
+        /// pairs of random rings: n-gons with coordinates on a lattice of 2 range + 1 values per axis, spanning ±2^bits
+        /// (bits 20, 40 and 50: the adapter's grid is ±2^40 by default and up to ±2^50, where Clipper2 takes its 128-bit
+        /// paths); every 7th case adds the degenerate paths the adapter can pass on (empty, one and two points,
+        /// repeated points, zero area)
+        /// </summary>
+        static IEnumerable<(Pkg.Paths64 a, Pkg.Paths64 b, int bits, string name)> Pairs(int seed, int count)
         {
             var rand = new Random(seed);
             for (int i = 0; i < count; ++i) {
                 int n = i % 3 == 0 ? 4 : i % 3 == 1 ? 8 : 16;
+                int bits = (i / 3) % 3 == 0 ? 20 : (i / 3) % 3 == 1 ? 40 : 50;
                 long range = i % 2 == 0 ? 4 : 64;       // coarse: exact degeneracies; finer: fewer of them
                 if (i % 5 == 4) range = 1 << 15;         // generic positions
-                var a = new Pkg.Paths64 { RandomRing(rand, n, range) };
-                var b = new Pkg.Paths64 { RandomRing(rand, n, range) };
-                if (i % 4 == 3) a.Add(RandomRing(rand, 5, range));   // more than one ring per operand
-                yield return (a, b, "seed " + seed + " case " + i + " (" + n + "-gons, range " + range + ")");
+                var a = new Pkg.Paths64 { RandomRing(rand, n, range, bits) };
+                var b = new Pkg.Paths64 { RandomRing(rand, n, range, bits) };
+                if (i % 4 == 3) a.Add(RandomRing(rand, 5, range, bits));   // more than one ring per operand
+                if (i % 7 == 6) {
+                    Pkg.Path64 r = RandomRing(rand, 4, range, bits);
+                    a.Add(new Pkg.Path64());
+                    a.Add(new Pkg.Path64 { r[0] });
+                    b.Add(new Pkg.Path64 { r[1], r[2] });
+                    b.Add(new Pkg.Path64 { r[0], r[0], r[1], r[1], r[2], r[3], r[3] });
+                    b.Add(new Pkg.Path64 { r[0], new Pkg.Point64(2 * r[0].X - r[1].X, 2 * r[0].Y - r[1].Y), r[1] });   // collinear
+                }
+                yield return (a, b, bits, "seed " + seed + " case " + i + " (" + n + "-gons, range " + range + ", 2^" + bits + ")");
             }
         }
 
@@ -49,6 +65,16 @@ namespace geometry3Sharp.Clipper2.Tests
             foreach (Pkg.Path64 p in paths)
                 result.Add(g3.Clipper2.Bridge.ToVendored(p));
             return result;
+        }
+
+        /// <summary> the output, or the exception type and message </summary>
+        static string Outcome(Func<string> run)
+        {
+            try {
+                return run();
+            } catch (Exception e) {
+                return "throws " + e.GetType().Name + ": " + e.Message;
+            }
         }
 
         static string Text(Pkg.Paths64 paths)
@@ -95,7 +121,7 @@ namespace geometry3Sharp.Clipper2.Tests
         public void Booleans_AreIdentical()
         {
             int compared = 0;
-            foreach (var (a, b, name) in Pairs(11, 240))
+            foreach (var (a, b, _, name) in Pairs(11, 240))
                 foreach (Pkg.ClipType op in ClipTypes)
                     foreach (Pkg.FillRule fill in FillRules)
                         foreach (bool collinear in new[] { false, true }) {
@@ -125,8 +151,8 @@ namespace geometry3Sharp.Clipper2.Tests
         public void OpenPaths_AreIdentical()
         {
             var rand = new Random(12);
-            foreach (var (a, b, name) in Pairs(13, 120)) {
-                var lines = new Pkg.Paths64 { RandomRing(rand, 6, 16), RandomRing(rand, 3, 64) };
+            foreach (var (a, b, bits, name) in Pairs(13, 120)) {
+                var lines = new Pkg.Paths64 { RandomRing(rand, 6, 16, bits), RandomRing(rand, 3, 64, bits) };
                 foreach (Pkg.ClipType op in ClipTypes)
                     foreach (Pkg.FillRule fill in FillRules) {
                         var pc = new Pkg.Clipper64();
@@ -148,30 +174,37 @@ namespace geometry3Sharp.Clipper2.Tests
         {
             var joins = new[] { Pkg.JoinType.Square, Pkg.JoinType.Bevel, Pkg.JoinType.Round, Pkg.JoinType.Miter };
             var ends = new[] { Pkg.EndType.Polygon, Pkg.EndType.Joined, Pkg.EndType.Butt, Pkg.EndType.Square, Pkg.EndType.Round };
-            foreach (var (a, _, name) in Pairs(14, 40))
+            var rand = new Random(17);
+            int c = 0;
+            foreach (var (rings, _, bits, name) in Pairs(14, 42))
                 foreach (Pkg.JoinType join in joins)
                     foreach (Pkg.EndType end in ends)
-                        foreach (double delta in new[] { -3e5, 7e4, 1.5e6 }) {
-                            if (delta < 0 && end != Pkg.EndType.Polygon) continue;
-                            var po = new Pkg.ClipperOffset(2.5, 1e3);
+                        foreach (double f in new[] { -0.3, 0, 0.07, 1.4 }) {
+                            if (f < 0 && end != Pkg.EndType.Polygon) continue;
+                            double unit = Math.Pow(2, bits), delta = f * unit;
+                            // the adapter's ranges: MiterLimit up to MaxMiterLimit, arc tolerance up to |delta| / 4
+                            double miter = ++c % 2 == 0 ? 2.5 : g3.Clipper2.Clipper2Options.MaxMiterLimit;
+                            double arc = c % 3 == 0 ? Math.Abs(delta) / 4 : c % 3 == 1 ? unit * 1e-3 : 0;
+                            var a = new Pkg.Paths64(rings);
+                            if (end == Pkg.EndType.Round && c % 5 == 0)
+                                a.Add(new Pkg.Path64 { rings[0][0] });   // the single-point polyline of OffsetPolyLines
+                            var po = new Pkg.ClipperOffset(miter, arc);
                             po.AddPaths(a, join, end);
-                            var vo = new V.ClipperOffset(2.5, 1e3);
+                            var vo = new V.ClipperOffset(miter, arc);
                             vo.AddPaths(ToVendored(a), g3.Clipper2.Bridge.ToVendored(join), g3.Clipper2.Bridge.ToVendored(end));
-                            var pOut = new Pkg.Paths64(); var vOut = new V.Paths64();
-                            po.Execute(delta, pOut);
-                            vo.Execute(delta, vOut);
-                            Assert.True(Text(pOut) == Text(vOut), name + ", " + join + " " + end + " " + delta);
-                            var pTree = new Pkg.PolyTree64(); var vTree = new V.PolyTree64();
-                            po.Execute(delta, pTree);
-                            vo.Execute(delta, vTree);
-                            Assert.True(Text(pTree) == Text(vTree), name + ", " + join + " " + end + " " + delta + " (tree)");
+                            // degenerate paths can make both throw (an empty open path): the same exception is the same outcome
+                            string where = name + ", " + join + " " + end + " " + delta + " miter " + miter + " arc " + arc;
+                            Assert.True(Outcome(() => { var o = new Pkg.Paths64(); po.Execute(delta, o); return Text(o); })
+                                        == Outcome(() => { var o = new V.Paths64(); vo.Execute(delta, o); return Text(o); }), where);
+                            Assert.True(Outcome(() => { var t = new Pkg.PolyTree64(); po.Execute(delta, t); return Text(t); })
+                                        == Outcome(() => { var t = new V.PolyTree64(); vo.Execute(delta, t); return Text(t); }), where + " (tree)");
                         }
         }
 
         [Fact]
         public void MinkowskiSimplifyAndQueries_AreIdentical()
         {
-            foreach (var (a, b, name) in Pairs(15, 50)) {
+            foreach (var (a, b, _, name) in Pairs(15, 50)) {
                 Pkg.Path64 pa = a[0], pb = b[0];
                 V.Path64 va = g3.Clipper2.Bridge.ToVendored(pa), vb = g3.Clipper2.Bridge.ToVendored(pb);
                 foreach (bool closed in new[] { false, true }) {
@@ -193,7 +226,7 @@ namespace geometry3Sharp.Clipper2.Tests
         public void Bridge_CopiesTreesAndEnums()
         {
             // the conversions the adapter's public ClipperFrame methods use
-            foreach (var (a, b, _) in Pairs(16, 30)) {
+            foreach (var (a, b, _, _) in Pairs(16, 30)) {
                 var pc = new Pkg.Clipper64();
                 pc.AddSubject(a); pc.AddClip(b);
                 var tree = new Pkg.PolyTree64();
