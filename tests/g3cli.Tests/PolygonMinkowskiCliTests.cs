@@ -154,6 +154,32 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void TheVertexProductCap_IsExactlyOneHundredThousand()
+        {
+            // (a CLI call at the boundary would take minutes: the cost grows much faster than the product)
+            Assert.False(Commands.MinkowskiTooLarge(4, 25000));          // exactly 100000 pairs: allowed
+            Assert.True(Commands.MinkowskiTooLarge(4, 25001));
+            Assert.False(Commands.MinkowskiTooLarge(100000, 1));
+            Assert.True(Commands.MinkowskiTooLarge(100001, 1));
+            Assert.False(Commands.MinkowskiTooLarge(316, 316));
+            Assert.True(Commands.MinkowskiTooLarge(317, 317));
+            Assert.True(Commands.MinkowskiTooLarge(int.MaxValue, int.MaxValue));   // (no overflow)
+        }
+
+        [Fact]
+        public void DifferentCrs_AreWarnedAbout()
+        {
+            string withCrs(string poly, string name) => poly.Insert(1, "\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"" + name + "\"}},");
+            var (exit, r) = M("minkowski_sum", withCrs(Poly(1, Square10), "EPSG:25832"), withCrs(Poly(1, Square2), "EPSG:4326"), "--return-geojson");
+            Assert.Equal(0, exit);
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("different crs"));
+            Assert.Equal("EPSG:25832", S(r["result_geojson"]["crs"]["properties"]["name"]));
+            var (e2, same) = M("minkowski_sum", withCrs(Poly(1, Square10), "EPSG:25832"), withCrs(Poly(1, Square2), "EPSG:25832"));
+            Assert.Equal(0, e2);
+            Assert.Empty(same["warnings"].AsArray());
+        }
+
+        [Fact]
         public void FilesAndOutput()
         {
             string subject = m.Path_("mk_subject.geojson"), pattern = m.Path_("mk_pattern.geojson"), output = m.Path_("mk_out.geojson");

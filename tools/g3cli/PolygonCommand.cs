@@ -285,7 +285,7 @@ namespace g3cli
             c.Params.Add(new Param("op", ParamType.String, "union, intersection, difference, xor, offset; simplify (polygons) and simplify_lines (LineString / MultiLineString subject); clip_lines (the lines of a LineString / MultiLineString subject clipped by the clip polygons); offset_lines (the band of width 2 delta around lines); minkowski_sum and minkowski_difference (the pattern polygon swept along the subject ring or line: pattern, path_closed)") { Required = true, Enum = new[] { "union", "intersection", "difference", "xor", "offset", "simplify", "simplify_lines", "clip_lines", "offset_lines", "minkowski_sum", "minkowski_difference" } });
             c.Params.Add(new Param("pattern", ParamType.String, "minkowski ops: the pattern, a GeoJSON file with one polygon without holes (coordinates relative to its reference point, eg a circle around (0, 0)); or give pattern_geojson"));
             c.Params.Add(new Param("pattern_geojson", ParamType.String, "minkowski ops: the pattern as inline GeoJSON text"));
-            c.Params.Add(new Param("path_closed", ParamType.Boolean, "minkowski ops: true (default): the subject is one polygon without holes, its interior included; false: the subject is one LineString, an open path") { Default = true });
+            c.Params.Add(new Param("path_closed", ParamType.Boolean, "minkowski ops: true (default): the subject is one polygon without holes, its interior included; false: the subject is one LineString, an open path (false is refused for the other ops)") { Default = true });
             c.Params.Add(new Param("epsilon", ParamType.Number, "simplify, simplify_lines: remove vertices closer than this (input units) to the line through their neighbours; 0 only merges overlaps"));
             c.Params.Add(new Param("clip_type", ParamType.String, "clip_lines: keep the pieces of the lines inside the clip polygons (intersection) or outside (difference)") { Default = "intersection", Enum = new[] { "intersection", "difference" } });
             c.Params.Add(new Param("end_type", ParamType.String, "offset_lines: end treatment (joined: a closed line is offset on both sides)") { Default = "round", Enum = new[] { "round", "square", "butt", "joined" } });
@@ -433,6 +433,9 @@ namespace g3cli
         /// <summary> minkowski_sum and minkowski_difference of polygon2d: the pattern swept along a closed polygon or an open line (Clipper2Polygons.MinkowskiSum / MinkowskiDifference) </summary>
         const long MinkowskiMaxVertexProduct = 100000;
 
+        /// <summary> more than 100000 pattern x path vertex pairs (exactly 100000 is allowed) </summary>
+        internal static bool MinkowskiTooLarge(int patternVertices, int pathVertices) => (long)patternVertices * pathVertices > MinkowskiMaxVertexProduct;
+
         static JsonObject Polygon2dMinkowski(Args args, string op)
         {
             if (args.Has("subject") == args.Has("subject_geojson"))
@@ -474,7 +477,7 @@ namespace g3cli
             }
             Polygon2d patternRing = pattern.Polygons[0].Outer;
             // (the time grows much faster than the product: 200 x 200 vertices take about 1 s, 1000 x 1000 about 90 s)
-            if ((long)patternRing.VertexCount * path.VertexCount > MinkowskiMaxVertexProduct)
+            if (MinkowskiTooLarge(patternRing.VertexCount, path.VertexCount))
                 throw new CommandException(ResultCodes.InvalidArguments,
                     $"the pattern ({patternRing.VertexCount} vertices) times the path ({path.VertexCount} vertices) is more than {MinkowskiMaxVertexProduct}: simplify one of them first");
 
@@ -510,6 +513,8 @@ namespace g3cli
             if (args.Bool("return_geojson")) o["result_geojson"] = geojson;
             var warnings = new List<string>();
             if (subject.DroppedZ || pattern.DroppedZ) warnings.Add("third coordinates (z) of the positions are ignored");
+            if (pattern.Crs != null && subject.Crs != null && pattern.Crs.ToJsonString() != subject.Crs.ToJsonString())
+                warnings.Add("subject and pattern name different crs; the subject's is used (coordinates are not reprojected)");
             o["warnings"] = Warnings(warnings);
             return o;
         }

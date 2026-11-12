@@ -72,7 +72,7 @@ Part of the [roadmap](../ROADMAP.md).
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
   section 11); PRs A (`repair` options and result fields, #662), B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665), C (`polygon_solids`, #667)
-  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is in review; F and G as in its section 10 (G without `voxelize`: dropped by the owner 2026-11-12, simulation comes with tet meshing, research.md item 3; block models only if needed).
+  D (`polygon2d` line ops, #669) and E (`curvature`, `fidelity` / `geodesic` options, #672) are merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702, `query3d --camera` to come) are in review or in progress (G without `voxelize`: dropped by the owner 2026-11-12, simulation comes with tet meshing, research.md item 3; block models only if needed).
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
