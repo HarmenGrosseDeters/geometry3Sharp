@@ -35,7 +35,7 @@ namespace geometry3Sharp.Tests
             return p;
         }
 
-        public static IEnumerable<object[]> Names() => Similarity.Names2D();
+        public static IEnumerable<object[]> Names() => Similarity.Names();
 
         [Fact]
         public void Notched_AreaIsKnown()

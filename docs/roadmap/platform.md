@@ -218,7 +218,7 @@ Tier: S, M. Parallel: up to 2 sessions
        FINDINGS.md and gated in the targets (`MESH_FUZZ_STRICT=1`), none fixed.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
-    fixed example test (QA.md, "Similarities").
+    fixed example test (QA.md 2.4).
   - [ ] Further test tools (owner 2026-11-08; one bounded task each):
     - [x] Changed-line coverage gate (QA.md item 8) with coverlet (MIT): core, Clipper2 and CLI changed executable
       lines require 100% coverage across the Linux test runs, checked nightly on master and on demand (`coverage.yml`, not on PRs: runner cost), each uncovered line named with its PR; missing evidence fails closed. No global
@@ -278,7 +278,7 @@ and the test tiers and time limit (#447, the backlog program).
   #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), and the three bugfix PRs they led to: #655 (#647,
   `VoxelSurfaceGenerator` honours `MaxMeshElementCount`), #656 (#644, `ConvexHull2` is scale free: it works on a copy scaled by a power of
   two, also for an overflowing extent) and #657 (#645, only `QT_DOUBLE` and `QT_INT64` are supported, said in the comment and the
-  message). Open: #627 (T12 FPTaylor, draft) and the `Similarity.All2D()` harness PR (the 2D tests use the similarities of the plane, see
+  message). Open: #627 (T12 FPTaylor, draft) and #682 (`Similarity.All2D()`: the 2D tests use the similarities of the plane, see
   QA.md, "Similarities").
   Open `local` issues: #636 (repair time, F2), #637 (F5), #638 (F7). #628 was fixed by #634 (merged).
 

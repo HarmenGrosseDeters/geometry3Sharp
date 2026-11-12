@@ -13,13 +13,13 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class PlanarComplexRelativeToleranceTests
     {
-        // the cases of the probe (PlanarComplexNestingProbeTests): two near-concentric circles over Similarity.All2D(); the relative
+        // the cases of the probe (PlanarComplexNestingProbeTests): two near-concentric circles over Similarity.All(); the relative
         // tolerance is a hundredth of the gap, so the simplification stays well inside the gap
         public static IEnumerable<object[]> Cases()
         {
             foreach (double gap in new[] { 1e-1, 1e-2, 1e-3, 1e-6 })
             foreach (bool offset in new[] { false, true })
-            foreach (Similarity s in Similarity.All2D())
+            foreach (Similarity s in Similarity.All())
                 yield return new object[] { gap, offset, s.Name };
         }
 
@@ -47,7 +47,7 @@ namespace geometry3Sharp.Tests
         public void CloseCircles_RelativeToleranceKeepsTheNesting_OverEverySimilarity(double gap, bool offset, string similarity)
         {
             // (the gap of 1e-6 at the rotated UTM millimetre similarity is about 1 ulp of the coordinates: not representable, #628)
-            if (gap == 1e-6 && similarity == Similarity.RotatedZUtmMillimetre.Name)
+            if (gap == 1e-6 && similarity == Similarity.RotatedUtmMillimetre.Name)
                 return;
             Similarity s = Similarity.ByName(similarity);
             PlanarComplex complex = Circles(gap, offset, s, out var outer, out var inner);
@@ -67,7 +67,7 @@ namespace geometry3Sharp.Tests
             // the tolerance is relative to the loop, so a 2^k scale gives the same simplification: the vertices are those of the unit
             // case times the scale, bit for bit
             var unit = Circles(1e-2, true, Similarity.Identity, out _, out _).FindSolidRegions(Relative(1e-4));
-            foreach (Similarity s in Similarity.All2D().Where(x => x.IsExact && x.Name != Similarity.Identity.Name)) {
+            foreach (Similarity s in Similarity.All().Where(x => x.IsExact && x.Name != Similarity.Identity.Name)) {
                 var r = Circles(1e-2, true, s, out _, out _).FindSolidRegions(Relative(1e-4));
                 Assert.Equal(unit.Polygons[0].Outer.VertexCount, r.Polygons[0].Outer.VertexCount);
                 Assert.Equal(unit.Polygons[0].Holes[0].VertexCount, r.Polygons[0].Holes[0].VertexCount);
