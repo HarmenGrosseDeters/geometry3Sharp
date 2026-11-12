@@ -49,7 +49,7 @@ Actionable:
 - **Near T-junctions under a rotation (#664, bugfix):** a T-junction end rounded a hair beside the other segment lost the small-angle
   exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in PR of `claude/664-rotated-fan`: the
   mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
-  widens an excuse: owner decision pending. Effort M.
+  widens an excuse: accepted by the owner 2026-11-12. Effort M.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 

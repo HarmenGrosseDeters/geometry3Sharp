@@ -39,7 +39,7 @@ end on the other side, triangle splits instead).
   `SpansSmallAngle`.
 - **Oracle** (`SpansSmallInputAngle`): after the exact rule, an end of one constraint inside the tube of the other (twice the mesher's
   tolerance) is the apex; such excuses are counted as `NearMeetAngleExcused`. Self-checks: an exact end, an end 1e-13 off (in the tube),
-  an end 1e-6 off (judged). Owner decision pending at the time of writing (the O11 exemptions are an owner decision of 2026-11-02).
+  an end 1e-6 off (judged). Owner decision 2026-11-12: accepted, shipped together with the mesher part (the O11 exemptions are an owner decision of 2026-11-02).
 - Measured: the rotated fan stops at 4 659 vertices (identity: 4 515), oracle-valid (`QualityMesh2NearTJunctionTests`).
 
 ## 1. Diagnosis (measured, master 14d744f0)
