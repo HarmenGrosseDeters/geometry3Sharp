@@ -29,7 +29,10 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 Actionable:
 
 - **#664 (bugfix, owner 2026-11-12):** the near-contact fan of #661 under the `rotated` similarity runs to the Steiner limit
-  (about 400 000 vertices; same on master). Next item of the Meshing2D session, after #661 / #663.
+  (about 400 000 vertices; same on master). Cause: the rotation rounds a T-junction end off A, so `PairOf` misses the
+  meeting pair. Fix (in progress, one PR): the mesher treats an end within its tolerance of the other segment as meeting,
+  and the oracle takes such an end as apex when the lines do not meet on both closed segments (owner 2026-11-12: excuse
+  widening approved; both parts ship together).
 
 - **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
   Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
