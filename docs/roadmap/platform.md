@@ -54,8 +54,9 @@ Part of the [roadmap](../ROADMAP.md).
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
-  section 11); PR A (`repair` options and result fields, draft) is in
-  progress; then B (`query3d`), C to G as in its section 10.
+  section 11); PR A (`repair` options and result fields, #662) is
+  merged; PR B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665) is in review; C (`polygon_solids`, #667), D (`polygon2d` line
+  ops, #669) and E (`curvature`, `fidelity` / `geodesic` options, #672) are in review; F and G as in its section 10.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
