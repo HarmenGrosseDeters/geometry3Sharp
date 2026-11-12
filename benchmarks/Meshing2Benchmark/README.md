@@ -322,6 +322,44 @@ Unset, empty or blank means the default; case and surrounding blanks do not matt
 `G3_ORACLE_TIMING` laps: the former `conformity` lap is now `conformity: point-triangle`, `conformity: edge-crossings` and
 `conformity: remaining` (duplicate and unused vertices, the domain). `recheck.py` reads lap names generically (`ORACLE <name> <ms> ms`).
 
+## ALKIS tiles: fetch, prepare, sample (2026-11-12)
+
+Real cadastral data, fetched at run time from the original source and never committed: Geobasis NRW, `opengeodata.nrw.de`, product
+"Grundrissdaten vereinfacht" (`produkte/geobasis/lk/akt/gru_vereinfacht_gpkg`, licence dl-de/zero-2-0). The host delivers one GeoPackage per
+district (Kreis or kreisfreie Stadt, 32 to 263 MB zipped), not per tile; the layers used are `Flurstueck` (parcels) and `GebauedeBauwerk`
+(buildings), `Nutzung` (land use) only to classify tiles in the sample. Scripts in `corpus/` (Python 3 standard library only):
+
+| Script | Does |
+|---|---|
+| `alkis_tiles.py` | downloads a district (cache dir, archive SHA-256 printed), prepares tiles; `--herne` = the three Herne tiles of `herne_ratchet.py` |
+| `alkis_sample.py` | the stratified, seeded sample (`--plan`, `--draw`), see its docstring for the rule |
+| `alkis_run.py` | runs `mesh` (mesher, then the oracle) per input, one process each, resumable `results.jsonl`, flags SLOW / SLOW-ORACLE / STEINER / INVALID / CRASH / TIMEOUT |
+
+Preparation of a tile (fixed, the same for Herne and the sample): a square of 200 m whose south-west corner is the tile name
+(`easting_northing`, UTM 32N); the whole boundary rings (not clipped) of every parcel and building whose bounding box intersects the
+tile; one point per coordinate pair and one segment per point pair; no rings, holes or regions (the domain is the convex hull); coordinates
+as in the source, `snap_tolerance 0.01`, `steiner_limit 200000`, `resolve_crossings 1`. Files: `m2_<tile>s.txt` (M2), `base_<tile>_q<20|30>s.txt`
+(`conforming 1`), `cq_<tile>_q<20|30>s.txt` (`mode constrained`). The tile size and the "not clipped" rule are not written in older notes; they
+were read off the tile names, `MESHING2D_SPEC.md` (100 to 200 m tiles) and `MESHING2D_HULL_GRID.md` (Herne points outside the tile), and checked
+against the recorded constrained-mode counts (below).
+
+**Reproducibility.** The host's "akt" data change over time, so a sample or a Herne result is reproducible per archive SHA-256: `alkis_tiles.py` prints it, and `alkis_sample.py` writes the archives (file, size, SHA-256) and the tile list into `sample.json`. `--only` and `--first` select from the full draw and never change it (`test_alkis_sample.py`, offline, in CI).
+
+**Herne, fetched and prepared by `alkis_tiles.py --herne` (archive sha256 `1d92eb85...39232`, 2026-11-12, master `2b26172`).** All 12 runs of
+`herne_ratchet.py` are VALID, RefinementPinch 0, exit 0. Input sizes: 371800 474 points / 513 segments, 373600 1 713 / 1 925, 381000 323 / 333.
+
+| Run | triangles now | recorded (document) |
+|---|---|---|
+| cq 371800 q20 / q30 | 7 502 / 24 006 | 7 506 / 24 433 (SMALL_ANGLES) |
+| cq 373600 q20 / q30 | 57 085 / 153 886 | 57 113 / 154 284 (SMALL_ANGLES) |
+| cq 381000 q20 / q30 | 3 051 / 8 221 | 3 053 / 8 315 (SMALL_ANGLES) |
+| base 371800 q20 / q30 | 13 315 / 31 145 | 20 912 / 49 835 (GRADING, 2026-11-04) |
+| base 373600 q20 / q30 | 83 933 / 157 954 | 91 827 / 206 700 (GRADING); 241 626 at q30 (2026-11-03) |
+| base 381000 q20 / q30 | 3 740 / 8 290 | 5 384 / 12 990 (GRADING) |
+
+The constrained-mode counts agree within 1.7 %, so the input is the same. The base counts are lower than the older tables because those predate the
+small-angle rule in the conforming mode (`MESHING2D_SMALL_ANGLES_CONFORMING.md`, 2026-11-08); these numbers are the new reference. Not tuned.
+
 ## Herne ratchet and the snapped-area report (2026-11-03)
 
 `herne_ratchet.py` meshes the 12 Herne runs (prepared ALKIS tiles, snap 0.01 m, not in the repository; `--inputs <dir>`), judges them

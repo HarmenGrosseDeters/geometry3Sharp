@@ -127,7 +127,7 @@ namespace gs
                 var box = new AxisAlignedBox3d(v0); box.Contain(v1); box.Contain(v2);
                 // the prism is within epsilon of the triangle
                 box.Expand(1.01 * Epsilon);
-                if (!(finite(box.Min) && finite(box.Max))) return EnvelopeStatus.OutOfRange;
+                if (!(box.Min.IsFinite && box.Max.IsFinite)) return EnvelopeStatus.OutOfRange;
                 boxes[p] = box;
                 sumEdge += (length(v1 - v0) + length(v2 - v1) + length(v0 - v2)) / 3;
                 p++;
@@ -154,13 +154,6 @@ namespace gs
             return ExactPoint3.ScaleB(w.Length, e);
         }
 
-        // all components finite (Vector3d.IsFinite tests their sum, which overflows for (1e308, 1e308, 0))
-        static bool finite(Vector3d v)
-        {
-            return !(double.IsNaN(v.x) || double.IsInfinity(v.x) || double.IsNaN(v.y) || double.IsInfinity(v.y)
-                || double.IsNaN(v.z) || double.IsInfinity(v.z));
-        }
-
         // unit vector along v, false if v is zero or not finite. Scaled by a power of two first (exact), so that
         // tiny vectors neither underflow nor hit the absolute threshold of Vector3d.Normalized (2.2e-16)
         static bool unit(Vector3d v, out Vector3d u)
@@ -181,8 +174,8 @@ namespace gs
             Vector3d[] v = { v0, v1, v2 };
             Vector3d[] e = { v1 - v0, v2 - v1, v0 - v2 };
             // every edge needs its normals (the bound of the lateral offsets): no edge vector may overflow
-            foreach (Vector3d q in v) if (finite(q) == false) return EnvelopeStatus.OutOfRange;
-            foreach (Vector3d q in e) if (finite(q) == false) return EnvelopeStatus.OutOfRange;
+            foreach (Vector3d q in v) if (q.IsFinite == false) return EnvelopeStatus.OutOfRange;
+            foreach (Vector3d q in e) if (q.IsFinite == false) return EnvelopeStatus.OutOfRange;
             int L = 0;
             for (int k = 1; k < 3; ++k) if (e[k].LengthSquared > e[L].LengthSquared) L = k;
             Vector3d u1;
@@ -192,7 +185,7 @@ namespace gs
             // triangle close to the plane (its spread along the normal is at most the offset plus rounding)
             Vector3d d = v[(L + 2) % 3] - v[L];
             Vector3d perp = d - d.Dot(u1) * u1;
-            if (finite(perp) == false) return EnvelopeStatus.OutOfRange;
+            if (perp.IsFinite == false) return EnvelopeStatus.OutOfRange;
             Vector3d nrm = u1.Cross(perp);
             Vector3d nh;
             if (unit(nrm, out nh) == false) {
@@ -261,7 +254,7 @@ namespace gs
         /// <summary> is the point in the envelope? </summary>
         public bool Contains(Vector3d q)
         {
-            if (Status != EnvelopeStatus.Ready || finite(q) == false) return false;
+            if (Status != EnvelopeStatus.Ready || q.IsFinite == false) return false;
             List<int> cand = candidates(new AxisAlignedBox3d(q));
             bool uncertain = SkipFilters;
             if (SkipFilters == false) foreach (int p in cand) {
@@ -279,7 +272,7 @@ namespace gs
         /// <summary> is the whole segment in the envelope? </summary>
         public bool ContainsSegment(Vector3d a, Vector3d b)
         {
-            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false) return false;
+            if (Status != EnvelopeStatus.Ready || a.IsFinite == false || b.IsFinite == false) return false;
             var box = new AxisAlignedBox3d(a); box.Contain(b);
             List<int> cand = candidates(box);
             Vector3d[] q = { a, b };
@@ -293,7 +286,7 @@ namespace gs
         /// <summary> is the whole triangle in the envelope? (also for degenerate triangles) </summary>
         public bool ContainsTriangle(Vector3d a, Vector3d b, Vector3d c)
         {
-            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false || finite(c) == false) return false;
+            if (Status != EnvelopeStatus.Ready || a.IsFinite == false || b.IsFinite == false || c.IsFinite == false) return false;
             var box = new AxisAlignedBox3d(a); box.Contain(b); box.Contain(c);
             List<int> cand = candidates(box);
             Vector3d[] q = { a, b, c };

@@ -69,7 +69,7 @@ Add both: `using g3; using gs;`.
 | You have | Use | Result |
 |---|---|---|
 | A mostly good mesh with small holes, duplicate vertices, degenerate triangles | `MeshAutoRepair` (with `PostRepairCleanup = true`) | the input triangles, welded and closed where possible; not guaranteed closed |
-| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`; simplified within half its offset, with no new triangle below quality 0.3 (largest angles about 150 degrees); an optional quality pass, `AlphaWrapQualityPass`, off by default since Alpha Wrap 2.0: a little better angles, up to 5 % more triangles, about 40 % more time (30 % of the pipeline with it), certified within the same distance); see `FallbackReason`. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
+| Any mesh, and you need a closed, manifold, self-intersection-free result | `MeshRobustRepair` | the repaired mesh if it is clean, otherwise its self-intersections resolved exactly (`UsedExactResolve`), otherwise the winding number solid (`UsedSolidify`), otherwise the alpha wrap (`UsedAlphaWrap`; simplified within half its offset, with no new triangle below quality 0.3 (largest angles about 150 degrees); an optional quality pass, `AlphaWrapQualityPass`, off by default since Alpha Wrap 2.0: a little better angles, up to 5 % more triangles, about 40 % more time (30 % of the pipeline with it), certified within the same distance); see `FallbackReason`. For an input of fewer than `SmallInputWrapTriangles` (64) triangles the wrap takes its alpha from the input's median edge length (`max(diag / WrapRelativeAlpha, median edge / SmallInputWrapEdgeDivisor)`, offset in the same ratio): a coarser wrap (about 100-250 triangles instead of 100 000-200 000, 0.1-0.4 s instead of 3-13 s, #636), which can wrap a small feature next to larger ones over; `SmallInputWrapTriangles = 0` restores the diag / 300 wrap for every size; inputs with far parts and inputs of 64 or more triangles are wrapped as before. If the clean result lost volume (`MinVolumeIoU`) the input itself is resolved or solidified instead. `Apply()` returns false (`Mesh` unchanged) if cancelled or if neither the solidify nor the alpha wrap gave a mesh; a solidified result that is not clean either is kept when the wrap fails or is off (`UsedSolidify` and `SolidifyReason`) |
 | An unoriented point cloud, and you need a surface with more detail than the alpha wrap | `PointCloudSurface` | `PointCloudNormals`, then the 0.5 iso-surface of the fast winding number of the oriented points (area-weighted by the local density) by marching cubes (`CubeSize`, default spacing / 2.5); where there is no data (a hole or gap: nearest point farther than `HoleFactor` = 1.5 local spacings) the alpha wrap's signed distance is used, so holes are bridged by the wrap; the winding number is evaluated only near the data. Small closed components (bubbles on noisy data) are removed below `MinComponentAreaFraction` of the largest, counted and reported (`ComponentsRemoved`, `RemovedAreaFraction`). `Success` = one closed manifold component that covers the data (more than `MaxUncoveredFraction` = 1 % of the points farther than `CoverFactor` = 4 local spacings from it: `DataDropped`, eg a small separate object removed as a bubble); not the wrap's guarantee of enclosing the points. Memory: about 50 bytes per node of the band (`MaxGridNodes` 20 million = about 1 GB). Measured on torus samplings (6000 points; mean deviation to the true surface 0.0073 / 0.034 / 0.0116 / 0.0086 / 0.036 against the wrap's 0.0096 / 0.129 / 0.027 / 0.022 / 0.146 on clean / noise / hole / non-uniform / all three), about 6-8 s on 4 cores |
 | An unoriented point cloud, and you need outward normals | `PointCloudNormals` | a unit normal per point: the axis from a PCA of the 16 nearest neighbours, the sign from an alpha wrap of the cloud (two probe points at `1.5 (Alpha + Offset)` along the axis, the one outside the wrap is the outer side); `Alpha` is chosen from the sampling spacing and the noise if not given and enlarged up to 3 times (x1.6) if a hole or gap lets the wrap into the solid; reports `Confident[i]`, `ConfidentFraction`, `Spacing`, `NoiseSigma` and a `Status` (`AlphaBelowCondition`, `AmbiguousOrientation` for an open sheet or thin walls: the signs are then a heuristic). Measured on torus samplings (noise, hole, 10:1 density): 97-100 % of the signs right. A wrap that stops at `MaxSteinerPoints` is used only if it is closed, valid and free of self-intersections (else a coarser `Alpha`, then `WrapFailed`); `DegenerateCount` counts the zero normals also for a `Success`. Zero normal where the neighbourhood is collinear or coincident (`DegenerateInput` if fewer than 90 % have a normal); exact duplicates are merged; any finite coordinate magnitude for the axes (the wrap has its own range, see `MeshAlphaWrap`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
@@ -207,8 +207,10 @@ if (op.Compute() == false)
   arrangement will have (`Counts["predicted_pieces"]`, always set), a few percent into the work.
 - `Cancellation` is checked between the phases and within the long ones; a cancelled run returns within a fraction of
   a second on 4 cores.
-- The classification of open inputs carries the winding numbers from piece to piece; the counts `l2_traced`,
-  `l2_carried`, `l2_direct` and `l2_exact_centroids` show how. The triangulation's exact predicates show in
+- The classification of open inputs carries the winding numbers from piece to piece, also across the edges between
+  input triangles (clusters of adjacent triangles, so that most pieces need no ray of their own); the counts
+  `l2_traced`, `l2_carried`, `l2_direct`, `l2_exact_centroids`, `l2_cross_steps`, `l2_cross_fallbacks`,
+  `l2_cross_candidates` and `l2_clusters` show how (docs/design/EXACT_BOOLEAN_T5_CROSS_CARRY.md). The triangulation's exact predicates show in
   `l3_local_decided` and `l3_construction_zeros`.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
@@ -797,6 +799,11 @@ with clip polygons keeps the pieces of the lines inside (`--clip-type intersecti
 `--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
 neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
 invariance are those of the booleans (`frame`).
+`--op minkowski_sum` / `minkowski_difference` sweep a pattern polygon (`--pattern` file or `--pattern-geojson`: one polygon without holes, its coordinates
+relative to the reference point, eg a circle around (0, 0)) along the subject: with `--path-closed` (default) one polygon without holes, its interior
+included; with `--path-closed=false` one `LineString` as an open path. The difference uses the pattern mirrored at its reference point; the result has holes
+where the sweep encloses one (`Clipper2Polygons.MinkowskiSum` / `MinkowskiDifference`). The pattern times the path may have at most 100000 vertex pairs (the time grows
+faster than the product: 200 x 200 vertices about 1 s, 1000 x 1000 about 90 s); the result keeps collinear vertices of the sweep (`--preserve-collinear` is refused).
 
 ```
 g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
@@ -824,6 +831,16 @@ so the command promises no enclosure of the input (owner decision 2026-11-12):
 
 ```
 g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
+```
+
+**Convex hull of 2D points** (`hull2d`, `ConvexHull2`): `--points` ("x,y;x,y", `@file`, or JSON `[[x,y],...]`) or a mesh file (its vertices' x and y); the result has the
+`dimension` of the hull (2 a polygon, 1 all points on a line, 0 one point), its vertices counterclockwise with their `indices` into the input, `area`, `perimeter`
+and, with `--output` or `--return-geojson`, a GeoJSON Polygon, LineString or Point. `--query double` (default) uses floating point predicates (not robust in every case);
+`int64` rounds the points to a 2^20 grid of their bounding square and takes the hull of the rounded points. ConvexHull2 has no exact mode (`QT_RATIONAL` is not
+implemented), so none is offered. `--epsilon` (default 1e-8, must be > 0) decides whether points are on a line or at one point: an extent below it (absolute) is one point, a deviation from a line below epsilon times the extent is a line. At most 50000 points (the library takes quadratic time when most points are on the hull, eg on a circle):
+
+```
+g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
 ```
 
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with

@@ -219,7 +219,13 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
   clean; plateau steps need a termination lemma and a separate decision); design accepted (owner): deterministic
   enumeration (26 directions in the defect's local frame, sizes room / 2^j for J = 8, largest first, through try_move /
-  improves()), only on results that are not rounding clean, built after (1), same file;
+  improves()), only on results that are not rounding clean, built after (1), same file; variant fixed after the
+  pre-check (owner 2026-11-12): axis-aligned directions instead of the local frame (equal or better everywhere, less
+  code), J = 8, search and passes repeated until a search accepts nothing, a pair searched at the 3 corners of its first
+  triangle (11 of 35 generated and 4 of 5 D1 cohort leftovers clean, 41.5 s against 36.4 s without search on the 35;
+  local frame one round: 8 of 35; J = 24 gains 1-3 at 2-2.5x the proposals); sizes smallest first, room / 128 up to room
+  (owner 2026-11-12, reverses "largest first": 10 instead of 11 of 35, the same 4 of 5, the cohort's drift 2-16x lower,
+  as fix_degenerate / fix_intersection and Milenkovic-Sacks); the D1 cohort acceptance run (2-3 h) is approved;
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
@@ -283,6 +289,14 @@ oracle bit-identical to n separate booleans); (3) T2 memory (Sonnet: data layout
 exact files get the exact-code review by an Opus agent that sees the code, not the author's reasoning. Owner
 2026-11-11: that review comes from an existing Opus session that knows the area and did not write the PR (for T2 and
 later Sonnet stages: the T3a session); the Sonnet session starts no review subagent of its own.
+
+**T5 plan change (2026-11-12, coordinator):** the cost count (21 slow open models, Union, 4 cores, master f0d3035d)
+showed that lifting the fast-winding switches does not pay as L2 stands: classification 117959 92 -> 434 s, 1005586
+46 -> 74 s, 122796 7.5 -> 46 s, 1087xxx about equal. The cause is L2's scope: 82-98 % of the evaluations on these models
+come from input triangles of one piece, each with its own far ray (`front_crossings` 35.5 % of 1005586's profile). So
+T5 PR 2 first carries the open winding across input-triangle edges
+([design](../design/EXACT_BOOLEAN_T5_CROSS_CARRY.md)), measures with the switches as they are, and only then, after a
+reference check of the changed hashes, decides on the switches.
 
 **3.0 pre-study (owner 2026-11-10; done 2026-11-10, #532 and #536):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
@@ -369,6 +383,32 @@ Open:
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
 - **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
   (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
+- **Extreme-runtime boolean levers (owner 2026-11-12, study #734, `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`):**
+  (1) a hierarchical antipodal boundary sum (Barnes-Hut far field with a certified fallback to the full sum, decisions
+  unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression), design note and
+  bound review first; (4) boolean allocations (the >= 10 % trigger of the settled item below is met: GC 11.3 % of the
+  inventory, 23-27 % on four ops). Both go into the serial exact-code queue after the #719 fix and (A) (T3a; #711 is replaced by P2, see below), ranked by measured gain.
+  (3) A cost-weighted rounding budget for #711-type inputs (a `BigInteger` stage counts as k pair tests; #711 rounding
+  15.6 s to 3.0 / 0.66 s; bit-identical on inputs without `BigInteger` stages) is approved and built in
+  `MeshRoundingRepair` after #725, after a check of the 60 slow fuzz units; dropped 2026-11-12 in favour of P2 (below), re-measured once P2 is on master. Server GC advice goes into OPERATIONS.md.
+- **Exact number representation beyond `BigInteger` (study, owner 2026-11-12):** a Fable study (branch
+  `runs/exact-numbers`, measurement only, no library code) measures what the `BigInteger` / expansion share costs and what
+  a better representation could gain: an upper bound first (stop if it is under 10 % of the profiled time), then
+  prototypes (expansions with an extended exponent for spans like the 2^840 of #711, more fixed limbs, a pooled fallback,
+  lazy filters), a literature check and a ranked plan. Code generation extends `tools/PredicateCompiler` (checked-in,
+  reviewable output, as in stage B) rather than a Roslyn source generator. It does not overlap the settled
+  `int256`/`Int384` spike above: that measured fixed width for the planes, this measures the fallback representation.
+  #711 is measured first; results go into the serial exact-code queue (T3a: #710, #719, (A), #711) and do not change
+  its order. The study shares rows directly with the boolean study, T3a, snap rounding and the AW3 performance study.
+  Result and decision (owner, 2026-11-12): kernel P2 (allocation-free m*2^e monomial expansion on stack limbs for
+  `orient2d_bigint` / `orient3d_bigint` / `incircle_bigint`, generated by a `tools/PredicateCompiler` pass,
+  `BigInteger` kept as the test oracle) is built by the study itself after its final report (an exception to "studies
+  push no library code"; exact review and mutation shards apply). It replaces #711 in T3a's queue (now #732, #719,
+  (A), levers 1 and 4) and the cost-weighted rounding budget, which is dropped; the slow tail is re-measured once P2 is
+  on master. Measured: orient3d 5077 to 202 ns, 0 B allocated; the 60 slow units plus the timeout unit 298 to 64 s,
+  bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
+  the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
+  filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
 - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
   coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility

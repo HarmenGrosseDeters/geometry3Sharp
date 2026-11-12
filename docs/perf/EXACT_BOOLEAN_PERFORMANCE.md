@@ -90,6 +90,30 @@ all 400 results the same (`after_hash`); repair time 456 s on both (−0.4 %, no
 the rotated rounding (42327 takes 1 s there), so the gain is on `ExactMeshBoolean` with general double input.
 What is left on the rotated cases is mostly the evaluation budget (the last row of the first table).
 
+### Stop at the evaluation limit (November 2026)
+
+At the effort limit (`MaxEvaluationsPerDefect`, `MaxPairTests`) `improves()` rejects every edit, but the passes went on
+proposing edits: 20-26 million moves on 1368057 and 42327 union, about three quarters of their rounding, only to find
+`SmallestRejectedDrift` (docs/design/SNAP_ROUNDING_3D.md section 5.5; the shortcut of #327, the last row of the first
+table above, made each such move cheap but still made it). Now no edit is proposed after the limit. The meshes are the
+same bit for bit; on results that report `EvaluationLimitReached`, `SmallestRejectedDrift` is the smallest over the
+edits proposed before the limit (owner 2026-11-12).
+
+`profile --repeat 1 --safe-rounding` on the 11 rotated Thingi10K cases of SNAP_ROUNDING_3D.md (33 operations), 4 cores,
+master 0252998 against the branch, the two builds in turn per case, two rounds, the round with the faster rounding
+per operation; raw output [perf/rounding_stop_at_limit_2026-11-12.jsonl](../../benchmarks/BooleanComparison/perf/rounding_stop_at_limit_2026-11-12.jsonl):
+
+| | master | stop at the limit |
+|---|---:|---:|
+| rounding, 33 operations | 74.5 s | 50.9 s (−32 %) |
+| whole boolean, 33 operations | 283.3 s | 262.7 s (−7 %) |
+| 1368057 union, rounding | 17.8 s | 3.9 s |
+| 42327 union / intersection / difference, rounding | 9.6 / 3.0 / 3.0 s | 2.8 / 1.7 / 1.8 s |
+| 102375 union / intersection / difference, rounding | 4.9 / 2.9 / 3.4 s | 4.6 / 2.6 / 3.0 s |
+| result hashes equal | | 33 of 33 |
+
+The 21 operations that do not reach the limit are unchanged within the noise (their rounding differs by under 0.3 s).
+
 ### Projection filter in SafeRounding's pair test (November 2026, Exact Boolean 2.0 WP3)
 
 On the Thingi10K corpus (#385, harness pairing: B rotated by 20° about (1, 1, 0) and shifted by a quarter of the
