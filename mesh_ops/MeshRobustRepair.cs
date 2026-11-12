@@ -160,6 +160,16 @@ namespace gs
         /// <summary> alpha wrap fallback: offset = bounding box diagonal / WrapRelativeOffset </summary>
         public double WrapRelativeOffset = 3000;
         /// <summary>
+        /// alpha wrap fallback for a small input: below this many triangles the wrap does not go finer than the input's own feature size,
+        /// alpha = max(bounding box diagonal / WrapRelativeAlpha, median edge length / SmallInputWrapEdgeDivisor), with the offset in the
+        /// same ratio to alpha as without it (WrapRelativeAlpha / WrapRelativeOffset). The wrap size depends on diagonal / alpha only, so
+        /// a few triangles with the default alpha took seconds for about 200 000 wrap triangles (#636). The wrap still encloses the
+        /// input at the offset it reports (UsedOffset). 0 turns it off; an input of this many triangles or more is wrapped as before.
+        /// </summary>
+        public int SmallInputWrapTriangles = 64;
+        /// <summary> the divisor of the median edge length for the alpha of a small input (see <see cref="SmallInputWrapTriangles"/>) </summary>
+        public double SmallInputWrapEdgeDivisor = 4;
+        /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
         /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
         /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
@@ -748,7 +758,10 @@ namespace gs
                 SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
             end_phase("solidify.check");
             if (SolidifyReason != "" && AlphaWrapFallback) {
-                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, CancelF = CancelF };
+                double smallAlpha = 0, smallOffset = 0;
+                if (SmallInputWrapTriangles > 0 && solidifyFrom.TriangleCount < SmallInputWrapTriangles)
+                    small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
+                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF };
                 AlphaWrap.Compute();
                 end_phase("wrap");
                 // (PointLimitReached: less detail, same guarantees)
@@ -1332,6 +1345,33 @@ namespace gs
             // overlapping parts, parts merged or split): judged only where the components are kept
             TopologyChanged = before.Components == after.Components && GenusBefore != GenusAfter;
             return TopologyChanged;
+        }
+
+        // the alpha and offset of the wrap of a small input: alpha from the median length of its edges (those that are not tiny against the
+        // diagonal), if that is above the default diag / WrapRelativeAlpha; 0 and 0 (the default alpha) otherwise
+        void small_input_wrap(DMesh3 mesh, out double alpha, out double offset)
+        {
+            alpha = offset = 0;
+            if (!(WrapRelativeAlpha > 0) || !(WrapRelativeOffset > 0) || !(SmallInputWrapEdgeDivisor > 0))
+                return;
+            double diag = mesh.GetBounds().DiagonalLength;
+            if (!(diag > 0) || double.IsInfinity(diag))
+                return;
+            var lengths = new List<double>();
+            foreach (int e in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(e);
+                double len = mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b));
+                if (len > 1e-6 * diag)
+                    lengths.Add(len);
+            }
+            if (lengths.Count == 0)
+                return;
+            lengths.Sort();
+            double wanted = lengths[lengths.Count / 2] / SmallInputWrapEdgeDivisor;
+            if (!(wanted > diag / WrapRelativeAlpha) || double.IsInfinity(wanted))
+                return;
+            alpha = wanted;
+            offset = wanted * (WrapRelativeAlpha / WrapRelativeOffset);
         }
 
         /// <summary>
