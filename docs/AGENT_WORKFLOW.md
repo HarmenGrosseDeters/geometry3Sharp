@@ -69,6 +69,14 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).
+- **Name the stratum and the cost boundary of every share** (owner, 2026-11-12): a reported share ("exact arithmetic is
+  X %", "GC is Y %", "it cannot get faster, that is the exact code") states (1) the workload it was measured on (normal
+  operations, a study set such as the 66 boolean ops, or the slow tail) and (2) whether it is self time in the functions
+  or includes the GC and allocation cost they cause. A share from one stratum does not justify a stop rule in another.
+  "The exact code is the floor" is a claim about a fundamental limit (section 2): separate what exactness requires from
+  what the current representation costs. (Case: exact arithmetic was ~5-6 % self time on normal ops while the
+  `BigInteger` path dominated the slow tail through allocations and GC; the allocation-free kernel P2 took the 60 slow
+  units from 298 to 64 s, bit-identical.)
 - **Look before you build** (owner, 2026-11-01): before designing an optimization or a new algorithm, do two short
   checks and record them in the design note or PR:
   1. **The library:** search it for existing solutions and building blocks (predicates and filters, `tools/
