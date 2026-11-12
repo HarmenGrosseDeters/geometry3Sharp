@@ -1,6 +1,6 @@
 # TPMS / lattice structures from implicit functions (Phase 5 item 5)
 
-Status: **design, awaiting coordinator / owner approval** (owner approved the topic 2026-11-12). Tier L (a new module
+Status: **approved by the coordinator 2026-11-12 (decisions 1-4 of section 8, as recommended); implemented in the first PR** (owner approved the topic 2026-11-12). Section 4 and 5 describe the implemented behaviour. Tier L (a new module
 with a stated guarantee): design note first, then one draft PR with the code, tests and benchmark.
 
 Goal: triply periodic minimal surface (TPMS) lattices for additive manufacturing: gyroid, Schwarz P, Schwarz D,
@@ -21,15 +21,16 @@ Library (searched 2026-11-12):
   and edge-manifold by the table certificate (face choices depend only on the four face signs).
 - Implicit operators (`implicit/`): `ImplicitIntersection3d` is `max`, so the domain clip is the same operation as
   "infill by intersecting implicitly before marching cubes" (roadmap synergy, cheaper than an exact boolean after).
-- Domain mesh: `CachingMeshSDF` (signed distance on a grid, parity or winding sign) or `MeshWindingNumber`/the fast
-  winding number for an inside test; `ExactMeshBoolean` stays the optional exact alternative (section 5).
+- Domain mesh: `DMeshAABBTree3` nearest-triangle distance plus the fast winding number for the sign (built: no grid,
+  no float SDF); `ExactMeshBoolean` stays the optional exact alternative (section 4).
 - Checks: `MeshRobustRepair.NotCleanReason` (closed, manifold, finite, degenerate, orientation, self-intersections) and
   the exact `ExactTriangleIntersection` used by `DualContouring.ResolveSelfIntersections`.
 
 Literature (sources go to `docs/SOURCES.md`; formulas are public mathematics, nothing is ported):
 
-- Schoen 1970 (gyroid), Schwarz 1890 (P, D), Neovius 1883, Lidin & Larsson 1990 (Lidinoid), Gandy, Bonnet & Klinowski
-  2000 (nodal approximations of P, G, D, I-WP: the cosine / sine sums used here are these approximations).
+- Schoen 1970 (gyroid), Schwarz 1890 (P, D), Neovius 1883, Lidin & Larsson 1990 (Lidinoid), Gandy, Bardhan, Mackay & Klinowski
+  2001 (nodal approximations of P, G, D, I-WP: the cosine / sine sums used here are these approximations; citation to be
+  checked by the reviewer, it was written from memory).
 - Al-Ketan & Abu Al-Rub 2019 (sheet vs skeletal "solid network" lattices, level-set offset `f = c`, grading by a
   position dependent `c`): the standard AM description; how nTop-style tools and the open `MSLattice` generator work.
   That is the approach everybody uses (level set of the nodal approximation on a grid, then marching cubes); we add the
@@ -52,7 +53,7 @@ public class TpmsLattice
     public double VolumeFraction = 0.3;         // target solid fraction of the infinite lattice, in (0, 1)
     public double WallThickness = 0;            // if > 0 it replaces VolumeFraction (first-order map, section 3)
     public Func<Vector3d, double> VolumeFractionAt;   // optional grading (world position -> fraction); null = constant
-    public Vector3d Origin; public Quaterniond Orientation = Quaterniond.Identity;   // lattice frame (phase 0 at Origin)
+    public Vector3d Origin; public Matrix3d Rotation = Matrix3d.Identity;   // lattice frame (phase 0 at Origin)
     public AxisAlignedBox3d Box;                // domain in the lattice frame, or ...
     public DMesh3 DomainMesh;                   // ... the inside of a closed mesh (world coordinates); wins over Box
     public bool VerifySelfIntersections = true; // exact check of the result (section 6)
@@ -65,12 +66,13 @@ public class TpmsLattice
     public double Level;                        // c (or t) found for the volume fraction
     public double RealizedVolumeFraction;       // mesh volume / domain volume (box) or / domain mesh volume
     public double MeanWallThickness;            // 2 V / A (sheet) as a report, not a promise
-    public int SelfIntersectionsFound; public long CellsEvaluated;
+    public int SelfIntersectionsFound;          // 0, or 1 when the exact check rejected the result (it stops at the first reason)
+    public long CellsEvaluated; public int GridShiftsUsed; public string NotCleanReason;   // GridShiftsUsed: section 4
 }
 ```
 
 Notes: all-fields mutable options like `MarchingCubes`/`DualContouring`; no existing type changes, so
-`dotnet pack` API validation stays green. The lattice frame (`Origin`, `Orientation`) makes the operation equivariant
+`dotnet pack` API validation stays green. The lattice frame (`Origin`, `Rotation`) makes the operation equivariant
 under `Similarity.All()`: the grid, the box and the field live in the local frame, vertices are mapped out at the end.
 For the 2^k scales the local frame sees identical numbers (grid index times `L/Divisions`, `x/L` exact), hence a bit
 for bit identical mesh up to the exact scaling; rotated and translated members agree to the rounding of the final map
@@ -101,17 +103,22 @@ table (monotone piecewise linear, 1025 entries). Graded cell size (a phase integ
 ## 4. Domain clip
 
 Everything is done implicitly before contouring: `F(x) = max(g(x), d(x))`, where `g` is the lattice field
-(`f - c`, `|f| - t`, `-f - c`; for the mesh domain scaled by `1 / Lf`, a proven Lipschitz bound, so both terms are in
-length units) and `d` the domain signed distance (box: `max(|x - centre| - half)` in the frame; mesh: `CachingMeshSDF`
-on a grid of the same cube size, sign by winding number). The solid is `{F <= 0}`, so the cut faces are part of the
+(`f - c`, `|f| - t`, `-f - c`, always scaled by `1 / Lw`, the proven Lipschitz bound, so both terms are in length
+units and F is 1-Lipschitz) and `d` the domain signed distance (box: `max(|x - centre| - half)` in the frame; mesh: the
+distance to the nearest triangle of the AABB tree with the sign from the fast winding number, evaluated per sample, no
+grid; outside the mesh bounds the box distance, a lower bound). The solid is `{F <= 0}`, so the cut faces are part of the
 solid and the result is closed.
 
 - The extraction grid is the lattice grid (`h = L / Divisions`, origin on a period boundary), padded by two cells on
   every side so that every boundary sample is high (outside), as `LinearEdges` / the closure argument needs.
-- A sample exactly on the iso value breaks `LinearEdges` (it throws). Cut planes that fall on grid planes (a box
-  `[0, L]^3` does) are the common case, so `Compute` retries with the grid origin shifted by a deterministic
-  irrational fraction of `h` (at most 4 shifts, all inside the pad). The shift moves only the grid, not the lattice
-  phase; the status is `ContouringFailed` if all fail.
+- A sample exactly on the iso value breaks `LinearEdges` (it throws), and a sample within rounding of it makes a
+  sliver triangle (`NotCleanReason`: degenerate triangles). Cut planes that fall on grid planes (a box `[0, L]^3` does)
+  are the common case, so the first grid is the lattice grid moved down by half a cube (fractions 0.5, 0.236, 0.764,
+  0.382 of `h` for the four attempts, all inside the pad, defined in the lattice frame, hence the same under
+  similarities), and `Compute` moves to the next shift when the contouring throws or the result has degenerate
+  triangles only. The shift moves only the grid, not the lattice phase; `ContouringFailed` if all four fail
+  (`GridShiftsUsed` reports the attempt). Found by the tests: Neovius with a box on grid planes gave a sliver at a box
+  edge on the unshifted grid.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).
 - Alternative for an exact cut: the user builds the lattice on a bounding box and intersects with

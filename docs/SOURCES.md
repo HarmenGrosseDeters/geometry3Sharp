@@ -737,3 +737,19 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 | Item | Source and license |
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
+
+## TPMS lattices (`TpmsLattice`)
+
+Implemented from the published formulas and papers; no code taken from any library. Design:
+[design/TPMS_LATTICE.md](design/TPMS_LATTICE.md).
+
+| Part | Source |
+|---|---|
+| Gyroid | A. H. Schoen, *Infinite periodic minimal surfaces without self-intersections*, NASA Technical Note D-5541, 1970 |
+| Schwarz P and D | H. A. Schwarz, *Gesammelte Mathematische Abhandlungen* (vol. 1), 1890 |
+| Neovius surface | E. R. Neovius, *Bestimmung zweier speciellen periodischen Minimalflaechen*, 1883 |
+| Nodal (trigonometric) approximations of P, G, D and I-WP | P. J. F. Gandy, S. Bardhan, A. L. Mackay, J. Klinowski, *Nodal surface approximations to the P, G, D and I-WP triply periodic minimal surfaces*, Chem. Phys. Lett. 336 (2001) 187-195; the Neovius form as in O. Al-Ketan, R. K. Abu Al-Rub below |
+| Sheet and skeletal ("solid network") lattices, level set offset, grading by a position dependent level | O. Al-Ketan, R. K. Abu Al-Rub, *Multifunctional mechanical metamaterials based on triply periodic minimal surface lattices*, Adv. Eng. Mater. 21 (2019) 1900524 |
+| Marching cubes | W. E. Lorensen, H. E. Cline, *Marching cubes: a high resolution 3D surface construction algorithm*, SIGGRAPH 1987 |
+| Enclosure of the exact solid by the contoured one (level pad, 1-Lipschitz field) | A. Jacobson, *A Sharp Conservative Offset for Marching Cubes*, arXiv:2609.13430 (see [design/CONSERVATIVE_MC_AUDIT.md](design/CONSERVATIVE_MC_AUDIT.md)) |
+
