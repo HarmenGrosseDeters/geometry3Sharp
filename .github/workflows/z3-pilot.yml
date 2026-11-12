@@ -21,6 +21,8 @@ on:
       - 'mesh_ops/ExactMeshArrangement.cs'
       # pilot 4: the termination of the midpoint split of the AABB tree build (split_termination.py, its source contract)
       - 'spatial/DMeshAABBTree.cs'
+      # pilot 7: the separating-axis prefilter prototype (separating_axis.py, its source contract)
+      - 'benchmarks/SnapRoundingExperiment/CandidateCulling.cs'
       - 'math/Interval1d.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
@@ -54,6 +56,7 @@ jobs:
           Z3_STEP_LOOPS_REPORT: z3-step-loops-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
           Z3_SPLIT_TERMINATION_REPORT: z3-split-termination-report.json
+          Z3_SEPARATING_AXIS_REPORT: z3-separating-axis-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -68,3 +71,4 @@ jobs:
             z3-step-loops-report.json
             z3-tritri-report.json
             z3-split-termination-report.json
+            z3-separating-axis-report.json
