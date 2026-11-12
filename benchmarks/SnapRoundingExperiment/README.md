@@ -20,6 +20,18 @@ bound, tolerance 1e-2 of the bound; it includes removed components), removed com
 and the method, and the exact d-separation certificate (`tests/geometry3Sharp.Tests/Harness/SeparationCertificate.cs`:
 disjoint features farther apart than 2e = √3 ulp of the largest coordinate; `uncertified` counts the pairs closer).
 
+## Rounding cost and the leads of 3D snap rounding (2026-11-12)
+
+The measurements of [docs/design/SNAP_ROUNDING_3D.md](../../docs/design/SNAP_ROUNDING_3D.md), which holds the tables and
+the commands (section 9):
+- `trace/`: `instrument.py` patches `MeshRoundingRepair.cs` in a throw-away worktree (never committed to the library)
+  with a phase trace, a separating-axis prefilter and a stop at the evaluation limit behind environment variables;
+  `run_trace.sh`, `run_ab.sh`, `summarize.py`; raw output in `trace/results/`.
+- `cull <case dir> <operation>`: the first full self-intersection search of a rounded result with tighter candidate
+  culling (`CandidateCulling.cs`), an upper bound outside the library.
+- `lattice <case> [seconds] [seed]`: a random search over representable positions with the triangles unchanged on what
+  SafeRounding leaves (`LatticeProbe.cs`; `LATTICE_MAX_MOVED=1`, `LATTICE_PLATEAU=0` for the ablations).
+
 ## Sets
 
 All generated in code (`tests/geometry3Sharp.Tests/Harness/DegenerateFamilies.cs`), no mesh files:

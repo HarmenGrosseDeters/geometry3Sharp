@@ -644,6 +644,19 @@ comparison of ends, and the lemma both ways. SAT: the assumptions, both decision
 four mutants. `test_tritri_prefilter.py` runs it and checks a source contract on `apart_on_the_line` (the lines
 that the model describes). All 14 queries take well under a second.
 
+## Pilot 7: the separating-axis prefilter (a candidate rule, not library code)
+
+`separating_axis.py` checks the lemma of docs/design/SNAP_ROUNDING_3D.md section 5.3: two triangles whose projections
+onto any vector, computed in doubles with the margin `8u` times the largest absolute projection sum, are strictly
+apart have no common point. R1 (the rounding error of a projection, each operation within `1 + d`, `|d| <= u`), R2 (the
+margin computed in doubles covers it), R3 (the decision from the computed bounds) and G1 (the geometry, free real
+coordinates) are UNSAT with satisfiable assumptions; six mutants are SAT (a bound of `2u`, a margin of `2u`, the margin
+of one corner, non-strict comparisons, a corner left out). Bridges by review: monotonic rounding, `fl(|a||x|) =
+|fl(a x)|`, no underflow or overflow in the supported coordinate range of `MeshRoundingRepair`. The rule was measured
+and not recommended for building (the note, 5.3); `test_separating_axis.py` holds a source contract on the prototype
+`benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
+`results/separating_axis_2026-11-12.json`.
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and

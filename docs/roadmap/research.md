@@ -151,7 +151,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
 - **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
   tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
-- **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
+- **Open research questions:** practical 3D snap rounding (ideas 1 and 3 of #368 probed 2026-11-12,
+  [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md): idea 1 closed, idea 3 survives, its probe on real leftovers is next), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -342,6 +343,13 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Result (2026-11-12, research note [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md), with item 3): no
+     guarantee found (literature: Diazzi et al. 2023 call it unsolved). The empty-ball filter is closed (the pair tests
+     it could clear are 8 % of the rounding in the median); its directional form (a separating-axis prefilter, lemma
+     checked with Z3) is correct and gains −1.6 % in a real A/B, not built. Idea 3 survives: after D1 a random search
+     over representable positions with the triangles unchanged makes 29 of the 35 generated leftovers clean within the
+     drift left (15 with single-vertex moves that each improve). Open, owner decision: the same probe on the real
+     cohort leftovers, then a seeded position search after the passes (the note, section 8, option 2).
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -364,6 +372,14 @@ Ordered by expected value for the library.
      - rounding a 520k-triangle result costs 3-5 s, so 519511 / 1517923 are documented exceptions to the 5 s target.
    - The architecture survey (EMBER, BSPs, Cherchi 2022, Manifold, Lévy 2024) found no candidate that produces doubles
      with a no-intersection guarantee.
+   - Result (2026-11-12, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md)): the figures above are out of date.
+     On master 46529be the rounding is 1-69 % of a boolean on 33 rotated operations (median 23 %); 519511 union 4.7 of
+     17.0 s. Clean large results: 60-80 % of it is the first search, which is the enumeration of 85-850 box neighbours
+     per query triangle (long thin triangles on tilted faces), not exact arithmetic. Dirty rotated results: the
+     evaluations, and on 1368057 / 42327 union work after the evaluation limit. No sub-linear scheme: edits are local
+     already, the first search is linear in the rounded triangles. Found: stopping the passes at the limit gives
+     rounding −33 %, booleans −9 %, 33 of 33 hashes identical (changes `SmallestRejectedDrift`; owner decision, option
+     1 of the note); `near` is 15-62 % of the rounding where edits are evaluated (not diagnosed).
    - Question: is there a rounding scheme that is sub-linear in the result size for local edits (incremental
      self-intersection search, certified clearances)? Shares leads with item 1.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**

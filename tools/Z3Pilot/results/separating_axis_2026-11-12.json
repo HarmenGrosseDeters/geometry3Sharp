@@ -1,0 +1,58 @@
+{
+ "R1_projection_error": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "R1_projection_error_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "R2_margin_covers_error": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "R2_margin_covers_error_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "R3_decision": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "R3_decision_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "G1_apart_no_common_point": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "G1_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_R1_bound_2u": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_R2_gamma_2u": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_R3_margin_of_one_corner": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_R3_not_strict": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_G1_not_strict": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_G1_two_corners": {
+  "expected": "sat",
+  "got": "sat"
+ }
+}

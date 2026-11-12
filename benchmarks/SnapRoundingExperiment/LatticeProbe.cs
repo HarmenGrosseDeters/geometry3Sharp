@@ -9,7 +9,8 @@
 // ulp and the drift left, and keeps a move if the number of defects of the whole mesh (degenerate triangles and
 // intersecting pairs, as MeshRobustRepair.NotCleanReasons counts them) does not grow; every vertex stays within the
 // drift left of where SafeRounding put it (so the total stays within the bound), and no triangle above 100 times the
-// degenerate area turns over. A clean end shows that such a configuration exists; no clean end shows nothing beyond
+// degenerate area turns over. Ablations: LATTICE_MAX_MOVED=1 (one vertex at a time), LATTICE_PLATEAU=0 (only moves that
+// remove a defect). A clean end shows that such a configuration exists; no clean end shows nothing beyond
 // this search.
 using System;
 using System.Collections.Generic;
@@ -33,6 +34,9 @@ static class LatticeProbe
         double eps = 1e-12 * diag * diag;
         var start = new Dictionary<int, Vector3d>();
         var rng = new Random(seed);
+        // ablations: LATTICE_MAX_MOVED=1 moves one vertex at a time, LATTICE_PLATEAU=0 keeps only moves that remove a defect
+        int maxMoved = int.Parse(Environment.GetEnvironmentVariable("LATTICE_MAX_MOVED") ?? "3");
+        bool plateau = Environment.GetEnvironmentVariable("LATTICE_PLATEAU") != "0";
         int before = Defects(m, eps, out List<int> defectTris), defects = before;
         int evaluations = 0, accepted = 0, improving = 0;
         double farthest = 0;
@@ -46,7 +50,7 @@ static class LatticeProbe
                 break;
             Index3i tv = m.GetTriangle(t);
             var moved = new List<int>();
-            int count = 1 + rng.Next(3);
+            int count = 1 + rng.Next(maxMoved);
             var pool = new List<int> { tv.a, tv.b, tv.c };
             if (rng.Next(3) == 0)
                 foreach (int v in new[] { tv.a, tv.b, tv.c })
@@ -83,7 +87,7 @@ static class LatticeProbe
                 now = Defects(m, eps, out nowTris);
                 evaluations++;
             }
-            if (ok && now <= defects) {
+            if (ok && (now < defects || (plateau && now == defects))) {
                 for (int i = 0; i < moved.Count; ++i) {
                     if (start.ContainsKey(moved[i]) == false) start[moved[i]] = saved[i];
                     farthest = Math.Max(farthest, m.GetVertex(moved[i]).Distance(start[moved[i]]));
@@ -100,7 +104,7 @@ static class LatticeProbe
             + ",\"defects_before\":" + before + ",\"defects_after\":" + defects + ",\"clean\":" + (reasons == "" ? "true" : "false")
             + ",\"reasons\":\"" + reasons + "\",\"evaluations\":" + evaluations + ",\"accepted\":" + accepted + ",\"improving\":" + improving
             + ",\"moved_vertices\":" + start.Count + ",\"farthest_of_left\":" + (left > 0 ? farthest / left : 0).ToString("G3", ci)
-            + ",\"seconds\":" + clock.Elapsed.TotalSeconds.ToString("F1", ci) + "}";
+            + ",\"max_moved\":" + maxMoved + ",\"plateau\":" + (plateau ? "true" : "false") + ",\"seconds\":" + clock.Elapsed.TotalSeconds.ToString("F1", ci) + "}";
     }
 
     static Vector3d Cross(DMesh3 m, int t)
