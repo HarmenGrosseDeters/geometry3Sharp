@@ -68,7 +68,7 @@ namespace geometry3Sharp.Tests
             var sw = Stopwatch.StartNew();
             // (the base ran into this cap: 200k subdivisions, seconds; the time bound is loose for a loaded machine, the subdivisions
             // are the deterministic measure)
-            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
+            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 100000 };
             Assert.True(h.Compute());
             sw.Stop();
             Assert.True(h.Subdivisions < 20000, h.Subdivisions + " subdivisions");
@@ -91,7 +91,7 @@ namespace geometry3Sharp.Tests
             var reference = new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z));
             Assert.True(reference.Compute());
             foreach (bool symmetric in new[] { true, false }) {
-                var given = new MeshHausdorffDistance(a, b) { Symmetric = symmetric, MaxSubdivisions = 200000 };
+                var given = new MeshHausdorffDistance(a, b) { Symmetric = symmetric, MaxSubdivisions = 100000 };
                 AsGiven(given);
                 var sw = Stopwatch.StartNew();
                 Assert.True(given.Compute());
@@ -138,12 +138,13 @@ namespace geometry3Sharp.Tests
             Assert.Equal(d, (z + d) - z);
             double x0 = 1.7 * Math.Pow(2, k + m);
             foreach (bool symmetric in new[] { true, false }) {
-                var h = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric };
+                // (capped: the base ran into the cap)
+                var h = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric, MaxSubdivisions = 100000 };
                 Assert.True(h.Compute());
                 Assert.True(h.LowerBound <= d && d <= h.UpperBound, $"k {k} m {m}: {h.LowerBound:R} .. {h.UpperBound:R}, distance {d:R}");
                 Assert.True(h.Converged, $"k {k} m {m}");
                 Assert.True(h.UpperBound - h.LowerBound <= 1e-3 * s, $"k {k} m {m}: gap {h.UpperBound - h.LowerBound}");
-                var given = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric, MaxSubdivisions = 200000 };
+                var given = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric, MaxSubdivisions = 100000 };
                 AsGiven(given);
                 Assert.True(given.Compute());
                 Assert.True(given.LowerBound <= d && d <= given.UpperBound, $"as given, k {k} m {m}: {given.LowerBound:R} .. {given.UpperBound:R}");
@@ -161,7 +162,7 @@ namespace geometry3Sharp.Tests
             double r = Math.Pow(2, k), z = 1.3 * Math.Pow(2, k + m);
             z = Math.Round(z / Math.Pow(2, k - 3)) * Math.Pow(2, k - 3);
             DMesh3 a = Sphere(r, z), b = Sphere(1.01 * r, z);
-            var h = new MeshHausdorffDistance(a, b) { Symmetric = false };
+            var h = new MeshHausdorffDistance(a, b) { Symmetric = false, MaxSubdivisions = 100000 };
             Assert.True(h.Compute());
             DMesh3 sa = Shifted(a, z), sb = Shifted(b, z);
             double sample = 0;
@@ -232,7 +233,7 @@ namespace geometry3Sharp.Tests
             Assert.True(reference.Compute() && reference.Converged);
             Assert.True(reference.LowerBound > 0.3, "the reference's distance " + reference.LowerBound);    // (inside A, far from the corners)
             foreach (double tol in new[] { 0.0, 0.05 }) {
-                var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 200000 };
+                var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 100000 };
                 AsGiven(given);
                 Assert.True(given.Compute());
                 Assert.True(given.UpperBound >= reference.LowerBound, $"tol {tol}: upper {given.UpperBound:R} below the distance {reference.LowerBound:R}");
@@ -240,7 +241,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(given.LowerBound > 0, $"tol {tol}: lower bound 0");
                 Assert.True(given.Subdivisions < 50000, given.Subdivisions + " subdivisions");
                 // and with the copies it converges to the reference
-                var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 200000 };
+                var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 100000 };
                 Assert.True(h.Compute());
                 Assert.True(h.LowerBound <= reference.UpperBound && h.UpperBound >= reference.LowerBound, $"tol {tol}: {h.LowerBound:R} .. {h.UpperBound:R}");
             }
@@ -254,7 +255,7 @@ namespace geometry3Sharp.Tests
         {
             double z = 1.3 * Math.Pow(2, 52);
             foreach (double tol in new[] { 0.6, 0.75 }) {
-                var given = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z)) { Tolerance = tol, MaxSubdivisions = 200000 };
+                var given = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z)) { Tolerance = tol, MaxSubdivisions = 100000 };
                 AsGiven(given);
                 var sw = Stopwatch.StartNew();
                 Assert.True(given.Compute());
@@ -275,7 +276,7 @@ namespace geometry3Sharp.Tests
             var (a, b) = CornersOnly(Y);
             var reference = new MeshHausdorffDistance(Shifted(a, Y, 1), Shifted(b, Y, 1)) { Symmetric = false, Tolerance = 1e-9 };
             Assert.True(reference.Compute() && reference.Converged);
-            var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 1e-12, MaxSubdivisions = 200000 };
+            var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 1e-12, MaxSubdivisions = 100000 };
             AsGiven(given);
             Assert.True(given.Compute());
             Assert.True(given.UpperBound >= reference.LowerBound, $"m {m}: upper {given.UpperBound:R} below the distance {reference.LowerBound:R}");
@@ -301,7 +302,7 @@ namespace geometry3Sharp.Tests
             Assert.True(reference.Compute() && reference.Converged);
             Assert.True(reference.LowerBound > 0.4, "the reference's distance " + reference.LowerBound);
             foreach (double tol in new[] { 1e-12, 0.01, 0.3, 0.75 }) {
-                var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 200000 };
+                var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 100000 };
                 AsGiven(given);
                 Assert.True(given.Compute());
                 Assert.True(given.UpperBound >= reference.LowerBound, $"tol {tol}: upper {given.UpperBound:R} below the distance {reference.LowerBound:R}");
@@ -323,7 +324,7 @@ namespace geometry3Sharp.Tests
             var b = new DMesh3();
             foreach (var c in new[] { new Vector3d(0, Y, 0), new Vector3d(0, Y + 1, 0) })
                 b.AppendTriangle(b.AppendVertex(c + new Vector3d(-0.0625, 0, 0.1)), b.AppendVertex(c + new Vector3d(0.0625, 0, 0.1)), b.AppendVertex(c + new Vector3d(0, 0, 0.125)));
-            var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 0.75, MaxSubdivisions = 200000 };
+            var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 0.75, MaxSubdivisions = 100000 };
             AsGiven(given);
             Assert.True(given.Compute());
             Assert.True(given.Subdivisions < 1000, given.Subdivisions + " subdivisions");
@@ -336,13 +337,13 @@ namespace geometry3Sharp.Tests
         public void FoldedSpheres_UnderEverySimilarity()
         {
             double z = 1.5 * Math.Pow(2, 26);
-            var h0 = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z)) { MaxSubdivisions = 200000 };
+            var h0 = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z)) { MaxSubdivisions = 100000 };
             Assert.True(h0.Compute() && h0.Converged);
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 a = Sphere(1, z), b = Sphere(1.01, z);
                 MeshTransforms.PerVertexTransform(a, s.Apply);
                 MeshTransforms.PerVertexTransform(b, s.Apply);
-                var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
+                var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 100000 };
                 Assert.True(h.Compute(), s.Name);
                 Assert.True(h.Converged, s.Name);
                 if (s.IsExact) {
@@ -364,18 +365,18 @@ namespace geometry3Sharp.Tests
             double z = 1.3 * Math.Pow(2, 52);
             DMesh3 a = Sphere(1, z), b = Sphere(1.01, z);
             // (capped: the base ran into the cap here)
-            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
+            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 100000 };
             Assert.True(h.Compute());
             Assert.True(h.Converged && h.Subdivisions < 20000, h.Subdivisions + " subdivisions");
             double lo = h.LowerBound, up = h.UpperBound; int sub = h.Subdivisions; Vector3d w = h.WorstPoint;
             Assert.True(h.Compute());
             Assert.Equal(lo, h.LowerBound); Assert.Equal(up, h.UpperBound); Assert.Equal(sub, h.Subdivisions); Assert.Equal(w, h.WorstPoint);
-            var fresh = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
+            var fresh = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 100000 };
             Assert.True(fresh.Compute());
             Assert.Equal(lo, fresh.LowerBound); Assert.Equal(up, fresh.UpperBound);
             gParallel.SerialOnThisThread = true;
             try {
-                var serial = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
+                var serial = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 100000 };
                 Assert.True(serial.Compute());
                 Assert.Equal(lo, serial.LowerBound); Assert.Equal(up, serial.UpperBound); Assert.Equal(sub, serial.Subdivisions);
             } finally { gParallel.SerialOnThisThread = false; }
