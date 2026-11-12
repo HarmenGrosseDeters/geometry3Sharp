@@ -72,7 +72,7 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
 `MESH_FUZZ_STRICT=1` judges them):
 
 1. (fixed in the oracle, #637) `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, in every
-   quality mode, on a projected polyhedron with crossing segments. Triage: the oracle was too strict. A corner of the projection lies a rounding (3e-41 in the
+   quality mode, on a projected polyhedron with crossing segments. Triage: the oracle was too strict. A corner of the projection lies a rounding (1.6e-40 in the
    shortest input) beside another projected edge, where in exact arithmetic it would end on it: a T-junction at a small input angle (16.7 degrees there)
    whose closed segments miss each other. The mesher's O11 rule makes that end a vertex of both chains, so the constraints meet there at that angle and the
    triangles at it are forced (Shewchuk 2002, small input angles), but the oracle excused a small input angle only where the closed segments meet exactly.

@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// #637 (MeshFuzzPilot, QA 2.0 F5): about 1 in 1000 projected polyhedra gave AngleBelowBound ("below 25 degrees with no forced small
     /// angle") in every quality mode. The input below is the shortest finding (two boxes projected to xy, 16 points, 34 segments, the
-    /// crossings resolved, MinAngle 25, constrained quality). Point 12 = (2^-5, 2^-5) ends segment 11-12 and lies 3e-41 beside segment
+    /// crossings resolved, MinAngle 25, constrained quality). Point 12 = (2^-5, 2^-5) ends segment 11-12 and lies 1.6e-40 beside segment
     /// 0-2, which starts at (-55 2^-136, -2^-132) instead of the origin: a T-junction at 16.7 degrees whose end misses the other segment
     /// by a rounding of the projection. The mesher's O11 rule makes that end a vertex of both chains, so in the meshed constraints the two
     /// meet there at 16.7 degrees, an input angle below 60 degrees, and the triangles at it cannot all be made better than that angle allows
@@ -54,7 +54,8 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Report.NearMeetAngleExcused > 0, "the small angle was not excused as constraints that meet in the tube: " + r.Report);
         }
 
-        /// <summary> the same in conforming quality mode (the finding came in every mode) </summary>
+        /// <summary> the same input in conforming quality mode: a success-path check only (this input passes there also before #664; the
+        /// finding came in every mode, with other inputs) </summary>
         [Fact]
         public void Issue637_Conforming_IsOracleValid()
         {
@@ -71,7 +72,8 @@ namespace geometry3Sharp.Tests
             return data;
         }
 
-        /// <summary> under every similarity the mesh is oracle-valid; the 2^k scales give the same mesh bit for bit </summary>
+        /// <summary> under every similarity the mesh is oracle-valid; the 2^k scales give the same mesh bit for bit (the translations to utm
+        /// absorb the 1e-40 coordinates, so those cases have no near-meeting) </summary>
         [Theory]
         [MemberData(nameof(Similarities))]
         public void Issue637_UnderEverySimilarity(string name)
