@@ -370,6 +370,7 @@ namespace geometry3Sharp.Tests
                 var r = new ContourLoft { CheckSelfIntersections = false, IsAdmissible = t => !Bad(new Tri { OnFirst = t.EdgeOnFirst, I = t.I, J = t.J }) }.Compute(P, Q);
                 Assert.Equal(bestCount, r.InadmissibleTriangles);
                 Assert.True(Math.Abs(r.TotalCost - best) <= 1e-12 * best, $"seed {seed}: {r.TotalCost} vs {best}");
+                Assert.Equal(0, r.FullRegionFallbacks);
             }
         }
 
@@ -388,6 +389,7 @@ namespace geometry3Sharp.Tests
                     var res = loft.Compute(P, Qr);
                     Assert.Equal(ContourLoftStatus.Success, res.Status);
                     Assert.True(Math.Abs(res.TotalCost - reference) <= 1e-12 * reference, $"seed {seed}, shift {r}: {res.TotalCost} vs {reference}");
+                    Assert.Equal(0, res.FullRegionFallbacks);   // the bounded regions always held the band (O(m n log n))
                 }
                 for (int r = 1; r < m; r += 3) {
                     var Pr = Enumerable.Range(0, m).Select(k => P[(k + r) % m]).ToList();
@@ -498,6 +500,10 @@ namespace geometry3Sharp.Tests
             var norm = new ContourLoft { NormalizeForCost = true, CheckSelfIntersections = false }.Compute(P, Q);
             Assert.Equal(ContourLoftStatus.Success, norm.Status);
             Assert.Equal(0, norm.StartOffset);
+            // normalized, both are the 12-gon of area 1 at unit distance: the cost is the side of that prism
+            double rr = Math.Sqrt(2 / (12 * Math.Sin(2 * Math.PI / 12)));
+            double prism = 12 * 2 * rr * Math.Sin(Math.PI / 12);
+            Assert.True(Math.Abs(norm.TotalCost - prism) <= 1e-12 * prism, $"{norm.TotalCost} vs {prism}");
             var spanning = Spanning(norm.Mesh, 12);
             Assert.All(Enumerable.Range(0, 12), i => Assert.Contains((i, i), spanning));
             Assert.Equal(ContourLoftStatus.Success, plain.Status);

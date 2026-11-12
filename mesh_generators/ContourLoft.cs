@@ -74,6 +74,8 @@ namespace g3
         public int StartOffset { get; internal set; }
         /// <summary> 0 on Success; on NoAdmissibleBand the smallest number of inadmissible triangles in any band (exact). </summary>
         public int InadmissibleTriangles { get; internal set; }
+        /// <summary> starts whose bounded region held no valid path and were solved in the full region (tests: 0 on ordinary input) </summary>
+        internal int FullRegionFallbacks;
     }
 
     /// <summary>
@@ -410,6 +412,7 @@ namespace g3
                 Region(s);
                 int end = SolveInRegion(s, out count, out cost);
                 if (end < 0 && boundLo[s] >= 0) {
+                    result.FullRegionFallbacks++;
                     boundLo[s] = boundHi[s] = -1;
                     Region(s);
                     end = SolveInRegion(s, out count, out cost);
