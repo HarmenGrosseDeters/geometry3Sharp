@@ -31,8 +31,14 @@ namespace g3
     ///
     /// Notes:
     ///   - inside is where the field is greater than IsoValue (eg winding number); set InsideIsLess for SDFs
-    ///   - quads that would still create a non-manifold edge (an ambiguous face where both cells have a
-    ///     single patch) are left out and counted in NonManifoldTriangles; the result then has small holes
+    ///   - an ambiguous face between two single-patch cells (where the dual quads would share a non-manifold
+    ///     edge) and a face between cells of different size get face vertices, so that their polygons become
+    ///     fans that stay inside one cell each (Ju and Udeshi 2006, see FaceVertices): no quad is left out
+    ///   - a polygon that could still not be added (no face vertex could be placed: a non-manifold edge) is left
+    ///     out and counted in NonManifoldTriangles, the result then has a small hole there; this was not seen
+    ///     in the measured runs (NonManifoldTriangles 0), see NonManifoldCells for refining around it
+    ///   - ResolveSelfIntersections (default on) checks the result exactly and moves the vertices of intersecting
+    ///     triangle pairs until none is left (SelfIntersectionFree says whether it succeeded)
     /// </summary>
     public class DualContouring
     {
@@ -83,6 +89,7 @@ namespace g3
 
         // outputs
         public DMesh3 Mesh;
+        /// <summary> polygons that could not be added because they would create a non-manifold edge (0 where the face vertices could be placed; the result has a small hole at each) </summary>
         public int NonManifoldTriangles;
         public int HiddenGapEdges;
         public int HiddenWallEdges;
@@ -102,7 +109,8 @@ namespace g3
         public List<Vector3i> ImposedCells = new List<Vector3i>();
         /// <summary>
         /// unrefined cells (grid cell coordinates) around polygons left out because they would create a
-        /// non-manifold edge (see NonManifoldTriangles): at an ambiguous face, both cells have one patch through
+        /// non-manifold edge (see NonManifoldTriangles; empty while the face vertices of ambiguous faces can be placed).
+        /// At an ambiguous face, both cells have one patch through
         /// both of its surface segments. Refining there (SetRefinement) resolves it where the field separates the
         /// segments at the finer sampling (as in Zint, Grosso, Guertler, "Resolving non-manifoldness on meshes
         /// from dual marching cubes", 2022, who refine on the trilinear interpolant).
