@@ -44,6 +44,12 @@ static class FoldoverFreeComparison
         return m;
     }
 
+    static bool Touches(DMesh3 m, int tid)
+    {
+        Index3i t = m.GetTriangle(tid);
+        return m.IsBoundaryVertex(t.a) || m.IsBoundaryVertex(t.b) || m.IsBoundaryVertex(t.c);
+    }
+
     static ParameterizationResult Run(string fixture, string method, string boundary, DMesh3 mesh, Func<ParameterizationResult> compute)
     {
         var clock = Stopwatch.StartNew(); var r = compute(); clock.Stop();
@@ -74,7 +80,30 @@ static class FoldoverFreeComparison
         double ratio = repaired.Distortion != null && slim.Distortion != null ? repaired.Distortion.SymmetricDirichlet / slim.Distortion.SymmetricDirichlet : double.NaN;
         Console.WriteLine("quality_ratio_vs_free_boundary_SLIM=" + F(ratio) + "; target=" +
             (repaired.Succeeded && MathUtil.IsFinite(ratio) && ratio <= 1.1 ? "met" : "UNSATISFIED"));
+        // Attribution of the quality gap: the same start with the boundary replaced by the free-boundary SLIM result.
+        if (slim.UV != null && repaired.Distortion != null) {
+            var mixed = (Vector2d[])start.Clone();
+            foreach (int v in mesh.VertexIndices()) if (mesh.IsBoundaryVertex(v)) mixed[v] = slim.UV[v];
+            var viaSlimBoundary = Run(name, "FoldoverFree-SLIM-boundary", "fixed-from-SLIM", mesh, () => new FoldoverFreeParameterization(mesh, mixed).Compute());
+            if (viaSlimBoundary.Distortion != null)
+                Console.WriteLine("quality_ratio_SLIM_boundary_vs_free_boundary_SLIM=" + F(viaSlimBoundary.Distortion.SymmetricDirichlet / slim.Distortion.SymmetricDirichlet));
+        }
         return repaired;
+    }
+
+    static int BoundarySelfCrossings(DMesh3 mesh, Vector2d[] uv)
+    {
+        int crossings = 0;
+        foreach (var loop in new MeshBoundaryLoops(mesh).Loops) {
+            int[] v = loop.Vertices; int n = v.Length;
+            for (int i = 0; i < n; ++i)
+                for (int j = i + 2; j < n; ++j) {
+                    if (i == 0 && j == n - 1) continue;
+                    Vector2d a = uv[v[i]], b = uv[v[(i + 1) % n]], c = uv[v[j]], d = uv[v[(j + 1) % n]];
+                    if ((b - a).Cross(c - a) * (b - a).Cross(d - a) < 0 && (d - c).Cross(a - c) * (d - c).Cross(b - c) < 0) crossings++;
+                }
+        }
+        return crossings;
     }
 
     public static void Run()
@@ -120,6 +149,9 @@ static class FoldoverFreeComparison
         if (cr.UV == null) { Console.WriteLine("torus-cone unavailable=" + cr.Error); return; }
         var repair = Compare("torus-cone-cut", cone.CutMesh, cr.UV,
             Run("torus-cone-cut", "SLIM-default", "free", cone.CutMesh, () => new SLIMParameterization(cone.CutMesh).Compute()));
+        var overlapPairs = repair.UV == null ? null : UVOverlap.Compute(cone.CutMesh, repair.UV, 1000);
+        Console.WriteLine($"torus-boundary proper_self_crossings={(repair.UV == null ? -1 : BoundarySelfCrossings(cone.CutMesh, repair.UV))}; " +
+            $"overlap_pairs_touching_boundary={overlapPairs?.Pairs.Count(p => Touches(cone.CutMesh, p.a) && Touches(cone.CutMesh, p.b))}/{overlapPairs?.OverlappingPairs}");
         bool injective = repair.UV != null && UVOverlap.Compute(cone.CutMesh, repair.UV, 0).IsInjective;
         bool accepted = repair.Succeeded && injective && repair.Distortion.MeanAreaDistortion <= atlas.MaxAreaDistortion &&
             repair.Distortion.MeanConformal <= atlas.MaxConformalDistortion;

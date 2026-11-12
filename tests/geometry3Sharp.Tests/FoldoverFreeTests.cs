@@ -216,8 +216,7 @@ namespace geometry3Sharp.Tests
             return (a.Sum(v => v * v) + det * det + 1) / ((det + Math.Sqrt(det * det + epsilon * epsilon)) / 2);
         }
 
-        [Fact]
-        public void AnnulusNearCollapsedBoundary_IsNotAssumedInfeasible()
+        static DMesh3 Annulus()
         {
             var mesh = new DMesh3();
             for (int j = 0; j < 4; ++j)
@@ -230,6 +229,91 @@ namespace geometry3Sharp.Tests
                     int a = 8 * j + i, b = 8 * j + (i + 1) % 8;
                     mesh.AppendTriangle(a, b, b + 8); mesh.AppendTriangle(a, b + 8, a + 8);
                 }
+            return mesh;
+        }
+
+        static DMesh3 ThreePeaks(int n)
+        {
+            var m = new DMesh3();
+            for (int j = 0; j <= n; ++j)
+                for (int i = 0; i <= n; ++i) {
+                    double x = (double)i / n, y = (double)j / n, z = 0;
+                    foreach (var c in new[] { new Vector2d(0.3, 0.3), new Vector2d(0.7, 0.35), new Vector2d(0.5, 0.75) })
+                        z += 0.6 * Math.Exp(-((x - c.x) * (x - c.x) + (y - c.y) * (y - c.y)) / 0.004);
+                    m.AppendVertex(new Vector3d(x, y, z));
+                }
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) {
+                    int a = j * (n + 1) + i;
+                    m.AppendTriangle(a, a + 1, a + n + 2); m.AppendTriangle(a, a + n + 2, a + n + 1);
+                }
+            return m;
+        }
+
+        // Stop rule (Garanzha et al. 2021, Algorithm 1 line 11): once flip-free and the energy has stopped
+        // decreasing the run ends; before, it ran on until epsilon <= 1e-6 (115 / 132 / 169 iterations, measured on
+        // base). Symmetric Dirichlet of the base is pinned from the same fixtures (Linux run of the benchmark): the
+        // stop must neither cost quality (a bare energy-decrease test stalled the annulus at 687 against 7.46)
+        // nor change the result beyond rounding of the stop point.
+        [Fact]
+        public void StopRule_FoldedDisc_FewIterations_SameQuality()
+        {
+            var m = Disc(); var uv = Start(m);
+            var r = new FoldoverFreeParameterization(m, uv).Compute();
+            Valid(m, uv, r); Assert.True(r.Converged, r.Error);
+            Assert.True(r.Iterations <= 50, "iterations " + r.Iterations + " (base 115)");
+            Assert.True(r.Distortion.SymmetricDirichlet <= 5.223873291604668 * 1.005, "SD " + r.Distortion.SymmetricDirichlet);
+        }
+
+        [Fact]
+        public void StopRule_ValidStart_StopsEarly()
+        {
+            var m = Disc(); var uv = Start(m, false);
+            var r = new FoldoverFreeParameterization(m, uv).Compute();
+            Valid(m, uv, r); Assert.True(r.Converged, r.Error);
+            Assert.True(r.Iterations <= 50, "iterations " + r.Iterations + " (base ~131)");
+        }
+
+        [Fact]
+        public void StopRule_Annulus_DoesNotStallOnTheFirstFlipFreeMap()
+        {
+            var mesh = Annulus();
+            var lscm = new LSCMParameterization(mesh).Compute();
+            var r = new FoldoverFreeParameterization(mesh, lscm.UV).Compute();
+            Valid(mesh, lscm.UV, r); Assert.True(r.Converged, r.Error);
+            Assert.True(r.Iterations <= 80, "iterations " + r.Iterations + " (base 132)");
+            Assert.True(r.Distortion.SymmetricDirichlet <= 7.463 * 1.02, "SD " + r.Distortion.SymmetricDirichlet);
+        }
+
+        [Fact]
+        public void StopRule_ThreePeaks_QualityNotWorseThanBefore()
+        {
+            var mesh = ThreePeaks(30);
+            var lscm = new LSCMParameterization(mesh).Compute();
+            var r = new FoldoverFreeParameterization(mesh, lscm.UV).Compute();
+            Valid(mesh, lscm.UV, r); Assert.True(r.Converged, r.Error);
+            Assert.True(r.Iterations <= 90, "iterations " + r.Iterations + " (base 169)");
+            Assert.True(r.Distortion.SymmetricDirichlet <= 16.2628 * 1.005, "SD " + r.Distortion.SymmetricDirichlet);
+        }
+
+        [Fact]
+        public void EnergyDecreaseTolerance_IsValidated_AndZeroRunsLonger()
+        {
+            var m = Disc(); var uv = Start(m);
+            foreach (double bad in new[] { -1e-3, 1, double.NaN, double.PositiveInfinity })
+                Assert.Equal(ParameterizationStatus.InvalidConstraints,
+                    new FoldoverFreeParameterization(m, uv) { EnergyDecreaseTolerance = bad }.Compute().Status);
+            var normal = new FoldoverFreeParameterization(m, uv).Compute();
+            var strict = new FoldoverFreeParameterization(m, uv) { EnergyDecreaseTolerance = 0 }.Compute();
+            Valid(m, uv, strict); Assert.True(strict.Converged, strict.Error);
+            Assert.True(strict.Iterations > normal.Iterations);
+            Assert.True(strict.Distortion.SymmetricDirichlet <= normal.Distortion.SymmetricDirichlet * 1.001);
+        }
+
+        [Fact]
+        public void AnnulusNearCollapsedBoundary_IsNotAssumedInfeasible()
+        {
+            var mesh = Annulus();
             var lscm = new LSCMParameterization(mesh).Compute();
             Assert.Equal(ParameterizationStatus.FlippedTriangles, lscm.Status);
             var result = new FoldoverFreeParameterization(mesh, lscm.UV).Compute();
@@ -247,6 +331,34 @@ namespace geometry3Sharp.Tests
             var r = new FoldoverFreeParameterization(cone.CutMesh, start.UV).Compute();
             Valid(cone.CutMesh, start.UV, r);
             Assert.False(UVOverlap.Compute(cone.CutMesh, r.UV).IsInjective);
+            // The limit is the fixed boundary: its polygon crosses itself, so no map with this boundary is
+            // injective, however the interior moves. Every overlapping pair touches the boundary.
+            Assert.True(ProperSelfCrossings(cone.CutMesh, r.UV) > 0);
+            var overlap = UVOverlap.Compute(cone.CutMesh, r.UV, 1000);
+            foreach (Index2i pair in overlap.Pairs)
+                Assert.True(Touches(cone.CutMesh, pair.a) && Touches(cone.CutMesh, pair.b));
+        }
+
+        static bool Touches(DMesh3 m, int tid)
+        {
+            Index3i t = m.GetTriangle(tid);
+            return m.IsBoundaryVertex(t.a) || m.IsBoundaryVertex(t.b) || m.IsBoundaryVertex(t.c);
+        }
+
+        static int ProperSelfCrossings(DMesh3 m, Vector2d[] uv)
+        {
+            int crossings = 0;
+            foreach (var loop in new MeshBoundaryLoops(m).Loops) {
+                int[] v = loop.Vertices; int n = v.Length;
+                for (int i = 0; i < n; ++i)
+                    for (int j = i + 2; j < n; ++j) {
+                        if (i == 0 && j == n - 1) continue;
+                        Vector2d a = uv[v[i]], b = uv[v[(i + 1) % n]], c = uv[v[j]], d = uv[v[(j + 1) % n]];
+                        if ((b - a).Cross(c - a) * (b - a).Cross(d - a) < 0 && (d - c).Cross(a - c) * (d - c).Cross(b - c) < 0)
+                            crossings++;
+                    }
+            }
+            return crossings;
         }
 
         [Fact]

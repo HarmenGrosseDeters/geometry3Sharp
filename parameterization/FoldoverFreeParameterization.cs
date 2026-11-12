@@ -22,6 +22,12 @@ namespace g3
         public double InitialEpsilon = 1;
         /// <summary> Positive lower bound on regularization; remaining inversions are reported as failure. </summary>
         public double MinimumEpsilon = 1e-12;
+        /// <summary>
+        /// Stop rule of Algorithm 1 (line 11): converged once no triangle is invalid and an iteration lowers the
+        /// energy (both values at that iteration's epsilon) by less than this relative amount. The paper uses 1e-3;
+        /// 0 never stops on the energy and runs on to the Newton-decrement or the epsilon-floor test.
+        /// </summary>
+        public double EnergyDecreaseTolerance = 1e-3;
         public ParameterizationResult Result;
 
         public FoldoverFreeParameterization(DMesh3 mesh, IList<Vector2d> startUV)
@@ -40,7 +46,8 @@ namespace g3
             if (Mesh == null || Mesh.TriangleCount == 0)
                 return Fail(ParameterizationStatus.InvalidMesh, "no triangles");
             if (InitialUV == null || MaxIterations < 0 || !Positive(InitialEpsilon) ||
-                !Positive(MinimumEpsilon) || MinimumEpsilon > InitialEpsilon)
+                !Positive(MinimumEpsilon) || MinimumEpsilon > InitialEpsilon ||
+                !(EnergyDecreaseTolerance >= 0 && EnergyDecreaseTolerance < 1))
                 return Fail(ParameterizationStatus.InvalidConstraints, "invalid initial UVs or iteration/epsilon options");
             ParamMesh pm;
             string error;
@@ -99,7 +106,7 @@ namespace g3
                 for (int i = 0; i < step.Length; ++i) slope += gradient[i] * step[i];
                 if (!MathUtil.IsFinite(slope) || slope > 0) return Fail(ParameterizationStatus.SolverFailed, "non-finite or non-descent search direction");
                 int bad = BadCount(pm, x);
-                if (bad == 0 && -slope <= 1e-10 * Math.Max(1, energy) && epsilon <= 1e-6) {
+                if (bad == 0 && -slope <= 1e-10 * Math.Max(1, energy)) {
                     converged = true; stop = null; break;
                 }
                 double nextEnergy = energy, minDet = 0, alpha = 1;
@@ -116,6 +123,9 @@ namespace g3
                 if (accepted) {
                     var swap = x; x = trial; trial = swap;
                     int count = BadCount(pm, x);
+                    // Algorithm 1, line 11: all determinants positive and the decrease below the tolerance.
+                    if (count == 0 && nextEnergy >= (1 - EnergyDecreaseTolerance) * energy &&
+                        RegularizationNegligible(pm, x, epsilon, nextEnergy)) converged = true;
                     double commonEnergy = Evaluate(pm, x, InitialEpsilon, null, null, out _);
                     if (MathUtil.IsFinite(commonEnergy) && (count < bestBad || (count == bestBad && commonEnergy < bestEnergy))) {
                         Array.Copy(x, best, x.Length); bestBad = count; bestEnergy = commonEnergy; bestIsStart = false;
@@ -123,7 +133,9 @@ namespace g3
                 } else {
                     nextEnergy = energy;
                     Evaluate(pm, x, epsilon, null, null, out minDet);
+                    if (bad == 0 && RegularizationNegligible(pm, x, epsilon, energy)) converged = true;
                 }
+                if (converged) { stop = null; break; }
                 if (epsilon == MinimumEpsilon && !accepted) { stop = "line search stalled at minimum epsilon"; break; }
                 epsilon = Math.Max(MinimumEpsilon, NextEpsilon(epsilon, minDet, energy, nextEnergy));
             }
@@ -164,6 +176,15 @@ namespace g3
                 return Fail(ParameterizationStatus.SolverFailed, "distortion is not representable");
             }
             return Result;
+        }
+
+        // With every determinant positive, F(., 0) is the unregularized energy (chi > det, so F(., eps) <= F(., 0)). A decrease below the tolerance at a
+        // large epsilon only says that the regularized problem is solved, not the real one (annulus fixture: a
+        // near-degenerate flip-free map at epsilon ~ 1 stalls, symmetric Dirichlet 687 against 7.5 at the floor).
+        bool RegularizationNegligible(ParamMesh pm, double[] x, double epsilon, double regularized)
+        {
+            double exact = Evaluate(pm, x, 0, null, null, out _);
+            return MathUtil.IsFinite(exact) && exact <= (1 + EnergyDecreaseTolerance) * regularized;
         }
 
         static bool SameValues(double[] a, double[] b)
