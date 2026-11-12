@@ -6,8 +6,9 @@ from the origin, scaled, fits into 2^bits and the integer grid coordinates stay 
 to nearest even; every obligation is a counterexample query that must return UNSAT with satisfiable assumptions;
 every mutant SAT with a witness replayed in plain Python; UNKNOWN never counts):
 
-  E1  CeilExponent of a normal number x = (2^52 + m) 2^(biased - 1075), 0 <= m < 2^52: with the returned e,
-      2^(e-1) < x <= 2^e (the smallest power of two that is >= x), so extent * 2^(bits - e) lies in (2^(bits-1), 2^bits];
+  E1  CeilExponent on the 64 bits of a positive normal x (the bit operations of the code, x = (2^52 + m) 2^(biased - 1075)
+      by the IEEE definition): with the returned e, 2^(e-1) < x <= 2^e (the smallest power of two that is >= x), so
+      extent * 2^(bits - e) lies in (2^(bits-1), 2^bits];
   E2  the subnormal branch: the loop `while (m > 1) { m = (m + 1) >> 1; ++e }` over x = m 2^-1074 (1 <= m < 2^52)
       ends within 52 iterations (unrolled) with 2^(c-1) < m <= 2^c, c the number of iterations, so the same holds;
   E3  the guard sequence of ForBounds, exhaustively over the ints (all precisionBits in [8, 50] and e in [-1074, 1024]):
@@ -18,8 +19,9 @@ every mutant SAT with a witness replayed in plain Python; UNKNOWN never counts):
   E4  the extent never falls short of its parts: for the two distances d1, d2 and the margin m >= 0 (binary64), the
       sum max(d1, d2) + m >= max(d1, d2) (no rounding of the margin loses the distance).
 
-MUTANTS: a ceiling that returns the exponent for every mantissa (a floor; extent > 2^e, the scaled extent exceeds 2^bits)
-and MaxPrecisionBits 53 (2^53 > 2^52, an integer coordinate that is not exact and above MaxIntegerCoordinate): SAT.
+MUTANTS: a ceiling that returns the exponent for every mantissa (a floor; extent > 2^e, the scaled extent exceeds 2^bits:
+SAT with a witness mantissa), and the E3 enumeration with precisionBits up to 53 (the first frame whose scale * 2^e = 2^bits
+is above 2^52, an integer coordinate that is not exact and above MaxIntegerCoordinate, is found and replayed).
 `source_contracts` holds the model to the source (the lines it reads, MaxPrecisionBits, MaxIntegerCoordinate).
 """
 import json
@@ -49,6 +51,8 @@ def source_contracts(text=None):
         'publicconstintMinPrecisionBits=8;',
         'publicconstintMaxPrecisionBits=50;',
         'publicconstdoubleMaxIntegerCoordinate=4503599627370496.0;',
+        'if(precisionBits<MinPrecisionBits||precisionBits>MaxPrecisionBits)returnfalse;',
+        'doubleextent=Math.Max(Math.Max(origin.x-bounds.Min.x,bounds.Max.x-origin.x),Math.Max(origin.y-bounds.Min.y,bounds.Max.y-origin.y))+margin;',
         'inte=CeilExponent(extent);',
         'doublescale=PowerOfTwo(precisionBits-e);',
         'if(!(scale>0)||!IsFinite(scale)||!IsFinite(1.0/scale))returnfalse;',
@@ -95,22 +99,45 @@ def _exact(name, holds, note, expect='unsat'):
     return dict(name=name, result=result, expected=expect, seconds=0.0, ok=result == expect, assumptions_result='sat', note=note)
 
 
+def _frames(max_bits):
+    """every (precisionBits, exponent) the guards of ForBounds accept, with precisionBits up to max_bits: the count, and the first
+    whose scale * 2^e is not 2^bits <= 2^52 (the integer coordinates must stay exact and below MaxIntegerCoordinate), or None"""
+    accepted, failing = 0, None
+    for bits in range(8, max_bits + 1):
+        for e in range(-1074, 1025):
+            n = bits - e
+            if n > 1023 or n < -1022:
+                continue          # PowerOfTwo gives inf or 0: the frame is refused
+            scale = Fraction(2) ** n
+            if not (1 / scale <= Fraction(1.7976931348623157e308)):      # 1.0 / scale must be finite
+                continue
+            accepted += 1
+            if not (Fraction(2) ** e * scale == Fraction(2) ** bits and Fraction(2) ** bits <= Fraction(2) ** 52) and failing is None:
+                failing = (bits, e)
+    return accepted, failing
+
+
 def run(timeout_ms=120000):
     contracts = source_contracts()
     rows = []
-    # E1: x = (2^52 + m) * 2^k, compare in units of 2^k: 2^52 + m against 2^(e - k - 1) and 2^(e - k)
-    m, biased = z.Ints('m biased')
-    k = biased - 1075
-    # e = k + 52 when m == 0, else k + 53 (the code); in units of 2^k: 2^(e-k) is 2^52 or 2^53
-    def ceil_ok(floor_instead=False):
-        hi = z.If(m == 0, z.IntVal(2 ** 52), z.IntVal(2 ** 53) if not floor_instead else z.IntVal(2 ** 52))
-        lo = hi / 2
-        mant = z.IntVal(2 ** 52) + m
-        return z.And(mant <= hi, mant > lo)
-    base = [m >= 0, m < 2 ** 52, biased >= 1, biased <= 2046]
-    rows.append(_row('E1_CeilExponent_of_a_normal_number_is_the_smallest_power_of_two_above', base, z.Not(ceil_ok()), timeout_ms, 'unsat'))
-    rows.append(_row('mutant_floor_instead_of_ceiling_(extent_above_2^e)', base, z.Not(ceil_ok(True)), timeout_ms, 'sat',
-                     lambda mod: dict(m=str(mod.eval(m, model_completion=True)))))
+    # E1: CeilExponent on the 64 bits of a positive normal x (biased exponent 1..2046): the bit operations of the code give e,
+    # and x = (2^52 + mantissa) * 2^(biased - 1075) by the IEEE definition; in units of 2^(biased - 1075) the claims
+    # 2^(e-1) < x <= 2^e read 2^(e - biased + 1074) < 2^52 + mantissa <= 2^(e - biased + 1075)
+    bits = z.BitVec('bits', 64)
+    biased_bv = z.LShR(bits, 52) & z.BitVecVal(0x7FF, 64)
+    mant_bv = bits & z.BitVecVal(0xFFFFFFFFFFFFF, 64)
+    biased, mant = z.Int('biased'), z.Int('mant')
+    code_e = z.If(mant == 0, biased - 1023, biased - 1023 + 1)            # `mantissa == 0 ? exponent : exponent + 1`
+    def ceil_ok(e_of_code):
+        shift = e_of_code - biased + 1075                                    # 2^shift is 2^52 or 2^53 in the units of x
+        up = z.If(shift == 52, z.IntVal(2 ** 52), z.If(shift == 53, z.IntVal(2 ** 53), z.IntVal(-1)))
+        mantissa_value = z.IntVal(2 ** 52) + mant
+        return z.And(up > 0, mantissa_value <= up, mantissa_value > up / 2)
+    tie = [z.BV2Int(biased_bv) == biased, z.BV2Int(mant_bv) == mant, z.UGE(biased_bv, 1), z.ULE(biased_bv, 2046), z.ULT(bits, z.BitVecVal(2 ** 63, 64))]
+    rows.append(_row('E1_CeilExponent_on_the_bits_is_the_smallest_power_of_two_above', tie, z.Not(ceil_ok(code_e)), timeout_ms, 'unsat'))
+    floor_e = biased - 1023                                                  # the mutant: the exponent for every mantissa (a floor)
+    rows.append(_row('mutant_floor_instead_of_ceiling_(extent_above_2^e)', tie, z.Not(ceil_ok(floor_e)), timeout_ms, 'sat',
+                     lambda mod: dict(mantissa=str(mod.eval(mant, model_completion=True)), biased=str(mod.eval(biased, model_completion=True)))))
 
     # E2: unrolled subnormal loop on 64-bit vectors
     mm = z.BitVec('mm', 64)
@@ -126,18 +153,8 @@ def run(timeout_ms=120000):
     # E3: exhaustive
     pw_ok = all(Fraction(struct.unpack('<d', struct.pack('<Q', (n + 1023) << 52))[0]) == Fraction(2) ** n for n in range(-1022, 1024))
     rows.append(_exact('E3_PowerOfTwo_is_exactly_2^n_for_all_n_in_[-1022,1023]', pw_ok, 'exhaustive, 2046 values'))
-    accepted, frame_ok = 0, True
-    for bits in range(8, 51):
-        for e in range(-1074, 1025):
-            n = bits - e
-            if n > 1023 or n < -1022:
-                continue          # PowerOfTwo gives inf or 0: the frame is refused
-            scale = Fraction(2) ** n
-            if not (1 / scale <= Fraction(1.7976931348623157e308)):      # 1.0 / scale must be finite
-                continue
-            accepted += 1
-            frame_ok &= Fraction(2) ** e * scale == Fraction(2) ** bits and Fraction(2) ** bits <= Fraction(2) ** 50 < Fraction(2) ** 52
-    rows.append(_exact('E3_accepted_frames_scale_2^e_to_2^bits_<=_2^50_<_2^52', frame_ok and accepted > 1000, f'exhaustive, {accepted} frames'))
+    accepted, failing = _frames(50)
+    rows.append(_exact('E3_accepted_frames_scale_2^e_to_2^bits_<=_2^50_<_2^52', failing is None and accepted > 1000, f'exhaustive, {accepted} frames'))
 
     # E4
     d1, d2, mg = z.FPs('d1 d2 mg', F64)
@@ -147,8 +164,9 @@ def run(timeout_ms=120000):
     rows.append(_row('E4_extent_is_at_least_the_larger_distance', fin + [z.fpGEQ(mg, zero)],
                      z.Not(z.fpGEQ(z.fpAdd(RNE, core, mg), core)), timeout_ms, 'unsat'))
 
-    # mutant: MaxPrecisionBits 53 would let the scaled extent reach 2^53, above the exact integers 2^52 (a counterexample exists)
-    rows.append(_exact('mutant_MaxPrecisionBits_53_reaches_integers_above_2^52', Fraction(2) ** 53 < Fraction(2) ** 52, 'exact', 'sat'))
+    # mutant: MaxPrecisionBits 53, the same enumeration: a frame whose integer coordinates exceed 2^52 exists
+    acc53, failing53 = _frames(53)
+    rows.append(_exact('mutant_MaxPrecisionBits_53_gives_a_frame_with_integers_above_2^52', failing53 is None, f'exhaustive, {acc53} frames, first failing {failing53}', 'sat'))
     passed = all(r['ok'] and r['assumptions_result'] == 'sat' for r in rows)
     return dict(contracts=contracts, obligations=rows, passed=bool(passed))
 

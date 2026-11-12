@@ -22,10 +22,20 @@ class ClipperFrameTests(unittest.TestCase):
             self.assertEqual(r['expected'], r['result'], r['name'])
             self.assertEqual('sat', r['assumptions_result'], r['name'])
 
-    def test_the_floor_mutant_witness_replays(self):
-        row = next(r for r in self.report['obligations'] if r['name'].startswith('mutant_floor'))
-        m = int(row['witness']['m'])
+    def test_the_mutant_witnesses_replay(self):
+        by_name = {r['name']: r for r in self.report['obligations']}
+        w = by_name['mutant_floor_instead_of_ceiling_(extent_above_2^e)']['witness']
+        m, biased = int(w['mantissa']), int(w['biased'])
         self.assertTrue(0 < m < 2 ** 52)              # (2^52 + m) 2^k is above 2^(k+52), which a floor would return
+        from fractions import Fraction
+        x = Fraction(2 ** 52 + m) * Fraction(2) ** (biased - 1075)
+        self.assertTrue(x > Fraction(2) ** (biased - 1023))
+        # the MaxPrecisionBits 53 enumeration: the frame it finds has integers above 2^52
+        note = by_name['mutant_MaxPrecisionBits_53_gives_a_frame_with_integers_above_2^52']['note']
+        bits, e = (int(v) for v in note.split('first failing (')[1].rstrip(')').split(','))
+        self.assertEqual(53, bits)
+        self.assertTrue(Fraction(2) ** bits > Fraction(2) ** 52)
+        self.assertIsNone(cf._frames(50)[1])            # none with the real limit
 
     def test_ceil_exponent_replays_in_python(self):
         def ceil_exponent(x):
@@ -55,6 +65,10 @@ class ClipperFrameTests(unittest.TestCase):
             cf.source_contracts(text.replace('if (n > 1023) return double.PositiveInfinity;', 'if (n > 1024) return double.PositiveInfinity;'))
         with self.assertRaises(ValueError):
             cf.source_contracts(text.replace('4503599627370496.0', '9007199254740992.0'))
+        with self.assertRaises(ValueError):    # the range guard of precisionBits is deleted
+            cf.source_contracts(text.replace('if (precisionBits < MinPrecisionBits || precisionBits > MaxPrecisionBits)', 'if (false)'))
+        with self.assertRaises(ValueError):    # the extent loses its margin
+            cf.source_contracts(text.replace('bounds.Max.y - origin.y)) + margin;', 'bounds.Max.y - origin.y));'))
 
 
 if __name__ == '__main__':

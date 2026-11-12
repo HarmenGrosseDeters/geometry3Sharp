@@ -17,6 +17,8 @@ on:
       - 'math/Vector3d.cs'
       # pilot 3: the Devillers-Guigue prefilter of the arrangement (tritri_prefilter.py, its source contract)
       - 'mesh_ops/ExactMeshArrangement.cs'
+      # pilot 6: the frame of the Clipper2 adapter (clipper_frame.py, its source contract)
+      - 'addons/geometry3Sharp.Clipper2/ClipperFrame.cs'
       - '.github/workflows/z3-pilot.yml'
   workflow_dispatch:
 permissions:
@@ -46,6 +48,7 @@ jobs:
           Z3_DRIFT_APEX_REPORT: z3-drift-apex-report.json
           Z3_DRIFT_REFERENCE_REPORT: z3-drift-reference-report.json
           Z3_TRITRI_REPORT: z3-tritri-report.json
+          Z3_CLIPPER_FRAME_REPORT: z3-clipper-frame-report.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -57,3 +60,4 @@ jobs:
             z3-drift-apex-report.json
             z3-drift-reference-report.json
             z3-tritri-report.json
+            z3-clipper-frame-report.json
