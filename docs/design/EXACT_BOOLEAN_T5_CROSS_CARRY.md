@@ -254,7 +254,7 @@ dominating. Each change below keeps every hash (`profile` runs, the same hash as
   serial against parallel, repeated runs, reuse.
 - Mutants of the new code killed by hand; the boolean shards' incremental run where a baseline fits.
 
-Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 24 test cases), and 22 mutants of the new code by hand:
+Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 33 test cases), and 22 mutants of the new code by hand:
 15 killed. The survivors:
 - The projection without the points' own error e_x: covered by R's error e_R, which is larger (R is 4000 extents
   from the box, so |R| >= |x|).
@@ -266,9 +266,10 @@ Done in step 2 (`ExactMeshBooleanTestsCrossCarry`, 24 test cases), and 22 mutant
   edge-adjacent (a self-intersection), t2's corners lie on both sides of t1's plane and the general test runs.
 - The shared frame without its distance condition: a heuristic for the filters' precision; the results do not depend
   on it.
-- The fold fix (review of #675) undone: on the test's folded flaps the steps that meet it are between coincident pieces
-  of the triangle and the flap, where both contributions are counted by the old shortcut too and cancel; the fix gives
-  the general test's degenerate case, which is sound for any configuration.
+- The fold fix (review of #675) undone survived the end-to-end fold test: on its folded flaps the steps that meet it are
+  between coincident pieces of the triangle and the flap, where both contributions are counted by the old shortcut too
+  and cancel. The rule is therefore a function of its own (`own_triangle_crossing`) with a table test of every row,
+  the fold included, which kills it.
 - The projection's sign guard removed: no far point today lies within the box's slab.
 
 ## 8. Measurement (step 3)

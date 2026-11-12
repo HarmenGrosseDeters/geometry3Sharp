@@ -373,6 +373,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
+        // (a0, b0: the ends' sides of U's plane; nP, nQ: their triangles' normals against U's; the result: the crossing,
+        // 2 for degenerate)
+        [InlineData(0, -1, 1, 1, -1)]       // p in U, q behind: the segment leaves U's front through U
+        [InlineData(0, 1, 1, 1, 0)]         // q in front too
+        [InlineData(-1, 0, 1, 1, 1)]        // q in U, p behind: it enters U's front
+        [InlineData(1, 0, 1, 1, 0)]
+        [InlineData(0, -1, -1, 1, 0)]       // p's own normal opposite to U's: its displaced end is behind as well
+        [InlineData(0, 0, 1, 1, 0)]         // both in the plane, the same side
+        [InlineData(0, 0, 1, -1, 2)]        // a folded flap: both in the plane, opposite sides (review of #675)
+        [InlineData(0, 0, -1, 1, 2)]
+        [InlineData(0, 1, 0, 1, 2)]         // a normal perpendicular to U's: undecided
+        public void OwnTriangleCrossing_AsTheGeneralTest(int a0, int b0, int nP, int nQ, int expected)
+        {
+            Assert.Equal(expected, ExactMeshBoolean.own_triangle_crossing(a0, b0, nP, nQ));
+        }
+
+        [Theory]
         [InlineData(Ops.Union)]
         [InlineData(Ops.Difference)]
         public void CrossCarry_FoldedFlaps_SameThresholdsAsOwnRays(Ops op)

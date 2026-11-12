@@ -2182,6 +2182,23 @@ namespace g3
         readonly Dictionary<int, double[]> segmentL1 = new Dictionary<int, double[]>();
 
         /// <summary>
+        /// T5: the crossing of a step's segment with one of the pieces' own input triangles U (design note 4.5): a0, b0 the
+        /// sides of U's plane of the step's ends (0 for the end in U, or an end whose triangle lies in U's plane), nP, nQ the
+        /// signs of the dot products of the ends' own triangles' normals with U's. An end in the plane counts on the side
+        /// its piece's normal points to, as in the general test of carried_crossings; both ends in the plane on different
+        /// sides (a flap folded onto U with the opposite orientation, review of #675) is degenerate (2). Else the segment
+        /// meets U's plane only at the end in U, an interior point of U: a crossing (+-1, the second end's side) exactly
+        /// where the displaced ends lie on different sides, 0 where not
+        /// </summary>
+        internal static int own_triangle_crossing(int a0, int b0, int nP, int nQ)
+        {
+            int ae = a0 != 0 ? a0 : nP, be = b0 != 0 ? b0 : nQ;
+            if (ae == 0 || be == 0 || (a0 == 0 && b0 == 0 && ae != be))
+                return 2;
+            return ae != be ? be : 0;
+        }
+
+        /// <summary>
         /// T5: the side of t1's plane (the sign of its plane equation, as the exact stage of local_side) on which every point
         /// of t2's relative interior lies, from the sides of t2's corners (input points): 0 if all lie in the plane, +1 or -1
         /// if none lies on the other side (an interior point is a combination of the corners with positive weights), 2 if
@@ -2838,14 +2855,12 @@ namespace g3
                         // in the plane on different sides, a flap folded onto U with the opposite orientation (review of
                         // #675): degenerate)
                         var U0 = arr.Triangles[ui];
-                        int ae0 = a0 != 0 ? a0 : (sp.NX * U0.NX + sp.NY * U0.NY + sp.NZ * U0.NZ).Sign;
-                        int be0 = b0 != 0 ? b0 : (sq.NX * U0.NX + sq.NY * U0.NY + sq.NZ * U0.NZ).Sign;
-                        if (ae0 == 0 || be0 == 0 || (a0 == 0 && b0 == 0 && ae0 != be0)) {
+                        int own = own_triangle_crossing(a0, b0, (sp.NX * U0.NX + sp.NY * U0.NY + sp.NZ * U0.NZ).Sign,
+                            (sq.NX * U0.NX + sq.NY * U0.NY + sq.NZ * U0.NZ).Sign);
+                        if (own == 2)
                             degenerate = true;
-                            return;
-                        }
-                        if (ae0 != be0)
-                            crossings += be0;
+                        else
+                            crossings += own;
                         return;
                     }
                 }
