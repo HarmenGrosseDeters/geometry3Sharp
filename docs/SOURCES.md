@@ -615,10 +615,10 @@ mesh operations) use [SharpFuzz 2.2.0](https://github.com/Metalnem/sharpfuzz)
 LLVM exceptions) as optional test tools. Integration follows their public documentation; no external code is
 ported into geometry3Sharp and no dependency is added to the library package.
 
-## Batch ray and point queries (design note; the library PR follows)
+## Batch ray and point queries (`spatial/MeshBatchQueries.cs`, #448)
 
 Design references of [BATCH_QUERIES.md](design/BATCH_QUERIES.md); papers only, no code read or ported (Embree, Apache-2.0,
-not read). The planned `MeshBatchQueries` runs the existing single queries in Morton-sorted order, in parallel.
+not read). `MeshBatchQueries` (merged in #448) runs the existing single queries in Morton-sorted order, in parallel.
 
 | Topic | Source |
 |---|---|
