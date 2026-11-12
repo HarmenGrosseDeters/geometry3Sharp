@@ -30,7 +30,7 @@ all levers this leaves 11 ops on 7 small, heavily self-intersecting models (1136
 107554, 113906) as documented exceptions (#428, `benchmarks/LevyClassification/results/exceptions_levers.md`).
 Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 (done 2026-11-09,
 docs/design/LEVY_CLASSIFICATION.md 4.3: -40 to -45 % classification on the tree-bound open ops, -23 % on both samples,
-hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; classification -29 to -42 % on tree-bound open
+hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; the section 4.1 probe gave -29 to -42 % on tree-bound open
 ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
 so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
 
