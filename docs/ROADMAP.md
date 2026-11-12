@@ -212,8 +212,9 @@ The next steps per topic, in order ("in progress" where a session works on them)
   reviews, re-running numbers) and writes no production code. The owner's local work does not count. The limit
   applies to new starts: when sessions finish, they are not replaced until the count is below it. Each session has
   its own worktree and one PR-sized topic.
-- **Exception (owner 2026-11-12):** two extra medium Sonnet sessions (CLI / MCP update, test-time backlog) on top of
-  the limit; no further starts until the count is back below it.
+- **Exception (owner 2026-11-12):** three extra medium Sonnet sessions (CLI / MCP update, test-time backlog,
+  short pipeline topics: 2.5D output helper, fast-winding cache lever 3, DualContouring allocations) on top of the limit;
+  no further starts until the count is back below it.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
