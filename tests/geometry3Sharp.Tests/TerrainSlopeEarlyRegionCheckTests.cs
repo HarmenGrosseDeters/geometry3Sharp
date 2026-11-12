@@ -15,12 +15,14 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainSlopeEarlyRegionCheckTests
     {
-        // a wavy 40-gon (r 120 m) on waves of amplitude 10 m (TerrainSlopeBandRepairTests.WavyOnWaves): the first
+        // a wavy 20-gon (r 50 m; first 40-gon of r 120 m) on waves of amplitude 10 m (TerrainSlopeBandRepairTests.WavyOnWaves): the first
         // realization passes on the slope surface and fails on the clipped region's support, λ is raised by measurement
         // (first a 32-gon of r 100 m, which with the finer facets of the snap's reserved share, TERRAIN.md 5.4, is not
-        // certified in "rotated, scale 1e-3, utm"). Now a 20-gon of r 50 m: the same path in every frame (identity: 1 attempt, 3
-        // realizations, 1 skipped copy; "rotated, scale 1e-3, utm": 3 attempts, 5 realizations, 1 skipped copy), for a quarter
-        // of the time (the 40-gon of r 120 m took 3.7 s in the identity frame, 8.9 s in the last one)
+        // certified in "rotated, scale 1e-3, utm"). Now a 20-gon of r 50 m: the same counters as the 40-gon of r 120 m in the
+        // two frames probed (identity: 1 attempt, 3 realizations, 1 skipped copy; "rotated, scale 1e-3, utm": 3 attempts, 5
+        // realizations, 1 skipped copy; probed when the design was shrunk, only the identity-frame ones are asserted below),
+        // for a quarter of the time (the 40-gon took 3.7 s in the identity frame, 8.9 s in the last one). FirstShape_SameResult
+        // keeps its own 32-gon of r 100 m
         static TerrainSlopeDesign Make(Similarity s, Vector3d c, bool early, int n = 20, double r = 50)
         {
             var d = TerrainSlopeBandRepairTests.WavyOnWaves(s, c, n: n, r: r, amp: 10, sp: 8);
