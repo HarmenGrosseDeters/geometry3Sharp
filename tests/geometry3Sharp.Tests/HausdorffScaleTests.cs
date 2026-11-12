@@ -149,6 +149,42 @@ namespace geometry3Sharp.Tests
             Assert.Equal(plain.LowerBound, h.LowerBound); Assert.Equal(plain.UpperBound, h.UpperBound); Assert.Equal(plain.Subdivisions, h.Subdivisions);
         }
 
+        /// <summary> spheres of radius 2^k with subnormal coordinates (multiples of 2^-1074): the bounds, scaled back into the
+        /// subnormal range, round outward, so they contain the result of the same meshes scaled up exactly (rounded to nearest,
+        /// a lower bound could round up past it; review of #735) </summary>
+        [Theory]
+        [InlineData(-1056)] [InlineData(-1060)] [InlineData(-1063)] [InlineData(-1066)]
+        public void SubnormalExtremes_BoundsRoundOutward(int k)
+        {
+            double s = Math.Pow(2, k), back = Math.Pow(2, -k - 600);
+            DMesh3 a = Sphere(s), b = Sphere(1.01 * s);
+            DMesh3 ua = new DMesh3(a), ub = new DMesh3(b);
+            // (exact: every coordinate is a multiple of 2^-1074; in two factors, 2^-k alone overflows)
+            foreach (var m in new[] { ua, ub }) foreach (int v in m.VertexIndices().ToList()) m.SetVertex(v, m.GetVertex(v) * back * Math.Pow(2, 600));
+            foreach (bool symmetric in new[] { true, false }) {
+                var reference = new MeshHausdorffDistance(ua, ub) { Symmetric = symmetric };
+                var h = new MeshHausdorffDistance(a, b) { Symmetric = symmetric };
+                Assert.True(reference.Compute() && h.Compute());
+                Assert.True(h.LowerBound * back * Math.Pow(2, 600) <= reference.LowerBound, k + ": lower " + h.LowerBound + " above " + reference.LowerBound);
+                Assert.True(h.UpperBound * back * Math.Pow(2, 600) >= reference.UpperBound, k + ": upper " + h.UpperBound + " below " + reference.UpperBound);
+                Assert.True(h.LowerBound > 0 && h.LowerBound <= h.UpperBound);
+            }
+        }
+
+        /// <summary> two parallel triangles one smallest subnormal (2^-1074) apart, whose spans are 2^-1074: their distance is
+        /// 2^-1074 (half the span rounded to 0, the meshes stayed unscaled, and both bounds were 0; review of #735) </summary>
+        [Fact]
+        public void SpanOfTheSmallestSubnormal_IsMeasured()
+        {
+            double u = double.Epsilon;
+            var a = new DMesh3(); a.AppendTriangle(a.AppendVertex(new Vector3d(0, 0, 0)), a.AppendVertex(new Vector3d(u, 0, 0)), a.AppendVertex(new Vector3d(0, u, 0)));
+            var b = new DMesh3(); b.AppendTriangle(b.AppendVertex(new Vector3d(0, 0, u)), b.AppendVertex(new Vector3d(u, 0, u)), b.AppendVertex(new Vector3d(0, u, u)));
+            var h = new MeshHausdorffDistance(a, b);
+            Assert.True(h.Compute());
+            Assert.True(h.LowerBound <= u && h.UpperBound >= u, h.LowerBound + " .. " + h.UpperBound);
+            Assert.True(h.UpperBound > 0);
+        }
+
         /// <summary> an absolute Tolerance is scaled with the meshes: the same result as the unit spheres with the unit tolerance </summary>
         [Fact]
         public void AbsoluteTolerance_ScalesWithTheMeshes()
