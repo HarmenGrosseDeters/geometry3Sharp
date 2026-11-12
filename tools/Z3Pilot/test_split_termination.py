@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import pathlib
 import unittest
@@ -30,27 +31,39 @@ class SplitTerminationTests(unittest.TestCase):
         onto_a = by_name['O2_midpoint_can_round_onto_a']['witness']
         a, b = float(onto_a['a']), float(onto_a['b'])
         self.assertTrue(a < b and (b + a) * 0.5 == a)
-        over = by_name['mutant_midpoint_of_unbounded_centers_overflows']['witness']
-        a, b = float(over['a']), float(over['b'])
-        self.assertTrue(a < b and (b + a) * 0.5 == float('inf'))
+        for name, sign in (('O2b_midpoint_can_be_plus_infinity_(finite_centers)', 1), ('O2b_midpoint_can_be_minus_infinity_(finite_centers)', -1)):
+            w = by_name[name]['witness']
+            a, b = float(w['a']), float(w['b'])
+            self.assertTrue(a < b and math.isfinite(a) and math.isfinite(b))
+            self.assertTrue(math.isinf((b + a) * 0.5) and (b + a) * 0.5 * sign > 0, name)
 
     def test_the_obligation_set(self):
         names = [r['name'] for r in self.report['obligations']]
         self.assertEqual(6, sum(n.startswith('O1_') for n in names))
+        self.assertEqual(2, sum(n.startswith('O2b_') for n in names))
         self.assertEqual(len(set(names)), len(names))
 
     def test_the_source_contract_fails_on_drift(self):
         text = (st.ROOT / st.SOURCE).read_text(encoding='utf-8-sig').replace('\r\n', '\n')
         interval = (st.ROOT / st.INTERVAL).read_text(encoding='utf-8-sig').replace('\r\n', '\n')
         st.source_contracts(text, interval)
-        with self.assertRaises(ValueError):    # the guard of the empty side is removed (the code before #451)
-            st.source_contracts(text.replace('if (n0 < 1 || n1 < 1) {', 'if (n0 < 1) {'), interval)
-        with self.assertRaises(ValueError):    # the midpoint changes
-            st.source_contracts(text.replace('interval.Center;', '(interval.a + interval.b) * 0.5;'), interval)
+        drifts = [
+            ('if (n0 < 1 || n1 < 1) {', 'if (n0 < 1) {'),                                   # the guard of the empty side (before #451)
+            ('interval.Center;', '(interval.a + interval.b) * 0.5;'),                       # the midpoint
+            ('while (l < iCount && centers', 'while (centers'),                              # the left scan loses its bound
+            ('while (r >= 0 && centers', 'while (centers'),                                  # the right scan loses its bound
+            ('if ( iCount < minTriCount ) {', 'if ( iCount <= minTriCount ) {'),                 # the leaf test
+            ('iStart, n0, depth + 1, minTriCount', 'iStart, n0 + 1, depth + 1, minTriCount'),            # the recursion on the left side
+            ('iStart+n0, n1, depth + 1, minTriCount', 'iStart, n1, depth + 1, minTriCount'),             # and on the right side
+            ('int leafLimit = Math.Max(TopDownLeafMaxTriCount, 2);', 'int leafLimit = TopDownLeafMaxTriCount;'),  # the leaf limit is not below 2
+            (': split_tri_set_midpoint(triangles, centers, 0, count, 0, leafLimit,', ': split_tri_set_midpoint(triangles, centers, 0, count, 0, TopDownLeafMaxTriCount,'),
+        ]
+        for old, new in drifts:
+            self.assertIn(old, text, old)
+            with self.assertRaises(ValueError, msg=old):
+                st.source_contracts(text.replace(old, new), interval)
         with self.assertRaises(ValueError):
             st.source_contracts(text, interval.replace('(b + a) * 0.5', '(b + a) / 2'))
-        with self.assertRaises(ValueError):    # the left scan loses its bound
-            st.source_contracts(text.replace('while (l < iCount && centers', 'while (centers'), interval)
 
 
 if __name__ == '__main__':

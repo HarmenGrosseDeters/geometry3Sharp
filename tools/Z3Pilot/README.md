@@ -700,13 +700,15 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 
 The termination of the midpoint split of the `DMeshAABBTree3` top-down build (`split_tri_set_midpoint`), the rule that #451 broke: with
 centers that are adjacent doubles the midpoint `(b + a) * 0.5` rounds onto the upper end, the right side is empty and the same set was
-split again without end. Checked in binary64 (Z3 floating point, round to nearest even, subnormals included): the midpoint lies in
-[a, b] (O1: three sign cases, two claims each), it can round onto b and onto a (witnesses replayed in plain floats), after the guard
-`n0 < 1 || n1 < 1` (with the half and half fallback) both sides are non-empty and smaller than the set (O3, integers), and the
-mutants, a split without the guard and a midpoint of unbounded centers (the sum overflows), are SAT. `source_contracts` holds the model
-to the source (the lines must be present in order; a test shows each kind of drift is detected). Not modelled: the swap loop itself
-(its bounds are a source contract), `MeshRoundingRepair.fix_degenerate` (#452, the next T14 candidate), the expansion sums of
-`AdaptivePredicates` (the owner decides whether they are wanted). Runs in about 25 s; part of the `Z3 pilot` workflow.
+split again without end. Checked in binary64 (Z3 floating point, round to nearest even, subnormals included) for finite centers of any
+magnitude (the overflow fallback of the build gives finite centers up to `MaxValue`): where the sum does not overflow the midpoint lies in
+[a, b] (O1: three sign cases, two claims each); it can round onto b and onto a, and the sum can overflow to +infinity and to -infinity
+(SAT witnesses, replayed in plain floats; O1 does not hold there and is not needed); for any size n0 of the left side, after the guard
+`n0 < 1 || n1 < 1` with the half and half fallback both sides are non-empty and smaller than the set (O3, integers); a split without the
+guard is SAT. `source_contracts` pins the text of the leaf test, the leaf limit passed as `minTriCount`, the two scans, the guard, the
+fallback and the recursion on the two sides, each with a drift test. Not modelled as loops: the swap loop and the scans (their bounds are
+source contracts); the expansion sums of `AdaptivePredicates` (the owner decides whether they are wanted). About 30 s; part of the `Z3 pilot`
+workflow (its report is uploaded; the paths filter includes `DMeshAABBTree.cs` and `Interval1d.cs`).
 
 ```sh
 python3 tools/Z3Pilot/split_termination.py --out /tmp/split-termination.json
