@@ -147,35 +147,38 @@ triangles' vertex ids), the nine cases above plus cone12_x0.15:
   and the other transforms by their result.
 
 **The fold check** (`Remesher.flip_creates_feature_fold`, `collapse_creates_feature_fold`): with MinTriangleQuality,
-a flip or collapse is rejected if a new triangle with two or more feature vertices intersects (exactly,
-`pair_intersects`) more triangles around its feature corners that face away from it than the old triangles did.
+a flip or collapse is rejected if its new triangles with two or more feature vertices intersect (exactly,
+`pair_intersects`) more of the triangles around their feature corners that face away from them (> 90 degrees) than
+the old triangles did, counted the same way (the same filter and corners: counted at all corners, an existing crossing
+at a corner off the features hid new folds, 6 / 7 / 4 pairs on cone12_x0.15 / x0.2 / x0.3 with PinSharpVertices).
 Collapses are checked only when a vertex off the features joins one on them. Flips that remove an edge longer than
 3 x the split length are not checked: on a coarse input (the 12 edges from the rim to the apex of cone12) those fold
 flips are part of the way the passes refine it, and rejecting them sent cone12 with PinSharpVertices into hundreds of
 crossings at the cap (264 pairs at x0.3); at 2 x, RemesherPro, which revisits only queued edges, kept folds of coarse
-cones (cone24_x0.6: 136 pairs in 4 runs). Smoothing and projection moves are not checked (a variant that did changed
-nothing in the default setting).
+cones (cone24_x0.6: 136 pairs in 4 runs). Not checked: smoothing and projection moves (a variant that did changed
+nothing in the default setting) and splits (a split puts its vertex on the edge or, for a curve edge, on the curve; no
+pair that survived came from one).
 
 Translation ensemble (4 runs each, 18 cones and tapers incl. the nine, final pairs summed), master -> fold check:
-Remesher 440 -> 0, RemesherPro 189 -> 0, Remesher with PinSharpVertices(30) 285 -> 18 (cone12_x0.15,
-x0.2 and x0.3 have 6, 7 and 4 where master has none; cone12_x0.1 15 -> 2). The full benchmark (`runs=1`, above):
+Remesher 440 -> 0, RemesherPro 189 -> 0, Remesher with PinSharpVertices(30) 285 -> 3 (cone24_x0.15, master 12).
+The full benchmark (`runs=1`, above):
 
 | setting | self-intersecting pairs master / fold check | cases with pairs | cases not clean | mean hausdorff/target |
 |---|---:|---:|---:|---:|
-| primitives, quality 0.2 | 281 / 134 | 16 / 2 | 16 / 2 | 0.341 / 0.356 |
-| primitives, quality 0.2, `pin=75` | 168 / 14 | 16 / 4 | | 0.115 / 0.123 |
+| primitives, quality 0.2 | 281 / 129 | 16 / 2 | 16 / 2 | 0.341 / 0.354 |
+| primitives, quality 0.2, `pin=75` | 168 / 9 | 16 / 2 | | 0.115 / 0.119 |
 | gears, quality 0.2 | 0 / 0 | 0 / 0 | 0 / 0 | 0.010 / 0.010 |
-| tubes, quality 0.2 | 5352 / 5094 | 24 / 23 | 24 / 23 | 0.311 / 0.297 |
+| tubes, quality 0.2 | 5352 / 5100 | 24 / 23 | 24 / 23 | 0.311 / 0.298 |
 
-The two primitives left with pairs are the flattened cones cone12_x0.6 and cone16_x0.6 (67 each; master 70 and 52,
+The two primitives left with pairs are the flattened cones cone12_x0.6 and cone16_x0.6 (71 and 58; master 70 and 52,
 a separate item). F-scores, normal consistency, Edge Chamfer and the 1% worst angle are equal or better
-(primitives F 0.1% 0.8282 -> 0.8289, Edge Chamfer 0.0154 -> 0.0146). The Hausdorff distance is the cones' apex
-(not a feature, rounded off by 1.4..3.4 target in both), and the single runs differ by chance: over the 8
-translations of the 42 cones the mean is 1.078 (master) and 1.088 target, 6 cones worse and 4 better by more than
-0.1 (cone12_x0.45 1.46 -> 1.90, cone32_x0.6 1.37 -> 1.85; cone32_x0.1 2.94 -> 2.50). Time with the option, the 150
-primitives, `runs=3 fidelity=0`, three pairs of master and fold-check runs alternating: 4.62 -> 5.15 s (1.115; the
-unchanged runs without the option differ by 1.04 between the same pairs, so about 1.07; the pairs 1.08, 1.12, 1.14).
-The exact tests themselves are about 3..6% (box6, taper16).
+(primitives F 0.1% 0.8282 -> 0.8287, Edge Chamfer 0.0154 -> 0.0146). The Hausdorff distance is the cones' apex
+(not a feature, rounded off by 1.4..3.4 target in both), and the single runs differ by chance: over 8 translations of
+the 42 cones the mean is 1.078 (master) and 1.088 target, 6 cones worse and 6 better by more than 0.1 (cone12_x0.45
+1.46 -> 1.90, cone32_x0.6 1.37 -> 1.85 the largest). Time with the option, the 150 primitives, `runs=3 fidelity=0`,
+6 pairs of master and fold-check runs alternating (M F, F M, ...): 4.67 -> 5.13 s, 1.097 x (per pair 1.02..1.24,
+median 1.087; the unchanged runs without the option 1.017 x between the same runs). The exact tests are about 3..6%
+of a run (box6, taper16); the rest comes from the other evolution of the meshes.
 The tube135363 tube no longer turns inside out with the option (the rejected flips at its rims were part of the
 inversion); `RemesherInversionGuardTests` test the guard with MinTriangleQuality on tubes that still do.
 
