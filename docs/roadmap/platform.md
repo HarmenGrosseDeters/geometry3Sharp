@@ -103,7 +103,8 @@ Part of the [roadmap](../ROADMAP.md).
   2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
   runs of the 3.0 process (#615) would depend on the same mechanism. Later on 2026-11-12 both fired, hours late:
   `nightly.yml` started 09:57 UTC (green), `coverage.yml` its first scheduled run at 11:48 UTC (failed).
-- **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-11, open) AngusJohnson/Clipper2 was
+- **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-11; **decided 2026-11-12: option (b)**,
+  in work: PR 1 vendors the 2.0.0 sources behaviour-identical, PR 2 fixes item 5 (`bugfix`)) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
   frozen NuGet package Clipper2 2.0.0, so the known Union limitation (FINDINGS item 5, wrong area on degenerate
@@ -111,6 +112,9 @@ Part of the [roadmap](../ROADMAP.md).
   as is and document the limitation (current state); (b) vendor the C# 2.0.0 sources into the addon (Boost-1.0, allowed;
   listed in `docs/SOURCES.md`, license file kept) and fix item 5 ourselves; (c) follow a third-party C# port of the new
   C++ line, if one appears. Decide before the next addon change that needs Clipper2 itself.
+  PR 1 (2026-11-12): the sources are in `addons/geometry3Sharp.Clipper2/Clipper2Lib/` (tag `Clipper2_2.0.1`, the
+  2.0.0 library files; internal, namespace `g3.Clipper2.Vendored`); the NuGet package stays a dependency for the
+  public API's types (`Point64`, `Path64`, `Paths64`, the enums), since dropping it would break that API.
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml

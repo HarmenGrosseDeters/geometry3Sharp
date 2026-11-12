@@ -128,9 +128,6 @@ Status on 2026-11-12 (evening, Berlin).
 
 Checked line by line against the owner's decisions and git on 2026-11-12; settled items moved to "Later" or the subpages.
 
-- **Clipper2 C# sources:** upstream archived 2026-10-28 (C++ only from now on, new maintainer at PolyClipping/Clipper2);
-  integrate the frozen C# 2.0.0 sources into the addon and fix FINDINGS item 5 ourselves, or keep the package? No
-  upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
   library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
 - **Exact Boolean 2.0 leftovers:** the speed exceptions (519511, 1517923, 519507) and manifold M2 closed as documented

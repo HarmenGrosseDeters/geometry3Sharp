@@ -2,8 +2,10 @@
 
   <!--
     Optional package: robust 2D polygon booleans, offsets, Minkowski sums and simplification for the polygon types of
-    geometry3Sharp, on top of Clipper2 (Angus Johnson, Boost-1.0, NuGet package "Clipper2"). The core package
-    geometry3Sharp stays free of dependencies; this one depends on it and on Clipper2.
+    geometry3Sharp, on top of Clipper2 (Angus Johnson, Boost-1.0). The engine is the vendored C# sources of Clipper2
+    2.0.0 (Clipper2Lib/, internal, namespace g3.Clipper2.Vendored, see Clipper2Lib/README.md). The NuGet package
+    "Clipper2" 2.0.0 stays a dependency only for the types the public API uses (Point64, Path64, Paths64, ClipType,
+    FillRule, JoinType, EndType). The core package geometry3Sharp stays free of dependencies.
   -->
   <PropertyGroup>
     <Version>1.1.0</Version>
@@ -29,6 +31,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- the public API's types only (see above); the clipping itself runs on the vendored sources -->
     <PackageReference Include="Clipper2" Version="2.0.0" />
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
