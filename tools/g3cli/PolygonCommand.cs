@@ -282,7 +282,10 @@ namespace g3cli
             c.Params.Add(new Param("output", ParamType.String, "output GeoJSON file for the result (optional; give it as --output: the second positional argument is the clip)"));
             c.Params.Add(new Param("subject_geojson", ParamType.String, "the subject as inline GeoJSON text, instead of a file"));
             c.Params.Add(new Param("clip_geojson", ParamType.String, "the clip as inline GeoJSON text, instead of a file"));
-            c.Params.Add(new Param("op", ParamType.String, "union, intersection, difference, xor, offset; simplify (polygons) and simplify_lines (LineString / MultiLineString subject); clip_lines (the lines of a LineString / MultiLineString subject clipped by the clip polygons); offset_lines (the band of width 2 delta around lines)") { Required = true, Enum = new[] { "union", "intersection", "difference", "xor", "offset", "simplify", "simplify_lines", "clip_lines", "offset_lines" } });
+            c.Params.Add(new Param("op", ParamType.String, "union, intersection, difference, xor, offset; simplify (polygons) and simplify_lines (LineString / MultiLineString subject); clip_lines (the lines of a LineString / MultiLineString subject clipped by the clip polygons); offset_lines (the band of width 2 delta around lines); minkowski_sum and minkowski_difference (the pattern polygon swept along the subject ring or line: pattern, path_closed)") { Required = true, Enum = new[] { "union", "intersection", "difference", "xor", "offset", "simplify", "simplify_lines", "clip_lines", "offset_lines", "minkowski_sum", "minkowski_difference" } });
+            c.Params.Add(new Param("pattern", ParamType.String, "minkowski ops: the pattern, a GeoJSON file with one polygon without holes (coordinates relative to its reference point, eg a circle around (0, 0)); or give pattern_geojson"));
+            c.Params.Add(new Param("pattern_geojson", ParamType.String, "minkowski ops: the pattern as inline GeoJSON text"));
+            c.Params.Add(new Param("path_closed", ParamType.Boolean, "minkowski ops: true (default): the subject is one polygon without holes, its interior included; false: the subject is one LineString, an open path") { Default = true });
             c.Params.Add(new Param("epsilon", ParamType.Number, "simplify, simplify_lines: remove vertices closer than this (input units) to the line through their neighbours; 0 only merges overlaps"));
             c.Params.Add(new Param("clip_type", ParamType.String, "clip_lines: keep the pieces of the lines inside the clip polygons (intersection) or outside (difference)") { Default = "intersection", Enum = new[] { "intersection", "difference" } });
             c.Params.Add(new Param("end_type", ParamType.String, "offset_lines: end treatment (joined: a closed line is offset on both sides)") { Default = "round", Enum = new[] { "round", "square", "butt", "joined" } });
@@ -296,6 +299,10 @@ namespace g3cli
             c.Params.Add(new Param("return_geojson", ParamType.Boolean, "also return the result as 'result_geojson' in the JSON result") { Default = false });
             c.Run = args => {
                 string op = args.String("op");
+                if (op == "minkowski_sum" || op == "minkowski_difference")
+                    return Polygon2dMinkowski(args, op);
+                if (args.Has("pattern") || args.Has("pattern_geojson") || !args.Bool("path_closed"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "pattern, pattern_geojson and path_closed are options of minkowski_sum and minkowski_difference");
                 if (op == "simplify" || op == "simplify_lines" || op == "clip_lines" || op == "offset_lines")
                     return Polygon2dMoreOps(args, op);
                 if (args.Has("epsilon") || args.String("clip_type") != "intersection" || args.String("end_type") != "round")
@@ -420,6 +427,82 @@ namespace g3cli
                 foreach (var l in lines.Skip(1)) b.Contain(l.GetBounds());
                 o["bounds"] = new JsonObject() { ["min"] = new JsonArray(b.Min.x, b.Min.y), ["max"] = new JsonArray(b.Max.x, b.Max.y) };
             }
+            return o;
+        }
+
+        /// <summary> minkowski_sum and minkowski_difference of polygon2d: the pattern swept along a closed polygon or an open line (Clipper2Polygons.MinkowskiSum / MinkowskiDifference) </summary>
+        static JsonObject Polygon2dMinkowski(Args args, string op)
+        {
+            if (args.Has("subject") == args.Has("subject_geojson"))
+                throw new CommandException(ResultCodes.InvalidArguments, "give exactly one of subject (a GeoJSON file) and subject_geojson (inline GeoJSON)");
+            if (args.Has("pattern") == args.Has("pattern_geojson"))
+                throw new CommandException(ResultCodes.InvalidArguments, "give exactly one of pattern (a GeoJSON file) and pattern_geojson (inline GeoJSON)");
+            if (args.Has("clip") || args.Has("clip_geojson"))
+                throw new CommandException(ResultCodes.InvalidArguments, op + " takes no clip: the polygon is the pattern");
+            if (args.Has("delta") || args.Has("miter_limit") || args.Has("arc_tolerance") || args.Has("fill_rule") || args.Has("epsilon")
+                || args.String("end_type") != "round" || args.String("join") != "round" || args.String("clip_type") != "intersection")
+                throw new CommandException(ResultCodes.InvalidArguments, "delta, join, miter_limit, arc_tolerance, end_type, fill_rule, clip_type and epsilon are not options of " + op);
+            bool closed = args.Bool("path_closed");
+            var options = new Clipper2Options();
+            if (args.Has("precision_bits")) {
+                int bits = args.Integer("precision_bits");
+                if (bits < ClipperFrame.MinPrecisionBits || bits > ClipperFrame.MaxPrecisionBits)
+                    throw new CommandException(ResultCodes.InvalidArguments, $"'precision_bits' must be in {ClipperFrame.MinPrecisionBits}..{ClipperFrame.MaxPrecisionBits}");
+                options.PrecisionBits = bits;
+            }
+            PolygonGeoJson.Result pattern = args.Has("pattern_geojson")
+                ? PolygonGeoJson.Parse(args.String("pattern_geojson"), ResultCodes.InvalidArguments, "pattern_geojson")
+                : PolygonGeoJson.ReadFile(args.String("pattern"));
+            PolygonGeoJson.Result subject = args.Has("subject_geojson")
+                ? PolygonGeoJson.Parse(args.String("subject_geojson"), ResultCodes.InvalidArguments, "subject_geojson", !closed)
+                : PolygonGeoJson.ReadFile(args.String("subject"), !closed);
+            if (pattern.Polygons.Count != 1 || pattern.Polygons[0].Holes.Count != 0)
+                throw new CommandException(ResultCodes.InvalidArguments, "the pattern must be exactly one polygon without holes");
+            Polygon2d path;
+            if (closed) {
+                if (subject.Polygons.Count != 1 || subject.Polygons[0].Holes.Count != 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, "with path_closed the subject must be exactly one polygon without holes (path_closed false: one LineString)");
+                path = subject.Polygons[0].Outer;
+            } else {
+                if (subject.Lines.Count != 1)
+                    throw new CommandException(ResultCodes.InvalidArguments, "with path_closed false the subject must be exactly one LineString");
+                path = new Polygon2d(subject.Lines[0].Vertices);
+            }
+            Polygon2d patternRing = pattern.Polygons[0].Outer;
+
+            Clipper2Result res = null;
+            Exception failure = null;
+            var worker = new System.Threading.Thread(() => {
+                try {
+                    res = op == "minkowski_sum" ? Clipper2Polygons.MinkowskiSum(patternRing, path, closed, options)
+                        : Clipper2Polygons.MinkowskiDifference(patternRing, path, closed, options);
+                } catch (Exception e) { failure = e; }
+            }, 512 * 1024 * 1024);
+            worker.Start(); worker.Join();
+            if (failure is ArgumentException || failure is OverflowException)
+                throw new CommandException(ResultCodes.InvalidArguments, "polygon2d: " + failure.Message);
+            if (failure != null)
+                throw new CommandException(ResultCodes.InternalError, failure.GetType().Name + ": " + failure.Message);
+            string status = ToSnake(res.Status.ToString());
+            if (res.Status == Clipper2Status.InvalidParameter)
+                throw new CommandException(ResultCodes.InvalidArguments, "polygon2d: " + res.Error, new JsonObject() { ["clipper_status"] = status });
+            if (res.Ok == false)
+                throw new CommandException(ResultCodes.OperationFailed, "polygon2d: " + status + ": " + res.Error, new JsonObject() { ["clipper_status"] = status });
+
+            JsonNode crs = subject.Crs ?? pattern.Crs;
+            JsonObject geojson = PolygonGeoJson.Write(res.Polygons, crs, new JsonObject() { ["op"] = op });
+            if (args.Has("output")) WriteText(args.String("output"), geojson.ToJsonString(new JsonSerializerOptions() { WriteIndented = false }));
+            var o = new JsonObject() { ["op"] = op, ["clipper_status"] = status, ["path_closed"] = closed };
+            if (args.Has("output")) o["output"] = args.String("output");
+            o["pattern"] = PolygonSummary(pattern.Polygons);
+            o["subject"] = closed ? PolygonSummary(subject.Polygons) : LineSummary(subject.Lines);
+            o["result"] = PolygonSummary(res.Polygons);
+            o["empty_result"] = res.Polygons.Count == 0;
+            o["frame"] = new JsonObject() { ["origin"] = new JsonArray(res.Frame.Origin.x, res.Frame.Origin.y), ["scale"] = Val(res.Frame.Scale), ["resolution"] = Val(res.Frame.Resolution) };
+            if (args.Bool("return_geojson")) o["result_geojson"] = geojson;
+            var warnings = new List<string>();
+            if (subject.DroppedZ || pattern.DroppedZ) warnings.Add("third coordinates (z) of the positions are ignored");
+            o["warnings"] = Warnings(warnings);
             return o;
         }
 

@@ -228,6 +228,20 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Polygon2d_MinkowskiOps_AreToolArguments()
+        {
+            var server = Server();
+            string line = "{\"type\":\"LineString\",\"coordinates\":[[0,0],[10,0]]}";
+            string pattern = "{\"type\":\"Polygon\",\"coordinates\":[[[-1,-1],[1,-1],[1,1],[-1,1],[-1,-1]]]}";
+            JsonObject r = Handle(server, Call(1, "polygon2d", new JsonObject() { ["op"] = "minkowski_sum", ["subject_geojson"] = line, ["pattern_geojson"] = pattern, ["path_closed"] = false }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(24.0, D(r["result"]["structuredContent"]["result"]["area"]), 6);
+            r = Handle(server, Call(2, "polygon2d", new JsonObject() { ["op"] = "minkowski_difference", ["subject_geojson"] = line, ["pattern_geojson"] = pattern }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
         public void ToolErrors_AreResults()
         {
             var server = Server();

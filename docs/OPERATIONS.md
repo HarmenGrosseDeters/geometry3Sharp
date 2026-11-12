@@ -797,6 +797,10 @@ with clip polygons keeps the pieces of the lines inside (`--clip-type intersecti
 `--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
 neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
 invariance are those of the booleans (`frame`).
+`--op minkowski_sum` / `minkowski_difference` sweep a pattern polygon (`--pattern` file or `--pattern-geojson`: one polygon without holes, its coordinates
+relative to the reference point, eg a circle around (0, 0)) along the subject: with `--path-closed` (default) one polygon without holes, its interior
+included; with `--path-closed=false` one `LineString` as an open path. The difference uses the pattern mirrored at its reference point; the result has holes
+where the sweep encloses one (`Clipper2Polygons.MinkowskiSum` / `MinkowskiDifference`).
 
 ```
 g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
