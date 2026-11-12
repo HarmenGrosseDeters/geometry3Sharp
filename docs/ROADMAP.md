@@ -75,10 +75,13 @@ Status on 2026-11-12 (morning, Berlin).
 - **Alpha Wrap 3.0** (in progress, targets set): phase 1 done 2026-11-12 (`runs/alpha-wrap-3`, `aw3/REPORT-phase1.md`:
   stacked levers about 1.57x on the 189, about 99 % of the 800 within budget). Targets (owner 2026-11-12): >= 95 % of
   the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
-  Levers follow as PRs 0-5. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+  L3 (batched gate tests) measured at <= 1.085x and dropped (owner 2026-11-12, option A): target (b) lowered to about
+  1.25x; L4, L1, L3b, L2 follow. Future research item (owner 2026-11-12, option B): deterministic round-based parallel
+  carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
-  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fix #640 ready (review fixes re-checked 2026-11-12). Follow-ups approved (owner 2026-11-12): after #640, a
-  measurement on the 20 clean Thingi meshes, then a PR dropping the `RejectInvertingPasses` snapshot (bit-identical).
+  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fixed by #640 (merged 2026-11-12, 36ef5a18; owner accepted the missed time gate,
+  1.16-1.22x on Thingi, opt-in via `MinTriangleQuality`). Follow-ups closed (owner 2026-11-12): the snapshot PR is not
+  built (no bit-identical gain), the crease-general fold check is exhausted (most remaining pairs are non-local).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
