@@ -129,6 +129,9 @@ wrap median 19.8 s / max 54.9 s vs CGAL 84.7 / 204.7 s (pipeline with simplify +
 3.5 / 10.9 s vs 18.8 / 97.3 s; guarantees 50/50 both, certified Hausdorff equal, raw triangles 5-10 % fewer, raw p01
 angle 20.9° vs CGAL 21.6° (tail) and 20.1° (random), global min angle 0.72° vs 1.89° (860049). The tail is the resolution
 for both; (3) the (B) round simulation is next.
+A second black-box competitor (alecjacobson/alpha-wrap, MIT by its README, claims about 2x CGAL): not now (owner
+2026-11-12); building and running such a tool is acceptable in principle once its licence is verified as permissive, but
+only with a concrete question the CGAL comparison cannot answer.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
