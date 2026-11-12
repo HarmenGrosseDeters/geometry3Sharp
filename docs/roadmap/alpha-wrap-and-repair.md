@@ -132,6 +132,14 @@ commit set; the levers are then built one PR each by the AW3 work. Both studies 
 [hotspots.md](hotspots.md). A nightly watcher (tools and workflow only) measures the known extreme cases of both studies
 isolated per master commit and reports outliers (regression against the rolling median, or above 20 s). Predicate kernels
 (InCircle limb kernel, filter tuning) only if the profile shows they matter.
+**Sharp-feature study (owner 2026-11-12, the 2026-11-09 wish for a study on the strongest model).** Why variant B
+(DC on the winding number) fails (offset, angles, self-intersection, time: inherent or fixable), and hybrids that keep
+the wrap's guarantees with DC-like creases: an offset level set with DC crease vertices, DC only in crease regions,
+crease-locked flips / angle repair (Kobbelt et al. 2001), a locally smaller alpha (option 4), and a crease-constrained
+Remesher pass on the wrap. Each with an upper bound or probe on the lever-6 corpus (option-1 metrics, angles, validity,
+time) and a guarantee argument; measurement and prototypes only, the chosen levers are built afterwards; unblocks tet
+meshing stage 1 ([research.md](research.md) item 4). The Reducer / Remesher 2.x speed profile (first step: per-operation
+profile of the plain Remesher, in the shared profile categories) follows on Sonnet after the AW3 levers are chosen.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);
