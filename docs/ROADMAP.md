@@ -66,7 +66,7 @@ Status on 2026-11-12 (morning, Berlin).
   (Difference total 973 -> 421 s, hash unchanged); open: the classification filter from local corner coordinates,
   the combinatorial zeros, possibly InCircle limbs. Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
-  memory layout (up to 2x on shuffled inputs) waits for a Thingi10K measurement (owner); the solidify's
+  memory layout (up to 2x on shuffled inputs) has its Thingi10K measurement (file order vs Morton order, about 50 models) running in a cloud session (owner 2026-11-12); the solidify's
   `DualContouring` allocations bound about 4 % of wall.
   [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
@@ -77,7 +77,8 @@ Status on 2026-11-12 (morning, Berlin).
   the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
   Levers follow as PRs 0-5. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
-  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fix in draft #640 (review fixes re-checked 2026-11-12, one collapse test to add).
+  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fix #640 ready (review fixes re-checked 2026-11-12). Follow-ups approved (owner 2026-11-12): after #640, a
+  measurement on the 20 clean Thingi meshes, then a PR dropping the `RejectInvertingPasses` snapshot (bit-identical).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
