@@ -114,19 +114,30 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      point is rounded to the grid; `FixSelfIntersects` splits at the crossing and `DoSplitOp` dropped the split-off triangle because its
      area has the other sign than the path's (its rule for a figure-eight twist), which filled the hole. Smallest case (16-gons
      shrunk): A = (2,-2) (-2,0) (3,-4) (1,3) (-4,-4), B = (-1,2) (-4,0) (-3,-3) (-1,3), union 24.4246 instead of 23.6474 (the hole
-     (-3.09,-2.73) (-2,0) (-1.45,-0.44)). Fix: such a triangle is kept as a path of its own if it lies inside the rest of the path.
+     (-3.09,-2.73) (-2,0) (-1.45,-0.44)). Fix: such a triangle is kept as a path of its own if it lies inside the rest of the path,
+     owned by that path (so that a PolyTree nests it as its hole; the review of the fix found that with its path's owner it came out
+     beside the path, and the adapter made it an extra filled polygon: `KeptHole_IsNestedUnderItsPath`).
      Oracle: the exact area of the region by its definition (`ExactRegionArea`: winding numbers on rational vertical slabs, no code
      shared with Clipper2), against the result area within the grid rounding. Measured with the raw engine, 1000 pairs each, every
      clip type and fill rule (16 combinations): 16-gons on -4..4: 29 wrong results of the package, 1 of the fix (an Intersection
-     NonZero wrong in both, below); 8-gons on -3..3: 5 / 0; 8-gons on -64..64: 0 / 0; and 0 / 0 for 500 pairs of 12-gons with
-     generic coordinates. Every result the fix changes was wrong before (no result within the rounding changed).
+     NonZero wrong in both, below); 8-gons on -3..3: 5 / 0; 8-gons on -64..64: 0 / 0. Every result the fix changes was wrong
+     before (no result within the rounding changed); the independent review's run (6 seeds, 8- to 16-gons on -3..3 and -4..4): 100 / 1.
+     Through the adapter (`BooleanPaths`, default grid; 1000 pairs of 16-gons on -4..4, seed 77, every combination, area and overlap
+     by 64 samples): 43 wrong before (29 unions, 7 differences, 7 xors), 0 after, no overlaps.
    - **Open, the same cleanup:** one Intersection (NonZero) of 1000 pairs of 16-gons is wrong before and after (an output of
      negative area -0.076 for an exact 0.590; shrunk: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3) (-2,0)
      (0,-2)). Cause: the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`) moves a
      vertex by 1.3 units. Upstream removed that branch after 2.0.0 (commit `4da1564`, issue #1067, 2026-02-22; BSL-1.0, not in
      2.0.0). Measured on top of the fix: 0 wrong results in all the campaigns above, but it also changes many results that were
      right within the rounding (eg 15 of 1000 Xor NonZero results, 1 of them wrong before); alone, without the fix, it made the
-     unions worse (52 wrong of 3000 against 22). A follow-up decision, not part of the item 5 fix.
+     unions worse (52 wrong of 3000 against 22). A follow-up decision, not part of the item 5 fix: issue #756.
+   - **Open, found in the review of the fix (wrong before and after, not caused by it; issue #756):** a Union that is right on a
+     2^20 grid and wrong on the adapter's grid (scale 2^38): A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4)
+     (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4) (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1):
+     NonZero 27.971 against an exact 29.718 (the package's engine gives the same), EvenOdd and Negative off by the same 1.747; not
+     analysed. The review also reported results where the engine is right and `ClipperFrame.ToGeneralPolygons` fails to nest a
+     negative top-level path (its `Contains` has no tolerance for a vertex up to one grid unit outside its holder; eg a Difference
+     Positive of 14.45 against an exact 10.99); not pinned.
    - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):

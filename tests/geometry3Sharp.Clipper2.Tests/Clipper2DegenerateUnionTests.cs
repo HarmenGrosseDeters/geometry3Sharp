@@ -41,10 +41,14 @@ namespace geometry3Sharp.Clipper2.Tests
         /// the origin (an ulp of the coordinate in grid units, eg 16 units at UTM coordinates on the default grid);
         /// each moves an edge by at most that much, so the area by at most perimeter times the sum, plus 1.
         /// </summary>
-        static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b)
+        static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
         {
             Clipper2Result r = Clipper2Polygons.BooleanPaths(op, new[] { a }, new[] { b }, new Clipper2Options { FillRule = rule });
             Assert.True(r.Ok, r.ToString());
+            // well-formed: orientation, holes inside their outer ring, no two result polygons overlap (a hole put at the
+            // wrong level of the tree comes out as an extra outer polygon on top of its holder)
+            var box = new AxisAlignedBox2d(a.Bounds); box.Contain(b.Bounds);
+            CheckWellFormed(r, samples == null ? null : Samples(samples, box, 64).ToList());
             ClipperFrame f = r.Frame;
             double exact = ExactRegionArea.Area(new[] { new[] { Grid(f.ToPath64(a)) }, new[] { Grid(f.ToPath64(b)) } }, Predicate(op, rule));
             double area = 0, perimeter = 0;
@@ -146,6 +150,37 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
+        public void KeptHole_IsNestedUnderItsPath()
+        {
+            // found in the review of the fix: the kept triangle (0,1) (-1.667,-0.667) (-2,0) was given its path's owner, so the
+            // PolyTree put it beside its path; the adapter then turned it into a filled outer polygon on top of its holder
+            // (area 10.7166, overlapping polygons; 9.8832 with the hole filled before the fix; exact 9.0499)
+            Polygon2d a = Ring(3, 4, 1, -3, 3, -3, -2, -1, -1, -3, -3, 2, 0, -4, 1, 0, -4, -3, 0, 1, 4, 3, -2, 0);
+            Polygon2d b = Ring(-1, -1, -3, -4, 1, -4, 4, 0, -3, 3, -4, -3, 1, -3, -3, -3, -2, -3, 1, 3, -1, -3, -4, 0);
+            var (error, slack, r) = Check(ClipType.Intersection, FillRule.NonZero, a, b, new Random(1));
+            Assert.True(error <= slack, "area off by " + error + " grid units, more than the rounding " + slack);
+            var hole = new Vector2d((0 - 1.6666667 - 2) / 3, (1 - 0.6666667 + 0) / 3);   // the triangle's centroid
+            Assert.Equal(0, ResultCount(r.Polygons, hole));
+            Assert.True(ResultCount(r.Polygons, new Vector2d(-1.205, 0.279)) <= 1);
+            // the engine's tree: every hole node has negative area, every outer node positive
+            V.Path64 P(Polygon2d p) => new V.Path64(p.Vertices.Select(v => new V.Point64((long)v.x << 20, (long)v.y << 20)));
+            var clipper = new V.Clipper64();
+            clipper.AddSubject(P(a));
+            clipper.AddClip(P(b));
+            var tree = new V.PolyTree64();
+            Assert.True(clipper.Execute(V.ClipType.Intersection, V.FillRule.NonZero, tree));
+            void Walk(V.PolyPath64 node)
+            {
+                for (int i = 0; i < node.Count; ++i) {
+                    V.PolyPath64 child = node.Child(i);
+                    Assert.True(child.IsHole == (V.Clipper.Area(child.Polygon) < 0), "tree node of area " + V.Clipper.Area(child.Polygon) + " with IsHole " + child.IsHole);
+                    Walk(child);
+                }
+            }
+            Walk(tree);
+        }
+
+        [Fact]
         public void FindingsRepro_UnionIsExact()
         {
             // the repro of FINDINGS item 5 (coordinates k / 256), at the default precision of 40 bits, where it failed
@@ -172,7 +207,7 @@ namespace geometry3Sharp.Clipper2.Tests
             var failures = new List<string>();
             for (int i = 0; i < 600; ++i) {
                 Polygon2d a = Lattice(rand, 16, 4), b = Lattice(rand, 16, 4);
-                var (error, slack, _) = Check(ClipType.Union, rule, a, b);
+                var (error, slack, _) = Check(ClipType.Union, rule, a, b, rand);
                 if (error > slack)
                     failures.Add("pair " + i + ": off by " + error + " grid units");
             }
@@ -191,7 +226,7 @@ namespace geometry3Sharp.Clipper2.Tests
             for (int i = 0; i < 100; ++i) {
                 Polygon2d a = Lattice(rand, 12, 4), b = Lattice(rand, 12, 4);
                 foreach (FillRule rule in new[] { FillRule.EvenOdd, FillRule.NonZero, FillRule.Positive, FillRule.Negative }) {
-                    var (error, slack, _) = Check(op, rule, a, b);
+                    var (error, slack, _) = Check(op, rule, a, b, rand);
                     if (error > slack)
                         failures.Add(rule + " pair " + i + ": off by " + error + " grid units");
                 }

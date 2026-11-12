@@ -2930,11 +2930,18 @@ private void DoHorizontal(Active horz)
       // So the only way for these areas to have the same sign is if
       // the split triangle is larger than the path containing prevOp or
       // if there's more than one self=intersection.
-      if (!(absArea2 > 1)) return;
-      if (!(absArea2 > absArea1) && ((area2 > 0) != (area1 > 0)) &&
-        !TriangleInsidePath(ip, splitOp.pt, splitOp.next.pt, prevOp)) return;
+      bool insideHole = false;
+      if (!(absArea2 > 1) ||
+          (!(absArea2 > absArea1) &&
+           ((area2 > 0) != (area1 > 0))))
+      {
+        // geometry3Sharp change (FINDINGS item 5): see TriangleInsidePath
+        if (!(absArea2 > 1) || !TriangleInsidePath(ip, splitOp.pt, splitOp.next.pt, prevOp)) return;
+        insideHole = true;
+      }
       OutRec newOutRec = NewOutRec();
-      newOutRec.owner = outrec.owner;
+      // geometry3Sharp change (FINDINGS item 5): a kept hole is owned by its path, not a sibling of it
+      newOutRec.owner = insideHole ? outrec : outrec.owner;
       splitOp.outrec = newOutRec;
       splitOp.next.outrec = newOutRec;
 
@@ -2963,7 +2970,9 @@ private void DoHorizontal(Active horz)
     // other sign than its path, as a twist (a figure-eight lobe outside the path). Such a triangle can also be a hole
     // inside the path that touches it at a vertex, the touch turned into a crossing by the rounding of an intersection
     // point to the grid; dropping it fills the hole. It is kept as a path of its own if it lies inside the rest of
-    // the path (Path1InsidePath2, the test DoSplitOp uses for the nesting of splits).
+    // the path (Path1InsidePath2, the test DoSplitOp uses for the nesting of splits; a heuristic with a tolerance for
+    // rounding: the vertex votes, and the bounds' centre when they do not decide). DoSplitOp then makes the path the
+    // triangle's owner, so that a PolyTree nests it as a hole of the path.
     private static bool TriangleInsidePath(Point64 pt1, Point64 pt2, Point64 pt3, OutPt path)
     {
       var op1 = new OutPt(pt1, path.outrec);

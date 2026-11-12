@@ -29,7 +29,9 @@ if (!free.Ok)
   self-intersecting rings with a vertex exactly on another edge: about 1 in 150 random pairs of 16-gons on a coarse lattice). This
   package fixes it in its copy of the sources (FINDINGS item 5,
   [tools/MeshFuzzPilot/FINDINGS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/tools/MeshFuzzPilot/FINDINGS.md)).
-  Still open: a rarer case in the same output cleanup (1 Intersection in 16 000 results on that lattice), listed there.
+  Through this package, 1000 random pairs of 16-gons on that lattice in every operation and fill rule gave 43 wrong areas
+  before the fix and 0 after. Still open (rare, listed there and in issue #756): an Intersection case in the same cleanup and
+  a Union case on the default grid, both wrong before and after.
 - Upstream status: the Clipper2 repository (AngusJohnson/Clipper2) was archived on 2026-10-28. Clipper2 continues as a
   C++ only library at [PolyClipping/Clipper2](https://github.com/PolyClipping/Clipper2) (maintainer Seth Hillibrand);
   translations to other languages are left to third parties, so the C# package 2.0.0 this adapter uses is frozen and the
