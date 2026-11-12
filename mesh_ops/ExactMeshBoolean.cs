@@ -519,7 +519,7 @@ namespace g3
             antipodalSnapped = 0;
             perPatchDecided = perPatchSaved = 0;
             PerPatchMismatches = 0;
-            tracedCount = tracedDirect = tracedCarried = 0;
+            tracedCount = tracedDirect = tracedCarried = tracedExactCentroids = 0;
             TracedMismatches = 0;
             TracedMismatchMargins = null;
             antipodalExact.Clear();
@@ -613,6 +613,8 @@ namespace g3
             Counts["l2_traced"] = tracedCount;
             Counts["l2_direct"] = tracedDirect;
             Counts["l2_carried"] = tracedCarried;
+            // (L2: the pieces whose exact centroid was computed, where a filter failed or for the piece's own ray)
+            Counts["l2_exact_centroids"] = tracedExactCentroids;
             Counts["antipodal_snapped"] = antipodalSnapped;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
@@ -1707,14 +1709,9 @@ namespace g3
                     }
                 }
                 var centers = new Center[len];
-                Func<int, Center> center = (i) => {
-                    Center c = centers[i - s0];
-                    if (c == null) {
-                        c = centers[i - s0] = new Center(centroid_point(output[i], false));
-                        c.Input = arr.ToInputVector(c.P);
-                    }
-                    return c;
-                };
+                // (one local frame per block, the input triangle's: its corners, far points and boundary ends cached)
+                var frame = new LocalFrame(this, arr.Triangles[output[s0].Source]);
+                Func<int, Center> center = (i) => centers[i - s0] ?? (centers[i - s0] = new Center(this, output[i], frame));
                 var chi = new int[len];
                 var far = new int[len];
                 var thr = new int[len];         // the threshold of a piece where known (its own value, or carried)
@@ -1733,7 +1730,6 @@ namespace g3
                     // the input triangle's, in a grid of those boxes in the triangle's plane)
                     var src = arr.Triangles[output[s0].Source];
                     var grid = new CrossingGrid(this, src, m);
-                    var frame = new LocalFrame(this, src.Corners[0]);
                     // (per far point: the boundary segments that can pierce a triangle of two of the block's centroids and
                     // the far point, those meeting the tetrahedron of the input triangle and the far point)
                     var pierceCandidates = new Dictionary<int, int[]>();
@@ -1781,12 +1777,35 @@ namespace g3
                                     rem[q - s0] = -1;
                                     if (wanted == false)
                                         continue;
-                                    double w, bound;
+                                    double w, bound, ge;
                                     Center cq = center(q);
-                                    Vector3d g = cq.GridDouble();
+                                    // (the boundary sum at the centroid's approximation: its error, sqrt(3) times the bound
+                                    // per coordinate, enters the terms' errors, and the direction to the far point's)
+                                    Vector3d g = cq.Approx(out ge);
                                     double pm = Math.Abs(g.x) + Math.Abs(g.y) + Math.Abs(g.z);
-                                    Vector3d x1 = -(antipodalFar[m].Grid[f] - g).Normalized;
-                                    int status = antipodal_value(g, pm, x1, chi[q - s0], segments, out w, out bound);
+                                    Vector3d toFar = antipodalFar[m].Grid[f] - g;
+                                    Vector3d x1 = -toFar.Normalized;
+                                    double pointError = 1.7320508075688774 * ge * (1 + 1e-15);
+                                    // (a bound up to 1e-4 at the approximation, where the value is farther than the bound
+                                    // plus 1e-6 from every half-integer: the evaluation at the exact centroid, within that
+                                    // bound of it, has the same threshold and does not snap)
+                                    // (and only where the bound without the approximation's error stays below 0.99e-6, so the
+                                    // exact centroid's evaluation with this ray gives a value too: the displacement changes
+                                    // each distance and each term's conditioning by at most the relative amounts the full
+                                    // bound's terms already carry, below pi 1e-4, so that bound by less than a factor 1.001)
+                                    double roundingBound;
+                                    int status = antipodal_value(g, pm, x1, chi[q - s0], segments, out w, out bound, out roundingBound,
+                                        pointError, 2 * pointError / toFar.Length, 1e-4);
+                                    if (status == 0 && bound > 1e-6 && !(Math.Abs(w - (Math.Floor(w) + 0.5)) > bound + 1e-6 && roundingBound <= 0.99e-6))
+                                        status = 2;
+                                    if (status != 0) {
+                                        // (no value within the bound at the approximation, or undecided there: at the exact
+                                        // centroid, as an Antipodal evaluation with this ray computes it)
+                                        g = cq.GridDouble();
+                                        pm = Math.Abs(g.x) + Math.Abs(g.y) + Math.Abs(g.z);
+                                        x1 = -(antipodalFar[m].Grid[f] - g).Normalized;
+                                        status = antipodal_value(g, pm, x1, chi[q - s0], segments, out w, out bound);
+                                    }
                                     if (status == 0 || status == 1) {
                                         double value = status == 1 ? 0.5 : snap_half(w, bound);
                                         if (status == 1)
@@ -1876,8 +1895,13 @@ namespace g3
                 box[k] = Math.Min(boxes[6 * (p - s0) + k], boxes[6 * (q - s0) + k]);
                 box[k + 3] = Math.Max(boxes[6 * (p - s0) + k + 3], boxes[6 * (q - s0) + k + 3]);
             }
-            Vector3d gp = cp.GridDouble(), gq = cq.GridDouble();
-            double length = (gp.Distance(gq) + 1e-15 * (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z) + Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z))) * (1 + 1e-12);
+            // (the distance in the local frame: its errors are relative to the input triangle, not to the model)
+            double ep, eq;
+            Vector3d gp = cp.Local(out ep), gq = cq.Local(out eq);
+            double length = (gp.Distance(gq) + 1.7320508075688774 * (ep + eq)
+                + 1e-15 * (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z) + Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z))) * (1 + 1e-12);
+            if (double.IsNaN(length))
+                return double.PositiveInfinity;
             return gradient_bound(box, b) * length;
         }
 
@@ -1973,15 +1997,47 @@ namespace g3
             readonly BigInteger ox, oy, oz;
             readonly Dictionary<int, Vector3d> corners = new Dictionary<int, Vector3d>();
             readonly Dictionary<long, Vector3d> others = new Dictionary<long, Vector3d>(EdgeKeyComparer.Instance);
+            readonly Dictionary<long, bool> inPlane = new Dictionary<long, bool>(EdgeKeyComparer.Instance);
+            readonly ExactMeshArrangement.InputTriangle triangle;
 
-            public LocalFrame(ExactMeshBoolean b, int originId)
+            readonly Vector3d od;           // the origin as doubles
+            readonly double odError;        // their absolute error (0 where they are exact)
+
+            public LocalFrame(ExactMeshBoolean b, ExactMeshArrangement.InputTriangle triangle)
             {
                 this.b = b;
-                ExactPoint3 o = b.arr.Exact(originId);
+                this.triangle = triangle;
+                ExactPoint3 o = b.arr.Exact(triangle.Corners[0]);
                 // (an input point: an integer grid point)
                 if (o.W.IsOne == false)
                     throw new InvalidOperationException("ExactMeshBoolean: the origin of a local frame is not a grid point");
                 ox = o.X; oy = o.Y; oz = o.Z;
+                od = new Vector3d((double)ox, (double)oy, (double)oz);
+                odError = 0;
+                for (int k = 0; k < 3; ++k)
+                    odError = Math.Max(odError, 2.3e-16 * Math.Abs(od[k]));
+            }
+
+            /// <summary>
+            /// a point given by local doubles with an absolute error bound per coordinate, in grid coordinates (+ the origin),
+            /// and the bound of the result's error per coordinate: that one, the origin's rounding (relative 2^-52: the
+            /// conversion from BigInteger is not guaranteed to round to nearest on every runtime) and the addition's
+            /// (2^-53 of the magnitudes)
+            /// </summary>
+            public Vector3d ToGrid(Vector3d l, double error, out double gridError)
+            {
+                Vector3d g = l + od;
+                double m = 0;
+                for (int k = 0; k < 3; ++k)
+                    m = Math.Max(m, Math.Abs(l[k]) + Math.Abs(od[k]));
+                gridError = (error + odError) * (1 + 1e-15) + 1.2e-16 * m;
+                return g;
+            }
+
+            /// <summary> the error bound per coordinate of a point given by Point (each the exact value rounded once) </summary>
+            public static double PointError(Vector3d l)
+            {
+                return 2.3e-16 * Math.Max(Math.Abs(l.x), Math.Max(Math.Abs(l.y), Math.Abs(l.z)));
             }
 
             public Vector3d Point(ExactPoint3 p)
@@ -2004,6 +2060,25 @@ namespace g3
                 Vector3d v;
                 if (others.TryGetValue(key, out v) == false)
                     others[key] = v = Point(b.antipodalFar[m].R[f]);
+                return v;
+            }
+
+            /// <summary>
+            /// both ends of boundary segment t of mesh m (ends t, t + 1) in the plane of the frame's triangle, exactly: then
+            /// orient3d of them with any two points of the triangle is 0 (all four in one plane), without arithmetic on
+            /// those points. Cached
+            /// </summary>
+            public bool InPlane(int m, int t)
+            {
+                long key = ((long)m << 40) | (uint)t;
+                bool v;
+                if (inPlane.TryGetValue(key, out v) == false) {
+                    ExactPoint3[] e = b.antipodalExact[m];
+                    var P = triangle.P;
+                    v = (P.A * e[t].X + P.B * e[t].Y + P.C * e[t].Z - P.D * e[t].W).IsZero
+                        && (P.A * e[t + 1].X + P.B * e[t + 1].Y + P.C * e[t + 1].Z - P.D * e[t + 1].W).IsZero;
+                    inPlane[key] = v;
+                }
                 return v;
             }
 
@@ -2040,8 +2115,8 @@ namespace g3
             {
                 ExactMeshArrangement arr = b.arr;
                 i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
-                var tb = new AxisAlignedBox3d(t.V0, t.V0);
-                tb.Contain(t.V1); tb.Contain(t.V2);
+                // (grid coordinates: the corners' approximations widened by their error bounds contain the exact corners)
+                double[] tb = corner_box(arr, t);
                 // (in a fixed order: the partners are found in parallel, sorted here)
                 var partners = new List<int>(t.Partners);
                 partners.Sort();
@@ -2055,11 +2130,10 @@ namespace g3
                     var U = arr.Triangles[u];
                     if (U.Degenerate || U.Mesh != m)
                         continue;
-                    var ub = new AxisAlignedBox3d(U.V0, U.V0);
-                    ub.Contain(U.V1); ub.Contain(U.V2);
+                    double[] ub = corner_box(arr, U);
                     ids.Add(u);
-                    boxes.Add(Math.Max(ub.Min[i], tb.Min[i])); boxes.Add(Math.Max(ub.Min[j], tb.Min[j]));
-                    boxes.Add(Math.Min(ub.Max[i], tb.Max[i])); boxes.Add(Math.Min(ub.Max[j], tb.Max[j]));
+                    boxes.Add(Math.Max(ub[i], tb[i])); boxes.Add(Math.Max(ub[j], tb[j]));
+                    boxes.Add(Math.Min(ub[i + 3], tb[i + 3])); boxes.Add(Math.Min(ub[j + 3], tb[j + 3]));
                 }
                 tri = ids.ToArray();
                 box = boxes.ToArray();
@@ -2067,8 +2141,8 @@ namespace g3
                 int n = tri.Length;
                 int side = Math.Max(1, (int)Math.Sqrt(n));
                 nx = ny = side;
-                x0 = tb.Min[i]; y0 = tb.Min[j];
-                cw = (tb.Max[i] - tb.Min[i]) / nx; ch = (tb.Max[j] - tb.Min[j]) / ny;
+                x0 = tb[i]; y0 = tb[j];
+                cw = (tb[i + 3] - tb[i]) / nx; ch = (tb[j + 3] - tb[j]) / ny;
                 if (!(cw > 0) || !(ch > 0) || n == 0) {
                     nx = ny = 1;
                     cw = ch = double.PositiveInfinity;
@@ -2080,6 +2154,21 @@ namespace g3
                             (cells[cx * ny + cy] ?? (cells[cx * ny + cy] = new List<int>())).Add(k);
             }
 
+            // the box of a triangle's corners in grid coordinates (min x, y, z, max x, y, z), widened by their error bounds
+            static double[] corner_box(ExactMeshArrangement arr, ExactMeshArrangement.InputTriangle t)
+            {
+                var r = new[] { double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity, double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity };
+                for (int k = 0; k < 3; ++k) {
+                    Vector3d a = arr.Approx(t.Corners[k]);
+                    double e = arr.ApproxError(t.Corners[k]) * (1 + 1e-15);
+                    for (int q = 0; q < 3; ++q) {
+                        r[q] = Math.Min(r[q], a[q] - e);
+                        r[q + 3] = Math.Max(r[q + 3], a[q] + e);
+                    }
+                }
+                return r;
+            }
+
             static int cell(double v, double v0, double w, int count)
             {
                 if (double.IsInfinity(w))
@@ -2088,12 +2177,12 @@ namespace g3
                 return c < 0 ? 0 : c >= count ? count - 1 : (int)c;
             }
 
-            // f(triangle) for each candidate of the segment p-q (input coordinates, rounded: the box is widened)
-            public void Query(Vector3d p, Vector3d q, Action<int> f)
+            // f(triangle) for each candidate of the segment p-q (grid coordinates, each within error of the exact point)
+            public void Query(Vector3d p, Vector3d q, double error, Action<int> f)
             {
                 if (tri.Length == 0)
                     return;
-                double pad = 1e-9 * (Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z) + Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z)) + 1e-300;
+                double pad = error * (1 + 1e-12) + 1e-15 * (Math.Abs(p[i]) + Math.Abs(p[j]) + Math.Abs(q[i]) + Math.Abs(q[j])) + 1e-300;
                 double ax = Math.Min(p[i], q[i]) - pad, ay = Math.Min(p[j], q[j]) - pad, bx = Math.Max(p[i], q[i]) + pad, by = Math.Max(p[j], q[j]) + pad;
                 ++query;
                 for (int cx = cell(ax, x0, cw, nx); cx <= cell(bx, x0, cw, nx); ++cx)
@@ -2127,21 +2216,24 @@ namespace g3
         {
             delta = 0;
             crossed = 0;
-            ExactPoint3 P = cp.P, Q = cq.P;
             var sp = arr.Triangles[arr.Output[p].Source];
             var sq = arr.Triangles[arr.Output[q].Source];
-            // (the filters on coordinates in the input triangle's frame, the exact stages on the exact points)
-            Vector3d gp = cp.Local(frame), gq = cq.Local(frame);
+            // (the filters on the centroids' approximations in the input triangle's frame, with their error bounds; the
+            // exact stages on the exact points, the centroids computed only then)
+            double ap, aq, lp, lq;
+            Vector3d gp = cp.Local(out lp), gq = cq.Local(out lq);
+            Vector3d xp = cp.Approx(out ap), xq = cq.Approx(out aq);
             if (double.IsNaN(gp.x + gp.y + gp.z + gq.x + gq.y + gq.z))
                 return false;
             int crossings = 0;
             bool degenerate = false;
-            grid.Query(cp.Input, cq.Input, (ui) => {
+            grid.Query(xp, xq, Math.Max(ap, aq), (ui) => {
                 if (degenerate) return;
                 var U = arr.Triangles[ui];
                 int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
                 Vector3d d0 = frame.Corner(c0), d1 = frame.Corner(c1), d2 = frame.Corner(c2);
-                int a = local_side(U, P, ref d0, ref d1, ref d2, ref gp), b = local_side(U, Q, ref d0, ref d1, ref d2, ref gq);
+                double e0 = LocalFrame.PointError(d0), e1 = LocalFrame.PointError(d1), e2 = LocalFrame.PointError(d2);
+                int a = local_side(U, cp, ref d0, ref d1, ref d2, ref gp, e0, e1, e2, lp), b = local_side(U, cq, ref d0, ref d1, ref d2, ref gq, e0, e1, e2, lq);
                 // (a centroid in the plane: the side its piece's front points to)
                 int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
                 int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
@@ -2150,14 +2242,14 @@ namespace g3
                 // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
                 // determined here)
                 if (a == 0 && b == 0) { degenerate = true; return; }
-                int o0 = orient3d_filter(ref gp, ref gq, ref d0, ref d1);
-                int o1 = orient3d_filter(ref gp, ref gq, ref d1, ref d2);
-                int o2 = orient3d_filter(ref gp, ref gq, ref d2, ref d0);
+                int o0 = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref d0, ref d1, lp, lq, e0, e1);
+                int o1 = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref d1, ref d2, lp, lq, e1, e2);
+                int o2 = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref d2, ref d0, lp, lq, e2, e0);
                 if (o0 == 2 || o1 == 2 || o2 == 2) {
-                    ExactPoint3 e0 = arr.Exact(c0), e1 = arr.Exact(c1), e2 = arr.Exact(c2);
-                    if (o0 == 2) o0 = orient3d_exact(P, Q, e0, e1);
-                    if (o1 == 2) o1 = orient3d_exact(P, Q, e1, e2);
-                    if (o2 == 2) o2 = orient3d_exact(P, Q, e2, e0);
+                    ExactPoint3 x0 = arr.Exact(c0), x1 = arr.Exact(c1), x2 = arr.Exact(c2);
+                    if (o0 == 2) o0 = orient3d_exact(cp.P, cq.P, x0, x1);
+                    if (o1 == 2) o1 = orient3d_exact(cp.P, cq.P, x1, x2);
+                    if (o2 == 2) o2 = orient3d_exact(cp.P, cq.P, x2, x0);
                 }
                 if (o0 == 0 || o1 == 0 || o2 == 0) {
                     if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
@@ -2173,24 +2265,29 @@ namespace g3
             FarPoints far = antipodalFar[m];
             ExactPoint3 R = far.R[f];
             Vector3d gr = frame.Far(m, f);
+            double er = LocalFrame.PointError(gr);
             ExactPoint3[] e = antipodalExact[m];
             int pierces = 0;
             foreach (int t in pierceCandidates) {
                 Vector3d ga = frame.BoundaryEnd(m, t), gb = frame.BoundaryEnd(m, t + 1);
-                int sa = orient3d_filter(ref gp, ref gq, ref gr, ref ga);
-                if (sa == 2) sa = orient3d_exact(P, Q, R, e[t]);
-                int sb = orient3d_filter(ref gp, ref gq, ref gr, ref gb);
-                if (sb == 2) sb = orient3d_exact(P, Q, R, e[t + 1]);
+                double ea = LocalFrame.PointError(ga), eb = LocalFrame.PointError(gb);
+                int sa = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref gr, ref ga, lp, lq, er, ea);
+                if (sa == 2) sa = orient3d_exact(cp.P, cq.P, R, e[t]);
+                int sb = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref gr, ref gb, lp, lq, er, eb);
+                if (sb == 2) sb = orient3d_exact(cp.P, cq.P, R, e[t + 1]);
                 if (sa == 0 || sb == 0)
                     return false;
                 if (sa == sb)
                     continue;
-                int t0 = orient3d_filter(ref ga, ref gb, ref gp, ref gq);
-                if (t0 == 2) t0 = orient3d_exact(e[t], e[t + 1], P, Q);
-                int t1 = orient3d_filter(ref ga, ref gb, ref gq, ref gr);
-                if (t1 == 2) t1 = orient3d_exact(e[t], e[t + 1], Q, R);
-                int t2 = orient3d_filter(ref ga, ref gb, ref gr, ref gp);
-                if (t2 == 2) t2 = orient3d_exact(e[t], e[t + 1], R, P);
+                // (0 if a and b lie in the triangle's plane, which p and q are in: the boundary edges of the triangle and
+                // of its coplanar neighbours; else orient3d(a, b, p, q) = orient3d(p, q, a, b), an even permutation, by the
+                // filter for a short segment a-b far from p, q)
+                int t0 = frame.InPlane(m, t) ? 0 : DisableFilters ? 2 : orient3d_filtered_err_near(ref gp, ref gq, ref ga, ref gb, lp, lq, ea, eb);
+                if (t0 == 2) t0 = orient3d_exact(e[t], e[t + 1], cp.P, cq.P);
+                int t1 = DisableFilters ? 2 : orient3d_filtered_err(ref ga, ref gb, ref gq, ref gr, ea, eb, lq, er);
+                if (t1 == 2) t1 = orient3d_exact(e[t], e[t + 1], cq.P, R);
+                int t2 = DisableFilters ? 2 : orient3d_filtered_err(ref ga, ref gb, ref gr, ref gp, ea, eb, er, lp);
+                if (t2 == 2) t2 = orient3d_exact(e[t], e[t + 1], R, cp.P);
                 if (t0 == 0 || t1 == 0 || t2 == 0) {
                     if ((t0 >= 0 && t1 >= 0 && t2 >= 0) || (t0 <= 0 && t1 <= 0 && t2 <= 0))
                         return false;
@@ -2204,14 +2301,16 @@ namespace g3
             return true;
         }
 
-        // the side of the exact point P of triangle U's plane: the filter of -orient3d(corners, P) on frame coordinates
-        // (orient3d's sign is that of -(b - a) x (c - a) . (d - a), the plane's normal), else exact
+        // the side of the piece centroid c of triangle U's plane: the filter of -orient3d(corners, c) on frame coordinates
+        // with their error bounds (orient3d's sign is that of -(b - a) x (c - a) . (d - a), the plane's normal), else exact
         [MethodImpl(JitHints.Optimize)]
-        int local_side(ExactMeshArrangement.InputTriangle U, ExactPoint3 P, ref Vector3d d0, ref Vector3d d1, ref Vector3d d2, ref Vector3d g)
+        int local_side(ExactMeshArrangement.InputTriangle U, Center c, ref Vector3d d0, ref Vector3d d1, ref Vector3d d2, ref Vector3d g,
+            double e0, double e1, double e2, double eg)
         {
-            int o = orient3d_filter(ref d0, ref d1, ref d2, ref g);
+            int o = DisableFilters ? 2 : orient3d_filtered_err(ref d0, ref d1, ref d2, ref g, e0, e1, e2, eg);
             if (o != 2)
                 return -o;
+            ExactPoint3 P = c.P;
             return (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
         }
 
@@ -2502,15 +2601,48 @@ namespace g3
         }
 
         // the point a patch's winding numbers are evaluated at, with its doubles (computed once per patch)
-        sealed class Center
+        internal sealed class Center
         {
-            public readonly ExactPoint3 P;
-            public Vector3d Input;      // ToInputVector(P)
+            ExactPoint3 p;
+            bool hasP;
+            readonly ExactMeshBoolean owner;
+            readonly ExactMeshArrangement.OutputTriangle piece;
+            Vector3d input;
+            bool hasInput;
             Vector3d grid;
             bool hasGrid;
-            public Center(ExactPoint3 p) { P = p; }
-            Vector3d gridDouble, local;
-            bool hasGridDouble, hasLocal;
+            public Center(ExactPoint3 p) { this.p = p; hasP = true; }
+            readonly LocalFrame frame;
+            // (L2: the exact centroid of a piece only when it is needed: a filter that fails, or the piece's own ray;
+            // the filters take it from its corners in the frame of its input triangle)
+            public Center(ExactMeshBoolean owner, ExactMeshArrangement.OutputTriangle piece, LocalFrame frame) { this.owner = owner; this.piece = piece; this.frame = frame; }
+            public ExactPoint3 P
+            {
+                get {
+                    if (hasP == false) {
+                        p = owner.centroid_point(piece, false);
+                        if (frame != null)
+                            System.Threading.Interlocked.Increment(ref owner.tracedExactCentroids);
+                        hasP = true;
+                    }
+                    return p;
+                }
+            }
+            /// <summary> ToInputVector(P) </summary>
+            public Vector3d Input
+            {
+                get {
+                    if (hasInput == false) {
+                        input = owner.arr.ToInputVector(P);
+                        hasInput = true;
+                    }
+                    return input;
+                }
+                set { input = value; hasInput = true; }
+            }
+            Vector3d gridDouble, approx;
+            double approxError;
+            bool hasGridDouble, hasApprox;
             // the grid coordinates as doubles, without the tiny-coordinate check of Grid (for the Antipodal boundary sum),
             // when first needed (L2 asks for them several times per piece)
             public Vector3d GridDouble()
@@ -2521,15 +2653,39 @@ namespace g3
                 }
                 return gridDouble;
             }
-            // L2: the coordinates relative to a frame's origin as doubles (each the exact difference rounded once), when
-            // first needed (a Center belongs to one input triangle, so to one frame)
-            public Vector3d Local(LocalFrame frame)
+            Vector3d local;
+            double localError;
+            bool hasLocal;
+            /// <summary>
+            /// L2: the centroid in the frame of its input triangle, from its corners there (each the exact difference to the
+            /// frame's origin, rounded once: error at most LocalFrame.PointError per coordinate), and a bound of its absolute
+            /// error per coordinate: the exact centroid is (A + B + C) / 3 (centroid_point), so a third of the corners'
+            /// bounds, plus the rounding of the two sums and the division, at most 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 for
+            /// m the sum of the corners' magnitudes (u = 2^-53), taken as 2.3e-16 m. NaN where a corner is (tiny coordinates)
+            /// </summary>
+            public Vector3d Local(out double error)
             {
                 if (hasLocal == false) {
-                    local = frame.Point(P);
+                    Vector3d a = frame.Corner(piece.A), b = frame.Corner(piece.B), c = frame.Corner(piece.C);
+                    local = (a + b + c) / 3;
+                    double m = 0;
+                    for (int k = 0; k < 3; ++k)
+                        m = Math.Max(m, Math.Abs(a[k]) + Math.Abs(b[k]) + Math.Abs(c[k]));
+                    localError = (LocalFrame.PointError(a) + LocalFrame.PointError(b) + LocalFrame.PointError(c)) / 3 * (1 + 1e-15) + 2.3e-16 * m;
                     hasLocal = true;
                 }
+                error = localError;
                 return local;
+            }
+            /// <summary>
+            /// L2: the centroid in grid coordinates from Local and the frame's origin, and a bound of its absolute error per
+            /// coordinate (LocalFrame.ToGrid)
+            /// </summary>
+            public Vector3d Approx(out double error)
+            {
+                double le;
+                Vector3d l = Local(out le);
+                return frame.ToGrid(l, le, out error);
             }
             // the grid coordinates as doubles (grid_coord), when first needed
             public Vector3d Grid()
@@ -2784,23 +2940,44 @@ namespace g3
         /// The Antipodal value chi + (the boundary sum) / (4 pi) at the point p (grid doubles, pm its L1 size) for the ray
         /// whose opposite direction is x1, chi that ray's signed crossings, and its error bound. Returns 0 (w, bound), 1 if
         /// the point is on or next to a segment (undecided whatever the ray), 2 if this ray does not give a value within
-        /// the bound (the ray through a segment, an ill-conditioned term, or a bound above 1e-6: another ray).
+        /// the bound (the ray through a segment, an ill-conditioned term, or a bound above maxBound: another ray). maxBound
+        /// is 1e-6, except where L2 evaluates at an approximated centroid and accepts a larger bound only for a value far
+        /// enough from every half-integer.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         static int antipodal_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound)
         {
+            double roundingBound;
+            return antipodal_value(p, pm, x1, chi, segments, out w, out bound, out roundingBound, 0, 0, 1e-6);
+        }
+
+        /// <summary>
+        /// antipodal_value at a point with a further error (pointError as a distance, directionError of x1); roundingBound
+        /// is the bound without them, as the evaluation at the exact point computes it (up to the change of the distances
+        /// and of the terms' conditioning under the displacement, which the full bound's terms bound)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        static int antipodal_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound,
+            out double roundingBound, double pointError, double directionError, double maxBound)
+        {
             w = 0.5;
             bound = 0;
-            double sum = 0, err = 0, abs = 0;
+            roundingBound = 0;
+            double sum = 0, err = 0, abs = 0, errRounding = 0;
             for (int k = 0; k < segments.Length; k += 2) {
                 Vector3d a = segments[k] - p, b = segments[k + 1] - p;
                 double la = a.Length, lb = b.Length;
                 // the error of the unit vectors: the rounding of p and of the ends (relative 2^-52 of their L1 size, as
                 // a distance), divided by the distance, plus the normalization; num and den are sums of a few products
                 // of unit vectors, so their errors are a small multiple of it (taken generously: 16 times)
-                double ea = 2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) / la;
-                double eb = 2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) / lb;
-                double tol = 16 * (ea + eb + 1e-15);
+                // (pointError: a further error of p as a distance, directionError: of x1, both 0 for an exact point's
+                // rounding alone, L2's approximated centroids give them)
+                double ea = (2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) + pointError) / la;
+                double eb = (2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) + pointError) / lb;
+                double tol = 16 * (ea + eb + 1e-15 + directionError);
+                double tolRounding = pointError == 0 && directionError == 0 ? tol
+                    : 16 * (2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) / la
+                        + 2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) / lb + 1e-15);
                 // (the point on or next to an end of the segment)
                 if (!(tol < 0.01))
                     return 1;
@@ -2817,11 +2994,14 @@ namespace g3
                     return 2;
                 // (portable_atan2, not Math.Atan2: the runtime's atan2 differs by an ulp between runtimes, and a value
                 // next to the edge of the snap could then be decided differently)
-                // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2 (first order,
-                // valid while tol is small against the hypot: the bound of 1e-6 below on the whole sum keeps every
-                // tol / hypot below 3e-6; num and den both small, the ray nearly through an end of the segment, makes
-                // the term ill-conditioned and the bound large, so another ray is taken there)
-                double termError = 4 * tol / Math.Sqrt(num * num + den * den);
+                // the error of the term: a perturbation of (den, num) by at most sqrt(2) tol turns its angle by at most
+                // arcsin(sqrt(2) tol / hypot), below 1.0001 sqrt(2) tol / hypot while that ratio is below 0.02, so
+                // twice the angle stays below 4 tol / hypot (the limit maxBound, at most 1e-4, on the whole sum keeps every
+                // tol / hypot below pi 1e-4); num and den both small, the ray nearly through an end of the segment, makes
+                // the term ill-conditioned and the bound large, so another ray is taken there
+                double hypot = Math.Sqrt(num * num + den * den);
+                double termError = 4 * tol / hypot;
+                errRounding += 4 * tolRounding / hypot + 2 * PortableAtan2Error;
                 double theta = 2 * portable_atan2(num, den);
                 sum += theta;
                 abs += Math.Abs(theta);
@@ -2833,9 +3013,10 @@ namespace g3
             w = chi + sum / MathUtil.FourPI;
             // (and the roundings of the division by 4 pi (also of 4 pi itself) and of the addition of chi)
             bound = err / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
+            roundingBound = (errRounding + 2.3e-16 * (segments.Length / 2) * abs) / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
             // (a bound above 1e-6 would make the snap a guess: another ray; the bound is about 1e-13 per segment for a
             // point not next to one)
-            if (!(bound <= 1e-6))
+            if (!(bound <= maxBound))
                 return 2;
             return 0;
         }
@@ -2900,7 +3081,7 @@ namespace g3
         // L1: the (patch, open mesh) pairs decided per patch, and the per-piece evaluations they saved
         long perPatchDecided, perPatchSaved;
         // L2: the evaluations by a carried ray, and the direct ones of the traced input triangles (references and fallbacks)
-        long tracedCount, tracedDirect, tracedCarried;
+        long tracedCount, tracedDirect, tracedCarried, tracedExactCentroids;
         // L2: the boundary segments of the Antipodal meshes as exact grid points (antipodalSegments as doubles)
         readonly Dictionary<int, ExactPoint3[]> antipodalExact = new Dictionary<int, ExactPoint3[]>();
         // values the Antipodal Method snapped to a half-integer (snap_half)
@@ -3095,6 +3276,76 @@ namespace g3
             double ew = rel * norm(Math.Abs(d.x) + ax, Math.Abs(d.y) + ay, Math.Abs(d.z) + az);
             double nu = norm(ux, uy, uz), nv = norm(vx, vy, vz), nw = norm(wx, wy, wz);
             // (nu+eu)(nv+ev)(nw+ew) - nu nv nw, expanded (positive terms, no cancellation)
+            double perturb = eu * nv * nw + nu * ev * nw + nu * nv * ew + eu * ev * nw + eu * nv * ew + nu * ev * ew + eu * ev * ew;
+            double bound = 1.01 * (perturb + 1e-15 * permanent);
+            if (!(bound < double.MaxValue) || !(Math.Abs(det) < double.MaxValue) || permanent < 1e-280)
+                return 2;
+            if (det > bound) return -1;
+            if (det < -bound) return 1;
+            return 2;
+        }
+
+        /// <summary>
+        /// orient3d_filtered for points given by doubles with absolute error bounds per coordinate (ea..ed): the rows
+        /// u = b - a, v = c - a, w = d - a carry the errors sqrt(3) (ea + eb) etc. as vectors, plus the subtraction's rounding
+        /// (2^-53 of the magnitudes, per coordinate), and the determinant changes by at most
+        /// (|u| + eu)(|v| + ev)(|w| + ew) - |u||v||w| (multilinear expansion and Hadamard's inequality, as orient3d_filtered),
+        /// plus 1e-15 times the permanent for the evaluation; 2 if that does not decide (or for NaN, infinite or tiny values)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int orient3d_filtered_err(ref Vector3d a, ref Vector3d b, ref Vector3d c, ref Vector3d d, double ea, double eb, double ec, double ed)
+        {
+            if (tiny(a.x) || tiny(a.y) || tiny(a.z) || tiny(b.x) || tiny(b.y) || tiny(b.z)
+                || tiny(c.x) || tiny(c.y) || tiny(c.z) || tiny(d.x) || tiny(d.y) || tiny(d.z))
+                return 2;
+            if (!(ea >= 0 && eb >= 0 && ec >= 0 && ed >= 0))
+                return 2;
+            const double half = 1.1102230246251565e-16, root3 = 1.7320508075688774;
+            double ax = Math.Abs(a.x), ay = Math.Abs(a.y), az = Math.Abs(a.z);
+            double eu = root3 * (ea + eb) * (1 + 1e-15) + half * norm(Math.Abs(b.x) + ax, Math.Abs(b.y) + ay, Math.Abs(b.z) + az);
+            double ev = root3 * (ea + ec) * (1 + 1e-15) + half * norm(Math.Abs(c.x) + ax, Math.Abs(c.y) + ay, Math.Abs(c.z) + az);
+            double ew = root3 * (ea + ed) * (1 + 1e-15) + half * norm(Math.Abs(d.x) + ax, Math.Abs(d.y) + ay, Math.Abs(d.z) + az);
+            return orient3d_rows_filtered(b.x - a.x, b.y - a.y, b.z - a.z, c.x - a.x, c.y - a.y, c.z - a.z, d.x - a.x, d.y - a.y, d.z - a.z, eu, ev, ew);
+        }
+
+        /// <summary>
+        /// orient3d_filtered_err(p, q, a, b) with the rows u = q - p, v = a - p, w = b - a instead of b - p: the same
+        /// determinant (det(u, v, w) = det(u, v, w + v) = det(q - p, a - p, b - p), adding a row to another), so the same
+        /// sign and convention. The bound scales with |u| |v| |w|: for a short segment a-b far from the near points p, q
+        /// it is |b - a| / |b - p| of the other form's, which fails there (L2's pierce test of a boundary segment against
+        /// the edge p-q). Row errors as there: w has sqrt(3) (ea + eb) plus the subtraction's 2^-53 of |b| + |a|
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int orient3d_filtered_err_near(ref Vector3d p, ref Vector3d q, ref Vector3d a, ref Vector3d b, double ep, double eq, double ea, double eb)
+        {
+            if (tiny(p.x) || tiny(p.y) || tiny(p.z) || tiny(q.x) || tiny(q.y) || tiny(q.z)
+                || tiny(a.x) || tiny(a.y) || tiny(a.z) || tiny(b.x) || tiny(b.y) || tiny(b.z))
+                return 2;
+            if (!(ep >= 0 && eq >= 0 && ea >= 0 && eb >= 0))
+                return 2;
+            const double half = 1.1102230246251565e-16, root3 = 1.7320508075688774;
+            double px = Math.Abs(p.x), py = Math.Abs(p.y), pz = Math.Abs(p.z), ax = Math.Abs(a.x), ay = Math.Abs(a.y), az = Math.Abs(a.z);
+            double eu = root3 * (ep + eq) * (1 + 1e-15) + half * norm(Math.Abs(q.x) + px, Math.Abs(q.y) + py, Math.Abs(q.z) + pz);
+            double ev = root3 * (ep + ea) * (1 + 1e-15) + half * norm(ax + px, ay + py, az + pz);
+            double ew = root3 * (ea + eb) * (1 + 1e-15) + half * norm(Math.Abs(b.x) + ax, Math.Abs(b.y) + ay, Math.Abs(b.z) + az);
+            return orient3d_rows_filtered(q.x - p.x, q.y - p.y, q.z - p.z, a.x - p.x, a.y - p.y, a.z - p.z, b.x - a.x, b.y - a.y, b.z - a.z, eu, ev, ew);
+        }
+
+        /// <summary>
+        /// the sign of det(u, v, w) (rows, as differences already rounded) whose exact rows lie within Euclidean distances
+        /// eu, ev, ew of these: -1 if the determinant is certified positive, 1 if negative (orient3d's convention), 2 if
+        /// not decided. The determinant changes by at most (|u| + eu)(|v| + ev)(|w| + ew) - |u||v||w| (multilinear
+        /// expansion and Hadamard's inequality), the evaluation adds at most 1e-15 times the permanent
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        static int orient3d_rows_filtered(double ux, double uy, double uz, double vx, double vy, double vz, double wx, double wy, double wz,
+            double eu, double ev, double ew)
+        {
+            double uyvz = uy * vz, uzvy = uz * vy, uzvx = uz * vx, uxvz = ux * vz, uxvy = ux * vy, uyvx = uy * vx;
+            double det = wx * (uyvz - uzvy) + wy * (uzvx - uxvz) + wz * (uxvy - uyvx);
+            double permanent = Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy)) + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
+                + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
+            double nu = norm(ux, uy, uz), nv = norm(vx, vy, vz), nw = norm(wx, wy, wz);
             double perturb = eu * nv * nw + nu * ev * nw + nu * nv * ew + eu * ev * nw + eu * nv * ew + nu * ev * ew + eu * ev * ew;
             double bound = 1.01 * (perturb + 1e-15 * permanent);
             if (!(bound < double.MaxValue) || !(Math.Abs(det) < double.MaxValue) || permanent < 1e-280)

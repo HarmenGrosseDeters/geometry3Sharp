@@ -30,6 +30,7 @@ Difference, 4 cores, the same container, nothing else running (`profile --repeat
 | this stage: L2 (43990acb) | 475 s | 295 s | | | 61550C3C2F352E72 |
 | this stage: L2 with the local frame (a5227166) | 454 s | 262 s | 163 s | 25 s | 61550C3C2F352E72 |
 | this stage: L3 step 1, the local filter of the triangulation | 421 s | 275 s | 117 s | 24 s | 61550C3C2F352E72 |
+| this stage: L2, the centroids from their corners in the frame | 425 s | 254 s | 128 s | 30 s | 61550C3C2F352E72 |
 
 The result is the same. Classification is 1.98 times slower on master. Both operands are open and have 133 boundary
 segments each, so since 98def50f (open operands classified per piece) and d458662c (the Antipodal Method) every piece
@@ -240,6 +241,52 @@ and the direction's errors in each term's tolerance.
   size, not the model's.
 - Filters on approximations can only gain where those errors are small against the pieces, which is not the case this
   stage is for.
+
+**The centroids from their corners in the frame (implemented after the attempt above).** The approximations fail
+because their errors are relative to the model. The corners' coordinates in the frame (the exact difference to the
+origin, rounded once, as for the corners of the other triangles) have errors relative to the triangle. So L2 takes each
+centroid from its corners there and computes the exact centroid only for an exact stage or the piece's own ray. The
+bounds, per coordinate (u = 2^-53):
+- *The local centroid* (`Center.Local`). The exact centroid is (A + B + C) / 3 (`centroid_point`), and each corner's
+  local coordinate is within e_X = 2.3e-16 max_k |x_k| of the exact one (`LocalFrame.PointError`). The computed
+  fl(fl(fl(a + b) + c) / 3) is within (e_A + e_B + e_C) / 3 + 2 u m (1 + u) / 3 + u m (1 + 2u) / 3 of the exact value,
+  with m = |a_k| + |b_k| + |c_k|: the corners' errors through the exact average, the two additions' roundings divided
+  by 3, the division's. That is below (e_A + e_B + e_C) / 3 + 1.01 u m; the code uses 2.3e-16 m. NaN where a corner is
+  (tiny coordinates): the carried test then falls back to the piece's own ray.
+- *Its grid coordinates* (`LocalFrame.ToGrid`), for the crossing grid's query and the boundary sum: g = fl(l + o) with o
+  the origin rounded to double. The conversion of a BigInteger to double is taken as relative 2^-52 (not guaranteed to
+  round to nearest on every runtime), so the error is e_l + 2.3e-16 max|o_k| + 1.2e-16 max_k (|l_k| + |o_k|).
+- *The carry length*: |q - p| <= |l_q - l_p| + sqrt(3) (e_p + e_q), from the local coordinates (their errors are small
+  against the distance), plus 1e-15 of the coordinates for the distance's rounding.
+- *The boundary sum* at g with pointError = sqrt(3) e_g and the direction's error 2 pointError / |R - g|, and the
+  larger limit 1e-4 with the two conditions above. On the sub-balls e_g is about 1.5 times the exact point's own
+  rounding, not 15 times, so that limit is rarely needed.
+
+**A boundary segment in the triangle's plane, and the pierce test's rows.** Counting the remaining exact centroids by
+call site showed one dominant cause: on the 441-triangle sub-ball, 702k of 817k came from the pierce test
+t0 = orient3d(a, b, p, q) of a boundary segment a-b against the edge p-q. Its exact value was 0 in 1.51M of 1.70M
+calls: boundary segments in the input triangle's plane (its own boundary edges, those of coplanar neighbours), which
+no filter can decide. Two changes:
+- `LocalFrame.InPlane`: if both ends lie exactly in the triangle's plane (two plane sides of input points, small
+  integers, once per segment and block), then t0 = 0 for every p, q of the triangle, without arithmetic on them. That
+  is the exact value, so bit-identical.
+- `orient3d_filtered_err_near(p, q, a, b)` for the other cases: the same determinant with the rows q - p, a - p, b - a
+  (adding a row to another; orient3d(a, b, p, q) = orient3d(p, q, a, b), an even permutation). Hadamard's bound then
+  scales with |q - p| |a - p| |b - a| instead of |a - p| |b - p|. For a short segment far from p and q the old form
+  could not decide.
+
+Measured, the 441-triangle sub-ball (Union): exact centroids 817k -> 136k of 999k pieces; the 176-triangle one:
+226k -> 29k of 242k. Verify mode as before (0 differences; 4, each where the piece's own evaluation is undecided).
+55928 Difference, 4 cores: classification allocations 133 -> 82 GB, all allocations 263 -> 213 GB, GC pauses
+131 -> 94 s, classification 254 s (291 and 324 s in two runs of the step before, the same day); the trace counts and the
+hash 61550C3C2F352E72 unchanged. Knot benchmark: hash unchanged.
+
+Tests (`ExactMeshBooleanTestsCarriedFilters`): the new filter against exact signs at all corners of its absolute error
+boxes, and that it decides where the old form fails; exactly coplanar points undecided; the local centroids and their
+grid coordinates against the exact centroids, exactly; the near copy of section 4 against the pieces' own rays with
+verify; and that few exact centroids are computed (`Counts["l2_exact_centroids"]`). Two bound mutants survive: the
+carry length without its error term (the 1e-15 term covers it) and ToGrid without the addition's rounding (the origin's
+2^-52 covers it where the conversion rounds to nearest).
 
 **The threshold.**
 - Every traced value is that of an Antipodal evaluation with another ray. Its threshold can differ from the piece's own
