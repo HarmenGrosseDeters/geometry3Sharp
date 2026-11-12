@@ -1,0 +1,893 @@
+diff --git a/math/DyadicPrototype.cs b/math/DyadicPrototype.cs
+new file mode 100644
+index 0000000..aa84663
+--- /dev/null
++++ b/math/DyadicPrototype.cs
+@@ -0,0 +1,312 @@
++// PROTOTYPE (exact-number study, runs/exact-numbers; not library code).
++// P2: the sign of a predicate polynomial over doubles by exact accumulation of its monomials.
++// Every finite double is m * 2^e (|m| < 2^53). The predicate is a homogeneous polynomial of degree d in the input
++// doubles (the determinant with a column of ones, expanded: no differences), so it is a sum of T signed monomials,
++// each an integer below 2^(53 d) times 2^(sum of d exponents). With emin the smallest exponent of a nonzero input the
++// monomials are integers times 2^(d emin); they are added into two magnitude accumulators (positive and negative
++// monomials) of ceil((d (emax - emin) + 53 d + log2 T) / 64) + 1 limbs on the stack, and the sign is their comparison.
++// No allocation, no range restriction: the worst case (emin = -1074, emax = 971) is 101 limbs for orient3d,
++// 134 for incircle, 167 for insphere.
++using System;
++using System.Collections.Generic;
++using System.Runtime.CompilerServices;
++
++namespace g3 {
++internal static unsafe class Dyadic
++{
++    public struct Term { public sbyte Sign; public byte I0, I1, I2, I3, I4; }
++
++    public static readonly Term[] Orient2dTerms = Build(2, false, 1);
++    public static readonly Term[] Orient3dTerms = Build(3, false, 1);
++    public static readonly Term[] InCircleTerms = Build(2, true, 1);
++    public static readonly Term[] InSphereTerms = Build(3, true, 1);
++
++    /// <summary>
++    /// The monomials of det [ p_i.x .. p_i.(dim) (lift) 1 ] over the dim + 1 (+ 1 with a lift) points, coordinates
++    /// indexed as point * dim + axis; the lift column is the sum of the squared coordinates.
++    /// </summary>
++    public static Term[] Build(int dim, bool lift, int overallSign)
++    {
++        int n = dim + (lift ? 2 : 1);
++        var terms = new List<Term>();
++        int[] perm = new int[n];
++        for (int i = 0; i < n; ++i) perm[i] = i;
++        Permute(perm, 0, () => {
++            // row r takes column perm[r]; columns 0..dim-1 coordinates, dim = lift (if any), last = ones
++            int sign = overallSign * Parity(perm);
++            var idx = new List<byte>();
++            int liftRow = -1;
++            for (int r = 0; r < n; ++r) {
++                int c = perm[r];
++                if (c < dim) idx.Add((byte)(r * dim + c));
++                else if (lift && c == dim) liftRow = r;
++            }
++            if (liftRow < 0) terms.Add(Make(sign, idx));
++            else
++                for (int k = 0; k < dim; ++k) {
++                    var j = new List<byte>(idx) { (byte)(liftRow * dim + k), (byte)(liftRow * dim + k) };
++                    terms.Add(Make(sign, j));
++                }
++        });
++        return terms.ToArray();
++    }
++
++    static Term Make(int sign, List<byte> idx)
++    {
++        var t = new Term { Sign = (sbyte)sign, I0 = 255, I1 = 255, I2 = 255, I3 = 255, I4 = 255 };
++        if (idx.Count > 0) t.I0 = idx[0];
++        if (idx.Count > 1) t.I1 = idx[1];
++        if (idx.Count > 2) t.I2 = idx[2];
++        if (idx.Count > 3) t.I3 = idx[3];
++        if (idx.Count > 4) t.I4 = idx[4];
++        return t;
++    }
++
++    static void Permute(int[] p, int k, Action visit)
++    {
++        if (k == p.Length) { visit(); return; }
++        for (int i = k; i < p.Length; ++i) {
++            (p[k], p[i]) = (p[i], p[k]);
++            Permute(p, k + 1, visit);
++            (p[k], p[i]) = (p[i], p[k]);
++        }
++    }
++
++    static int Parity(int[] p)
++    {
++        int s = 1;
++        for (int i = 0; i < p.Length; ++i)
++            for (int j = i + 1; j < p.Length; ++j)
++                if (p[i] > p[j]) s = -s;
++        return s;
++    }
++
++    /// <summary> the sign of the polynomial `terms` (degree `degree`) at the n doubles v; table-driven (a generator would unroll it) </summary>
++    [SkipLocalsInit]
++    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
++    public static int Sign(double* v, int n, Term[] terms, int degree)
++    {
++        ulong* mag = stackalloc ulong[16];
++        int* ex = stackalloc int[16];
++        ulong negMask = 0;
++        int emin = int.MaxValue, emax = int.MinValue;
++        for (int i = 0; i < n; ++i) {
++            long bits = BitConverter.DoubleToInt64Bits(v[i]);
++            int e = (int)((bits >> 52) & 0x7FF);
++            ulong f = (ulong)bits & 0xFFFFFFFFFFFFFUL;
++            if (e == 0x7FF) throw new ArgumentException("ExactPredicates: coordinates must be finite");
++            if (e == 0) e = 1; else f |= 1UL << 52;
++            mag[i] = f; ex[i] = e;
++            if (bits < 0) negMask |= 1UL << i;
++            if (f != 0) { if (e < emin) emin = e; if (e > emax) emax = e; }
++        }
++        if (emin == int.MaxValue) return 0;
++        // limbs: the largest shift degree (emax - emin), a monomial below 2^(53 degree), at most 512 monomials
++        int limbs = ((degree * (emax - emin)) >> 6) + ((53 * degree + 9) >> 6) + 2;
++        ulong* pos = stackalloc ulong[2 * limbs];
++        ulong* neg = pos + limbs;
++        new Span<ulong>(pos, 2 * limbs).Clear();
++        int baseExp = degree * emin;
++        ulong* r = stackalloc ulong[8];
++        fixed (Term* tp = terms) {
++            for (int t = 0; t < terms.Length; ++t) {
++                Term* q = tp + t;
++                int i0 = q->I0;
++                ulong m = mag[i0];
++                if (m == 0) continue;
++                int e = ex[i0];
++                ulong sgn = negMask >> i0;
++                r[0] = m;
++                int len = 1;
++                byte* idx = &q->I1;
++                bool zero = false;
++                for (int k = 1; k < degree; ++k) {
++                    int ik = idx[k - 1];
++                    ulong c = mag[ik];
++                    if (c == 0) { zero = true; break; }
++                    e += ex[ik];
++                    sgn ^= negMask >> ik;
++                    ulong carry = 0;
++                    for (int j = 0; j < len; ++j) {
++                        ulong lo, hi = Math.BigMul(r[j], c, out lo);
++                        lo += carry;
++                        hi += (lo < carry) ? 1UL : 0UL;
++                        r[j] = lo;
++                        carry = hi;
++                    }
++                    r[len++] = carry;
++                }
++                if (zero) continue;
++                bool negative = ((sgn & 1) != 0) != (q->Sign < 0);
++                int off = e - baseExp;
++                ulong* a = (negative ? neg : pos) + (off >> 6);
++                int s = off & 63;
++                ulong cy = 0, prev = 0;
++                for (int j = 0; j < len; ++j) {
++                    ulong x = r[j];
++                    ulong y = (s == 0) ? x : ((x << s) | (prev >> (64 - s)));
++                    prev = x;
++                    ulong sum = a[j] + y;
++                    ulong c1 = (sum < y) ? 1UL : 0UL;
++                    ulong sum2 = sum + cy;
++                    c1 += (sum2 < cy) ? 1UL : 0UL;
++                    a[j] = sum2;
++                    cy = c1;
++                }
++                {
++                    ulong y = (s == 0) ? 0 : (prev >> (64 - s));
++                    int j = len;
++                    ulong sum = a[j] + y;
++                    ulong c1 = (sum < y) ? 1UL : 0UL;
++                    ulong sum2 = sum + cy;
++                    c1 += (sum2 < cy) ? 1UL : 0UL;
++                    a[j] = sum2;
++                    cy = c1;
++                    while (cy != 0) {
++                        ++j;
++                        a[j] += 1;
++                        cy = (a[j] == 0) ? 1UL : 0UL;
++                    }
++                }
++            }
++        }
++        for (int i = limbs - 1; i >= 0; --i)
++            if (pos[i] != neg[i])
++                return (pos[i] > neg[i]) ? 1 : -1;
++        return 0;
++    }
++
++    // ---- unrolled orient3d (what a generator would emit): 24 monomials of degree 3 ----
++
++    [MethodImpl(MethodImplOptions.AggressiveInlining)]
++    static void Add3(ulong* pos, ulong* neg, ulong* mag, int* ex, ulong negMask, int baseExp, int i, int j, int k, bool minus)
++    {
++        ulong a = mag[i], b = mag[j], c = mag[k];
++        if (a == 0 || b == 0 || c == 0) return;
++        ulong lo, hi = Math.BigMul(a, b, out lo);
++        ulong l1, h1 = Math.BigMul(lo, c, out l1);
++        ulong l2, h2 = Math.BigMul(hi, c, out l2);
++        ulong r0 = l1, r1 = h1 + l2, r2 = h2 + ((r1 < l2) ? 1UL : 0UL);
++        bool negative = ((((negMask >> i) ^ (negMask >> j) ^ (negMask >> k)) & 1) != 0) != minus;
++        int off = ex[i] + ex[j] + ex[k] - baseExp;
++        ulong* p = (negative ? neg : pos) + (off >> 6);
++        int s = off & 63;
++        ulong t0, t1, t2, t3;
++        if (s == 0) { t0 = r0; t1 = r1; t2 = r2; t3 = 0; }
++        else { t0 = r0 << s; t1 = (r1 << s) | (r0 >> (64 - s)); t2 = (r2 << s) | (r1 >> (64 - s)); t3 = r2 >> (64 - s); }
++        ulong x = p[0] + t0; ulong cy = (x < t0) ? 1UL : 0UL; p[0] = x;
++        x = p[1] + t1; ulong c2 = (x < t1) ? 1UL : 0UL; x += cy; c2 += (x < cy) ? 1UL : 0UL; p[1] = x; cy = c2;
++        x = p[2] + t2; c2 = (x < t2) ? 1UL : 0UL; x += cy; c2 += (x < cy) ? 1UL : 0UL; p[2] = x; cy = c2;
++        x = p[3] + t3; c2 = (x < t3) ? 1UL : 0UL; x += cy; c2 += (x < cy) ? 1UL : 0UL; p[3] = x; cy = c2;
++        int q = 3;
++        while (cy != 0) { ++q; p[q] += 1; cy = (p[q] == 0) ? 1UL : 0UL; }
++    }
++
++    // p . (q x r) with the sign `minus`: six monomials
++    [MethodImpl(MethodImplOptions.AggressiveInlining)]
++    static void Det3(ulong* pos, ulong* neg, ulong* mag, int* ex, ulong negMask, int baseExp, int p, int q, int r, bool minus)
++    {
++        Add3(pos, neg, mag, ex, negMask, baseExp, p, q + 1, r + 2, minus);
++        Add3(pos, neg, mag, ex, negMask, baseExp, p, q + 2, r + 1, !minus);
++        Add3(pos, neg, mag, ex, negMask, baseExp, p + 1, q + 2, r, minus);
++        Add3(pos, neg, mag, ex, negMask, baseExp, p + 1, q, r + 2, !minus);
++        Add3(pos, neg, mag, ex, negMask, baseExp, p + 2, q, r + 1, minus);
++        Add3(pos, neg, mag, ex, negMask, baseExp, p + 2, q + 1, r, !minus);
++    }
++
++    /// <summary> sign of ((b - a) x (c - a)) . (d - a) for v = (a, b, c, d), as ExactPredicates.orient3d_bigint </summary>
++    [SkipLocalsInit]
++    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
++    public static int Orient3d(double* v)
++    {
++        ulong* mag = stackalloc ulong[12];
++        int* ex = stackalloc int[12];
++        ulong negMask = 0;
++        int emin = int.MaxValue, emax = int.MinValue;
++        for (int i = 0; i < 12; ++i) {
++            long bits = BitConverter.DoubleToInt64Bits(v[i]);
++            int e = (int)((bits >> 52) & 0x7FF);
++            ulong f = (ulong)bits & 0xFFFFFFFFFFFFFUL;
++            if (e == 0x7FF) throw new ArgumentException("ExactPredicates: coordinates must be finite");
++            if (e == 0) e = 1; else f |= 1UL << 52;
++            mag[i] = f; ex[i] = e;
++            if (bits < 0) negMask |= 1UL << i;
++            if (f != 0) { if (e < emin) emin = e; if (e > emax) emax = e; }
++        }
++        if (emin == int.MaxValue) return 0;
++        int limbs = ((3 * (emax - emin)) >> 6) + 5;
++        ulong* pos = stackalloc ulong[2 * limbs];
++        ulong* neg = pos + limbs;
++        new Span<ulong>(pos, 2 * limbs).Clear();
++        int baseExp = 3 * emin;
++        // det(b - a, c - a, d - a) = det(b, c, d) - det(a, c, d) + det(a, b, d) - det(a, b, c)
++        Det3(pos, neg, mag, ex, negMask, baseExp, 3, 6, 9, false);
++        Det3(pos, neg, mag, ex, negMask, baseExp, 0, 6, 9, true);
++        Det3(pos, neg, mag, ex, negMask, baseExp, 0, 3, 9, false);
++        Det3(pos, neg, mag, ex, negMask, baseExp, 0, 3, 6, true);
++        for (int i = limbs - 1; i >= 0; --i)
++            if (pos[i] != neg[i])
++                return (pos[i] > neg[i]) ? 1 : -1;
++        return 0;
++    }
++
++    [MethodImpl(MethodImplOptions.AggressiveInlining)]
++    static void Add2(ulong* pos, ulong* neg, ulong* mag, int* ex, ulong negMask, int baseExp, int i, int j, bool minus)
++    {
++        ulong a = mag[i], b = mag[j];
++        if (a == 0 || b == 0) return;
++        ulong r0, r1 = Math.BigMul(a, b, out r0);
++        bool negative = ((((negMask >> i) ^ (negMask >> j)) & 1) != 0) != minus;
++        int off = ex[i] + ex[j] - baseExp;
++        ulong* p = (negative ? neg : pos) + (off >> 6);
++        int s = off & 63;
++        ulong t0, t1, t2;
++        if (s == 0) { t0 = r0; t1 = r1; t2 = 0; }
++        else { t0 = r0 << s; t1 = (r1 << s) | (r0 >> (64 - s)); t2 = r1 >> (64 - s); }
++        ulong x = p[0] + t0; ulong cy = (x < t0) ? 1UL : 0UL; p[0] = x;
++        x = p[1] + t1; ulong c2 = (x < t1) ? 1UL : 0UL; x += cy; c2 += (x < cy) ? 1UL : 0UL; p[1] = x; cy = c2;
++        x = p[2] + t2; c2 = (x < t2) ? 1UL : 0UL; x += cy; c2 += (x < cy) ? 1UL : 0UL; p[2] = x; cy = c2;
++        int q = 2;
++        while (cy != 0) { ++q; p[q] += 1; cy = (p[q] == 0) ? 1UL : 0UL; }
++    }
++
++    /// <summary> sign of (b - a) x (c - a) for v = (a, b, c), as ExactPredicates.orient2d_bigint </summary>
++    [SkipLocalsInit]
++    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
++    public static int Orient2d(double* v)
++    {
++        ulong* mag = stackalloc ulong[6];
++        int* ex = stackalloc int[6];
++        ulong negMask = 0;
++        int emin = int.MaxValue, emax = int.MinValue;
++        for (int i = 0; i < 6; ++i) {
++            long bits = BitConverter.DoubleToInt64Bits(v[i]);
++            int e = (int)((bits >> 52) & 0x7FF);
++            ulong f = (ulong)bits & 0xFFFFFFFFFFFFFUL;
++            if (e == 0x7FF) throw new ArgumentException("ExactPredicates: coordinates must be finite");
++            if (e == 0) e = 1; else f |= 1UL << 52;
++            mag[i] = f; ex[i] = e;
++            if (bits < 0) negMask |= 1UL << i;
++            if (f != 0) { if (e < emin) emin = e; if (e > emax) emax = e; }
++        }
++        if (emin == int.MaxValue) return 0;
++        int limbs = ((2 * (emax - emin)) >> 6) + 4;
++        ulong* pos = stackalloc ulong[2 * limbs];
++        ulong* neg = pos + limbs;
++        new Span<ulong>(pos, 2 * limbs).Clear();
++        int baseExp = 2 * emin;
++        // det2(b, c) - det2(a, c) + det2(a, b), det2(p, q) = px qy - py qx
++        Add2(pos, neg, mag, ex, negMask, baseExp, 2, 5, false);
++        Add2(pos, neg, mag, ex, negMask, baseExp, 3, 4, true);
++        Add2(pos, neg, mag, ex, negMask, baseExp, 0, 5, true);
++        Add2(pos, neg, mag, ex, negMask, baseExp, 1, 4, false);
++        Add2(pos, neg, mag, ex, negMask, baseExp, 0, 3, false);
++        Add2(pos, neg, mag, ex, negMask, baseExp, 1, 2, true);
++        for (int i = limbs - 1; i >= 0; --i)
++            if (pos[i] != neg[i])
++                return (pos[i] > neg[i]) ? 1 : -1;
++        return 0;
++    }
++}
++
++}
+diff --git a/math/ExactPredicates.cs b/math/ExactPredicates.cs
+index 3c17379..896eaa7 100644
+--- a/math/ExactPredicates.cs
++++ b/math/ExactPredicates.cs
+@@ -15,6 +15,27 @@ namespace g3
+     /// </summary>
+     public static class ExactPredicates
+     {
++        // LOCAL PROTOTYPE SWITCHES (exact-number study): the monomial accumulator instead of *_bigint, and the
++        // row-scaled filter before it
++        internal static bool UseDyadic, UseScaledFilter;
++        static unsafe int dyadic_o3(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
++        {
++            double* v = stackalloc double[12] { a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z };
++            if (UseScaledFilter) { int f = ScaledFilter.Orient3d(v); if (f != 0) return f; }
++            return Dyadic.Orient3d(v);
++        }
++        static unsafe int dyadic_o2(Vector2d a, Vector2d b, Vector2d c)
++        {
++            double* v = stackalloc double[6] { a.x, a.y, b.x, b.y, c.x, c.y };
++            if (UseScaledFilter) { int f = ScaledFilter.Orient2d(v); if (f != 0) return f; }
++            return Dyadic.Orient2d(v);
++        }
++        static unsafe int dyadic_ic(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
++        {
++            double* v = stackalloc double[8] { a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y };
++            return Dyadic.Sign(v, 8, Dyadic.InCircleTerms, 4);
++        }
++
+         const double Epsilon = 1.1102230246251565e-16;     // 2^-53
+         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
+         const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
+@@ -118,6 +139,7 @@ namespace g3
+         [MethodImpl(JitHints.Optimize)]
+         public static int InSphere(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d e)
+         {
++            PathStats.Count1(PathStats.P.InSphereCall);
+             double aex = a.x - e.x, bex = b.x - e.x, cex = c.x - e.x, dex = d.x - e.x;
+             double aey = a.y - e.y, bey = b.y - e.y, cey = c.y - e.y, dey = d.y - e.y;
+             double aez = a.z - e.z, bez = b.z - e.z, cez = c.z - e.z, dez = d.z - e.z;
+@@ -156,7 +178,11 @@ namespace g3
+         {
+             if (a == e || b == e || c == e || d == e)
+                 return 0;
+-            return insphere_bigint(a, b, c, d, e);
++            PathStats.Record(4, stackalloc double[] { a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z, e.x, e.y, e.z });
++            long t0 = PathStats.T();
++            int r = insphere_bigint(a, b, c, d, e);
++            PathStats.Add(PathStats.P.InSphereBigInt, t0);
++            return r;
+         }
+ 
+         [MethodImpl(JitHints.Optimize)]
+@@ -187,9 +213,16 @@ namespace g3
+         {
+             if (a == d || b == d || c == d || a == b || b == c || a == c)
+                 return 0;
+-            if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false)
+-                return incircle_bigint(a, b, c, d);
+-            return AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
++            long t0 = PathStats.T();
++            if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false) {
++                PathStats.Record(3, stackalloc double[] { a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y });
++                int rb = UseDyadic ? dyadic_ic(a, b, c, d) : incircle_bigint(a, b, c, d);
++                PathStats.Add(PathStats.P.IcBigInt, t0);
++                return rb;
++            }
++            int ra = AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
++            PathStats.Add(PathStats.P.IcAdaptive, t0);
++            return ra;
+         }
+ 
+         [MethodImpl(JitHints.Optimize)]
+@@ -197,9 +230,16 @@ namespace g3
+         {
+             if (a == b || b == c || a == c)
+                 return 0;
+-            if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false)
+-                return orient2d_bigint(a, b, c);
+-            return AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
++            long t0 = PathStats.T();
++            if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false) {
++                PathStats.Record(2, stackalloc double[] { a.x, a.y, b.x, b.y, c.x, c.y });
++                int rb = UseDyadic ? dyadic_o2(a, b, c) : orient2d_bigint(a, b, c);
++                PathStats.Add(PathStats.P.O2BigInt, t0);
++                return rb;
++            }
++            int ra = AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
++            PathStats.Add(PathStats.P.O2Adaptive, t0);
++            return ra;
+         }
+ 
+         [MethodImpl(JitHints.Optimize)]
+@@ -208,12 +248,21 @@ namespace g3
+             if (a == b || a == c || a == d || b == c || b == d || c == d)
+                 return 0;
+             int sign;
+-            if (orient3d_int(a, b, c, d, out sign))
++            long t0 = PathStats.T();
++            if (orient3d_int(a, b, c, d, out sign)) {
++                PathStats.Add(PathStats.P.O3Int, t0);
+                 return sign;
+-            if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
+-                return orient3d_bigint(a, b, c, d);
++            }
++            if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false) {
++                PathStats.Record(1, stackalloc double[] { a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z });
++                int rb = UseDyadic ? dyadic_o3(a, b, c, d) : orient3d_bigint(a, b, c, d);
++                PathStats.Add(PathStats.P.O3BigInt, t0);
++                return rb;
++            }
+             // (Shewchuk's orient3d has the opposite sign)
+-            return -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
++            int ra = -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
++            PathStats.Add(PathStats.P.O3Adaptive, t0);
++            return ra;
+         }
+ 
+         // ---- the exact stage of Orient3d in 64-bit integers (docs/design/CHEAPER_CONSTRUCTIONS.md, section 4.2) ----
+diff --git a/math/PathStats.cs b/math/PathStats.cs
+new file mode 100644
+index 0000000..80193ee
+--- /dev/null
++++ b/math/PathStats.cs
+@@ -0,0 +1,77 @@
++// LOCAL INSTRUMENTATION of the exact-number study (runs/exact-numbers); not library code.
++using System;
++using System.Diagnostics;
++using System.Threading;
++
++namespace g3
++{
++    /// <summary> per exact path: calls and Stopwatch ticks (all threads), and an optional record of the arguments </summary>
++    internal static class PathStats
++    {
++        internal enum P
++        {
++            O2Adaptive, O2BigInt, O3Int, O3Adaptive, O3BigInt, IcAdaptive, IcBigInt, InSphereCall, InSphereBigInt,
++            ArrOrientFixed, ArrOrientBig, ArrInCircleFixed, ArrInCircleBig, ArrAlongFixed, ArrAlongBig, ArrCompareFixed, ArrCompareBig,
++            ArrExactPoint, ArrPlanes, ArrLocalGet, BoolSideBig, BoolOrient3dBig, BoolCentroid, BoolPairAroundEdge, ArrSamePlane, ArrEdgePlanes, Slot23, PtFixed, PtBox,
++            Count
++        }
++        internal static readonly string[] Names = new string[(int)P.Count] {
++            "o2.adaptive", "o2.bigint", "o3.int", "o3.adaptive", "o3.bigint", "ic.adaptive", "ic.bigint", "insphere.call", "insphere.bigint",
++            "arr.orient.fixed", "arr.orient.big", "arr.incircle.fixed", "arr.incircle.big", "arr.along.fixed", "arr.along.big", "arr.compare.fixed", "arr.compare.big",
++            "arr.exact_point.big", "arr.planes", "arr.local_get.big", "bool.side.big", "bool.orient3d.big", "bool.centroid.big", "bool.pair_around_edge.big", "arr.same_plane.big", "arr.edge_planes.big", "calib", "pt.fixed", "pt.box" };
++        static readonly long[] c = new long[16 * (int)P.Count];
++        internal static bool On = true;
++
++        [ThreadStatic] static int depth;
++        [ThreadStatic] static long bytes0;
++        // exclusive regions: only the outermost region of a thread is timed (a nested one returns 0 and records nothing)
++        internal static long T() { if (depth++ > 0) return 0; bytes0 = GC.GetAllocatedBytesForCurrentThread(); return Stopwatch.GetTimestamp(); }
++        internal static void AddValue(P p, long v) { Interlocked.Increment(ref c[16 * (int)p]); Interlocked.Add(ref c[16 * (int)p + 2], v); }
++        internal static long Bytes(int p) { return Interlocked.Read(ref c[16 * p + 2]); }
++        internal static int TS(long t0, System.Numerics.BigInteger v) { Add(P.BoolSideBig, t0); return v.Sign; }
++        internal static void Add(P p, long t0)
++        {
++            --depth;
++            if (t0 == 0) return;
++            long dt = Stopwatch.GetTimestamp() - t0;
++            Interlocked.Increment(ref c[16 * (int)p]);
++            Interlocked.Add(ref c[16 * (int)p + 1], dt);
++            Interlocked.Add(ref c[16 * (int)p + 2], GC.GetAllocatedBytesForCurrentThread() - bytes0);
++        }
++        internal static void Count1(P p) { Interlocked.Increment(ref c[16 * (int)p]); }
++        internal static long Calls(int p) { return Interlocked.Read(ref c[16 * p]); }
++        internal static double Ms(int p) { return Interlocked.Read(ref c[16 * p + 1]) * 1000.0 / Stopwatch.Frequency; }
++        internal static void Reset() { for (int i = 0; i < c.Length; ++i) Interlocked.Exchange(ref c[i], 0); }
++        /// <summary> the cost of one T() / Add pair in ns (to subtract: calls * this) </summary>
++        internal static double PairOverheadNs()
++        {
++            long[] save = (long[])c.Clone();
++            long t = Stopwatch.GetTimestamp();
++            const int n = 2000000;
++            for (int i = 0; i < n; ++i) { long t0 = T(); Add(P.Slot23, t0); }
++            depth = 0;
++            double ns = (Stopwatch.GetTimestamp() - t) * 1e9 / Stopwatch.Frequency / n;
++            Array.Copy(save, c, c.Length);
++            return ns;
++        }
++
++        // ---- argument record: kind, then the coordinates (doubles), for the micro benchmarks ----
++        internal static double[] Rec;       // [RecStride * i]: kind, 15 values
++        internal const int RecStride = 16;
++        static int recN;
++        internal static int RecCount { get { return Math.Min(recN, Rec == null ? 0 : Rec.Length / RecStride); } }
++        internal static int Every = 1;
++        static int seen;
++        internal static void StartRecord(int n, int every) { Every = every; seen = 0; recN = 0; Rec = new double[RecStride * n]; }
++        internal static void Record(int kind, ReadOnlySpan<double> v)
++        {
++            double[] r = Rec;
++            if (r == null) return;
++            if (Every > 1 && (Interlocked.Increment(ref seen) % Every) != 0) return;
++            int i = Interlocked.Increment(ref recN) - 1;
++            if (i >= r.Length / RecStride) return;
++            r[RecStride * i] = kind;
++            for (int k = 0; k < v.Length; ++k) r[RecStride * i + 1 + k] = v[k];
++        }
++    }
++}
+diff --git a/math/ScaledFilterPrototype.cs b/math/ScaledFilterPrototype.cs
+new file mode 100644
+index 0000000..65ef9f5
+--- /dev/null
++++ b/math/ScaledFilterPrototype.cs
+@@ -0,0 +1,67 @@
++using System;
++using System.Runtime.CompilerServices;
++namespace g3 {
++// P4: the double filter of Orient3d / Orient2d after scaling each difference vector by a power of two so that its
++// largest component is in [1, 2): the determinant is multiplied by a positive power of two (exact scaling), and the
++// generated filter rule of tools/PredicateCompiler (filter_bounds) applies to the scaled differences as leaves inside
++// its gate: every scaled difference is 0 or of magnitude in [2^-GateLow, 2], GateLow = 960 / degree - 52, so no
++// product underflows. K by the rule (scripts/check_bounds.py). Returns 0 where it does not decide.
++internal static unsafe class ScaledFilter
++{
++    const double K3 = 8.881784197001258e-16, K2 = 4.440892098500628e-16;
++    const double Gate3 = 2.1084395886461046e-81;    // 2^-268
++    const double Gate2 = 1.4426529090290212e-129;   // 2^-428
++
++    // 2^-k for the exponent k of m (m > 0 finite); 0 if m is subnormal or not finite, or 2^-k is not a normal double
++    [MethodImpl(MethodImplOptions.AggressiveInlining)]
++    static double InvPow(double m)
++    {
++        int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF);
++        if (e == 0 || e == 0x7FF) return 0;
++        int k = e - 1023;                           // m in [2^k, 2^(k+1))
++        if (-k < -1022 || -k > 1023) return 0;
++        return BitConverter.Int64BitsToDouble((long)(1023 - k) << 52);
++    }
++
++    [MethodImpl(MethodImplOptions.AggressiveInlining)]
++    static bool Gate(double x, double g) { double a = Math.Abs(x); return a == 0 || a >= g; }
++
++    public static int Orient3d(double* p)
++    {
++        double ux = p[3] - p[0], uy = p[4] - p[1], uz = p[5] - p[2];
++        double vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2];
++        double wx = p[9] - p[0], wy = p[10] - p[1], wz = p[11] - p[2];
++        double su = InvPow(Math.Max(Math.Abs(ux), Math.Max(Math.Abs(uy), Math.Abs(uz))));
++        double sv = InvPow(Math.Max(Math.Abs(vx), Math.Max(Math.Abs(vy), Math.Abs(vz))));
++        double sw = InvPow(Math.Max(Math.Abs(wx), Math.Max(Math.Abs(wy), Math.Abs(wz))));
++        if (su == 0 || sv == 0 || sw == 0) return 0;
++        ux *= su; uy *= su; uz *= su; vx *= sv; vy *= sv; vz *= sv; wx *= sw; wy *= sw; wz *= sw;
++        // (a scaled component at or above 2^-268 is a normal double, so its scaling was exact)
++        if (!(Gate(ux, Gate3) && Gate(uy, Gate3) && Gate(uz, Gate3) && Gate(vx, Gate3) && Gate(vy, Gate3) && Gate(vz, Gate3)
++            && Gate(wx, Gate3) && Gate(wy, Gate3) && Gate(wz, Gate3))) return 0;
++        double uyvz = uy * vz, uzvy = uz * vy, uzvx = uz * vx, uxvz = ux * vz, uxvy = ux * vy, uyvx = uy * vx;
++        double det = wx * (uyvz - uzvy) + wy * (uzvx - uxvz) + wz * (uxvy - uyvx);
++        double permanent = Math.Abs(wx) * (Math.Abs(uyvz) + Math.Abs(uzvy)) + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
++            + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
++        double bound = K3 * permanent;
++        if (det > bound) return 1;
++        if (-det > bound) return -1;
++        return 0;
++    }
++
++    public static int Orient2d(double* p)
++    {
++        double ux = p[2] - p[0], uy = p[3] - p[1], vx = p[4] - p[0], vy = p[5] - p[1];
++        double su = InvPow(Math.Max(Math.Abs(ux), Math.Abs(uy))), sv = InvPow(Math.Max(Math.Abs(vx), Math.Abs(vy)));
++        if (su == 0 || sv == 0) return 0;
++        ux *= su; uy *= su; vx *= sv; vy *= sv;
++        if (!(Gate(ux, Gate2) && Gate(uy, Gate2) && Gate(vx, Gate2) && Gate(vy, Gate2))) return 0;
++        double l = ux * vy, r = uy * vx, det = l - r, sum = Math.Abs(l) + Math.Abs(r);
++        double bound = K2 * sum;
++        if (det > bound) return 1;
++        if (-det > bound) return -1;
++        return 0;
++    }
++}
++
++}
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index 941d751..9349b95 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -132,7 +132,15 @@ namespace g3
+ 
+             PlaneData ensure()
+             {
+-                return System.Threading.Volatile.Read(ref arr.triPlanes[Index]) ?? compute_planes();
++                return System.Threading.Volatile.Read(ref arr.triPlanes[Index]) ?? compute_planes_timed();
++            }
++
++            PlaneData compute_planes_timed()
++            {
++                long tp = PathStats.T();
++                PlaneData pd = compute_planes();
++                PathStats.Add(PathStats.P.ArrPlanes, tp);
++                return pd;
+             }
+ 
+             [MethodImpl(JitHints.Optimize)]
+@@ -195,7 +203,9 @@ namespace g3
+             Plane[] compute_edge_planes(PlaneData d)
+             {
+                 // (another thread may store the same values)
++                long te = PathStats.T();
+                 Plane[] ep = edge_planes(d.P.A, d.P.B, d.P.C);
++                PathStats.Add(PathStats.P.ArrEdgePlanes, te);
+                 System.Threading.Volatile.Write(ref d.EdgePlanes, ep);
+                 return ep;
+             }
+@@ -471,9 +481,12 @@ namespace g3
+             int r;
+             if (FixedWidthPoints && FixedPoint3.TryCreate(x, out f)) {
+                 r = fixedPoints.Add(ref f) + 1;
++                PathStats.AddValue(PathStats.P.PtFixed, 160);
+             } else {
+                 exactPoints.Set(id, new ExactBox(x));
+                 r = -1;
++                // (bytes of the four coordinates' magnitudes: the retained size of a fallback point, without object headers)
++                PathStats.AddValue(PathStats.P.PtBox, x.X.GetByteCount() + x.Y.GetByteCount() + x.Z.GetByteCount() + x.W.GetByteCount());
+             }
+             System.Threading.Volatile.Write(ref exactRef.Ref(id), r);
+             return r;
+@@ -569,7 +582,11 @@ namespace g3
+                 return r;
+             PredicateStats.Call(PredicateStats.Kind.ArrExactPoint);
+             PointKey key = keys[id];
+-            return publish_exact(id, (key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true));
++            long tx = PathStats.T();
++            ExactPoint3 xp = (key.Kind == PointKind.Input) ? input_exact(inputCoords[id]) : compute_exact(key, true);
++            int xr = publish_exact(id, xp);
++            PathStats.Add(PathStats.P.ArrExactPoint, tx);
++            return xr;
+         }
+ 
+         // the exact point of id as an integer point with double coordinates, if it is one
+@@ -951,8 +968,25 @@ namespace g3
+             }
+             PredicateStats.ExactStage(PredicateStats.Kind.ArrCompare);
+             int ra = exact_ref(a), rb = exact_ref(b);
+-            if (ra > 0 && rb > 0)
+-                return FixedArith.ComparePoints(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], AlphaLimb[0], AlphaLimb[1], AlphaLimb[2]);
++            if (ra > 0 && rb > 0) {
++                long tf = PathStats.T();
++                int rf = FixedArith.ComparePoints(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], AlphaLimb[0], AlphaLimb[1], AlphaLimb[2]);
++                PathStats.Add(PathStats.P.ArrCompareFixed, tf);
++                return rf;
++            }
++            return compare_points_big(a, b);
++        }
++
++        int compare_points_big(int a, int b)
++        {
++            long tb = PathStats.T();
++            int rr = compare_points_big_impl(a, b);
++            PathStats.Add(PathStats.P.ArrCompareBig, tb);
++            return rr;
++        }
++
++        int compare_points_big_impl(int a, int b)
++        {
+             ExactPoint3 pa = Exact(a), pb = Exact(b);
+             BigInteger fa = (AlphaInt[0] * pa.X + AlphaInt[1] * pa.Y + AlphaInt[2] * pa.Z) * pb.W;
+             BigInteger fb = (AlphaInt[0] * pb.X + AlphaInt[1] * pb.Y + AlphaInt[2] * pb.Z) * pa.W;
+@@ -1531,8 +1565,10 @@ namespace g3
+                         throw new InvalidOperationException("ExactMeshArrangement: the first corner of a triangle is not a grid point");
+                 }
+                 if (index.TryGetValue(p, out k) == false) {
++                    long tl = PathStats.T();
+                     ExactPoint3 x = arr.Exact(p);
+                     double lx = ExactPoint3.ToDouble(x[i] - o[i] * x.W, x.W, 0), ly = ExactPoint3.ToDouble(x[j] - o[j] * x.W, x.W, 0);
++                    PathStats.Add(PathStats.P.ArrLocalGet, tl);
+                     double m = Math.Max(Math.Abs(lx), Math.Abs(ly));
+                     // (an infinite or NaN value, or a nonzero one near the subnormal range, where the relative bound
+                     // does not hold: not usable)
+@@ -1604,8 +1640,12 @@ namespace g3
+                 // integer points with double coordinates: the same determinant (W = 1), by the adaptive predicate
+                 return ExactPredicates.Orient2d(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]), new Vector2d(dc[i], dc[j])) * t.Sign;
+             }
+-            if (ra > 0 && rb > 0 && rc > 0)
+-                return FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
++            if (ra > 0 && rb > 0 && rc > 0) {
++                long tf = PathStats.T();
++                int rf = FixedArith.Orient(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], i, j) * t.Sign;
++                PathStats.Add(PathStats.P.ArrOrientFixed, tf);
++                return rf;
++            }
+             // (in the triangulation, before the BigInteger stage: points collinear by their constructions, the points on a
+             // segment or on an edge of the triangle, give 0 without arithmetic; then the local filter, which the stages
+             // above beat: they cost less than the conversion)
+@@ -1620,8 +1660,10 @@ namespace g3
+                 if (fdet > err) { local.Decided++; return t.Sign; }
+                 if (-fdet > err) { local.Decided++; return -t.Sign; }
+             }
++            long tb = PathStats.T();
+             ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
+             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
++            PathStats.Add(PathStats.P.ArrOrientBig, tb);
+             return det.Sign * t.Sign;
+         }
+ 
+@@ -1687,8 +1729,12 @@ namespace g3
+             // one with rows (x/w, y/w, |.|^2, 1) (w^2 > 0), which equals the 3x3 determinant with rows (dx, dy,
+             // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
+             // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
+-            if (ra > 0 && rb > 0 && rc > 0 && rd > 0)
+-                return FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
++            if (ra > 0 && rb > 0 && rc > 0 && rd > 0) {
++                long tf = PathStats.T();
++                int rf = FixedArith.InCircle(ref fixedPoints[ra - 1], ref fixedPoints[rb - 1], ref fixedPoints[rc - 1], ref fixedPoints[rd - 1], i, j) * t.Sign;
++                PathStats.Add(PathStats.P.ArrInCircleFixed, tf);
++                return rf;
++            }
+             // (the local filter only before the BigInteger stage, as in Orient)
+             Vector3d lp, lq, lr, ls;
+             if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
+@@ -1697,12 +1743,14 @@ namespace g3
+                 if (fdet > bound) { local.Decided++; return t.Sign; }
+                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
+             }
++            long tb = PathStats.T();
+             ExactPoint3 pd = Exact(s);
+             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
+             incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
+             incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
+             incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
+             BigInteger det = ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl);
++            PathStats.Add(PathStats.P.ArrInCircleBig, tb);
+             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
+             // may mirror the triangle, which flips the orientation of a, b, c and the sign
+             return det.Sign * t.Sign;
+@@ -1780,13 +1828,19 @@ namespace g3
+             int r1 = exact_ref(p1), r2 = exact_ref(p2);
+             if (r1 > 0 && r2 > 0) {
+                 int c;
+-                if (compare_along_fixed(d, ref fixedPoints[r1 - 1], ref fixedPoints[r2 - 1], out c))
++                long tf = PathStats.T();
++                bool okf = compare_along_fixed(d, ref fixedPoints[r1 - 1], ref fixedPoints[r2 - 1], out c);
++                PathStats.Add(PathStats.P.ArrAlongFixed, tf);
++                if (okf)
+                     return c;
+             }
++            long tb = PathStats.T();
+             ExactPoint3 a = Exact(p1), b = Exact(p2);
+             BigInteger ka = (d.X * a.X + d.Y * a.Y + d.Z * a.Z) * b.W;
+             BigInteger kb = (d.X * b.X + d.Y * b.Y + d.Z * b.Z) * a.W;
+-            return ka.CompareTo(kb);
++            int rbig = ka.CompareTo(kb);
++            PathStats.Add(PathStats.P.ArrAlongBig, tb);
++            return rbig;
+         }
+ 
+         // compare_along on fixed-width points, false if a component of the direction has more than 8 limbs
+@@ -1953,7 +2007,7 @@ namespace g3
+                     buckets[bucketKey] = reps = new List<int>(1);
+                 int same = -1;
+                 foreach (int r in reps)
+-                    if (same_plane(Triangles[r].P, Triangles[ti].P)) { same = r; break; }
++                    if (same_plane_timed(Triangles[r].P, Triangles[ti].P)) { same = r; break; }
+                 if (same >= 0)
+                     rep[ti] = same;
+                 else if (reps.Count < MaxPlaneCandidates)
+@@ -2022,6 +2076,14 @@ namespace g3
+         }
+ 
+         // the planes are the same point set: (A, B, C, D) proportional (all 2x2 minors zero)
++        static bool same_plane_timed(Plane p, Plane q)
++        {
++            long ts = PathStats.T();
++            bool r = same_plane(p, q);
++            PathStats.Add(PathStats.P.ArrSamePlane, ts);
++            return r;
++        }
++
+         internal static bool same_plane(Plane p, Plane q)
+         {
+             return p.A * q.B == q.A * p.B && p.A * q.C == q.A * p.C && p.B * q.C == q.B * p.C
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 2e35f5b..ef7f25f 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -2218,7 +2218,7 @@ namespace g3
+                 int sk = arr.TryExactDouble(c, out xd) ? plane_side_filtered(t1.PlaneApprox, xd.x, xd.y, xd.z) : 2;
+                 if (sk == 2) {
+                     ExactPoint3 X = arr.Exact(c);
+-                    sk = (t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W).Sign;
++                    sk = PathStats.TS(PathStats.T(), t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W);
+                 }
+                 pos |= sk > 0;
+                 neg |= sk < 0;
+@@ -2880,8 +2880,8 @@ namespace g3
+                 int a = local_side(U, ui, srcP, interiorSide, cp, ref d0, ref d1, ref d2, ref gp, e0, e1, e2, lp),
+                     b = local_side(U, ui, srcQ, interiorSide, cq, ref d0, ref d1, ref d2, ref gq, e0, e1, e2, lq);
+                 // (a centroid in the plane: the side its piece's front points to)
+-                int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
+-                int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
++                int ae = a != 0 ? a : PathStats.TS(PathStats.T(), sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ);
++                int be = b != 0 ? b : PathStats.TS(PathStats.T(), sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ);
+                 if (ae == 0 || be == 0) { degenerate = true; return; }
+                 if (ae == be) return;
+                 // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
+@@ -2981,7 +2981,7 @@ namespace g3
+             if (ui == src || interiorSide(ui, src) == 0)
+                 return 0;
+             ExactPoint3 P = c.P;
+-            return (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
++            return PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W);
+         }
+ 
+         // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
+@@ -2990,7 +2990,7 @@ namespace g3
+         {
+             int s = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, g.x, g.y, g.z);
+             if (s == 2)
+-                s = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
++                s = PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W);
+             return s;
+         }
+ 
+@@ -3102,6 +3102,14 @@ namespace g3
+         // the ray of front_crossings needs only its value
+         [MethodImpl(JitHints.Optimize)]
+         ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot, bool canonical)
++        {
++            long tc = PathStats.T();
++            ExactPoint3 rc = centroid_point_impl(ot, canonical);
++            PathStats.Add(PathStats.P.BoolCentroid, tc);
++            return rc;
++        }
++
++        ExactPoint3 centroid_point_impl(ExactMeshArrangement.OutputTriangle ot, bool canonical)
+         {
+             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
+             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
+@@ -3224,14 +3232,14 @@ namespace g3
+                     sides++;
+                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
+                     if (sr == 2) {
+-                        sr = (U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D).Sign;
++                        sr = PathStats.TS(PathStats.T(), U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D);
+                         exactSides++;
+                     }
+                     if (sr == 0) { degenerate = true; return; }
+                     sides++;
+                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
+                     if (sp == 2) {
+-                        sp = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
++                        sp = PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W);
+                         exactSides++;
+                     }
+                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
+@@ -3939,7 +3947,10 @@ namespace g3
+         static int orient3d_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
+         {
+             PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
+-            return orient3d(a, b, c, d);
++            long to = PathStats.T();
++            int ro = orient3d(a, b, c, d);
++            PathStats.Add(PathStats.P.BoolOrient3dBig, to);
++            return ro;
+         }
+ 
+         /// <summary>
+@@ -4459,6 +4470,15 @@ namespace g3
+         // triangle with the next one around the edge on its back (solid) side, which runs the other way
+         [MethodImpl(JitHints.Optimize)]
+         List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
++        {
++            if (list.Count <= 2) return pair_around_edge_impl(tris, list, u, v);
++            long tq = PathStats.T();
++            var rq = pair_around_edge_impl(tris, list, u, v);
++            PathStats.Add(PathStats.P.BoolPairAroundEdge, tq);
++            return rq;
++        }
++
++        List<KeyValuePair<int, int>> pair_around_edge_impl(List<Index3i> tris, List<int> list, int u, int v)
+         {
+             var pairs = new List<KeyValuePair<int, int>>();
+             if (list.Count < 2)

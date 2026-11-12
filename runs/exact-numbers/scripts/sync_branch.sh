@@ -1,0 +1,16 @@
+#!/bin/bash
+# copies the study's scripts, prototypes, specs and results into the runs/exact-numbers worktree (no meshes, no fuzz
+# inputs, no library changes: the instrumentation is a patch file)
+set -e
+S=/tmp/claude-0/-home-user-geometry3Sharp/49db7f38-a9ab-58f1-b2eb-8536a50f6cdc/scratchpad/exactnum
+D=$S/runs-wt/runs/exact-numbers
+mkdir -p $D/Probe $D/scripts $D/specs $D/results $D/data
+cp $S/Probe/*.cs $S/Probe/Probe.csproj $D/Probe/
+cp $S/scripts/*.py $S/scripts/*.sh $D/scripts/
+cp $S/specs/* $D/specs/
+cp $S/data/*.md $S/data/cases_*.txt $D/data/ 2>/dev/null || true
+mkdir -p $D/results/mt; cp $S/results/*.jsonl $D/results/; cp $S/results/mt/*.jsonl $D/results/mt/
+(cd $S/lib && git add -N math/PathStats.cs math/DyadicPrototype.cs math/ScaledFilterPrototype.cs 2>/dev/null; git diff c0f8aa9 -- . ':!obj' ':!bin') > $D/instrumentation.patch
+[ -f $S/REPORT.md ] && cp $S/REPORT.md $D/REPORT.md
+[ -f $S/README.md ] && cp $S/README.md $D/README.md
+cd $S/runs-wt && git add runs/exact-numbers && git status --short | wc -l
