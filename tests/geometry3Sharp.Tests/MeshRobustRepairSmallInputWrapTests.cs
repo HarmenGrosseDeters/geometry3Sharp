@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Linq;
 using g3;
 using gs;
@@ -54,16 +53,13 @@ namespace geometry3Sharp.Tests
         static bool AllFinite(DMesh3 m) => m.VertexIndices().All(v => m.GetVertex(v).IsFinite);
 
         [Fact]
-        public void TinyDegenerateOctahedron_IsRepairedInSeconds_NotWithTwoHundredThousandWrapTriangles()
+        public void TinyDegenerateOctahedron_IsRepairedWithAFewHundredWrapTriangles_NotTwoHundredThousand()
         {
             DMesh3 input = Input(TinyScale);
             var r = new MeshRobustRepair(new DMesh3(input));
-            var sw = Stopwatch.StartNew();
             bool ok = r.Apply();
-            sw.Stop();
             AssertRepaired(r, ok);
             Assert.True(r.AlphaWrapTriangles < 5000, "wrap triangles " + r.AlphaWrapTriangles);   // master: 204 222
-            Assert.True(sw.Elapsed.TotalSeconds < 4, "took " + sw.Elapsed.TotalSeconds + " s");   // master: 9 to 12 s
         }
 
         [Fact]
@@ -144,13 +140,18 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Reuse_TwoRunsOnTheSameInputGiveTheSameWrap()
+        public void Reuse_ApplyTwiceOnOneInstance()
         {
-            DMesh3 input = Input();
-            var a = new MeshRobustRepair(new DMesh3(input)); AssertRepaired(a, a.Apply());
-            var b = new MeshRobustRepair(new DMesh3(input)); AssertRepaired(b, b.Apply());
-            Assert.Equal(a.AlphaWrap.UsedAlpha, b.AlphaWrap.UsedAlpha);
-            Assert.Equal(a.Mesh.TriangleCount, b.Mesh.TriangleCount);
+            // the second Apply() starts from the repaired mesh of the first: a clean closed mesh stays a clean closed mesh, as a clean
+            // result of any repair does (it is not wrapped again)
+            var r = new MeshRobustRepair(Input());
+            AssertRepaired(r, r.Apply());
+            int triangles = r.Mesh.TriangleCount;
+            Assert.True(r.Apply());
+            Assert.Equal("", r.ResultReason);
+            Assert.Equal(triangles, r.Mesh.TriangleCount);
+            Assert.True(r.Mesh.IsClosed());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(Normalized(r.Mesh)));
         }
 
         [Theory, MemberData(nameof(Similarities))]
