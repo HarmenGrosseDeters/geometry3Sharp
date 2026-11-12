@@ -880,29 +880,18 @@ namespace g3.Tests
         [Fact]
         public void Exp_PowersOfTwoNearTheSmallestArguments_AreCorrectlyRounded()
         {
-            // |x| below 2^-13 takes the branch of the accurate stage in which the table value is exactly 1. 2^-53 itself is the known
-            // exception, see Exp_TwoToTheMinus53_IsRoundedUp.
+            // |x| below 2^-13 takes the branch of the accurate stage in which the table value is exactly 1. (2^-53 itself is also pinned by
+            // CoreMathExpSmallArgumentTests, #718.)
             int count = 0;
             for (int k = 1; k <= 54; ++k)
                 foreach (double sgn in new[] { 1.0, -1.0 })
                     foreach (int d in new[] { -2, -1, 0, 1, 2 }) {
                         double x = sgn * FromBits((ulong)(BitsOf(Pow2(-k)) + d));
-                        if (Math.Abs(x) == Pow2(-53)) continue;
                         double got = CoreMath.Exp(x), want = CoreMathReference.Exp(x);
                         Assert.True(Same(got, want), $"exp({x:R}) = {Hex(got)}, want {Hex(want)}");
                         ++count;
                     }
             Assert.True(count > 500);
-        }
-
-        [Fact(Skip = "Known defect of the port, not fixed here (tests only): asExpAccurate tests '((ix & ~0ul) >> 12) == 0' where CORE-MATH has '(ix << 12) == 0' " +
-                     "(fl is a power of two): exp(2^-53) = 1 + 2^-53 + 2^-107 is rounded to 1 instead of 1 + 2^-52. Enable when the condition is fixed; " +
-                     "then lines 202-205 of CoreMathExp.cs are covered by this test.")]
-        public void Exp_TwoToTheMinus53_IsRoundedUp()
-        {
-            double x = Pow2(-53);
-            Assert.Equal(BitsOf(1.0 + Pow2(-52)), BitsOf(CoreMathReference.Exp(x)));
-            Assert.Equal(BitsOf(1.0 + Pow2(-52)), BitsOf(CoreMath.Exp(x)));
         }
     }
 }
