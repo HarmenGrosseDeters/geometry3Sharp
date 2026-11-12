@@ -65,10 +65,13 @@ namespace geometry3Sharp.Tests
             var reference = new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z));
             Assert.True(reference.Compute());
             var sw = Stopwatch.StartNew();
-            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 2000000 };
+            // (the base ran into this cap: 200k subdivisions, seconds; the time bound is loose for a loaded machine, the subdivisions
+            // are the deterministic measure)
+            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
             Assert.True(h.Compute());
             sw.Stop();
-            Assert.True(sw.ElapsedMilliseconds < 3000, "took " + sw.ElapsedMilliseconds + " ms, " + h.Subdivisions + " subdivisions");
+            Assert.True(h.Subdivisions < 20000, h.Subdivisions + " subdivisions");
+            Assert.True(sw.ElapsedMilliseconds < 4000, "took " + sw.ElapsedMilliseconds + " ms, " + h.Subdivisions + " subdivisions");
             Assert.True(h.Converged, "not converged: " + h.LowerBound + " .. " + h.UpperBound);
             AssertValid(h, reference, "z = " + z);
             Assert.True(h.UpperBound - h.LowerBound <= 1e-4 * 2.01 * Math.Sqrt(3) * 1.0001, "gap " + (h.UpperBound - h.LowerBound));
@@ -91,11 +94,112 @@ namespace geometry3Sharp.Tests
                 AsGiven(given);
                 var sw = Stopwatch.StartNew();
                 Assert.True(given.Compute());
-                Assert.True(sw.ElapsedMilliseconds < 3000, "as given took " + sw.ElapsedMilliseconds + " ms");
+                Assert.True(sw.ElapsedMilliseconds < 4000, "as given took " + sw.ElapsedMilliseconds + " ms");
                 Assert.True(given.Subdivisions < 50000, "as given: " + given.Subdivisions + " subdivisions");
                 var oneSidedRef = symmetric ? reference : new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z)) { Symmetric = false };
                 if (!symmetric) Assert.True(oneSidedRef.Compute());
                 AssertValid(given, oneSidedRef, "as given, z = " + z + ", symmetric " + symmetric);
+            }
+        }
+
+        // an n x n grid of the square [0, s]^2 at height z, its x and y rippled (the same for every z, so two grids differ only in z)
+        static DMesh3 Grid(double s, double z, double x0 = 0, int n = 8)
+        {
+            var m = new DMesh3();
+            var id = new int[n + 1, n + 1];
+            for (int i = 0; i <= n; ++i)
+                for (int j = 0; j <= n; ++j)
+                    id[i, j] = m.AppendVertex(new Vector3d(x0 + s * (i + 0.3 * Math.Sin(3 * j + i)) / n, s * j / n, z));
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j) {
+                    m.AppendTriangle(id[i, j], id[i + 1, j], id[i + 1, j + 1]);
+                    m.AppendTriangle(id[i, j], id[i + 1, j + 1], id[i, j + 1]);
+                }
+            return m;
+        }
+
+        public static TheoryData<int, int> GridCases() => new TheoryData<int, int> {
+            { 0, 49 }, { 0, 40 }, { 0, 20 }, { 0, 0 }, { -20, 30 }, { -30, 45 }, { -40, 49 }, { -40, 0 }, { 20, 48 } };
+
+        /// <summary> closed form, independent of the library: two copies of a grid of size 2^k, one 2^(k-3) above the other, at
+        /// height and x offset about 2^(k+m) (m up to 49: an ulp of the height is then at most 2^(k-3), so z + 2^(k-3) is exact; x
+        /// rounds the same in both). Every point of either is exactly 2^(k-3) from the other, so the distance is 2^(k-3): the
+        /// certified interval contains it and converges to it </summary>
+        [Theory]
+        [MemberData(nameof(GridCases))]
+        public void ParallelGrids_ClosedForm_Contained(int k, int m)
+        {
+            double s = Math.Pow(2, k), d = Math.Pow(2, k - 3), z = 1.3 * Math.Pow(2, k + m);
+            z = Math.Round(z / d) * d;                  // (a multiple of d, so z + d is exact)
+            Assert.Equal(d, (z + d) - z);
+            double x0 = 1.7 * Math.Pow(2, k + m);
+            foreach (bool symmetric in new[] { true, false }) {
+                var h = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric };
+                Assert.True(h.Compute());
+                Assert.True(h.LowerBound <= d && d <= h.UpperBound, $"k {k} m {m}: {h.LowerBound:R} .. {h.UpperBound:R}, distance {d:R}");
+                Assert.True(h.Converged, $"k {k} m {m}");
+                Assert.True(h.UpperBound - h.LowerBound <= 1e-3 * s, $"k {k} m {m}: gap {h.UpperBound - h.LowerBound}");
+                var given = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric, MaxSubdivisions = 200000 };
+                AsGiven(given);
+                Assert.True(given.Compute());
+                Assert.True(given.LowerBound <= d && d <= given.UpperBound, $"as given, k {k} m {m}: {given.LowerBound:R} .. {given.UpperBound:R}");
+            }
+        }
+
+        /// <summary> dense sampling, independent of the bounds: points on the triangles of A (a 12 x 12 barycentric grid on each,
+        /// computed exactly near 0 and moved by the exact offset), their distance to every triangle of B, the largest; the certified
+        /// upper bound is not below it (up to its rounding), and the certified lower bound not above the exactly shifted reference's
+        /// upper bound. Folded spheres at large offsets and spheres at scales 2^-20 .. 2^-40 at offsets </summary>
+        [Theory]
+        [InlineData(0, 52)] [InlineData(0, 40)] [InlineData(-20, 45)] [InlineData(-30, 50)] [InlineData(-40, 30)] [InlineData(-40, 52)]
+        public void DenseSampling_InsideTheCertifiedInterval(int k, int m)
+        {
+            double r = Math.Pow(2, k), z = 1.3 * Math.Pow(2, k + m);
+            z = Math.Round(z / Math.Pow(2, k - 3)) * Math.Pow(2, k - 3);
+            DMesh3 a = Sphere(r, z), b = Sphere(1.01 * r, z);
+            var h = new MeshHausdorffDistance(a, b) { Symmetric = false };
+            Assert.True(h.Compute());
+            DMesh3 sa = Shifted(a, z), sb = Shifted(b, z);
+            double sample = 0;
+            foreach (int tid in sa.TriangleIndices()) {
+                Index3i t = sa.GetTriangle(tid);
+                Vector3d p0 = sa.GetVertex(t.a), p1 = sa.GetVertex(t.b), p2 = sa.GetVertex(t.c);
+                const int n = 12;
+                for (int i = 0; i <= n; ++i)
+                    for (int j = 0; i + j <= n; ++j) {
+                        Vector3d q = p0 + (i / (double)n) * (p1 - p0) + (j / (double)n) * (p2 - p0);
+                        double best = double.MaxValue;
+                        foreach (int u in sb.TriangleIndices()) {
+                            Index3i tb = sb.GetTriangle(u);
+                            var dq = new DistPoint3Triangle3(q, new Triangle3d(sb.GetVertex(tb.a), sb.GetVertex(tb.b), sb.GetVertex(tb.c)));
+                            best = Math.Min(best, dq.Get());
+                        }
+                        sample = Math.Max(sample, best);
+                    }
+            }
+            var reference = new MeshHausdorffDistance(sa, sb) { Symmetric = false };
+            Assert.True(reference.Compute());
+            Assert.True(h.UpperBound >= sample * (1 - 1e-9), $"k {k} m {m}: upper {h.UpperBound:R} below the sampled {sample:R}");
+            Assert.True(h.LowerBound <= reference.UpperBound, $"k {k} m {m}: lower {h.LowerBound:R} above {reference.UpperBound:R}");
+            Assert.True(h.Converged, $"k {k} m {m}");
+        }
+
+        /// <summary> subdivision points of subnormal coordinates (measured as given): the halving of their sums rounds (eg 3 2^-1074 / 2),
+        /// which the rounding allowance covers; the distance to a plane 1 above is exactly 1 for every point of the triangle </summary>
+        [Fact]
+        public void SubnormalMidpoints_AsGiven_Certified()
+        {
+            double u = double.Epsilon;
+            var a = new DMesh3();
+            a.AppendTriangle(a.AppendVertex(new Vector3d(0, 0, 0)), a.AppendVertex(new Vector3d(3 * u, 0, 0)), a.AppendVertex(new Vector3d(0, 5 * u, 0)));
+            var b = new DMesh3();
+            b.AppendTriangle(b.AppendVertex(new Vector3d(-1, -1, 1)), b.AppendVertex(new Vector3d(2, -1, 1)), b.AppendVertex(new Vector3d(-1, 2, 1)));
+            foreach (double tol in new[] { 0.0, 1e-300 }) {
+                var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 20000 };
+                AsGiven(h);
+                Assert.True(h.Compute());
+                Assert.True(h.LowerBound <= 1 && h.UpperBound >= 1, h.LowerBound + " .. " + h.UpperBound);
+                Assert.True(h.Subdivisions < 20000, h.Subdivisions + " subdivisions");
             }
         }
 

@@ -98,7 +98,10 @@ namespace gs
         /// of the distance queries would overflow or underflow at their own scale), so the result at 2^k times the meshes is
         /// 2^k times the result, bit for bit; meshes whose coordinates exceed 2^24 times their extent on copies moved near 0 by an
         /// exact shift (subdivision points would round off the triangles). SpatialA / SpatialB are then not used (nor set).
-        /// The bounds are certified up to the rounding of the distance queries: the rounding of subdivision points is accounted for.
+        /// LowerBound is certified, rounding included: never above the exact distance (the worst point's distance is re-evaluated
+        /// exactly, less the rounding of the point; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md). UpperBound is certified up to the
+        /// floating-point evaluation of the distance queries, about 2^-50 of the coordinates (the rounding of subdivision points
+        /// is included; #742 would certify it fully).
         /// </summary>
         public bool Compute()
         {
@@ -310,21 +313,29 @@ namespace gs
 
             // a little below x (rounded down by more than its rounding error); 0 for x <= 0
             static double down(double x) => (x > 0) ? x * (1 - 4.5e-16) : 0;
-            static double up(double x) => x * (1 + 4.5e-16);
+            // above x by more than the rounding error of up to two operations whose exact result is x: relatively for a normal x,
+            // by one ulp for a subnormal one (whose roundings are absolute, at most half the smallest subnormal each)
+            static double up(double x) => (x > 0) ? Math.Max(x * (1 + 4.5e-16), ExactInterval.Up(x)) : x;
 
             // the midpoint of a and b in doubles, and an upper bound of its distance from the exact midpoint (TwoSum per component:
-            // a + b = s + err exactly; halving s is exact unless it is subnormal, whose rounding the last term bounds)
+            // a + b = s + r exactly; halving s is exact unless the result is subnormal; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md c1)
             static Vector3d midpoint(Vector3d a, Vector3d b, out double err)
             {
                 Vector3d m = Vector3d.Zero;
-                double e2 = 0;
+                // (the sum of the components' errors bounds the length of the error vector, without squares, which underflow)
+                double e1 = 0;
+                const double MinNormal = 2.2250738585072014E-308, Tiny = 4.9406564584124654E-324;
                 for (int k = 0; k < 3; ++k) {
                     double x = a[k], y = b[k], sum = x + y, bb = sum - x, r = (x - (sum - bb)) + (y - bb);
                     m[k] = 0.5 * sum;
-                    double ek = 0.5 * Math.Abs(r) + Math.Abs(0.5 * sum - m[k]) + ((m[k] != 0 && Math.Abs(m[k]) < 2.2250738585072014E-308) ? 4.9406564584124654E-324 : 0);
-                    e2 += ek * ek;
+                    // |r| / 2, plus one smallest subnormal where halving may round (a subnormal r or a subnormal midpoint: by at most
+                    // half of it each)
+                    double ek = 0.5 * Math.Abs(r);
+                    if (r != 0 && Math.Abs(r) < 2 * MinNormal) ek += Tiny;
+                    if (sum != 0 && Math.Abs(m[k]) < MinNormal) ek += Tiny;
+                    e1 += ek;
                 }
-                err = (e2 > 0) ? up(Math.Sqrt(e2)) : 0;
+                err = (e1 > 0) ? up(e1) : 0;
                 return m;
             }
 
