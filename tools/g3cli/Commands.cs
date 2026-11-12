@@ -20,7 +20,7 @@ namespace g3cli
     {
         public static readonly List<Command> All = new List<Command>() {
             Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope(), Dgm(), DgmTin(), CellVolumes(),
-            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit(), Wrap(), Geodesic(), Query3d(), Polygon2dCommand()
+            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit(), Wrap(), Geodesic(), Query3d(), Polygon2dCommand(), PolygonSolidsCommand()
         };
 
         public static Command Find(string name)

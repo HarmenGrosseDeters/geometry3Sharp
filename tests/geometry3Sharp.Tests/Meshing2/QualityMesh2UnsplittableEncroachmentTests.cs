@@ -56,21 +56,21 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Counts[15] > 0, "no subsegment was left unsplit next to another source");
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
-        /// <summary> under every similarity the oracle accepts the k = 26 fan, and the 2^k scales give the same mesh bit for bit. Under a rotation
-        /// the T-junction ends are rounded off A and the fan runs to its Steiner limit, on master as well (400 000 vertices in about 7 s, the
-        /// oracle about 9 min); so the moved copies that are not exact get a limit of 3 000, where the oracle judges validity without the angle
-        /// bound </summary>
+        /// <summary> under every similarity the k = 26 fan terminates below its Steiner limit and the oracle accepts it (the angle bound
+        /// included), and the 2^k scales give the same mesh bit for bit. Under a rotation the T-junction ends are rounded off A; that ran to the
+        /// Steiner limit until #664 (the limit of 20 000 keeps a regression quick) </summary>
         [Theory]
         [MemberData(nameof(Similarities))]
         public void FanTJunction_UnderEverySimilarity(string name)
         {
             var s = Similarity.ByName(name);
             var plain = Fan(26, 1.13);
-            var moved = Fan(26, 1.13, s.IsExact ? 400000 : 3000);
+            var moved = Fan(26, 1.13, 20000);
             for (int i = 0; i < plain.X.Length; ++i) { var q = s.Apply(new Vector3d(plain.X[i], plain.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }
             var b = Run(moved);
+            Assert.False(b.Output.SteinerLimitReached, name + ": the Steiner limit was reached");
             Assert.True(b.Report.Ok, name + ": " + b.Report);
             if (s.IsExact) {
                 var a = Run(plain);

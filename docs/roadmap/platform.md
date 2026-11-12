@@ -42,6 +42,23 @@ Part of the [roadmap](../ROADMAP.md).
   area (the 14 tests > 30 s, Terrain, Meshing2 oracle, Alpha Wrap / Robust Repair, rest), same power shown by mutants;
   borderline cases (the run is the check) go to the owner. Budget approved: ~20-30 Sonnet hours. In progress: a Sonnet
   session started 2026-11-12 on the 173-line SLOW_BACKLOG.txt (areas of running sessions excluded for now).
+  Measured 2026-11-12 (4 cores, net10.0, 2 runs each): the full run oversubscribes (about 4 test classes at once, each with a
+  4-thread `Parallel.For`), so many tests are slow only in the full run (`RemeshReduceCampaignTests.Reducer` 3-95 s, about
+  6 s alone). `SetMinThreads` and one collection for heavy classes do not help; xunit `maxParallelThreads=2` halves the tests
+  >= 5 s but costs about 30 % wall. **Owner 2026-11-12:** a solution so the run does not overload the machine and slow tests
+  artificially. A harness-only scheduler does not work: `Parallel.For` uses `TaskScheduler.Default`, not the current
+  one, and a thread-pool cap starved the `Timed` workers (9 failures, 21 min wall). Plan (coordinator, 2026-11-12):
+  (A) now, `tools/trx_durations.py` re-runs the flagged tests alone and judges the 5 s / 10 s rule on those times (the
+  CI-speed session adds the workflow step); (D) next, every library `Parallel.For` / `ForEach` goes through an internal
+  `gParallel` options hook (production default unchanged), the test assembly sets one limited-concurrency scheduler at
+  the core count, a scan test keeps loops from bypassing it (exact-code files reviewed if touched), measured against
+  the current run; then Terrain Slope (one scenario per PR, with counters and mutants; reducing coverage only via the
+  owner). In progress: the backlog session. **Owner 2026-11-12:** anything above 20 s is a potential defect and gets a
+  diagnosis (starvation, hang, pathological input or algorithm): a library operation on one input in a benchmark or
+  reference run (first the Alpha Wrap 800 tail, see alpha-wrap-and-repair.md), and a test in any run (the full run
+  included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
+  isolated re-run time of the flagged tests (#685 changes CLAUDE.md and docs/QA.md with it); the 20 s rule above
+  covers what hides behind load in the full run.
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
   8-term filter 147 tests / 12 s, the 19-term filter 229 tests / 17-18 s (+56 % tests, +45-50 % time). Scaled from the
   #403 run, the 19-term filter fits the 350-min limit only on rounding-7 (rounding-1 ~430 min, -2/-5 ~340 min). Gate: all
@@ -54,8 +71,9 @@ Part of the [roadmap](../ROADMAP.md).
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
-  section 11); PR A (`repair` options and result fields, draft) is in
-  progress; then B (`query3d`), C to G as in its section 10.
+  section 11); PR A (`repair` options and result fields, #662), PR B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665)
+  and PR C (`polygon_solids`, #667) are merged; D (`polygon2d` line ops, #669) and E (`curvature`, `fidelity` / `geodesic` options, #672) are in
+  review; F and G as in its section 10.
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
@@ -268,8 +286,11 @@ and the test tiers and time limit (#447, the backlog program).
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
 - **Rollout status (2026-11-12):** step 0, the status of T1-T15 against their done-when, is
   [design/QA20_STATUS.md](../design/QA20_STATUS.md) (#635). Merged 2026-11-12: #639 (spatial structures, inventory cell K),
-  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations). Open: #627
-  (T12 FPTaylor, draft); bugfix PRs #655 (#647, `VoxelSurfaceGenerator`), #656 (#644, `ConvexHull2`), #657 (#645).
+  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), and the three bugfix PRs they led to: #655 (#647,
+  `VoxelSurfaceGenerator` honours `MaxMeshElementCount`), #656 (#644, `ConvexHull2` is scale free: it works on a copy scaled by a power of
+  two, also for an overflowing extent) and #657 (#645, only `QT_DOUBLE` and `QT_INT64` are supported, said in the comment and the
+  message). Open: #627 (T12 FPTaylor, draft) and #682 (`Similarity.All2D()`: the 2D tests use the similarities of the plane, see
+  QA.md, "Similarities").
   Open `local` issues: #636 (repair time, F2), #637 (F5), #638 (F7). #628 was fixed by #634 (merged).
 
 #### Test suite on German Windows

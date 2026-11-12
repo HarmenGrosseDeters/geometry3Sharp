@@ -76,8 +76,9 @@ was a scratch console app, not committed.
 - Levers, measured: (1) a slab ray-box test instead of `IntrLine3AxisAlignedBox3.DoClipping`: 0.93-0.96x, dropped;
   (2) the orientation rays as an early-out first-hit test: 0.81-0.85x, dropped; (3) the fast-winding cache's per-box
   `HashSet<int>` as a `List<int>` in the same order: 1.27-1.30x on the cache build, bit-identical (no box coefficient
-  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: a bundle candidate for the
-  next PR that touches the fast-winding cache (coordinator 2026-11-12); (4) bottom-up fast-winding moments: the
+  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: done 2026-11-12
+  ([FastWindingCacheBenchmark](../../benchmarks/FastWindingCacheBenchmark/README.md): 1.13-1.42x serial, 1.15-1.31x
+  parallel on 35k to 850k triangles, checksums equal; `FastWindingCacheOrderTests` pins every box coefficient bit for bit); (4) bottom-up fast-winding moments: the
   coefficient passes are 65-75 % of the cache build (bound about 5-9 % of that CPU), not bit-identical, not pursued;
   (5) batch queries for serial loops: the serial tree CPU is at most 4 % per workload and all tree builds, dropped;
   (6) a parallel tree build: the build is 1.5-3.2 % of the CPU, dropped.
@@ -335,10 +336,10 @@ Checked against the owner's decisions and git on 2026-11-12.
 
 Open:
 
-- **Exact Boolean 2.0 leftovers (owner question 2026-11-12):** the speed exceptions over 5 s (519511, 1517923, 519507) were
-  not re-measured after D1 (#513; the sign-off has no timing section), and manifold M2 (`Generic_Twin_7081` union 20 s,
-  self-intersecting inputs, outside the 2.0 target set) not since the 2.0 levers: re-measure on master or close as
-  documented exceptions. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
+- **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
+  and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
+  exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
+  3.0 state. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
 - **Degeneracy criterion (`DegenerateArea` = 1e-12 × diag²):** its motivating cases 119829 / 119830 are clean since D1
   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.

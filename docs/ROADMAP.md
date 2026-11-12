@@ -69,7 +69,7 @@ Status on 2026-11-12 (morning, Berlin).
   2026-11-12). Then T5 / T1b per the execution order; T6 (only all-clean method, <= 2x CGAL EPECK on 1k-100k) is checked at the end. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
   memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
-  `DualContouring` allocations bound about 4 % of wall.
+  `DualContouring` allocations bound about 4 % of wall (below the 5 % threshold: dropped, 2026-11-12); lever (3), the fast-winding cache's `List<int>` per box, is done (#674, merged 2026-11-12, e48dd964: cache build 1.13-1.42x serial, 1.15-1.31x parallel, bit-identical).
   [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
@@ -79,11 +79,11 @@ Status on 2026-11-12 (morning, Berlin).
   the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
   L3 (batched gate tests) measured at <= 1.085x and dropped (owner 2026-11-12, option A): target (b) lowered to about
   1.25x; L4, L1, L3b, L2 follow. Future research item (owner 2026-11-12, option B): deterministic round-based parallel
-  carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651. L4 (#670,
-  about 1.075x) merged; L1 (#681, oracle and touch: pipeline 0.949 on the 24, 269/269 identical) under review, running
-  product about 1.13x; L3b and L2 measured at <= about 1.02x each and dropped (coordinator 2026-11-12); owner 2026-11-12: focus on the worst case
-  (tail times) and a competitor comparison; next the 800 run with a tail report, the black-box comparison, then the (B)
-  probe on the tail (parallel only if it cuts the tail substantially). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+  carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651; L4 (manifold step) merged 2026-11-12 (#670, cab88798: trial + manifold 0.49x,
+  pipeline 0.93x, 269/269 identical). L1 (#681, oracle and touch: pipeline 0.949 on the 24, 269/269 identical) under
+  review, running product about 1.13x; L3b and L2 measured at <= about 1.02x each and dropped (coordinator 2026-11-12);
+  owner 2026-11-12: focus on the worst case (tail times) and a competitor comparison; next the 800 run with a tail
+  report, the black-box comparison, then the (B) probe on the tail (parallel only if it cuts the tail substantially). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
   #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fixed by #640 (merged 2026-11-12, 36ef5a18; owner accepted the missed time gate,
   1.16-1.22x on Thingi, opt-in via `MinTriangleQuality`). Follow-ups closed (owner 2026-11-12): the snapshot PR is not
@@ -92,7 +92,7 @@ Status on 2026-11-12 (morning, Berlin).
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
   mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
   a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #642, #643, #646, #648, #657 (#645), #655 (#647); open PRs #627 (draft), #656 (#644); open `local` issues #636-#638;
+  #641, #642, #643, #646, #648, #657 (#645), #655 (#647), #656 (#644); open PRs #627 (draft) and #682 (`Similarity.All2D()`, 2D tests on the similarities of the plane); open `local` issues #636-#638;
   #628 fixed by #634.
   [platform.md](roadmap/platform.md#qa-20-milestone)
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
@@ -109,8 +109,8 @@ Status on 2026-11-12 (morning, Berlin).
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
   iterated image #526, collapsed stretches #535, #542, near contact #546 with owner decision D). Coarsening closed.
-  Inventory 2026-11-12: open are three untraced single triangles from #542 and the provenance delta after d9006aa
-  (needs a dirty-side session before a release).
+  Inventory 2026-11-12, both actionable items done: the three single triangles from #542 (fixed in #661) and the
+  provenance delta after d9006aa (stage 6b-4, #677: no (A) finding); also #664 (#666) and the 2.5D helper (#663).
   [meshing2d.md](roadmap/meshing2d.md#open)
 - **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 2
   merged (#448), intersection-free dual contouring options A and B merged (#552, #572), point clouds step C1 merged (#580);
@@ -127,9 +127,9 @@ Checked line by line against the owner's decisions and git on 2026-11-12; settle
   upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
   library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
-- **Exact Boolean 2.0 leftovers (asked 2026-11-12):** re-measure the speed exceptions (519511, 1517923, 519507) and
-  manifold M2 (`Generic_Twin_7081`, 20 s) on master, or close them as documented exceptions; delete the superseded
-  branches `claude/int256-spike` / `claude/collinear-shortcut` after #633 merges. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- **Exact Boolean 2.0 leftovers:** the speed exceptions (519511, 1517923, 519507) and manifold M2 closed as documented
+  exceptions (owner 2026-11-12; the thingi-pairs runs after 3.0 measure them). Open: delete the superseded
+  branches `claude/int256-spike` / `claude/collinear-shortcut` (#633 merged; owner, branch deletion is not available to sessions). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
@@ -142,17 +142,17 @@ The next steps per topic, in order ("in progress" where a session works on them)
 - Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
   then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - Meshing2D: the three single triangles from #542 traced and fixed (#661, merged 2026-11-12); the rotated-fan
-  Steiner-limit bugfix #664 (#666, reviewed, after master merge); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
+  Steiner-limit bugfix #664 (#666, merged 2026-11-12, fec3b2a9); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
   (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
-  session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; starts
-  when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
+  session (owner exception 2026-11-12, as in stage 6b): done 2026-11-12, stage 6b-4 on master `01a7e71`, no (A) finding, no
+  rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4 merged (#670), L1 under review (#681), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report, a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12: inventory and command list for the owner
-  first, then small PRs). [research.md](roadmap/research.md#open)
-- Phase 5: batch queries, the internal caller switches (spatial profile first, then switch only serial loops over many
-  independent queries, bit-identical; Sonnet; owner 2026-11-12: queued, starts after the dirty-side provenance session
-  when a slot is free). [research.md](roadmap/research.md#open)
+- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662 and B #665 merged,
+  C #667, D #669, E #672 open in that merge order; F, G after A-D). [research.md](roadmap/research.md#open)
+- Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
+  the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
+  [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
   #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: no issue-tracker follow-up left (the flip-guard default follow-up is closed: the Remesher
