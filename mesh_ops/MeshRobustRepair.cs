@@ -1014,7 +1014,14 @@ namespace gs
                 r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
             if (slabs > 0) {
-                m = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF }.Reduce(m, quadricDistance * quadricDistance);
+                var pr = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF };
+                m = pr.Reduce(m, quadricDistance * quadricDistance);
+                if (phases != null) {
+                    long f = System.Diagnostics.Stopwatch.Frequency;
+                    phases["prof.reduce.setup"] = pr.SetupMs; phases["prof.reduce.rounds"] = pr.RegionMs; phases["prof.reduce.last"] = pr.LastMs;
+                    phases["prof.reduce.region_sum"] = pr.ProfRegionSumTicks * 1000 / f; phases["prof.reduce.region_max"] = pr.ProfRegionMaxTicks * 1000 / f;
+                    phases["prof.reduce.parallel_wall"] = pr.ProfParallelWallTicks * 1000 / f;
+                }
             } else {
                 Reducer reducer = new Reducer(m);
                 configure(reducer);
@@ -1128,6 +1135,7 @@ namespace gs
         }
 
         // is m certified within maxDistance of mesh (one-sided Hausdorff upper bound, from m to mesh)?
+        [ThreadStatic] internal static long ProfCertifyRounds;
         static bool certified_within(DMesh3 m, DMesh3 mesh, double maxDistance, Func<bool> cancelF, ref int hausdorffSubdivisions)
         {
             // only the upper bound has to stay below maxDistance: a coarse tolerance first, a finer one if the
@@ -1135,6 +1143,7 @@ namespace gs
             // many small, nearly flat ones of the mesh need few subdivisions (on the alpha wraps of the repair benchmark the check took 16 times less time)
             var spatial = new DMeshAABBTree3(mesh, true);
             foreach (double tol in new double[] { 0.1, 0.01 }) {
+                ProfCertifyRounds++;
                 var hd = new MeshHausdorffDistance(m, mesh) { Symmetric = false, SpatialB = spatial, Tolerance = tol * maxDistance, CancelF = cancelF, PatchBound = true };
                 bool computed = hd.Compute();
                 hausdorffSubdivisions += hd.Subdivisions;

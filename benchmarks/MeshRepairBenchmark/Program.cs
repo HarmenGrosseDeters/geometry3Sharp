@@ -582,7 +582,10 @@ class Program
         if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {
             var sp = new System.Collections.Generic.Dictionary<string, long>();
             long t0 = sw.ElapsedMilliseconds;
-            result = MeshRobustRepair.SimplifyWithin(raw, 0.5 * wrap.UsedOffset, 0.5 * wrap.UsedOffset, true, never, out int subdiv, sp) ?? raw;
+            // (the wrap's input as KeepClearOf, as MeshRobustRepair.simplify_wrap since the contact fix)
+            int threads = int.Parse(Environment.GetEnvironmentVariable("BENCH_WRAP_THREADS") ?? "0");
+            result = MeshRobustRepair.SimplifyWithin(raw, 0.5 * wrap.UsedOffset, 0.5 * wrap.UsedOffset, true, never, out int subdiv,
+                MeshRobustRepair.WrapSimplifyMinQuality, true, MeshRobustRepair.WrapSimplifySlabs, threads, sp, input) ?? raw;
             phases["simplify"] = sw.ElapsedMilliseconds - t0;
             foreach (var kv in sp) phases["simplify." + kv.Key] = kv.Value;
             r["pipe_simplified"] = result != raw;

@@ -56,6 +56,8 @@ namespace gs
         // counts of the last run
         public int RegionTriangles, FrozenTriangles;
         public long RegionCollapses, LastCollapses, SetupMs, RegionMs, StitchMs, LastMs;
+        // (measurement only) per-region work summed (cpu), the largest region per round summed (critical path), the parallel loops' wall time
+        public long ProfRegionSumTicks, ProfRegionMaxTicks, ProfParallelWallTicks;
         /// <summary> runs that fell back to one serial Reducer run (the slabs could not be kept apart) </summary>
         public int SerialFallbacks;
 
@@ -194,7 +196,9 @@ namespace gs
             var subLengths = new double[K][];
             var subFrozenTris = new HashSet<int>[K];
             long[] collapses = new long[K];
+            long[] regionTicks = new long[K];
             Action<int> region = (k) => {
+                long rt0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 var sub = new DMesh3();
                 var g2s = new Dictionary<int, int>();
                 var s2g = new List<int>();
@@ -240,7 +244,9 @@ namespace gs
                 subNormals[k] = r.ReferenceNormals; subLengths[k] = r.ReferenceLengths;
                 subFrozenTris[k] = frozenSub;
                 collapses[k] = r.Collapses;
+                regionTicks[k] = System.Diagnostics.Stopwatch.GetTimestamp() - rt0;
             };
+            long pw0 = System.Diagnostics.Stopwatch.GetTimestamp();
             if (MaxThreads == 1) {
                 for (int k = 0; k < K; ++k) region(k);
             } else {
@@ -248,6 +254,10 @@ namespace gs
                 if (MaxThreads > 0) opt.MaxDegreeOfParallelism = MaxThreads;
                 Parallel.For(0, K, opt, region);
             }
+            ProfParallelWallTicks += System.Diagnostics.Stopwatch.GetTimestamp() - pw0;
+            long rmax = 0;
+            foreach (long t in regionTicks) { ProfRegionSumTicks += t; rmax = Math.Max(rmax, t); }
+            ProfRegionMaxTicks += rmax;
             foreach (long c in collapses) RegionCollapses += c;
 
             // put together, in region order: the frozen triangles and the regions' own triangles

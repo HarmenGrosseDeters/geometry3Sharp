@@ -219,8 +219,21 @@ namespace gs
         GateQueue gates = new GateQueue();
         Stopwatch phaseTimer = new Stopwatch();
 
+        // (measurement only) cumulative ticks, snapshotted per phase into PhaseMilliseconds["prof.<phase>.<counter>"] (us)
+        long ticksCarve, ticksGate, ticksProj, ticksTrial, ticksPoints;
+        long[] profLast = new long[8];
+        void prof_snapshot(string name)
+        {
+            long[] now = { ticksIntersection, ticksTouch, ticksInsert, ticksCarve, ticksGate, ticksProj, ticksTrial, ticksPoints };
+            string[] names = { "isect", "touch", "insert", "carve", "gate", "proj", "trial", "points" };
+            for (int k = 0; k < now.Length; ++k) {
+                if (name != null) PhaseMilliseconds["prof." + name + "." + names[k]] = (now[k] - profLast[k]) * 1000000 / Stopwatch.Frequency;
+                profLast[k] = now[k];
+            }
+        }
         void end_phase(string name)
         {
+            prof_snapshot(name);
             PhaseMilliseconds[name] = phaseTimer.ElapsedMilliseconds;
             phaseTimer.Restart();
         }
@@ -488,6 +501,8 @@ namespace gs
         void reset_refinement_counts()
         {
             ticksIntersection = ticksTouch = ticksInsert = projectionFallbacks = 0;
+            ticksCarve = ticksGate = ticksProj = ticksTrial = ticksPoints = 0;
+            prof_snapshot(null);
             rule1 = rule2 = carved = rejected = rejected1 = rejected2 = popped = 0;
             staleGates = requeuedGates = 0;
             steiner = 0;
@@ -499,7 +514,10 @@ namespace gs
         WrapStatus refine_and_carve()
         {
             WrapStatus status = WrapStatus.Success;
+            long tCarve0 = Stopwatch.GetTimestamp();
+            try {
             while (gates.Count > 0) {
+                long tg0 = Stopwatch.GetTimestamp();
                 if ((++popped & 1023) == 0 && cancelled())
                     return WrapStatus.Cancelled;
                 gates.Pop(out double key, out int c, out int i, out int stampC);
@@ -518,6 +536,7 @@ namespace gs
                 }
                 Vector3d from, to;
                 dual_edge(c, i, out from, out to);
+                ticksGate += Stopwatch.GetTimestamp() - tg0;
 
                 Vector3d steinerPoint;
                 bool insert = false;
@@ -531,7 +550,9 @@ namespace gs
                 if (crossing) {
                     insert = true; which = 1;
                 } else if (touching) {
+                    long tp0 = Stopwatch.GetTimestamp();
                     insert = rule_projection(c, i, to, out steinerPoint);
+                    ticksProj += Stopwatch.GetTimestamp() - tp0;
                     which = 2;
                     if (!insert) {
                         rejected++; rejected2++;
@@ -564,6 +585,7 @@ namespace gs
                         push_gate(m, dt.FacetTo(m, c));
                 }
             }
+            } finally { ticksCarve += Stopwatch.GetTimestamp() - tCarve0; }
             Counts["steiner_points"] = steiner;
             if (staleGates > 0) Counts["gates_stale"] = staleGates;
             if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
@@ -831,7 +853,9 @@ namespace gs
             for (int round = 0; round < MaxNonManifoldRounds && status == WrapStatus.Success; ++round) {
                 if (cancelled())
                     return WrapStatus.Cancelled;
+                long ttr0 = Stopwatch.GetTimestamp();
                 WrapStatus trial = cells_moved_by_manifold_step(pinch, out bool local);
+                ticksTrial += Stopwatch.GetTimestamp() - ttr0;
                 if (trial == WrapStatus.Cancelled)
                     return trial;
                 if (trial == WrapStatus.Success && pinch.Count > 0 && local) localFound++;
@@ -840,7 +864,9 @@ namespace gs
                 // nothing either, its labels are kept as usual)
                 if (trial == WrapStatus.Success && pinch.Count == 0 && local) {
                     confirmTrials++;
+                    long ttr1 = Stopwatch.GetTimestamp();
                     trial = cells_moved_by_manifold_step(pinch, out local, true);
+                    ticksTrial += Stopwatch.GetTimestamp() - ttr1;
                     if (trial == WrapStatus.Cancelled)
                         return trial;
                     if (pinch.Count > 0) confirmFound++;
@@ -862,7 +888,10 @@ namespace gs
                         status = WrapStatus.PointLimitReached;
                         break;
                     }
-                    if (pinch_point(c, out Vector3d p) && insert_steiner(p, c, 3))
+                    long tpp = Stopwatch.GetTimestamp();
+                    bool havePoint = pinch_point(c, out Vector3d p);
+                    ticksPoints += Stopwatch.GetTimestamp() - tpp;
+                    if (havePoint && insert_steiner(p, c, 3))
                         inserted++;
                     else
                         skipped++;
@@ -950,7 +979,9 @@ namespace gs
             WrapStatus status = WrapStatus.Success;
             for (int round = 0; round < MaxQualityRounds; ++round) {
                 if (cancelled()) { status = WrapStatus.Cancelled; break; }
+                long tpf = Stopwatch.GetTimestamp();
                 poor_facets(scan, sinMin, cs, fs);
+                ticksPoints += Stopwatch.GetTimestamp() - tpf;
                 if (cs.Count == 0) break;
                 facets += cs.Count;
                 stamps.Clear();
@@ -963,7 +994,10 @@ namespace gs
                     if (!dt.IsCell(c) || dt.CellStamp(c) != stamps[k] || label[c] != Inside || label_of(dt.Neighbour(c, i)) != Outside)
                         continue;
                     if (steiner >= MaxSteinerPoints) { status = WrapStatus.PointLimitReached; break; }
-                    if (quality_point(c, i, out Vector3d p) && insert_steiner(p, c, 4)) inserted++;
+                    long tqp = Stopwatch.GetTimestamp();
+                    bool haveQ = quality_point(c, i, out Vector3d p);
+                    ticksPoints += Stopwatch.GetTimestamp() - tqp;
+                    if (haveQ && insert_steiner(p, c, 4)) inserted++;
                     else skipped++;
                 }
                 points += inserted;
