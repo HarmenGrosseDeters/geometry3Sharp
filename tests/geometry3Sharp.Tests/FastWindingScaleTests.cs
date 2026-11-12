@@ -129,7 +129,7 @@ namespace geometry3Sharp.Tests
         {
             // #693: the volume check of MeshRobustRepair on the scene in its unit frame (MeshRepairMetrics.VolumeIoUAtLeast
             // of a mesh with itself: the samples of the input's and the result's solid, each by a FastWindingNumber). The
-            // bound is far above the time after and far below the time before (see the PR of #693 for the numbers)
+            // bound is far above the time after and below the time before (4 cores: 2.8 s before, 21 ms after)
             double scale;
             DMesh3 m = UnitFrameScene(1e8, out scale);
             var sw = Stopwatch.StartNew();
@@ -140,6 +140,6 @@ namespace geometry3Sharp.Tests
             Assert.True(iou > 0.99, $"iou {iou}");
             Assert.True(ms < BoundMs, $"{ms} ms");
         }
-        const long BoundMs = 2000;
+        const long BoundMs = 800;
     }
 }
