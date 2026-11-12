@@ -76,3 +76,17 @@ Reducer / alpha wrap tests while their sessions run (T7, T6 follow-ups wait).
    `QuadtreeExactQuery2d`, `MeshInsertPolygon`, `MeshTrimLoop`): sweep rows exist, a seeded property test each.
 5. T10 Z3 frame lemma (2 A), T12 follow-up after #627.
 6. Later, blocked: T9 / T15 (mutation configs), long runs of T2 / T13 (#624, runner).
+
+## 4. Update after `c013f31` (2026-11-12)
+
+What changed on GitHub after the state above (PR and issue states, not re-measured):
+
+- Section 2: #628 is closed, fixed by #634 (merged, 2947179); #630 is closed, fixed by #632. New open bugfix issues:
+  #636 (F2, `MeshRobustRepair` 9 s on a 6-vertex input), #637 (F5, `QualityMesh2` `AngleBelowBound`), #638 (F7,
+  `QualityMesh2` `RefinementLimit` livelock), #644 and #645 (`ConvexHull2`), #647 (`VoxelSurfaceGenerator`).
+- Section 3, open PRs: item 2, #639 (differential tests for `PointAABBTree3`, `MeshBatchQueries`,
+  `WindingNumberOctree`); item 3, #641 (`DMeshAABBTree3` midpoint split) and #642 (`MeshRoundingRepair` step loops),
+  T14; item 4, #646 (`ConvexHull2`, `QuadtreeExactQuery2d`) and #648 (`VoxelSurfaceGenerator`, `MeshInsertPolygon`,
+  `RegionOperator`, `MeshTrimLoop`); item 5, #643 (T10 frame lemma); T12, #627 (draft).
+- T8 "coverage gate nightly": the `coverage.yml` cron has not fired yet (no scheduled run on 2026-11-12), see
+  [platform.md](../roadmap/platform.md#open).

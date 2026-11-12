@@ -1,6 +1,7 @@
 # Tetrahedral meshing: "any input -> valid tet mesh" (design, no library code)
 
-**Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Nothing is built.
+**Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500;
+stage 1 waits for the fTetWild comparison and sharp features, owner 2026-11-09).
 Licence rules: TetGen (AGPL), fTetWild / TetWild (MPL), libigl (MPL), the CDT of Diazzi et al. (GPL / LGPL) were used as
 **papers only**; no CGAL, Triangle or Triangle.NET code was read. Numbers marked *planning* are estimates, not
 measurements (no .NET SDK was installed in this session, so nothing was run); stage 0 below measures them first.
