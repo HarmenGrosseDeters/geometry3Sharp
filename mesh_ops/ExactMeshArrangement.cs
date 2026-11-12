@@ -78,6 +78,7 @@ namespace g3
                 public List<Segment> Segments;
                 public HashSet<int> Points;
                 public List<int> Coplanar;
+                public List<int> Partners;
             }
             static readonly List<Segment> noSegments = new List<Segment>();
             static readonly HashSet<int> noPoints = new HashSet<int>();
@@ -90,6 +91,13 @@ namespace g3
             internal void AddSegment(Segment s) { Touch t = touch(); (t.Segments ?? (t.Segments = new List<Segment>())).Add(s); }
             internal void AddPoint(int p) { Touch t = touch(); (t.Points ?? (t.Points = new HashSet<int>())).Add(p); }
             internal void AddCoplanar(int c) { Touch t = touch(); (t.Coplanar ?? (t.Coplanar = new List<int>())).Add(c); }
+            /// <summary>
+            /// the input triangles that meet this one along a segment (not coplanar), in the order the intersections were
+            /// found (it depends on the thread schedule: for uses that do not depend on the order). Not the triangles named by
+            /// Segments: the unique segments keep one of several equal ones, so a triangle can be missing there
+            /// </summary>
+            internal List<int> Partners { get { return arr.triTouch[Index]?.Partners ?? noCoplanar; } }
+            internal void AddPartner(int u) { Touch t = touch(); (t.Partners ?? (t.Partners = new List<int>())).Add(u); }
 
             // planes are computed when first needed (most triangles are far from all intersections), in an object of
             // their own (published at once: other threads may compute and read them at the same time)
@@ -2138,8 +2146,8 @@ namespace g3
                 lock (T.Lock) T.AddPoint(lo);
                 lock (U.Lock) U.AddPoint(lo);
             } else {
-                lock (T.Lock) T.AddSegment(new Segment(lo, hi, 4 * ui));
-                lock (U.Lock) U.AddSegment(new Segment(lo, hi, 4 * ti));
+                lock (T.Lock) { T.AddSegment(new Segment(lo, hi, 4 * ui)); T.AddPartner(ui); }
+                lock (U.Lock) { U.AddSegment(new Segment(lo, hi, 4 * ti)); U.AddPartner(ti); }
             }
         }
 

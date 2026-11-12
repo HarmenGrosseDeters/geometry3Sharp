@@ -128,73 +128,86 @@ Per patch: one serial Dijkstra (a binary heap, ties by piece index, so it is det
 same edge groups that `classify` joins into patches. Measured on the knot benchmark (4 cores): 37 % of the open-winding
 evaluations saved, classification 13.7 -> 9.9 s, the result hashes unchanged.
 
-## 3. L2: short segments to reference points instead of far rays
+## 3. L2: carried rays instead of one far ray per piece (as implemented, `trace_open_winding`)
 
-The owner accepted L2 although it is not strictly bit-identical. It needs this proof, written out, and an A/B against
-the recorded per-piece open winding (`RecordOpenWinding`, as in the Antipodal A/B).
+The owner accepted L2 although it is not strictly bit-identical. The argument and the A/B are below; on every case run so
+far the thresholds are the same as the per-piece ones.
 
-**Decomposition** (the Antipodal Method, Martens, Trettner, Bessmeltsev 2026, eq. 6 and 9). Take a fixed unit direction
-r. Let chi_r(x) be the signed crossings of the ray x + t r (t > 0) with M, and Omega_r(x) the boundary sum with
-x1 = -r. Then
+**Decomposition** (the Antipodal Method, Martens, Trettner, Bessmeltsev 2026, eq. 6 and 9, with a far point instead of a
+direction). For an open mesh M and a point R outside the box of all meshes (the far points of `front_crossings`):
 
-    w(x) = chi_r(x) + Omega_r(x) / 4pi
+    w(x) = chi_R(x) + Omega_R(x) / 4pi
 
-for every x off M and off the cone K_r = { y + t r : y on the boundary, t > 0 }. chi_r and Omega_r jump by opposite
-amounts across K_r, where the ray passes through the boundary, so their sum is continuous.
+for x off M and off the cone swept from the boundary away from R.
+- chi_R(x) is the signed crossings of the segment x -> R with M. It counts +1 where the segment passes to a triangle's
+  front side, as `front_crossings` counts; beyond R the ray meets nothing.
+- Omega_R(x) is the boundary sum with x1 the direction away from R (`antipodal_value`).
+- chi_R and Omega_R jump by opposite amounts across the cone, so their sum is continuous there.
+- A piece's value is w just in front of it, at its centroid displaced towards its normal.
 
-**Difference of two points with the same r.** Let S be the strip swept by the segment [p, q] along r. Its boundary is
-the closed curve p -> q -> q + infinity r -> p + infinity r -> p. Counting the signed crossings of M along that curve:
+**Two pieces with the same R.** The closed polygon p -> q -> R -> p crosses M (signed) as often as it links M's boundary.
+That is the number of boundary segments that pierce the triangle (p, q, R), each counted with the sign -orient3d(p, q, R, b)
+of its end b; the boundary is oriented as the triangles run it (`BoundarySegments`). So
 
-    chi_r(q) - chi_r(p) = X_M(p -> q) + N_r(p, q)
+    chi_R(q) = chi_R(p) - I(p -> q) + N(p, q, R)
 
-- X_M(p -> q) is the signed crossings of the segment p -> q with M.
-- N_r(p, q) is the signed number of boundary segments that cross the strip S: the intersection of a closed curve with M
-  changes only where the boundary passes through the surface it spans.
-- Both are integers and exact. X_M is the exact segment-triangle test that `front_crossings` already makes, over the
-  box tree, for a short segment. N_r is an exact test of a segment against a strip: two orient3d signs and a side test,
-  on input points and the exact centroids.
+- I is the signed crossings of the segment between the centroids, each end displaced to its piece's front side: a
+  centroid in a triangle's plane counts as on the side its piece's normal points to.
+- I and N are exact: plane sides and orient3d, filtered, with an exact fallback.
+- The verify mode confirms the sign of N: with the opposite sign, every traced piece behind a pierce differs from its own
+  evaluation.
 
-So
+**The tracing.** Within each input triangle, whose pieces are consecutive in the output and adjacent across their edges:
+- The first piece is evaluated with its own ray (`antipodal_front_winding`, as today). This gives chi_R and R.
+- The other pieces, in breadth-first order across the shared edges, take chi_R from the piece they are reached from, plus
+  I - N as above. Their value is chi_R + Omega_R / 4pi with the same bound and snap as an Antipodal evaluation. Each value
+  is therefore that of an Antipodal evaluation with R as the ray, and its error does not grow along the chain.
+- A degenerate test falls back to the piece's own ray, which is then carried on. The degenerate tests are: a segment
+  through an edge or vertex of M; both centroids in a triangle's plane on different sides; a boundary segment touching
+  the triangle (p, q, R); a ray that gives no value within the bound.
+- The input triangles are independent and are traced in parallel, the largest first. Each is traced serially in a fixed
+  order, so the result is deterministic.
 
-    w(q) = w(p) + X_M(p -> q) + N_r(p, q) + (Omega_r(q) - Omega_r(p)) / 4pi
+**Carrying the threshold** (the L1 bound inside L2). Where the bound of L1 on the box of p and q, times |pq|, stays
+within p's margin |w - h| - e - 2e-6, q takes p's threshold minus I(p -> q), the integer jump where the segment crosses
+M, and the rest of p's margin. Its boundary sum is not computed.
+- This is sound for the same reason as L1: the true w(q) lies on the same side of every half-integer as w(p) - I.
+- Near the boundary, G is infinite and the boundary sum is computed.
+- With L2 on, L1 does not run. The direct evaluation of each patch's first piece that L1 needs costs more than the
+  boundary sums it saves; on the knot, L1 + L2 took 6.9 s against 5.5 s for L2 alone. L1 remains the bit-identical mode
+  with `TracedOpenWinding` off.
 
-**Telescoping.** Along a chain of pieces ref = q0, q1, ..., qk = q (a BFS tree over the piece adjacency of one
-connected part of the output), all with the same r:
-
-    w(q) = w(ref) + sum_i [X_M(q_i -> q_i+1) + N_r(q_i, q_i+1)] + (Omega_r(q) - Omega_r(ref)) / 4pi
-
-The intermediate Omega terms cancel algebraically, so only Omega_r(q) and Omega_r(ref) are computed in doubles. The
-error does not grow along the chain: it is at most e(ref) + e(q), each the bound of one boundary sum of
-`antipodal_front_winding`, at most 1e-6. The integers are exact.
+**Candidates.**
+- *The triangles that I can count.* A triangle of M crossed by a segment inside input triangle t meets t along a
+  segment through the crossing point. The arrangement records each such pair: the triangle is one of t's `Partners`,
+  added under the same stripe lock as the segment. The crossing point also lies in its box and in t's.
+- The candidates are therefore t's partners of mesh M, sorted, in a grid of their boxes clipped to t's box, in t's plane
+  (`CrossingGrid`).
+- *Not the triangles named by t's segments.* A first version took the candidates from t's own segment list, and a second
+  added the other triangles' segments on t. Both missed triangles on the 55928 knot. In dense, nearly duplicate
+  configurations, the unique-segment step of the arrangement keeps one of several equal segments, on both sides of a
+  pair. The geometry stays right, but the name of the triangle is lost.
+  - On a 441-triangle sub-ball of the knot, the second version gave 1,704 different thresholds, with margins up to 0.5;
+    on the 1,767-triangle ball, 7,102 in 4.3M.
+  - With the partners, both give none. So does a box-tree query of t's box, which is complete but slower: classification
+    on 55928 took 443 s with it.
+  - The test case "duplicate triangles" kills the first version.
+- *The boundary segments that N can count.* Those not wholly outside a face of the tetrahedron of t and R, per far point,
+  in doubles with a margin.
 
 **The threshold.**
-- Let w~(q) be the L2 value with the bound e = e(ref) + e(q), snapped to the nearest half-integer when it is within e
-  of one, by the same rule as `snap_half`.
-- Then ceil(w~(q) - 1/2) differs from the threshold of the true w(q) only if w(q) lies within e of a half-integer
-  without being on it. That is the same class of pieces where today's per-piece evaluation is not exact either: it
-  snaps within its own bound, "one Seed gives one result". An exact tie (in front of a flat part of a sheet) is
-  snapped by both methods and decided by the same rule.
-- So L2 can differ from today only for pieces whose winding lies within 2e-6 of a half-integer but not on it, and for
-  pieces where today's evaluation is "undecided" (those keep a direct evaluation).
-- The A/B counts both. `antipodal_snapped` is 0 on 55928.
+- Every traced value is that of an Antipodal evaluation with another ray. Its threshold can differ from the piece's own
+  evaluation only where the snap decision depends on the ray, that is, where w lies within the bound (at most 1e-6) of a
+  half-integer without being on it.
+- Undecided points (on or next to a segment) are undecided with every ray.
+- The A/B, the verify mode (`VerifyTracedOpenWinding`), evaluates every traced or carried piece with its own ray as well
+  and records the margin of each difference: -1 where the piece's own evaluation is undecided or snapped, else the
+  distance of its own value to the nearest half-integer. The tests assert that no margin exceeds 2e-6.
+- On the 441-triangle sub-ball of the knot: 4 differences in 931k, all where the piece's own evaluation is undecided
+  (20 rays without a value) and the carried ray gives one.
 
-**Front sides and degenerate paths.**
-- The endpoints lie on pieces. A piece's w is the limit from its front side, as in `front_crossings`.
-- At the start of a segment, every triangle of the stack of q_i that the direction q_i+1 - q_i leaves towards its back
-  counts as a crossing, with its sign. At the end, every triangle of the stack of q_i+1 that the segment reaches from
-  its back counts, with its sign. A segment in the plane of the piece crosses nothing there. These are exact orient
-  signs of the direction against the triangle planes.
-- Ties are resolved by another path or a direct evaluation, never by perturbation:
-  - a segment through an edge or vertex of M;
-  - a boundary segment in the plane of the strip;
-  - an endpoint on K_r.
-
-  The piece is then evaluated directly (a full Antipodal evaluation) and becomes a new reference.
-- A degenerate case triggers a direct evaluation; it is counted (`Counts["l2_direct"]`).
-
-**Cost per piece.** One boundary sum (133 atan2 here). A short segment's crossings over the box tree: a few triangles,
-against 480-890 for a far ray. A strip test over the boundary grid. Expected classification: about 60-100 s on 55928;
-with L1 as the first filter (a whole patch takes its representative's threshold) about 40-80 s.
+**Cost per piece.** One boundary sum (133 atan2 on 55928), the crossing candidates of one grid cell, and the boundary
+candidates of the tetrahedron, typically none. Measured, Difference, 4 cores: see the table in section 7.
 
 **Prior art.**
 - EMBER (Trettner et al. 2022) traces integer winding numbers along line segments to local reference positions.

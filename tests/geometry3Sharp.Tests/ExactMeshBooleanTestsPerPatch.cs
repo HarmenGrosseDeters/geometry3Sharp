@@ -56,7 +56,7 @@ namespace geometry3Sharp.Tests
 
         static ExactMeshBoolean Computed(DMesh3 a, DMesh3 b, Ops op, bool perPatch, bool verify = false)
         {
-            var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, PerPatchOpenWinding = perPatch, VerifyPerPatchOpenWinding = verify, RecordOpenWinding = true };
+            var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, TracedOpenWinding = false, PerPatchOpenWinding = perPatch, VerifyPerPatchOpenWinding = verify, RecordOpenWinding = true };
             Assert.True(s.Compute(), s.Error);
             return s;
         }
@@ -156,7 +156,7 @@ namespace geometry3Sharp.Tests
             } finally {
                 gParallel.SerialOnThisThread = false;
             }
-            var reused = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true };
+            var reused = new ExactMeshBoolean(a, b, Ops.Difference) { AllowOpenMeshes = true, TracedOpenWinding = false };
             for (int run = 0; run < 2; ++run) {
                 Assert.True(reused.Compute());
                 Assert.Equal("", Invariance.Difference(serial.Result, reused.Result));

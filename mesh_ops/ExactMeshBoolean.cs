@@ -303,12 +303,25 @@ namespace g3
         /// <summary>
         /// L1 of the tail case (docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 2): the open meshes on the Antipodal path
         /// decided per patch where a certified bound on the winding number's variation over the patch keeps every piece's
-        /// threshold that of the patch's first piece (the same thresholds as per piece; off: per piece, for A/B tests)
+        /// threshold that of the patch's first piece (the same thresholds as per piece; off: per piece, for A/B tests). Used
+        /// only without L2 (TracedOpenWinding false): the bit-identical mode
         /// </summary>
         internal bool PerPatchOpenWinding = true;
         /// <summary> tests: evaluate the pieces of a patch decided per patch as well and count the differences (PerPatchMismatches, 0) </summary>
         internal bool VerifyPerPatchOpenWinding = false;
         internal long PerPatchMismatches;
+        /// <summary>
+        /// L2 of the tail case (docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 3): within each input triangle, the open
+        /// meshes on the Antipodal path are evaluated at one piece with its own ray and at the others with that ray's far
+        /// point, their crossing counts carried from piece to piece by exact short-segment and boundary tests instead of a
+        /// ray each (off: one ray per piece, for A/B tests)
+        /// </summary>
+        internal bool TracedOpenWinding = true;
+        /// <summary> tests: evaluate the traced pieces directly as well and count the different thresholds (TracedMismatches) </summary>
+        internal bool VerifyTracedOpenWinding = false;
+        internal long TracedMismatches;
+        /// <summary> tests (VerifyTracedOpenWinding): per differing threshold, the direct value's distance to the nearest half-integer </summary>
+        internal List<double> TracedMismatchMargins;
         // for tests: triangles per batch of the arrangement's candidate pair search
         internal long CandidateBatchSize = 1 << 24;
         // for tests: no floating-point filters in the arrangement
@@ -504,6 +517,10 @@ namespace g3
             antipodalSnapped = 0;
             perPatchDecided = perPatchSaved = 0;
             PerPatchMismatches = 0;
+            tracedCount = tracedDirect = tracedCarried = 0;
+            TracedMismatches = 0;
+            TracedMismatchMargins = null;
+            antipodalExact.Clear();
             OpenBoundarySegments = null;
             List<DMesh3> inputs = Meshes ?? new List<DMesh3>() { MeshA, MeshB };
             if (inputs.Count == 0)
@@ -588,6 +605,9 @@ namespace g3
             Counts["antipodal_undecided"] = antipodalUndecided;
             Counts["l1_patch_decided"] = perPatchDecided;
             Counts["l1_evaluations_saved"] = perPatchSaved;
+            Counts["l2_traced"] = tracedCount;
+            Counts["l2_direct"] = tracedDirect;
+            Counts["l2_carried"] = tracedCarried;
             Counts["antipodal_snapped"] = antipodalSnapped;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
@@ -996,7 +1016,7 @@ namespace g3
             for (int i = 0; i < n; ++i)
                 parent[i] = i;
             // (L1: the pairs of pieces without stacks joined across an edge, the adjacency of the patches)
-            List<long> joins = PerPatchOpenWinding && ExactWinding != null && Array.IndexOf(ExactWinding, false) >= 0 ? new List<long>() : null;
+            List<long> joins = PerPatchOpenWinding && TracedOpenWinding == false && ExactWinding != null && Array.IndexOf(ExactWinding, false) >= 0 ? new List<long>() : null;
             Func<int, int> find = (x) => find_root(parent, x);
             var atEdge = new List<int>();
             for (int g0 = 0, g1 = 0; g0 < edgeKeys.Length; g0 = g1) {
@@ -1063,6 +1083,7 @@ namespace g3
                 OpenBoundarySegments[m] = segments.Length / 2;
                 if (segments.Length / 2 < AntipodalMaxBoundarySegments) {
                     antipodalSegments[m] = antipodal_grid(segments);
+                    antipodalExact[m] = antipodal_exact(segments);
                     antipodalFar[m] = far_points(m, 64);
                 }
             }
@@ -1110,10 +1131,15 @@ namespace g3
             int[][] openWinding = null;
             if (openMeshes.Count > 0) {
                 openWinding = new int[n][];
-                PatchOpen po = PerPatchOpenWinding && antipodalSegments.Count > 0 ? open_winding_per_patch(firsts, stack, openMeshes, parent, representative, joins) : null;
+                // (L1 only without L2: with L2 every piece costs a boundary sum and short tests, and the direct evaluation of
+                // each patch's first piece that L1 needs costs more than the sums it saves)
+                PatchOpen po = PerPatchOpenWinding && TracedOpenWinding == false && antipodalSegments.Count > 0 ? open_winding_per_patch(firsts, stack, openMeshes, parent, representative, joins) : null;
+                // (L2: the other pieces of the Antipodal meshes by carried rays, trace_open_winding)
+                Traced tr = TracedOpenWinding && antipodalSegments.Count > 0 && Cancellation.IsCancellationRequested == false
+                    ? trace_open_winding(openMeshes, stack, representative, po) : null;
                 gParallel.ForRange(n, (i) => {
                     if (representative[i] && Cancellation.IsCancellationRequested == false)
-                        openWinding[i] = po == null ? open_winding(i, stack[i], openMeshes) : open_winding(i, stack[i], openMeshes, po);
+                        openWinding[i] = (po == null && tr == null) ? open_winding(i, stack[i], openMeshes) : open_winding(i, stack[i], openMeshes, po, tr);
                 });
                 if (Cancellation.IsCancellationRequested)
                     return;
@@ -1516,11 +1542,11 @@ namespace g3
         // open_winding with L1: the open meshes decided for piece i's patch take the patch's value, the first piece of a
         // patch its values evaluated there; the others as open_winding
         [MethodImpl(JitHints.Optimize)]
-        int[] open_winding(int i, List<int> stack, List<int> openMeshes, PatchOpen po)
+        int[] open_winding(int i, List<int> stack, List<int> openMeshes, PatchOpen po, Traced tr)
         {
             List<int> sparse = null;
             Center center = null;
-            int k = po.Patch[i];
+            int k = po != null ? po.Patch[i] : -1;
             for (int j = 0; j < openMeshes.Count; ++j) {
                 int m = openMeshes[j];
                 int wm;
@@ -1531,6 +1557,8 @@ namespace g3
                         if (own != wm)
                             System.Threading.Interlocked.Increment(ref PerPatchMismatches);
                     }
+                } else if (tr != null && tr.Has[j] != null && tr.Has[j][i]) {
+                    wm = tr.Value[j][i];
                 } else
                     wm = threshold_generalized(open_value(i, m, stack, ref center));
                 if (wm != 0) {
@@ -1586,6 +1614,540 @@ namespace g3
                 }
             }
             return sparse == null ? noWinding : sparse.ToArray();
+        }
+
+        // L2: per open mesh (in the order of openMeshes, Antipodal ones only) and piece: the thresholded winding number
+        // where it was found by tracing (Has)
+        sealed class Traced
+        {
+            public int[][] Value;
+            public bool[][] Has;
+        }
+
+        // the boundary segments as exact grid points (the input coordinates are integers on the grid)
+        ExactPoint3[] antipodal_exact(Vector3d[] segments)
+        {
+            var e = new ExactPoint3[segments.Length];
+            for (int k = 0; k < segments.Length; ++k)
+                e[k] = ExactPoint3.Create(arr.GridValue(segments[k].x, 0), arr.GridValue(segments[k].y, 1), arr.GridValue(segments[k].z, 2), BigInteger.One);
+            return e;
+        }
+
+        /// <summary>
+        /// L2 (docs/design/EXACT_BOOLEAN_TAIL_55928.md, section 3). For an open mesh M on the Antipodal path and a far
+        /// point R outside the box of all meshes, the generalized winding number just in front of a piece is
+        /// w = chi_R + Omega_R / (4 pi): chi_R the signed crossings of the segment from the point (displaced to the
+        /// piece's front side) to R, Omega_R the boundary sum with x1 the direction away from R (antipodal_value). For two
+        /// pieces p, q, the closed polygon p -> q -> R -> p crosses M as often (signed) as M's boundary pierces the triangle
+        /// (p, q, R) (the linking number of the polygon with the boundary), so
+        ///     chi_R(q) = chi_R(p) - I(p -> q) + N(p, q, R)
+        /// with I the signed crossings of the short segment and N the signed pierces, both exact. Within each input
+        /// triangle (its pieces are consecutive in the output and adjacent across their edges), the first piece is
+        /// evaluated with its own ray (antipodal_front_winding) and the others, in breadth-first order across their
+        /// edges, with the far point of the piece they are reached from: each value is that of an Antipodal evaluation
+        /// with that ray, with the same error bound and snap. A degenerate test (a segment through an edge or vertex, a
+        /// boundary segment touching the triangle) or a ray without a value within the bound falls back to the piece's
+        /// own evaluation, which then carries its ray on. Pieces decided per patch (L1) are traced through but not
+        /// evaluated. Deterministic: the input triangles are independent, each traced serially in a fixed order.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        Traced trace_open_winding(List<int> openMeshes, List<int>[] stack, bool[] representative, PatchOpen po)
+        {
+            List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+            int n = output.Count, no = openMeshes.Count;
+            var tr = new Traced() { Value = new int[no][], Has = new bool[no][] };
+            for (int j = 0; j < no; ++j)
+                if (antipodalSegments.ContainsKey(openMeshes[j])) {
+                    tr.Value[j] = new int[n];
+                    tr.Has[j] = new bool[n];
+                }
+            var blocks = new List<int>();
+            for (int i = 0; i < n; ++i)
+                if (i == 0 || output[i].Source != output[i - 1].Source)
+                    blocks.Add(i);
+            blocks.Add(n);
+            // (the largest input triangles first: one is traced serially, so a large one started last would run alone)
+            var order = new int[blocks.Count - 1];
+            for (int b = 0; b < order.Length; ++b)
+                order[b] = b;
+            var sizes = new int[order.Length];
+            for (int b = 0; b < order.Length; ++b)
+                sizes[b] = -(blocks[b + 1] - blocks[b]);
+            Array.Sort(sizes, order);
+            long traced = 0, direct = 0, carried = 0, mismatches = 0;
+            var margins = VerifyTracedOpenWinding ? new List<double>() : null;
+            var bb = new BoundaryBound[no];
+            for (int j = 0; j < no; ++j)
+                if (tr.Has[j] != null)
+                    bb[j] = boundary_bound(antipodalSegments[openMeshes[j]]);
+            gParallel.ForRange(order.Length, (ob) => {
+                int b = order[ob];
+                int s0 = blocks[b], s1 = blocks[b + 1], len = s1 - s0;
+                if (len < 2 || Cancellation.IsCancellationRequested)
+                    return;
+                // the pieces' adjacency across their edges, in piece order
+                var adj = new List<int>[len];
+                var at = new Dictionary<long, int>(EdgeKeyComparer.Instance);
+                for (int i = s0; i < s1; ++i) {
+                    adj[i - s0] = new List<int>(3);
+                    var ot = output[i];
+                    long[] keys = { ExactMeshArrangement.EdgeKey(ot.A, ot.B), ExactMeshArrangement.EdgeKey(ot.B, ot.C), ExactMeshArrangement.EdgeKey(ot.C, ot.A) };
+                    foreach (long e in keys) {
+                        int o;
+                        if (at.TryGetValue(e, out o)) {
+                            adj[i - s0].Add(o);
+                            adj[o - s0].Add(i);
+                        } else
+                            at[e] = i;
+                    }
+                }
+                var centers = new Center[len];
+                Func<int, Center> center = (i) => {
+                    Center c = centers[i - s0];
+                    if (c == null) {
+                        c = centers[i - s0] = new Center(centroid_point(output[i], false));
+                        c.Input = arr.ToInputVector(c.P);
+                    }
+                    return c;
+                };
+                var chi = new int[len];
+                var far = new int[len];
+                var thr = new int[len];         // the threshold of a piece where known (its own value, or carried)
+                var rem = new double[len];      // its margin left for carrying the threshold on (<= 0: none)
+                var seen = new bool[len];
+                var queue = new Queue<int>();
+                var boxes = new double[6 * len];
+                var hasBox = new bool[len];
+                for (int j = 0; j < no; ++j) {
+                    if (tr.Has[j] == null)
+                        continue;
+                    int m = openMeshes[j];
+                    Vector3d[] segments = antipodalSegments[m];
+                    Array.Clear(seen, 0, len);
+                    // (the triangles of m that the segments between the block's centroids can cross: those whose boxes meet
+                    // the input triangle's, in a grid of those boxes in the triangle's plane)
+                    var src = arr.Triangles[output[s0].Source];
+                    var grid = new CrossingGrid(this, src, m);
+                    // (per far point: the boundary segments that can pierce a triangle of two of the block's centroids and
+                    // the far point, those meeting the tetrahedron of the input triangle and the far point)
+                    var pierceCandidates = new Dictionary<int, int[]>();
+                    Func<int, int[]> candidates = (f) => {
+                        int[] c;
+                        if (pierceCandidates.TryGetValue(f, out c) == false)
+                            pierceCandidates[f] = c = pierce_candidates(src, m, f);
+                        return c;
+                    };
+                    for (int r = s0; r < s1; ++r) {
+                        if (seen[r - s0])
+                            continue;
+                        // a reference: its own ray
+                        seen[r - s0] = true;
+                        direct_reference(r, m, j, stack, segments, center(r), representative, po, tr, chi, far, thr, rem, s0, ref direct);
+                        queue.Enqueue(r);
+                        while (queue.Count > 0) {
+                            int p = queue.Dequeue();
+                            foreach (int q in adj[p - s0]) {
+                                if (seen[q - s0])
+                                    continue;
+                                seen[q - s0] = true;
+                                queue.Enqueue(q);
+                                bool wanted = representative[q] && decided_per_patch(po, q, j) == false;
+                                int f = far[p - s0], delta, crossed;
+                                if (f >= 0 && carried_crossings(p, q, m, f, center(p), center(q), grid, candidates(f), out delta, out crossed)) {
+                                    chi[q - s0] = chi[p - s0] + delta;
+                                    far[q - s0] = f;
+                                    // the threshold carried from p where the bound of the change along the segment keeps it
+                                    // within p's margin: w(q) = w(p) - crossed + (a continuous change at most the bound)
+                                    if (rem[p - s0] > 0) {
+                                        double step = carry_bound(p, q, center(p), center(q), boxes, hasBox, s0, bb[j]);
+                                        if (rem[p - s0] - step > 0) {
+                                            rem[q - s0] = rem[p - s0] - step;
+                                            thr[q - s0] = thr[p - s0] - crossed;
+                                            if (wanted) {
+                                                tr.Value[j][q] = thr[q - s0];
+                                                tr.Has[j][q] = true;
+                                                System.Threading.Interlocked.Increment(ref carried);
+                                                verify_traced(q, m, j, stack, segments, center(q), tr, ref mismatches, margins);
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                    rem[q - s0] = -1;
+                                    if (wanted == false)
+                                        continue;
+                                    double w, bound;
+                                    Center cq = center(q);
+                                    Vector3d g = cq.GridDouble();
+                                    double pm = Math.Abs(g.x) + Math.Abs(g.y) + Math.Abs(g.z);
+                                    Vector3d x1 = -(antipodalFar[m].Grid[f] - g).Normalized;
+                                    int status = antipodal_value(g, pm, x1, chi[q - s0], segments, out w, out bound);
+                                    if (status == 0 || status == 1) {
+                                        double value = status == 1 ? 0.5 : snap_half(w, bound);
+                                        if (status == 1)
+                                            System.Threading.Interlocked.Increment(ref antipodalUndecided);
+                                        else if (value != w)
+                                            System.Threading.Interlocked.Increment(ref antipodalSnapped);
+                                        thr[q - s0] = threshold_generalized(value);
+                                        rem[q - s0] = (status == 0 && value == w) ? Math.Abs(w - (Math.Floor(w) + 0.5)) - bound - 2e-6 : -1;
+                                        tr.Value[j][q] = thr[q - s0];
+                                        tr.Has[j][q] = true;
+                                        System.Threading.Interlocked.Increment(ref traced);
+                                        verify_traced(q, m, j, stack, segments, cq, tr, ref mismatches, margins);
+                                        continue;
+                                    }
+                                }
+                                // (a degenerate test, or no value within the bound with this ray: the piece's own ray)
+                                direct_reference(q, m, j, stack, segments, center(q), representative, po, tr, chi, far, thr, rem, s0, ref direct);
+                            }
+                        }
+                    }
+                }
+            });
+            tracedCount = traced;
+            tracedDirect = direct;
+            tracedCarried = carried;
+            TracedMismatches = mismatches;
+            TracedMismatchMargins = margins;
+            return tr;
+        }
+
+        // whether L1 decided open mesh j for piece i (or i is its patch's first piece, evaluated there)
+        static bool decided_per_patch(PatchOpen po, int i, int j)
+        {
+            if (po == null || po.Decided[j] == null)
+                return false;
+            int k = po.Patch[i];
+            return po.Decided[j][i] || (k >= 0 && po.First[k] == i && po.Value[k] != null && po.Value[k][j] != NotEvaluated);
+        }
+
+        // L2: piece i evaluated with its own ray, its crossings and far point recorded for the pieces traced from it
+        void direct_reference(int i, int m, int j, List<int>[] stack, Vector3d[] segments, Center c, bool[] representative, PatchOpen po,
+            Traced tr, int[] chi, int[] far, int[] thr, double[] rem, int s0, ref long direct)
+        {
+            double bound;
+            int x, f;
+            double w = antipodal_front_winding(i, m, stack[i], segments, c, out bound, out x, out f);
+            chi[i - s0] = x;
+            far[i - s0] = f;
+            thr[i - s0] = threshold_generalized(w);
+            rem[i - s0] = bound >= 0 ? Math.Abs(w - (Math.Floor(w) + 0.5)) - bound - 2e-6 : -1;
+            System.Threading.Interlocked.Increment(ref direct);
+            if (representative[i] && decided_per_patch(po, i, j) == false) {
+                tr.Value[j][i] = thr[i - s0];
+                tr.Has[j][i] = true;
+            }
+        }
+
+        // tests (VerifyTracedOpenWinding): piece q's own evaluation against its traced threshold
+        void verify_traced(int q, int m, int j, List<int>[] stack, Vector3d[] segments, Center c, Traced tr, ref long mismatches, List<double> margins)
+        {
+            if (VerifyTracedOpenWinding == false)
+                return;
+            double ownBound;
+            double own = antipodal_front_winding(q, m, stack[q], segments, c, out ownBound);
+            if (threshold_generalized(own) != tr.Value[j][q]) {
+                System.Threading.Interlocked.Increment(ref mismatches);
+                // (-1: the piece's own evaluation is undecided or snapped, so either threshold is the Antipodal Method's)
+                lock (margins)
+                    margins.Add(ownBound < 0 ? -1 : Math.Abs(own - (Math.Floor(own) + 0.5)));
+            }
+        }
+
+        /// <summary>
+        /// L2: a bound of the change of open mesh's winding number along the segment between the centroids of p and q,
+        /// apart from its jumps where the segment crosses the mesh: the segment lies in the box of the two pieces (their
+        /// corners' approximations widened by their error bounds), where |grad w| is at most G (the Biot-Savart bound of
+        /// L1, piece_cost), times its length; +infinity where that box comes within 1e-3 of the coordinates' size of a
+        /// boundary segment
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        double carry_bound(int p, int q, Center cp, Center cq, double[] boxes, bool[] hasBox, int s0, BoundaryBound b)
+        {
+            var box = new double[6];
+            piece_box(p, boxes, hasBox, s0);
+            piece_box(q, boxes, hasBox, s0);
+            for (int k = 0; k < 3; ++k) {
+                box[k] = Math.Min(boxes[6 * (p - s0) + k], boxes[6 * (q - s0) + k]);
+                box[k + 3] = Math.Max(boxes[6 * (p - s0) + k + 3], boxes[6 * (q - s0) + k + 3]);
+            }
+            Vector3d gp = cp.GridDouble(), gq = cq.GridDouble();
+            double length = (gp.Distance(gq) + 1e-15 * (Math.Abs(gp.x) + Math.Abs(gp.y) + Math.Abs(gp.z) + Math.Abs(gq.x) + Math.Abs(gq.y) + Math.Abs(gq.z))) * (1 + 1e-12);
+            return gradient_bound(box, b) * length;
+        }
+
+        // the box of piece i (grid coordinates, the corners' approximations widened by their error bounds), cached
+        void piece_box(int i, double[] boxes, bool[] hasBox, int s0)
+        {
+            if (hasBox[i - s0])
+                return;
+            var ot = arr.Output[i];
+            Vector3d pa = arr.Approx(ot.A), pb = arr.Approx(ot.B), pc = arr.Approx(ot.C);
+            double err = arr.ApproxError(ot.A) + arr.ApproxError(ot.B) + arr.ApproxError(ot.C);
+            for (int k = 0; k < 3; ++k) {
+                boxes[6 * (i - s0) + k] = Math.Min(pa[k], Math.Min(pb[k], pc[k])) - err;
+                boxes[6 * (i - s0) + k + 3] = Math.Max(pa[k], Math.Max(pb[k], pc[k])) + err;
+            }
+            hasBox[i - s0] = true;
+        }
+
+        // G for a box (L1): the Biot-Savart bound of |grad w| on it; +infinity where it comes within 1e-3 of the
+        // coordinates' size of a boundary segment
+        [MethodImpl(JitHints.Optimize)]
+        static double gradient_bound(double[] box, BoundaryBound b)
+        {
+            double s = b.Size;
+            for (int q = 0; q < 6; ++q)
+                s = Math.Max(s, 3 * Math.Abs(box[q]));
+            double near = 1e-3 * s, slack = 1e-12 * s;
+            double d = box_distance(box, 0, b.All, 0) - slack;
+            double g;
+            if (d >= near) {
+                int ns = b.Lengths.Length;
+                g = Math.Min(b.Total / (4 * Math.PI * d * d), ns / (2 * Math.PI * d));
+            } else {
+                g = 0;
+                for (int t = 0; t < b.Lengths.Length && double.IsInfinity(g) == false; ++t) {
+                    double dt = box_distance(box, 0, b.Boxes, 6 * t) - slack;
+                    g = dt >= near ? g + Math.Min(b.Lengths[t] / (4 * Math.PI * dt * dt), 1 / (2 * Math.PI * dt)) : double.PositiveInfinity;
+                }
+            }
+            return g * (1 + 1e-12);
+        }
+
+        /// <summary>
+        /// L2: the boundary segments of mesh m that can pierce a triangle of two points of input triangle t and far point f:
+        /// those not wholly outside a face of the tetrahedron of t's corners and the far point (in doubles, each face's
+        /// test widened by 1e-9 of the coordinates' size, so no segment that meets it is left out)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        int[] pierce_candidates(ExactMeshArrangement.InputTriangle t, int m, int f)
+        {
+            Vector3d[] g = antipodalSegments[m];
+            Vector3d r = antipodalFar[m].Grid[f];
+            Vector3d[] v = { corner_double(t.Corners[0]), corner_double(t.Corners[1]), corner_double(t.Corners[2]), r };
+            double size = 0;
+            foreach (Vector3d x in v)
+                size = Math.Max(size, Math.Abs(x.x) + Math.Abs(x.y) + Math.Abs(x.z));
+            for (int k = 0; k < g.Length; ++k)
+                size = Math.Max(size, Math.Abs(g[k].x) + Math.Abs(g[k].y) + Math.Abs(g[k].z));
+            int[][] faces = { new[] { 0, 1, 2, 3 }, new[] { 0, 1, 3, 2 }, new[] { 1, 2, 3, 0 }, new[] { 2, 0, 3, 1 } };
+            var normal = new Vector3d[4];
+            var offset = new double[4];
+            var tol = new double[4];
+            for (int k = 0; k < 4; ++k) {
+                Vector3d a = v[faces[k][0]], b = v[faces[k][1]], c = v[faces[k][2]], o = v[faces[k][3]];
+                Vector3d n = (b - a).Cross(c - a);
+                if (n.Dot(o - a) > 0)
+                    n = -n;
+                normal[k] = n;
+                offset[k] = n.Dot(a);
+                tol[k] = 1e-9 * size * (Math.Abs(n.x) + Math.Abs(n.y) + Math.Abs(n.z)) + 1e-300;
+            }
+            var list = new List<int>();
+            for (int s = 0; s < g.Length; s += 2) {
+                bool outside = false;
+                for (int k = 0; k < 4 && outside == false; ++k)
+                    outside = normal[k].Dot(g[s]) - offset[k] > tol[k] && normal[k].Dot(g[s + 1]) - offset[k] > tol[k];
+                if (outside == false)
+                    list.Add(s);
+            }
+            return list.ToArray();
+        }
+
+        /// <summary>
+        /// L2: the triangles of mesh m that a segment between two points of input triangle t can cross. A triangle crossed
+        /// there meets t along a segment through the crossing point, so it is one of t's Partners (the triangles that met
+        /// t along a segment in the arrangement; not the triangles named by t's Segments, which keep one of several equal
+        /// segments), and the crossing point lies in its box and t's. The candidates are t's partners of mesh m, in a
+        /// uniform grid of their boxes clipped to t's box, in the projection that drops t's axis; a query returns those
+        /// whose clipped boxes meet the segment's box (widened by the rounding of its ends), each once.
+        /// </summary>
+        sealed class CrossingGrid
+        {
+            readonly int i, j;
+            readonly double x0, y0, cw, ch;
+            readonly int nx, ny;
+            readonly List<int>[] cells;
+            readonly int[] tri;
+            readonly double[] box;      // per candidate: min i, min j, max i, max j
+            readonly int[] stamp;
+            int query;
+
+            public CrossingGrid(ExactMeshBoolean b, ExactMeshArrangement.InputTriangle t, int m)
+            {
+                ExactMeshArrangement arr = b.arr;
+                i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
+                var tb = new AxisAlignedBox3d(t.V0, t.V0);
+                tb.Contain(t.V1); tb.Contain(t.V2);
+                // (in a fixed order: the partners are found in parallel, sorted here)
+                var partners = new List<int>(t.Partners);
+                partners.Sort();
+                var ids = new List<int>();
+                var boxes = new List<double>();
+                int last = -1;
+                foreach (int u in partners) {
+                    if (u == last)
+                        continue;
+                    last = u;
+                    var U = arr.Triangles[u];
+                    if (U.Degenerate || U.Mesh != m)
+                        continue;
+                    var ub = new AxisAlignedBox3d(U.V0, U.V0);
+                    ub.Contain(U.V1); ub.Contain(U.V2);
+                    ids.Add(u);
+                    boxes.Add(Math.Max(ub.Min[i], tb.Min[i])); boxes.Add(Math.Max(ub.Min[j], tb.Min[j]));
+                    boxes.Add(Math.Min(ub.Max[i], tb.Max[i])); boxes.Add(Math.Min(ub.Max[j], tb.Max[j]));
+                }
+                tri = ids.ToArray();
+                box = boxes.ToArray();
+                stamp = new int[tri.Length];
+                int n = tri.Length;
+                int side = Math.Max(1, (int)Math.Sqrt(n));
+                nx = ny = side;
+                x0 = tb.Min[i]; y0 = tb.Min[j];
+                cw = (tb.Max[i] - tb.Min[i]) / nx; ch = (tb.Max[j] - tb.Min[j]) / ny;
+                if (!(cw > 0) || !(ch > 0) || n == 0) {
+                    nx = ny = 1;
+                    cw = ch = double.PositiveInfinity;
+                }
+                cells = new List<int>[nx * ny];
+                for (int k = 0; k < n; ++k)
+                    for (int cx = cell(box[4 * k], x0, cw, nx); cx <= cell(box[4 * k + 2], x0, cw, nx); ++cx)
+                        for (int cy = cell(box[4 * k + 1], y0, ch, ny); cy <= cell(box[4 * k + 3], y0, ch, ny); ++cy)
+                            (cells[cx * ny + cy] ?? (cells[cx * ny + cy] = new List<int>())).Add(k);
+            }
+
+            static int cell(double v, double v0, double w, int count)
+            {
+                if (double.IsInfinity(w))
+                    return 0;
+                double c = Math.Floor((v - v0) / w);
+                return c < 0 ? 0 : c >= count ? count - 1 : (int)c;
+            }
+
+            // f(triangle) for each candidate of the segment p-q (input coordinates, rounded: the box is widened)
+            public void Query(Vector3d p, Vector3d q, Action<int> f)
+            {
+                if (tri.Length == 0)
+                    return;
+                double pad = 1e-9 * (Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z) + Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(q.z)) + 1e-300;
+                double ax = Math.Min(p[i], q[i]) - pad, ay = Math.Min(p[j], q[j]) - pad, bx = Math.Max(p[i], q[i]) + pad, by = Math.Max(p[j], q[j]) + pad;
+                ++query;
+                for (int cx = cell(ax, x0, cw, nx); cx <= cell(bx, x0, cw, nx); ++cx)
+                    for (int cy = cell(ay, y0, ch, ny); cy <= cell(by, y0, ch, ny); ++cy) {
+                        List<int> c = cells[cx * ny + cy];
+                        if (c == null)
+                            continue;
+                        foreach (int k in c) {
+                            if (stamp[k] == query || box[4 * k] > bx || box[4 * k + 2] < ax || box[4 * k + 1] > by || box[4 * k + 3] < ay)
+                                continue;
+                            stamp[k] = query;
+                            f(tri[k]);
+                        }
+                    }
+            }
+        }
+
+        /// <summary>
+        /// L2: chi_R(q) - chi_R(p) = N(p, q, R) - I(p -> q) for the far point R = antipodalFar[m].R[f] (see
+        /// trace_open_winding), exactly; false where a test is degenerate (the caller then evaluates q with its own ray).
+        /// I counts the triangles of mesh m crossed by the segment from p's centroid to q's, each displaced to its piece's
+        /// front side (a centroid in a triangle's plane is on the side its piece's normal points to there), +1 where the
+        /// segment passes to the triangle's front side, as front_crossings counts; N counts the boundary segments of m
+        /// that pierce the triangle (p, q, R), each with the sign -orient3d(p, q, R, b) of its end b (the linking number
+        /// with the orientation of the boundary as the triangles run it; the verify mode of the tests checks it: with the
+        /// opposite sign every traced piece behind a pierce differs from its own evaluation).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        bool carried_crossings(int p, int q, int m, int f, Center cp, Center cq, CrossingGrid grid, int[] pierceCandidates, out int delta, out int crossed)
+        {
+            delta = 0;
+            crossed = 0;
+            ExactPoint3 P = cp.P, Q = cq.P;
+            var sp = arr.Triangles[arr.Output[p].Source];
+            var sq = arr.Triangles[arr.Output[q].Source];
+            Vector3d gp = cp.Grid(), gq = cq.Grid();
+            if (double.IsNaN(gp.x + gp.y + gp.z + gq.x + gq.y + gq.z))
+                return false;
+            int crossings = 0;
+            bool degenerate = false;
+            grid.Query(cp.Input, cq.Input, (ui) => {
+                if (degenerate) return;
+                var U = arr.Triangles[ui];
+                int a = side(U, P, gp), b = side(U, Q, gq);
+                // (a centroid in the plane: the side its piece's front points to)
+                int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
+                int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
+                if (ae == 0 || be == 0) { degenerate = true; return; }
+                if (ae == be) return;
+                // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
+                // determined here)
+                if (a == 0 && b == 0) { degenerate = true; return; }
+                int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
+                Vector3d d0 = corner_double(c0), d1 = corner_double(c1), d2 = corner_double(c2);
+                int o0 = orient3d_filter(ref gp, ref gq, ref d0, ref d1);
+                int o1 = orient3d_filter(ref gp, ref gq, ref d1, ref d2);
+                int o2 = orient3d_filter(ref gp, ref gq, ref d2, ref d0);
+                if (o0 == 2 || o1 == 2 || o2 == 2) {
+                    ExactPoint3 e0 = arr.Exact(c0), e1 = arr.Exact(c1), e2 = arr.Exact(c2);
+                    if (o0 == 2) o0 = orient3d_exact(P, Q, e0, e1);
+                    if (o1 == 2) o1 = orient3d_exact(P, Q, e1, e2);
+                    if (o2 == 2) o2 = orient3d_exact(P, Q, e2, e0);
+                }
+                if (o0 == 0 || o1 == 0 || o2 == 0) {
+                    if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
+                        degenerate = true;
+                    return;
+                }
+                if (o0 == o1 && o1 == o2)
+                    crossings += be;
+            });
+            if (degenerate)
+                return false;
+            // the boundary segments piercing the triangle (p, q, R)
+            FarPoints far = antipodalFar[m];
+            ExactPoint3 R = far.R[f];
+            Vector3d gr = far.Grid[f];
+            Vector3d[] g = antipodalSegments[m];
+            ExactPoint3[] e = antipodalExact[m];
+            int pierces = 0;
+            foreach (int t in pierceCandidates) {
+                Vector3d ga = g[t], gb = g[t + 1];
+                int sa = orient3d_filter(ref gp, ref gq, ref gr, ref ga);
+                if (sa == 2) sa = orient3d_exact(P, Q, R, e[t]);
+                int sb = orient3d_filter(ref gp, ref gq, ref gr, ref gb);
+                if (sb == 2) sb = orient3d_exact(P, Q, R, e[t + 1]);
+                if (sa == 0 || sb == 0)
+                    return false;
+                if (sa == sb)
+                    continue;
+                int t0 = orient3d_filter(ref ga, ref gb, ref gp, ref gq);
+                if (t0 == 2) t0 = orient3d_exact(e[t], e[t + 1], P, Q);
+                int t1 = orient3d_filter(ref ga, ref gb, ref gq, ref gr);
+                if (t1 == 2) t1 = orient3d_exact(e[t], e[t + 1], Q, R);
+                int t2 = orient3d_filter(ref ga, ref gb, ref gr, ref gp);
+                if (t2 == 2) t2 = orient3d_exact(e[t], e[t + 1], R, P);
+                if (t0 == 0 || t1 == 0 || t2 == 0) {
+                    if ((t0 >= 0 && t1 >= 0 && t2 >= 0) || (t0 <= 0 && t1 <= 0 && t2 <= 0))
+                        return false;
+                    continue;
+                }
+                if (t0 == t1 && t1 == t2)
+                    pierces -= sb;
+            }
+            delta = pierces - crossings;
+            crossed = crossings;
+            return true;
+        }
+
+        // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
+        [MethodImpl(JitHints.Optimize)]
+        int side(ExactMeshArrangement.InputTriangle U, ExactPoint3 P, Vector3d g)
+        {
+            int s = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, g.x, g.y, g.z);
+            if (s == 2)
+                s = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
+            return s;
         }
 
         // generalized winding numbers are thresholded at 1/2: ceil(w - 1/2) > 0 iff w > 1/2, and it commutes with adding
@@ -2077,7 +2639,19 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center, out double usedBound)
         {
+            int chi, far;
+            return antipodal_front_winding(i, mesh, stack, segments, center, out usedBound, out chi, out far);
+        }
+
+        // as above, also with the signed crossings chi of the ray that gave the value and the index of its far point (-1 where
+        // the value is undecided)
+        [MethodImpl(JitHints.Optimize)]
+        double antipodal_front_winding(int i, int mesh, List<int> stack, Vector3d[] segments, Center center, out double usedBound,
+            out int usedChi, out int usedFar)
+        {
             usedBound = -1;
+            usedChi = 0;
+            usedFar = -1;
             // (in grid coordinates, relative to the arrangement's centre: their rounding is relative to the model's size,
             // not to its distance from the origin, eg UTM coordinates; the segments are converted once, antipodal_grid)
             Vector3d p = center.GridDouble();
@@ -2088,74 +2662,90 @@ namespace g3
                 // (attempts continue the hash sequence of front_crossings: a new far point each time)
                 int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, far, out j, 200 * attempt);
                 Vector3d x1 = -(far.Grid[j] - p).Normalized;
-                double sum = 0, err = 0, abs = 0;
-                bool degenerate = false;
-                for (int k = 0; k < segments.Length; k += 2) {
-                    Vector3d a = segments[k] - p, b = segments[k + 1] - p;
-                    double la = a.Length, lb = b.Length;
-                    // the error of the unit vectors: the rounding of p and of the ends (relative 2^-52 of their L1 size, as
-                    // a distance), divided by the distance, plus the normalization; num and den are sums of a few products
-                    // of unit vectors, so their errors are a small multiple of it (taken generously: 16 times)
-                    double ea = 2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) / la;
-                    double eb = 2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) / lb;
-                    double tol = 16 * (ea + eb + 1e-15);
-                    if (!(tol < 0.01)) {
-                        // (the centroid on or next to an end of the segment: undecided whatever the ray)
-                        System.Threading.Interlocked.Increment(ref antipodalUndecided);
-                        return 0.5;
-                    }
-                    a /= la;
-                    b /= lb;
-                    if (1 + a.Dot(b) <= tol) {
-                        // (a and b opposite: the centroid on or next to the segment, undecided whatever the ray)
-                        System.Threading.Interlocked.Increment(ref antipodalUndecided);
-                        return 0.5;
-                    }
-                    double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
-                    // the branch cut of 2 atan2(num, den) is num = 0, den < 0 (the ray passes through the segment, where the
-                    // exact crossing count and the rounded sum could disagree by 1), and both near 0 is the singular point:
-                    // within the error, another ray
-                    if (Math.Abs(num) <= tol && den <= tol) {
-                        degenerate = true;
-                        break;
-                    }
-                    // (portable_atan2, not Math.Atan2: the runtime's atan2 differs by an ulp between runtimes, and a value
-                    // next to the edge of the snap below could then be decided differently)
-                    // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2 (first order,
-                    // valid while tol is small against the hypot: the bound of 1e-6 below on the whole sum keeps every
-                    // tol / hypot below 3e-6; num and den both small, the ray nearly through an end of the segment, makes
-                    // the term ill-conditioned and the bound large, so another ray is taken there)
-                    double termError = 4 * tol / Math.Sqrt(num * num + den * den);
-                    double theta = 2 * portable_atan2(num, den);
-                    sum += theta;
-                    abs += Math.Abs(theta);
-                    // plus twice the error of portable_atan2 (PortableAtan2Error)
-                    err += termError + 2 * PortableAtan2Error;
+                double w, bound;
+                int status = antipodal_value(p, pm, x1, chi, segments, out w, out bound);
+                if (status == 1) {
+                    // (the centroid on or next to a segment: undecided whatever the ray)
+                    System.Threading.Interlocked.Increment(ref antipodalUndecided);
+                    return 0.5;
                 }
-                if (degenerate == false) {
-                    // (the recursive summation: at most n u times the sum of the absolute terms)
-                    err += 2.3e-16 * (segments.Length / 2) * abs;
-                    double w = chi + sum / MathUtil.FourPI;
-                    // (and the roundings of the division by 4 pi (also of 4 pi itself) and of the addition of chi)
-                    double bound = err / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
-                    // (a bound above 1e-6 would make the snap below a guess: another ray; the bound is about 1e-13 per
-                    // segment for a centroid not next to one)
-                    if (!(bound <= 1e-6))
-                        continue;
-                    // a value within the error of a half-integer is that half-integer: just in front of a flat part of an
-                    // open sheet the winding number is exactly k + 1/2, and the rounding of the sum must not decide the
-                    // threshold (ceil(w - 1/2) reads k + 1/2 as k, whatever the ray)
-                    double snapped = snap_half(w, bound);
-                    if (snapped != w)
-                        System.Threading.Interlocked.Increment(ref antipodalSnapped);
-                    else
-                        usedBound = bound;
-                    return snapped;
-                }
+                if (status == 2)
+                    continue;
+                // a value within the error of a half-integer is that half-integer: just in front of a flat part of an
+                // open sheet the winding number is exactly k + 1/2, and the rounding of the sum must not decide the
+                // threshold (ceil(w - 1/2) reads k + 1/2 as k, whatever the ray)
+                double snapped = snap_half(w, bound);
+                if (snapped != w)
+                    System.Threading.Interlocked.Increment(ref antipodalSnapped);
+                else
+                    usedBound = bound;
+                usedChi = chi;
+                usedFar = j;
+                return snapped;
             }
             // (no usable ray: undecided, which the threshold reads as outside)
             System.Threading.Interlocked.Increment(ref antipodalUndecided);
             return 0.5;
+        }
+
+        /// <summary>
+        /// The Antipodal value chi + (the boundary sum) / (4 pi) at the point p (grid doubles, pm its L1 size) for the ray
+        /// whose opposite direction is x1, chi that ray's signed crossings, and its error bound. Returns 0 (w, bound), 1 if
+        /// the point is on or next to a segment (undecided whatever the ray), 2 if this ray does not give a value within
+        /// the bound (the ray through a segment, an ill-conditioned term, or a bound above 1e-6: another ray).
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        static int antipodal_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, out double w, out double bound)
+        {
+            w = 0.5;
+            bound = 0;
+            double sum = 0, err = 0, abs = 0;
+            for (int k = 0; k < segments.Length; k += 2) {
+                Vector3d a = segments[k] - p, b = segments[k + 1] - p;
+                double la = a.Length, lb = b.Length;
+                // the error of the unit vectors: the rounding of p and of the ends (relative 2^-52 of their L1 size, as
+                // a distance), divided by the distance, plus the normalization; num and den are sums of a few products
+                // of unit vectors, so their errors are a small multiple of it (taken generously: 16 times)
+                double ea = 2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) / la;
+                double eb = 2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) / lb;
+                double tol = 16 * (ea + eb + 1e-15);
+                // (the point on or next to an end of the segment)
+                if (!(tol < 0.01))
+                    return 1;
+                a /= la;
+                b /= lb;
+                // (a and b opposite: the point on or next to the segment)
+                if (1 + a.Dot(b) <= tol)
+                    return 1;
+                double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
+                // the branch cut of 2 atan2(num, den) is num = 0, den < 0 (the ray passes through the segment, where the
+                // exact crossing count and the rounded sum could disagree by 1), and both near 0 is the singular point:
+                // within the error, another ray
+                if (Math.Abs(num) <= tol && den <= tol)
+                    return 2;
+                // (portable_atan2, not Math.Atan2: the runtime's atan2 differs by an ulp between runtimes, and a value
+                // next to the edge of the snap could then be decided differently)
+                // the error of the term: d atan2(y, x) is at most (|dy| + |dx|) / hypot(x, y), times 2 (first order,
+                // valid while tol is small against the hypot: the bound of 1e-6 below on the whole sum keeps every
+                // tol / hypot below 3e-6; num and den both small, the ray nearly through an end of the segment, makes
+                // the term ill-conditioned and the bound large, so another ray is taken there)
+                double termError = 4 * tol / Math.Sqrt(num * num + den * den);
+                double theta = 2 * portable_atan2(num, den);
+                sum += theta;
+                abs += Math.Abs(theta);
+                // plus twice the error of portable_atan2 (PortableAtan2Error)
+                err += termError + 2 * PortableAtan2Error;
+            }
+            // (the recursive summation: at most n u times the sum of the absolute terms)
+            err += 2.3e-16 * (segments.Length / 2) * abs;
+            w = chi + sum / MathUtil.FourPI;
+            // (and the roundings of the division by 4 pi (also of 4 pi itself) and of the addition of chi)
+            bound = err / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
+            // (a bound above 1e-6 would make the snap a guess: another ray; the bound is about 1e-13 per segment for a
+            // point not next to one)
+            if (!(bound <= 1e-6))
+                return 2;
+            return 0;
         }
 
         // w, or the half-integer nearest to w (floor(w) + 1/2, exact for |w| below 2^52) if it is within bound of it
@@ -2217,6 +2807,10 @@ namespace g3
         long antipodalUndecided;
         // L1: the (patch, open mesh) pairs decided per patch, and the per-piece evaluations they saved
         long perPatchDecided, perPatchSaved;
+        // L2: the evaluations by a carried ray, and the direct ones of the traced input triangles (references and fallbacks)
+        long tracedCount, tracedDirect, tracedCarried;
+        // L2: the boundary segments of the Antipodal meshes as exact grid points (antipodalSegments as doubles)
+        readonly Dictionary<int, ExactPoint3[]> antipodalExact = new Dictionary<int, ExactPoint3[]>();
         // values the Antipodal Method snapped to a half-integer (snap_half)
         long antipodalSnapped;
 
