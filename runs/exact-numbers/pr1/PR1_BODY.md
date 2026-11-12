@@ -70,7 +70,8 @@ Per call through the public predicates, `benchmarks/PredicateComparison span 200
 
 ### Tests
 
-`GeneratedDoublePredicatesTests` (17 cases):
+`GeneratedDoublePredicatesTests` (the generator and the kernels) and `ExactPredicatesBeyondRangeTests` (through the
+library's existing entry points only, so that they also build against the base library), 17 cases:
 
 - the checked-in file and the table of the design note equal the generator's output;
 - the limb rule with exact integers for every exponent span 0..2045 (no overflow of an accumulator, every limb a
@@ -81,12 +82,14 @@ Per call through the public predicates, `benchmarks/PredicateComparison span 200
   bit set at both ends of the exponent range;
 - the helper of one monomial (`add2` / `add3` / `add4`) against BigInteger on accumulators with runs of all-ones limbs
   (carries past the monomial's own limbs) and full mantissas (carries of the product chain);
-- through the public predicates; no allocation on the fallback (fails on master: 1.4 to 4.6 KB per call);
+- through the public predicates; no allocation on the fallback (`ExactPredicatesBeyondRangeTests`; fails on master: 1.4
+  to 4.6 KB per call);
 - NaN and infinity throw as before; all coordinates zero;
 - invariance over `Similarity.All()` (the 2^k scales give the same sign case by case; every transformed input equals
   its BigInteger determinant);
-- a fuzz unit of #711 (procedural, 16 + 6 vertices): union with an allocation bound, 43 MB against 1.9 GB on master
-  (a bound on allocation, not on time, so it does not depend on the machine).
+- a fuzz unit of #711 (procedural, 16 + 6 vertices; `ExactPredicatesBeyondRangeTests`): union with a bound on the
+  operation's allocation, 43 MB against 1.9 GB on master (a bound on allocation, not on time, so it does not depend on
+  the machine; measured on the calling thread with the parallel loops serial, so tests running beside it do not count).
 
 Hand mutants, each applied to the generator (kernels regenerated) or to a call site, all 17 killed by the tests above:
 a monomial dropped; a monomial's sign flipped; one limb less; the shift's carried bits off by one; the top limb of the
@@ -111,6 +114,11 @@ Mutation: `math/Generated/DoublePredicates.cs` joins the shard `mesh-generated`;
   tests are the check; the expansions are in the spec's comments).
 - `stackalloc` of `2 L(s)` limbs, at most 2.1 KB; on netstandard2.0 the 64 x 64 multiply is
   `FixedArith.MulHighPortable` and the kernels do not use `Span`.
-- Local CI (the full list of CLAUDE.md) on the branch: see the first comment.
+- Local CI (the full list of CLAUDE.md) on the branch, 4-core cloud container: library tests net10.0 11484 passed, 0
+  failed, 2 skipped (22 m 48 s); g3cli tests 475 passed; `dotnet pack` with the API validation against 1.0.324 and the
+  package smoke test; the net48 builds of both test projects; Clipper2 tests 72 passed, its pack and smoke test; every
+  benchmark project and `tools/PredicateCompiler` build. `tools/new_tests_on_base.py --require-failing`: exit 0, 2 of
+  the 13 new test methods fail on the base (`ExactPredicatesBeyondRangeTests`), the other 11 do not compile there by
+  design (they test the generator and the generated class).
 
 Closes #711.
