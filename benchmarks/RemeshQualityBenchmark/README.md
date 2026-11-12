@@ -103,6 +103,7 @@ The guard also catches cone12_x0.6 and cone16_x0.6: without it, the coarse remes
 layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the last passes are rolled back.
 
 ### Cases that get worse
+(Before the rim fold check of #621, below, which removes the rim cases.)
 - **More self-intersecting pairs (11 primitives, none of the gears or Thingi meshes):** taper10_x0.15 (12 -> 16),
   taper16_x0.1 (0 -> 12), taper32_x0.1 (0 -> 12), taper32_x0.6 (0 -> 8), cone16_x0.45 (0 -> 10), cone24_x0.15
   (0 -> 6), cone24_x0.3 (0 -> 10), cone24_x0.6 (0 -> 31), cone32_x0.6 (0 -> 8): all at the bottom rim, where the flat
@@ -122,6 +123,64 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   target edge lengths; the mean improves from 1.115 to 1.017. Not analysed per mesh: the option rejects some smoothing
   moves, collapses and flips, so the vertices end in other places; these meshes also lose most of their flat triangles
   and self-intersections (eg 1053376: 292 -> 66 pairs, 48 -> 9 flat; 63709: 1366 -> 876 pairs, 12 -> 1 flat).
+
+### Rim self-intersections: diagnosis and the fold check (#621)
+Per-operation trace on master (every flip, collapse, split, smoothing and projection pass; pairs identified by their
+triangles' vertex ids), the nine cases above plus cone12_x0.15:
+- **One configuration.** Every pair left at the end involves a *fold*: a side triangle lying in the cap's plane,
+  facing up, over cap triangles facing down (a coplanar overlap; no normal flips, so the normal checks pass it). In
+  8 cases its corners are all feature vertices (rim curve or fixed corners), created by a valence flip whose new edge
+  joins two rim vertices across a third, sometimes by a collapse of a side vertex onto a rim vertex; in the coarse
+  x0.6 cases two corners are on the rim and the third was projected onto the cap. Valence flips of quads with only
+  feature vertices are about 10% of the flips but create about 80% of the pairs that flips create (cone24_x0.3: 41
+  such flips create 142 pairs, the other 366 flips 34).
+- **The final count is chance.** During the passes thousands of pairs appear and disappear in both modes; the
+  survivors are created in pass 19. The same inputs moved by 8 small translations (k * (0.37, -0.61, 0.23)), final
+  pairs summed, quality 0 -> 0.2: taper16_x0.1 0 -> 66, taper32_x0.1 0 -> 46, cone24_x0.6 0 -> 248, cone32_x0.6
+  0 -> 64, taper32_x0.6 0 -> 32, cone16_x0.45 0 -> 54, cone24_x0.3 20 -> 44, cone24_x0.15 16 -> 26, taper10_x0.15
+  108 -> 128; better with the option: cone12_x0.15 137 -> 16, taper10_x0.3 160 -> 48, taper12_x0.15 27 -> 12. A
+  gate on the single axis-aligned count overfits; the ensemble is the measure (`RemesherRimFoldTests`).
+- **No large-coordinate bug.** cone24_x0.3 under the UTM translation ends 0.51 edges from the untranslated result,
+  but a translation by (0.5, 0.25, 0.125) gives 0.25..0.53 and quality 0 gives 0.28 (master): rounding tips ties of
+  the symmetric input and the passes amplify them. A vertex-distance bound of 0.25 edges holds for cylinder12 (the
+  existing similarity test), not for these cones; `Rim_SameResultUnderSimilarity` checks the 2^k scales bit for bit
+  and the other transforms by their result.
+
+**The fold check** (`Remesher.flip_creates_feature_fold`, `collapse_creates_feature_fold`): with MinTriangleQuality,
+a flip or collapse is rejected if its new triangles with two or more feature vertices intersect (exactly,
+`pair_intersects`) more of the triangles around their feature corners that face away from them (> 90 degrees) than
+the old triangles did, counted the same way (the same filter and corners: counted at all corners, an existing crossing
+at a corner off the features hid new folds, 6 / 7 / 4 pairs on cone12_x0.15 / x0.2 / x0.3 with PinSharpVertices).
+Collapses are checked only when a vertex off the features joins one on them. Flips that remove an edge longer than
+3 x the split length are not checked: on a coarse input (the 12 edges from the rim to the apex of cone12) those fold
+flips are part of the way the passes refine it, and rejecting them sent cone12 with PinSharpVertices into hundreds of
+crossings at the cap (264 pairs at x0.3); at 2 x, RemesherPro, which revisits only queued edges, kept folds of coarse
+cones (cone24_x0.6: 136 pairs in 4 runs). Not checked: smoothing and projection moves (a variant that did changed
+nothing in the default setting) and splits (a split puts its vertex on the edge or, for a curve edge, on the curve; no
+pair that survived came from one).
+
+Translation ensemble (4 runs each, 18 cones and tapers incl. the nine, final pairs summed), master -> fold check:
+Remesher 440 -> 0, RemesherPro 189 -> 0, Remesher with PinSharpVertices(30) 285 -> 3 (cone24_x0.15, master 12).
+The full benchmark (`runs=1`, above):
+
+| setting | self-intersecting pairs master / fold check | cases with pairs | cases not clean | mean hausdorff/target |
+|---|---:|---:|---:|---:|
+| primitives, quality 0.2 | 281 / 129 | 16 / 2 | 16 / 2 | 0.341 / 0.354 |
+| primitives, quality 0.2, `pin=75` | 168 / 9 | 16 / 2 | | 0.115 / 0.119 |
+| gears, quality 0.2 | 0 / 0 | 0 / 0 | 0 / 0 | 0.010 / 0.010 |
+| tubes, quality 0.2 | 5352 / 5100 | 24 / 23 | 24 / 23 | 0.311 / 0.298 |
+
+The two primitives left with pairs are the flattened cones cone12_x0.6 and cone16_x0.6 (71 and 58; master 70 and 52,
+a separate item). F-scores, normal consistency, Edge Chamfer and the 1% worst angle are equal or better
+(primitives F 0.1% 0.8282 -> 0.8287, Edge Chamfer 0.0154 -> 0.0146). The Hausdorff distance is the cones' apex
+(not a feature, rounded off by 1.4..3.4 target in both), and the single runs differ by chance: over 8 translations of
+the 42 cones the mean is 1.078 (master) and 1.088 target, 6 cones worse and 6 better by more than 0.1 (cone12_x0.45
+1.46 -> 1.90, cone32_x0.6 1.37 -> 1.85 the largest). Time with the option, the 150 primitives, `runs=3 fidelity=0`,
+6 pairs of master and fold-check runs alternating (M F, F M, ...): 4.67 -> 5.13 s, 1.097 x (per pair 1.02..1.24,
+median 1.087; the unchanged runs without the option 1.017 x between the same runs). The exact tests are about 3..6%
+of a run (box6, taper16); the rest comes from the other evolution of the meshes.
+The tube135363 tube no longer turns inside out with the option (the rejected flips at its rims were part of the
+inversion); `RemesherInversionGuardTests` test the guard with MinTriangleQuality on tubes that still do.
 
 ## PreventSelfIntersections (opt-in)
 `Remesher.PreventSelfIntersections` rejects the collapses, flips and splits whose new triangles would intersect
