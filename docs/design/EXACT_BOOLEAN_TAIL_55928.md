@@ -26,6 +26,9 @@ Difference, 4 cores, the same container, nothing else running (`profile --repeat
 |---|---|---|---|---|---|
 | 79a2c1ab (FWN per patch for open operands) | 579 s | 390 s | 162 s | 22 s | 61550C3C2F352E72 |
 | master 88342701 (Antipodal per piece) | 973 s | 772 s | 172 s | 25 s | 61550C3C2F352E72 |
+| this stage: L1 (e04b02f7) | 625 s | 442 s | 155 s | 24 s | 61550C3C2F352E72 |
+| this stage: L2 (43990acb) | 475 s | 295 s | | | 61550C3C2F352E72 |
+| this stage: L2 with the local frame (a5227166) | 454 s | 262 s | 163 s | 25 s | 61550C3C2F352E72 |
 
 The result is the same. Classification is 1.98 times slower on master. Both operands are open and have 133 boundary
 segments each, so since 98def50f (open operands classified per piece) and d458662c (the Antipodal Method) every piece
@@ -218,9 +221,24 @@ triangle (an input point, so an integer grid point):
 
 Measured on 55928: classification 295 -> 262 s, the result hash unchanged (61550C3C2F352E72), and verify mode on the
 sub-balls as before (176 triangles: 0 differences; 441 triangles: 4, each where the piece's own evaluation is
-undecided). What remains is the exact centroid of every piece and its conversion, which together with the GC took 118 s of
-pauses. The next step is filters on the centroids' approximations with absolute error bounds, so that the exact centroid
-is computed only where a filter fails.
+undecided). What remained was the exact centroid of every piece and its conversion, which together with the GC took 118 s
+of pauses.
+
+**Tried and not taken: filters on the centroids' approximations.** The idea was to take each centroid from its corners'
+double approximations (`ApproxError`, absolute per coordinate) and compute the exact centroid only for an exact stage.
+That needed `orient3d` filters with absolute input errors, and the boundary sum at the approximation with the point's
+and the direction's errors in each term's tolerance.
+- On the knot benchmark, classification went from 3.5 to 2.3 s, with the hash and the verify results unchanged.
+- On 55928 it was slower: classification 262 -> 287 s, hash unchanged, the classification's allocations doubled
+  (136 -> 266 GB).
+- The cause: the knot lies at about 3e17 grid units, where the approximations of the implicit points carry errors of
+  about 1e3 units; even a correctly rounded double is off by up to 32. These errors are larger than the distance between
+  neighbouring centroids. Every filter on the segment between two centroids then fails, notably the pierce tests with
+  the far point at about 1e21 (771k exact centroids of 999k pieces on the 441-triangle sub-ball). The local frame
+  above has no such limit: it rounds the exact difference to the origin, so its error is relative to the triangle's
+  size, not the model's.
+- Filters on approximations can only gain where those errors are small against the pieces, which is not the case this
+  stage is for.
 
 **The threshold.**
 - Every traced value is that of an Antipodal evaluation with another ray. Its threshold can differ from the piece's own
@@ -234,7 +252,7 @@ is computed only where a filter fails.
   (20 rays without a value) and the carried ray gives one.
 
 **Cost per piece.** One boundary sum (133 atan2 on 55928), the crossing candidates of one grid cell, and the boundary
-candidates of the tetrahedron, typically none. Measured, Difference, 4 cores: see the table in section 7.
+candidates of the tetrahedron, typically none. Measured, Difference, 4 cores: see the table in section 1.
 
 **Prior art.**
 - EMBER (Trettner et al. 2022) traces integer winding numbers along line segments to local reference positions.
