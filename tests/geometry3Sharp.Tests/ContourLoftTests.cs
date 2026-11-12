@@ -832,7 +832,7 @@ namespace geometry3Sharp.Tests
         {
             // the double geometry runs in a working frame scaled by a power of two, so the decisions do not depend on the exponent
             var (P, Q) = InvarianceInput();
-            Vector3d S(Vector3d p) => new Vector3d(Math.ScaleB(p.x, k), Math.ScaleB(p.y, k), Math.ScaleB(p.z, k));
+            Vector3d S(Vector3d p) => new Vector3d(ExactPoint3.ScaleB(p.x, k), ExactPoint3.ScaleB(p.y, k), ExactPoint3.ScaleB(p.z, k));
             var Ps = P.Select(S).ToList(); var Qs = Q.Select(S).ToList();
             foreach (var loft in new[] { new ContourLoft(), new ContourLoft { Cost = ContourLoftCost.MaximumVolume }, new ContourLoft { NormalizeForCost = true } }) {
                 var expected = loft.Compute(P, Q);
@@ -843,7 +843,7 @@ namespace geometry3Sharp.Tests
                 var b = got.Mesh.TriangleIndices().Select(t => got.Mesh.GetTriangle(t)).ToList();
                 Assert.Equal(a, b);
                 int f = loft.NormalizeForCost ? 0 : loft.Cost == ContourLoftCost.MinimumArea ? 2 : 3;
-                double scaled = Math.ScaleB(expected.TotalCost, f * k);
+                double scaled = ExactPoint3.ScaleB(expected.TotalCost, f * k);
                 if (scaled != 0 && !double.IsInfinity(scaled) && Math.Abs(scaled) >= 2.2250738585072014E-308)
                     Assert.Equal(scaled, got.TotalCost);
             }

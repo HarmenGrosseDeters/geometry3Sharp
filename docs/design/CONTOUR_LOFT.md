@@ -148,10 +148,11 @@ the start is solved again in the full region.
 of 10 states each. Memory: 2mn doubles + 2mn flags + 10 (m+1)(n+1) predecessor bytes + 2 (n+1)(m+1) span ints, about 36
 bytes per cell: MaxCells = 2^22 (m = n = 2048) is about 150 MB. Above: `TooLarge` (checked in `long` before allocating).
 
-**Upper bound** (to measure before tuning, AGENT_WORKFLOW §3): m = n = 1000 means 2e6 triangle evaluations (exact slope
-test: interval filter, about 50-100 ns each, so ~0.2 s worst case) and 1e6 x log2(1000) = 1e7 DP updates (~0.05 s). The
-naive all-starts DP would be 1e9 updates (seconds), which is why the divide and conquer is built from the start. The
-benchmark `benchmarks/ContourLoftBenchmark` reports both at n = 250, 1000, 2000.
+**Upper bound** (estimated before building, AGENT_WORKFLOW §3): m = n = 1000, 2e6 triangle evaluations at 50-100 ns and
+1e7 DP updates at ~5 ns, ~0.25 s. **Measured** ([ContourLoftBenchmark](../../benchmarks/ContourLoftBenchmark/README.md)):
+0.63 s at 1024 x 1024 and 2.8 s at 2048 x 2048 (the default MaxCells), about 55 ns per m n log2 n for the search (10 states
+per node, not 1, is the factor the estimate missed); the exact slope oracle adds about 4 s at 2048 x 2048. The naive
+all-starts DP would be O(m n^2): at 2048 x 2048 about 2000 times the measured search.
 
 ## 7. Result checks (never a silently wrong band)
 
@@ -184,3 +185,19 @@ On every path to `Success`:
 - **Self-intersection**: two dissimilar contours whose optimal band intersects itself -> `SelfIntersecting`.
 - **Invalid input / TooLarge / InvalidCost**, each status once.
 - Mutation check of each guard by hand (break it, a test fails).
+
+## 9. Changes while building, and measurements
+
+- **Non-manifold fans** (section 6): the brute-force oracle showed that FKU's graph holds tilings that are not manifold; the
+  10-state search excludes them, with the non-crossing argument kept.
+- **Power-of-two working frame**: the double geometry (centroids, Newell normals, separation, orientation, the built-in
+  costs) runs on the input scaled so that its largest coordinate is in [1, 2); the band is the same for every 2^k scaling
+  that keeps the input normal and finite (tested from 2^-1000 to 2^700). The independent review found the band changing at
+  2^-30 with `NormalizeForCost` (`Normalized` returns zero for short vectors) and at 2^-268 / 2^256 without it.
+- **StartOffset** is read off the band's steps (review: with a shorter first contour it was an index into the wrong contour).
+- **Performance**: a per-row reset of the state arrays made the search O(m n^2) (2048 x 2048 did not finish in 10 minutes);
+  only the region's columns are reset now, and a work counter (`SearchWork`) is bounded by a test. The inner loop on local,
+  column-major arrays and the slope factors computed once (`NotSteeperThan`) took 2048 x 2048 from 5.2 to 2.8 s and, with
+  the slope oracle, from 9.9 to 6.9 s, with bit-identical bands.
+- **Hand mutants**: 21 mutants of the search, the statuses, the costs, the caps and the guards, all killed by the tests (the
+  region-rule mutants only once the full-region fallback was counted: the fallback made them correct but O(m n^2)).
