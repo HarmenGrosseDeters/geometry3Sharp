@@ -311,33 +311,7 @@ namespace gs
                 return i;
             }
 
-            // a little below x (rounded down by more than its rounding error); 0 for x <= 0
-            static double down(double x) => (x > 0) ? x * (1 - 4.5e-16) : 0;
-            // above x by more than the rounding error of up to two operations whose exact result is x: relatively for a normal x,
-            // by one ulp for a subnormal one (whose roundings are absolute, at most half the smallest subnormal each)
-            static double up(double x) => (x > 0) ? Math.Max(x * (1 + 4.5e-16), ExactInterval.Up(x)) : x;
 
-            // the midpoint of a and b in doubles, and an upper bound of its distance from the exact midpoint (TwoSum per component:
-            // a + b = s + r exactly; halving s is exact unless the result is subnormal; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md c1)
-            static Vector3d midpoint(Vector3d a, Vector3d b, out double err)
-            {
-                Vector3d m = Vector3d.Zero;
-                // (the sum of the components' errors bounds the length of the error vector, without squares, which underflow)
-                double e1 = 0;
-                const double MinNormal = 2.2250738585072014E-308, Tiny = 4.9406564584124654E-324;
-                for (int k = 0; k < 3; ++k) {
-                    double x = a[k], y = b[k], sum = x + y, bb = sum - x, r = (x - (sum - bb)) + (y - bb);
-                    m[k] = 0.5 * sum;
-                    // |r| / 2, plus one smallest subnormal where halving may round (a subnormal r or a subnormal midpoint: by at most
-                    // half of it each)
-                    double ek = 0.5 * Math.Abs(r);
-                    if (r != 0 && Math.Abs(r) < 2 * MinNormal) ek += Tiny;
-                    if (sum != 0 && Math.Abs(m[k]) < MinNormal) ek += Tiny;
-                    e1 += ek;
-                }
-                err = (e1 > 0) ? up(e1) : 0;
-                return m;
-            }
 
             // the triangles have the same corners (as a multiset of points): splitting made no progress
             bool same(Index3i c, Index3i p)
@@ -406,13 +380,13 @@ namespace gs
                     for (int b = 0; b < nb; ++b) {
                         Index3i t = batch[b];
                         double e0, e1, e2;
-                        mp[3 * b] = midpoint(pos[t.a], pos[t.b], out e0);
-                        mp[3 * b + 1] = midpoint(pos[t.b], pos[t.c], out e1);
-                        mp[3 * b + 2] = midpoint(pos[t.c], pos[t.a], out e2);
+                        mp[3 * b] = HausdorffRounding.Midpoint(pos[t.a], pos[t.b], out e0);
+                        mp[3 * b + 1] = HausdorffRounding.Midpoint(pos[t.b], pos[t.c], out e1);
+                        mp[3 * b + 2] = HausdorffRounding.Midpoint(pos[t.c], pos[t.a], out e2);
                         // (the exact midpoint of two points within off of the triangle is within their mean of it)
-                        mo[3 * b] = mid_off(off[t.a], off[t.b], e0);
-                        mo[3 * b + 1] = mid_off(off[t.b], off[t.c], e1);
-                        mo[3 * b + 2] = mid_off(off[t.c], off[t.a], e2);
+                        mo[3 * b] = HausdorffRounding.MidOff(off[t.a], off[t.b], e0);
+                        mo[3 * b + 1] = HausdorffRounding.MidOff(off[t.b], off[t.c], e1);
+                        mo[3 * b + 2] = HausdorffRounding.MidOff(off[t.c], off[t.a], e2);
                     }
                     gParallel.ForEach(Interval1i.Range(3 * nb), (k) => query(mp[k], out md[k], out mt[k], out mc[k]));
 
@@ -455,7 +429,7 @@ namespace gs
                 if (pos.Count == 0)
                     return;
                 double w = CertifiedPointMeshDistance.LowerBound(to, Worst);
-                double cw = (worstOff > 0) ? down(ExactInterval.Down(w - worstOff)) : w;
+                double cw = (worstOff > 0) ? HausdorffRounding.Down(ExactInterval.Down(w - worstOff)) : w;
                 if (!(cw > 0)) cw = 0;
                 double cv = 0;
                 if (vertexWorst >= 0 && pos[vertexWorst] != Worst)
@@ -468,11 +442,6 @@ namespace gs
 
             double threshold() { return Math.Max(Lower, prune); }
 
-            static double mid_off(double oa, double ob, double err)
-            {
-                double o = 0.5 * (oa + ob) + err;
-                return (o > 0) ? up(o) : 0;
-            }
 
             // upper bound of the distance to To over the triangle (i, j, k), and over the part of From's triangle it stands for
             double upper_bound(Index3i t)
@@ -480,8 +449,49 @@ namespace gs
                 double o = Math.Max(off[t.a], Math.Max(off[t.b], off[t.c]));
                 double u = bounds.UpperBound(pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
                     near[t.a], near[t.b], near[t.c], threshold());
-                return (o > 0) ? up(u + o) : u;
+                return (o > 0) ? HausdorffRounding.Up(u + o) : u;
             }
+        }
+    }
+
+    /// <summary>
+    /// The rounding allowance of MeshHausdorffDistance's subdivision points (#738; derivations in
+    /// docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md, section c)
+    /// </summary>
+    internal static class HausdorffRounding
+    {
+        // below x by more than the rounding error of up to two operations whose exact result is x (as Up); 0 for x <= 0
+        internal static double Down(double x) => (x > 0) ? Math.Max(0, Math.Min(x * (1 - 4.5e-16), ExactInterval.Down(x))) : 0;
+        // above x by more than the rounding error of up to two operations whose exact result is x: relatively for a normal x,
+        // by one ulp for a subnormal one (whose roundings are absolute, at most half the smallest subnormal each)
+        internal static double Up(double x) => (x > 0) ? Math.Max(x * (1 + 4.5e-16), ExactInterval.Up(x)) : x;
+
+        // the midpoint of a and b in doubles, and an upper bound of its distance from the exact midpoint (TwoSum per component:
+        // a + b = s + r exactly; halving s is exact unless the result is subnormal; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md c1)
+        internal static Vector3d Midpoint(Vector3d a, Vector3d b, out double err)
+        {
+            Vector3d m = Vector3d.Zero;
+            // (the sum of the components' errors bounds the length of the error vector, without squares, which underflow)
+            double e1 = 0;
+            const double MinNormal = 2.2250738585072014E-308, Tiny = 4.9406564584124654E-324;
+            for (int k = 0; k < 3; ++k) {
+                double x = a[k], y = b[k], sum = x + y, bb = sum - x, r = (x - (sum - bb)) + (y - bb);
+                m[k] = 0.5 * sum;
+                // |r| / 2, plus one smallest subnormal where halving may round (a subnormal r or a subnormal midpoint: by at most
+                // half of it each)
+                double ek = 0.5 * Math.Abs(r);
+                if (r != 0 && Math.Abs(r) < 2 * MinNormal) ek += Tiny;
+                if (sum != 0 && Math.Abs(m[k]) < MinNormal) ek += Tiny;
+                e1 += ek;
+            }
+            err = (e1 > 0) ? Up(e1) : 0;
+            return m;
+        }
+
+        internal static double MidOff(double oa, double ob, double err)
+        {
+            double o = 0.5 * (oa + ob) + err;
+            return (o > 0) ? Up(o) : 0;
         }
     }
 }

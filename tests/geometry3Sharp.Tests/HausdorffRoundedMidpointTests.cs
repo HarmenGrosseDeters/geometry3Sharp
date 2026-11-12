@@ -27,10 +27,11 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static DMesh3 Shifted(DMesh3 m, double z)
+        static DMesh3 Shifted(DMesh3 m, double z, int axis = 2)
         {
             var c = new DMesh3(m);
-            foreach (int v in c.VertexIndices().ToList()) c.SetVertex(v, c.GetVertex(v) - new Vector3d(0, 0, z));
+            Vector3d d = Vector3d.Zero; d[axis] = z;
+            foreach (int v in c.VertexIndices().ToList()) c.SetVertex(v, c.GetVertex(v) - d);
             return c;
         }
 
@@ -206,19 +207,142 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // A: the triangle (0, Y, 0), (0, Y + 1, 0), (1, Y, 0) at Y = 1.3 2^52 (an ulp is 1: every midpoint in y rounds onto Y or
+        // Y + 1); B: three small triangles 0.1 above A's corners. A's points far from its corners are farther from B than its
+        // corners, and their rounded copies (y moved onto Y or Y + 1) lie nearer to B than they are
+        static (DMesh3 a, DMesh3 b) CornersOnly(double Y)
+        {
+            var a = new DMesh3();
+            a.AppendTriangle(a.AppendVertex(new Vector3d(0, Y, 0)), a.AppendVertex(new Vector3d(0, Y + 1, 0)), a.AppendVertex(new Vector3d(1, Y, 0)));
+            var b = new DMesh3();
+            foreach (var c in new[] { new Vector3d(0, Y, 0), new Vector3d(0, Y + 1, 0), new Vector3d(1, Y, 0) })
+                b.AppendTriangle(b.AppendVertex(c + new Vector3d(-0.0625, 0, 0.1)), b.AppendVertex(c + new Vector3d(0.0625, 0, 0.1)), b.AppendVertex(c + new Vector3d(0, 0, 0.125)));
+            return (a, b);
+        }
+
+        /// <summary> the distance's maximum lies inside A, where (measured as given) the subdivision points round towards B: the upper
+        /// bound, with the rounding allowance of the rounded triangles and the bounds of those not refined further, still contains
+        /// the distance of the exactly shifted meshes; and the certified lower bound stays above 0 (the input vertices, off 0) </summary>
+        [Fact]
+        public void InteriorMaximum_RoundedTowardsB_UpperStillContainsIt()
+        {
+            double Y = 1.3 * Math.Pow(2, 52);
+            var (a, b) = CornersOnly(Y);
+            var reference = new MeshHausdorffDistance(Shifted(a, Y, 1), Shifted(b, Y, 1)) { Symmetric = false };
+            Assert.True(reference.Compute() && reference.Converged);
+            Assert.True(reference.LowerBound > 0.3, "the reference's distance " + reference.LowerBound);    // (inside A, far from the corners)
+            foreach (double tol in new[] { 0.0, 0.05 }) {
+                var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 200000 };
+                AsGiven(given);
+                Assert.True(given.Compute());
+                Assert.True(given.UpperBound >= reference.LowerBound, $"tol {tol}: upper {given.UpperBound:R} below the distance {reference.LowerBound:R}");
+                Assert.True(given.LowerBound <= reference.UpperBound, $"tol {tol}: lower {given.LowerBound:R} above {reference.UpperBound:R}");
+                Assert.True(given.LowerBound > 0, $"tol {tol}: lower bound 0");
+                Assert.True(given.Subdivisions < 50000, given.Subdivisions + " subdivisions");
+                // and with the copies it converges to the reference
+                var h = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 200000 };
+                Assert.True(h.Compute());
+                Assert.True(h.LowerBound <= reference.UpperBound && h.UpperBound >= reference.LowerBound, $"tol {tol}: {h.LowerBound:R} .. {h.UpperBound:R}");
+            }
+        }
+
+        /// <summary> a tolerance above the rounding allowance (0.75 > 0.5) on the folded spheres, measured as given: a triangle whose
+        /// children are itself (a needle whose corners differ by one ulp of z) is not refined again, so the run ends after few
+        /// subdivisions </summary>
+        [Fact]
+        public void UnsplittableTriangle_NotRefinedForever()
+        {
+            double z = 1.3 * Math.Pow(2, 52);
+            foreach (double tol in new[] { 0.6, 0.75 }) {
+                var given = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z)) { Tolerance = tol, MaxSubdivisions = 200000 };
+                AsGiven(given);
+                var sw = Stopwatch.StartNew();
+                Assert.True(given.Compute());
+                Assert.True(given.Subdivisions < 50000, $"tol {tol}: {given.Subdivisions} subdivisions, {sw.ElapsedMilliseconds} ms");
+                Assert.True(given.LowerBound <= 0.0101 && given.UpperBound >= 0.0099, $"tol {tol}: {given.LowerBound:R} .. {given.UpperBound:R}");
+            }
+        }
+
+        /// <summary> the same, at offsets where an ulp is 2^-8 .. 2^-4 of A's size and with tolerance 0: the triangles are refined
+        /// until their points round, then kept with their bounds, which must include the rounding allowance of their corners
+        /// (without it they bound the rounded points only, up to an ulp below the distance) </summary>
+        [Theory]
+        [InlineData(44)] [InlineData(46)] [InlineData(48)]
+        public void InteriorMaximum_SmallUlp_UpperIncludesTheAllowance(int m)
+        {
+            double Y = 1.3 * Math.Pow(2, m);
+            Y = Math.Round(Y);
+            var (a, b) = CornersOnly(Y);
+            var reference = new MeshHausdorffDistance(Shifted(a, Y, 1), Shifted(b, Y, 1)) { Symmetric = false, Tolerance = 1e-9 };
+            Assert.True(reference.Compute() && reference.Converged);
+            var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 1e-12, MaxSubdivisions = 200000 };
+            AsGiven(given);
+            Assert.True(given.Compute());
+            Assert.True(given.UpperBound >= reference.LowerBound, $"m {m}: upper {given.UpperBound:R} below the distance {reference.LowerBound:R}");
+            Assert.True(given.LowerBound <= reference.UpperBound, $"m {m}: lower {given.LowerBound:R} above {reference.UpperBound:R}");
+        }
+
+        /// <summary> A: (0, Y, 0), (1, Y, 0), (0.5, Y + 1, 0), Y even at 2^52 (an ulp is 1, and Y + 0.5 rounds to Y); B: a strip 0.1
+        /// under A's base and a small triangle 0.1 above its apex. The midpoints of the two slanted edges round onto y = Y, so three
+        /// of the four children lie on the base, all nearest the strip, and their bound (the largest corner distance, 0.1) holds for
+        /// the rounded triangles only: the exact children reach y = Y + 0.5, about 0.5 from B. The upper bound must add the
+        /// corners' rounding allowance, and keep the bounds of the children not refined further </summary>
+        [Fact]
+        public void RoundedChildrenNearestOneTriangle_UpperIncludesTheAllowance()
+        {
+            double Y = 2 * Math.Round(1.3 * Math.Pow(2, 51));
+            Assert.Equal(Y, Y + 0.5);                  // (rounds to even: Y)
+            var a = new DMesh3();
+            a.AppendTriangle(a.AppendVertex(new Vector3d(0, Y, 0)), a.AppendVertex(new Vector3d(1, Y, 0)), a.AppendVertex(new Vector3d(0.5, Y + 1, 0)));
+            var b = new DMesh3();
+            b.AppendTriangle(b.AppendVertex(new Vector3d(-0.5, Y, 0.1)), b.AppendVertex(new Vector3d(1.5, Y, 0.1)), b.AppendVertex(new Vector3d(0.5, Y, 0.125)));
+            b.AppendTriangle(b.AppendVertex(new Vector3d(0.4, Y + 1, 0.1)), b.AppendVertex(new Vector3d(0.6, Y + 1, 0.1)), b.AppendVertex(new Vector3d(0.5, Y + 1, 0.125)));
+            var reference = new MeshHausdorffDistance(Shifted(a, Y, 1), Shifted(b, Y, 1)) { Symmetric = false, Tolerance = 1e-9 };
+            Assert.True(reference.Compute() && reference.Converged);
+            Assert.True(reference.LowerBound > 0.4, "the reference's distance " + reference.LowerBound);
+            foreach (double tol in new[] { 1e-12, 0.01, 0.3, 0.75 }) {
+                var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = tol, MaxSubdivisions = 200000 };
+                AsGiven(given);
+                Assert.True(given.Compute());
+                Assert.True(given.UpperBound >= reference.LowerBound, $"tol {tol}: upper {given.UpperBound:R} below the distance {reference.LowerBound:R}");
+                Assert.True(given.LowerBound <= reference.UpperBound, $"tol {tol}: lower {given.LowerBound:R} above {reference.UpperBound:R}");
+                Assert.True(given.Subdivisions < 1000, $"tol {tol}: {given.Subdivisions} subdivisions");
+            }
+        }
+
+        /// <summary> a needle (two corners the same point, the third one ulp of y away) between two small triangles of B, measured
+        /// as given with a tolerance (0.75) above the rounding allowance of its midpoint (0.5): its children are itself, and it is
+        /// kept instead of being refined until MaxSubdivisions </summary>
+        [Fact]
+        public void Needle_ItsOwnChild_NotRefinedForever()
+        {
+            double Y = 1.3 * Math.Pow(2, 52);
+            var a = new DMesh3();
+            int p = a.AppendVertex(new Vector3d(0, Y, 0)), q = a.AppendVertex(new Vector3d(0, Y + 1, 0));
+            a.AppendTriangle(p, a.AppendVertex(new Vector3d(0, Y, 0)), q);
+            var b = new DMesh3();
+            foreach (var c in new[] { new Vector3d(0, Y, 0), new Vector3d(0, Y + 1, 0) })
+                b.AppendTriangle(b.AppendVertex(c + new Vector3d(-0.0625, 0, 0.1)), b.AppendVertex(c + new Vector3d(0.0625, 0, 0.1)), b.AppendVertex(c + new Vector3d(0, 0, 0.125)));
+            var given = new MeshHausdorffDistance(a, b) { Symmetric = false, Tolerance = 0.75, MaxSubdivisions = 200000 };
+            AsGiven(given);
+            Assert.True(given.Compute());
+            Assert.True(given.Subdivisions < 1000, given.Subdivisions + " subdivisions");
+            Assert.True(given.UpperBound >= 0.5, "upper " + given.UpperBound);      // (the needle's middle is 0.5 from B's triangles in y)
+        }
+
         /// <summary> under every similarity (folded spheres at 1.5 2^26, on the shifted copies): the result of the plain input mapped by
         /// it, bit for bit where the similarity is exact; otherwise the intervals agree up to the coordinates' rounding </summary>
         [Fact]
         public void FoldedSpheres_UnderEverySimilarity()
         {
             double z = 1.5 * Math.Pow(2, 26);
-            var h0 = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z));
+            var h0 = new MeshHausdorffDistance(Sphere(1, z), Sphere(1.01, z)) { MaxSubdivisions = 200000 };
             Assert.True(h0.Compute() && h0.Converged);
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 a = Sphere(1, z), b = Sphere(1.01, z);
                 MeshTransforms.PerVertexTransform(a, s.Apply);
                 MeshTransforms.PerVertexTransform(b, s.Apply);
-                var h = new MeshHausdorffDistance(a, b);
+                var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
                 Assert.True(h.Compute(), s.Name);
                 Assert.True(h.Converged, s.Name);
                 if (s.IsExact) {
@@ -239,17 +363,19 @@ namespace geometry3Sharp.Tests
         {
             double z = 1.3 * Math.Pow(2, 52);
             DMesh3 a = Sphere(1, z), b = Sphere(1.01, z);
-            var h = new MeshHausdorffDistance(a, b);
+            // (capped: the base ran into the cap here)
+            var h = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
             Assert.True(h.Compute());
+            Assert.True(h.Converged && h.Subdivisions < 20000, h.Subdivisions + " subdivisions");
             double lo = h.LowerBound, up = h.UpperBound; int sub = h.Subdivisions; Vector3d w = h.WorstPoint;
             Assert.True(h.Compute());
             Assert.Equal(lo, h.LowerBound); Assert.Equal(up, h.UpperBound); Assert.Equal(sub, h.Subdivisions); Assert.Equal(w, h.WorstPoint);
-            var fresh = new MeshHausdorffDistance(a, b);
+            var fresh = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
             Assert.True(fresh.Compute());
             Assert.Equal(lo, fresh.LowerBound); Assert.Equal(up, fresh.UpperBound);
             gParallel.SerialOnThisThread = true;
             try {
-                var serial = new MeshHausdorffDistance(a, b);
+                var serial = new MeshHausdorffDistance(a, b) { MaxSubdivisions = 200000 };
                 Assert.True(serial.Compute());
                 Assert.Equal(lo, serial.LowerBound); Assert.Equal(up, serial.UpperBound); Assert.Equal(sub, serial.Subdivisions);
             } finally { gParallel.SerialOnThisThread = false; }
