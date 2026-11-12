@@ -119,15 +119,20 @@ namespace g3cli
             if (line.ValueKind != JsonValueKind.Array)
                 throw new CommandException(code, what + ": a line is an array of positions");
             int n = line.GetArrayLength();
-            bool closed = false;
-            if (n >= 4) {
-                JsonElement first = line[0], last = line[n - 1];
-                closed = first.ValueKind == JsonValueKind.Array && last.ValueKind == JsonValueKind.Array
-                    && first.GetArrayLength() >= 2 && last.GetArrayLength() >= 2
-                    && first[0].ValueKind == JsonValueKind.Number && first[1].ValueKind == JsonValueKind.Number
-                    && last[0].ValueKind == JsonValueKind.Number && last[1].ValueKind == JsonValueKind.Number
-                    && first[0].GetDouble() == last[0].GetDouble() && first[1].GetDouble() == last[1].GetDouble();
+            if ((r.Counter.Vertices += n) > PolygonGeoJson.MaxVertices)
+                throw new CommandException(code, what + $": more than {PolygonGeoJson.MaxVertices} positions in all");
+            // (every position is checked, also those of a line that is not used)
+            var xs = new double[n]; var ys = new double[n];
+            int k = 0;
+            foreach (JsonElement pos in line.EnumerateArray()) {
+                if (pos.ValueKind != JsonValueKind.Array || pos.GetArrayLength() < 2
+                    || pos[0].ValueKind != JsonValueKind.Number || pos[1].ValueKind != JsonValueKind.Number
+                    || pos[0].TryGetDouble(out xs[k]) == false || pos[1].TryGetDouble(out ys[k]) == false
+                    || double.IsFinite(xs[k]) == false || double.IsFinite(ys[k]) == false)
+                    throw new CommandException(code, what + ": a position is [x, y] with finite numbers");
+                k++;
             }
+            bool closed = n >= 4 && xs[0] == xs[n - 1] && ys[0] == ys[n - 1];
             if (closed) AddRing(line, r, code, what);
             else r.OpenLines++;
         }
@@ -135,14 +140,37 @@ namespace g3cli
         static void CheckCount(Result r, string code, string what)
         {
             if (r.Loops.Count >= SolidsMaxLoops)
-                throw new CommandException(code, what + $": more than {SolidsMaxLoops} loops (the nesting search is quadratic)");
+                throw new CommandException(code, what + $": more than {SolidsMaxLoops} loops (the nesting search is quadratic in the number of loops: 4000 nested loops take about 10 s)");
         }
 
-        public const int SolidsMaxLoops = 20000;
+        public const int SolidsMaxLoops = 4000;
     }
 
     public static partial class Commands
     {
+        /// <summary> the loop's vertices from its smallest vertex on, in the direction that gives the smaller sequence: equal loops have equal keys </summary>
+        static string CanonicalLoop(Polygon2d loop)
+        {
+            int n = loop.VertexCount;
+            string Key(bool reverse)
+            {
+                Func<int, Vector2d> at = i => loop[reverse ? (n - 1 - i) : i];
+                int best = 0;
+                for (int i = 1; i < n; i++) {
+                    Vector2d a = at(i), b = at(best);
+                    if (a.x < b.x || (a.x == b.x && a.y < b.y)) best = i;
+                }
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < n; i++) {
+                    Vector2d v = at((best + i) % n);
+                    sb.Append(PolyNum(v.x)).Append(',').Append(PolyNum(v.y)).Append(';');
+                }
+                return sb.ToString();
+            }
+            string f = Key(false), r = Key(true);
+            return string.CompareOrdinal(f, r) <= 0 ? f : r;
+        }
+
         static Command PolygonSolidsCommand()
         {
             var c = new Command() {
@@ -179,8 +207,14 @@ namespace g3cli
                 if (input.Loops.Count == 0)
                     throw new CommandException(ResultCodes.OperationFailed, input.OpenLines > 0
                         ? "the input has no closed loop (" + input.OpenLines + " open lines are not used)" : "the input has no loop");
+                // identical loops (the same vertices from the same start, in either direction) would be two overlapping solids of the same area: one is kept
+                var seen = new HashSet<string>();
+                var loops = new List<Polygon2d>();
+                foreach (Polygon2d loop in input.Loops)
+                    if (seen.Add(CanonicalLoop(loop))) loops.Add(loop);
+                int duplicates = input.Loops.Count - loops.Count;
                 var complex = new PlanarComplex();
-                foreach (Polygon2d loop in input.Loops) complex.Add(loop);
+                foreach (Polygon2d loop in loops) complex.Add(loop);
                 PlanarComplex.SolidRegionInfo info = complex.FindSolidRegions(new PlanarComplex.FindSolidsOptions() {
                     SimplifyDeviationTolerance = abs,
                     SimplifyRelativeTolerance = rel,
@@ -206,7 +240,7 @@ namespace g3cli
                 var o = new JsonObject();
                 if (args.Has("input")) o["input"] = args.String("input");
                 if (args.Has("output")) o["output"] = args.String("output");
-                o["loops"] = new JsonObject() { ["input"] = input.Loops.Count, ["open_lines_ignored"] = input.OpenLines };
+                o["loops"] = new JsonObject() { ["input"] = input.Loops.Count, ["open_lines_ignored"] = input.OpenLines, ["duplicates_removed"] = duplicates };
                 o["solids"] = solids.Count;
                 o["holes"] = solids.Sum(p => p.Holes.Count);
                 o["area"] = Val(solids.Sum(p => p.Area));
@@ -217,8 +251,9 @@ namespace g3cli
                 var warnings = new List<string>();
                 if (input.DroppedZ) warnings.Add("third coordinates (z) of the positions are ignored");
                 if (input.OpenLines > 0) warnings.Add($"{input.OpenLines} open lines are not loops and were ignored");
-                int lost = input.Loops.Count - (solids.Count + o["holes"].GetValue<int>());
-                if (lost > 0) warnings.Add($"{lost} of {input.Loops.Count} loops are not part of any solid (dropped by the simplification or as degenerate, or an island rejected as a hole)");
+                if (duplicates > 0) warnings.Add($"{duplicates} loops were identical to another one and were removed");
+                int lost = loops.Count - (solids.Count + o["holes"].GetValue<int>());
+                if (lost > 0) warnings.Add($"{lost} of {loops.Count} loops are not part of any solid (dropped by the simplification or as degenerate, or an island rejected as a hole)");
                 o["warnings"] = Warnings(warnings);
                 return o;
             };

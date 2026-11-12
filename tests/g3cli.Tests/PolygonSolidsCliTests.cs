@@ -227,6 +227,31 @@ namespace g3cli.Tests
             AssertError(e2, r2, "invalid_arguments");
         }
 
+        [Fact]
+        public void IdenticalLoops_AreRemovedWithAWarning()
+        {
+            // the same square twice (the second written clockwise and from another corner): one solid, not two overlapping ones
+            string rotated = "[[10,0],[10,10],[0,10],[0,0],[10,0]]";
+            var (exit, r) = Solids(Collection(Poly(Square(0, 0, 10)), Poly(rotated)));
+            Assert.Equal(0, exit);
+            Assert.Equal(1, I(r["loops"]["duplicates_removed"]));
+            Assert.Equal(1, I(r["solids"]));
+            Assert.Equal(100, D(r["area"]));
+            Assert.Contains(r["warnings"].AsArray(), w => S(w).Contains("identical"));
+            var (e2, other) = Solids(Collection(Poly(Square(0, 0, 10)), Poly(Square(0, 0, 11))));      // not identical
+            Assert.Equal(0, e2);
+            Assert.Equal(0, I(other["loops"]["duplicates_removed"]));
+        }
+
+        [Fact]
+        public void ALineWithABadPosition_IsInvalidArguments_AlsoWhenOpen()
+        {
+            foreach (string line in new[] { "[[\"a\",0],[1,1],[2,0],[\"a\",0]]", "[[0,0],[1,\"b\"],[2,2]]", "[[0,0],[1],[2,2]]" }) {
+                var (exit, r) = Solids(Line(line));
+                AssertError(exit, r, "invalid_arguments");
+            }
+        }
+
         [Theory]
         [InlineData("{\"type\":\"Point\",\"coordinates\":[0,0]}")]
         [InlineData("{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[1,1],[0,0]]]}")]      // fewer than 3 distinct positions
@@ -262,10 +287,10 @@ namespace g3cli.Tests
         [Fact]
         public void TooManyLoops_AreRefused()
         {
-            var loops = Enumerable.Range(0, 20001).Select(i => Poly(Square(i * 2, 0, 1)));
+            var loops = Enumerable.Range(0, 4001).Select(i => Poly(Square(i * 2, 0, 1)));
             var (exit, r) = Solids(Collection(loops.ToArray()));
             AssertError(exit, r, "invalid_arguments");
-            Assert.Contains("20000", S(r["message"]));
+            Assert.Contains("4000", S(r["message"]));
         }
     }
 }

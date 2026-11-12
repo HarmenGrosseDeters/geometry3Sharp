@@ -760,7 +760,7 @@ g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
 new solid, ...), so loops from different sources and with any orientation give polygons with holes, as a GeoJSON `MultiPolygon`. The loops are
 simplified first: `--simplify-tolerance` is an absolute deviation in input units, **default 0.1 as in the library**, so loops closer than about that
 distance can lose their nesting (choose a smaller one for small or close loops, 0 for none); `--relative-tolerance` is relative to each loop's own
-bounding box diagonal and the smaller of the two applies. Open lines are counted and ignored, at most 20 000 loops (the nesting search is quadratic):
+bounding box diagonal and the smaller of the two applies. Open lines are counted and ignored, at most 4000 loops (the nesting search is quadratic: 4000 nested loops take about 10 s), identical loops are kept once (`loops.duplicates_removed`):
 
 ```
 g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
