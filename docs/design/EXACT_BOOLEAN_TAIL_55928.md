@@ -417,6 +417,16 @@ spread.
   so the next lever is a cheaper exact stage (limbs), not another filter.
 - Not taken: no measurable gain.
 
+**Open candidate (not in this stage, coordinator 2026-11-12): an allocation-free limb kernel for InCircle.**
+- E, from the measurements above: 12.43M BigInteger InCircle stages are left in the triangulation of 55928, about 50 s
+  of its ~116 s.
+- About half of BigInteger's cost there is allocation and constructors (constructor 21 %, Multiply 22 % exclusive of
+  the arrangement's samples).
+- The rows (A s, B s, A^2 + B^2) are about 1,100 bits; the determinant about 3,300 bits, about 52 64-bit limbs.
+- A generated kernel of bounded width (FixedArith extended past 4 limbs, or the predicate compiler's output for these
+  sizes), with a bound table checked like GeneratedPredicatesTests and its own exact-code review, could halve that
+  cost: about -20 to -30 s, or 6-8 % of the ~370 s, plus fewer GC pauses.
+
 **The GC and the bit sizes (measured on 55928, after step 1).**
 
 GC upper bound, Difference, 4 cores, 263 GB allocated in both configurations. The second configuration is runtime
