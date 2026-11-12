@@ -302,7 +302,8 @@ and the test tiers and time limit (#447, the backlog program).
   Open `local` issues, each with a PR: #636 (repair time, F2; #703), #637 (F5; #687), #638 (F7; #688). #628 was fixed by #634 (merged).
   MeshFuzzPilot overnight campaigns (#624, `local`, owner's machine): groups (a) boolean and (b) repair done
   2026-11-12 (raw output on branch `runs/mesh-fuzz`); filed #710 and #711 (Exact Boolean 3.0 queue, exact-boolean.md) and
-  #712 (`MeshRobustRepair` 5-52 s on 4-20 vertex inputs inside its range; short-topics session, first a replay on #703).
+  #712 (`MeshRobustRepair` 5-52 s on 4-20 vertex inputs inside its range; same cause as #636, fixed by #703: 50.6 -> 2.9 s and
+  6.5 -> 1.0 s; optional lever: the remaining 2.5 s of the soup case are the solidify contour of a 1e-23 input, not profiled).
   Groups (c) to (f) still to run; a second round of (a)/(b) only after #710-#712 are fixed and if the owner wants it.
   Tests above 20 s (#692-#698): #692 and #693 in the AW3 tail report; #694, #695, #696 (#691, #704, #706), #697 and #698
   with the backlog session; flaky net48 tests #671 (#683) and #676 (#684) have PRs.
