@@ -21,8 +21,9 @@ namespace g3
 		// if set, we assign colors to each block
 		public Func<Vector3i, Colorf> ColorSourceF;
 
-		// if vert-count or tri-count gets higher than this value,
-		// we start a new mesh
+		// if the vert-count or tri-count of a mesh would get higher than this value, we start a new mesh: a bound that holds
+		// for every mesh (a voxel is never split, so a value below the 24 vertices and 12 triangles of one voxel with six
+		// exposed faces cannot be kept, and a mesh then holds that one voxel)
 		public int MaxMeshElementCount = int.MaxValue;
 
         // result
@@ -40,8 +41,9 @@ namespace g3
 			Meshes.Add(cur_mesh);
 		}
 		void check_counts_or_append(int newV, int newT) {
-			if (cur_mesh.MaxVertexID + newV < MaxMeshElementCount &&
-				cur_mesh.MaxTriangleID + newT < MaxMeshElementCount)
+			// (an empty mesh takes the voxel whatever the limit: a new mesh would not help)
+			if (cur_mesh.MaxVertexID == 0 ||
+				(cur_mesh.MaxVertexID + newV <= MaxMeshElementCount && cur_mesh.MaxTriangleID + newT <= MaxMeshElementCount))
 				return;
 			append_mesh();
 		}
@@ -57,22 +59,27 @@ namespace g3
 
             int[] vertices = new int[4];
 
+            bool[] exposed = new bool[6];
+
             foreach ( Vector3i nz in Voxels.NonZeros() ) {
-				check_counts_or_append(6, 2);
+                // the faces this voxel adds (checks dependent on neighbours), counted first so that the whole voxel fits
+                int faces = 0;
+                for ( int fi = 0; fi < 6; ++fi ) {
+                    Index3i nbr = nz + gIndices.GridOffsets6[fi];
+                    exposed[fi] = bounds.Contains(nbr) ? !(SkipInteriorFaces && Voxels.Get(nbr)) : CapAtBoundary;
+                    if (exposed[fi]) ++faces;
+                }
+                if (faces == 0)
+                    continue;
+				check_counts_or_append(4 * faces, 2 * faces);
 
                 Box3d cube = Box3d.UnitZeroCentered;
                 cube.Center = (Vector3d)nz;
 
                 for ( int fi = 0; fi < 6; ++fi ) {
 
-                    // checks dependent on neighbours
-                    Index3i nbr = nz + gIndices.GridOffsets6[fi];
-                    if (bounds.Contains(nbr)) {
-                        if (SkipInteriorFaces && Voxels.Get(nbr))
-                            continue;
-                    } else if ( CapAtBoundary == false ) {
+                    if (exposed[fi] == false)
                         continue;
-                    }
 
 
                     int ni = gIndices.BoxFaceNormals[fi];

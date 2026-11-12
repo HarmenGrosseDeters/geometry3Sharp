@@ -112,12 +112,53 @@ namespace geometry3Sharp.Tests
             Close(Area(one.Meshes[0]), split.Meshes.Sum(Area), 1e-12);
         }
 
-        [Fact(Skip = "Known failure: https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/647 (a voxel reserves 6 vertices, adds up to 24)")]
-        public void VoxelSurface_MaxMeshElementCount_IsKept()
+        [Theory]
+        [InlineData(100)]
+        [InlineData(37)]
+        [InlineData(24)]
+        public void VoxelSurface_MaxMeshElementCount_IsAHardBound(int limit)
         {
-            var split = new VoxelSurfaceGenerator { Voxels = RandomGrid(), MaxMeshElementCount = 100 };
+            var split = new VoxelSurfaceGenerator { Voxels = RandomGrid(), MaxMeshElementCount = limit };
             split.Generate();
-            Assert.All(split.Meshes, m => Assert.True(m.MaxVertexID <= 100 && m.MaxTriangleID <= 100, $"{m.MaxVertexID} vertices, {m.MaxTriangleID} triangles"));
+            Assert.All(split.Meshes, m => Assert.True(m.MaxVertexID <= limit && m.MaxTriangleID <= limit, $"{m.MaxVertexID} vertices, {m.MaxTriangleID} triangles"));
+            var one = new VoxelSurfaceGenerator { Voxels = RandomGrid() };
+            one.Generate();
+            Assert.Equal(one.Meshes[0].TriangleCount, split.Meshes.Sum(m => m.TriangleCount));
+            Close(Area(one.Meshes[0]), split.Meshes.Sum(Area), 1e-12);
+        }
+
+        [Fact]
+        public void VoxelSurface_LimitBelowOneVoxel_GivesOneVoxelPerMeshAndEnds()
+        {
+            var grid = new Bitmap3(new Vector3i(3, 3, 3));
+            grid.Set(new Vector3i(0, 0, 0), true); grid.Set(new Vector3i(2, 2, 2), true); grid.Set(new Vector3i(1, 1, 1), true);
+            var gen = new VoxelSurfaceGenerator { Voxels = grid, MaxMeshElementCount = 5 };
+            gen.Generate();
+            Assert.Equal(3, gen.Meshes.Count);
+            Assert.All(gen.Meshes, m => Assert.Equal(12, m.TriangleCount));
+        }
+
+        [Theory]
+        [InlineData(48, 1)]        // two isolated voxels of 24 vertices each fit exactly
+        [InlineData(47, 2)]
+        public void VoxelSurface_LimitIsInclusive(int limit, int meshes)
+        {
+            var grid = new Bitmap3(new Vector3i(5, 5, 5));
+            grid.Set(new Vector3i(1, 1, 1), true); grid.Set(new Vector3i(3, 3, 3), true);
+            var gen = new VoxelSurfaceGenerator { Voxels = grid, MaxMeshElementCount = limit };
+            gen.Generate();
+            Assert.Equal(meshes, gen.Meshes.Count);
+        }
+
+        [Fact]
+        public void VoxelSurface_GenerateTwiceOnOneInstance_GivesTheSameMeshes()
+        {
+            var gen = new VoxelSurfaceGenerator { Voxels = RandomGrid(), MaxMeshElementCount = 100 };
+            gen.Generate();
+            var first = gen.Meshes.Select(m => (m.VertexCount, m.TriangleCount, Area(m), SignedVolume(m))).ToList();
+            gen.Generate();
+            var second = gen.Meshes.Select(m => (m.VertexCount, m.TriangleCount, Area(m), SignedVolume(m))).ToList();
+            Assert.Equal(first, second);
         }
 
         // ---- MeshInsertPolygon ------------------------------------------------------------------------------------
