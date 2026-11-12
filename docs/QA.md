@@ -712,7 +712,7 @@ are fetched at run time by the nightly job only (never committed, never fetched 
 
 Outlier rule (`rules` in the case list): a median more than 1.3x the median of the last 10 runs of the case and more than 1 s
 above it (a regression); a median over 20 s (a potential defect, platform.md time rules); a failed or timed-out case. The
-job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (a
+job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (none of the last 3 nights had the flag: a
 regression, a failure, a case newly over 20 s), so a known slow case is not repeated every night. Results are a workflow
 artifact; the history (`history.json`, last 60 entries per case, plus one result file per commit) is on the data branch
 `runs/runtime-watch` (never merged). A run with a case subset (`only`) does not update the history. GitHub-hosted runners

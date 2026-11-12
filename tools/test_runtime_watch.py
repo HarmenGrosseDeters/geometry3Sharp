@@ -77,6 +77,36 @@ class EvaluateAndNotify(unittest.TestCase):
         self.assertEqual(again[0]["flags"], ["hard"])
         self.assertFalse(rw.notify(again))
 
+    def test_persistent_regression_and_failure_notify_once(self):
+        # night 1 regresses; night 2 is still slow: the flag is not new, no second comment
+        h1 = [entry(10.0)] * 5
+        j1, hist = self.run_eval(h1, 20.0)
+        self.assertTrue(rw.notify(j1))
+        j2, _ = self.run_eval(hist["entries"]["c"], 20.0)
+        self.assertEqual(j2[0]["flags"], ["regression"])
+        self.assertFalse(rw.notify(j2))
+        f1, hist = self.run_eval([entry(1.0)], None)
+        f2, _ = self.run_eval(hist["entries"]["c"], None)
+        self.assertTrue(rw.notify(f1))
+        self.assertFalse(rw.notify(f2))
+
+    def test_flaky_failure_between_slow_runs_does_not_renotify(self):
+        hist = [entry(30.0, flags=["hard"]), entry(None, ok=False, flags=["failed"])]
+        self.assertFalse(rw.notify(self.run_eval(hist, 30.0)[0]))
+        # but after NOTIFY_MEMORY quiet nights the same flag is new again
+        quiet = [entry(30.0, flags=["hard"])] + [entry(5.0)] * rw.NOTIFY_MEMORY
+        self.assertTrue(rw.notify(self.run_eval(quiet, 30.0)[0]))
+
+    def test_timeout_result_stays_out_of_the_baseline(self):
+        results = {"sha": "a", "machine": {}, "cases": [res(900.0, ok=False)]}
+        _, h = rw.evaluate(results, {}, RULES)
+        self.assertIsNone(rw.baseline(h["entries"]["c"], 10))
+
+    def test_zero_baseline_does_not_divide(self):
+        j = rw.judge(res(2.0), [entry(0.0)] * 3, RULES)
+        self.assertEqual(j["flags"], ["regression"])   # 0 s -> 2 s is more than 1 s above, whatever the ratio
+        self.assertIsNone(j["ratio"])
+
     def test_failure_is_recorded_and_notifies(self):
         judged, h = self.run_eval([entry(1.0)], None)
         self.assertTrue(rw.notify(judged))
@@ -152,6 +182,12 @@ class TimeReading(unittest.TestCase):
         self.assertEqual(rw.read_time('{"repair_ms": 2500}', "repair_ms", 9.0), 2.5)
         self.assertEqual(rw.read_time("anything", "wall", 9.0), 9.0)
 
+    def test_last_json_line_wins(self):
+        self.assertEqual(rw.read_time('{"ms": 1000}\n{"ms": 3000}\n', "ms", 9.0), 3.0)
+
+    def test_seconds_field_is_not_divided(self):
+        self.assertEqual(rw.read_time('{"seconds": 2.5}', "seconds", 9.0), 2.5)
+
     def test_missing_field_raises(self):
         with self.assertRaises(ValueError):
             rw.read_time('{"x": 1}', "ms", 1.0)
@@ -195,7 +231,46 @@ class RunnerWithoutNetwork(unittest.TestCase):
             self.assertEqual(rw.run_case(c, rules, d, d)["runs_s"], [5.0])
 
 
+    def test_setup_timeout_is_a_failed_case_not_a_crash(self):
+        import sys
+        with tempfile.TemporaryDirectory() as d:
+            c = {"id": "hang", "area": "boolean", "kind": "procedural", "description": "d", "timeout_s": 1,
+                 "setup": [[sys.executable, "-c", "import time; time.sleep(30)"]], "run": [sys.executable, "-c", "pass"]}
+            r = rw.run_case(c, RULES, d, d)
+            self.assertFalse(r["ok"])
+            self.assertTrue(r["error"])
+
+    def test_budget_boundary_is_strict(self):
+        import sys
+        rules = dict(RULES, repeat_budget_s=5.0)
+        with tempfile.TemporaryDirectory() as d:
+            c = {"id": "edge", "area": "boolean", "kind": "procedural", "description": "d", "time_field": "ms",
+                 "run": [sys.executable, "-c", "print('{\"ms\": 5000}')"]}
+            self.assertEqual(len(rw.run_case(c, rules, d, d)["runs_s"]), 3)   # exactly the budget: keeps repeating
+
+
 class Cli(unittest.TestCase):
+    def test_output_contract_for_github_output(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            p = lambda n: os.path.join(d, n)
+            results = {"sha": "abc", "machine": {}, "cases": [res(30.0, cid="boolean-knot-default-union")]}
+            with open(p("r.json"), "w") as f:
+                json.dump(results, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rw.main(["evaluate", p("r.json"), "--history", p("none.json"), "--out-history", p("h.json"), "--report", p("rep.md")])
+            self.assertEqual(out.getvalue().split(), ["outliers=1", "notify=1"])
+
+    def test_corrupt_history_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = lambda n: os.path.join(d, n)
+            open(p("h.json"), "w").write("{not json")
+            json.dump({"sha": "a", "machine": {}, "cases": []}, open(p("r.json"), "w"))
+            with self.assertRaises(ValueError):
+                rw.main(["evaluate", p("r.json"), "--history", p("h.json"), "--out-history", p("o.json"), "--report", p("rep.md")])
+
     def test_evaluate_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
             p = lambda n: os.path.join(d, n)

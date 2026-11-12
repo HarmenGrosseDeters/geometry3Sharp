@@ -21,6 +21,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -31,6 +32,7 @@ DEFAULT_RULES = {"ratio": 1.3, "abs_s": 1.0, "hard_s": 20.0, "window": 10, "repe
 AREAS = ("boolean", "alphawrap")
 KINDS = ("procedural", "thingi")
 HISTORY_KEEP = 60
+NOTIFY_MEMORY = 3
 THINGI_URL = "https://huggingface.co/datasets/Thingi10K/Thingi10K/resolve/main/raw_meshes/{id}.stl"
 
 
@@ -135,7 +137,8 @@ def baseline(history, window):
 def judge(result, history, rules):
     """Classify one result against its case history. Returns a dict with:
     flags: subset of {'failed', 'hard', 'regression'}; baseline_s; ratio; new: flags the previous entry did not have."""
-    prev = history[-1] if history else None
+    # a flag is new when none of the last NOTIFY_MEMORY entries had it (a flaky failure between two slow runs does not re-notify)
+    prev_flags = {f for e in history[-NOTIFY_MEMORY:] for f in e.get("flags", [])}
     base = baseline(history, rules["window"])
     flags = []
     t = result.get("median_s")
@@ -146,7 +149,6 @@ def judge(result, history, rules):
             flags.append("hard")
         if base is not None and t > rules["ratio"] * base and t - base > rules["abs_s"]:
             flags.append("regression")
-    prev_flags = set(prev.get("flags", [])) if prev else set()
     ratio = (t / base) if (t is not None and base) else None
     return {"flags": flags, "baseline_s": base, "ratio": ratio, "new": [f for f in flags if f not in prev_flags]}
 
@@ -169,10 +171,9 @@ def evaluate(results, history, rules):
 
 
 def notify(judged):
-    """Comment on the tracking issue only for something new: a regression, a failure, or a case newly over the hard limit
-    (a case that was over it last night, too, stays in the job summary but is not repeated)."""
-    return any(f in ("regression", "failed") or (f == "hard" and "hard" in j["new"])
-               for j in judged for f in j["flags"])
+    """Comment on the tracking issue only for something new: a regression, a failure or a case over the hard limit that none
+    of the last nights had. What persists stays in the job summary but is not repeated."""
+    return any(j["new"] for j in judged)
 
 
 def render_report(results, judged, rules):
@@ -226,7 +227,10 @@ def fetch_thingi(tid, cache):
     os.makedirs(cache, exist_ok=True)
     path = os.path.join(cache, f"{tid}.stl")
     if not os.path.exists(path):
-        urllib.request.urlretrieve(THINGI_URL.format(id=tid), path + ".part")
+        with urllib.request.urlopen(THINGI_URL.format(id=tid), timeout=120) as r, open(path + ".part", "wb") as f:
+            shutil.copyfileobj(r, f)
+        if os.path.getsize(path + ".part") == 0:
+            raise OSError(f"empty download for {tid}")
         os.replace(path + ".part", path)
     return path
 
@@ -283,7 +287,7 @@ def run_case(case, rules, cache, work_root, repo_root="."):
             res["runs_s"].append(t)
             if t > rules["repeat_budget_s"]:
                 break
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, subprocess.SubprocessError) as e:  # incl. a timeout in a setup step
         res["error"] = str(e)
         return res
     res["median_s"] = statistics.median(res["runs_s"])
