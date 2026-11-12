@@ -74,7 +74,7 @@ with another benchmark running: this is a slower moment of the same container, b
 
 ns per call of `Orient3d`, `InCircle` and `InSphere` in general position (the filter decides every call), best of 5
 runs of 2 000 000 calls, one thread. Until 12 November 2026 each of the three filters added `sum * 2^-1066` to its
-bound on every call; that product is subnormal for every sum below 2^1044 and costs a microcode assist on x86. Now the
+bound on every call; that product is subnormal for every sum below 2^44 and costs a microcode assist on x86. Now the
 term is added only for sums of 2^256 and more, where it can change the bound (the proof is at
 `ExactPredicates.with_underflow`); the bound, and so every decision, is the same double as before.
 
