@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using g3;
 using Xunit;
 
@@ -24,7 +25,8 @@ namespace geometry3Sharp.Tests
         }
 
         public static IEnumerable<object[]> PassingCases() => Cases(true);
-        public static IEnumerable<object[]> FailingCases() => Cases(false);
+        public static IEnumerable<object[]> DefaultFailingCases() => Cases(false).Where(c => !(bool)c[2]);
+        public static IEnumerable<object[]> UlpFailingCases() => Cases(false).Where(c => (bool)c[2]);
 
         [Theory]
         [MemberData(nameof(PassingCases))]
@@ -33,9 +35,16 @@ namespace geometry3Sharp.Tests
             Check(gap, offset, sort, similarity);
         }
 
-        [Theory(Skip = "Default: absolute simplification tolerance 0.1 by design (FindSolidsOptions.Default); SortPolygons: gap 1e-6 at the rotated UTM millimetre similarity is about 1 ulp of the coordinates, not representable (#628)")]
-        [MemberData(nameof(FailingCases))]
-        public void NestedCircles_KnownFailures(double gap, bool offset, bool sort, string similarity)
+        [Theory(Skip = "Absolute simplification tolerance 0.1 by design (FindSolidsOptions.Default), see #628")]
+        [MemberData(nameof(DefaultFailingCases))]
+        public void NestedCircles_DefaultAbsoluteTolerance(double gap, bool offset, bool sort, string similarity)
+        {
+            Check(gap, offset, sort, similarity);
+        }
+
+        [Theory(Skip = "Gap 1e-6 at the rotated UTM millimetre similarity is about 1 ulp of the coordinates, not representable (#628)")]
+        [MemberData(nameof(UlpFailingCases))]
+        public void NestedCircles_GapBelowCoordinateResolution(double gap, bool offset, bool sort, string similarity)
         {
             Check(gap, offset, sort, similarity);
         }

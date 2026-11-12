@@ -218,10 +218,9 @@ namespace g3
 				// sum relative to the first vertex: the shoelace terms of far-from-origin coordinates
 				// cancel catastrophically (a small loop at a large translation loses all digits)
 				Vector2d o = vertices[0];
-				Vector2d v1 = Vector2d.Zero, v2 = Vector2d.Zero;
 				for (int i = 1; i + 1 < N; ++i) {
-					v1 = vertices[i] - o;
-					v2 = vertices[i + 1] - o;
+					Vector2d v1 = vertices[i] - o;
+					Vector2d v2 = vertices[i + 1] - o;
 					fArea += v1.x * v2.y - v1.y * v2.x;
 				}
 				return fArea * 0.5;	
