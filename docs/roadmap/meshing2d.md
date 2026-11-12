@@ -28,33 +28,13 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
-- **#664 (bugfix, owner 2026-11-12):** the near-contact fan of #661 under the `rotated` similarity runs to the Steiner limit
-  (about 400 000 vertices; same on master). Cause: the rotation rounds a T-junction end off A, so `PairOf` misses the
-  meeting pair. Fix (in progress, one PR): the mesher treats an end within its tolerance of the other segment as meeting,
-  and the oracle takes such an end as apex when the lines do not meet on both closed segments (owner 2026-11-12: excuse
-  widening approved; both parts ship together).
-
-- **Three single triangles at 1e-7..1e-9 radian (from #542): traced and fixed (2026-11-12, #661).** In the near-contact fan (scale
-  1.13, k = 26 and 28, constrained quality mode) each triangle lay below A at a T-junction apex, its off-centre in the diametral
-  circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave such a triangle up, which the oracle's O11
-  exemptions (a circumcentre behind the piece) do not cover. Fix in the mesher (coordinator decision, option A: no oracle or spec
-  change): the encroachment of an unsplittable piece no longer stops the point, as on the grid. Golden rows f-26 / f-27 re-recorded.
-  Before merge: a public-corpus runner A/B (`runs/meshing2d-unsplittable-encroach`, JOB-1). The tie at fan scale 1.0 (a split point
-  exactly at the tolerance 2^-41 from another source) stays documented, not fixed (coordinator decision in #542).
 - **Provenance delta after `d9006aa`:** stage 6b-3 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md),
   ff0c378) covers master `d9006aa`, no (A) finding. Since then `QualityMesh2.cs`, `ConstrainedDelaunayMesh2.cs` and
   `SnapRounding2.cs` changed by +383 / −61 lines (#394 small-angle rule, #437 corner choice, #441 / #462 rule C, #496 the
   60° pairs, #512, #526, #553 pair keys), and the oracle much more. A delta check is due before a release that relies on the
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
   must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
-  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
-- **2.5D output (owner 2026-11-12):** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
-  so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
-  isolated). Additive API. Done: #663, merged 2026-11-12 (f0578fb6).
-- **Near T-junctions under a rotation (#664, bugfix):** a T-junction end rounded a hair beside the other segment lost the small-angle
-  exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in #666: the
-  mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
-  widens an excuse: accepted by the owner 2026-11-12. Effort M.
+  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side). **In progress:** the dirty-side session started 2026-11-12 with the changed-routine list.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
@@ -95,6 +75,21 @@ Research or not scheduled (not built without a new decision):
 #### Settled in the inventory of 2026-11-12
 
 Moved from Open; checked against git history and GitHub on 2026-11-12.
+
+- **Three single triangles at 1e-7..1e-9 radian (from #542): done (#661, merged 2026-11-12, 629aa28f).** Traced and fixed. In the near-contact fan (scale
+  1.13, k = 26 and 28, constrained quality mode) each triangle lay below A at a T-junction apex, its off-centre in the diametral
+  circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave such a triangle up, which the oracle's O11
+  exemptions (a circumcentre behind the piece) do not cover. Fix in the mesher (coordinator decision, option A: no oracle or spec
+  change): the encroachment of an unsplittable piece no longer stops the point, as on the grid. Golden rows f-26 / f-27 re-recorded.
+  Before merge: a public-corpus runner A/B (`runs/meshing2d-unsplittable-encroach`, JOB-1). The tie at fan scale 1.0 (a split point
+  exactly at the tolerance 2^-41 from another source) stays documented, not fixed (coordinator decision in #542).
+- **2.5D output (owner 2026-11-12): done (#663, merged 2026-11-12, f0578fb6).** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
+  so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
+  isolated). Additive API.
+- **Near T-junctions under a rotation (#664, bugfix): done (#666, merged 2026-11-12, fec3b2a9).** A T-junction end rounded a hair beside the other segment lost the small-angle
+  exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in #666: the
+  mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
+  widens an excuse: accepted by the owner 2026-11-12. Effort M.
 
 - **Drift promise on the snap grid (owner 2026-11-10, option A): done.** The QA 2.0 T5 campaign found chains at sub-pixel
   wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources), caused by Q17, against the promise of half a pixel.
