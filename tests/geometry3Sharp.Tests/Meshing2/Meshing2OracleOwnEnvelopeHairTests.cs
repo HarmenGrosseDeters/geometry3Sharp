@@ -12,8 +12,9 @@ namespace geometry3Sharp.Tests
     /// the mesher (rightly) could not split. A decimal pixel width is not exact in doubles: the input point lies on its pixel's border, and
     /// the square around the output vertex, the pixel centre k w rounded to doubles, missed it by 4.7e-12. The oracle's GridUnsplittable
     /// then found no input constraint whose envelope holds both ends of the piece (none "own"), took the piece as splittable, and excused
-    /// neither the encroached subsegment (#728) nor the triangle whose circumcentre lies behind it (#729). The ends' pixels are now taken a
-    /// hair wider, as the oracle decides every other such tie.
+    /// neither the encroached subsegment (#728) nor the triangle whose circumcentre lies behind it (#729). A constraint now also holds a
+    /// piece's end when one of its own endpoints snaps to that end's pixel (only then, so a constraint that merely runs along the pixel
+    /// border beside the piece is not taken in).
     /// </summary>
     public class Meshing2OracleOwnEnvelopeHairTests
     {
