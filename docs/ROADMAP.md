@@ -227,6 +227,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   short pipeline topics: fast-winding cache lever 3, DualContouring allocations, the
   issue-tracker follow-ups (flip-guard and P1, both closed), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
   no further starts until the count is back below it.
+- **Suspended (owner 2026-11-12, after the weekly reset):** the limit above is out of force until the owner sets it
+  again; the coordinator still starts one PR-sized topic per session and keeps parallel sessions off the same files.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are
