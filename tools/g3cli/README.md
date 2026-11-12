@@ -7,7 +7,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | Command | Operation | Library classes |
 |---|---|---|
 | `measure` | counts, components, closedness, volume, area, bounds, genus, bowties, degenerate and inside-out parts, self-intersections (exact), Hausdorff distance to a second mesh | `MeshMeasurements`, `MeshRepairMetrics`, `MeshHausdorffDistance` |
-| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`, and the SafeRounding settings as for `boolean`: `--rounding-max-displacement`, `--rounding-ulp-factor`, `--rounding-absolute-tolerance`, `--rounding-max-pair-tests`, `--strict-rounding`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, `exact_resolve_rounding` and `separated_rounding`: the two rounding repairs of the exact stage, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
+| `repair` | repair into a closed solid (`--method robust`, default, or `auto`); with the exact resolve, `genus_before` / `genus_after` and a warning when it changed the genus of a component (self-overlapping layers form tunnels); the fallbacks can be tuned (`--exact-resolve-max-pairs`, `--safe-rounding`, `--alpha-wrap`, `--simplify-alpha-wrap`, `--check-lost-components`, `--reject-topology-change`, `--exact-resolve-rounds`, `--wrap-relative-alpha`, `--wrap-relative-offset`, `--alpha-wrap-quality-pass`, `--passthrough-clean-parts`, `--separate-fraction`, and the SafeRounding settings as for `boolean`: `--rounding-max-displacement`, `--rounding-ulp-factor`, `--rounding-absolute-tolerance`, `--rounding-max-pair-tests`, `--strict-rounding`) and are reported (`used_alpha_wrap`, `wrap_reason`, `result_reason`, `exact_resolve_rounding` and `separated_rounding`: the two rounding repairs of the exact stage, ...) | `MeshRobustRepair`, `MeshAutoRepair` |
 | `boolean` | union, intersection, difference (a minus the others), at least k of n, xor (winding number positive in an odd number of the inputs; for three, `(a xor b) xor c`; its parts touch along the crossing curves); two or more meshes (`--more`) in one exact operation; the result is repaired after the rounding (`--safe-rounding`, on by default as in the library), `boolean.rounding_clean` tells whether it is verified free of self-intersections and slivers, `boolean.rounding` has the repair's counts (`null` with `--no-safe-rounding`) | `ExactMeshBoolean`, `MeshRoundingRepair` |
 | `resolve` | boundary of the solid of one mesh: removes self-intersections, nested shells, duplicate faces; `--safe-rounding`, `--simplify-flat-regions` as for `boolean` | `ExactMeshBoolean.Resolve` |
 | `remesh` | isotropic remeshing to a target edge length, boundary and sharp edges kept, sharp points with `--sharp-vertex-angle` (`sharp_vertices_pinned`); passes that would turn a closed part inside out are rolled back (`rejected_passes`), a warning if the edge length is more than 4 times the estimated wall thickness | `Remesher`, `MeshConstraintUtil` |
@@ -25,11 +25,12 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `curvature` | discrete mean and Gaussian curvature per vertex (Meyer et al.: mixed Voronoi area, mean curvature normal, angle deficit) as statistics over the valid vertices, also scaled by the mesh size; `--output` writes every vertex as CSV / JSON | `MeshCurvature` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
 | `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices; intrinsic refinement, the descent path from a vertex or point with `--trace-from`) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
-| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings or winding number); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
+| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
-| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
+| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`), simplification (`--op simplify --epsilon e`), and on lines: `simplify_lines`, `clip_lines` (the pieces of GeoJSON LineStrings inside / outside the clip polygons, `--clip-type`) and `offset_lines` (the band of width 2 delta around lines, `--end-type round/square/butt/joined`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
+| `polygon_solids` | solid regions (polygons with holes) from loops: every ring of GeoJSON Polygons / MultiPolygons and every closed LineString is a loop, the nesting is found from containment; absolute (`--simplify-tolerance`, library default 0.1) and relative (`--relative-tolerance`) simplification, `--trust-orientations`, `--allow-overlapping-holes`; the result as GeoJSON (a file, or inline with `--return-geojson`), counts and areas | `PlanarComplex.FindSolidRegions` |
 
 ## Build and run
 
@@ -192,6 +193,10 @@ g3cli query3d part.stl --rays "0,0,-10,0,0,1;5,5,-10,0,0,1" --points "0,0,0;50,0
 #   -> "rays": { "hits": 2, "results": [ { "triangle": 31, "t": 9.5, "point": [...] }, ... ] },
 #      "points": { "inside_count": 1, "results": [ { "point": [...], "nearest": {...}, "inside": "inside" }, ... ] }
 g3cli query3d part.stl --rays @rays.txt --any-hit --max-distance 100
+# every result to a file (CSV: index, triangle, t, point_x.. / JSON: the entries), rays as JSON, the inside method chosen by the mesh
+g3cli query3d part.stl --rays @rays.json --output hits.csv
+g3cli query3d part.stl --points @points.json --inside auto --output inside.csv
+#   -> "points": { "method_used": "crossings", "inside_count": 1, ... }, "output": "inside.csv", "output_rows": 50000
 
 # deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
 g3cli deviation simplified.stl original.stl --certified
@@ -212,6 +217,17 @@ g3cli polygon2d parcel.geojson building.geojson --op difference --output free.ge
 g3cli polygon2d footprints.geojson --op union                       # merges the overlapping polygons of one file
 g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --miter-limit 2
 g3cli polygon2d --subject-geojson '{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,10],[0,0]]]}' --op offset --delta -1 --return-geojson
+# lines: clip LineStrings by polygons (the pieces inside, or with --clip-type difference outside), a band around a line, simplification
+g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in_district.geojson
+#   -> "result": { "lines": 12, "vertices": 340, "length": 4180.2, "bounds": {...} }   (GeoJSON MultiLineString)
+g3cli polygon2d route.geojson --op offset_lines --delta 15 --end-type butt --output corridor.geojson
+g3cli polygon2d parcel.geojson --op simplify --epsilon 0.05          # vertices closer than 0.05 to the line through their neighbours
+g3cli polygon2d track.geojson --op simplify_lines --epsilon 0.5
+
+# loops from several sources (rings of Polygons, closed lines) to solids with holes; simplification: absolute, library default 0.1
+g3cli polygon_solids loops.geojson solids.geojson
+#   -> "loops": {"input": 3, "open_lines_ignored": 1}, "solids": 2, "holes": 1, "area": 6800, "holes_area": 3600, "used_tolerance": {"absolute": 0.1, "relative": 0}
+g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4    # close loops keep their nesting
 
 # remesh to edge length 0.5, keep edges sharper than 40 degrees, report the deviation
 g3cli remesh part.stl part_remeshed.obj --edge-length 0.5 --crease-angle 40 --deviation
@@ -350,6 +366,12 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   (`[x, y, z]` of an intersection, degenerate triangle or false contact left, `null` if none is left).
 - `repair`: `result_code` and `exact_resolve_code` are `scale_not_finite` or `scale_disparity` where `result_reason` / `exact_resolve_reason` is, or contains, the
   long text of that reason, else `null`; they are also in the data of a failed repair (`operation_failed`).
+- `repair` (`--method robust` only; `--method auto` ignores these options and does not report these fields; additive): `robust_options` (the values the library used: `exact_resolve_rounds`, `wrap_relative_alpha`, `wrap_relative_offset`,
+  `alpha_wrap_quality_pass`, `passthrough_clean_parts`, `separate_fraction`), `exact_resolve_rounds_used`, `passed_through_triangles` (triangles of
+  clean components passed through untouched), `alpha_wrap_quality_improved`, `alpha_wrap_min_angle` / `alpha_wrap_max_angle` /
+  `alpha_wrap_share_above_170` (measured on the alpha wrap result; `null` if the result is not a wrap) and `phase_milliseconds` (milliseconds per
+  phase, eg `repair`, `exact`, `exact.resolve`, `solidify`, `wrap`; the phases present and their times vary between runs and are not for diffing results; see `MeshRobustRepair.PhaseMilliseconds`). `result_code` also is `outside_range`, `lost_far_part` or `wrap_too_coarse` where `result_reason`
+  contains that reason's text. Ranges: `exact_resolve_rounds` 1..64, `wrap_relative_*` 1..1e6, `separate_fraction` in (0, 1).
 - `mesh2d`: `conforming`, `resolve_crossings` and `steiner_limit` (`null`: not given, the library's default) as used, `bad_triangle_ids` (the first 100
   triangles below the angle bound, ids of the written mesh) and `diagnostics_count` (the mesher's diagnostics are in `warnings`).
 

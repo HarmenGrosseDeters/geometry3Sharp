@@ -238,6 +238,8 @@ namespace g3cli
                 catch (UnauthorizedAccessException e) { throw new CommandException(ResultCodes.ReadError, $"'{name}': cannot read '{file}': {e.Message}"); }
             } else if (text.Length > MaxTextChars)
                 throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': longer than {MaxTextChars} characters");
+            if (text.TrimStart().StartsWith("["))
+                return ParseJsonTuples(text, name, size);
             var list = new List<double[]>();
             foreach (string part in text.Split(new[] { ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Select(p => p.Trim()).Where(p => p.Length > 0)) {
                 double[] v;
@@ -252,6 +254,132 @@ namespace g3cli
             if (list.Count == 0)
                 throw new CommandException(ResultCodes.InvalidArguments, $"'{name}' is empty");
             return list;
+        }
+
+        /// <summary>
+        /// the JSON form of a list: [[x, y, z], ...] for points, [[ox, oy, oz, dx, dy, dz], ...] or
+        /// [{"origin": [x, y, z], "direction": [x, y, z]}, ...] for rays
+        /// </summary>
+        static List<double[]> ParseJsonTuples(string text, string name, int size)
+        {
+            JsonArray array;
+            try { array = JsonNode.Parse(text) as JsonArray; }
+            catch (Exception e) when (e is System.Text.Json.JsonException || e is ArgumentException) { throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': not valid JSON: {e.Message}"); }
+            if (array == null)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': a JSON list was expected");
+            if (array.Count > MaxQueries)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': at most {MaxQueries} entries");
+            if (array.Count == 0)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}' is empty");
+            var list = new List<double[]>(array.Count);
+            // (a duplicate key in an object throws ArgumentException when the object is first read)
+            try {
+            for (int i = 0; i < array.Count; i++) {
+                string bad = $"'{name}': entry {i + 1} is not a list of {size} finite numbers" + (size == 6 ? " or an object with 'origin' and 'direction'" : "");
+                JsonNode e = array[i];
+                var numbers = new List<double>();
+                if (size == 6 && e is JsonObject obj) {
+                    foreach (var kv in obj)
+                        if (kv.Key != "origin" && kv.Key != "direction")
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': entry {i + 1} has an unknown key '{kv.Key}' (known: origin, direction)");
+                    foreach (string key in new[] { "origin", "direction" }) {
+                        if (!(obj[key] is JsonArray part) || part.Count != 3) throw new CommandException(ResultCodes.InvalidArguments, bad);
+                        AddJsonNumbers(part, numbers, bad);
+                    }
+                } else if (e is JsonArray arr) {
+                    AddJsonNumbers(arr, numbers, bad);
+                } else throw new CommandException(ResultCodes.InvalidArguments, bad);
+                if (numbers.Count != size)
+                    throw new CommandException(ResultCodes.InvalidArguments, bad);
+                list.Add(numbers.ToArray());
+            }
+            } catch (ArgumentException e) {
+                throw new CommandException(ResultCodes.InvalidArguments, $"'{name}': invalid JSON object: {e.Message}");
+            }
+            return list;
+        }
+
+        static void AddJsonNumbers(JsonArray array, List<double> into, string message)
+        {
+            foreach (JsonNode n in array) {
+                double d;
+                try { d = n is JsonValue v ? v.GetValue<double>() : double.NaN; }
+                catch (Exception e) when (e is InvalidOperationException || e is FormatException) { d = double.NaN; }
+                if (!double.IsFinite(d)) throw new CommandException(ResultCodes.InvalidArguments, message);
+                into.Add(d);
+            }
+        }
+
+        // ---- the per-item results of query3d as a CSV or JSON file ----
+
+        static readonly HashSet<string> Vec3Columns = new HashSet<string> { "point", "closest_point", "barycentric" };
+
+        static void FlattenEntry(JsonObject entry, string prefix, List<KeyValuePair<string, string>> into)
+        {
+            foreach (var kv in entry) {
+                string key = prefix + kv.Key;
+                if (kv.Value is JsonObject inner) FlattenEntry(inner, key + "_", into);
+                else if (kv.Value is JsonArray arr || (kv.Value == null && Vec3Columns.Contains(kv.Key))) {
+                    string[] names = { "x", "y", "z" };
+                    for (int i = 0; i < 3; i++)
+                        into.Add(new KeyValuePair<string, string>(key + "_" + names[i], kv.Value == null ? "" : kv.Value[i].ToJsonString()));
+                } else if (kv.Value == null) into.Add(new KeyValuePair<string, string>(key, ""));
+                else if (kv.Value is JsonValue val && val.TryGetValue(out string str)) into.Add(new KeyValuePair<string, string>(key, str));
+                else into.Add(new KeyValuePair<string, string>(key, kv.Value.ToJsonString()));
+            }
+        }
+
+        /// <summary> the entry of a result list with its index in the input list first (the files hold every entry, so they need it) </summary>
+        static JsonObject WithIndex(int index, JsonObject entry)
+        {
+            var o = new JsonObject() { ["index"] = index };
+            foreach (var kv in entry.ToList()) { entry.Remove(kv.Key); o[kv.Key] = kv.Value; }
+            return o;
+        }
+
+        /// <summary> checks the extension of the query output file (.csv or .json) before any work </summary>
+        static string QueryOutputFormat(string path)
+        {
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            if (ext != ".csv" && ext != ".json")
+                throw new CommandException(ResultCodes.UnknownFormat, $"cannot write '{path}': the query results are written as .csv or .json");
+            return ext.Substring(1);
+        }
+
+        static void WriteQueryOutput(string path, string format, IEnumerable<JsonObject> entries)
+        {
+            string dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (Directory.Exists(dir) == false)
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': directory does not exist");
+            // (written next to the target and moved over it: a failure leaves neither a partial file nor a destroyed old one)
+            string temp = path + ".g3tmp";
+            try {
+                using (var w = new StreamWriter(temp, false, new System.Text.UTF8Encoding(false))) {
+                    if (format == "json") {
+                        w.Write('[');
+                        bool first = true;
+                        foreach (JsonObject e in entries) {
+                            w.Write(first ? "\n" : ",\n");
+                            w.Write(e.ToJsonString());
+                            first = false;
+                        }
+                        w.Write("\n]\n");
+                    } else {
+                        bool header = true;
+                        var cells = new List<KeyValuePair<string, string>>();
+                        foreach (JsonObject e in entries) {
+                            cells.Clear();
+                            FlattenEntry(e, "", cells);
+                            if (header) { w.Write(string.Join(",", cells.Select(c => c.Key)) + "\n"); header = false; }
+                            w.Write(string.Join(",", cells.Select(c => c.Value)) + "\n");
+                        }
+                    }
+                }
+                File.Move(temp, path, true);
+            } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                try { File.Delete(temp); } catch (Exception) { }
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
+            }
         }
 
         static Command Query3d()
@@ -270,11 +398,13 @@ namespace g3cli
             c.Params.Add(new Param("rays", ParamType.String, "rays 'ox,oy,oz,dx,dy,dz;...' (or @file)"));
             c.Params.Add(new Param("points", ParamType.String, "points 'x,y,z;...' (or @file)"));
             c.Params.Add(new Param("nearest", ParamType.Boolean, "points: the nearest triangle, closest point and distance") { Default = false });
-            c.Params.Add(new Param("inside", ParamType.String, "points: inside / outside test by this method") { Enum = new[] { "crossings", "winding_number" } });
+            c.Params.Add(new Param("inside", ParamType.String, "points: inside / outside test by this method; auto: crossings if the mesh is closed and has no boundary, else winding_number (the result's method_used says which)") { Enum = new[] { "crossings", "winding_number", "auto" } });
             c.Params.Add(new Param("any_hit", ParamType.Boolean, "rays: only whether each ray hits (no triangle, t or point)") { Default = false });
             c.Params.Add(new Param("max_distance", ParamType.Number, "only hits / triangles strictly closer than this count (default: no limit)"));
             c.Params.Add(new Param("parallel", ParamType.Boolean, "use all cores (the result does not depend on it)") { Default = true });
             c.Params.Add(new Param("max_results", ParamType.Integer, "at most this many entries in each result list") { Default = 1000 });
+            c.Params.Add(new Param("normalize", ParamType.Boolean, "rays: normalize the directions (false: a direction that is not a unit vector gets the status not_normalized and no hit)") { Default = true });
+            c.Params.Add(new Param("output", ParamType.String, "write every result (not cut at max_results) to this .csv or .json file; for rays or for points, not both"));
             c.Run = args => {
                 if (args.Has("rays") == false && args.Has("points") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "give rays or points (or both)");
@@ -287,6 +417,18 @@ namespace g3cli
                 int maxResults = args.Integer("max_results");
                 if (maxResults < 0 || maxResults > 100000)
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_results' must be in 0..100000");
+                if (args.Has("normalize") && args.Bool("normalize") == false && args.Has("rays") == false)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'normalize' is an option of 'rays'");
+                string outputFormat = null;
+                if (args.Has("output")) {
+                    if (args.Has("rays") && args.Has("points"))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'output' is for rays or for points, not both: run the command twice");
+                    outputFormat = QueryOutputFormat(args.String("output"));
+                    string outFull = Path.GetFullPath(args.String("output"));
+                    foreach (string list in new[] { "rays", "points" })
+                        if (args.Has(list) && args.String(list).StartsWith("@") && string.Equals(Path.GetFullPath(args.String(list).Substring(1)), outFull, StringComparison.Ordinal))
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'output' is the '{list}' file");
+                }
                 double maxDistance = double.MaxValue;
                 if (args.Has("max_distance")) {
                     maxDistance = args.Number("max_distance");
@@ -304,7 +446,10 @@ namespace g3cli
                             throw new CommandException(ResultCodes.InvalidArguments, $"'rays': ray {i + 1} has a zero direction");
                         // (scaled by the largest component first: a direction of 1e-200 or 1e200 normalizes as any other)
                         var dir = new Vector3d(rayList[i][3] / scale, rayList[i][4] / scale, rayList[i][5] / scale);
-                        rays[i] = new Ray3d(new Vector3d(rayList[i][0], rayList[i][1], rayList[i][2]), dir.Normalized);
+                        // (normalize false: the direction as given, a non-unit one is not_normalized)
+                        rays[i] = new Ray3d(new Vector3d(rayList[i][0], rayList[i][1], rayList[i][2]),
+                            args.Bool("normalize") ? dir.Normalized : new Vector3d(rayList[i][3], rayList[i][4], rayList[i][5]),
+                            bIsNormalized: !args.Bool("normalize"));
                     }
                 }
                 Vector3d[] points = pointList?.Select(p => new Vector3d(p[0], p[1], p[2])).ToArray();
@@ -319,27 +464,32 @@ namespace g3cli
                     var status = new RayStatus[rays.Length];
                     BatchStatus bs;
                     var rr = new JsonObject() { ["count"] = rays.Length };
+                    Func<int, JsonObject> rayEntry;
                     if (args.Bool("any_hit")) {
                         var hit = new bool[rays.Length];
                         bs = MeshBatchQueries.AnyHitBatch(tree, rays, hit, status, options);
                         BatchOk(bs);
                         rr["hits"] = hit.Count(h => h);
-                        rr["results"] = new JsonArray(Enumerable.Range(0, rays.Length).Take(maxResults)
-                            .Select(i => (JsonNode)new JsonObject() { ["hit"] = hit[i], ["status"] = ToSnake(status[i].ToString()) }).ToArray());
+                        rayEntry = i => new JsonObject() { ["hit"] = hit[i], ["status"] = ToSnake(status[i].ToString()) };
                     } else {
                         var hits = new RayHit[rays.Length];
                         bs = MeshBatchQueries.IntersectBatch(tree, rays, hits, status, options);
                         BatchOk(bs);
                         rr["hits"] = hits.Count(h => h.Triangle != DMesh3.InvalidID);
-                        rr["results"] = new JsonArray(Enumerable.Range(0, rays.Length).Take(maxResults).Select(i => {
+                        rayEntry = i => {
                             bool h = hits[i].Triangle != DMesh3.InvalidID;
-                            return (JsonNode)new JsonObject() {
+                            return new JsonObject() {
                                 ["triangle"] = h ? hits[i].Triangle : (JsonNode)null,
                                 ["t"] = h ? Val(hits[i].T) : null,
                                 ["point"] = h ? MeshReport.Vec(rays[i].PointAt(hits[i].T)) : null,
                                 ["status"] = ToSnake(status[i].ToString()),
                             };
-                        }).ToArray());
+                        };
+                    }
+                    rr["results"] = new JsonArray(Enumerable.Range(0, rays.Length).Take(maxResults).Select(i => (JsonNode)rayEntry(i)).ToArray());
+                    if (!args.Has("points") && outputFormat != null) {
+                        WriteQueryOutput(args.String("output"), outputFormat, Enumerable.Range(0, rays.Length).Select(i => WithIndex(i, rayEntry(i))));
+                        o["output"] = args.String("output"); o["output_format"] = outputFormat; o["output_rows"] = rays.Length;
                     }
                     rr["truncated"] = rays.Length > maxResults;
                     int badRays = status.Count(x => x != RayStatus.Ok);
@@ -349,15 +499,35 @@ namespace g3cli
                 }
                 if (points != null) {
                     var pr = new JsonObject() { ["count"] = points.Length };
-                    var entries = Enumerable.Range(0, points.Length).Take(maxResults).Select(i => new JsonObject() { ["point"] = MeshReport.Vec(points[i]) }).ToArray();
+                    NearestPointResult[] res = null;
+                    PointStatus[] ps = null;
+                    InsideStatus[] inside = null;
                     if (args.Bool("nearest")) {
-                        var res = new NearestPointResult[points.Length];
-                        var ps = new PointStatus[points.Length];
+                        res = new NearestPointResult[points.Length];
+                        ps = new PointStatus[points.Length];
                         BatchOk(MeshBatchQueries.NearestPointBatch(tree, points, res, ps, options));
                         pr["nearest_found"] = res.Count(r => r.Triangle != DMesh3.InvalidID);
-                        for (int i = 0; i < entries.Length; i++) {
+                    }
+                    if (args.Has("inside")) {
+                        string insideMode = args.String("inside");
+                        // auto: the exact crossings test needs a closed mesh without boundary; any other mesh gets the winding number
+                        bool closed = insideMode != "winding_number" && MeshIterators.BoundaryEdges(mesh).Any() == false && (mesh.TriangleCount == 0 || ExactMeshBoolean.IsWindingClosed(mesh));
+                        string used = insideMode == "auto" ? (closed ? "crossings" : "winding_number") : insideMode;
+                        if (insideMode == "crossings" && !closed)
+                            warnings.Add("inside by crossings is exact only for a closed mesh without self-intersections; this mesh is not closed: use inside=winding_number (or auto)");
+                        if (insideMode == "auto" && !closed)
+                            warnings.Add("the mesh is not closed: inside uses the winding number (approximate near the surface)");
+                        inside = new InsideStatus[points.Length];
+                        var method = used == "crossings" ? InsideMethod.Crossings : InsideMethod.WindingNumber;
+                        BatchOk(MeshBatchQueries.IsInsideBatch(tree, points, inside, method, options));
+                        pr["inside_count"] = inside.Count(s => s == InsideStatus.Inside);
+                        pr["method_used"] = used;
+                    }
+                    Func<int, JsonObject> pointEntry = i => {
+                        var e = new JsonObject() { ["point"] = MeshReport.Vec(points[i]) };
+                        if (res != null) {
                             bool f = res[i].Triangle != DMesh3.InvalidID;
-                            entries[i]["nearest"] = new JsonObject() {
+                            e["nearest"] = new JsonObject() {
                                 ["status"] = ToSnake(ps[i].ToString()),
                                 ["triangle"] = f ? res[i].Triangle : (JsonNode)null,
                                 ["closest_point"] = f ? MeshReport.Vec(res[i].Point) : null,
@@ -365,20 +535,17 @@ namespace g3cli
                                 ["distance"] = f ? Val(res[i].Distance) : null,
                             };
                         }
-                    }
-                    if (args.Has("inside")) {
-                        if (args.String("inside") == "crossings" && (MeshIterators.BoundaryEdges(mesh).Any() || mesh.TriangleCount > 0 && ExactMeshBoolean.IsWindingClosed(mesh) == false))
-                            warnings.Add("inside by crossings is exact only for a closed mesh without self-intersections; this mesh is not closed: use inside=winding_number");
-                        var inside = new InsideStatus[points.Length];
-                        var method = args.String("inside") == "crossings" ? InsideMethod.Crossings : InsideMethod.WindingNumber;
-                        BatchOk(MeshBatchQueries.IsInsideBatch(tree, points, inside, method, options));
-                        pr["inside_count"] = inside.Count(s => s == InsideStatus.Inside);
-                        for (int i = 0; i < entries.Length; i++)
-                            entries[i]["inside"] = ToSnake(inside[i].ToString());
-                    }
-                    pr["results"] = new JsonArray(entries.Select(e => (JsonNode)e).ToArray());
+                        if (inside != null)
+                            e["inside"] = ToSnake(inside[i].ToString());
+                        return e;
+                    };
+                    pr["results"] = new JsonArray(Enumerable.Range(0, points.Length).Take(maxResults).Select(i => (JsonNode)pointEntry(i)).ToArray());
                     pr["truncated"] = points.Length > maxResults;
                     o["points"] = pr;
+                    if (outputFormat != null) {
+                        WriteQueryOutput(args.String("output"), outputFormat, Enumerable.Range(0, points.Length).Select(i => WithIndex(i, pointEntry(i))));
+                        o["output"] = args.String("output"); o["output_format"] = outputFormat; o["output_rows"] = points.Length;
+                    }
                 }
                 o["warnings"] = Warnings(warnings);
                 return o;

@@ -117,7 +117,7 @@ namespace geometry3Sharp.Tests
             Assert.True(Judge(input, o, "M3").Ok);
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> in every frame the oracle accepts the mesh; at the 2^k scales the ring collapses and the domain is empty there too </summary>
         [Theory]

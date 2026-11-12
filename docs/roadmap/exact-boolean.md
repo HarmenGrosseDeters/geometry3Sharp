@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage in review (#633).
+  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage merged (#633, 2026-11-12, d6f6fe9d).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -76,8 +76,9 @@ was a scratch console app, not committed.
 - Levers, measured: (1) a slab ray-box test instead of `IntrLine3AxisAlignedBox3.DoClipping`: 0.93-0.96x, dropped;
   (2) the orientation rays as an early-out first-hit test: 0.81-0.85x, dropped; (3) the fast-winding cache's per-box
   `HashSet<int>` as a `List<int>` in the same order: 1.27-1.30x on the cache build, bit-identical (no box coefficient
-  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: a bundle candidate for the
-  next PR that touches the fast-winding cache (coordinator 2026-11-12); (4) bottom-up fast-winding moments: the
+  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: done 2026-11-12
+  ([FastWindingCacheBenchmark](../../benchmarks/FastWindingCacheBenchmark/README.md): 1.13-1.42x serial, 1.15-1.31x
+  parallel on 35k to 850k triangles, checksums equal; `FastWindingCacheOrderTests` pins every box coefficient bit for bit); (4) bottom-up fast-winding moments: the
   coefficient passes are 65-75 % of the cache build (bound about 5-9 % of that CPU), not bit-identical, not pursued;
   (5) batch queries for serial loops: the serial tree CPU is at most 4 % per workload and all tree builds, dropped;
   (6) a parallel tree build: the build is 1.5-3.2 % of the CPU, dropped.
@@ -181,6 +182,15 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
     9.7 GB, same hash. Design note: `docs/design/EXACT_BOOLEAN_TAIL_55928.md`, first in #626 (closed unmerged), now part of #633 (draft),
     which supersedes it. **Owner 2026-11-11:** a `Cancelled` status via an
     optional CancellationToken (yes); `MaxOpenWindingEvaluations` deferred until after L1/L2 are measured.
+  - **Stage (#633, 2026-11-12), all bit-identical except L2's accepted half-integer band (none seen in the A/B):**
+    the budget (`MaxPieces`, `BudgetExceeded`, `Counts["predicted_pieces"]`) and `Cancelled`; L1 per patch (used only
+    with L2 off); L2 carried rays with candidates from the arrangement's partners and filters in a local frame; L2's
+    centroids from their corners in that frame (exact centroids on 55928 for 1.2M of 30M evaluations); L3 a local
+    filter for the triangulation's Orient and InCircle and Orient's zeros from the points' constructions. 55928,
+    Difference, 4 cores: 973 s -> about 370-420 s (classification 772 -> 224-254 s, triangulation 172 -> 116 s,
+    allocations 534 -> 200 GB), hash 61550C3C2F352E72 unchanged. `MaxOpenWindingEvaluations` is not needed. Open
+    candidates (not in this stage): an allocation-free limb kernel for the 12.43M remaining BigInteger InCircle stages
+    (estimated -20 to -30 s); the GC setting of the application (474 -> 358 s, documented in OPERATIONS.md).
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
@@ -326,10 +336,10 @@ Checked against the owner's decisions and git on 2026-11-12.
 
 Open:
 
-- **Exact Boolean 2.0 leftovers (owner question 2026-11-12):** the speed exceptions over 5 s (519511, 1517923, 519507) were
-  not re-measured after D1 (#513; the sign-off has no timing section), and manifold M2 (`Generic_Twin_7081` union 20 s,
-  self-intersecting inputs, outside the 2.0 target set) not since the 2.0 levers: re-measure on master or close as
-  documented exceptions. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
+- **Exact Boolean 2.0 leftovers: closed (owner 2026-11-12).** The speed exceptions over 5 s (519511, 1517923, 519507)
+  and manifold M2 (`Generic_Twin_7081` union 20 s, self-intersecting inputs, outside the 2.0 target set) stay documented
+  exceptions of 2.0 and are not re-measured separately; the thingi-pairs runs after Exact Boolean 3.0 measure them on the
+  3.0 state. M1 is superseded by the WP2 triage and D1, M3 fixed in #398.
 - **Degeneracy criterion (`DegenerateArea` = 1e-12 × diag²):** its motivating cases 119829 / 119830 are clean since D1
   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.

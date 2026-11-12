@@ -40,7 +40,12 @@ Part of the [roadmap](../ROADMAP.md).
      benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
      (a new session after Lévy phase 2; owner 2026-11-12: queued as a Sonnet session after the dirty-side provenance
      session):
-     - Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
+     - Profile run 2026-11-12 (docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
+       parallel (`gParallel`), so a switch adds only the sort (0.9-1.4x on the query part for random input, a loss on the
+       callers' coherent order: MeshDeviation 3-12 % slower); no caller reaches the 10 % rule, nothing is switched. The
+       only serial query loop is `TerrainSafety`'s source mapping (below 10 % of a terrain case; not switched).
+       Item 1 is closed unless a new serial caller appears.
+     - (Earlier hand-over text:) Which loops pay is decided by the spatial profile, which this session did not run. Library files that call the
        single queries (grep, not profiled): `MeshFidelityMetrics`, `MeshDeviation` (MaxDeviation / IsWithin),
        `WindingContouring`, `WindingNumberOctree`, `RemoveOccludedTriangles`, `MeshSignedDistanceGrid`,
        `TerrainSafety`, `TerrainOffset`, `AlphaWrapQualityPass`, `MeshRepairOrientation` (the ray time of the repair, 6-7 % of its CPU

@@ -8,8 +8,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-12):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
   run A and the small-angle rule (#394, 2026-11-07) are merged; since then the corner choice (#437), rule C (#441),
   Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed; the QA 2.0 T5 findings and owner decisions of
-  2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Open (inventory 2026-11-12): two actionable items (three
-  untraced single triangles from #542, the provenance delta after d9006aa), four blocked on corpus inputs, the rest research.
+  2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Open (inventory 2026-11-12): both actionable items done (the
+  three single triangles from #542, fixed in #661; the provenance delta after d9006aa, stage 6b-4, #677, no (A) finding); four blocked on corpus inputs, the rest research.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),
@@ -28,27 +28,13 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
-- **#664 (bugfix, owner 2026-11-12):** the near-contact fan of #661 under the `rotated` similarity runs to the Steiner limit
-  (about 400 000 vertices; same on master). Next item of the Meshing2D session, after #661 / #663.
-
-- **2.5D output helper (owner 2026-11-12):** `ConstrainedMesh2` carries `Heights` per vertex (input heights, crossings and
-  Steiner points interpolated), but there is no conversion to a 3D mesh; an additive helper builds a `DMesh3` with the heights
-  as z (labels as groups where they fit). Effort S.
-
-- **Three single triangles at 1e-7..1e-9 radian (from #542):** in the near-contact fan (T-junction segments ending 2^-k beside a
-  long segment, constrained quality mode), scale 1.13 at k = 26 and 28 leaves three single triangles below the bound that the
-  oracle does not excuse (fan factors 1.13; [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md) section 2), not
-  traced. Next: trace them with the fan generator of `Meshing2OracleCrossingRoundingTests`; a mesher defect gets a fix with a
-  failing test, an oracle gap goes to the coordinator first (no oracle widening without a decision). The tie at fan scale 1.0
-  (a split point exactly at the tolerance 2^-41 from another source, refused by the mesher, not excused by the oracle's
-  `O11Unsplittable` margin) stays documented, not fixed (coordinator decision in #542). Effort S-M.
 - **Provenance delta after `d9006aa`:** stage 6b-3 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md),
   ff0c378) covers master `d9006aa`, no (A) finding. Since then `QualityMesh2.cs`, `ConstrainedDelaunayMesh2.cs` and
   `SnapRounding2.cs` changed by +383 / −61 lines (#394 small-angle rule, #437 corner choice, #441 / #462 rule C, #496 the
   60° pairs, #512, #526, #553 pair keys), and the oracle much more. A delta check is due before a release that relies on the
   clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
   must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
-  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side).
+  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side). **Done (2026-11-12):** stage 6b-4 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md#stage-6b-4-delta-after-d9006aa)) on master `01a7e71` against `triangle.c` 1.6 and Triangle.NET `fa6f2fdb`: **no (A) finding**, every changed routine (B) or (C), no rewrite needed.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
@@ -90,6 +76,21 @@ Research or not scheduled (not built without a new decision):
 
 Moved from Open; checked against git history and GitHub on 2026-11-12.
 
+- **Three single triangles at 1e-7..1e-9 radian (from #542): done (#661, merged 2026-11-12, 629aa28f).** Traced and fixed. In the near-contact fan (scale
+  1.13, k = 26 and 28, constrained quality mode) each triangle lay below A at a T-junction apex, its off-centre in the diametral
+  circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave such a triangle up, which the oracle's O11
+  exemptions (a circumcentre behind the piece) do not cover. Fix in the mesher (coordinator decision, option A: no oracle or spec
+  change): the encroachment of an unsplittable piece no longer stops the point, as on the grid. Golden rows f-26 / f-27 re-recorded.
+  Before merge: a public-corpus runner A/B (`runs/meshing2d-unsplittable-encroach`, JOB-1). The tie at fan scale 1.0 (a split point
+  exactly at the tolerance 2^-41 from another source) stays documented, not fixed (coordinator decision in #542).
+- **2.5D output (owner 2026-11-12): done (#663, merged 2026-11-12, f0578fb6).** `ConstrainedMesh2.ToDMesh3()`: heights as z (0 without heights; the case is not rejected,
+  so a flat mesh needs no special path), region labels as triangle groups, vertex and triangle ids kept (unused vertices stay
+  isolated). Additive API.
+- **Near T-junctions under a rotation (#664, bugfix): done (#666, merged 2026-11-12, fec3b2a9).** A T-junction end rounded a hair beside the other segment lost the small-angle
+  exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in #666: the
+  mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
+  widens an excuse: accepted by the owner 2026-11-12. Effort M.
+
 - **Drift promise on the snap grid (owner 2026-11-10, option A): done.** The QA 2.0 T5 campaign found chains at sub-pixel
   wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources), caused by Q17, against the promise of half a pixel.
   The oracle judges chains against its own iterated image with a drift guard (rule O-G, f6372294, review 8c4e46a, #526; the
@@ -100,7 +101,7 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   stay judged by the full image (self-check B1 kept).
 - **The #542 oracle gap: done.** A vertex computed from two near-parallel sources counts on either side of the apex within
   `RoundingReach2` (#542, 2026-11-10). Its two leftovers: the tie at fan scale 1.0 (documented, coordinator decision) and three
-  single triangles (Open).
+  single triangles (traced and fixed in #661).
 - **Small-angle exemption up to 60° (owner 2026-11-09): done** in #496 (aa7d451): the pair threshold in the mesher
   (`PairOf`, `SmallPairSin2`) and the oracle's excuse (`SpansSmallInputAngle`) is 60° less the slack, whatever the bound;
   such triangles are listed in `BadTriangles` (the report) and excused by the same rule; self-checks for 59°, goldens

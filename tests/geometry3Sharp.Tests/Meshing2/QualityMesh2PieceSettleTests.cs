@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
             Assert.True(report.Ok, "seed " + seed + ": " + report);
         }
 
-        public static IEnumerable<object[]> Similarities() => Similarity.All().Select(s => new object[] { s.Name });
+        public static IEnumerable<object[]> Similarities() => Similarity.All2D().Select(s => new object[] { s.Name });
 
         /// <summary> the case under every similarity: the others pass the oracle, the 2^k scales give the same mesh bit for bit </summary>
         [Theory]

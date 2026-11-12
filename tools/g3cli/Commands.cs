@@ -20,7 +20,7 @@ namespace g3cli
     {
         public static readonly List<Command> All = new List<Command>() {
             Measure(), Repair(), Boolean(), Resolve(), Remesh(), Simplify(), Uv(), Convert(), Mesh2d(), Query2d(), Slope(), Dgm(), DgmTin(), CellVolumes(),
-            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit(), Wrap(), Geodesic(), Query3d(), Polygon2dCommand(), Curvature()
+            Fidelity(), Quality(), DeviationCommand(), Thickness(), Fit(), Wrap(), Geodesic(), Query3d(), Polygon2dCommand(), PolygonSolidsCommand(), Curvature()
         };
 
         public static Command Find(string name)
@@ -172,6 +172,12 @@ namespace g3cli
                 "false: the cleanup collapses slivers and the resolve is repeated") { Default = true });
             c.Params.Add(new Param("alpha_wrap", ParamType.Boolean, "robust: last resort, alpha wrap the mesh if the solidify fails or is not clean (MeshRobustRepair.AlphaWrapFallback)") { Default = true });
             c.Params.Add(new Param("simplify_alpha_wrap", ParamType.Boolean, "robust: simplify the alpha wrap, kept only if clean and certified within half the wrap offset of the unsimplified wrap") { Default = true });
+            c.Params.Add(new Param("exact_resolve_rounds", ParamType.Integer, "robust: resolves of the exact stage at most (rounding the new vertices to double can create tiny self-intersections: resolve again), 1..64") { Default = 4 });
+            c.Params.Add(new Param("wrap_relative_alpha", ParamType.Number, "robust alpha wrap fallback: alpha = bounding box diagonal / this value, 1..1e6") { Default = 300.0 });
+            c.Params.Add(new Param("wrap_relative_offset", ParamType.Number, "robust alpha wrap fallback: offset = bounding box diagonal / this value, 1..1e6") { Default = 3000.0 });
+            c.Params.Add(new Param("alpha_wrap_quality_pass", ParamType.Boolean, "robust alpha wrap fallback: improve the triangle quality after the simplification (about 30 % more time, adds little)") { Default = false });
+            c.Params.Add(new Param("passthrough_clean_parts", ParamType.Boolean, "robust: a closed component that is clean on its own and whose bounding box meets no other component is passed through untouched (false: the whole input goes through the stages)") { Default = true });
+            c.Params.Add(new Param("separate_fraction", ParamType.Number, "robust exact stage: how far vertices at the same position are moved towards the centroid of their neighbours to separate touching sheets, in (0, 1)") { Default = 1e-4 });
             AddRoundingTolerances(c, repair: true);
             c.Params.Add(new Param("check_lost_components", ParamType.Boolean, "robust: a result that lost a connected component of the input (eg a small part of an assembly) falls back like one that lost volume; " +
                 "needs min_volume_iou > 0") { Default = false });
@@ -208,7 +214,22 @@ namespace g3cli
                         throw new CommandException(ResultCodes.InvalidArguments, "'exact_resolve_max_pairs' must be >= 0");
                     if (args.Bool("check_lost_components") && args.Number("min_volume_iou") <= 0)
                         throw new CommandException(ResultCodes.InvalidArguments, "'check_lost_components' needs min_volume_iou > 0");
+                    int resolveRounds = args.Integer("exact_resolve_rounds");
+                    if (resolveRounds < 1 || resolveRounds > 64)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'exact_resolve_rounds' must be in 1..64");
+                    foreach (string name in new[] { "wrap_relative_alpha", "wrap_relative_offset" })
+                        if (!(args.Number(name) >= 1 && args.Number(name) <= 1e6))
+                            throw new CommandException(ResultCodes.InvalidArguments, "'" + name + "' must be in 1..1e6");
+                    double separate = args.Number("separate_fraction");
+                    if (!(separate > 0 && separate < 1))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'separate_fraction' must be in (0, 1)");
                     var repair = new MeshRobustRepair(new DMesh3(mesh)) {
+                        ExactResolveRounds = resolveRounds,
+                        WrapRelativeAlpha = args.Number("wrap_relative_alpha"),
+                        WrapRelativeOffset = args.Number("wrap_relative_offset"),
+                        AlphaWrapQualityPass = args.Bool("alpha_wrap_quality_pass"),
+                        PassThroughCleanParts = args.Bool("passthrough_clean_parts"),
+                        SeparateFraction = separate,
                         SolidifyResolution = args.Integer("solidify_resolution"),
                         MinVolumeIoU = args.Number("min_volume_iou"),
                         CheckSelfIntersections = selfInt,
@@ -252,6 +273,26 @@ namespace g3cli
                     o["used_alpha_wrap"] = repair.UsedAlphaWrap;
                     o["alpha_wrap_triangles"] = repair.AlphaWrapTriangles;
                     o["alpha_wrap_simplified"] = repair.AlphaWrapSimplified;
+                    o["alpha_wrap_quality_improved"] = repair.AlphaWrapQualityImproved;
+                    // (measured on the alpha wrap result, null if the result is not the wrap)
+                    o["alpha_wrap_min_angle"] = MeshReport.Num(repair.AlphaWrapMinAngleDegrees);
+                    o["alpha_wrap_max_angle"] = MeshReport.Num(repair.AlphaWrapMaxAngleDegrees);
+                    o["alpha_wrap_share_above_170"] = MeshReport.Num(repair.AlphaWrapShareAbove170);
+                    // the options as the library used them (for the options added to the command later, so a script can tell)
+                    o["robust_options"] = new JsonObject() {
+                        ["exact_resolve_rounds"] = repair.ExactResolveRounds,
+                        ["wrap_relative_alpha"] = repair.WrapRelativeAlpha,
+                        ["wrap_relative_offset"] = repair.WrapRelativeOffset,
+                        ["alpha_wrap_quality_pass"] = repair.AlphaWrapQualityPass,
+                        ["passthrough_clean_parts"] = repair.PassThroughCleanParts,
+                        ["separate_fraction"] = repair.SeparateFraction,
+                    };
+                    o["exact_resolve_rounds_used"] = repair.ExactResolveRoundsUsed;
+                    o["passed_through_triangles"] = repair.PassedThroughTriangles;
+                    var phases = new JsonObject();
+                    foreach (var kv in repair.PhaseMilliseconds.OrderBy(k => k.Key, StringComparer.Ordinal))
+                        phases[kv.Key] = kv.Value;
+                    o["phase_milliseconds"] = phases;
                     o["wrap_reason"] = repair.WrapReason == "" ? null : repair.WrapReason;
                     o["result_reason"] = repair.ResultReason == "" ? null : repair.ResultReason;
                     // (the short codes of the two scale reasons, whose texts are long; null for any other reason)
@@ -322,12 +363,15 @@ namespace g3cli
         }
 
         /// <summary> the short machine code of MeshRobustRepair's ScaleNotFinite / ScaleDisparity reasons, else null </summary>
-        static JsonNode ReasonCode(string reason)
+        internal static JsonNode ReasonCode(string reason)
         {
             // (MeshRobustRepair appends text to a reason: the code is set where the constant's text is part of it)
             if (string.IsNullOrEmpty(reason)) return null;
             if (reason.Contains(MeshRobustRepair.ScaleNotFinite)) return "scale_not_finite";
             if (reason.Contains(MeshRobustRepair.ScaleDisparity)) return "scale_disparity";
+            if (reason.Contains(MeshRobustRepair.OutsideRange)) return "outside_range";
+            if (reason.Contains(MeshRobustRepair.LostFarPart)) return "lost_far_part";
+            if (reason.Contains(MeshRobustRepair.WrapTooCoarse)) return "wrap_too_coarse";
             return null;
         }
 
