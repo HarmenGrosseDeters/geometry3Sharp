@@ -15,14 +15,15 @@ time (Thingi10K) and never committed.
   33 operations; sum 76.9 of 282.2 s = 27 %), not 72-86 %. 519511 union: 4.7 of 17.0 s.
 - **There is no sub-linear rounding scheme to be had from the leads, and none is needed for what the time is spent on.**
   The cost has two unrelated shapes:
-  - *clean large results:* 60-80 % of the rounding is the first full search, and that is the enumeration of box
-    neighbours (85-850 box hits per query triangle), not exact arithmetic;
+  - *clean large results:* the first full search is the largest part (59-98 % of the rounding on 519511, 1517923 and
+    668056; 22-43 % on 1063860, where the tree and the setup over all triangles are larger), and it is the
+    enumeration of box neighbours (20-355 box hits per query triangle, 316 on 519511 union), not exact arithmetic;
   - *dirty rotated results:* the evaluations of proposed edits, and on the two worst cases (1368057 and 42327 union)
     work **after the evaluation limit was reached**.
 - **The certified empty ball (a lower distance bound) is closed as a filter.** The pair tests it could clear are 0-33 %
   of the rounding time, 8 % in the median of the traced operations, before the cost of the certificate.
 - **Its directional form, a separating-axis prefilter, is correct (lemma checked with Z3) and not worth building.** It
-  removes 86-97 % of the exact pair tests of the first search but only 4-52 % of its time with cached axes, and as a
+  removes 68-97 % of the exact pair tests of the first search but only 4-52 % of its time with cached axes, and as a
   real A/B inside the rounding it changes the sum by -1.6 % (noise), with all 33 result hashes identical.
 - **One lever with a real gain was found on the way:** stopping the passes at the evaluation limit. Rounding -33 % in
   the sum (1368057 union 17.3 to 3.1 s, 42327 union 10.3 to 3.0 s), the booleans -9 %, all 33 result hashes identical.
@@ -116,7 +117,7 @@ would still take 9-12 s.
 | 1368057 union (not clean) | 71 638 | 855 | 32.4M | 0.92 s | 3.5 s | 0.15 s | 1.9 s | 0.23 s |
 
 - The search already starts only from the triangles with a rounded corner (L1), so it is linear in those, times their
-  box neighbours. A query returns hundreds of triangles because the results hold long thin triangles on tilted flat
+  box neighbours. Where a query returns hundreds of triangles (it returns 20-51 on four of the operations traced), it is because the results hold long thin triangles on tilted flat
   faces (CAD parts, the rotated copy): their axis boxes overlap in bulk, and almost none of these pairs intersects (0 of
   60M on 519511 union).
 - A pair test costs 86-118 ns; 3-30 % of the pairs apart reach the exact stage (they are not decided by the
@@ -137,7 +138,7 @@ would still take 9-12 s.
 | 1368057 union | 18.2 s | 3 992 940 | 3 991 858 | 610 | 872 | 1 % | 4 % | 0 % | about 14 of 18 s |
 | 119829 union (clean, 13 447 edits) | 1.8 s | 13 466 | 0 | 13 447 | 15 | 52 % | 2 % | 8 % | small |
 
-- Where the limit is not the story, the time is in `near` (15-62 % of the rounding, 4-30 µs per query) and in pair
+- Where the limit is not the story, the time is in `near` (14-56 % of the rounding in the trace of 4.1, up to 62 % in the run with distances; 4-30 µs per query) and in pair
   tests of triangles apart (26-52 %), at 150-400 ns per test including the trace.
 - On 1368057 union and 42327 union three quarters of the rounding is spent after `EvaluationLimitReached`: the passes
   go on proposing edits, each is rejected at the limit check, and the only effect is `SmallestRejectedDrift`. #327 made
@@ -199,13 +200,17 @@ assumptions; `results/separating_axis_2026-11-12.json`):
 - R3: with every exact projection within its margin and lo_B − m_B > hi_A + m_A, max p(A_k) < min p(B_k);
 - G1: max a·A_k < min a·B_k implies no common point (free real coordinates).
 Bridges, reviewed and not by Z3: rounding is monotonic (the comparison of the rounded bounds implies the real one);
-fl(|a||x|) = |fl(a x)|; a NaN or infinite projection compares false. Assumption: the supported range of
-`MeshRoundingRepair` ([2^-200, 2^200], no subnormal coordinate), in which the products neither underflow nor overflow.
+fl(|a||x|) = |fl(a x)|; a NaN or infinite projection compares false. Assumption: no product a_i x_i underflows to a subnormal or overflows (R1 is a relative error model). The supported
+range of `MeshRoundingRepair` ([2^-200, 2^200], no subnormal coordinate) does not give this by itself: an in-plane
+axis is a product of three coordinate differences and its components can come near 2^-860 at the low end of the range,
+so a product with a coordinate can be subnormal. A build would scale each axis by a power of two (exact, and any
+multiple of a separating axis separates) or answer "not apart" when a product is below 2^-1022; the prototype does
+neither and was run on coordinates of ordinary size.
 Six mutants are SAT: a bound of 2u in R1, Γ = 2u, the margin of one corner only, a non-strict comparison (twice), one
 corner left out of the maximum.
 
 **Upper bound** (`SnapRoundingExperiment cull`, the first search of the rounded result outside the library, axes
-cached per triangle and not counted: 170-320 ms in parallel for 520k triangles; `cull_2026-11-12.jsonl`; the set of
+cached per triangle and not counted: 25-143 ms in parallel, 136 ms for the 520k triangles of 519511 union; `cull_2026-11-12.jsonl`; the set of
 intersecting pairs is the same in every variant):
 
 | case | box hits per query | pair tests: box | with the 8 axes | search: box | with the 8 axes | axes also at the tree nodes |
@@ -228,7 +233,8 @@ rounding 73.9 to 72.8 s (−1.6 %), the booleans 272.6 to 271.3 s; 519511 union 
 1.19 s, 67709 +12 to +30 %, 486343 union −17 %; **33 of 33 result hashes identical**.
 
 **Verdict.** The rule is sound and bit-identical, and the gain is inside the noise except on results with hundreds of
-box hits per query, where it is about 1 s of 16 s. The remaining cost of the search is the enumeration of the box
+box hits per query, where it is about 1 s of the rounding (519511 union 4.5 to 3.5 s; the boolean, 16.36 to 16.32 s,
+stays within the noise). The remaining cost of the search is the enumeration of the box
 hits, which no pair-level certificate touches. Not recommended as a work item; the lemma stays as a checked building
 block.
 
@@ -250,7 +256,7 @@ data:
 | finding | measured | kind |
 |---|---|---|
 | Passes go on after the evaluation limit | A/B `G3_STOP_AT_LIMIT=1` (with the prefilter on, which alone is −1.6 %): rounding 73.9 to 49.5 s (−33 %), booleans 272.6 to 247.7 s (−9 %); 1368057 union 17.3 to 3.1 s (boolean 32.2 to 18.4 s), 42327 union 10.3 to 3.0 s, 42327 intersection and difference −35 to −40 %; 33 of 33 hashes identical | changes `SmallestRejectedDrift` where the limit is reached: owner decision |
-| `near` is 15-62 % of the rounding where edits are evaluated | 4-30 µs per query against about 1 µs for a tree query of the first search; 119829 union 52 %, 102375 union 56 % | not diagnosed here (the changed-triangle tree and its linear list are the suspects); bit-identical lever |
+| `near` is 14-56 % of the rounding where edits are evaluated (5 % and less where the limit dominates) | 4-30 µs per query against about 1 µs for a tree query of the first search; 119829 union 52 %, 102375 union 56 % | not diagnosed here (the changed-triangle tree and its linear list are the suspects); bit-identical lever |
 | Tree and setup over all triangles where few are rounded | section 5.4 | bit-identical lever, small in seconds |
 
 ## 6. The leads of problem 1
@@ -346,8 +352,8 @@ kill it.
 |---|---|---|---|---|
 | 1 | **Stop the passes at the evaluation limit** (or make every `try_*` past the limit compute only its drift, as `try_move` does since #327) | rounding −33 %, booleans −9 % on the 33 operations; the two worst rotated cases 17.3 to 3.1 s and 10.3 to 3.0 s; meshes bit-identical | `SmallestRejectedDrift` (and `StrictRounding`'s message) is no longer the minimum over all proposals where the limit was reached; the drift-only variant keeps it at more code | S for the stop (a decision on the reported value), M for drift-only in every `try_*`; tier M, rounding mutation shards |
 | 2 | **Seeded single-vertex position search after the passes** (6.4), preceded by the probe on the real D1 leftovers | on the generated leftovers 15 of 35 within today's rule, 28-29 with plateau steps; unknown on Thingi10K | results change (more clean results, other coordinates); the plateau variant needs a termination lemma; invariance of the random directions | probe on the cohort leftovers: one runner job and half a day; the build M-L (tier L: it changes rounding results) |
-| 3 | `near` and the linear setup (5.5) | upper bounds: `near` 15-62 % of the rounding where edits are evaluated; tree and setup 0.1-0.6 s per large operation | none for results (bit-identical); the diagnosis of `near` is open | S-M each, after a profile of `near` |
-| 4 | Separating-axis prefilter (5.3) | −1.6 % in the sum; about 1 s of 16 s on 519511 union | a new floating-point margin in the rounding (checked by Z3, needs the bounds review) | M; **not recommended** |
+| 3 | `near` and the linear setup (5.5) | upper bounds: `near` 14-56 % of the rounding where edits are evaluated; tree and setup 0.1-0.6 s per large operation | none for results (bit-identical); the diagnosis of `near` is open | S-M each, after a profile of `near` |
+| 4 | Separating-axis prefilter (5.3) | −1.6 % in the sum; about 1 s of the 4.5 s rounding of 519511 union, its boolean within the noise | a new floating-point margin in the rounding (checked by Z3, needs the bounds review) | M; **not recommended** |
 | 5 | Distance certificates, clearance skins, node culling (5.1, 5.2, 5.3) | below the stop rule | | **closed** |
 
 Recommended order: 1 (decide the reported value), then the probe of 2 on the real leftovers before any design, then 3

@@ -24,9 +24,11 @@ The proof in obligations, each UNSAT with satisfiable assumptions:
 Bridges (reviewed, not Z3): rounding is monotonic, so fl(x) > fl(y) implies x > y: the comparison of the rounded lo~, hi~
 implies the real one of R3; fl(|a| |x|) = |fl(a x)| (the sign is exact); min and max of doubles are exact; a
 projection that is NaN or infinite makes every comparison false ("not apart").
-Assumption (the supported range of MeshRoundingRepair, [2^-200, 2^200], no subnormal coordinate): products of an axis
-component (a product of up to three coordinate differences) and a coordinate neither underflow to a subnormal nor
-overflow; where an axis component underflows the axis is still some vector, which is all the lemma needs.
+Assumption: no product a_i x_i underflows to a subnormal or overflows (R1 and R2 are relative error models). The
+supported range of MeshRoundingRepair ([2^-200, 2^200]) does not give this by itself: a component of an in-plane axis (a
+product of three coordinate differences) can come near 2^-860, and its product with a coordinate can be subnormal. A
+build scales each axis by a power of two (exact; any multiple of a separating axis separates) or answers "not apart"
+below 2^-1022. Where an axis component itself underflows, the axis is still some vector, which is all the lemma needs.
 
 Mutants (must be SAT): GAMMA = 2u (a margin smaller than the error), the margin of one corner only, a non-strict
 comparison (touching triangles), one corner of A left out of the maximum.

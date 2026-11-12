@@ -374,12 +374,13 @@ Ordered by expected value for the library.
      with a no-intersection guarantee.
    - Result (2026-11-12, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md)): the figures above are out of date.
      On master 46529be the rounding is 1-69 % of a boolean on 33 rotated operations (median 23 %); 519511 union 4.7 of
-     17.0 s. Clean large results: 60-80 % of it is the first search, which is the enumeration of 85-850 box neighbours
-     per query triangle (long thin triangles on tilted faces), not exact arithmetic. Dirty rotated results: the
+     17.0 s. Clean large results: the first search is the largest part (59-98 % of it on 519511, 1517923 and 668056, 22-43 %
+     on 1063860), and it is the enumeration of 20-355 box neighbours per query triangle (long thin triangles on tilted
+     faces), not exact arithmetic. Dirty rotated results: the
      evaluations, and on 1368057 / 42327 union work after the evaluation limit. No sub-linear scheme: edits are local
      already, the first search is linear in the rounded triangles. Found: stopping the passes at the limit gives
      rounding −33 %, booleans −9 %, 33 of 33 hashes identical (changes `SmallestRejectedDrift`; owner decision, option
-     1 of the note); `near` is 15-62 % of the rounding where edits are evaluated (not diagnosed).
+     1 of the note); `near` is 14-56 % of the rounding where edits are evaluated (not diagnosed).
    - Question: is there a rounding scheme that is sub-linear in the result size for local edits (incremental
      self-intersection search, certified clearances)? Shares leads with item 1.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
