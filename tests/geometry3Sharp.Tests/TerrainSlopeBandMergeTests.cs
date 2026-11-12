@@ -14,8 +14,6 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainSlopeBandMergeTests
     {
-        // the repro near the origin: band merges of edges longer than r, within the band radius, at most MinFeatureSize,
-        // the lowering counting the moves; at UTM none; the band radius and length scale bit for bit in the 2^k frames
         // A smaller wavy design than the repro of TerrainSlopeBandRepairTests (a 40-gon of r 100 m instead of the 48-gon of r 150 m,
         // with its own reference: about 8 s instead of 16.8 s alone). Probed on 28 designs (n 24-48, r 50-150): the 48-gon of r 150 m,
         // this one and the 48-gon of r 50 m have all the properties below (a band merge near the origin, none at UTM, the
@@ -28,6 +26,8 @@ namespace geometry3Sharp.Tests
             return d;
         });
 
+        // the repro near the origin: band merges of edges longer than r, within the band radius, at most MinFeatureSize,
+        // the lowering counting the moves; at UTM none; the band radius and length scale bit for bit in the 2^k frames
         [Trait("Category", "Slow")]
         [Fact]
         public void Repro_BandMergesAndTheirLowering()
