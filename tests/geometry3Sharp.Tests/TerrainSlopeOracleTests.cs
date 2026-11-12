@@ -113,6 +113,55 @@ namespace geometry3Sharp.Tests
             Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Ratio(1)));
         }
 
+        // the largest double at or below tan(a deg), from a 60-digit reference (Python decimal: pi by its series, sin and
+        // cos by 80 Taylor terms, then rounded down to a double), independent of the library's bound
+        [Theory]
+        [InlineData(1e-6, 1.7453292519943295e-08)]
+        [InlineData(0.5, 0.00872686779075879)]
+        [InlineData(1.0, 0.017455064928217585)]
+        [InlineData(5.0, 0.087488663525924)]
+        [InlineData(10.0, 0.17632698070846495)]
+        [InlineData(30.0, 0.5773502691896257)]
+        [InlineData(45.0, 1.0)]
+        [InlineData(50.0, 1.1917535925942098)]
+        [InlineData(60.0, 1.7320508075688772)]
+        [InlineData(75.0, 3.732050807568877)]
+        [InlineData(85.0, 11.430052302761343)]
+        [InlineData(89.0, 57.28996163075942)]
+        [InlineData(89.9, 572.9572133543203)]
+        [InlineData(89.99999, 5729577.949489527)]
+        public void Degrees_S_IsAProvenLowerBoundOfTheTangent(double angle, double reference)
+        {
+            double s = SlopeSpec.Degrees(angle).S;
+            // never above the tangent of the angle as entered (the reference is the largest double not above it) ...
+            Assert.True(s <= reference, $"S {s:R} above the tangent's {reference:R}");
+            // ... and within 4 ulps of it
+            double low = reference;
+            for (int i = 0; i < 4; ++i) low = ExactInterval.Down(low);
+            Assert.True(s >= low, $"S {s:R} more than 4 ulps below {reference:R}");
+            // (the same again: cached)
+            Assert.Equal(s, SlopeSpec.Degrees(angle).S);
+        }
+
+        // Math.Tan's double is above the tangent of these angles (glibc; by up to 8 ulps at 89 deg, as Math.PI is below
+        // pi), so the check against it accepted a triangle at that slope although steeper than the angle; against the
+        // proven bound it is rejected, and the triangle at the largest double below the tangent is accepted
+        [Theory]
+        [InlineData(10.0, 0.17632698070846498, 0.17632698070846495)]
+        [InlineData(50.0, 1.19175359259421, 1.1917535925942098)]
+        [InlineData(75.0, 3.7320508075688776, 3.732050807568877)]
+        [InlineData(85.0, 11.430052302761348, 11.430052302761343)]
+        [InlineData(89.0, 57.289961630759876, 57.28996163075942)]
+        public void Degrees_ATriangleSteeperThanTheAngle_IsRejected(double angle, double steeper, double reference)
+        {
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 0);
+            // (the gradient is (z_b, z_c): exactly 'steeper', then exactly 'reference')
+            Assert.False(Slope.IsNotSteeper(a, new Vector3d(1, 0, steeper), c, SlopeSpec.Degrees(angle)));
+            Assert.True(Slope.IsNotSteeper(a, new Vector3d(1, 0, reference), c, SlopeSpec.Degrees(angle)) == (SlopeSpec.Degrees(angle).S >= reference));
+            Assert.True(Slope.IsNotSteeper(a, new Vector3d(1, 0, SlopeSpec.Degrees(angle).S), c, SlopeSpec.Degrees(angle)));
+            Assert.False(Slope.IsSupportedBy(a, new Vector3d(1, 0, steeper), c, a, a, SlopeSpec.Degrees(angle)));
+        }
+
         [Fact]
         public void Gradient_IsTheFallLine_InAnyDirection()
         {
@@ -288,7 +337,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, SlopeSpec.Ratio(4).S);
             Assert.Equal(0.5, SlopeSpec.Percent(50).S);
             Assert.Equal(1.0, SlopeSpec.Degrees(45).S, 15);
-            Assert.Equal(Math.Tan(Math.PI / 6), SlopeSpec.Degrees(30).S);
+            Assert.Equal(0.5773502691896257, SlopeSpec.Degrees(30).S);     // (the largest double below tan 30 deg)
             // validity: positive, finite, S at least the smallest normal double
             Assert.True(SlopeSpec.Rise(2.2250738585072014E-308).IsValid);
             Assert.False(SlopeSpec.Rise(2.2250738585072009E-308).IsValid);
