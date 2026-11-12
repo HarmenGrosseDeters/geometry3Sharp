@@ -75,7 +75,14 @@ namespace g3cli
             c.Params.Add(new Param("closed", ParamType.Boolean, "path mode: also back from the last vertex to the first (with 'through' or 'from' / 'to')") { Default = false });
             c.Params.Add(new Param("intrinsic_delaunay", ParamType.Boolean, "distance mode: compute on the intrinsic Delaunay triangulation (library default true; robust for needles and caps)"));
             c.Params.Add(new Param("time_factor", ParamType.Number, "distance mode: heat time as a multiple of the squared mean edge length (library default 1)"));
-            c.Params.Add(new Param("max_results", ParamType.Integer, "path mode: at most this many points / vertices in the lists (the counts are always given)") { Default = 1000 });
+            c.Params.Add(new Param("intrinsic_refine", ParamType.Boolean, "distance mode: also refine the intrinsic triangulation by vertex insertion (more vertices, slower, more accurate on poor meshes; library default false)"));
+            c.Params.Add(new Param("refine_min_angle", ParamType.Number, "distance mode with intrinsic_refine: minimum angle of the refinement in degrees, 0..30 (library default 25)"));
+            c.Params.Add(new Param("refine_max_insertions", ParamType.Integer, "distance mode with intrinsic_refine: insertion limit (0: 10 * vertices + 1000, the library default)"));
+            c.Params.Add(new Param("split_obtuse_boundary_edges", ParamType.Boolean, "distance mode: without intrinsic_refine, still split boundary edges opposite obtuse angles (library default true; needs intrinsic_delaunay)"));
+            c.Params.Add(new Param("trace_from", ParamType.String, "distance mode: also the shortest path from this vertex id, or point 'x,y,z', down to the nearest source (the polyline in 'trace')"));
+            c.Params.Add(new Param("angle_tolerance", ParamType.Number, "path mode: a vertex is straight if its angle is at least pi - this on both sides, in radians, (0, 0.5] (library default 1e-6)"));
+            c.Params.Add(new Param("max_iterations", ParamType.Integer, "path mode: at most this many shortening steps (0: 100 * initial path edges + 1000, the library default)"));
+            c.Params.Add(new Param("max_results", ParamType.Integer, "path mode and trace: at most this many points / vertices in the lists (the counts are always given)") { Default = 1000 });
             c.Run = args => {
                 bool distanceMode = args.Has("sources");
                 bool pathMode = args.Has("from") || args.Has("to") || args.Has("through");
@@ -86,8 +93,34 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_results' must be in 0..100000");
                 if (distanceMode && (args.Has("closed") && args.Bool("closed")))
                     throw new CommandException(ResultCodes.InvalidArguments, "'closed' is an option of the path mode");
-                if (pathMode && (args.Has("targets") || args.Has("intrinsic_delaunay") || args.Has("time_factor")))
-                    throw new CommandException(ResultCodes.InvalidArguments, "'targets', 'intrinsic_delaunay' and 'time_factor' are options of the distance mode");
+                if (pathMode && (args.Has("targets") || args.Has("intrinsic_delaunay") || args.Has("time_factor") || args.Has("intrinsic_refine") || args.Has("refine_min_angle")
+                    || args.Has("refine_max_insertions") || args.Has("split_obtuse_boundary_edges") || args.Has("trace_from")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'targets', 'intrinsic_delaunay', 'time_factor', 'intrinsic_refine', 'refine_min_angle', 'refine_max_insertions', 'split_obtuse_boundary_edges' and 'trace_from' are options of the distance mode");
+                if (distanceMode && (args.Has("angle_tolerance") || args.Has("max_iterations")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'angle_tolerance' and 'max_iterations' are options of the path mode");
+                bool refine = args.Has("intrinsic_refine") && args.Bool("intrinsic_refine");
+                if ((args.Has("refine_min_angle") || args.Has("refine_max_insertions")) && !refine)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'refine_min_angle' and 'refine_max_insertions' need intrinsic_refine");
+                if (args.Has("refine_min_angle") && !(args.Number("refine_min_angle") >= 0 && args.Number("refine_min_angle") <= 30))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'refine_min_angle' must be in 0..30");
+                if (args.Has("refine_max_insertions") && args.Integer("refine_max_insertions") < 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'refine_max_insertions' must be >= 0");
+                if ((refine || (args.Has("split_obtuse_boundary_edges") && args.Bool("split_obtuse_boundary_edges"))) && args.Has("intrinsic_delaunay") && !args.Bool("intrinsic_delaunay"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'intrinsic_refine' and 'split_obtuse_boundary_edges' need intrinsic_delaunay");
+                if (args.Has("angle_tolerance") && !(args.Number("angle_tolerance") > 0 && args.Number("angle_tolerance") <= 0.5))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'angle_tolerance' must be in (0, 0.5] radians");
+                if (args.Has("max_iterations") && args.Integer("max_iterations") < 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_iterations' must be >= 0");
+                int traceVertex = -1; Vector3d tracePoint = Vector3d.Zero; bool traceIsPoint = false;
+                if (args.Has("trace_from")) {
+                    string t = args.String("trace_from");
+                    if (t.IndexOf(',') >= 0) {
+                        double[] xyz = ParseNumbers(t, "trace_from");
+                        if (xyz.Length != 3) throw new CommandException(ResultCodes.InvalidArguments, "'trace_from' is a vertex id or a point 'x,y,z'");
+                        tracePoint = new Vector3d(xyz[0], xyz[1], xyz[2]); traceIsPoint = true;
+                    } else if (int.TryParse(t, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out traceVertex) == false)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'trace_from' is a vertex id or a point 'x,y,z'");
+                }
                 List<int> sources = null, targets = null, waypoints = null;
                 if (distanceMode) {
                     sources = ParseIds(args.String("sources"), "sources");
@@ -115,6 +148,12 @@ namespace g3cli
                     var geo = new MeshGeodesicDistance(mesh);
                     if (args.Has("intrinsic_delaunay")) geo.IntrinsicDelaunay = args.Bool("intrinsic_delaunay");
                     if (args.Has("time_factor")) geo.TimeFactor = args.Number("time_factor");
+                    if (args.Has("intrinsic_refine")) geo.IntrinsicRefine = args.Bool("intrinsic_refine");
+                    if (args.Has("refine_min_angle")) geo.RefineMinAngle = args.Number("refine_min_angle");
+                    if (args.Has("refine_max_insertions")) geo.RefineMaxInsertions = args.Integer("refine_max_insertions");
+                    if (args.Has("split_obtuse_boundary_edges")) geo.SplitObtuseBoundaryEdges = args.Bool("split_obtuse_boundary_edges");
+                    if (traceVertex >= 0 && !traceIsPoint && !mesh.IsVertex(traceVertex))
+                        throw new CommandException(ResultCodes.InvalidArguments, $"'trace_from': {traceVertex} is not a vertex of the mesh");
                     if (geo.Compute(sources) == false)
                         throw new CommandException(ResultCodes.OperationFailed, "geodesic distance failed (no valid source, or the solver failed)");
                     double[] d = geo.Distance;
@@ -126,10 +165,33 @@ namespace g3cli
                     if (unreached > 0)
                         warnings.Add($"{unreached} vertices have no distance (components without a source, isolated vertices): null");
                     o["intrinsic_flips"] = geo.IntrinsicFlips;
+                    if (geo.Refinement != null) {
+                        var rf = geo.Refinement;
+                        o["refinement"] = new JsonObject() {
+                            ["status"] = ToSnake(rf.Status.ToString()), ["inserted_vertices"] = rf.InsertedVertices, ["circumcenter_insertions"] = rf.CircumcenterInsertions,
+                            ["boundary_splits"] = rf.BoundarySplits, ["flips"] = rf.Flips, ["min_angle"] = Val(rf.MinAngle), ["min_angle_bound"] = Val(rf.MinAngleBound),
+                            ["skipped_triangles"] = rf.SkippedTriangles, ["remaining_bad_triangles"] = rf.RemainingBadTriangles, ["negative_weights"] = rf.NegativeWeights,
+                        };
+                        if (refine && rf.Status != IntrinsicRefinementStatus.Success)
+                            warnings.Add("the refinement status is " + ToSnake(rf.Status.ToString()) + " (see 'refinement')");
+                    }
+                    if (args.Has("trace_from")) {
+                        List<Vector3d> trace = traceIsPoint ? geo.TracePath(tracePoint) : geo.TracePath(traceVertex);
+                        o["trace_point_count"] = trace.Count;
+                        o["trace_length"] = Val(trace.Zip(trace.Skip(1), (a, b) => a.Distance(b)).Sum());
+                        o["trace"] = new JsonArray(trace.Take(maxResults).Select(p => (JsonNode)MeshReport.Vec(p)).ToArray());
+                        o["trace_truncated"] = trace.Count > maxResults;
+                        if (trace.Count == 0)
+                            warnings.Add("trace_from: the library found no triangle near the start, the trace is empty");
+                        else if (trace.Count == 1)
+                            warnings.Add("trace_from: the trace is a single point (the start lies in a component without a source, or at a source)");
+                    }
                     if (targets != null)
                         o["targets"] = new JsonArray(targets.Select(t => (JsonNode)new JsonObject() { ["vertex"] = t, ["distance"] = Val(d[t]) }).ToArray());
                 } else {
                     var gp = new MeshGeodesicPath(mesh);
+                    if (args.Has("angle_tolerance")) gp.AngleTolerance = args.Number("angle_tolerance");
+                    if (args.Has("max_iterations")) gp.MaxIterations = args.Integer("max_iterations");
                     GeodesicPathStatus status = gp.ComputeThrough(waypoints, args.Bool("closed"));
                     string name = ToSnake(status.ToString());
                     bool usable = status == GeodesicPathStatus.Success || status == GeodesicPathStatus.Collapsed;
