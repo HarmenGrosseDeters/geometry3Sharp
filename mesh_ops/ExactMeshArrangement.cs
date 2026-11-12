@@ -1161,6 +1161,8 @@ namespace g3
             if (PointCount > before)
                 merge_points();
             clock.Lap("merge.points2");
+            if (cancelled())
+                return;
             PredictedPieces = predict_pieces();
             clock.Lap("merge.predict");
             total.Lap("merge");
@@ -1234,7 +1236,11 @@ namespace g3
         {
             touchedPoints = new int[Triangles.Count][];
             var per = new int[Triangles.Count];
-            gParallel.ForRange(Triangles.Count, (ti) => per[ti] = predicted_pieces(ti));
+            // (cancelled: the triangles left are skipped, and the sum is partial; Compute then stops with Cancelled)
+            gParallel.ForRange(Triangles.Count, (ti) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    per[ti] = predicted_pieces(ti);
+            });
             long sum = 0;
             for (int ti = 0; ti < per.Length; ++ti)
                 sum += per[ti];
@@ -1822,6 +1828,9 @@ namespace g3
                 self += self_pairs(boxes, trees, pairs);
             SelfIntersectingPairs += self;
             clock.Lap("intersections.pairs");
+            // (cancelled: Compute stops after this phase, with no intersections)
+            if (Cancellation.IsCancellationRequested)
+                return;
             // planes of the triangles involved (computed once, before the parallel use)
             var needed = new bool[Triangles.Count];
             foreach (long pr in pairs) {
@@ -1857,7 +1866,11 @@ namespace g3
             }
             planeRep = rep;
             clock.Lap("intersections.planes");
-            gParallel.ForRange(pairs.Count, (k) => intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF)));
+            // (cancelled: the pairs left are skipped; Compute stops after this phase)
+            gParallel.ForRange(pairs.Count, (k) => {
+                if (Cancellation.IsCancellationRequested == false)
+                    intersect((int)(pairs[k] >> 32), (int)(pairs[k] & 0xFFFFFFFF));
+            });
             clock.Lap("intersections.intersect");
             CandidatePairs = pairs.Count;
             if (KeepCandidatePairs)
