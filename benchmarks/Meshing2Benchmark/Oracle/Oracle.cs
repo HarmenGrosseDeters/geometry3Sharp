@@ -815,8 +815,13 @@ namespace Meshing2Acceptance
                 SnapHot();
                 // its input constraints: those whose envelope holds both ends (a hull domain's hull edges too: on the grid the mesher
                 // snap-rounds them with the segments, option C, and splits their pieces as it splits a segment's; Q17)
+                // (the ends' pixels taken a hair wider, as every tie below is decided generously: a decimal pixel width is not exact in
+                // doubles, so an input point on its pixel's border may lie a hair outside the square around the rounded centre k w and
+                // lose its own constraint; #728: point 4 of the Rhein-Erft tile, 4.7e-12 outside, left the piece 4-195 with no own
+                // constraint, judged splittable, and its encroachment was not excused)
+                Q endHair = Q.Max(half * new Q(BigInteger.One, BigInteger.One << 40), Q.Max(Q.Max(Q.Abs(pa.Qx), Q.Abs(pa.Qy)), Q.Max(Q.Abs(pb.Qx), Q.Abs(pb.Qy))) * new Q(BigInteger.One, BigInteger.One << 48));
                 var own = sources.Select(s => (s.a, s.b)).Concat(domain.IsHull ? domain.Edges() : Enumerable.Empty<(Pt a, Pt b)>())
-                    .Where(s => InEnvelopeOf(s.a, s.b, pa, half) && InEnvelopeOf(s.a, s.b, pb, half)).ToList();
+                    .Where(s => InEnvelopeOf(s.a, s.b, pa, half + endHair) && InEnvelopeOf(s.a, s.b, pb, half + endHair)).ToList();
                 if (own.Count == 0) return false;
                 Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
                 Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
