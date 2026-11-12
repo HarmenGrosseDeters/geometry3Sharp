@@ -9,6 +9,7 @@ namespace G3PredicateCompiler
         // PredicateCompiler --table <spec>: print the bound table
         // PredicateCompiler --doc <spec> <doc.md>: replace the generated table block of the design doc
         // PredicateCompiler --code <spec> <out.cs>: the generated predicates (class IndirectPredicates)
+        // PredicateCompiler --dtable / --ddoc / --dcode: the same for the monomial pass (dpredicate; class DoublePredicates)
         static int Main(string[] args)
         {
             if (args.Length == 2 && args[0] == "--table") {
@@ -34,7 +35,30 @@ namespace G3PredicateCompiler
                 Console.WriteLine($"updated {args[2]}");
                 return 0;
             }
-            Console.Error.WriteLine("usage: PredicateCompiler --table <spec> | --doc <spec> <doc.md> | --code <spec> <out.cs>");
+            // the monomial pass (dpredicate entries, doubles.spec): --dtable, --dcode, --ddoc as above
+            if (args.Length == 2 && args[0] == "--dtable") {
+                Console.Write(MonomialPass.Table(File.ReadAllText(args[1])));
+                return 0;
+            }
+            if (args.Length == 3 && args[0] == "--dcode") {
+                File.WriteAllText(args[2], MonomialPass.Code(File.ReadAllText(args[1]), args[1], args[2], "DoublePredicates"));
+                Console.WriteLine($"wrote {args[2]}");
+                return 0;
+            }
+            if (args.Length == 3 && args[0] == "--ddoc") {
+                string doc = File.ReadAllText(args[2]).Replace("\r\n", "\n");
+                int b = doc.IndexOf(MonomialPass.TableBegin, StringComparison.Ordinal);
+                int e = b < 0 ? -1 : doc.IndexOf(MonomialPass.TableEnd, b, StringComparison.Ordinal);
+                if (e < 0) {
+                    Console.Error.WriteLine($"{args[2]}: no generated monomial table block");
+                    return 1;
+                }
+                e = Math.Min(doc.Length, e + MonomialPass.TableEnd.Length + 1);
+                File.WriteAllText(args[2], doc.Substring(0, b) + MonomialPass.Table(File.ReadAllText(args[1])) + doc.Substring(e));
+                Console.WriteLine($"updated {args[2]}");
+                return 0;
+            }
+            Console.Error.WriteLine("usage: PredicateCompiler --table <spec> | --doc <spec> <doc.md> | --code <spec> <out.cs> | --dtable <spec> | --ddoc <spec> <doc.md> | --dcode <spec> <out.cs>");
             return 2;
         }
     }

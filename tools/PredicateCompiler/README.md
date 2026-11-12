@@ -30,3 +30,20 @@ projected `x, y, w`), definitions `x = expression` (`+`, `-`, `*` and parenthese
 over the inputs and earlier names), then `sign e1, e2, ...` (the product of their signs). With `inputs xyz`, an optional line `prepare a, b` before the sign line (a proper subset of the points) also generates the prepared form (INDIRECT_PREDICATES.md section 12). The inputs are `p.x`, `p.y`, `p.w` of a point `p` (the
 components on the projection axes i and j, and W). Write the operations in the kernel's order: a value written twice
 is computed once, as in the kernel.
+
+## The monomial pass (`Monomials.cs`, `doubles.spec`)
+
+Exact sign predicates on double coordinates of any exponent (docs/design/EXACT_FALLBACK_MONOMIALS.md): the stage of
+`ExactPredicates.Orient2d`, `Orient3d` and `InCircle` beyond the range of the expansions.
+
+    dotnet run --project tools/PredicateCompiler -- --dtable tools/PredicateCompiler/doubles.spec
+    dotnet run --project tools/PredicateCompiler -- --dcode tools/PredicateCompiler/doubles.spec math/Generated/DoublePredicates.cs
+    dotnet run --project tools/PredicateCompiler -- --ddoc tools/PredicateCompiler/doubles.spec docs/design/EXACT_FALLBACK_MONOMIALS.md
+
+Spec format: `dpredicate Name(a, b, ...) inputs xy|xyz`, definitions and one `sign` line as for `ipredicate`; the inputs
+are the double coordinates `p.x`, `p.y` (, `p.z`). The formula must be a homogeneous polynomial whose monomials have the
+coefficient +1 or -1 after merging (a determinant with a column of ones). The pass expands it into its monomials,
+derives the limbs of the two accumulators (the rules are in the header of `Monomials.cs`) and generates a kernel
+without floating-point arithmetic. `GeneratedDoublePredicatesTests` fails when the checked-in file or the doc's table
+differs from the output, when the limb rule fails for an exponent span, or when a kernel's sign differs from the
+BigInteger determinant.
