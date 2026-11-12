@@ -25,7 +25,7 @@ namespace g3cli
                     "original corner samples without the endpoint nudges (the mode of the conservative marching cubes audit): it requires finite samples, no sample exactly at the iso value and crossings " +
                     "strictly inside their edges and never repairs a violation (the command then fails with operation_failed and offset_status linear_edges_precondition, and writes nothing). " +
                     "The result states enclosure_claim \"none\": this command promises nothing about the offset surface enclosing the input; the signed distance of a mesh is sampled in float and is " +
-                    "not the exact 1-Lipschitz field the enclosure recipe (docs/design/CONSERVATIVE_MC_AUDIT.md) assumes. Inputs that are not closed are refused (the sign comes from the inside test).",
+                    "not the exact 1-Lipschitz field the enclosure recipe (docs/design/CONSERVATIVE_MC_AUDIT.md) assumes. Inputs that are not closed, or whose triangles face inward (negative volume), are refused (the sign comes from the inside test; a mesh with some components inside out is not detected).",
             };
             c.Params.Add(Input());
             c.Params.Add(Output());
@@ -34,7 +34,7 @@ namespace g3cli
             c.Params.Add(new Param("relative_cell_size", ParamType.Number, "grid cell size as a fraction of the bounding box diagonal of the input (default 0.01)"));
             c.Params.Add(new Param("root_mode", ParamType.String, "how vertices are placed along cell edges") { Default = "single_lerp", Enum = new[] { "single_lerp", "lerp_steps", "bisection", "linear_edges" } });
             c.Params.Add(new Param("root_steps", ParamType.Integer, "lerp_steps and bisection: number of steps, 1..64 (library default 5)"));
-            c.Params.Add(new Param("max_cells", ParamType.Integer, "refuse a grid with more cells than this (default 16 million = 64 MB of float samples), at most 400 million"));
+            c.Params.Add(new Param("max_cells", ParamType.Integer, "refuse a grid with more cells than this, counted for the marching cubes grid and the signed distance grid, which is wider by 4 times the band of the distance (default 16 million cells, 64 MB of float samples), at most 400 million"));
             c.Params.Add(new Param("parallel", ParamType.Boolean, "use all cores (the result does not depend on it)") { Default = true });
             c.Params.Add(SelfIntersections());
             c.Params.Add(Binary());
@@ -66,6 +66,11 @@ namespace g3cli
                 DMesh3 input = MeshFiles.Read(args.String("input"), warnings);
                 if (MeshIterators.BoundaryEdges(input).Any())
                     throw new CommandException(ResultCodes.OperationFailed, "offset needs a closed mesh (it has boundary edges): the sign of the distance comes from the inside test; repair it first");
+                bool selfInt = args.Bool("self_intersections");
+                JsonObject inputMetrics = MeshReport.Metrics(input, selfInt);
+                if (inputMetrics["volume"] != null && inputMetrics["volume"].GetValue<double>() < 0)
+                    throw new CommandException(ResultCodes.OperationFailed, "the closed input has a negative volume (its triangles face inward): the inside test would take the outside for the inside; reorient it first (repair, or convert after flipping)",
+                        new JsonObject() { ["offset_status"] = "inside_out_input", ["enclosure_claim"] = "none" });
                 AxisAlignedBox3d box = input.CachedBounds;
                 double diagonal = box.Diagonal.Length;
                 if (!(diagonal > 0) || !double.IsFinite(diagonal))
@@ -74,18 +79,26 @@ namespace g3cli
                 // the grid covers the input, the offset and two cells of margin (as docs/examples/OffsetSurfaceExample.cs)
                 double margin = Math.Max(distance, 0) + 2 * cell;
                 var gridBox = new AxisAlignedBox3d(box.Min - margin * Vector3d.One, box.Max + margin * Vector3d.One);
-                double cx = gridBox.Width / cell + 1, cy = gridBox.Height / cell + 1, cz = gridBox.Depth / cell + 1;
-                double cells = cx * cy * cz;
-                if (!(cells <= maxCells))
-                    throw new CommandException(ResultCodes.InvalidArguments,
-                        $"the grid would have {cells:G4} cells (cell size {cell:G4}); at most {maxCells} (max_cells): use a larger cell_size or relative_cell_size");
                 if (!(Math.Abs(distance) / cell < 1e6) || !(cell >= diagonal * 1e-9))
                     throw new CommandException(ResultCodes.InvalidArguments, "the offset distance is more than a million cells, or the cell is below 1e-9 of the diagonal");
                 int band = (int)Math.Ceiling(Math.Abs(distance) / cell) + 2;
+                // the cell budget counts both grids: the marching cubes grid, and the signed distance grid, which MeshSignedDistanceGrid pads by 2 * band cells on each side
+                double cells = (gridBox.Width / cell + 1) * (gridBox.Height / cell + 1) * (gridBox.Depth / cell + 1);
+                double sdfCells = (box.Width / cell + 4.0 * band + 1) * (box.Height / cell + 4.0 * band + 1) * (box.Depth / cell + 4.0 * band + 1);
+                if (!(cells <= maxCells) || !(sdfCells <= maxCells))
+                    throw new CommandException(ResultCodes.InvalidArguments,
+                        $"the grids would have {cells:G4} (marching cubes) and {sdfCells:G4} (signed distance, 4 bytes each) cells (cell size {cell:G4}, distance {distance:G4}); " +
+                        $"at most {maxCells} (max_cells): use a larger cell_size or relative_cell_size, or a smaller distance");
 
                 bool parallel = args.Bool("parallel");
                 var sdf = new MeshSignedDistanceGrid(input, cell) { ExactBandWidth = band, UseParallel = parallel };
-                sdf.Compute();
+                try {
+                    sdf.Compute();
+                } catch (ArgumentException e) {
+                    throw new CommandException(ResultCodes.InvalidArguments, "the signed distance grid does not fit: " + e.Message);
+                } catch (OutOfMemoryException) {
+                    throw new CommandException(ResultCodes.OperationFailed, "out of memory for the signed distance grid: use a larger cell_size or a smaller distance");
+                }
                 var implicitF = new DenseGridTrilinearImplicit(sdf.Grid, sdf.GridOriginD, sdf.CellSize);
                 var mc = new MarchingCubes() { Implicit = implicitF, IsoValue = distance, Bounds = gridBox, CubeSize = cell, ParallelCompute = parallel };
                 switch (rootMode) {
@@ -107,7 +120,6 @@ namespace g3cli
                     throw new CommandException(ResultCodes.OperationFailed, "the offset surface is empty (a negative distance beyond the inner half thickness, or a cell larger than the shape)",
                         new JsonObject() { ["offset_status"] = "empty", ["enclosure_claim"] = "none" });
                 MeshFiles.Write(args.String("output"), result, args.Bool("binary"));
-                bool selfInt = args.Bool("self_intersections");
                 var o = new JsonObject() {
                     ["input"] = args.String("input"), ["output"] = args.String("output"), ["offset_status"] = "ok",
                     ["distance"] = distance, ["cell_size"] = cell, ["cells"] = new JsonArray(mc.CellDimensions.x, mc.CellDimensions.y, mc.CellDimensions.z),
@@ -115,7 +127,7 @@ namespace g3cli
                     ["root_mode"] = rootMode, ["root_steps"] = (rootMode == "lerp_steps" || rootMode == "bisection") ? mc.RootModeSteps : (JsonNode)null,
                     ["enclosure_claim"] = "none",
                 };
-                o["input_mesh"] = MeshReport.Metrics(input, selfInt);
+                o["input_mesh"] = inputMetrics;
                 o["mesh"] = MeshReport.Metrics(result, selfInt);
                 o["warnings"] = Warnings(warnings);
                 return o;

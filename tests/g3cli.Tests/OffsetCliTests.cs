@@ -139,12 +139,29 @@ namespace g3cli.Tests
         [InlineData("--distance", "0.5", "--max-cells", "0")]
         [InlineData("--distance", "0.5", "--cell-size", "0.01", "--max-cells", "1000")]                // too many cells
         [InlineData("--distance", "1e9", "--cell-size", "0.1")]                                      // more than a million cells of distance
+        [InlineData("--distance=-25", "--cell-size", "0.1")]                                         // the signed distance grid is padded by the band on each side
+        [InlineData("--distance", "3", "--cell-size", "0.1", "--max-cells", "1000000")]              // 83^3 marching cubes cells, but 149^3 signed distance cells
         public void BadArguments_AreInvalidArguments_AndWriteNothing(params string[] more)
         {
             string output = m.Path_("off_bad.obj");
             if (File.Exists(output)) File.Delete(output);
             var (exit, r) = Run(new[] { "offset", m.Cube, output, "--compact" }.Concat(more).ToArray());
             AssertError(exit, r, "invalid_arguments");
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
+        public void AnInsideOutClosedInput_IsRefused()
+        {
+            DMesh3 cube = StandardMeshReader.ReadMesh(m.Cube);
+            cube.ReverseOrientation();
+            string flipped = m.Path_("cube_flipped.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(flipped, cube, WriteOptions.Defaults).code);
+            string output = m.Path_("off_flipped.obj");
+            var (exit, r) = Run("offset", flipped, output, "--distance", "0.2", "--cell-size", "0.1", "--compact");
+            AssertError(exit, r, "operation_failed");
+            Assert.Equal("inside_out_input", S(r["offset_status"]));
+            Assert.Contains("negative volume", S(r["message"]));
             Assert.False(File.Exists(output));
         }
 
