@@ -34,8 +34,10 @@ namespace geometry3Sharp.Tests
             int count = 0;
             // (what is being checked, for the message of a stall: one immutable object, replaced as a whole)
             Tuple<string, byte[], byte[]> current = Tuple.Create("start", (byte[])null, (byte[])null);
-            // (a watchdog for a hang: one input that does not end within 30 s; the whole replay is only as slow as the machine is loaded,
-            // which the net48 job under load showed with 60 s as a total budget)
+            // (a watchdog for a hang: one input that does not end within 30 s. The whole replay is only as slow as the machine is
+            // loaded: the stl replay takes 4-7 s on net10.0 alone and the net48 job under load ran into a total ceiling of 3 min
+            // after 19138 of 20322 inputs, with no single input slow (#671: mutation 19138 reads in 0.2 ms alone). The ceiling is
+            // only for a run that is uniformly far slower, so it is 15 min, about 200 times the time alone)
             bool finished = Timed.MakesProgress(beat => {
                 foreach (byte[] seed in seeds) {
                     Volatile.Write(ref current, Tuple.Create("seed", seed, (byte[])null));
@@ -51,10 +53,10 @@ namespace geometry3Sharp.Tests
                             failures.Add($"{input.Length} bytes, first difference at {FirstDifference(seed, input)}: {problem}");
                     }
                 }
-            }, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(3));
+            }, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(15));
             Tuple<string, byte[], byte[]> at = Volatile.Read(ref current);
             string stuck = at.Item3 == null ? $" ({at.Item1})" : $" ({at.Item1}: {at.Item3.Length} bytes, first difference from its seed at {FirstDifference(at.Item2, at.Item3)}, seed of {at.Item2.Length} bytes)";
-            Assert.True(finished, $"{name}: no progress for 30 s (or 3 min in total), stuck at{stuck}, after {count} inputs");
+            Assert.True(finished, $"{name}: no progress for 30 s (or 15 min in total), stuck at{stuck}, after {count} inputs");
             Assert.True(failures.Count == 0, name + ":\n" + string.Join("\n", failures));
             Assert.True(count > 200, $"{name}: only {count} inputs");
         }
