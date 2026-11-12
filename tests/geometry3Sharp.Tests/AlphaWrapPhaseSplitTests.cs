@@ -19,6 +19,17 @@ namespace geometry3Sharp.Tests
 
         static long Get(MeshAlphaWrap w, string key) => w.PhaseMilliseconds.TryGetValue(key, out long v) ? v : 0;
 
+        // the parts of the phases are not negative and add up to the totals (each truncated to ms: at most 1 ms lost per phase)
+        static void AssertPartsAddUp(MeshAlphaWrap w, List<string> ran)
+        {
+            foreach (var kv in w.PhaseMilliseconds)
+                Assert.True(kv.Value >= 0, $"{kv.Key} = {kv.Value}");
+            foreach (var (total, part) in new[] { ("wrap.intersection", "intersection"), ("wrap.touch", "touch"), ("wrap.insert", "insert") }) {
+                long sum = ran.Sum(p => Get(w, p + "/" + part));
+                Assert.True(sum <= Get(w, total) && sum >= Get(w, total) - ran.Count, $"{part}: {sum} vs {Get(w, total)}");
+            }
+        }
+
         [Fact]
         public void PhaseParts_AddUpToTheTotals_AndExplainThePhases()
         {
@@ -34,11 +45,7 @@ namespace geometry3Sharp.Tests
                 foreach (string part in Parts)
                     Assert.True(w.PhaseMilliseconds.ContainsKey(p + "/" + part), p + "/" + part);
             Assert.DoesNotContain(w.PhaseMilliseconds.Keys, k => k.StartsWith("setup/") || k.StartsWith("extract/") || k.StartsWith("manifold/"));
-            // the parts of the phases add up to the totals (each truncated to ms: at most 1 ms lost per phase)
-            foreach (var (total, part) in new[] { ("wrap.intersection", "intersection"), ("wrap.touch", "touch"), ("wrap.insert", "insert") }) {
-                long sum = ran.Sum(p => Get(w, p + "/" + part));
-                Assert.True(sum <= Get(w, total) && sum >= Get(w, total) - ran.Count, $"{part}: {sum} vs {Get(w, total)}");
-            }
+            AssertPartsAddUp(w, ran);
             foreach (string p in ran) {
                 long carve = Get(w, p + "/carve"), tests = Get(w, p + "/intersection") + Get(w, p + "/touch");
                 // (the carving loop holds the tests; the phase holds the carving and the trials)
@@ -51,6 +58,8 @@ namespace geometry3Sharp.Tests
             long pinch = Get(w, "wrap.pinches") + Get(w, "wrap.pinches2");
             long trial = Get(w, "wrap.pinches/trial") + Get(w, "wrap.pinches2/trial");
             long pinchCarve = Get(w, "wrap.pinches/carve") + Get(w, "wrap.pinches2/carve");
+            // (the rest of a pinch pass, the pinch points and their insertion outside the carving loop, is small on this
+            // input: few pinch points against a full trial of the manifold step per pass)
             Assert.True(trial + pinchCarve >= 0.5 * pinch - 4, $"pinch passes {pinch}: trials {trial}, carving {pinchCarve}");
         }
 
@@ -84,17 +93,19 @@ namespace geometry3Sharp.Tests
             Assert.False(serial.ContainsKey("reduce/rounds"));
         }
 
-        // the split is timing only: the same result as without anyone reading it, twice on one instance
+        // the split is timing only: the same result, keys and consistent parts when computed twice on one instance (the
+        // second run's parts start from its own zero, not from the first run's totals)
         [Fact]
         public void PhaseSplit_Reuse_SameResultAndKeys()
         {
-            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(7)) { RelativeAlpha = 20, RelativeOffset = 200 };
+            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(42)) { RelativeAlpha = 60, RelativeOffset = 600 };
             Assert.True(w.Compute(), w.Error);
             DMesh3 first = new DMesh3(w.Result);
             var keys = new HashSet<string>(w.PhaseMilliseconds.Keys);
             Assert.True(w.Compute(), w.Error);
             Assert.True(Same(first, w.Result));
             Assert.Equal(keys, new HashSet<string>(w.PhaseMilliseconds.Keys));
+            AssertPartsAddUp(w, Phases.Where(p => w.PhaseMilliseconds.ContainsKey(p)).ToList());
         }
     }
 }

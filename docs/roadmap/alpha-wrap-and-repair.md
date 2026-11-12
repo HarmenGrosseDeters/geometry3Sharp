@@ -57,7 +57,7 @@ guarantees and angles unchanged, deterministic); the owner sets them; one PR per
 the runner; Opus only for the review of the parallel determinism. Together with the Exact Boolean 3.0 idea (parallel
 and memory): both use "evaluate in parallel, apply serially".
 
-**Alpha Wrap 3.0, phase 1 and targets (measured 2026-11-12, no library change; owner set the targets 2026-11-12).**
+**Alpha Wrap 3.0, phase 1 and targets (measured 2026-11-12 on a measurement build; PR 0 adds only the timing keys; owner set the targets 2026-11-12).**
 Profile of the 189 over budget in f800 plus 80 of the other 611, master (bit-identical to f800, 16/16 hashes) with the
 contact fix's `KeepClearOf`, which the bench left out (f800 misses about 3 %); raw rows, scripts and the report on
 `runs/alpha-wrap-3` (`aw3/REPORT-phase1.md`). The 2.0 split overlapped (oracle, touch and insert were totals over the
