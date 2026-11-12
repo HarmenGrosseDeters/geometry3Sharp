@@ -9,7 +9,8 @@
 // ulp and the drift left, and keeps a move if the number of defects of the whole mesh (degenerate triangles and
 // intersecting pairs, as MeshRobustRepair.NotCleanReasons counts them) does not grow; every vertex stays within the
 // drift left of where SafeRounding put it (so the total stays within the bound), and no triangle above 100 times the
-// degenerate area turns over. Above 2000 triangles (or with LATTICE_LOCAL=1) the defects are counted at the moved
+// degenerate area turns over. LATTICE_GRID=<n> draws the steps from a fixed set (26 axis directions, the drift left
+// over 2^j, j < n). Above 2000 triangles (or with LATTICE_LOCAL=1) the defects are counted at the moved
 // vertices only. Ablations: LATTICE_MAX_MOVED=1 (one vertex at a time), LATTICE_PLATEAU=0 (only moves that
 // remove a defect). A clean end shows that such a configuration exists; no clean end shows nothing beyond
 // this search.
@@ -38,6 +39,9 @@ static class LatticeProbe
         // ablations: LATTICE_MAX_MOVED=1 moves one vertex at a time, LATTICE_PLATEAU=0 keeps only moves that remove a defect
         int maxMoved = int.Parse(Environment.GetEnvironmentVariable("LATTICE_MAX_MOVED") ?? "3");
         bool plateau = Environment.GetEnvironmentVariable("LATTICE_PLATEAU") != "0";
+        // LATTICE_GRID=<n>: candidates from a fixed set (26 axis directions, sizes the drift left / 2^j, j < n) instead of random vectors
+        int gridSizes = int.Parse(Environment.GetEnvironmentVariable("LATTICE_GRID") ?? "0");
+        bool grid = gridSizes > 0;
         int before = Defects(m, eps, out List<int> defectTris), defects = before;
         int evaluations = 0, accepted = 0, improving = 0;
         double farthest = 0;
@@ -88,6 +92,11 @@ static class LatticeProbe
                 int v = moved[i];
                 double size = ulp * Math.Pow(2, rng.NextDouble() * span);
                 var dir = new Vector3d(rng.NextDouble() - 0.5, rng.NextDouble() - 0.5, rng.NextDouble() - 0.5);
+                if (grid) {
+                    // a fixed candidate set: the 26 directions with components -1, 0, 1, the size the drift left over a power of two
+                    dir = new Vector3d(rng.Next(3) - 1, rng.Next(3) - 1, rng.Next(3) - 1);
+                    size = left * Math.Pow(2, -rng.Next(gridSizes));
+                }
                 if (dir.Length == 0) { ok = false; break; }
                 Vector3d p = saved[i] + dir * (size / dir.Length);
                 if (start.TryGetValue(v, out Vector3d origin) == false)
@@ -140,7 +149,7 @@ static class LatticeProbe
             + ",\"defects_before\":" + before + ",\"defects_after\":" + defects + ",\"clean\":" + (reasons == "" ? "true" : "false")
             + ",\"reasons\":\"" + reasons + "\",\"evaluations\":" + evaluations + ",\"accepted\":" + accepted + ",\"improving\":" + improving
             + ",\"moved_vertices\":" + start.Count + ",\"farthest_of_left\":" + (left > 0 ? farthest / left : 0).ToString("G3", ci)
-            + ",\"local\":" + (local ? "true" : "false") + ",\"max_moved\":" + maxMoved + ",\"plateau\":" + (plateau ? "true" : "false") + ",\"seconds\":" + clock.Elapsed.TotalSeconds.ToString("F1", ci) + "}";
+            + ",\"grid\":" + gridSizes + ",\"local\":" + (local ? "true" : "false") + ",\"max_moved\":" + maxMoved + ",\"plateau\":" + (plateau ? "true" : "false") + ",\"seconds\":" + clock.Elapsed.TotalSeconds.ToString("F1", ci) + "}";
     }
 
     // the defects that involve the triangles of `tris`: ~t for a degenerate triangle t, (a << 32) | b for an intersecting

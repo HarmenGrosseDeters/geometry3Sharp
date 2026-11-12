@@ -342,6 +342,12 @@ within today's rule; the search itself takes under 0.1 s after the boolean. The 
 left): a degenerate triangle needs its corner moved by about the bound, which the repair's own moves (a few fixed
 sizes along one direction) do not try. 838003, which had used 97 % of its bound, stays.
 
+**A fixed candidate set instead of random vectors** (`LATTICE_GRID=<n>`, one vertex, only steps that remove a defect,
+20 s; `lattice_grid_2026-11-12.jsonl`): the 26 directions with components −1, 0, 1 and the sizes "drift left / 2^j",
+j < n. With n = 8: 4 of the 5 cohort leftovers and 13 of the 35 generated ones clean; with n = 24: 4 of 5 and 17 of
+35. So the search needs no random numbers: a small enumerated set of large steps does what the random search did
+within today's rule.
+
 **Limits of the probe.** The generated families and these five operations; the closed leftovers of the Thingi10K
 self-unions (6 of the 400 set in SAFE_ROUNDING.md 8.4) were not run. On the small cases the search checks the whole mesh
 per step. It is a random search: it proves existence where it ends clean and
