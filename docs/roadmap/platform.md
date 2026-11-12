@@ -300,6 +300,12 @@ and the test tiers and time limit (#447, the backlog program).
   message), and #682 (37ee4a57, `Similarity.All2D()`: the 2D tests use the similarities of the plane, see QA.md,
   "Similarities"). Open: #627 (T12 FPTaylor, ready for review) and #686 (MeshFuzzPilot third wave, draft).
   Open `local` issues, each with a PR: #636 (repair time, F2; #703), #637 (F5; #687), #638 (F7; #688). #628 was fixed by #634 (merged).
+  MeshFuzzPilot overnight campaigns (#624, `local`, owner's machine): groups (a) boolean and (b) repair done
+  2026-11-12 (raw output on branch `runs/mesh-fuzz`); filed #710 and #711 (Exact Boolean 3.0 queue, exact-boolean.md) and
+  #712 (`MeshRobustRepair` 5-52 s on 4-20 vertex inputs inside its range; short-topics session, first a replay on #703).
+  Groups (c) to (f) still to run; a second round of (a)/(b) only after #710-#712 are fixed and if the owner wants it.
+  Tests above 20 s (#692-#698): #692 and #693 in the AW3 tail report; #694, #695, #696 (#691, #704, #706), #697 and #698
+  with the backlog session; flaky net48 tests #671 (#683) and #676 (#684) have PRs.
 
 #### Test suite on German Windows
 
