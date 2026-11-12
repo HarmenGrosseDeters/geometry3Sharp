@@ -79,7 +79,8 @@ Status on 2026-11-12 (morning, Berlin).
   the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
   L3 (batched gate tests) measured at <= 1.085x and dropped (owner 2026-11-12, option A): target (b) lowered to about
   1.25x; L4, L1, L3b, L2 follow. Future research item (owner 2026-11-12, option B): deterministic round-based parallel
-  carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+  carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651; L4 (manifold step) merged 2026-11-12 (#670, cab88798: trial + manifold 0.49x,
+  pipeline 0.93x, 269/269 identical). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
   #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fixed by #640 (merged 2026-11-12, 36ef5a18; owner accepted the missed time gate,
   1.16-1.22x on Thingi, opt-in via `MinTriangleQuality`). Follow-ups closed (owner 2026-11-12): the snapshot PR is not
@@ -143,9 +144,9 @@ The next steps per topic, in order ("in progress" where a session works on them)
   session, which may read Triangle.NET and `triangle.c` for this check only, as in stage 6b (owner exception 2026-11-12; starts
   when a session slot is free). SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
-- Alpha Wrap 3.0: L4, L1, L3b, L2 (in progress, one PR per lever). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12: inventory and command list for the owner
-  first, then small PRs). [research.md](roadmap/research.md#open)
+- Alpha Wrap 3.0: L1, L3b, L2 (in progress, one PR per lever, fresh session from the hand-over `aw3/HANDOVER-L1.md`; L4 #670 merged). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662 merged,
+  B #665, C #667, D #669, E #672 open in that merge order; F, G after A-D). [research.md](roadmap/research.md#open)
 - Phase 5: batch queries, the internal caller switches (spatial profile first, then switch only serial loops over many
   independent queries, bit-identical; Sonnet; owner 2026-11-12: queued, starts after the dirty-side provenance session
   when a slot is free). [research.md](roadmap/research.md#open)
