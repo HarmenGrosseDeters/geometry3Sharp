@@ -820,7 +820,13 @@ namespace g3
             double M = Math.Max(Math.Max(Math.Abs(bx), Math.Abs(by)), Math.Max(Math.Abs(cx), Math.Abs(cy)));
             double eps = 2 * e + U * M;
             err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + Tiny;
-            return bx * cy - by * cx;
+            double det = bx * cy - by * cx;
+            // (a product overflowed: for M above about 1.34e154 a product can be infinite while the bound, evaluated as
+            // 3 U M M, is still finite; the sign of the infinite difference does not stand for the exact points within e.
+            // Undecided, as in incircle_approx; review of #732)
+            if (!(Math.Abs(det) <= double.MaxValue))
+                err = double.PositiveInfinity;
+            return det;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -1653,6 +1659,11 @@ namespace g3
             double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
             double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
             bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + Tiny;
+            // (a term overflowed: the terms reach 12 M^4 while the bound's M^4 can still be finite, so for M between about
+            // 8e76 and 1.2e77 the sum is +-infinity or NaN with a finite bound, and its sign says nothing; undecided.
+            // #710: a difference of two cubes near 1e-223 with a corner at 1e-284, grid coordinates near 1e77)
+            if (!(Math.Abs(fdet) <= double.MaxValue))
+                bound = double.PositiveInfinity;
             return fdet;
         }
 
