@@ -62,13 +62,16 @@ Status on 2026-11-12 (morning, Berlin).
   (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
 - **Exact Boolean 3.0** (in progress, serial, one PR per stage): merged 2026-11-11: T3a cull (#612), T3b
   `IntersectEach` / `DifferenceEach` (#616), T3 input range of the rounding (#593), T2 memory (#619), T1 scaling levers
-  (#631). In progress: the 55928 tail-case stage, draft #633 (budget, cancellation and L1 done; L2, L3 open). Then T5 /
-  T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
+  (#631). In progress: the 55928 tail-case stage, draft #633: budget, cancellation, L1 and L2 done, L3 step 1 pushed
+  (Difference total 973 -> 421 s, hash unchanged); open: the classification filter from local corner coordinates,
+  the combinatorial zeros, possibly InCircle limbs. Then T5 / T1b per the execution order. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
 - **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
   p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
   [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- **Alpha Wrap 3.0** (started 2026-11-12): phase 1, the measurement (per-phase profile, upper bound per lever; raw data
-  on `runs/alpha-wrap-3`), is running; the owner sets the targets from it. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
+- **Alpha Wrap 3.0** (in progress, targets set): phase 1 done 2026-11-12 (`runs/alpha-wrap-3`, `aw3/REPORT-phase1.md`:
+  stacked levers about 1.57x on the 189, about 99 % of the 800 within budget). Targets (owner 2026-11-12): >= 95 % of
+  the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
+  Levers follow as PRs 0-5. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
   #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fix in draft #640.
 - **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
