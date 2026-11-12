@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainSlopeBandRepairTests : IClassFixture<TerrainSlopeBandRepairTests.ReferenceFixture>
     {
-        // (the shared reference is built by a class fixture, before the first test: its cost is no test's, whichever row runs first)
+        // (the shared reference is built by a class fixture, before the first test: its cost, about 5 s, is no test's, whichever row runs first)
         public sealed class ReferenceFixture { public ReferenceFixture() { var d = TerrainSlopeBandRepairTests.reference.Value; } }
 
 

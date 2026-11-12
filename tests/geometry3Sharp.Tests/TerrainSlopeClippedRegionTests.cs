@@ -15,7 +15,7 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainSlopeClippedRegionTests : IClassFixture<TerrainSlopeClippedRegionTests.ReferenceFixture>
     {
-        // (the shared reference is built by a class fixture, before the first test: its cost is no test's, whichever row runs first)
+        // (the shared reference is built by a class fixture, before the first test: its cost, about 5 s, is no test's, whichever row runs first)
         public sealed class ReferenceFixture { public ReferenceFixture() { var d = TerrainSlopeClippedRegionTests.reference.Value; } }
 
 
@@ -41,6 +41,7 @@ namespace geometry3Sharp.Tests
         // valid composite; the 2^k frames are bit for bit
         // The frame "rotated, scale 1e-3, utm" (a design of centimetres at UTM coordinates: MinFeatureSize 1.5 cm, three builds by design, TERRAIN.md
         // 5.8.1, #696) costs 2-3 times the other frames and runs in the Nightly test WavyToeNearTheOrigin_ClippedSliverRaisesTheMargin_ExtremeFrame: the run is the check
+        // Slow: 2.2-5.0 s a row alone (two designs of 48 vertices on waves, three Computes of the frame, bit for bit in the 2^k frames)
         [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
