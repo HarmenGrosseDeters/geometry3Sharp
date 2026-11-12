@@ -8,7 +8,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-11):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
   reached on 2026-11-11: D1 (#513) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
   run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage (T3a) next.
+  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage is in progress (draft #633).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -30,7 +30,7 @@ all levers this leaves 11 ops on 7 small, heavily self-intersecting models (1136
 107554, 113906) as documented exceptions (#428, `benchmarks/LevyClassification/results/exceptions_levers.md`).
 Lévy phase 1 result (#428): no propagation now (bound 10-25 % on a minority, 2-4 ops); phase 2 (done 2026-11-09,
 docs/design/LEVY_CLASSIFICATION.md 4.3: -40 to -45 % classification on the tree-bound open ops, -23 % on both samples,
-hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; classification -29 to -42 % on tree-bound open
+hashes equal on all 171 ops) is the parallel fast-winding tree build (bit-identical; the section 4.1 probe gave -29 to -42 % on tree-bound open
 ops); the AddPoint fix measured only -2 % of classification (the earlier 29-57 % trace share counted lock spinning),
 so it is optional; an Antipodal-style open-mesh GWN stays a later option (owner decision, patent check).
 
@@ -44,7 +44,7 @@ in the rest are contacts; 52 real self-intersections remain in the rest (open 7,
 6 models unavailable (81313, 101633, 102610, 242236, 242237, 996816).
 
 **`DMeshAABBTree3` profile (owner 2026-11-08, queued; after the Lévy phase-2 PR with the parallel fast-winding build
-has merged):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
+has merged; that is #501, merged 2026-11-10; the profile has not started):** a Sonnet session profiles the tree across its main users (repair, MaxDeviation in the Reducer, the
 boolean classification's fast-winding cache with its O(n log n) HashSet build, alpha wrap) and gives an upper bound
 per lever (build, winding cache, queries) before any change; bit-identical results, deterministic parallel builds.
 The same session includes `WindingNumberOctree` (the adaptive octree of `MeshWindingNumberSolidify`, the repair's
@@ -145,7 +145,8 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
     172 -> 40-80 s). L1 upper bound: at a variation bound of 0.1, 16.5M instead of 30.2M evaluations (about one per
     patch), classification about 772 -> 420 s; the rest needs L2. Estimate L1 + L2 + L3: about 150-200 s per op.
     Runner, 1-core union on master 922c8d62: 4087 s (classification 82 %), peak RSS 9.2 GB (79a2c1ab: 1937 s); 4 cores 1111 s,
-    9.7 GB, same hash. Design note: #626 (EXACT_BOOLEAN_TAIL_55928.md). **Owner 2026-11-11:** a `Cancelled` status via an
+    9.7 GB, same hash. Design note: `docs/design/EXACT_BOOLEAN_TAIL_55928.md`, first in #626 (closed unmerged), now part of #633 (draft),
+    which supersedes it. **Owner 2026-11-11:** a `Cancelled` status via an
     optional CancellationToken (yes); `MaxOpenWindingEvaluations` deferred until after L1/L2 are measured.
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
@@ -153,7 +154,7 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   for the tree, 1.5-2 days for the points per grid class.
 - **T3 (#593): merged 2026-11-11** (f92f1c62). `MeshRoundingRepair` returns `OutsideRange` (mesh untouched, not clean)
   outside [2^-200, 2^200] or for subnormal coordinates; the boolean keeps its exact result there but `RoundingClean` is
-  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory merged 2026-11-11 (#619, 5c0be691: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction; the 1.2 KB peak target is not met on cross150, 1.6-1.9 KB, where implicit points and output pieces dominate, out of reach of the layout levers). T1 scaling levers merged 2026-11-11 (#631, 6c5cb9ac; bit-identical, hashes equal; 4-core cloud, median of 5): lever 1, input preparation (open-addressing weld and one edge table, inputs prepared concurrently): flipped soup 1 core 387 -> 185 ms, 4 cores 151 -> 92, open soup 4 cores 91 -> 30; lever 2, parallel `TriangleBoxTree` build from 262144 boxes (same tree node for node): 600k triangles per mesh 138 -> 94 ms; lever 3 (assembly / ExactPlanarSimplify) dropped, at most 3-4 % of the op (`benchmarks/Boolean30Prestudy/results/t1_summary.md`). Next: the 55928 tail-case stage (T3a), then T5 / T1b per the execution order below.
+  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory merged 2026-11-11 (#619, 5c0be691: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction; the 1.2 KB peak target is not met on cross150, 1.6-1.9 KB, where implicit points and output pieces dominate, out of reach of the layout levers). T1 scaling levers merged 2026-11-11 (#631, 6c5cb9ac; bit-identical, hashes equal; 4-core cloud, median of 5): lever 1, input preparation (open-addressing weld and one edge table, inputs prepared concurrently): flipped soup 1 core 387 -> 185 ms, 4 cores 151 -> 92, open soup 4 cores 91 -> 30; lever 2, parallel `TriangleBoxTree` build from 262144 boxes (same tree node for node): 600k triangles per mesh 138 -> 94 ms; lever 3 (assembly / ExactPlanarSimplify) dropped, at most 3-4 % of the op (`benchmarks/Boolean30Prestudy/results/t1_summary.md`). In progress: the 55928 tail-case stage, draft #633 (budget, cancellation, L1 and L2 done, L3 step 1 pushed: Difference 973 -> 421 s, hash unchanged; open: the classification filter from local corner coordinates, the combinatorial zeros, possibly InCircle limbs, docs and the review), then T5 / T1b per the execution order below.
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over
@@ -216,7 +217,7 @@ exact files get the exact-code review by an Opus agent that sees the code, not t
 2026-11-11: that review comes from an existing Opus session that knows the area and did not write the PR (for T2 and
 later Sonnet stages: the T3a session); the Sonnet session starts no review subagent of its own.
 
-**3.0 pre-study (owner 2026-11-10, started):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
+**3.0 pre-study (owner 2026-11-10; done 2026-11-10, #532 and #536):** an Opus session (session_01AaGT5ATvj52jcajcJ6yYAS), measurements, benchmark
 prototypes and a design note only (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md), ending with proposed targets for the owner.
 Topics: (1) parallel scaling per phase at 1/2/4 cores with an upper bound per lever; (2) memory of exact points and the
 arrangement on the large inputs; (3) N-ary booleans / CSG trees in one arrangement pass vs chained binary ops (time,
@@ -252,21 +253,21 @@ Baseline (#385 at cd7fb8ab, closed selfint = 0): 81 of 16 239 operations unclean
 
 **WP1 result (4 cores):** 16 ops > 5 s in the selfint = 0 cohort (owner data: 31 on the owner machine); rounding 37 % of their time, mostly the full self-intersection search of the result (box-tree traversal up to 76 % of rounding). Other cohorts (owner data, ops > 5 s): self-intersecting 284, unknown 274, open 736; classification is the second lever there (Lévy 2024-style propagation across intersection curves, BSD-3 Geogram).
 
-**WP2 triage of the 81 unclean ops:** B1 47 (input bowties), D2 11 (input degenerate), B2 3 (M3, fixed in #398), D1 20 (SafeRounding's additive drift budget exhausted in clusters; probe of tighter drift accounting next). The 80 empty unions are inside-out inputs (legitimate).
+**WP2 triage of the 81 unclean ops:** B1 47 (input bowties), D2 11 (input degenerate), B2 3 (M3, fixed in #398), D1 20 (SafeRounding's additive drift budget exhausted in clusters; the tighter drift accounting was built as D1, #513). The 80 empty unions are inside-out inputs (legitimate).
 
 **D1 order (owner 2026-11-08):** the tighter drift accounting is stated as a lemma in the design note and checked
 with Z3 (pilot 2, [research.md](research.md#smt-checks-with-z3)) before it is built.
 **D1 after the apex rule (2026-11-09, research session):** [SAFE_ROUNDING_D1_DRIFT.md](../design/SAFE_ROUNDING_D1_DRIFT.md)
 states the reference rule and its lemma, checked with Z3; a prototype patch clears all 13 unclean operations of the
-14 D1 models and 119829 / 119830 (48 operations, none newly unclean, 119829 union drift 0.30 of the bound). Not
-built: waits for the owner's decision and the cohort run.
+14 D1 models and 119829 / 119830 (48 operations, none newly unclean, 119829 union drift 0.30 of the bound). Built
+after the owner's decision of 2026-11-10 and merged in #513 (69f13be3), which completed Exact Boolean 2.0.
 
 **Lévy-style classification (owner 2026-11-08, queued):** for the self-intersecting, unknown and open cohorts;
 phase 1 (data, profile, upper bound, Lévy 2024 / Geogram BSD-3, design note; no library code until the merge queue
 clears). Started and paused the same day (owner: wait); its session is archived, the hand-over note is on branch
 `claude/levy-classification-phase1` (docs/design/LEVY_CLASSIFICATION_HANDOVER.md). Restarted 2026-11-08 (owner): a fresh session
 continues phase 1 now (data, design, benchmarks only); the library code PR (phase 2) waits until the exact-boolean
-merge queue behind the #403 mutation gate has cleared.
+merge queue behind the #403 mutation gate has cleared. Phase 2 merged in #501 (2026-11-10).
 
 **Final A/B of the speed levers (runner, 2026-11-08, 42 models x 3 ops, bit-identical):** master 342 s, ops > 5 s 20;
 +#409 -13 %; +#412 -22 %; +#406 +#419 -41 % (rounding -68 %), ops > 5 s 6 (519511 x3, 1517923 union / intersection,
@@ -275,14 +276,15 @@ merge queue behind the #403 mutation gate has cleared.
 **thingi-pairs runs (owner 2026-11-08):** the EMBER-protocol class (#418) runs in full (1000 pairs plus the 100k-1M
 size class; ours and Manifold; CGAL EPECK only on a fixed 100-pair sample, owner 2026-11-08) twice on a Haiku runner: a baseline on master right after #418 merges, and the
 final run at the end of Boolean 2.0 together with the control run (WP5). Results as summary tables; raw rows on the
-runner's data branch.
+runner's data branch. #418 merged 2026-11-09; no result of either run is recorded here.
 
 **Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
 #425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
-the PRs merge one by one with normal CI. Open library items after the queue (the L3 budget was dropped, see the owner
+the PRs merge one by one with normal CI. Done differently: the queue merged as one integration PR, #446 (2026-11-09,
+21e27a19). Open library items after the queue (the L3 budget was dropped, see the owner
 decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness sweep S38), a re-measurement of the remaining ops over 5 s (1517923, 519507).
 
-**PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit).
+**PRs:** #397 (projection filter, rounding -16 %, bit-identical), #398 (M3 + contact count), #403 (rounding mutation shard split; the full shard ran past the 350-min job limit). All merged: #397 and #398 through #446, #403 as 1fad195d.
 
 #### Other open items
 
@@ -300,14 +302,14 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
   done in #431 (2026-11-08).
   Audit implementation and measurements: [LongHashAudit](../../benchmarks/LongHashAudit/README.md); packed tables
   use the existing comparer, linear indices and scalar-only `containerOf` keep the default hash.
-- **Thingi10K full-run findings** (draft #385): the 29 unclean operations on clean closed inputs and M1 become one
+- **Thingi10K full-run findings** (draft #385; superseded by the WP2 triage and the sign-off run above): the 29 unclean operations on clean closed inputs and M1 become one
   bugfix task with procedural reproductions once the full run is in (work package 2 of the milestone); 49 empty
   results to check; the report should stratify by input class. Details under
   [External boolean corpora](#external-boolean-corpora-2026-11-04).
 - **manifold corpus findings** (2026-11-04): M1 (`hull-body - hull-mask`, 2 self-intersections left after
   SafeRounding on clean inputs); M2 (`Generic_Twin_7081` union takes 20 s); M3 (RoundingClean true but
   `NotCleanReason` reports self-intersections: clarify which is right and align them).
-- **`thingi-pairs` class in `BooleanComparison`** (local task, owner 2026-11-04): a pinned list of 1000 pairs after
+- **`thingi-pairs` class in `BooleanComparison`** (local task, owner 2026-11-04; done, #418 merged 2026-11-09): a pinned list of 1000 pairs after
   the EMBER protocol, a size class of 100k-1M triangles, the volume identities and `NotCleanReason` as the oracle.
 - **EMBER levers** (order owner 2026-11-04): re-evaluate after the full Thingi10K run; rank 2 (skip self-pairs of
   results certified free of self-intersections), 3 and 4 against the open ideas of the perf doc; 1 and 5 only as an

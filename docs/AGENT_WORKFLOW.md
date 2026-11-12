@@ -103,7 +103,8 @@ from secret tests, which a public repository cannot keep.
 
 ## 6. Context and sessions
 
-- One session per PR-sized topic. Prefer fresh sessions over long ones. One large session at a time.
+- One session per PR-sized topic. Prefer fresh sessions over long ones. At most 5 implementation sessions at
+  once, at most 2 of them large (tier L), plus one review session ([ROADMAP.md](ROADMAP.md#session-limits)).
 - The plan lives in the repository ([ROADMAP.md](ROADMAP.md), details in [roadmap/](roadmap/)), not in chat. Results live in PRs and READMEs.
 - A session that stops before its work is complete writes a hand-over document: what was tried, with numbers;
   ranked open ideas; guard rails (example: [perf/EXACT_BOOLEAN_PERFORMANCE.md](perf/EXACT_BOOLEAN_PERFORMANCE.md)).

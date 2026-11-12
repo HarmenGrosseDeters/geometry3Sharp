@@ -1,6 +1,7 @@
 # Reducer / Remesher 2.0: baseline and target proposal
 
-Status: proposal for the owner (2026-11-09), tier M (measurement and design, no library change). Decisions are marked
+Status: closed 2026-11-09 (close-out in [section 11](#11-close-out-of-reducer--remesher-20-2026-11-09); T4 in section 12).
+Written as a proposal for the owner (2026-11-09), tier M (measurement and design, no library change). Decisions are marked
 **[owner]**. Numbers: [benchmarks/ReducerRemesherBaseline](../../benchmarks/ReducerRemesherBaseline/README.md) (command in
 its README; master 2c7ba9f, 4 cores, warm, net10.0; 4 procedural meshes + the 20 Thingi10K meshes of `RemeshBenchmark`;
 raw rows not committed). Hand-over of the starting point: [PARTITIONED_REDUCTION_HANDOVER.md](PARTITIONED_REDUCTION_HANDOVER.md);

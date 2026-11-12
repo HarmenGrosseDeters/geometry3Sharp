@@ -18,7 +18,7 @@ done = the task's done-when is met; partly = built, a named part is missing; ope
 | T5 | CsCheck 2D mesher vs oracle | done | `QualityMesh2PropertyCampaign.CsCheck.cs`, findings #496, #499, #512, #534 |
 | T6 | CsCheck alpha wrap | done | `AlphaWrapCampaignTests.CsCheck.cs`; the flat-input finding is fixed |
 | T7 | CsCheck remesher / reducer | done | `RemeshReduceCampaignTests.CsCheck.cs`; one open Reducer finding (section 2, F7) |
-| T8 | Changed-line coverage gate | done | `coverage.yml`, `tools/changed_line_coverage.py`; "findings worked off" is not checked here |
+| T8 | Changed-line coverage gate | partly | `coverage.yml`, `tools/changed_line_coverage.py`; the nightly cron has not fired yet (section 4); "findings worked off" is not checked here |
 | T9 | Stryker: `DMeshAABBTree3`, readers | open | no shard config for either in `tests/mutation`; adding one touches mutation config (CI-speed session owns it) |
 | T10 | CsCheck Clipper2 and Z3 frame lemma | partly | `Clipper2CampaignTests.CsCheck.cs` done; no Z3 lemma for `ClipperFrame` in `tools/Z3Pilot` |
 | T11 | CsCheck MarchingCubes / terrain | done | `MarchingCubesCampaignTests.CsCheck.cs`, `TerrainSlopeCampaignTests.CsCheck.cs`; two terrain findings open (F9) |
@@ -32,7 +32,7 @@ Boolean, repair, rounding, trees, remesher, reducer, mesher, Clipper2, alpha wra
 MarchingCubes / terrain / `MeshMeshCut` and the upstream editing operations; long runs missing); (2) FPTaylor bound per
 filter and Z3 lemma per filter or termination rule: open (T12, T14); (3) property campaign and mutation shard per
 robustness-critical module: campaigns done for repair, mesher, alpha wrap, remesher / reducer, MarchingCubes, terrain,
-Clipper2, Boolean; shards exist for the exact code only; (4) coverage gate nightly: done.
+Clipper2, Boolean; shards exist for the exact code only; (4) coverage gate nightly: partly, the cron has not fired yet.
 
 ## 2. Open findings without a bugfix issue
 
@@ -76,3 +76,17 @@ Reducer / alpha wrap tests while their sessions run (T7, T6 follow-ups wait).
    `QuadtreeExactQuery2d`, `MeshInsertPolygon`, `MeshTrimLoop`): sweep rows exist, a seeded property test each.
 5. T10 Z3 frame lemma (2 A), T12 follow-up after #627.
 6. Later, blocked: T9 / T15 (mutation configs), long runs of T2 / T13 (#624, runner).
+
+## 4. Update after `c013f31` (2026-11-12)
+
+What changed on GitHub after the state above (PR and issue states, not re-measured):
+
+- Section 2: #628 is closed, fixed by #634 (merged, 2947179); #630 is closed, fixed by #632. New open bugfix issues:
+  #636 (F2, `MeshRobustRepair` 9 s on a 6-vertex input), #637 (F5, `QualityMesh2` `AngleBelowBound`), #638 (F7,
+  `QualityMesh2` `RefinementLimit` livelock), #644 and #645 (`ConvexHull2`), #647 (`VoxelSurfaceGenerator`).
+- Section 3, open PRs: item 2, #639 (differential tests for `PointAABBTree3`, `MeshBatchQueries`,
+  `WindingNumberOctree`); item 3, #641 (`DMeshAABBTree3` midpoint split) and #642 (`MeshRoundingRepair` step loops),
+  T14; item 4, #646 (`ConvexHull2`, `QuadtreeExactQuery2d`) and #648 (`VoxelSurfaceGenerator`, `MeshInsertPolygon`,
+  `RegionOperator`, `MeshTrimLoop`); item 5, #643 (T10 frame lemma); T12, #627 (draft).
+- T8 and done-when (4) are "partly" (they were "done"): the `coverage.yml` cron has not fired yet (no scheduled run on
+  2026-11-12), see [platform.md](../roadmap/platform.md#open).

@@ -5,8 +5,9 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** public exact 2D meshing (`QualityMesh2`: constrained / conforming Delaunay, quality refinement, holes
   and regions, snap rounding to an output grid), a clean-room replacement for Triangle.NET; its oracle; the
   reference comparison runs; grading, coarsening, small input angles, subnormal fixes; the provenance check.
-- **Status (2026-11-08):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
-  run A and the small-angle rule (#394, 2026-11-07) are merged. Open: the follow-ups below.
+- **Status (2026-11-12):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
+  run A and the small-angle rule (#394, 2026-11-07) are merged; since then the corner choice (#437), rule C (#441),
+  Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed. Open: the follow-ups below.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),
@@ -241,7 +242,7 @@ Oracle side: #389 (merged 2026-11-05 as 05f078da; owner 2026-11-05: AutoToleranc
 
 Merged 2026-11-06: #395 (the Failed status was NodingLimit: tolerance splits in InsertPiece without progress; now every tolerance split must make both parts strictly shorter) and #396 (the mesher's small-input-angle test is now at least as strict as the oracle's, by 2^-30 + 2^-40; the oracle's arctan bound is credited to Miller-Pav-Walkington 2005).
 
-Shewchuk's Terminator was measured on island / cdt / stmlf: it breaks the circumcentre link (cdt 8215 triangles) but leaves skinny triangles outside the oracle's excuse region, not only below its bound value, so it would need a much wider oracle excuse (research item). The design note is #394 (draft).
+Shewchuk's Terminator was measured on island / cdt / stmlf: it breaks the circumcentre link (cdt 8215 triangles) but leaves skinny triangles outside the oracle's excuse region, not only below its bound value, so it would need a much wider oracle excuse (research item). The design note was #394 (then a draft; merged 2026-11-07).
 
 **Owner decision 2026-11-06: option (c)**, the mesher's vertex-encroachment exemption restricted to the apex region of a small-angle pair, in cq / constrained mode only. It is VALID under the unchanged oracle (probe: island 8879 -> 786, cdt -31 %, corpus cq q20 -31 %).
 
