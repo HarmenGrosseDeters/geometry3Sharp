@@ -181,7 +181,7 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        [Theory(Skip = "Known failure: https://github.com/HarmenGrosseDeters/geometry3Sharp/issues/644 (absolute normalize threshold)")]
+        [Theory]
         [InlineData(-52)]
         [InlineData(-53)]
         [InlineData(-60)]
@@ -196,6 +196,126 @@ namespace geometry3Sharp.Tests
             int[] idx = hull.HullIndices;
             Assert.Equal(idx.Length, idx.Distinct().Count());
             Assert.True(Extreme(idx.Select(i => pts[i])).SetEquals(Chain(pts)), "the hull is not the exact hull");
+        }
+
+        [Theory]
+        [InlineData(-200)]
+        [InlineData(-100)]
+        [InlineData(-60)]
+        [InlineData(-52)]
+        [InlineData(0)]
+        [InlineData(100)]
+        [InlineData(300)]
+        public void Hull_IsTheScaledHull_AtEveryBinaryScale_BitForBit(int e)
+        {
+            // the reference at scale 1; the hull of a copy scaled by 2^e (exact) lists the same indices (docs/QA.md 2.4; #644)
+            var rng = new Random(2026111801);
+            foreach (Family fam in new[] { Family.Random, Family.Grid, Family.Circle }) {
+                List<Vector2d> pts = Points(fam, 40, rng);
+                var reference = new ConvexHull2(pts, 1e-300, QueryNumberType.QT_DOUBLE);
+                var scaled = new ConvexHull2(Place(pts, e, 0), 1e-300, QueryNumberType.QT_DOUBLE);
+                Assert.Equal(reference.Dimension, scaled.Dimension);
+                Assert.True(reference.HullIndices.SequenceEqual(scaled.HullIndices), $"{fam} 2^{e}: other hull indices");
+            }
+        }
+
+        [Theory]
+        [InlineData(-1070)]      // coordinates up to 1000 * 2^-1070: the extent is subnormal (the exponent is read after scaling up by 2^64)
+        [InlineData(-1060)]
+        public void SubnormalExtent_GivesTheHullOfTheIntegerGrid(int e)
+        {
+            // small integers times 2^e are exact subnormal doubles, so the scaled copy is exact
+            var rng = new Random(2026111803);
+            var ints = new List<Vector2d>();
+            for (int i = 0; i < 40; ++i) ints.Add(new Vector2d(rng.Next(1000), rng.Next(1000)));
+            var reference = new ConvexHull2(ints, 1e-300, QueryNumberType.QT_DOUBLE);
+            var tiny = ints.Select(p => new Vector2d(ExactPoint3.ScaleB(p.x, e), ExactPoint3.ScaleB(p.y, e))).ToList();
+            Assert.True(tiny.Max(p => p.x) < 2.2250738585072014e-308, "the extent is not subnormal");
+            var hull = new ConvexHull2(tiny, 1e-320, QueryNumberType.QT_DOUBLE);
+            Assert.Equal(2, hull.Dimension);
+            Assert.True(reference.HullIndices.SequenceEqual(hull.HullIndices), "other hull indices");
+        }
+
+        [Fact]
+        public void ExtentThatOverflows_StillGivesTheExactHull()
+        {
+            // finite coordinates of both signs near the double range: max - min is infinite (the old code scaled by 1 / infinity = 0)
+            var rng = new Random(2026111804);
+            // (Vector2d.IsFinite tests x + y, so a point with two large coordinates of one sign is refused: the points sit near the axes)
+            var pts = new List<Vector2d> { new Vector2d(9e307, 1), new Vector2d(-9e307, -2), new Vector2d(3, 9e307), new Vector2d(-1, -9e307) };
+            for (int i = 0; i < 40; ++i) pts.Add(new Vector2d((rng.NextDouble() - 0.5) * 1e307, (rng.NextDouble() - 0.5) * 1e307));
+            Assert.True(double.IsInfinity(pts.Max(p => p.x) - pts.Min(p => p.x)), "the extent does not overflow");
+            var hull = new ConvexHull2(pts, 1e-12, QueryNumberType.QT_DOUBLE);
+            Assert.Equal(2, hull.Dimension);
+            Assert.True(Extreme(hull.HullIndices.Select(i => pts[i])).SetEquals(Chain(pts)), "not the exact hull");
+        }
+
+        [Fact]
+        public void Hull_UnderTheSimilaritiesOfTheHarness_IsTheExactHull()
+        {
+            // the similarities without a rotation out of the plane: scale, translation (UTM), power-of-two scales exact
+            var rng = new Random(2026111802);
+            List<Vector2d> pts = Points(Family.Random, 40, rng);
+            var reference = new ConvexHull2(pts, 1e-300, QueryNumberType.QT_DOUBLE);
+            int checkedSimilarities = 0;
+            foreach (Similarity s in Similarity.All().Where(s => !s.IsRotated)) {
+                List<Vector2d> moved = pts.Select(p => { Vector3d q = s.Apply(new Vector3d(p.x, p.y, 0)); return new Vector2d(q.x, q.y); }).ToList();
+                var hull = new ConvexHull2(moved, 1e-300, QueryNumberType.QT_DOUBLE);
+                Assert.Equal(2, hull.Dimension);
+                if (s.IsExact)
+                    Assert.True(reference.HullIndices.SequenceEqual(hull.HullIndices), $"{s.Name}: not the same hull indices");
+                Assert.True(Extreme(hull.HullIndices.Select(i => moved[i])).SetEquals(Chain(moved)), $"{s.Name}: not the exact hull");
+                ++checkedSimilarities;
+            }
+            Assert.True(checkedSimilarities >= 5, "vacuous");
+        }
+
+        [Fact]
+        public void OrdinaryScales_KeepTheDimensionOfTheUnscaledDecision()
+        {
+            // For extents between 1e-3 and 1e8, the decisions (point: extent below epsilon, absolute; line: distance below
+            // epsilon times the extent, relative) are those of Vector2d.GetInformation on the original points, the code the
+            // constructor used to call; near-collinear sets put the line decision at the edge of epsilon.
+            int dims0 = 0, dims1 = 0, dims2 = 0;
+            foreach (double ext in new[] { 1e-3, 0.37, 1, 1000, 123456.789, 1e6, 3e8 })
+                foreach (double eps in new[] { 1e-12, 1e-9, 1e-6, 1e-3, 0.05 })
+                    for (int seed = 0; seed < 60; ++seed) {
+                        var r = new Random(seed * 31 + 7);
+                        int m = 3 + r.Next(40);
+                        double off = seed % 3 == 0 ? ext * 100 : 0;
+                        var pts = new List<Vector2d>();
+                        for (int i = 0; i < m; ++i) {
+                            double u = r.NextDouble();
+                            switch (seed % 4) {
+                                case 0: pts.Add(new Vector2d(off + ext * r.NextDouble(), off + ext * r.NextDouble())); break;
+                                case 1: pts.Add(new Vector2d(off + ext * u, off + ext * (2 * u + (r.NextDouble() - 0.5) * Math.Pow(10, -(seed % 12) - 1)))); break;
+                                case 2: pts.Add(new Vector2d(off + ext * r.Next(6), off + ext * r.Next(6))); break;
+                                default: pts.Add(new Vector2d(off + ext * Math.Cos(6.28 * u), off + ext * Math.Sin(6.28 * u))); break;
+                            }
+                        }
+                        Vector2d.GetInformation(pts, eps, out Vector2d.Information info);
+                        var hull = new ConvexHull2(pts, eps, QueryNumberType.QT_DOUBLE);
+                        Assert.True(info.mDimension == hull.Dimension, $"extent {ext} epsilon {eps} seed {seed}: dimension {hull.Dimension}, unscaled decision {info.mDimension}");
+                        if (hull.Dimension == 0) ++dims0; else if (hull.Dimension == 1) ++dims1; else ++dims2;
+                    }
+            Assert.True(dims0 > 30 && dims1 > 100 && dims2 > 1000, $"vacuous: {dims0} / {dims1} / {dims2}");
+        }
+
+        [Fact]
+        public void OneDimensionalAndPointSets_KeepTheirDimension_AtATinyScale()
+        {
+            foreach (int e in new[] { -100, 0, 100 }) {
+                var line = new List<Vector2d>();
+                for (int i = 0; i < 6; ++i) line.Add(new Vector2d(ExactPoint3.ScaleB(3 + i, e), ExactPoint3.ScaleB(5 + 2 * i, e)));
+                var h1 = new ConvexHull2(line, Eps(e), QueryNumberType.QT_DOUBLE);
+                Assert.Equal(1, h1.Dimension);
+                h1.Get1DHullInfo(out Vector2d origin, out Vector2d direction);
+                Assert.Contains(origin, line);                             // a point of the input, in its units
+                Assert.Equal(1.0, direction.Length, 12);
+                // a cluster below epsilon (an absolute length) is a point
+                var cluster = new List<Vector2d> { new Vector2d(1, 1), new Vector2d(1 + 1e-14, 1), new Vector2d(1, 1 + 1e-14) };
+                Assert.Equal(0, new ConvexHull2(cluster, 1e-12, QueryNumberType.QT_DOUBLE).Dimension);
+            }
         }
 
         [Fact]
