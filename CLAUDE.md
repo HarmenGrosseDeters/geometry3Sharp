@@ -18,7 +18,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
   serial, repeated runs) if it has a parallel path. Tests of a success path check the result (closed,
   manifold, finite, eg `MeshRobustRepair.NotCleanReason`), not only the status.
-- Test time (owner 2026-11-09): a test takes at most 5 s (its duration in the full CI run's trx, linux net10.0).
+- Test time (owner 2026-11-09): a test takes at most 5 s (its duration alone: tests flagged in the full CI run's trx, linux net10.0, are
+  re-run in isolation and judged on that time; owner 2026-11-12). A test or a library operation on one input above 20 s in
+  any run, the full run included, is a potential defect and gets an issue with a diagnosis.
   Exceptions up to 10 s carry the `Slow` trait and a one-line reason in the test; nothing above 10 s. A check that
   needs more (a corpus, a soak or long determinism run) is made cheaper with the same power (smaller procedural
   inputs, shared work, split cases; a mutant the old test kills must still be killed) or moves to a benchmark or a

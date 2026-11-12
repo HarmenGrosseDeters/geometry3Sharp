@@ -119,7 +119,10 @@ def flag_filter(rows, threshold):
 def merge_isolated(rows, isolated):
     """-> (rows with the time alone where a test was re-run, {name: full-run seconds}). A test is matched by its display
     name; a re-run that did not pass keeps the full-run time."""
-    alone = {name: sec for name, sec, outcome, _ in isolated if outcome == "Passed"}
+    alone = {}
+    for name, sec, outcome, _ in isolated:
+        if outcome == "Passed":
+            alone[name] = max(alone.get(name, 0.0), sec)       # (equal display names: the slowest)
     merged, full = [], {}
     for name, sec, outcome, slow in rows:
         if name in alone:
@@ -128,6 +131,19 @@ def merge_isolated(rows, isolated):
         else:
             merged.append((name, sec, outcome, slow))
     return merged, full
+
+
+def missing_from_rerun(rows, isolated, threshold):
+    """-> [(name, full-run seconds)] for the tests of threshold seconds or more in the full run that the isolated trx has no
+    passed result for (the filter missed them, or the re-run failed or was cut off): they stay judged on the full-run time."""
+    ok = {name for name, _, outcome, _ in isolated if outcome == "Passed"}
+    return sorted(((n, sec) for n, sec, _, _ in rows if sec >= threshold and n not in ok), key=lambda x: -x[1])
+
+
+def potential_defects(rows, alone_by_name, limit):
+    """-> [(name, full-run seconds, seconds alone or None)] for the tests above limit seconds in the run (owner 2026-11-12: a
+    test above 20 s in any run, the full run included, is a potential defect and gets an issue with a diagnosis)."""
+    return sorted(((n, sec, alone_by_name.get(n)) for n, sec, _, _ in rows if sec > limit), key=lambda x: -x[1])
 
 
 def ratchet(rows, backlog, base, threshold, max_seconds, fail_from=7.0):
@@ -172,6 +188,7 @@ def main(argv=None):
     p.add_argument("--backlog-from", type=float, default=4.0)
     p.add_argument("--flag-filter", help="write a dotnet test --filter expression for the tests of --flag-from seconds or more and stop")
     p.add_argument("--flag-from", type=float, default=None, help="default: --threshold")
+    p.add_argument("--defect-above", type=float, default=20.0, help="tests above this many seconds in any run are listed as potential defects (default 20)")
     p.add_argument("--isolated", nargs="+", help="trx of the flagged tests run again alone: their times replace the full-run times")
     a = p.parse_args(argv)
 
@@ -185,9 +202,13 @@ def main(argv=None):
             f.write(expression)
         print(f"{expression.count('FullyQualifiedName~')} methods flagged")
         return 0
-    full_run = {}
+    full_run, alone_by_name, missing = {}, {}, []
+    original = rows
     if a.isolated:
-        rows, full_run = merge_isolated(rows, [r for f in a.isolated for r in read_trx(f)])
+        isolated_rows = [r for f in a.isolated for r in read_trx(f)]
+        missing = missing_from_rerun(rows, isolated_rows, a.flag_from if a.flag_from is not None else a.threshold)
+        rows, full_run = merge_isolated(rows, isolated_rows)
+        alone_by_name = {n: sec for n, sec, _, _ in rows if n in full_run}
     if a.make_backlog:
         entries = make_backlog(rows, a.backlog_from)
         with open(a.make_backlog, "w", encoding="utf-8", newline="\n") as f:
@@ -213,6 +234,14 @@ def main(argv=None):
     lines += ["", f"Tests tagged Slow that took less than {a.threshold / 5:g} s: {len(tagged_fast)} (candidates to untag)"]
     for name, sec, _, _ in tagged_fast[:5]:
         lines.append(f"  {sec:8.1f} s  {name}")
+    if missing:
+        lines += ["", f"Flagged in the full run but without a passed result in the re-run alone: {len(missing)} (judged on the full-run time)"]
+        lines += [f"  {sec:8.1f} s  {name}" for name, sec in missing[:50]]
+    defects = potential_defects(original, alone_by_name, a.defect_above)
+    if defects:
+        lines += ["", f"Potential defects: {len(defects)} tests above {a.defect_above:g} s in the full run (owner rule 2026-11-12: each gets an issue with a diagnosis)"]
+        for name, sec, alone in defects[:50]:
+            lines.append(f"  {sec:8.1f} s  {name}" + (f"  (alone {alone:.1f} s)" if alone is not None else "  (not re-run alone)"))
     errors = []
     if a.backlog:
         backlog = read_backlog(a.backlog)

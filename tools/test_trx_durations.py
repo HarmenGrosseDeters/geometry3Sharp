@@ -189,6 +189,43 @@ class Isolated(unittest.TestCase):
             f.write("B+C.Row\nA.SlowTagged\n")
         self.assertEqual(t.main([self.full, "--isolated", self.alone, "--backlog", small, "--max-seconds", "1"]), 1)
 
+    def test_a_flagged_test_missing_from_the_rerun_is_listed_and_keeps_its_time(self):
+        out = os.path.join(self.dir.name, "summary.md")
+        # ISOLATED has N.A.SlowUntagged (passed) and N.B+C.Row (failed); N.A.SlowTagged (90 s) was flagged but is not in it
+        rows = t.read_trx(self.full)
+        missing = t.missing_from_rerun(rows, t.read_trx(self.alone), 5.0)
+        self.assertEqual([n for n, _ in missing], ["N.B+C.Row(x: 1.5)", "N.A.SlowTagged"])
+        self.assertEqual(t.main([self.full, "--isolated", self.alone, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("without a passed result in the re-run alone: 2", text)
+
+    def test_equal_display_names_in_the_rerun_take_the_slowest(self):
+        twice = ISOLATED.replace('</Results>', '<UnitTestResult testId="3" testName="N.A.SlowUntagged" duration="00:00:09.0000000" outcome="Passed" /></Results>')
+        path = os.path.join(self.dir.name, "twice.trx")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(twice)
+        rows, full = t.merge_isolated(t.read_trx(self.full), t.read_trx(path))
+        self.assertAlmostEqual({r[0]: r[1] for r in rows}["N.A.SlowUntagged"], 9.0)
+
+    def test_tests_above_20_s_are_listed_as_potential_defects_with_the_time_alone(self):
+        out = os.path.join(self.dir.name, "summary.md")
+        self.assertEqual(t.main([self.full, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("Potential defects: 2 tests above 20 s", text)       # the 90 s tagged and the 120 s untagged row
+        self.assertIn("(not re-run alone)", text)
+        alone = ISOLATED.replace('00:00:20.0000000', '00:00:03.0000000').replace('outcome="Failed"', 'outcome="Passed"')
+        path = os.path.join(self.dir.name, "alone2.trx")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(alone)
+        self.assertEqual(t.main([self.full, "--isolated", path, "--summary", out]), 0)
+        with open(out, encoding="utf-8") as f:
+            text = f.read().split("Potential defects:", 2)[-1]
+        self.assertIn("120.0 s  N.B+C.Row(x: 1.5)  (alone 3.0 s)", text)     # the time in the full run stays the finding
+        self.assertEqual(t.potential_defects(t.read_trx(self.full), {}, 100)[0][0], "N.B+C.Row(x: 1.5)")
+        self.assertEqual(len(t.potential_defects(t.read_trx(self.full), {}, 200)), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
