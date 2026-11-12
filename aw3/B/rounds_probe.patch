@@ -38,7 +38,7 @@ index 5c9d1a5a..027e0971 100644
          /// Checks orientation, adjacency (symmetric, matching facets) and, if checkDelaunay, the empty sphere
          /// property against all vertices (quadratic, for tests). Returns null if valid, otherwise the problem.
 diff --git a/mesh_ops/MeshAlphaWrap.cs b/mesh_ops/MeshAlphaWrap.cs
-index 25761d2b..effb2a82 100644
+index 25761d2b..f622240a 100644
 --- a/mesh_ops/MeshAlphaWrap.cs
 +++ b/mesh_ops/MeshAlphaWrap.cs
 @@ -532,15 +532,16 @@ namespace gs
@@ -92,7 +92,7 @@ index 25761d2b..effb2a82 100644
              Counts["steiner_points"] = steiner;
              if (staleGates > 0) Counts["gates_stale"] = staleGates;
              if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
-@@ -620,6 +632,57 @@ namespace gs
+@@ -620,6 +632,59 @@ namespace gs
              return status;
          }
  
@@ -134,7 +134,9 @@ index 25761d2b..effb2a82 100644
 +            if (roundBatch.Count > 0 && roundApplied > 0) roundSizes.Add(roundApplied);
 +            var sz = new List<int>(roundSizes); sz.Sort();
 +            long total = 0; foreach (int z in roundSizes) total += z;
-+            Counts["rounds"] = roundSizes.Count; Counts["round_applied"] = total;
++            bool first = !Counts.ContainsKey("rounds");
++            add_count("rounds", roundSizes.Count); add_count("round_applied", total);
++            if (!first) { roundSizes.Clear(); return; }      // (the statistics below: the main carving only)
 +            if (sz.Count > 0) { Counts["round_p10"] = sz[sz.Count / 10]; Counts["round_p50"] = sz[sz.Count / 2]; Counts["round_max"] = sz[sz.Count - 1]; }
 +            foreach (int P in new[] { 4, 16 }) {
 +                long steps = 0; foreach (int z in roundSizes) steps += (z + P - 1) / P;
