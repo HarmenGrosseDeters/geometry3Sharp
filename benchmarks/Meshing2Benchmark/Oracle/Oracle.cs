@@ -71,6 +71,29 @@ namespace Meshing2Acceptance
 
         static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
+        /// <summary>
+        /// GridUnsplittable's band (#723): for the pixel index km along the larger axis of a piece (y if steep, else x), the range of
+        /// pixel indices along the other axis, within o0..o1, that holds every pixel centre whose distance from the line through
+        /// (fax, fay) with direction (fdx, fdy) is at most fw in doubles (the filter of GridUnsplittable), with two pixels of margin for
+        /// the rounding of the line's coordinate and reach. The full range where that rounding is not small against a pixel: no line
+        /// (fdx = fdy = 0), a coordinate or reach that is not finite, or an end farther than 2^40 pixels from the origin (beyond about
+        /// 2^50 pixels the doubles no longer separate neighbouring pixels, and the margin would not be enough; review of #724).
+        /// </summary>
+        public static (Q From, Q To) GridBandRow(Q km, bool steep, double fax, double fay, double fdx, double fdy, double fw, Q pixel, Q o0, Q o1)
+        {
+            double flen = Math.Sqrt(fdx * fdx + fdy * fdy);
+            if (!(flen > 0)) return (o0, o1);
+            double far = Math.Max(Math.Max(Math.Abs(fax), Math.Abs(fay)), Math.Max(Math.Abs(fax + fdx), Math.Abs(fay + fdy)));
+            if (!(far / fw <= 1099511627776.0)) return (o0, o1);   // (2^40 pixels; also NaN)
+            km.Bounds(out double im, out _);
+            double major = im * fw, slope = steep ? fdx / fdy : fdy / fdx;
+            double other = steep ? fax + (major - fay) * slope : fay + (major - fax) * slope;
+            double reach = fw * flen / Math.Abs(steep ? fdy : fdx);
+            if (double.IsNaN(other) || double.IsInfinity(other) || double.IsNaN(reach) || double.IsInfinity(reach)) return (o0, o1);
+            Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = System.Numerics.BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+            return (Q.Max(o0, Index(Q.FromDouble(other - reach)) - 2), Q.Min(o1, Index(Q.FromDouble(other + reach)) + 2));
+        }
+
         public static OracleReport Check(Mesh2Input input, Mesh2Output o, OracleExpect e)
         {
             if (ForceReference && !e.Reference) e = e.WithReference();
@@ -849,17 +872,7 @@ namespace Meshing2Acceptance
                 {
                     Q m0 = steep ? ky0 : kx0, m1 = steep ? ky1 : kx1, o0 = steep ? kx0 : ky0, o1 = steep ? kx1 : ky1;
                     for (Q km = m0; km <= m1; km = km + 1) {
-                        Q from = o0, to = o1;
-                        if (flen > 0) {
-                            km.Bounds(out double im, out _);
-                            double major = im * fw, slope = steep ? fdx / fdy : fdy / fdx;
-                            double other = steep ? fax + (major - fay) * slope : fay + (major - fax) * slope;
-                            double reach = fw * flen / Math.Abs(steep ? fdy : fdx);
-                            if (!double.IsNaN(other) && !double.IsInfinity(other) && !double.IsInfinity(reach)) {
-                                from = Q.Max(o0, Index(Q.FromDouble(other - reach)) - 2);
-                                to = Q.Min(o1, Index(Q.FromDouble(other + reach)) + 2);
-                            }
-                        }
+                        var (from, to) = GridBandRow(km, steep, fax, fay, fdx, fdy, fw, pixel, o0, o1);
                         for (Q ko = from; ko <= to; ko = ko + 1) yield return steep ? (ko, km) : (km, ko);
                     }
                 }

@@ -98,5 +98,52 @@ namespace geometry3Sharp.Tests
             Assert.Equal(a.Mesh.Vertices, fresh.Mesh.Vertices);
             Assert.Equal(a.Mesh.Triangles, fresh.Mesh.Triangles);
         }
+
+        /// <summary> GridBandRow holds every pixel the filter keeps: the row of the box, brute force, against the band, for random lines
+        /// (steep and flat, near the origin and near 2^39 pixels from it, decimal and binary pixel widths) </summary>
+        [Fact]
+        public void Band_HoldsEveryPixelTheFilterKeeps()
+        {
+            var rnd = new Random(723);
+            foreach (double fw in new[] { 0.01, 0.3, 0.125 }) {
+                Q pixel = Q.FromDouble(fw);
+                for (int n = 0; n < 300; ++n) {
+                    double origin = (n % 3 == 0 ? Math.Pow(2, 39) : 1000) * fw * (rnd.NextDouble() - 0.5) * 2;
+                    double fax = origin + rnd.NextDouble() * 50 * fw, fay = -origin + rnd.NextDouble() * 50 * fw;
+                    double ang = rnd.NextDouble() * Math.PI, len = (5 + rnd.NextDouble() * 60) * fw;
+                    double fdx = Math.Cos(ang) * len, fdy = Math.Sin(ang) * len, flen = Math.Sqrt(fdx * fdx + fdy * fdy);
+                    bool steep = Math.Abs(fdy) > Math.Abs(fdx);
+                    long Px(double v) => (long)Math.Floor(v / fw + 0.5);
+                    long m0 = Px(Math.Min(steep ? fay : fax, steep ? fay + fdy : fax + fdx)) - 1, m1 = Px(Math.Max(steep ? fay : fax, steep ? fay + fdy : fax + fdx)) + 1;
+                    long o0 = Px(Math.Min(steep ? fax : fay, steep ? fax + fdx : fay + fdy)) - 1, o1 = Px(Math.Max(steep ? fax : fay, steep ? fax + fdx : fay + fdy)) + 1;
+                    for (long km = m0; km <= m1; ++km) {
+                        var (from, to) = Oracle.GridBandRow(new Q(km, 1), steep, fax, fay, fdx, fdy, fw, pixel, new Q(o0, 1), new Q(o1, 1));
+                        for (long ko = o0; ko <= o1; ++ko) {
+                            long kx = steep ? ko : km, ky = steep ? km : ko;
+                            double cx = kx * fw, cy = ky * fw;
+                            if (Math.Abs((cx - fax) * fdy - (cy - fay) * fdx) / flen > fw) continue;
+                            Assert.True(new Q(ko, 1) >= from && new Q(ko, 1) <= to, $"pixel {kx},{ky} kept by the filter is outside the band {from}..{to} (fw {fw}, line {fax},{fay} + {fdx},{fdy})");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary> an end farther than 2^40 pixels from the origin (or no line at all) gives the full row: there the doubles no longer
+        /// bound the band's rounding by its two pixels of margin </summary>
+        [Fact]
+        public void Band_FarFromTheOrigin_IsTheFullRow()
+        {
+            const double fw = 0.01;
+            Q pixel = Q.FromDouble(fw), o0 = new Q(-1000, 1), o1 = new Q(1000, 1), km = new Q(0, 1);
+            var near = Oracle.GridBandRow(km, false, 0, 0, 10, 1, fw, pixel, o0, o1);
+            Assert.True(near.From > o0 && near.To < o1, "a line near the origin gets a band");
+            double far = Math.Pow(2, 41) * fw;
+            Assert.Equal((o0, o1), Oracle.GridBandRow(km, false, far, 0, 10, 1, fw, pixel, o0, o1));
+            Assert.Equal((o0, o1), Oracle.GridBandRow(km, false, 0, 0, far, 1, fw, pixel, o0, o1));
+            Assert.Equal((o0, o1), Oracle.GridBandRow(km, false, 0, 0, 0, 0, fw, pixel, o0, o1));
+            var inside = Oracle.GridBandRow(km, false, Math.Pow(2, 39) * fw, 0, 10, 1, fw, pixel, o0, o1);
+            Assert.True(inside.From > o0 || inside.To < o1, "at 2^39 pixels the band is still used");
+        }
     }
 }
