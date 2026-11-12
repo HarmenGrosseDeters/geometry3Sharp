@@ -695,3 +695,20 @@ absolute error of at most `2^-1075`. Additions and subtractions of doubles are e
 - (b3): the geometric step that an encroaching vertex projects into the piece.
 - Not encoded at all: Shewchuk's termination theorems, the 25.65 degree value as a number (`arcsin(sqrt 3 / 4) = 25.659 degrees` is a numeric
   fact, not checked by Z3), and every termination argument of #394 and rule C beyond the inequalities above (they are measured, not proved).
+
+## Split termination (pilot 4, `split_termination.py`, QA 2.0 T14, 2026-11-12)
+
+The termination of the midpoint split of the `DMeshAABBTree3` top-down build (`split_tri_set_midpoint`), the rule that #451 broke: with
+centers that are adjacent doubles the midpoint `(b + a) * 0.5` rounds onto the upper end, the right side is empty and the same set was
+split again without end. Checked in binary64 (Z3 floating point, round to nearest even, subnormals included): the midpoint lies in
+[a, b] (O1: three sign cases, two claims each), it can round onto b and onto a (witnesses replayed in plain floats), after the guard
+`n0 < 1 || n1 < 1` (with the half and half fallback) both sides are non-empty and smaller than the set (O3, integers), and the
+mutants, a split without the guard and a midpoint of unbounded centers (the sum overflows), are SAT. `source_contracts` holds the model
+to the source (the lines must be present in order; a test shows each kind of drift is detected). Not modelled: the swap loop itself
+(its bounds are a source contract), `MeshRoundingRepair.fix_degenerate` (#452, the next T14 candidate), the expansion sums of
+`AdaptivePredicates` (the owner decides whether they are wanted). Runs in about 25 s; part of the `Z3 pilot` workflow.
+
+```sh
+python3 tools/Z3Pilot/split_termination.py --out /tmp/split-termination.json
+python3 -m unittest discover -s tools/Z3Pilot -p 'test_split_termination.py' -v
+```
