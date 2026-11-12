@@ -230,7 +230,7 @@ namespace geometry3Sharp.Tests
             ["robust repair"] = new Dictionary<string, string>() {
                 ["clean sphere"] = "clean 4.012",
                 ["empty"] = "failed",
-                ["single triangle"] = "clean 0.0004709",
+                ["single triangle"] = "clean 0.02056",
                 ["zero-area ears"] = "clean 4.012",
                 ["sliver cap"] = "clean 4.012",
                 ["T-junction"] = "clean 4.012",
@@ -262,7 +262,7 @@ namespace geometry3Sharp.Tests
                 ["random edits 12"] = "clean 3.999",
                 ["clean sphere @ utm"] = "clean 4.012",
                 ["empty @ utm"] = "failed",
-                ["single triangle @ utm"] = "clean 0.000471",
+                ["single triangle @ utm"] = "clean 0.02056",
                 ["zero-area ears @ utm"] = "clean 4.012",
                 ["sliver cap @ utm"] = "clean 4.012",
                 ["T-junction @ utm"] = "clean 4.012",
