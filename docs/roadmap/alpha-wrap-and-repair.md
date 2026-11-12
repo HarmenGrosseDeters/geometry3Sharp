@@ -93,6 +93,24 @@ second (output different only where that trial would find a spot the local ones 
 A/B against master alternating on 24 meshes (16 random of the 269, 8 with the most pinch points): 24/24 identical,
 trial + manifold step 0.49x (median), pipeline 0.93x (median and sum); the 269 meshes of phase 1: 269/269 identical
 output (the confirmation skipped on 126), all closed and free of self-intersections, trial + manifold 0.49x.
+**L1 (#681):** the intersection oracle and the touch test faster, bit-identical (`AlphaWrapOracle`: the segment query
+computes the direction's reciprocals once, no longer repeats the child box test, tests each triangle's vertex balls once;
+the tetrahedron query skips BVH nodes that a face plane of the tetrahedron separates, proven without a rounding slack by
+monotone rounding and the summation order of `Vector3d.Dot`; nodes as one array of structs). Measured (4-core container):
+A/B against master alternating on the 24 meshes: 24/24 identical, pipeline 0.949 (sum; median 0.968), wrap 0.921,
+intersection oracle 0.631, touch test 1.040 (the face test is a tail lever: 48367 touch 4.0 -> 0.57 s); the 269 meshes:
+269/269 identical. Running product toward target (b): L4 about 1.075x times L1 1.054x, about 1.13x.
+**L3b and L2 dropped (coordinator 2026-11-12, bounds measured on master, no PRs).** L3b (certification): `certified_within`
+is already parallel (MeshHausdorffDistance: vertex queries, per-triangle bounds and refinement batches); only the 0.1
+pass runs; the initial per-triangle bounds are 55-85 % of it (almost all `TriangleDeviationBounds.patch_bound`, about
+12 us per call, 2-4x on 4 cores), the AABB tree of the raw wrap 5-16 %, the refinement 5-25 %. Ceiling 1.07x on the 189
+(certify 6.4 % at zero cost); an allocation-free `patch_bound` (per-thread stamps, same order, same hashes) changed nothing
+measurable (compute, not GC), so <= about 1.02x. L2 (insertion, per insertion): `Delaunay3.Insert` splits into the
+cavity search 45 % (about 38 filtered InSphere per insertion, no exact fallback; the filter is exact code), edge linking
+16 %, new cells 13 %, star check 11 %, vertex checks 10 %, location 4 %; the edge-link dictionary replaced by per-vertex
+chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Probe patches: `runs/alpha-wrap-3`,
+`aw3/l3b_l2/`. With these, target (b) (about 1.25x) is out of reach of the bit-identical levers (about 1.13-1.15x);
+the gap and the round-based parallel carving (B) go to the owner.
 
 **Alpha Wrap 3.0, sharp-feature probe (lever 6, measured 2026-11-09, benchmarks/SharpFeatureProbe, no library change).** 20 T1 meshes + 6 procedural CAD solids, medians vs A (current pipeline):
 (B) dual contouring on the winding number at A's triangle count: edge Chamfer 0.22x (19/20 better), edge F 0.1 % 0.61 -> 0.98, crease normal error 14.9 -> 2.8 deg, but min angle 0.09 deg and 17765 triangles > 170 deg over the 20, no offset (it lies on the input), 1 of 20 self-intersecting, 3x time (13.9 s + size search);

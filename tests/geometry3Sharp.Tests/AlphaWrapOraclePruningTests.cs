@@ -180,6 +180,60 @@ namespace geometry3Sharp.Tests
             Assert.True(hits > 500 && misses > 500, $"{hits} hits, {misses} misses");
         }
 
+        // per primitive (no minimum over neighbours that share a vertex): the entry with each vertex ball once equals the one
+        // by the three capsules, for segments aimed at a corner from outside the triangle's plane and beyond its edges (where
+        // the corner's ball is the first part entered), at its edges and through its face, with tmax below 1 and 0 too
+        [Fact]
+        public void PrimitiveEntry_BallsOnce_MatchesCapsules()
+        {
+            var rnd = new Random(31);
+            var tris = new List<Vector3d>();
+            for (int k = 0; k < 40; ++k) {
+                Vector3d o = new Vector3d(3 * k, 0, 0);
+                Func<Vector3d> j = () => new Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                tris.Add(o + j()); tris.Add(o + j() + Vector3d.AxisX); tris.Add(o + j() + Vector3d.AxisY);
+            }
+            var o3 = new AlphaWrapOracle(tris, new List<Vector3d>());
+            Assert.Equal(40, o3.Triangles);
+            int[] byCorner = new int[3];
+            int hits = 0;
+            for (int k = 0; k < 40; ++k) {
+                Vector3d[] v = { tris[3 * k], tris[3 * k + 1], tris[3 * k + 2] };
+                Vector3d c = (v[0] + v[1] + v[2]) / 3;
+                for (int s = 0; s < 150; ++s) {
+                    double r = 0.02 + 0.2 * rnd.NextDouble();
+                    int corner = s % 3;
+                    Vector3d target = s % 5 == 4 ? c + 0.3 * (v[corner] - c) : v[corner] + 0.3 * r * new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                    // from beyond the corner, away from the triangle (outside both edge cylinders' spans)
+                    Vector3d away = (v[corner] - c).Normalized + new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, 2 * rnd.NextDouble() - 1);
+                    Vector3d a = target + (0.5 + rnd.NextDouble()) * away, b = target - (0.2 + rnd.NextDouble()) * away;
+                    foreach (double tmax in new[] { 1.0, 0.6, 0.0 }) {
+                        double once = o3.PrimitiveEntry(k, a, b, r, tmax, true), caps = o3.PrimitiveEntry(k, a, b, r, tmax, false);
+                        Assert.True(caps == once, $"triangle {k}, corner {corner}, tmax {tmax}: {once} vs {caps}");
+                        if (tmax == 1 && caps > 0) {
+                            hits++;
+                            // the corner's ball is the part entered first: the entry point is within r of that vertex
+                            Vector3d p = a + caps * (b - a);
+                            if (Math.Abs(p.Distance(v[corner]) - r) < 1e-9 * r) byCorner[corner]++;
+                        }
+                    }
+                }
+            }
+            Assert.True(hits > 3000, $"{hits} entries");
+            Assert.True(byCorner.All(n => n > 200), $"entries through the corner balls: {string.Join(", ", byCorner)}");
+        }
+
+        // r = 0 and a point: the expanded box is the point itself, so the segment's clip interval is a single parameter
+        // (t0 == t1, a closed interval); the entry is exact (0.5)
+        [Fact]
+        public void FirstEntry_ZeroRadius_GrazesTheBoxExactly()
+        {
+            var o = new AlphaWrapOracle(new List<Vector3d>(), new List<Vector3d> { new Vector3d(1, 0, 0) });
+            Assert.Equal(0.5, o.FirstEntry(Vector3d.Zero, new Vector3d(2, 0, 0), 0));
+            Assert.Equal(0.25, o.FirstEntry(new Vector3d(-1, -2, 0), new Vector3d(7, 6, 0), 0));
+            Assert.Equal(-1, o.FirstEntry(new Vector3d(0, 1e-3, 0), new Vector3d(2, 1e-3, 0), 0));
+        }
+
         // invariance over Similarity.All(): pruned equals unpruned (and the brute force) on every transformed input; on the
         // 2^k scales every answer, and every entry parameter bit for bit, equals the untransformed one
         [Fact]

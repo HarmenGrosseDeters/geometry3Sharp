@@ -443,6 +443,15 @@ namespace gs
         }
 
         /// <summary>
+        /// (tests) the entry of a + t (b - a), t in [0, tmax], into the offset volume of primitive i alone: once: as FirstEntry
+        /// tests it (each vertex ball once), otherwise by the three edge capsules and the slab (as before lever 1)
+        /// </summary>
+        internal double PrimitiveEntry(int i, Vector3d a, Vector3d b, double r, double tmax, bool once)
+        {
+            return once ? primitive_entry_once(i, a, b - a, r, tmax) : primitive_entry(i, a, b - a, r, tmax);
+        }
+
+        /// <summary>
         /// (tests) FirstEntry without the hierarchy: the smallest entry over all primitives, each by the three edge capsules
         /// and the slab (vertex balls tested twice, as before lever 1)
         /// </summary>
