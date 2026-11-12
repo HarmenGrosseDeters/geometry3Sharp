@@ -35,11 +35,13 @@ Part of the [roadmap](../ROADMAP.md).
 distance, then the proven tan interval and catch-line bound. Still owner decisions: the slope-envelope construction,
 berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
-- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
-  paused):** (1) slope on the inside of a closed toe needs up to 4 retries of the exact check and ends in
-  `SlopeViolation` in about 1 of 500 such designs (the outside certifies at once); (2) `Direction = Auto` on a terrain
-  that tilts through the toe plane: composite not certified at a toe edge, 1 of 700. Both never return a violating
-  result; both are pinned as example tests and counted in the campaign.
+- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): fixed (2026-11-12, resumed by the owner
+  2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
+  four planes 9e-12 apart) passed the exact check, but its clipped part in the region had catch points 7e-12 apart and failed
+  on every margin; a failing region triangle now names its realized parent, which the band merge collapses on the next
+  realization (TERRAIN.md 5.5). (2) `Direction = Auto` at a toe corner: the certificate's step rule is now per slope triangle
+  (one capsule cannot hold the slivers along two toe segments). Both examples certify; the campaign no longer lets either
+  class pass. The 48-gon clipped-sliver design certifies at the first margin (2 → 1 attempts).
 - **Ramps as design geometry** (path, width, grade; access ramps into pits).
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
