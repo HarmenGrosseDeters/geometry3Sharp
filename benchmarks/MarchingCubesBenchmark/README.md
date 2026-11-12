@@ -31,7 +31,7 @@ for both versions to avoid comparing different warm-up/JIT stages.
 The checked-in measurement used the same harness, build mode and machine in **before / after / after / before**
 order, rebuilding between versions. `before` uses only `mesh_generators/MarchingCubes.cs` from
 `99f9bd3d207f8a7906212e0300a17456f3d7219c`; `after` uses the ordered batching and corrected per-axis dimension
-validation in this PR. The source bytes were saved and restored in `finally` around these temporary substitutions.
+validation of #365. The source bytes were saved and restored in `finally` around these temporary substitutions.
 No other implementation file was changed for the comparison. To reproduce without modifying a working tree,
 copy this benchmark into a separate checkout of the baseline and run the same command in both checkouts.
 

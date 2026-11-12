@@ -38,6 +38,13 @@ Actionable:
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
+**Owner 2026-11-12:** the inputs are free, but are not taken from the owner's Triangle.NET fork repository: fetch them from
+their original sources at run time, never committed. The Herne tiles: ALKIS parcels and buildings from Geobasis NRW
+(opengeodata.nrw.de, dl-de/zero-2-0, the host `benchmarks/TerrainBenchmark/fetch_data.py` already uses), prepared by our own
+script for the tiles 371800_5710600, 373600_5709000 and 381000_5710400 (UTM 32N, origin of the tile); the public fixtures as
+today by `corpus/fetch.py`. No GEOS- or CGAL-derived data. This unblocks the Herne items below; run-A outputs (produced by
+the fork) and stmlf stay blocked.
+
 - **SplitSegment speed:** the next mesher speed item outside grading (3.4 s of 7.3 s refinement on cq 373600 q30). An
   upper-bound check comes before any optimisation; it needs that input or a procedural input with the same profile
   (to be shown first). Effort M.
