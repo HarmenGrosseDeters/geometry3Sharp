@@ -196,7 +196,7 @@ namespace gs
         /// input triangle in the region it sweeps, vertices at least 0.9 offset from the input, angle floors; so the wrap's
         /// guarantees are kept. Off by default (opt-in, Alpha Wrap 3.0 lever 6; the default is decided on the 800 mesh run).
         /// On the 20 T1 meshes of the sharp-feature study: edge F 0.61 -> 0.88, crease normal error 14.7 -> 4.6 degrees,
-        /// 0.72x the triangles, about +25 % time (benchmarks/SharpFeatureProbe, variant KP).
+        /// 0.72x the triangles, the pipeline 3.8 -> 5.1 s (median; the pass itself 0.8 s; benchmarks/SharpFeatureProbe, variant KR).
         /// </summary>
         public bool AlphaWrapSharpFeatures = false;
         /// <summary> alpha wrap fallback: true if AlphaWrapSharpFeatures ran and changed the raw wrap </summary>
