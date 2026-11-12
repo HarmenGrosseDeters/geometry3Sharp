@@ -4,6 +4,8 @@ Status: plan of the 1a PR (owner approval of [TERRAIN.md](TERRAIN.md) on 2026-11
 leaves to 1b / 1c, and where the implementation departs from the design, with the reason. Section numbers refer to
 TERRAIN.md.
 
+Update 2026-11-12: the 1a PR was merged in #267 (2026-11-02).
+
 ## Scope
 
 1. **The oracle** (5.4, 6), usable on its own to check any TIN, also results of other tools:

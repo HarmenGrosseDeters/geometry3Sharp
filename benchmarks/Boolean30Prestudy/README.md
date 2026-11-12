@@ -8,7 +8,7 @@ analysis scripts and the rows. No library code; no meshes (Thingi10K models are 
 Setup of a work directory `W` (outside the repository):
 
 ```sh
-dotnet build benchmarks/BooleanComparison -c Release -f net10.0 -o $W/tool_pre       # this branch (master library)
+dotnet build benchmarks/BooleanComparison -c Release -f net10.0 -o $W/tool_pre       # master
 python3 -I benchmarks/LevyClassification/fetch_thingi.py $W/raw $(cut -d' ' -f1 benchmarks/Boolean30Prestudy/results/scaling_ids.txt)
 for id in ...; do dotnet $W/tool_pre/BooleanComparison.dll export $W/raw/$id.* $W/cases/$id; done
 ```
@@ -20,15 +20,22 @@ for id in ...; do dotnet $W/tool_pre/BooleanComparison.dll export $W/raw/$id.* $
 | 3 n-ary one pass vs chained | `csg_job.sh W W/tool_pre` | `analyze_csg.py results/csg.jsonl` | `results/csg.jsonl`, `results/csg_phases.jsonl` (boxes_64_1 and mixed_32_1 rerun with the phase clocks) | `results/csg_summary.md` |
 | 4 exact output | `exact_job.sh W W/tool_pre "<ids>"` | `analyze_exact.py results/exact.jsonl` | `results/exact.jsonl` | `results/exact_summary.md` |
 | 5.1 Antipodal cost model (T5 count) | `antipodal_job.sh W W/tool_pre` | `analyze_antipodal.py results/antipodal.jsonl` | `results/antipodal.jsonl` | `results/antipodal_summary.md` |
-| 5 batched fast winding bound | `fwn_job.sh W W/tool_perpiece "<ids>"` (BooleanComparison of this branch built in a worktree of bfaa0158) | `analyze_fwn.py results/fwn.jsonl` | `results/fwn.jsonl` | `results/fwn_summary.md` |
+| 5 batched fast winding bound | `fwn_job.sh W W/tool_perpiece "<ids>"` (BooleanComparison of the branch of #532 built in a worktree of bfaa0158) | `analyze_fwn.py results/fwn.jsonl` | `results/fwn.jsonl` | `results/fwn_summary.md` |
 | 7 one body against many (T3a subtract many, T3b intersect each; terrain and CAD) | `many_job.sh W W/tool_pre` | `analyze_many.py results/many_a.jsonl results/many_b.jsonl` | `results/many_a.jsonl`, `results/many_b.jsonl` | `results/many_summary.md` |
 | 6 positioning (thingi-pairs CGAL sample + 10 size pairs) | `../BooleanComparison/compare.py` (see its README), methods ours, manifold, cgal_epeck | `../BooleanComparison/data/thingi_pairs.py summary` | not committed (CGAL results are GPL-tool output) | `results/positioning_summary.md` |
 
 All timings: the 4-core cloud machine, nothing else running, one job at a time.
 
+## T1 scaling levers (`t1_ab.sh`)
+
+Exact Boolean 3.0 T1 (#631, merged 2026-11-11): input preparation and the parallel box-tree build, results bit-identical.
+`bash t1_ab.sh <tool base dir> <tool new dir> <cases dir> <rounds> <cores list> <case...>` alternates two `BooleanComparison`
+builds on procedural cases (`<cases dir>/<name>/{A,B}.off`, union, SafeRounding on) and prints JSON lines;
+`python3 t1_ab_analyze.py <rows.jsonl> [phase ...]` gives the medians. Summary: `results/t1_summary.md` (the rows are not committed).
+
 ## T2 memory of the arrangement (`t2/`)
 
-Exact Boolean 3.0 T2 (PR #619): data layout of the arrangement, results bit-identical. Procedural inputs, because
+Exact Boolean 3.0 T2 (#619, merged 2026-11-11): data layout of the arrangement, results bit-identical. Procedural inputs, because
 Thingi10K is not reachable from the build container (the large-model rerun with `memory_job.sh` is for a machine that has
 the cases):
 

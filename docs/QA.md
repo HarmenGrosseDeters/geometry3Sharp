@@ -31,8 +31,8 @@ done since and what is open.
   to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
-  "Category=Slow"`). It fails for an untagged test of 60 s or more and only reports below that: durations on a shared
-  runner are noisy, and a gate at 5 s would turn that noise into red CI. Tag a test that shows up in the list.
+  "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
+  b73c151d). Tag a test that shows up in the list.
 - The scheduled tier: `[Trait("Category", "Nightly")]` tests run only in `.github/workflows/nightly.yml` (daily on master, and
   `workflow_dispatch`; `dotnet test --filter "Category=Nightly"`, 90 min budget, durations in the step summary). PR and master CI
   exclude the category (`Category!=Nightly` on Linux and both net48 shards). It holds the rows above 10 s whose run is the check:

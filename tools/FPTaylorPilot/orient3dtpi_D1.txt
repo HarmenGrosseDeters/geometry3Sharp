@@ -1,0 +1,34 @@
+Variables
+ float64 ax in [1, 2], float64 ay in [1, 2], float64 az in [1, 2],
+ float64 bx in [1, 2], float64 by in [1, 2], float64 bz in [1, 2],
+ float64 cx in [1, 2], float64 cy in [1, 2], float64 cz in [1, 2],
+ float64 ox in [1, 2], float64 oy in [1, 2], float64 oz in [1, 2]
+;
+Definitions
+ u1x rnd64= bx - ax,
+ u1y rnd64= by - ay,
+ u1z rnd64= bz - az,
+ w1x rnd64= cx - ax,
+ w1y rnd64= cy - ay,
+ w1z rnd64= cz - az,
+ pa rnd64= u1y * w1z,
+ pb rnd64= u1z * w1y,
+ n1x rnd64= pa - pb,
+ qa rnd64= u1z * w1x,
+ qb rnd64= u1x * w1z,
+ n1y rnd64= qa - qb,
+ ra rnd64= u1x * w1y,
+ rb rnd64= u1y * w1x,
+ n1z rnd64= ra - rb,
+ a1cx rnd64= ax - ox,
+ a1cy rnd64= ay - oy,
+ a1cz rnd64= az - oz,
+ m1 rnd64= n1x * a1cx,
+ m2 rnd64= n1y * a1cy,
+ m3 rnd64= n1z * a1cz,
+ sa rnd64= m1 + m2,
+ D1 rnd64= sa + m3
+;
+Expressions
+ rnd64(D1)
+;

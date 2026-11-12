@@ -142,6 +142,8 @@ provider returned HTTP 502. **No independent review or bounds sign-off is claime
 readiness blockers, not permission to modify unrelated exact/meshing code or widen the agreed scope.
 The owner subsequently explicitly approved publishing a **draft PR with these blockers open**; it must not
 be marked ready or merged without independent numerical review. No merge is performed by this worker.
+Update 2026-11-12: the PR is #374; an independent diff-only review was done on 2026-11-04 (its findings and fixes are in
+the PR description) and it was merged the same day.
 
 ## Estimated versus actual scope and effort
 
