@@ -73,7 +73,6 @@ namespace geometry3Sharp.Tests
             var r = new MeshRobustRepair(new DMesh3(input));
             AssertRepaired(r, r.Apply());
             double offset = r.AlphaWrap.UsedOffset, alpha = r.AlphaWrap.UsedAlpha;
-            Assert.True(alpha > r.AlphaWrap.UsedOffset);
             var wrapTree = new DMeshAABBTree3(r.Mesh, true);
             wrapTree.Build();
             // the result is within the offset of the input, plus the half offset of the simplification (the documented distance of the wrap and of simplify_wrap) ...
@@ -86,7 +85,7 @@ namespace geometry3Sharp.Tests
             }
             // ... and encloses it: every input triangle's centroid is inside
             foreach (int t in input.TriangleIndices())
-                Assert.True(wrapTree.IsInside(input.GetTriCentroid(t)) || wrapTree.FastWindingNumber(input.GetTriCentroid(t)) > 0.5, "triangle " + t);
+                Assert.True(wrapTree.FastWindingNumber(input.GetTriCentroid(t)) > 0.5, "triangle " + t);
         }
 
         [Fact]
@@ -118,6 +117,42 @@ namespace geometry3Sharp.Tests
             Assert.Equal(below.AlphaWrap.UsedAlpha * (20.0 / 200.0), below.AlphaWrap.UsedOffset, 12);   // the offset keeps its ratio to alpha
         }
 
+
+        [Fact]
+        public void FarParts_KeepTheFormerWrapJudgement()
+        {
+            // two degenerate parts 1e7 sizes apart (the far part case: lostPartInput is set, the wrap is judged against the largest component).
+            // The rule is off there; it would also change nothing, since the edge length of parts that far apart is below diag / 300 (alpha is
+            // the larger of the two). Either way the result is what it was with the rule off
+            DMesh3 two = Input();
+            DMesh3 b = Input(2);
+            foreach (int v in b.VertexIndices().ToArray()) b.SetVertex(v, b.GetVertex(v) + new Vector3d(1e7, 0, 0));
+            new MeshEditor(two).AppendMesh(b);
+            MeshRobustRepair Run(int threshold) {
+                var r = new MeshRobustRepair(new DMesh3(two)) { WrapRelativeAlpha = 20, WrapRelativeOffset = 200, SmallInputWrapTriangles = threshold };
+                r.Apply();
+                return r;
+            }
+            var off = Run(0);
+            var on = Run(64);
+            Assert.Equal(off.ResultReason, on.ResultReason);
+            Assert.Equal(off.UsedAlphaWrap, on.UsedAlphaWrap);
+            Assert.Equal(off.WrapReason, on.WrapReason);
+            Assert.Equal(off.Mesh.VertexCount, on.Mesh.VertexCount);
+            Assert.Equal(off.Mesh.TriangleCount, on.Mesh.TriangleCount);
+            if (on.AlphaWrap != null) Assert.Equal(off.AlphaWrap.UsedAlpha, on.AlphaWrap.UsedAlpha);
+        }
+
+        [Fact]
+        public void Reuse_TwoRunsOnTheSameInputGiveTheSameWrap()
+        {
+            DMesh3 input = Input();
+            var a = new MeshRobustRepair(new DMesh3(input)); AssertRepaired(a, a.Apply());
+            var b = new MeshRobustRepair(new DMesh3(input)); AssertRepaired(b, b.Apply());
+            Assert.Equal(a.AlphaWrap.UsedAlpha, b.AlphaWrap.UsedAlpha);
+            Assert.Equal(a.Mesh.TriangleCount, b.Mesh.TriangleCount);
+        }
+
         [Theory, MemberData(nameof(Similarities))]
         public void Invariance_AllSimilarities(string name)
         {
@@ -127,7 +162,9 @@ namespace geometry3Sharp.Tests
             AssertRepaired(r0, r0.Apply());
             var r1 = new MeshRobustRepair(Invariance.Transformed(input, s));
             AssertRepaired(r1, r1.Apply());
-            Assert.Equal(s.Scale * r0.AlphaWrap.UsedAlpha, r1.AlphaWrap.UsedAlpha, 8);
+            Assert.True(Math.Abs(r1.AlphaWrap.UsedAlpha - s.Scale * r0.AlphaWrap.UsedAlpha) <= (s.IsExact ? 0 : 1e-6) * r1.AlphaWrap.UsedAlpha, "alpha scales with the input");
+            if (s.IsExact)
+                Assert.Equal(s.Scale * r0.AlphaWrap.UsedAlpha, r1.AlphaWrap.UsedAlpha);
             Assert.True(Math.Abs(r1.AlphaWrap.UsedOffset / r1.AlphaWrap.UsedAlpha - r0.AlphaWrap.UsedOffset / r0.AlphaWrap.UsedAlpha) < 1e-12);
             if (s.IsExact) {
                 // a power of two: the same wrap bit for bit

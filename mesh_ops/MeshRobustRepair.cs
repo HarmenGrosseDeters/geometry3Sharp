@@ -164,7 +164,8 @@ namespace gs
         /// alpha = max(bounding box diagonal / WrapRelativeAlpha, median edge length / SmallInputWrapEdgeDivisor), with the offset in the
         /// same ratio to alpha as without it (WrapRelativeAlpha / WrapRelativeOffset). The wrap size depends on diagonal / alpha only, so
         /// a few triangles with the default alpha took seconds for about 200 000 wrap triangles (#636). The wrap still encloses the
-        /// input at the offset it reports (UsedOffset). 0 turns it off; an input of this many triangles or more is wrapped as before.
+        /// input at the offset it reports (UsedOffset). 0 turns it off; an input of this many triangles or more is wrapped as before, and so is one with far parts (the wrap is judged against the largest component then: WrapTooCoarse).
+        /// A coarser wrap than before for such an input: alpha up to a quarter of its edge length, a small feature next to larger ones can be wrapped over.
         /// </summary>
         public int SmallInputWrapTriangles = 64;
         /// <summary> the divisor of the median edge length for the alpha of a small input (see <see cref="SmallInputWrapTriangles"/>) </summary>
@@ -759,7 +760,7 @@ namespace gs
             end_phase("solidify.check");
             if (SolidifyReason != "" && AlphaWrapFallback) {
                 double smallAlpha = 0, smallOffset = 0;
-                if (SmallInputWrapTriangles > 0 && solidifyFrom.TriangleCount < SmallInputWrapTriangles)
+                if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
                 AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF };
                 AlphaWrap.Compute();
