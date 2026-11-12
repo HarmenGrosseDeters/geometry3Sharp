@@ -17,6 +17,8 @@ levers. They drive `benchmarks/BooleanComparison` (`profile`, `export`); nothing
 | `probe_boundary_sum.py` | the hierarchical Antipodal boundary sum against the full sum, offline in numpy (`python3 -I`) |
 | `results/inventory_2026-11-12.jsonl` | the raw rows (master 8124a7d3 + #675 a9b00da3, 4-core cloud container) |
 | `results/probes_2026-11-12.md` | the probes' outputs |
+| `units_job.sh`, `results/fuzz_units_*` | the #624 fuzz units (grp-a profile rows, grp-b replay times, the BigInteger probe per unit; master 0325530c) |
+| `traces_job.sh`, `speedscope_categories.py`, `results/categories_2026-11-12.jsonl`, `results/normal_stratum_2026-11-12.jsonl` | the shared profile table (section 4.8) and its normal stratum |
 
 `BooleanComparison profile` gained two options for this note: `--antipodal-unlimited` (both Antipodal switches lifted,
 T5 option A) and `--rounding-max-pair-tests <n>`.

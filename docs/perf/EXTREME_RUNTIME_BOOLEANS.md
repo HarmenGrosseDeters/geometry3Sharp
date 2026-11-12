@@ -17,7 +17,11 @@ the probes are scratch patches applied to a throw-away worktree (`benchmarks/Ext
 - **#711 is BigInteger arithmetic in the rounding.** On the timeout input 87 % of the time is in `orient3d_bigint` /
   `orient2d_bigint`: corners at 1.8e-284 next to coordinates of 1e-32 span 2^840, so neither the 62-bit integer stage
   nor the expansion range admits them. With those corners set to 0 the operation takes 50 ms. The fuzzer's 47 s are two
-  booleans (the strict re-run of `MeshFuzzPilot`).
+  booleans (the strict re-run of `MeshFuzzPilot`). All 60 slow grp-a units have the same cause (section 3.4): span
+  2^839-2^1934, rounding 90 % of the time, BigInteger 85 % of it, median 4.8 s per boolean on master. The grp-b repair
+  timeouts (#712, up to 49 s) are another matter: alpha wrap and `Reducer` under heavy GC, with almost no exact stage.
+- **Shared profile table** (section 4.8, the AW3 format): the exact stage matters only in the #711 class (77-88 %), 42327
+  (32 %), 55928 (28 %) and n-ary (20 %); in a normal stratum of 20 random Thingi10K unions it is 5 % plus 3 % filters.
 - **Ranked levers** (section 5): (1) a hierarchical Antipodal boundary sum after option A (bound: 61 % of 117959, 18 %
   of 1087141; 23 instead of 6007 terms per evaluation, error at most 3.4e-4 before the fallback); (2) option A itself,
   already decided (the open union group 421 -> 334 s, 1087141 -57 %, 122796 +56 %); (3) a cost-weighted rounding budget
@@ -141,7 +145,7 @@ The four siblings of 1087141 (the same part, 1196 boundary segments each) ran th
 
 | case | why not | what is known |
 |---|---|---|
-| the 60 `slow-unit-*` of fuzz #624 group a (#711) | their input bytes are not on `runs/mesh-fuzz` (only the timings: `grp-a/slow-timing-idle.txt`); the bytes stayed in the owner's container | union 47 units 4.7-16.4 s (median 7.9), intersection 12 units 6.8-12.7 s (median 10.8), difference 1 unit 6.7 s; each unit runs two booleans (default and `AllowOpenMeshes = false`). Whether they share the timeout's cause (section 4.1) is unknown until the units are pushed |
+| the 60 `slow-unit-*` of fuzz #624 group a (#711) | run since: section 3.4 (the owner pushed the units to `runs/mesh-fuzz` after the first measurement) | |
 | the slowest boolean tests of `SLOW_BACKLOG.txt` | run, but they are not extreme per operation: they are slow by count | trx durations on this machine: `SafeRoundingDegenerateInputTests.DegenerateInput_InBooleans_CleanWithinTheBound` 15.1 s (198 iterations, 396 booleans, about 38 ms each), `ExactBooleanPropertyTests.Boxes_RepresentationInvariance` 13.0 s, `MeshRobustRepairTests.UncleanResultResolvedExactly_VolumeCheckedOnce` 13.2 s (a repair), `LocalRefinementTests.Boolean_LocalGap_CostsMuchLessThanGlobalRefinement` 6.4 s, `MeshBooleanSeamTests.Union_RandomSpherePairs_AreClosed` 6.1 s (30 unions), `ExactBooleanPropertyTests.Boxes` 1.3-2.0 s per campaign of 300-400 samples. Their lever is the test tier (#700 and the slow-backlog PRs), not the boolean |
 
 ### 3.3 Option A on the open models (union, both Antipodal switches lifted)
@@ -163,6 +167,46 @@ Owner 2026-11-12, option (A): `AntipodalMaxBoundarySegments` and `AntipodalMaxTr
 
 This confirms #675's numbers on the merged tree (122796 slower by about 1.6x here, 2x there). Allocations double under
 A (1087141 7.7 -> 20.2 GB, 1005586 16.8 -> 30.6 GB), which shows up as GC time (section 4.4).
+
+### 3.4 The fuzz units of #624 (master 0325530c)
+
+The owner pushed the units to `runs/mesh-fuzz` (`grp-a/units/` commit 8b059874, `grp-b/units/` 61eb1a10; fuzzer bytes,
+fetched at run time, not in this PR). Measured on plain master `0325530c`, which contains #675. A spot check of three
+earlier rows on it gave equal hashes: 486343 union, 122796 union, #711 difference.
+
+**grp-a, 60 slow units** (`union,intersection,difference`). Decoding: `MeshFuzzPilot dump` from a 05d1332b build; the
+master decoder gives byte-identical dumps for all 60. Conversion with `dump2off.py`, then `units_job.sh` (`run.sh`, one
+boolean per process). Raw rows: `results/fuzz_units_grp_a_2026-11-12.jsonl`.
+
+| op | units | total s min / median / max | rounding share | peak RSS MB max | alloc GB median | RoundingClean |
+|---|---|---|---|---|---|---|
+| union | 47 | 2.7 / 4.7 / 9.1 | 94 % | 198 | 3.5 | 6 of 47 |
+| intersection | 12 | 3.9 / 6.4 / 7.5 | 79 % | 196 | 3.7 | 0 of 12 |
+| difference | 1 | 4.3 | 77 % | 198 | 2.7 | 0 of 1 |
+
+- 20 of 60 are above 5 s for one boolean. The fuzzer's 4.7-16.4 s ran two booleans per unit, plus start-up.
+- None reaches the evaluation limit.
+- Every unit spans 2^839 to 2^1934 in the exponents of its nonzero coordinate magnitudes. The largest magnitude lies
+  between 2^-143 and 2^907.
+- The BigInteger probe (`probe_bigint.py` on master) finds BigInteger stages in every unit. They take 270 of 317 s in
+  total (85 %), median 4.2 s per unit (`results/fuzz_units_bigint_probe_2026-11-12.txt`). All 60 are therefore the
+  class of the #711 timeout (section 4.1).
+- Since none reaches the limit, a lower plain budget would not cap them. A cost-weighted budget would (lever 3).
+
+**grp-b, 10 timeouts and 53 slow units** (`robust-repair,robust-repair-soup,rounding-repair`; `MeshRobustRepair` and
+`MeshRoundingRepair`, not `ExactMeshBoolean` directly). Each unit is replayed whole with `MeshFuzzPilot replay` under
+`/usr/bin/time`, the target's check included (`results/fuzz_units_grp_b_2026-11-12.tsv`).
+
+| kind | target | units | wall s min / median / max | peak RSS MB max | rc |
+|---|---|---|---|---|---|
+| timeout | robust-repair | 4 | 6.1 / 7.7 / 12.3 | 523 | 0 |
+| timeout | robust-repair-soup | 6 | 6.2 / 14.8 / 49.1 | 1743 | 0 |
+| slow | robust-repair | 18 | 2.5 / 4.9 / 5.1 | 299 | 0 |
+| slow | robust-repair-soup | 31 | 1.2 / 3.5 / 6.5 | 336 | 0 |
+| slow | rounding-repair | 4 | 1.8 / 5.7 / 7.5 | 174 | 0 |
+
+Only 5 of the 63 run BigInteger stages at all, for 0.02-7.0 s. The long soup timeouts run none, so grp-b is a separate
+cause (#712). Its profile is in section 4.8.
 
 ## 4. Groups by dominant stage, and what the time is
 
@@ -244,6 +288,67 @@ Difference 380 s (356 s in #675's note, 370-425 s before), classification 59 %, 
 91 s of GC pauses, peak 11.8 GB. Its levers have their own note (`docs/design/EXACT_BOOLEAN_TAIL_55928.md`); it is not
 profiled again here. It is the largest single row; section 4.4 applies to it.
 
+### 4.8 Shared profile table (exact / BVH / GC / rounding / rest)
+
+Owner request 2026-11-12: one table in the format of the AW3 study, to merge into hotspots.md.
+
+**Commit sets.**
+- The rows of section 3.1 (all but the grp-a unit): master `8124a7d3` + #675 `a9b00da3`, merged locally.
+- The traces, the grp-a unit, grp-b and the normal stratum: master `0325530c`, which contains #675. Its hashes equal the
+  earlier rows on the three cases of the spot check.
+
+**How the shares are measured.**
+- One `dotnet-trace` sampling profile per case (`traces_job.sh`), classified by `speedscope_categories.py`.
+- Only CPU samples inside `ExactMeshBoolean.Compute` count; for grp-b, everything under the `MeshFuzzPilot` replay.
+- Each sample goes to the first category found from the leaf upwards:
+  - (i) exact: the exact stage, split from (i) filters (the floating-point filters and the predicates' entry points);
+  - (ii) AABB / BVH queries, fast winding numbers included;
+  - (iii) GC, trace: the runtime's GC and allocation frames, mostly threads waiting in `PollGC`. It counts every
+    waiting thread, so it is larger than the wall-clock pause share;
+  - (iv) rounding: the rest of `MeshRoundingRepair`;
+  - (v) rest.
+
+**The other columns.**
+- (iii) GC pause, wall: the GC pause time of the profile row over its total.
+- (iii) alloc GB: the bytes allocated in that row.
+- "largest in rest": the largest self frame within (v), in % of all CPU.
+
+**Normal stratum.** 20 Thingi10K models with 2k-50k triangles, drawn with `random.seed(20261112)` from
+`geometry_data.csv` (ids 104969, 131971, 1722409, 232911, 237631, 239188, 281457, 314592, 363052, 44106, 501151, 56483, 669966, 67927, 68203, 740249, 779964, 80105, 82256, 888459). Each model is paired with its rotated copy, as above, and run as a
+union. Their shares are CPU-weighted over the 20 traces.
+
+| case | op | total s | (i) exact stage | (i) filters | (ii) AABB / BVH | (iii) GC, trace | (iii) GC pause, wall | (iii) alloc GB | (iv) rounding | (v) rest | largest in rest |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| #711 timeout | difference | 16.3 | 87.7 % | 5.2 % | 0.3 % | 3.6 % | 1 % | 13.5 | 2.9 % | 0.3 % |  |
+| #711 grp-a unit 0edbe479 | intersection | 6.6 | 77.0 % | 5.5 % | 0.5 % | 8.1 % | 0 % | 3.7 | 7.2 % | 1.7 % |  |
+| 55928 | difference | 380.0 | 27.6 % | 9.2 % | 4.7 % | 6.9 % | 24 % | 199.4 | 0.1 % | 51.5 % | carried_crossings 17.0 |
+| 117959 | union | 110.6 | 2.7 % | 0.3 % | 81.2 % | 4.7 % | 4 % | 9.3 | 1.9 % | 9.1 % |  |
+| 117959 (A) | union | 103.0 | 2.7 % | 1.6 % | 6.0 % | 4.1 % | 10 % | 19.5 | 2.2 % | 83.4 % | antipodal_value 61.1 |
+| 1087141 | union | 108.8 | 2.9 % | 1.4 % | 80.3 % | 5.1 % | 3 % | 7.7 | 2.7 % | 7.6 % |  |
+| 1087141 (A) | union | 47.2 | 8.6 % | 5.5 % | 14.1 % | 19.3 % | 19 % | 20.2 | 5.4 % | 47.1 % | antipodal_value 18 |
+| 1005586 | union | 69.8 | 4.5 % | 1.1 % | 51.6 % | 9.5 % | 11 % | 16.8 | 9.8 % | 23.5 % | EdgeTable.Build 5.5 |
+| 112798 | union | 53.7 | 5.1 % | 0.6 % | 56.7 % | 8.7 % | 12 % | 12.3 | 5.3 % | 23.6 % | EdgeTable.Build 7.0 |
+| 122796 | union | 11.7 | 7.6 % | 1.3 % | 42.9 % | 14.3 % | 14 % | 2.6 | 6.3 % | 27.6 % | EdgeTable.Build 6.5 |
+| 122796 (A) | union | 18.3 | 6.1 % | 1.8 % | 9.7 % | 10.2 % | 14 % | 4.7 | 2.8 % | 69.4 % | antipodal_value 33 |
+| 42327 | intersection | 34.3 | 32.1 % | 3.5 % | 3.7 % | 9.4 % | 24 % | 20.6 | 8.5 % | 42.8 % | lock waits in AddPoint 11.2 |
+| 1368057 | union | 39.0 | 9.5 % | 4.1 % | 12.2 % | 5.9 % | 8 % | 12.8 | 51.2 % | 17.1 % |  |
+| 107554 | intersection | 23.9 | 16.6 % | 6.2 % | 11.4 % | 34.3 % | 27 % | 10.0 | 5.9 % | 25.6 % | lock waits 5.6 |
+| 519511 | union | 20.3 | 8.8 % | 16.6 % | 29.1 % | 14.4 % | 11 % | 6.4 | 7.0 % | 24.1 % | self_pairs 11.7 |
+| boxes_64_1 n-ary (both variants) | one pass | 38.4 (one pass) | 20.1 % | 0.4 % | 14.4 % | 56.4 % | - | - | 0.1 % | 8.6 % |  |
+| **normal stratum**, 20 random Thingi10K models (2k-50k triangles), union | union | 11.1 in total (median 0.32, max 3.3) | 5.4 % | 3.4 % | 10.6 % | 32.0 % | 3.5 % | 2.1 in total | 15.3 % | 33.1 % | |
+| grp-b, the 10 repair timeouts (#712; root `MeshFuzzPilot` replay) | robust-repair / soup | 6.1-49.1 wall | 0.6 % | 8.3 % | 2.6 % | 32.2 % | - | - | 0.0 % | 56.2 % | Reducer and alpha wrap (simplify_wrap) |
+
+**Reading.**
+- **(i) matters in four places:** #711 and its grp-a units (77-88 %, all BigInteger), 42327 (32 %), 55928 (28 %) and
+  boxes_64 (20 %). In the normal stratum it is 5.4 % plus 3.4 % filters. Predicate-kernel work (eg an InCircle limb
+  kernel, filter tuning) would pay in those cases, not in the normal stratum.
+- **(ii) dominates the default path of the large open models** (43-81 %: the fast-winding tree). Option A removes most of
+  it, and with option A the time moves into (v), into `antipodal_value`, which is lever 1.
+- **(iii) GC** is the largest share in the normal stratum's trace (32 %; 3.5 % wall pauses). It is 34 % in 107554,
+  56 % in the n-ary one pass, and 24-40 % in grp-b.
+- **grp-b (#712) is not an `ExactMeshBoolean` cost.** It is `MeshRobustRepair`'s alpha wrap and `Reducer` under heavy
+  GC. It is passed to the wrap sessions.
+
 ## 5. Levers
 
 Upper bound = the share of the stage or function the lever removes, times the best possible speedup of that part,
@@ -255,7 +360,7 @@ measured on the named rows. A lever whose bound is under 10 % of its group's tim
 |---|---|---|---|---|---|---|
 | 1 | **Hierarchical Antipodal boundary sum.** The open winding's boundary term is summed over all B segments per traced evaluation. Order the segments into chains, build a binary tree over each chain, and replace a cluster far from p (radius / distance < θ, and the ray x1 missing the cluster's cone) by the term of its chord plus the dipole of the closed polygon (Barnes and Hut 1986; the dipole as in Barill et al. 2018). With a certified far-field bound added to the margin that L2 already uses, a piece whose margin does not clear falls back to today's full sum, so decisions stay those of today | 4.2 under option A | `antipodal_value` 61 % of 117959 union (A) and 18 % of 1087141 union (A) (profiles above); terms per evaluation 23 of 6007 (117959) and 26 of 1196 (1087141) at θ = 0.25: about 60 s of 117959's 103 s and 8 s of 1087141's 47 s | `probe_boundary_sum.py` (300 sampled points per model): error modulo whole turns at most 3.4e-4 (117959, θ = 0.25), 8.6e-14 (1087141); at θ = 0.5 2.5e-3 and 3.3 % whole-turn jumps, so θ about 0.25 and the integer bookkeeping are design items | M-L: `mesh_ops/ExactMeshBoolean*` (locked for 3.0 work, exact-code review of the new bound, the classification mutation shards) | low if the fallback keeps decisions; the whole-turn bookkeeping of the chord identity must be proven (the probe shows 0-0.3 % jumps at θ <= 0.25 with the cone test) |
 | 2 | **Option A** (lift both switches; owner decision 2026-11-12, follow-up PR after #675) | 4.2 | the open union group 421 -> 334 s (-21 %); 1087141 -57 % (its four siblings are the same part and should follow, not run) | measured, section 3.3; hashes change (Antipodal is right where FWN and Antipodal differ, #675) | decided | 122796 +56 % (1.6x); lever 1 targets exactly that cost |
-| 3 | **Cost-weighted rounding budget.** Count a BigInteger exact stage of the rounding's pair tests as k pair tests toward `MaxPairTests` (eg k = 20-100), or stop the evaluations once the BigInteger time exceeds a share of the rounding | 4.1 | rounding 95 % of the #711 timeout op; `profile --rounding-max-pair-tests` 5M / 1M / 250k / 50k: rounding 15.6 / 12.0 / 3.0 / 0.66 s, `RoundingClean` false in every row (152-156 result triangles) | the knob shows the time follows the budget; 0 BigInteger stages on 1368057, 486343, 42327 (union) with `probe_bigint.py`, so those results stay bit-identical | S: `mesh_ops/MeshRoundingRepair.cs` (the rounding shards) | results change only on inputs whose rounding needs BigInteger, and only by doing less repair where the limit is reached anyway; an owner decision (it changes results, as #335 did); the 60 slow units should be checked first |
+| 3 | **Cost-weighted rounding budget.** Count a BigInteger exact stage of the rounding's pair tests as k pair tests toward `MaxPairTests` (eg k = 20-100), or stop the evaluations once the BigInteger time exceeds a share of the rounding | 4.1 | rounding 95 % of the #711 timeout op; `profile --rounding-max-pair-tests` 5M / 1M / 250k / 50k: rounding 15.6 / 12.0 / 3.0 / 0.66 s, `RoundingClean` false in every row (152-156 result triangles) | the knob shows the time follows the budget; 0 BigInteger stages on 1368057, 486343, 42327 (union) with `probe_bigint.py`, so those results stay bit-identical | S: `mesh_ops/MeshRoundingRepair.cs` (the rounding shards) | results change only on inputs whose rounding needs BigInteger; an owner decision (it changes results, as #335 did). Checked on the 60 slow units: all are this class (85 % BigInteger), none reaches today's limit, so only the weighting caps them |
 | 4 | **Server GC as documented advice for large booleans** (OPERATIONS.md), and the roadmap's allocation task ("Boolean allocations", owner 2026-11-04), whose trigger (>= 10 % on large inputs) these data meet | 4.4 | GC pauses 11.3 % of the inventory, 23-27 % on 107554, 498458, 42327, 55928 | A/B, section 4.4: server GC -19 % (107554) and -11 % (42327), hashes equal; a 512 MB gen0 gains nothing | S for the advice; M for the allocation PR (largest allocators first: classification on 42327, 18 GB; `carried_crossings` BigInteger construction, section 4.3) | none for the advice (more memory with server GC); the allocation PR bit-identical by design |
 | 5 | **n-ary one pass: the pre-study's levers, with today's numbers** (propagation of the classification, pruning before triangulation, a tree-aware evaluation; EXACT_BOOLEAN_30_PRESTUDY.md section 3) | 4.6 | classification 91 % of boxes_64_1's 38.4 s; the pre-study's propagation bound: 64 -> 4.9 s, still 8x the chain | not re-probed (the pre-study's bound stands) | M-L | n-ary is a 3.0 use case (T3a / T3b); boxes_64 is its worst case, not its typical one |
 
@@ -286,7 +391,7 @@ measured on the named rows. A lever whose bound is under 10 % of its group's tim
 
 In order: lever 2 (decided) with lever 1 behind it in the same area (it removes option A's regression on 122796 and
 most of 117959's remaining time; its design needs the far-field bound and the whole-turn bookkeeping); lever 3 as a
-small owner decision once the 60 slow fuzz units are pushed and checked for the same cause; lever 4's advice at once
+small owner decision (the 60 slow fuzz units are checked: the same cause, so it covers the whole #711 class); lever 4's advice at once
 and its allocation PR when the 3.0 locks allow. Lever 5 stays with the n-ary plan. With levers 1 and 2 the open union
 group would fall from 421 s to roughly 260 s (lever 1's bound on the two profiled models; the other six are not
 profiled under A), still with 117959 near 45 s and 55928 untouched.
