@@ -37,6 +37,9 @@ namespace g3
         public IReadOnlyList<int> BadTriangles { get; internal set; } = new int[0];
         /// <summary> Refinement stopped at the Steiner limit: the mesh is valid, its quality is not guaranteed (spec O7, Q11). </summary>
         public bool SteinerLimitReached { get; internal set; }
+        /// <summary> input points and segments (indices) that quality refinement left in no triangle: parts of the domain narrower than the
+        /// automatic tolerance; reported in the diagnostics too (internal: the tests read them) </summary>
+        internal int[] DroppedInputPoints = new int[0], DroppedInputSegments = new int[0];
         /// <summary> Heights per vertex if the input had heights, otherwise null. </summary>
         public IReadOnlyList<double> Heights { get; }
 
@@ -106,7 +109,7 @@ namespace g3
             for (int v = 0; v < vertices.Length; ++v) newId[v] = keep[v] ? count++ : -1;
             if (count == vertices.Length)
                 return new ConstrainedMesh2(vertices, inputCount, map, triangles, neighbours, TriangleLabels.ToArray(), Subsegments.ToArray(),
-                    Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached };
+                    Heights?.ToArray(), fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments };
             var kept = new Vector2d[count];
             double[] keptHeights = Heights == null ? null : new double[count];
             for (int v = 0; v < vertices.Length; ++v) if (keep[v]) { kept[newId[v]] = vertices[v]; if (keptHeights != null) keptHeights[newId[v]] = Heights[v]; }
@@ -116,7 +119,7 @@ namespace g3
             var subs = Subsegments.ToArray();
             for (int i = 0; i < subs.Length; ++i) { subs[i].A = newId[subs[i].A]; subs[i].B = newId[subs[i].B]; }
             return new ConstrainedMesh2(kept, inputCount, map, tris, neighbours, TriangleLabels.ToArray(), subs,
-                keptHeights, fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached };
+                keptHeights, fullV, fullH, slotId, fullP, infinite) { BadTriangles = BadTriangles, SteinerLimitReached = SteinerLimitReached, DroppedInputPoints = DroppedInputPoints, DroppedInputSegments = DroppedInputSegments };
         }
 
         static int Next(int e) => e % 3 == 2 ? e - 2 : e + 1;
