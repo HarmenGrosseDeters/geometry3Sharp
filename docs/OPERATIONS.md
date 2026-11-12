@@ -814,6 +814,18 @@ bounding box diagonal and the smaller of the two applies. Open lines are counted
 g3cli polygon_solids loops.geojson solids.geojson --simplify-tolerance 0 --relative-tolerance 1e-4
 ```
 
+**Offset surface** (`offset`, `MeshSignedDistanceGrid` + `MarchingCubes`, the example [OffsetSurfaceExample](examples/OffsetSurfaceExample.cs)): the surface at a
+signed distance from a closed mesh, outward positive, on a regular grid (`--cell-size` or `--relative-cell-size`, default 0.01 of the diagonal; the result is as
+fine as the cell, thinner features vanish; `--max-cells` guards memory). `--root-mode` places the vertices along cell edges; `linear_edges` is
+`MarchingCubes.RootfindingModes.LinearEdges`, one linear interpolation of the corner samples, which fails (`offset_status` `linear_edges_precondition`, nothing written)
+where its preconditions are violated (a sample exactly at the iso value, a crossing on a corner). The result always states `"enclosure_claim": "none"`: the sampled
+float distance field of a mesh is not the exact 1-Lipschitz field the conservative enclosure recipe of [CONSERVATIVE_MC_AUDIT](design/CONSERVATIVE_MC_AUDIT.md) assumes,
+so the command promises no enclosure of the input (owner decision 2026-11-12):
+
+```
+g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,

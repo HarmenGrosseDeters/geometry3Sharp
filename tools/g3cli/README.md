@@ -23,6 +23,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds (options as used in `options`, incl. `--outer-offset` and `--sharp-edge-min-height`), Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
 | `curvature` | discrete mean and Gaussian curvature per vertex (Meyer et al.: mixed Voronoi area, mean curvature normal, angle deficit) as statistics over the valid vertices, also scaled by the mesh size; `--output` writes every vertex as CSV / JSON | `MeshCurvature` |
+| `offset` | offset surface of a closed mesh at a signed distance (positive outward, negative inward) by marching cubes on a signed distance grid; `--cell-size` / `--relative-cell-size`, `--root-mode single_lerp` / `lerp_steps` / `bisection` / `linear_edges` (`LinearEdges`: one linear interpolation of the corner samples, fails with `linear_edges_precondition` where its preconditions are violated), a cell budget (`--max-cells`); `enclosure_claim` is always `none` (no guarantee that the offset surface encloses the input) | `MeshSignedDistanceGrid`, `MarchingCubes` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
 | `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices; intrinsic refinement, the descent path from a vertex or point with `--trace-from`) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
 | `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
@@ -162,6 +163,13 @@ g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvatu
 # discrete curvature per vertex: statistics (H and K in mesh units and times size, size^2) and a CSV of every vertex
 g3cli curvature part.stl --output curvature.csv
 #   -> "valid_vertices": 5120, "mean_curvature": {"mean": 0.31, "std_dev": 0.05, ...}, "gaussian_curvature": {...}, "angle_deficit_total": 12.566
+
+# offset surface: 0.5 outward at a cell of 0.1 (positive outward, negative inward); the mesh must be closed
+g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
+#   -> "cells": [35, 35, 35], "root_mode": "single_lerp", "enclosure_claim": "none", "mesh": { "closed": true, "volume": 25.18, ... }
+# linear_edges: unmodified linear edge interpolation (the mode of docs/design/CONSERVATIVE_MC_AUDIT.md); it never repairs a violated precondition:
+g3cli offset part.stl part_offset.stl --distance 0.5 --relative-cell-size 0.005 --root-mode linear_edges
+#   -> or operation_failed with "offset_status": "linear_edges_precondition" and no output file
 
 # quality and topology of one mesh
 g3cli quality part.stl

@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -225,6 +225,22 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal(20.0, D(r["result"]["structuredContent"]["refinement"]["min_angle_bound"]));
             Assert.True(I(r["result"]["structuredContent"]["trace_point_count"]) >= 2);
+        }
+
+        [Fact]
+        public void Offset_IsATool()
+        {
+            var server = Server();
+            string output = m.Path_("mcp_off.obj");
+            JsonObject r = Handle(server, Call(1, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = output, ["distance"] = 0.5, ["cell_size"] = 0.2, ["root_mode"] = "bisection", ["root_steps"] = 6 }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal("none", S(sc["enclosure_claim"]));
+            Assert.Equal(6, I(sc["root_steps"]));
+            Assert.True(B(sc["mesh"]["closed"]));
+            r = Handle(server, Call(2, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_off2.obj"), ["distance"] = 0.0, ["cell_size"] = 0.25, ["root_mode"] = "linear_edges" }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("linear_edges_precondition", S(r["result"]["structuredContent"]["offset_status"]));
         }
 
         [Fact]
