@@ -220,6 +220,13 @@ namespace g3cli
 
         // ---- query3d ----
 
+        /// <summary> the same file: full paths, compared without case on Windows and macOS (whose file systems are case insensitive by default) </summary>
+        internal static bool SamePath(string a, string b) =>
+            string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
+                System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
+                || System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
+                ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
         /// <summary> numbers 'a,b,c;d,e,f' (';' or a new line between the tuples, ',' or a blank within); '@file' reads the text from a file </summary>
         static List<double[]> ParseTuples(string text, string name, int size)
         {
@@ -430,7 +437,7 @@ namespace g3cli
                     string depthDir = Path.GetDirectoryName(Path.GetFullPath(args.String("depth_output")));
                     if (Directory.Exists(depthDir) == false)
                         throw new CommandException(ResultCodes.WriteError, $"cannot write '{args.String("depth_output")}': directory does not exist");
-                    if (args.Has("output") && string.Equals(Path.GetFullPath(args.String("output")), Path.GetFullPath(args.String("depth_output")), StringComparison.Ordinal))
+                    if (args.Has("output") && SamePath(args.String("output"), args.String("depth_output")))
                         throw new CommandException(ResultCodes.InvalidArguments, "'depth_output' and 'output' are the same file");
                 }
                 if (args.Bool("any_hit") && args.Has("rays") == false && !hasCamera)
@@ -449,9 +456,8 @@ namespace g3cli
                     if ((args.Has("rays") || hasCamera) && args.Has("points"))
                         throw new CommandException(ResultCodes.InvalidArguments, "'output' is for rays or for points, not both: run the command twice");
                     outputFormat = QueryOutputFormat(args.String("output"));
-                    string outFull = Path.GetFullPath(args.String("output"));
                     foreach (string list in new[] { "rays", "points" })
-                        if (args.Has(list) && args.String(list).StartsWith("@") && string.Equals(Path.GetFullPath(args.String(list).Substring(1)), outFull, StringComparison.Ordinal))
+                        if (args.Has(list) && args.String(list).StartsWith("@") && SamePath(args.String(list).Substring(1), args.String("output")))
                             throw new CommandException(ResultCodes.InvalidArguments, $"'output' is the '{list}' file");
                 }
                 double maxDistance = double.MaxValue;
@@ -479,12 +485,15 @@ namespace g3cli
                 }
                 int camW = 0, camH = 0;
                 JsonObject cameraInfo = null;
+                var cameraWarnings = new List<string>();
                 if (hasCamera) {
                     rays = CameraRays(args.String("camera"), args.Has("up") ? args.String("up") : null, out camW, out camH, out cameraInfo);
+                    if (args.Has("up") && cameraInfo["up_replaced"].GetValue<bool>())
+                        cameraWarnings.Add("the view direction is parallel to 'up': the up direction was replaced (see camera.up)");
                 }
                 Vector3d[] points = pointList?.Select(p => new Vector3d(p[0], p[1], p[2])).ToArray();
 
-                var warnings = new List<string>();
+                var warnings = new List<string>(cameraWarnings);
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
                 var tree = new DMeshAABBTree3(mesh, true);
                 var options = new BatchOptions() { Parallel = args.Bool("parallel"), MaxDistance = maxDistance };

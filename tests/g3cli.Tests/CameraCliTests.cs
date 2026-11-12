@@ -142,6 +142,11 @@ namespace g3cli.Tests
             Assert.True(B(a["camera"]["up_replaced"]));
             Assert.Equal(1.0, D(a["camera"]["forward"][2]), 12);
             Assert.True(I(a["rays"]["hits"]) > 0);
+            Assert.Empty(a["warnings"].AsArray());                                       // the default up is replaced silently ...
+            var (e3, c) = Run("query3d", m.Cube, "--camera", "0,0,-5;0,0,0;30;8;8", "--up", "0,0,1", "--compact");
+            Assert.Equal(0, e3);
+            Assert.True(B(c["camera"]["up_replaced"]));
+            Assert.Single(c["warnings"].AsArray());                                      // ... an explicit one with a warning
             var (e2, b) = Run("query3d", m.Cube, "--camera", Front, "--up", "0,1,0", "--compact");
             Assert.Equal(0, e2);
             Assert.False(B(b["camera"]["up_replaced"]));
@@ -208,6 +213,7 @@ namespace g3cli.Tests
         [InlineData("-5,0,0;0,0,0;90;20000;2")]
         [InlineData("-5,0,0;0,0,0;90;1001;1000")]                // more than a million pixels
         [InlineData("a,0,0;0,0,0;90;16;16")]
+        [InlineData("-1e308,0,0;1e308,0,0;90;16;16")]            // the view vector overflows
         public void BadCameras_AreInvalidArguments(string camera)
         {
             var (exit, r) = Run("query3d", m.Cube, "--camera", camera, "--compact");
@@ -237,6 +243,17 @@ namespace g3cli.Tests
             Assert.False(File.Exists(o2));
             var (e5, r5) = Run("query3d", m.Cube, "--camera", Front, "--output", m.Path_("same.csv"), "--depth-output", m.Path_("same.csv"), "--compact");
             AssertError(e5, r5, "invalid_arguments");
+        }
+
+        [Fact]
+        public void SamePath_IsCaseInsensitiveOnWindowsAndMacOnly()
+        {
+            string a = Path.Combine(m.Dir, "Same.csv"), b = Path.Combine(m.Dir, "same.CSV");
+            Assert.True(Commands.SamePath(a, Path.Combine(m.Dir, ".", "Same.csv")));
+            bool insensitive = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
+                || System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX);
+            Assert.Equal(insensitive, Commands.SamePath(a, b));
+            Assert.False(Commands.SamePath(a, Path.Combine(m.Dir, "other.csv")));
         }
 
         static void AssertError2((int exit, JsonObject r) x) => AssertError(x.exit, x.r, "invalid_arguments");
