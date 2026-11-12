@@ -58,8 +58,9 @@ done since and what is open.
   expression for every method with a row of 5 s or more; those tests run again alone
   (`dotnet test --no-build --filter "$(cat flagged.txt)" --logger trx -- xUnit.ParallelizeTestCollections=false`), and
   `trx_durations.py full.trx --isolated alone.trx --backlog ...` replaces the full-run time of each re-run test by its time
-  alone (the report keeps "full run N s"); a re-run that failed keeps the full-run time. The re-run takes about as long as
-  the flagged tests do alone (a few minutes). Rows below the threshold in the full run are not re-run.
+  alone (the report keeps "full run N s"); a re-run that failed keeps the full-run time. Measured on 4 cores: 93 flagged methods
+  (498 test rows, all rows of a flagged theory) took 15 min alone, against 15.5 min for the full run; 129 tests of 5 s or more
+  in the full run were 50 alone. Rows of methods below the threshold in the full run are not re-run.
   Fix a slow test, then delete its line. The reason on a `Slow` tag is a review item, not machine-checked.
 - A PR that changes only `tools/`, `benchmarks/` or `docs/` files that the library build and the test projects do not read
   (`tools/ci_scope.py`, which lists the ones they read; `test_ci_scope.py` checks that against the `.csproj` includes)
