@@ -328,6 +328,27 @@ Tests (`ExactMeshBooleanTestsLocalFilter`):
   bound the filter decides them wrongly.
 - Similarity invariance, serial against parallel, reuse.
 
+**The GC and the bit sizes (measured on 55928, after step 1).**
+
+GC upper bound, Difference, 4 cores, 263 GB allocated in both configurations. The second configuration is runtime
+settings only (`DOTNET_gcServer=1`, `DOTNET_gcConcurrent=0`, `DOTNET_GCgen0size=0x40000000`):
+
+| GC | total | classification | triangulation | GC pauses | collections gen0 / gen1 / gen2 | peak RSS |
+|---|---|---|---|---|---|---|
+| default (workstation, concurrent), two runs | 474 / 469 s | 324 / 291 s | 120 / 140 s | 131 / 136 s | 2470 / 1695 / 24 | 10.2 GB |
+| server, not concurrent, gen0 1 GB | 358 s | 225 s | 100 s | 44 s | 211 / 170 / 42 | 10.0 GB |
+
+So allocating nothing could save at most about 110 s of the 470.
+
+Bit sizes of the exact points, and why the fixed width (4 limbs, 2^255 per component) does not reach them:
+- Input grid coordinates: up to 56 bits. The triangles' planes: normals up to 101 bits, D up to 156.
+- Points from an edge and a plane (1.20M) and from two segments (3.9k): all fixed width (X up to 192 bits, W up to 138).
+- Points from three planes (2.22M): 1.13M fixed width; the rest up to 309 bits in X and 255 in W, so BigInteger.
+- Piece centroids, unreduced as `centroid_point` builds them (every 50th piece): X up to 807 bits, W up to 753, most
+  between 640 and 800 bits.
+- So a plane side of a centroid takes about 910 bits, and its 4x4 orientation test about 3,200. In the triangulation,
+  Orient on the larger points takes about 875 bits and InCircle about 3,300.
+
 **Next, by the counts above.**
 - The exact zeros of Orient (20.7M, collinear points of the segments: a candidate on a segment, the walk along a
   constraint). The points of a segment are constructed on its line, so the zero can be read from the construction
