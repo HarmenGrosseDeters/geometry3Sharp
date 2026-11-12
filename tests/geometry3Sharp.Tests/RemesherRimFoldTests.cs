@@ -39,7 +39,7 @@ namespace geometry3Sharp.Tests
         static (DMesh3 input, double edge) Case(string name)
         {
             bool cone = name.StartsWith("cone");
-            string[] parts = name.Substring(cone ? 4 : 5).Split("_x");
+            string[] parts = name.Substring(cone ? 4 : 5).Split(new[] { "_x" }, StringSplitOptions.None);
             DMesh3 input = cone ? Cone(int.Parse(parts[0])) : Taper(int.Parse(parts[0]));
             return (input, double.Parse(parts[1], CultureInfo.InvariantCulture) * MeanEdge(input));
         }
