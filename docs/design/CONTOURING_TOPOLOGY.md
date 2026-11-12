@@ -1,6 +1,7 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **study only, nothing built; waits for the owner's decision** (section 6). Approved as a study by the owner on
+Status: **study only, nothing built; waits for the owner's decision** (section 6). Stage 0, the proof written out
+(section 7), was added on 2026-11-13 on the coordinator's decision. Approved as a study by the owner on
 2026-11-12. No library code changed; the measurement is
 [`benchmarks/ContouringTopology`](../../benchmarks/ContouringTopology/README.md) (public API only).
 
@@ -20,7 +21,8 @@ Short answer:
 - **A certificate is within reach**: per grid cell an exact test that the level set crosses the cell the way the mesh
   does; cells that fail are refined up to a limit and then reported. The output is proven isotopic to the level set when
   no cell is reported, and the reported cells say where it is not proven. This is the shape of options A and B
-  (covered by proof, the rest checked and reported), and it reuses their coverage for the mesh side of the proof.
+  (covered by proof, the rest checked and reported). The mesh side of the proof needs only what they already give:
+  no self-intersections, no left-out polygon, vertices strictly inside their cells (section 7.3).
 - Recommended order: clean closed meshes first (exact, cheapest, the repair use), then interval implicits (TPMS),
   then broken inputs away from their defects. For broken inputs the statement can only be "the topology changed
   nowhere except within a stated distance of the defects": their level set is not smooth at the input and has no
@@ -188,14 +190,18 @@ interior triangles that are not on the level set):
 | | / 256 | 6 | 729126 | 10.35 % | 7.79 % | 10.49 % | 13.38 % |
 | | / 512 | 6 | 2942184 | 9.43 % | 7.81 % | 9.47 % | 10.93 % |
 
-- (a) or (b) failing is an **upper bound** of what an exact test would refuse: a cell with two sheets is fine for
-  manifold dual contouring when a grid node separates them (it has one vertex per sheet). Along an acute edge two
-  faces share cells at every resolution without touching inside them, which is why the count does not fall faster.
+- What the probe does and does not say (revised with the proof of section 7): it is an indication of how many cells
+  are *not simple* (several sheets, or no graph direction), not a bound of what the exact test refuses. The exact test
+  for meshes (section 4.4) accepts a cell with several sheets when a grid node separates them, and refuses a cell
+  with one flat sheet that bulges through a grid edge twice; neither is counted here. The share of refused cells is
+  the first thing stage 1's spike has to measure.
+- Along an acute edge two faces share cells at every resolution without touching inside them, which is why (a) does
+  not fall faster.
 - The graph test (b) alone fails in 0.00-0.03 % of the cells of clean inputs from 128 on; the variation test (c) fails
   in 1.6-15 % and its count doubles with each level, because every cell on a crease of 90 degrees or more fails it.
-  A Plantinga-Vegter certificate would refine every sharp edge without end; the graph test does not.
-- Cost of refining the failing cells two levels (16 surface cells each, as `MaxRefineLevels` = 2 does today): at
-  most +47 % cells at 64 and +5 % at 128 on clean T1, +1 % on the CAD solids.
+  A Plantinga-Vegter certificate would refine every sharp edge without end.
+- If the cells counted under "(a) or (b)" were all refined two levels (16 surface cells each, as
+  `MaxRefineLevels` = 2 does today): +47 % cells at 64 and +5 % at 128 on clean T1, +1 % on the CAD solids.
 - Time of the probe itself at / 128 (one run, wall time including its own triangle-to-cell binning, which the octree
   already has; floating point): 2.7 s for the 26 inputs against 15.4 s for their raw solidify, 18 % in total, median
   15 % per input (5-51 %). Stratum: this set at this cell size; an exact version adds the predicate filters' cost.
@@ -207,74 +213,68 @@ interior triangles that are not on the level set):
 Let L be the level set (the boundary of the region above the iso value) and D the dual contouring mesh. For every
 run: `TopologyCertified` (bool) and the list of **uncertified cells**. If the list is empty, D is isotopic to L. If
 not, D and L agree outside the union of the listed cells in the sense of 4.2 (same crossings of every other grid
-edge, face and cell), and the list is where a user or a refinement has to look. A certificate, not an unconditional
+edge, face and cell; this is a statement about those cells, not an isotopy of the rest), and the list is where a user or a refinement has to look. A certificate, not an unconditional
 guarantee: at a degenerate spot (a surface touching itself, a tip of angle 0, a level set through a grid node) no
 finite refinement passes, in this as in every published method.
 
-### 4.2 The grid lemma (proof outline)
+### 4.2 The grid lemma
 
-Call a closed surface S *compatible* with the grid and a sign pattern of the grid nodes if
+Call a closed surface S *compatible* with the grid if (E) every grid edge meets S in at most one point, crossing
+it, and no grid node lies on S; (F) on every grid face, S is a set of disjoint arcs with their end points on the
+face's boundary, and no closed curve; (C) in every cell, S is a set of disjoint disks with their boundaries on the
+cell's boundary. Its *pattern* is the set of crossed edges and, on a face with four crossing points, which two are
+joined. **Two surfaces compatible with the same grid and the same pattern are ambient isotopic** (Theorem 1,
+section 7.2, proved in full).
 
-- (E) no grid node lies on S, and every grid edge meets S in at most one point, crossing it: exactly the edges whose
-  end signs differ;
-- (F) on every grid face, S is a set of disjoint arcs, each joining two crossing points on the face's boundary, and
-  no closed curve; with four crossing points, the pairing is the one named by the face rule;
-- (C) in every cell, S is a set of disjoint disks, each bounded by one cycle of the arcs on the cell's boundary.
+**The mesh side needs nothing new** (Theorem 2, section 7.3): a manifold dual contouring mesh whose cell vertices
+are strictly inside their cells and whose triangles meet only in common vertices and edges is compatible, with the
+sign-changing edges and the face rule as its pattern. So `SelfIntersectionFree` (exact, from the coverage of options A
+and B plus the exact check of the other triangles), `NonManifoldTriangles` = 0 and the strict vertex placement are
+the mesh half of the certificate, multi-patch cells included. Wang's envelopes are not needed for (E), (F), (C); they
+are one way to prove that triangles do not intersect.
 
-**Lemma.** Two surfaces compatible with the same grid, signs and pairings are ambient isotopic.
-Outline: move the crossing points along their edges (one point per edge on both). On each face the arcs are disjoint,
-join the same end points in the same pairing, and there are no loops, so they are isotopic in the face with the end
-points fixed. In each cell both surfaces are now disjoint disks properly embedded in a ball with the same boundary
-curves; such disks are isotopic with the boundary fixed (Alexander's theorem for tame disks in a ball). The pieces
-agree on shared faces, so they glue to an isotopy of space. For the two-level grid of the adaptive path, faces and
-edges are those of the finer side. This cell-by-cell argument is Snyder's and Varadhan's; it is standard, but it has
-to be written out in full before code is built on it (stage 0).
+**What is new is the level-set side:** proving (E), (F), (C) and the pattern for L, per input class.
 
-**The mesh side is already there.** A dual polygon that options A and B count as covered lies in Wang's tetrahedra
-(cell vertex, cell vertex, e+, e-) or in the fans of B's face and edge vertices. Then D crosses the grid edge e once,
-crosses each face between two cells along one arc through the point where the segment of the two cell vertices meets
-it, and is a cone from the cell vertex inside a single-patch cell: D satisfies E, F and C wherever its triangles are
-covered. So `CoveredTriangles` is the mesh half of the certificate; a multi-patch cell needs the same three checks on
-its few triangles (exact, by `ExactPredicates.Orient3d`) or is listed.
+### 4.3 The cell test
 
-**What is new is the level-set side:** proving E, F and C for L. That needs an oracle per input class.
+Correction of this note's first version (found while writing the proof): a direction along which the surface is a
+graph, together with (F) on the faces, does **not** give (C). Counterexample: a steep cone around the cube's
+diagonal is a graph over the plane normal to the diagonal, crosses every edge at the two diagonal corners once and
+every face in one arc, and meets the cube in a tube, not in two disks. What holds (Theorem 4, section 7.5): with
+(E), (F) and a graph direction, every part of the surface in the cell is a disk **if the cell's boundary carries
+one curve only**, or if the parts are counted and there are as many as curves.
 
-### 4.3 The cell test that works for creases
-
-(C) follows from two cheaper facts: (F) holds on the six faces, and a direction d exists along which the function is
-strictly monotone in the cell. Then L in the cell is a graph over the plane normal to d; a graph has no closed
-component, and a component with a hole would leave the cell through a face in a closed curve, which (F) excludes. So
-every component is a disk. For a smooth f the test is d . grad f > 0 on the interval gradient; for a piecewise
-function (`min` / `max`, a polyhedron) on the gradients or normals of all pieces in the cell. A box corner passes
-with d = (1, 1, 1), a cone tip with its axis, any convex or concave edge with its bisector; the variation test of
-Plantinga and Vegter fails on all of them. A vertex whose normals surround it (a saddle with more than 360 degrees)
-has no such direction; there the fallback is the star-shaped test (a point that sees the whole patch from the
-positive side: a linear program in three variables) or the Euler characteristic of the clipped patch.
+For a polyhedral surface the graph test is not needed at all: the Euler characteristic of each part of the surface in
+a cell is `triangles meeting the cell - mesh edges meeting the cell + mesh vertices in the cell` (Theorem 3, section
+7.4), a part is a disk exactly if that is 1, and saddle vertices need no special case.
 
 ### 4.4 Oracles per input class
 
 **P: winding number of a clean closed oriented mesh** (L = the input components across which w steps 0 to 1). All
-exact, on the triangles the octree already hands to each cell (`WindingNumberOctree.refine`):
+exact, on the triangles the octree already hands to each cell (`WindingNumberOctree.refine`), by `Orient2d`,
+`Orient3d` and coordinate comparisons on the input's and the grid's doubles only; no constructed point is ever
+needed (section 7.4):
 
-- (E) crossings of a grid edge with the triangles, exactly (segment against triangle by `Orient3d`; the edge is
-  axis-parallel and its coordinates are doubles, so most signs are coordinate comparisons). Today's `HiddenGap` /
-  `HiddenWall` and `MaxEdgeHits` do this in floating point.
-- Node signs: the parity of the exact crossings along edges fixes every node's sign from one exact evaluation far
-  outside, so the certificate does not depend on the fast winding number's error (no bound exists for it).
-- (F) walk the cut of the triangles with the face's plane from each crossing point to the next through triangle
-  adjacency; a cut not reached from a crossing is a closed curve. Predicates on points defined by an edge and a
-  plane: the indirect predicates of [INDIRECT_PREDICATES.md](INDIRECT_PREDICATES.md).
-- (C) per sheet in the cell: the graph test as an exact sign test of a candidate d against the triangle normals
-  (candidates: the sum of the normals, then a few perceptron steps; a failed search is "uncertified", never wrong);
-  fallback as in 4.3. The exact 3D LP feasibility solver that [exact-boolean.md](../roadmap/exact-boolean.md) lists
-  as a candidate building block would make the search complete.
+- general position: no mesh vertex on a grid plane inside the cells tested, no mesh edge through a grid edge, no
+  triangle through a grid node; a violation makes the cell uncertified (or the grid is shifted, `GridOffset`);
+- (E) the triangles crossing a grid edge are counted: at most one, and exactly one where the node signs differ. This
+  also checks the node signs, so the certificate does not depend on the fast winding number's error (the padding
+  nodes are outside the bounding box, hence outside). Today's `HiddenGap` / `HiddenWall` do the even counts in floating
+  point;
+- (F) the parts of the cut of the mesh with a face (triangles joined across mesh edges that cross the face) each have
+  `triangles - mesh edges = 1` (an arc; 0 is a closed curve); which crossing points share a part is the pairing, to
+  be compared with the face rule the mesher used;
+- (C) the parts of the mesh in a cell (triangles joined across mesh edges and vertices that reach into the cell)
+  each have Euler characteristic 1.
 
 **S: implicit functions with interval extensions.** A new optional interface next to `ImplicitFunction3d`
 (enclosures of the value and of the gradient over a box, on `ExactInterval`), implemented for the analytic shapes,
 the TPMS families and the `min` / `max` / offset operators of `implicit/` (the gradient set of `min(f, g)` over a box
-is the hull of both where both can be active). (E): the derivative along the edge excludes 0, or the value excludes
-the iso value. (F): one in-plane derivative excludes 0, and with four crossings the value keeps one sign on a
-separating segment. (C): as 4.3. A plain `Func<Vector3d, double>` gets no certificate; a Lipschitz constant alone
+is the hull of both where both can be active). (E): the derivative along the edge excludes 0. (F): one in-plane
+derivative excludes 0 (the cut is a graph over an axis of the face, so it has no closed curve), and with four
+crossings the value keeps one sign on a segment that separates the two pairs. (C): a graph direction, and either one
+curve on the cell's boundary or, with several, the value keeps one sign on surfaces in the cell that separate them
+(Theorem 4); otherwise refine. A plain `Func<Vector3d, double>` gets no certificate; a Lipschitz constant alone
 (Kalra & Barr 1989) can exclude cells but cannot prove a crossing pattern.
 
 **W: winding number of a broken mesh.** Away from defect edges and from self-intersections the level set is locally
@@ -286,7 +286,7 @@ within a stated distance of a defect edge, and cells where a harmonic sheet meet
 statement for a repair is then: *the result has the input's topology except inside the listed cells, all within
 distance r of the defects*. A closed but self-intersecting input has no defect edges; its level set is the outer
 boundary of the arrangement, which the exact resolve already computes exactly and which is the first choice in
-`MeshRobustRepair`; the contouring is the fallback for what that path refuses.
+`MeshRobustRepair`; the contouring is the fallback for what that path refuses. Not part of the proof of section 7.
 
 ### 4.5 Refinement
 
@@ -307,11 +307,11 @@ handle.
 
 ### 4.7 Cost against today's contouring
 
-- Class P check: per surface cell, the edge crossings (already computed for the Hermite data), one face walk per
-  face with crossings and one normal test over the cell's triangles. The floating-point
+- Class P check: per surface cell, the edge crossings (already computed for the Hermite data) and three counts
+  (triangles, mesh edges, mesh vertices meeting the cell and each of its faces) with a union-find. The floating-point
   probe of section 3 costs a median 15 % of the raw solidify at / 128 (5-51 %), with its own binning; the exact
   tests behind floating-point filters should stay in that order, to be measured by stage 1's spike before it is built.
-- Refinement: bounded by section 3 (clean T1: at most +47 % cells at 64, +5 % at 128; CAD solids +1 %); on thin
+- Refinement: indicated by section 3 (clean T1: +47 % cells at 64, +5 % at 128; CAD solids +1 %; not a bound); on thin
   features the cost is the price of resolving them, which is the point (feature width / 2 per cell, section 2.1).
 - Class S: one interval evaluation of value and gradient per surface cell and face instead of 8 point samples; the
   interval versions cost a small multiple of a point evaluation, measured in stage 3's spike before it is built.
@@ -322,8 +322,8 @@ handle.
 
 | stage | what | size | gate |
 |---|---|---|---|
-| 0 | the lemma and the mesh side written as a full proof (review by a second session), the M and A sources of section 1 re-read; the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
-| 1 | class P, report only: `TopologyCertified` and the uncertified cells on `WindingContouring` / `MeshWindingNumberSolidify` for clean inputs; exact (E), (F), (C) | M (tier L rules: exact code) | never true on a wrong result (sections 2.1, 2.2 and a fuzz run); certified share and time reported; a spike first measures the check time against the DC phases |
+| 0 | the lemma and the mesh side written as a full proof: **done, section 7** (2026-11-13; it corrected the cell test, section 4.3); open: a review by a second session, the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
+| 1 | class P, report only: `TopologyCertified` and the uncertified cells on `WindingContouring` / `MeshWindingNumberSolidify` for clean inputs; exact (E), (F), (C) by counting (section 7.4) | M (tier L rules: exact code) | never true on a wrong result (sections 2.1, 2.2 and a fuzz run); certified share and time reported; a spike first measures the check time against the DC phases |
 | 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
 | 3 | class S: the interval interface, the built-in shapes and operators, the certificate in `DualContouring` (dense and two-level) | M | the families of 2.1 certified from 2 cells on; the gyroid gets a certified reference |
 | 4 | class W: defect edges, the gradient bound, "topology changed only near the defects" | M-L, research | decided after stage 2 on the 6 inputs that are not clean and the 800 run's solidify fallbacks |
@@ -337,7 +337,7 @@ claim proper and the least certain.
 
 | | what | gain | cost | risk |
 |---|---|---|---|---|
-| **A. Stages 0-2** | certificate and refinement for clean closed meshes | wrong topology is detected and mostly fixed where the truth is exact; 4 of 14 clean real meshes today | S + M + S-M, exact code | the proof (stage 0) is standard; the face walk is the fiddly part |
+| **A. Stages 0-2** | certificate and refinement for clean closed meshes | wrong topology is detected and mostly fixed where the truth is exact; 4 of 14 clean real meshes today | S + M + S-M, exact code | the proof (section 7) needs a second reader; general position at grid planes (CAD faces on the grid) decides the certified share |
 | B. A, then stage 3 | plus interval implicits | TPMS / implicit inputs get a certificate; thin features resolved or reported | + M, a new optional interface | interval functions for user implicits are opt-in |
 | C. A, B, then stage 4 | plus broken inputs away from defects | the repair statement | + M-L | research; may end as "report only" |
 | D. Detection only | compare components and genus of the result with the input's (clean inputs) and report a mismatch; lower `MinRefineEdges` | cheap signal for the cases of 2.2 (misses knots and compensating errors, says nothing about where) | S | no guarantee |
@@ -350,3 +350,252 @@ How others solve it: the table of section 1; in short, interval subdivision (Sny
 for smooth implicits, Delaunay refinement with a feature-size bound (Boissonnat & Oudot; CGAL's surface mesher, as
 papers) for smooth surfaces with an intersection oracle, complex-cell and star-shaped tests on an adaptive grid
 (Varadhan et al.) for polyhedral and CSG inputs, and nothing for winding-number fields.
+
+## 7. Stage 0: the proof
+
+Everything here is piecewise linear (PL). Sources: only two classical theorems are used, **(J)** the Jordan-Schoenflies
+theorem in the plane (a simple closed curve in a disk bounds a disk; an arc properly embedded in a disk cuts it into
+two disks) and **(A)** Alexander's theorem (J. W. Alexander 1924: a PL 2-sphere in the 3-sphere bounds a ball on
+each side; so a PL disk properly embedded in a ball cuts it into two balls), plus the **cone extension**: a
+homeomorphism between the boundaries of two balls (disks, arcs) extends to one between the balls, and a homeomorphism
+of a ball that is the identity on its boundary is isotopic to the identity with the boundary fixed (the Alexander
+trick). **Nothing is taken from Snyder, Plantinga and Vegter or Varadhan et al.**: their criteria, which this study
+could read only as abstracts and through papers that restate them (section 1), are prior art for the idea of a
+cell-by-cell test, not premises. The marks in section 1 stay; no step below depends on them.
+
+### 7.1 Definitions
+
+A **grid** is a finite complex K of convex cells that fills a box: the 3-cells are axis-aligned boxes, the 2-cells
+(*faces*) rectangles, the 1-cells (*edges*) segments, the 0-cells (*nodes*) points; every cell's boundary is a union
+of lower cells, and two cells meet in a union of cells. The uniform grid is one; so is the two-level grid of the
+adaptive path, when a coarse cell's side next to finer cells is taken as the finer faces and edges it is made of (a
+coarse cell is then a box whose boundary carries more than 6 faces). The outermost layer of cells meets no surface.
+
+A **surface** is a closed PL 2-manifold embedded in the interior of the box. It is **compatible** with K if
+
+- (E) it contains no node, and it meets every edge in at most one point, which is in the edge's interior;
+- (F) it meets every face in a finite set of disjoint arcs, each with its two end points in the interiors of edges of
+  the face and its interior in the interior of the face (no closed curve, no isolated point);
+- (C) it meets every 3-cell in a finite set of disjoint disks, each with its boundary on the cell's boundary and its
+  interior in the cell's interior.
+
+By (E) a face carries 0, 2 or 4 end points (one per edge at most; an even number, since they are the ends of arcs).
+The **pattern** of a compatible surface is the set of edges it meets and, for every face with 4 end points, the
+partition into two pairs joined by an arc. Since the disks of a cell have their interiors inside the cell, the
+surface meets the cell's boundary exactly in their boundary circles, which are made of the arcs on its faces.
+
+### 7.2 Theorem 1: same pattern, isotopic
+
+**Theorem 1.** Let S and S' be compatible with K, with the same pattern. Then there is a homeomorphism h of the box
+onto itself that maps every cell of K onto itself and S onto S', and h is isotopic to the identity through such
+homeomorphisms. In particular S and S' are ambient isotopic (h is the identity on the outer layer, so it extends by
+the identity).
+
+*Construction of h, skeleton by skeleton.*
+
+1. Nodes: h is the identity.
+2. Edges: on an edge that S meets in x, S' meets it in one point x' (same pattern); h maps the edge to itself
+   piecewise linearly with the ends fixed and x to x'. On other edges h is the identity.
+3. Faces: let f be a face. h is defined on its boundary, a homeomorphism of that circle which maps the end points of
+   the arcs of S to those of S' and, by the same pattern, the pair of ends of each arc a of S to the pair of ends of
+   one arc a' of S'. Define h on each a as a homeomorphism onto a' that agrees at the ends. By (J), k disjoint
+   properly embedded arcs cut f into k + 1 disks (cut along one arc: two disks; every other arc lies in one of them;
+   induct), and which arcs and which pieces of the boundary circle bound a given disk is determined by the cyclic
+   order of the end points on the circle and their pairing, which h preserves. So h maps the boundary circle of each
+   disk of f minus S onto the boundary circle of a disk of f minus S'; extend over the disk by a cone. Now h maps f
+   onto itself and S in f onto S' in f.
+4. Cells: let c be a 3-cell. h is defined on its boundary sphere and maps the circles of S there onto the circles of
+   S' (step 3). Each circle g bounds exactly one disk D of S in c, and h(g) exactly one disk D' of S'; define h on D
+   as a homeomorphism onto D' extending h on g (cone). By (A), m disjoint properly embedded disks cut c into m + 1
+   balls (cut along one: two balls, each remaining disk in one of them; induct), each of which meets the boundary
+   sphere in one connected region, and the disks on the boundary of a ball are those whose circles bound that region.
+   The same holds for S', and h maps regions of the sphere to regions. So h maps the boundary sphere of each ball of
+   c minus S onto the boundary sphere of a ball of c minus S'; extend by a cone.
+
+h is well defined (each step extends the previous one), a homeomorphism on every cell, hence of the box, maps cells to
+themselves and S onto S'.
+
+*h is isotopic to the identity.* On each edge, h fixes the ends: the straight-line isotopy on the edge deforms it to
+the identity; extend it over the faces and cells by cones. Then h is the identity on all edges, so on each face it
+fixes the boundary: the Alexander trick deforms it to the identity on the face; extend over the cells by cones. Then h
+is the identity on all faces and the Alexander trick finishes in each cell. Every stage maps cells to themselves. ∎
+
+Remarks. (1) Only that cells are balls with boundaries made of lower cells is used, so the two-level grid is
+covered. (2) The surfaces must be PL (or tame): (A) is false for wild spheres. Input meshes and the output are PL.
+For a smooth or piecewise smooth level set (class S) the proof assumes that it is PL after a homeomorphism that maps
+cells to themselves; for the parts certified by a graph direction this is elementary (shear along the direction),
+and it is the one place where class S needs an argument beyond this section.
+
+### 7.3 Theorem 2: the dual contouring mesh is compatible
+
+Setting: a uniform grid; a sign at every node; for every cell the marching-cubes *patches*, the cycles of
+sign-changing edges of the cell given by the signs and the face rule (on a face with four sign-changing edges, which
+two are joined); one vertex v_p per patch p. Around a sign-changing edge e lie four cells c_1 .. c_4 in cyclic order,
+c_i and c_(i+1) sharing the face f_i that contains e; let p_i be the patch of c_i through e and v_i its vertex. The
+*dual polygon* Q_e is the quadrilateral v_1 v_2 v_3 v_4, triangulated either by a diagonal or as four triangles
+(v_i, v_(i+1), v_e) around an *edge vertex* v_e in the interior of e. D is the union of the Q_e.
+
+Hypotheses:
+
+- (H1) every v_p lies strictly inside its cell (`QEFCellMargin`; `strictly_in_cell` is an exact comparison);
+- (H2) no polygon is left out (`NonManifoldTriangles` = 0) and no triangle is degenerate;
+- (H3) two triangles of D meet only in a common vertex or a common edge (`SelfIntersectionFree`, exact);
+- (H4) two polygons share a side v_p v_q only if they are the polygons of the two edges joined, on the common face
+  of the two cells, by one segment of the face rule (this is how the polygons are built; on an ambiguous face whose
+  two segments join the same two patches it fails, which is the case option B's face vertices, treated below,
+  remove).
+
+**Theorem 2.** Under (H1)-(H4), D is a closed surface compatible with the grid; its pattern is the set of
+sign-changing edges and the face rule.
+
+*Proof.* Let B_e be the union of the four cells around e, a convex box, and P, P' the two grid planes through e (P
+contains f_1 and f_3, P' contains f_2 and f_4). By (H1) the v_i are interior points of B_e, so Q_e, which lies in
+their convex hull, lies in the interior of B_e. Three facts about the interior of B_e: the only grid edge that meets
+it is e (its interior), the only faces that meet it are f_1 .. f_4, and it is cut by P and P' into the interiors of
+the four cells.
+
+*(a) The cut of one polygon.* P separates {v_1, v_4} from {v_2, v_3} and contains none of them. So P meets each
+triangle of Q_e in a segment or not at all, and Q_e in a path from x_1, the point where the side v_1 v_2 crosses P,
+to x_3 on the side v_3 v_4: with the diagonal v_1 v_3, the segments x_1 y and y x_3 with y the diagonal's point on P;
+with the diagonal v_2 v_4 likewise; with an edge vertex, x_1 v_e and v_e x_3. x_1 lies in the interior of f_1 and x_3
+in the interior of f_3 (the segment of two interior points of two boxes that share a face crosses it in the face's
+interior). The path consists of two straight segments from the open half of P on the side of f_1 to the open half
+on the side of f_3, so it meets the line of e exactly once, in a point z_e, which lies in the interior of e (it is in
+the interior of B_e). The same holds for P' with a path from x_2 to x_4, and since every point of Q_e on the line of
+e is on P, that path passes through the same z_e and meets the first nowhere else. Hence:
+
+- Q_e meets the line of e, and so e, exactly in z_e;
+- Q_e meets f_i exactly in an arc a_(e,i) from x_i to z_e (a segment or two), whose interior is in the interior of
+  f_i;
+- the two paths are properly embedded arcs of the disk Q_e that cross once, so by (J) they cut it into four disks
+  K_(e,i), the part of Q_e in c_i, each bounded by the two *spokes* from v_i to x_(i-1) and to x_i (parts of the
+  sides of Q_e) and the arcs a_(e,i-1) and a_(e,i); K_(e,i) meets the boundary of c_i exactly in those two arcs.
+
+*(b) (E).* A grid edge e' meets D only in polygons whose block interior it meets, which is Q_(e') alone. So D meets
+e' in z_(e') if e' changes sign and not at all otherwise; no node lies on D (nodes are in no block interior).
+
+*(c) (F).* A face f meets only the polygons of its own sign-changing edges. If f has two, e and e', they are joined
+by one segment of the face rule and belong to the same two patches p, q on the two sides of f, so both polygons have
+the side v_p v_q, crossing f in one point x; D meets f in the arcs from z_e to x and from x to z_(e'), which by (H3)
+and (H4) meet only in x (the two polygons meet only in their common side, which meets f only in x): together one
+arc from z_e to z_(e'). If f has four, the face rule joins them in two pairs; each pair gives one arc as before, and
+the two arcs are disjoint, because by (H4) their polygons share no side, so by (H3) they meet at most in vertices,
+none of which lies on f. No other point of D lies on f. So D meets f in arcs with their ends on the sign-changing
+edges, paired by the face rule.
+
+*(d) (C).* Let c be a cell and p a patch of c with the cyclic sequence of edges e_1 .. e_k, consecutive ones joined
+by a segment of the face rule on a face of c. The pieces K_j of the polygons of e_j in c are disks (a); K_j and
+K_(j+1) share the spoke from v_p to the crossing point of the common side, and by (H3) and (H4) two of the K_j meet
+only in such a spoke or in v_p. Disks that all contain v_p, joined cyclically along spokes from v_p and otherwise
+disjoint, form a disk D_p with v_p in its interior, whose boundary is the cycle of the arcs on the faces of c, that
+is the patch's cycle, and whose interior is in the interior of c (a). Disks of different patches of c are disjoint by
+(H3), since they share no vertex. D meets c in nothing else. So D meets c in one disk per patch. This holds for
+any number of patches: **multi-patch cells need no further condition** than (H1)-(H4).
+
+*(e)* Every point of D has a disk neighbourhood in D (inside a cell by (d); on a face or an edge, the pieces on the
+two or four sides fit along the arcs and around z_e), so D is a closed surface, and it is compatible by (b)-(d). ∎
+
+*Face vertices and edge vertices of option B, refinement transitions.* There a polygon is a fan of triangles (cell
+vertex, face vertex, edge vertex), each inside one cell, with the face vertex strictly inside a face and the edge
+vertex strictly inside an edge. Then D meets a face in the segments (face vertex, edge vertex) and a cell in whole
+triangles around its cell vertices, and (b)-(d) hold with x replaced by the face vertex and the block by the single
+cell, under the same (H1)-(H4), where (H4) reads: the two fans through one face vertex are those of the two edges
+its segment joins. This also covers a coarse cell next to finer ones (its faces and edges are the finer ones) and an
+ambiguous face whose two segments join the same two patches (two face vertices, two disjoint arcs). What the proof
+takes from the implementation here, to be confirmed against `DualContouring` in stage 1 and asserted in its tests:
+(i) every polygon through a face that has face vertices is a fan through them (no polygon crosses such a face along a
+straight side), (ii) at a transition every polygon is such a fan, (iii) a face vertex belongs to exactly one segment.
+
+Wang's envelopes are not used. Coverage is one proof of (H3) for the covered triangles; the exact check of the rest
+is another.
+
+### 7.4 Theorem 3: the test for a clean mesh, by counting
+
+Let S be a closed manifold triangle mesh without self-intersections (the level set of a clean input: its components
+across which the winding number steps between 0 and 1; one exact signed ray-crossing count per component decides
+which those are). Let X be a face or a 3-cell of the grid, closed. **General position (G)** for X: no mesh vertex on
+the boundary of X (for a face: on the face), no mesh edge meets an edge of X's boundary (for a face: no mesh edge
+lies in its plane or meets its boundary), no triangle contains a node of X. Under (G), S meets a face in a compact
+1-manifold whose boundary is on the face's edges, and a 3-cell in a compact 2-manifold whose boundary is on the
+cell's boundary.
+
+For a convex X write T(X), M(X), V(X) for the sets of triangles, mesh edges and mesh vertices that meet X.
+
+**Lemma (Euler characteristic by counting).** The Euler characteristic of S in X is |T(X)| - |M(X)| + |V(X)|; the
+same holds for each connected part, with the triangles, edges and vertices of that part. Two triangles of T(X) are
+in one part exactly if they are linked by a chain of triangles of T(X) in which consecutive ones share a mesh edge
+in M(X) or a mesh vertex in V(X).
+
+*Proof.* S in X is the union of the convex sets t ∩ X for t in T(X). Since S has no self-intersections, two of them
+meet exactly in e ∩ X for a common edge e, or in a common vertex in X, which gives the statement on parts. The Euler
+characteristic is additive over a decomposition into the pieces (open triangle) ∩ X, (open edge) ∩ X and vertices in
+X. A nonempty compact convex set has Euler characteristic 1, so by inclusion and exclusion the boundary of a
+triangle meets X in a set of characteristic (its edges in M) - (its vertices in V), an open triangle contributes 1
+minus that, an open edge 1 minus its ends in V, a vertex 1. Summing, with every mesh edge in two triangles and a
+vertex of degree k in k triangles and k edges: |T| - 2|M| + |M| + sum over V of (k - k + 1) = |T| - |M| + |V|. ∎
+
+**Theorem 3.** Under (G) for all faces and cells tested:
+
+- (E) holds on an edge exactly if at most one triangle meets it (a count of segment-triangle crossings);
+- (F) holds on a face f exactly if every part of S in f has |T| - |M| = 1 (a connected compact 1-manifold is an arc,
+  characteristic 1, or a closed curve, 0; no mesh vertex lies on f); two end points are joined exactly if their
+  triangles are in one part;
+- (C) holds in a cell c exactly if every part of S in c has |T| - |M| + |V| = 1 (a connected compact orientable
+  surface with b boundary circles and genus g has characteristic 2 - 2g - b; it is 1 only for the disk).
+
+*Predicates.* "A mesh vertex is in a box": comparisons. "A mesh edge pq crosses the rectangle x = a, y in [y0, y1],
+z in [z0, z1]": comparisons of p.x, q.x with a and the signs of `Orient2d` on the (x, y) and (x, z) coordinates of p,
+q and the rectangle's corners. "A triangle meets an axis-parallel segment": `Orient3d` of the triangle with the two
+ends and of the segment with each triangle edge. "A triangle meets a rectangle" and "a triangle or a mesh edge meets
+a box" reduce to these three. All inputs are the mesh's doubles and the grid's node coordinates as doubles (the same
+ones `DualContouring` compares its vertices with); no intersection point is constructed, so **no predicate beyond
+`ExactPredicates.Orient2d` / `Orient3d` is needed**, and no error bound.
+
+### 7.5 Theorem 4: the cell test for a function (class S)
+
+**Theorem 4.** Let c be a convex cell and S a surface that satisfies (E) and (F) on the edges and faces of c and
+meets c in a compact 2-manifold with boundary on the cell's boundary. Suppose there is a direction d such that every
+line parallel to d meets S in c in at most one point. Then no part of S in c is closed, every part is a disk with
+holes, and if the boundary of c carries m circles of S, the parts are all disks exactly if there are m of them. In
+particular: if m = 1, S meets c in one disk; and if for m > 1 there are surfaces in c that S does not meet and that
+separate each circle from the others, S meets c in m disks.
+
+*Proof.* The projection along d is continuous and injective on the compact set S in c, so it embeds each part in a
+plane. A closed surface does not embed in a plane, and a compact connected surface with boundary in the plane is a
+disk with holes. Each part has at least one boundary circle and there are m circles in all, so the parts are all
+disks exactly if their number is m. A separating surface that S does not meet keeps every part on one side, so no
+part has two of the circles. ∎
+
+The condition on the lines holds if S is the level set of f and the derivative of f along d has one sign on c (for a
+piecewise function: on every piece that can be active in c). The cone of section 4.3 shows that the count is needed:
+there m = 2 and there is one part.
+
+### 7.6 The certificate, and what it needs beyond the exact predicates
+
+**Corollary.** Let L be the level set and D the mesh on the same grid and node signs. If D satisfies (H1)-(H4)
+(Theorem 2), L satisfies (E), (F), (C) (Theorem 3 or 4), L meets exactly the sign-changing edges, and on every face
+with four crossing points L joins them as the face rule does, then D is ambient isotopic to L (Theorem 1).
+
+What this needs that `Orient2d`, `Orient3d` and comparisons do not already give:
+
+1. **The face rule as data.** The pairing that `cell_patches` chose on each ambiguous face must be readable (today
+   internal to `DualContouring`), to compare it with the level set's.
+2. **General position.** A mesh vertex on a grid plane, a mesh edge through a grid edge, a triangle through a node:
+   the test refuses the cell. Axis-aligned CAD faces on grid planes are the common case; whether the grid offset
+   avoids enough of them is a measurement for stage 1's spike. A symbolic perturbation would remove the refusals; it
+   is not needed for correctness.
+3. **Which components are the level set.** An exact integer winding number at one point next to each component: a
+   signed count of ray crossings by `Orient3d` (a ray in general position, or the antipodal method's exact form).
+   The fast winding number is not used by the certificate at all.
+4. **Three implementation facts of option B** ((i)-(iii) in section 7.3), to be asserted in tests.
+5. **For class S only:** interval enclosures of the function and its gradient (a new interface on `ExactInterval`),
+   and the tameness remark of section 7.2.
+6. **Nothing for class W** is proved here.
+
+What the certificate does not give: a bound on the distance between D and L (the existing deviation measures do
+that); a statement about cells that are refused (the pattern may still agree there); termination of the refinement
+at a degenerate spot.
+
+Open before stage 1: a second reader for this section (a fresh session with the note only), with attention to step
+4 of Theorem 1 (the regions of a ball cut by several disks), part (a) of Theorem 2 when a diagonal's point y lies on
+the line of e, and the general-position conditions of Theorem 3.
