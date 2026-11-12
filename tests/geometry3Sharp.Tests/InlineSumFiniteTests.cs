@@ -53,5 +53,36 @@ namespace geometry3Sharp.Tests
             var wrap = new MeshAlphaWrap(Sphere(scale, off)) { Alpha = scale * 0.3, Offset = scale * 0.05 };
             Assert.False(wrap.Compute());
         }
+
+        /// <summary> MeshHausdorffDistance squares lengths of the meshes' extent: from an extent of about 1e155 its nearest-triangle query
+        /// found no triangle and the query threw (NullReferenceException in an AggregateException, on 1.0.324 too, without the sum check
+        /// being involved). It now refuses an extent beyond 2^500; large coordinates with a small extent are still measured </summary>
+        [Theory]
+        [InlineData(1e160, 0.0)]
+        [InlineData(1e200, 0.0)]
+        [InlineData(1e300, 0.0)]
+        [InlineData(1e190, 1e200)]
+        [InlineData(0.4e308, 1.2e308)]
+        public void Hausdorff_BeyondTheExtentLimit_Refuses(double scale, double offset)
+        {
+            var off = new Vector3d(offset, offset, 0);
+            var h = new MeshHausdorffDistance(Sphere(scale, off), Sphere(scale * 1.01, off));
+            Assert.False(h.Compute());
+            Assert.True(double.IsNaN(h.LowerBound) && double.IsNaN(h.UpperBound));
+        }
+
+        [Theory]
+        [InlineData(1, 1e200)]
+        [InlineData(1e100, 0)]
+        [InlineData(1e140, 0)]
+        public void Hausdorff_WithinTheExtentLimit_Measures(double scale, double offset)
+        {
+            var off = new Vector3d(offset, 0, 0);
+            var h = new MeshHausdorffDistance(Sphere(scale, off), Sphere(scale * 1.01, off));
+            Assert.True(h.Compute());
+            // the spheres' radii differ by 1 %: the distance is 0.01 scale, up to the tolerance and the face discretization
+            Assert.InRange(h.LowerBound, 0.009 * scale, 0.011 * scale);
+            Assert.True(h.UpperBound >= h.LowerBound);
+        }
     }
 }
