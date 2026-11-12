@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
 RO = ["rounding-%d" % i for i in range(1, 9)]
-ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
+ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay"}
 
 
@@ -48,7 +48,7 @@ class SelectShards(unittest.TestCase):
 
     def test_source_runs_only_its_shards_incrementally(self):
         self.assertEqual(("none", {r: "source" for r in RO}), run("mesh_ops/MeshRoundingRepair.cs"))
-        self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source", "boolean-3": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
+        self.assertEqual(("none", {"boolean-1": "source", "boolean-2": "source", "boolean-3": "source", "boolean-4": "source"}), run("mesh_ops/ExactMeshBoolean.cs"))
         self.assertEqual(("none", {"arrangement-1": "source", "arrangement-2": "source", "arrangement-3": "source", "arrangement-4": "source"}),
                          run("mesh_ops/ExactMeshArrangement.cs"))
         self.assertEqual(("source", {}), run("math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/AdaptivePredicates.cs"))
@@ -62,9 +62,9 @@ class SelectShards(unittest.TestCase):
                          run("mesh_ops/ExactTriangulation2.cs", "mesh_ops/ExactPlanarSimplify.cs"))
 
     def test_test_file_runs_the_shards_that_use_it_for_a_report(self):
-        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-2": "tests", "boolean-3": "tests"}, **{r: "tests" for r in RO})),
+        self.assertEqual(("none", dict({"boolean-1": "tests", "boolean-2": "tests", "boolean-3": "tests", "boolean-4": "tests"}, **{r: "tests" for r in RO})),
                          run(TESTS + "ExactBooleanIssueCasesTests.cs"))
-        self.assertEqual(("none", {"boolean-3": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
+        self.assertEqual(("none", {"boolean-4": "tests"}), run(TESTS + "ExactBooleanFilterTests.cs"))
         self.assertEqual(("tests", {}), run(TESTS + "PredicateDifferentialTests.cs"))
 
     def test_test_class_with_a_method_filter_maps_to_its_file(self):
