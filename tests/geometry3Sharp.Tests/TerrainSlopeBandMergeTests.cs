@@ -16,11 +16,23 @@ namespace geometry3Sharp.Tests
     {
         // the repro near the origin: band merges of edges longer than r, within the band radius, at most MinFeatureSize,
         // the lowering counting the moves; at UTM none; the band radius and length scale bit for bit in the 2^k frames
+        // A smaller wavy design than the repro of TerrainSlopeBandRepairTests (a 40-gon of r 100 m instead of the 48-gon of r 150 m,
+        // with its own reference: about 8 s instead of 16.8 s alone). Probed on 28 designs (n 24-48, r 50-150): the 48-gon of r 150 m,
+        // this one and the 48-gon of r 50 m have all the properties below (a band merge near the origin, none at UTM, the
+        // lowering far below the band radius and at least the distance moved); most smaller designs lack the lowering bound
+        static TerrainSlopeDesign Design(Similarity s, Vector3d c) => TerrainSlopeBandRepairTests.WavyOnWaves(s, c, n: 40, r: 100);
+
+        static readonly Lazy<TerrainSlopeDesign> reference = new Lazy<TerrainSlopeDesign>(() => {
+            var d = Design(Similarity.Identity, new Vector3d(0, 0, -340));
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            return d;
+        });
+
         [Trait("Category", "Slow")]
         [Fact]
         public void Repro_BandMergesAndTheirLowering()
         {
-            var origin = TerrainSlopeBandRepairTests.reference.Value;
+            var origin = reference.Value;
             Assert.Empty(origin.AttemptProblemAltitudes);
             Assert.True(origin.BandMerges > 0);
             Assert.True(origin.MaxMergeDistance > origin.UsedMergeRadius && origin.MaxMergeDistance <= origin.UsedBandMergeRadius &&
@@ -34,13 +46,13 @@ namespace geometry3Sharp.Tests
             Assert.True(origin.MergedPositions > 0);
             Assert.True(origin.MergeLambdaRequired >= 2 / 1.5 * (origin.UsedMergeRadius + origin.MaxMergeDistance), $"{origin.MergeLambdaRequired:R} {origin.MaxMergeDistance:R}");
 
-            var utm = TerrainSlopeBandRepairTests.WavyOnWaves(new Vector3d(327000.25, 5642000.5, -340));
+            var utm = Design(Similarity.Identity, new Vector3d(327000.25, 5642000.5, -340));
             Assert.True(utm.Compute(), utm.Message);
             Assert.Equal(0, utm.BandMerges);
 
             foreach (string name in new[] { "scale 2^10", "scale 2^-10" }) {
                 Similarity s = Similarity.ByName(name);
-                var d = TerrainSlopeBandRepairTests.WavyOnWaves(s, new Vector3d(0, 0, -340));
+                var d = Design(s, new Vector3d(0, 0, -340));
                 Assert.True(d.Compute(), d.Message);
                 Assert.Equal(origin.BandMerges, d.BandMerges);
                 // (the band radius from the facets' slack scales bit for bit, so the band decisions are the same)
