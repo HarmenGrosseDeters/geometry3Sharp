@@ -4,8 +4,9 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** parameterization (LSCM, ARAP, SLIM, BFF, cones, seams, charts, UV packing), intrinsic triangulations
   and refinement, the vector heat method and log maps, geodesic paths, foldover-free maps.
-- **Status (2026-11-08):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
-  #7) merged in #374; the affine heat method stopped at its gate (#371).
+- **Status (2026-11-12):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
+  #7) merged in #374; the affine heat method stopped at its gate (#371); the AffineLocal follow-up closed (#538);
+  geodesic Bézier curves merged (#540).
 - **Related:** [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md),
   [design/FOLDOVER_FREE_MAPS.md](../design/FOLDOVER_FREE_MAPS.md),
   [benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md);
@@ -20,7 +21,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
-- **Geodesic Bézier curves** (Phase 5 #1): paths, waypoints and loops are done, Bézier curves open.
+- **Geodesic Bézier curves** (Phase 5 #1): paths, waypoints and loops are done; Bézier curves merged in #540 (done).
 - **Foldover-free maps** (Phase 5 #7, #374): open the paper's energy-decrease stop instead of epsilon <= 1e-6; the SLIM
   quality target is not universally met; the torus global-overlap fallback remains. Local flip freedom does not close
   the global-injectivity gap (cones are not guaranteed globally injective, eg on a torus).

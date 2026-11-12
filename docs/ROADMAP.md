@@ -131,8 +131,8 @@ Planned, not started.
 - Meshing2D: SplitSegment speed; the <= 2x fork speed target stays a future goal (owner 2026-11-04). [meshing2d.md](roadmap/meshing2d.md#open)
 - Meshing2D: oracle leftovers on very large foreign outputs; the 72 unjudged run-A timeouts. [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: degenerate triangles, self-intersections, thin walls (Phase 2, open). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
-- Parameterization: AffineLocal log-map follow-up with estimated normals and far field (low), integer
-  coordinates, geodesic Bézier curves. [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
+- Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
+  #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: the issue-tracker follow-ups (P2, S2, S3, flip-guard regressions, the P1 collapse). [platform.md](roadmap/platform.md#open)
 
 ## Later / research

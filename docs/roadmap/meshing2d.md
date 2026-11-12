@@ -5,8 +5,9 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** public exact 2D meshing (`QualityMesh2`: constrained / conforming Delaunay, quality refinement, holes
   and regions, snap rounding to an output grid), a clean-room replacement for Triangle.NET; its oracle; the
   reference comparison runs; grading, coarsening, small input angles, subnormal fixes; the provenance check.
-- **Status (2026-11-08):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
-  run A and the small-angle rule (#394, 2026-11-07) are merged. Open: the follow-ups below.
+- **Status (2026-11-12):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
+  run A and the small-angle rule (#394, 2026-11-07) are merged; since then the corner choice (#437), rule C (#441),
+  Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed. Open: the follow-ups below.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),
