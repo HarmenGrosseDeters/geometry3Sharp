@@ -205,6 +205,21 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   Antipodal differ and the reference decides (117959: 1818, 122796: 43; FWN right at none); T5 faster on 7 of 10 models
   (323 vs 595 s), 122796 2x slower (14.7 vs 7.5 s). **Owner 2026-11-12: option (A), lift both switches** in a follow-up PR
   after #675 merges, with an OPERATIONS.md note on the cost (boundary segments times boundary sums).
+- **Fuzz findings (#624 group a, 2026-11-12), queue after #675, serial:** (1) #710 (bugfix): `ExactMeshBoolean`
+  difference throws in `ExactTriangulation2.InsertConstraint` ("constraint was not inserted") on two cubes at ~3.7e-223
+  with one corner at ~1.8e-284; first, a crash on finite input; (1b) #719 (coverage round 2, #716): the Antipodal
+  open-mesh classification changes when one coordinate moves by 2^-1000 (union 1080 -> 1118 triangles; unit result with
+  `AntipodalMaxBoundarySegments = 0`), diagnosed before (A) since (A) lifts the switches; (2) the (A) follow-up above; (3) #711: 5-47 s on 8-16
+  vertex inputs whose coordinates span ~2^840; a profile first, then a bound, a faster path or a documented range (owner
+  decision). The `RoundingClean` crash of the same group is the known class FINDINGS.md 5a (no new issue).
+- **Snap rounding study (#721, owner 2026-11-12):** (1) option A: a hard stop of the rounding passes at the evaluation
+  limit; meshes bit-identical (33/33 hashes), rounding -33 %, booleans -9 %; on results that report
+  `EvaluationLimitReached`, `SmallestRejectedDrift` is taken over the proposals made before the limit (documented; the
+  drift-only variant was measured and dropped: most post-limit work is try_move, drift-only already); (2) idea 3 approved, simple variant first: a seeded single-vertex position search after the passes,
+  only defect-removing moves under the existing improves() (4 of 5 real D1 leftovers and 15 of 35 generated ones become
+  clean; plateau steps need a termination lemma and a separate decision); design note first, after (1), same file;
+  (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
+  further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
 target T4): an additive `ExactMesh` whose triangles keep their source plane and whose vertices keep their construction over

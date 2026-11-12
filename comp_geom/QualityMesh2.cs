@@ -168,6 +168,9 @@ namespace g3
             /// refinement (a pinch) on or off (null: the default, on) </summary>
             [ThreadStatic] internal static bool? KeepPinchFreeForTests;
             readonly bool keepPinchFree;
+            /// <summary> tests only (per thread): a bad triangle is queued again instead of split, a livelock that does work without progress,
+            /// which the defect cap of the refinement loop must stop (#638) </summary>
+            [ThreadStatic] internal static bool StallForTests;
             readonly Queue<long> segments = new Queue<long>();
             readonly TriangleQueue triangles;
             /// <summary> benchmarks and tests only (per thread): bad triangles split worst first (smallest angle first) or in the order queued
@@ -431,7 +434,8 @@ namespace g3
                 firstSteiner = k.VertexCount;
                 k.Dirty = new List<int>();
                 QueueAll();
-                long steps = 0;
+                // steps: dequeues, for the cancellation check; work: the dequeues that split or try to (the defect cap counts these)
+                long steps = 0, work = 0;
                 int sweepStart = k.VertexCount;
                 while (true) {
                     if (segments.Count == 0 && triangles.Count == 0) {
@@ -451,15 +455,19 @@ namespace g3
                     // (at the limit an insertion is refused and reports the limit; the queues then drain without inserting, so the flag
                     // is set only when a bound was left unmet, not on a mesh that needs nothing; review of M3)
                     inserted = k.VertexCount - (k.N + 1);
-                    // every step either inserts, splits or retires an entry; a cap far above that only stops a defect, which is
-                    // reported as one, not as the Steiner limit (review of M3)
-                    if (steps > 64 * (limit + k.TriangleSlots) + 100000)
-                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + steps + " steps");
+                    // every split attempt inserts or retires its entry; a cap far above that only stops a defect, which is reported as
+                    // one, not as the Steiner limit (review of M3). It counts work, not dequeues: a stale entry is retired at once, and
+                    // stale entries are only made by work (Collect queues the triangles an insertion rewrote, once per flip that touched
+                    // them), so they drain. Counting them hit the cap on a channel 2^-38 wide at a small Steiner limit, where splits across
+                    // the channel flip the same triangles many times: a burst of 600k dequeues for 34k entries of distinct triangles (#638)
+                    if (work > 64 * (limit + k.TriangleSlots) + 100000)
+                        return b.Fail(Triangulation2FailureKind.RefinementLimit, null, "refinement did not settle within " + work + " split attempts (" + steps + " dequeues)");
                     if (segments.Count > 0) {
                         long key = segments.Dequeue();
                         int e = k.FindEdge((int)(key >> 32), (int)(key & 0xffffffff));
                         if (e < 0 || k.Seg[e] < 0 || !Encroached(e)) continue;
                         splitCause = 0;
+                        ++work;
                         var failure = SplitSegment(e);
                         if (failure != null) return failure;
                         continue;
@@ -468,6 +476,8 @@ namespace g3
                     // (a deletion frees triangle slots: an entry past the end is stale; one whose slot was refilled is judged as it is now,
                     // and the triangle that moved out of the last slot was queued under its new slot)
                     if (t0 >= k.TriangleSlots || !InDomain(t0) || !Bad(t0)) continue;
+                    ++work;
+                    if (StallForTests) { triangles.Enqueue(t0); continue; }
                     var fail = SplitTriangle(t0);
                     if (fail != null) return fail;
                 }
