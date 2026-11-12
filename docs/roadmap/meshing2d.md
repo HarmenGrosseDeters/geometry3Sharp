@@ -65,8 +65,9 @@ Small input angles and triangle count:
   campaign has a `nearcontact` family (frames of 2^10..2^15 lattice units, T-junctions exactly on a long segment, ends 1 or 2 units beside its line,
   free points 3 steps beside it): 2 500 strict samples, no failing seed (in the default mode nearly every sample reaches its Steiner limit of 1 500, so
   its angle and conformity checks run effectively in the constrained and angle-free samples only). The oracle gap found with the same generator at angles of 1e-7 and below
-  (crossing vertices rounded to doubles) is #542; two ties and three single triangles at 1e-7..1e-9 radian are open and documented in
-  [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md).
+  (crossing vertices rounded to doubles) is #542; the tie at fan scale 1.0 stays documented (coordinator decision in #542); the three single triangles at 1e-7..1e-9
+  radian were traced 2026-11-12 (a give-up at an encroached O11-unsplittable piece off the grid) and fixed in the mesher (PR of
+  claude/meshing2d-fan-triangles); [MESHING2D_SMALL_ANGLES.md](../design/MESHING2D_SMALL_ANGLES.md).
 - **Grading:** f-11 1.8-2.0x the reference stays open (owner decision 2026-11-04: stop, #380 is the grading result;
   f-40 1.42x reached). Diagnosis for a later project: about 5 vertices per octave against the reference's 2.7, so
   closing it needs a different placement strategy. Further options (coarsening, a size function, one point per ring,
