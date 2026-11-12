@@ -1,0 +1,2 @@
+corpus_cand.txt: 0 runs, 0 triangles excused by the near-meet rule
+corpus_cq_cand.txt: 0 runs, 0 triangles excused by the near-meet rule
