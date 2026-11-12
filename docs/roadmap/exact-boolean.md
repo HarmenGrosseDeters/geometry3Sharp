@@ -76,8 +76,9 @@ was a scratch console app, not committed.
 - Levers, measured: (1) a slab ray-box test instead of `IntrLine3AxisAlignedBox3.DoClipping`: 0.93-0.96x, dropped;
   (2) the orientation rays as an early-out first-hit test: 0.81-0.85x, dropped; (3) the fast-winding cache's per-box
   `HashSet<int>` as a `List<int>` in the same order: 1.27-1.30x on the cache build, bit-identical (no box coefficient
-  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: a bundle candidate for the
-  next PR that touches the fast-winding cache (coordinator 2026-11-12); (4) bottom-up fast-winding moments: the
+  differs at 194k and 780k triangles), about 2-3 % of the repair and open-boolean CPU: done 2026-11-12
+  ([FastWindingCacheBenchmark](../../benchmarks/FastWindingCacheBenchmark/README.md): 1.13-1.42x serial, 1.15-1.31x
+  parallel on 35k to 850k triangles, checksums equal; `FastWindingCacheOrderTests` pins every box coefficient bit for bit); (4) bottom-up fast-winding moments: the
   coefficient passes are 65-75 % of the cache build (bound about 5-9 % of that CPU), not bit-identical, not pursued;
   (5) batch queries for serial loops: the serial tree CPU is at most 4 % per workload and all tree builds, dropped;
   (6) a parallel tree build: the build is 1.5-3.2 % of the CPU, dropped.
