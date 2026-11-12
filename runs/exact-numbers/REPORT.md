@@ -70,9 +70,13 @@ parallel run's (the library's parallel loops are deterministic).
 | 1005586 | 1 | 162.2 | 6.3 | 0.0 | 0.0 | 4.5 | 15.9 | 15.5 |
 | #711 class: 60 slow units of grp-a and the timeout unit (4 cores; the rounding is serial) | 61 | 298.2 | 80.9 in the double-input `*_bigint` (the arrangement's and the classification's BigInteger stages on the 2^840 grid come on top, about 100 s of thread time on 4 threads) | 0.0 | 0.0 | 0.4 | 243.4 | 99.5 (95.1 in `*_bigint`) |
 
-(The maxima of the normal strata are operations of 20-50 ms.) 55928 runs single-threaded at the time of writing;
-its row is added to `results/tail_55928.jsonl` when it ends. The 55928 note has the 4-core figures: 12.43M
-BigInteger InCircle stages, about 50 s of 370 s, 91-131 s of GC pauses.
+(The maxima of the normal strata are operations of 20-50 ms.)
+
+55928 (difference, with its rotated copy; 929 s single-threaded, `results/tail_55928.jsonl`): BigInteger 34.9 % of
+the time, fixed-width limbs 1.8 %, GC pauses 5.2 % (4 cores, workstation GC: 24 % per #734), 204 GB allocated, 69.5 %
+of it inside the BigInteger paths. By path: InCircle beyond the fixed width 19.6 % (12.43M stages at 14.7 us, 87 GB =
+43.8 % of all bytes), exact centroids 8.5 % (8.7M at 9.0 us), exact point construction 2.4 %, `orient3d` on exact
+points 2.0 %. 5.07M of its 7.48M exact points are beyond the fixed width (68 %).
 
 ### 2.3 Where the BigInteger time is
 
@@ -173,6 +177,10 @@ the accumulators carry through their whole length), on the 500k recorded calls, 
 Reading: P2 replaces the BigInteger fallback and nothing else. Inside the expansion range today's stages stay
 (`orient3d_int` is faster; the adaptive incircle is 3.5x faster than P2's 48 monomials). Insphere has 360
 monomials: P2 wins only for wide spans, and the wrap never reaches the stage.
+
+(With the generated kernels of the PR, master a7693fd against the branch, uninstrumented: 289.4 -> 51.3 s, median
+4.04 -> 0.61 s, maximum 14.0 -> 2.2 s, units above 5 s 18 -> 0, 243.4 -> 12.0 GB, hashes and counts equal 61 / 61;
+`results/pr/fuzz_*.jsonl`. The table below is the prototype in the instrumented build.)
 
 **Whole operations, the 61 fuzz units** (one process per variant over all units, 4 cores, same build, the fallback
 switched by `EXACT_PROTO`; `python3 scripts/analyze_ab.py results/fuzz_base.jsonl ...`, `data/fuzz_ab.md`):
@@ -301,12 +309,56 @@ its order.
 | 2 | **Decision, no code:** the cost-weighted rounding budget (boolean study lever 3) is not needed for #711 once 1 is in | | | avoids a results change | owner |
 | 3 | Candidate B: **the classification's BigInteger stages on stack limbs**: plane side, `orient3d` on exact points, the centroid as one limb array, planes stored as limbs (this is the concrete form of the boolean study's "BigInteger construction in `carried_crossings`") | mesh_ops/ExactMeshBoolean.cs, math/FixedPoint3.cs, the compiler's spec (needs inputs with their own bounds, FIXED_WIDTH_EXACT_POINTS.md 12.4) | the allocation task (boolean study lever 4) | 10.8 % of the tail's time is in these three paths (42327: 23 %) and 38 % of its allocated bytes; at 1.8-2.4x: about 5 % of the tail's CPU, 11 % on 42327, plus the GC share of a third of the allocations (GC pauses are 23-27 % of 42327 and 107554 at 4 cores). Normal inputs: 0 | tier L, bit-identical by construction (same determinants), bounds from the compiler; shards mesh-boolean-* and mesh-fixed. 3-5 days. Build only if the owner wants the tail's 10 %; measure on 42327 and 107554 first |
 | 4 | Candidate C: **exact point construction on limbs** (arithmetic on the stack, no BigInteger round trip; a limb gcd) | mesh_ops/ExactMeshArrangement.cs, math/FixedPoint3.cs | | the path is 2.0 % / 5.0 % of normal operations, 4.0 % of the tail, 13 % of 519507; at 2x without a limb gcd: 1-2.5 % normal, 6 % on 519507 | tier L; a limb gcd with its own tests. Below the stop rule except on intersection-heavy cases: not now |
-| 5 | Candidate D: **InCircle and Orient beyond 4 limbs** on the stack (`specs/wide.spec`: 1228 limbs of scratch at 320 bits) | math/FixedPoint3.cs, mesh_ops/ExactMeshArrangement.cs | the "InCircle limb kernel" item of the roadmap | 1.7 % of the tail here at 2.2x; on 55928 the 12.43M stages are about 50 s of 370 s (EXACT_BOOLEAN_TAIL_55928.md), so about 25 s, 7 % | tier L; small once B's loading of BigInteger points exists. With or after B |
+| 5 | Candidate D: **InCircle and Orient beyond 4 limbs** on the stack (`specs/wide.spec`: 1228 limbs of scratch at 320 bits) | math/FixedPoint3.cs, mesh_ops/ExactMeshArrangement.cs | the "InCircle limb kernel" item of the roadmap | 1.7 % of the 27 tail operations at 2.2x; on 55928 it is the largest exact item: 19.6 % of the single-thread time and 44 % of the allocated bytes, so about 10 % of its CPU at 2.2x plus the GC share of those bytes (the tail note estimated 20-30 s of 370 s at 4 cores) | tier L; small once B's loading of BigInteger points exists. With or after B |
 | | Not to build | | | P1, P3 for double inputs, P4, intermediate-precision filters, an InSphere kernel, a Roslyn generator (sections 3 and 4) | |
 
 Open question for T3a, measured only as a count: on inputs like #711 the arrangement's grid spans 2^840, and its
 BigInteger InCircle stages cost about 350 us each. The literature's answer is a mantissa-exponent number (Lévy 2024);
 whether the arrangement's points could carry a power-of-two factor per coordinate is not examined here.
+
+## 5a. Normal stratum (owner 2026-11-12: the 10 % stop rule is lifted, gains of a few percent count)
+
+Stratum: normal operations = 60 operations on 20 thingi-pairs and 39 on 13 clean Thingi10K models with their rotated
+copy (section 2.2). Shares are single-thread time and include the collections a path's own allocations trigger; the
+whole-operation rows are wall time at 4 cores with GC pauses and allocation separate.
+
+**What P2 gains there: nothing.** The stage it replaces is called 0 times in the 99 operations. Measured with the
+generated kernels of the PR (master a7693fd against branch `claude/exact-fallback-monomial`, the sum of the
+per-operation medians of 5 runs, `scripts/analyze_strata_ab.py results/pr <stratum> 5`):
+
+| stratum | ops | wall time before -> after | range of the 5 run totals, before / after | GC pauses | allocated | hashes equal in all 10 runs |
+|---|---|---|---|---|---|---|
+| 20 pairs | 60 | 6.29 -> 6.24 s (-0.7 %) | 6.21-6.45 / 6.22-6.58 s | 0.13 -> 0.13 s | 2.36 -> 2.36 GB | 60 / 60 |
+| 13 models with a rotated copy | 39 | 4.17 -> 4.31 s (+3.1 %) | 4.14-4.47 / 4.16-4.77 s | 0.12 -> 0.12 s | 1.48 -> 1.48 GB | 39 / 39 |
+
+Both differences are inside the run-to-run range (about 4-15 % of a total of 4-6 s).
+
+**Where the exact share of the normal stratum is** (pairs / copies; total 4.7 % / 8.5 % beyond the double filters):
+
+| path | share | calls | ns per call | what a lever could take |
+|---|---|---|---|---|
+| exact point construction (BigInteger arithmetic, three gcds, conversion to fixed width) | 2.0 % / 5.0 % | 27.7k / 45.0k | 7494 / 8349 | the arithmetic on stack limbs is 3.6x (2389 -> 660 ns), the conversion (1045 ns) and the BigInteger round trip of the inputs go away, the gcds (2699 ns) stay unless a limb gcd is written: about 46 % of the path without it (0.9 % / 2.3 % of the operations), about 62 % with a gcd twice as fast (1.2 % / 3.1 %) |
+| triangle planes (`compute_planes`: fixed-width arithmetic, then BigInteger N and D and the double approximations) | 0.9 % / 1.6 % | 34.7k / 40.9k | 2785 / 2995 | keeping N and D as limbs and making the BigInteger copies lazy: about half of the path (0.5 % / 0.8 %); same files as the construction |
+| the 62-bit integer stage of `Orient3d` | 0.8 % / 0.3 % | 5.2M / 2.0M | 17 / 11 | nothing per call; its count is the number of exactly coplanar tests |
+| `Orient` on fixed-width points | 0.3 % / 0.6 % | 87k / 135k | 297 / 344 | 99 % of these stages are exact zeros (section 3.4): only a zero by construction could skip them |
+| `same_plane` | 0.1 % / 0.3 % | | 475 / 653 | under 0.3 % |
+| Shewchuk's adaptive stages B-D | 0.1 % / 0.1 % | 29k / 28k | 229 / 266 | nothing: the expansion paths and stage-B kernels are not a lever |
+| the double filters (stage A of the predicates and the arrangement's filters) | not in these numbers | | | the boolean study's sampling profile of its normal stratum (36 unions, #734 section 8) has 8.9 % of the CPU samples in the filters next to 7.6 % in the exact stages; a cheaper filter was not prototyped here |
+
+**Ranking by gain per effort (normal stratum):**
+
+1. C: exact point construction on limbs. Bound 2.0 % / 5.0 %, realistic 0.9-1.2 % / 2.3-3.1 % (13 % of 519507 in the
+   tail is the same path). Effort M (the three constructions on `FixedArith` with compiler-derived scratch, a limb gcd
+   with its own tests, the canonical form unchanged so that hashes stay equal).
+2. C': planes without the BigInteger round trip. Bound 0.9 % / 1.6 %, realistic about half. Effort S-M, with C.
+3. The filters. Bound 8.9 % of the samples of the boolean study's normal stratum if they were free; what a cheaper
+   evaluation (shared differences between the predicates of one pair test, fewer operations) can take of it needs a
+   probe first. Effort unknown; not an exact-number topic.
+4. Everything else is under 0.5 % of the normal stratum.
+
+GC on the normal stratum: 3.2 % / 3.5 % of single-thread wall time (the boolean study: 8.6 % of the wall time of its
+stratum, 1.4 % in the median operation); 3.8 % / 8.6 % of the allocated bytes come from the BigInteger paths, so
+C and C' also remove most of that small share.
 
 ## 6. Literature (papers only)
 
