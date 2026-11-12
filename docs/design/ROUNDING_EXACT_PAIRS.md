@@ -1,5 +1,7 @@
 # SafeRounding: skip the pairs the exact arrangement already decided (Exact Boolean 2.0, lever L1)
 
+Status: built; merged with Exact Boolean 2.0 in #446 (2026-11-09).
+
 ## 1. Goal and evidence
 
 SafeRounding (`MeshRoundingRepair`) starts with one full exact self-intersection search over the rounded result. On the

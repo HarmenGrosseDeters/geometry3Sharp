@@ -20,10 +20,12 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `dgm_tin` | TIN of a height grid with a guaranteed vertical error (`--epsilon`, `TerrainGridTin`) and breaklines from GeoJSON (`--breaklines`, heights from the grid or, `--breakline-heights input`, from the z of the positions); the TIN is a height field the `slope` command takes | `TerrainGridTin` |
 | `cell_volumes` | cut and fill volume per cell of a regular XY lattice between two terrain surfaces (TIN files; `--cell-size`), CSV per cell and the totals; the sum over the cells equals the whole-footprint total | `TerrainCellVolumes` |
 | `query2d` | heights at XY points (the containing triangle of the lowest id, `exact` true, or the nearest within `--tolerance`, `exact` false; all containing triangles in `hits`), triangles in a rectangle, nearest triangles of a mesh seen from above (a terrain) | `TriangleQuadtree2d` |
-| `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds, Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
+| `fidelity` | compare a mesh with a reference: precision / recall / F-score at relative distance thresholds (options as used in `options`, incl. `--outer-offset` and `--sharp-edge-min-height`), Chamfer distance, normal consistency and reversed normals, edge Chamfer and edge recall on sharp edges, volume IoU (also of the outer surface), curvature agreement, triangle quality of both meshes, topology changes | `MeshFidelityMetrics` |
 | `quality` | triangle quality (min / max angle, aspect ratio, scaled Jacobian, condition: worst, worst 1 % / 5 %, median) and topology (components, boundary loops, Euler characteristic, genus) of one mesh | `TriangleQualityStatistics`, `MeshTopologySummary` |
+| `curvature` | discrete mean and Gaussian curvature per vertex (Meyer et al.: mixed Voronoi area, mean curvature normal, angle deficit) as statistics over the valid vertices, also scaled by the mesh size; `--output` writes every vertex as CSV / JSON | `MeshCurvature` |
+| `offset` | offset surface of a closed mesh at a signed distance (positive outward, negative inward) by marching cubes on a signed distance grid; `--cell-size` / `--relative-cell-size`, `--root-mode single_lerp` / `lerp_steps` / `bisection` / `linear_edges` (`LinearEdges`: one linear interpolation of the corner samples, fails with `linear_edges_precondition` where its preconditions are violated), a cell budget (`--max-cells`); `enclosure_claim` is always `none` (no guarantee that the offset surface encloses the input) | `MeshSignedDistanceGrid`, `MarchingCubes` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
-| `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
+| `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices; intrinsic refinement, the descent path from a vertex or point with `--trace-from`) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
 | `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
@@ -158,6 +160,17 @@ g3cli fidelity original.stl simplified.stl --surface-samples 200000 --no-curvatu
 # in the result: distances and lengths are relative to "size" (mesh units), curvatures are H*size and K*size^2, angles in degrees;
 # null = not available (NaN), the string "infinity" = infinite (eg edge_chamfer if only one mesh has sharp edges, the aspect ratio of a zero-area triangle)
 
+# discrete curvature per vertex: statistics (H and K in mesh units and times size, size^2) and a CSV of every vertex
+g3cli curvature part.stl --output curvature.csv
+#   -> "valid_vertices": 5120, "mean_curvature": {"mean": 0.31, "std_dev": 0.05, ...}, "gaussian_curvature": {...}, "angle_deficit_total": 12.566
+
+# offset surface: 0.5 outward at a cell of 0.1 (positive outward, negative inward); the mesh must be closed
+g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
+#   -> "cells": [35, 35, 35], "root_mode": "single_lerp", "enclosure_claim": "none", "mesh": { "closed": true, "volume": 25.18, ... }
+# linear_edges: unmodified linear edge interpolation (the mode of docs/design/CONSERVATIVE_MC_AUDIT.md); it never repairs a violated precondition:
+g3cli offset part.stl part_offset.stl --distance 0.5 --relative-cell-size 0.005 --root-mode linear_edges
+#   -> or operation_failed with "offset_status": "linear_edges_precondition" and no output file
+
 # quality and topology of one mesh
 g3cli quality part.stl
 #   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
@@ -178,6 +191,10 @@ g3cli geodesic terrain.ply --sources 0 --targets 120,4711
 #   -> "distance_statistics": { "max": ... }, "targets": [ { "vertex": 120, "distance": 41.2 }, ... ]
 g3cli geodesic part.ply --from 12 --to 3401            # or --through 12,800,3401 [--closed]
 #   -> "path_status": "success", "length": 88.3, "path_vertices": [12, 77, 3401], "path": [[x, y, z], ...]
+# refine the intrinsic triangulation (poor meshes), follow the steepest descent from a vertex or a point to the nearest source, limit the path search
+g3cli geodesic scan.ply --sources 0 --intrinsic-refine --refine-min-angle 25 --trace-from 4711
+#   -> "refinement": {"status": "success", "inserted_vertices": 310, "min_angle": 25.1, ...}, "trace_point_count": 57, "trace_length": 88.3, "trace": [[x, y, z], ...]
+g3cli geodesic part.ply --from 12 --to 3401 --max-iterations 500
 
 # batch queries: rays 'ox,oy,oz,dx,dy,dz;...', points 'x,y,z;...' (or @file with one entry per line)
 g3cli query3d part.stl --rays "0,0,-10,0,0,1;5,5,-10,0,0,1" --points "0,0,0;50,0,0" --nearest --inside crossings
@@ -272,7 +289,7 @@ The input is a JSON object; only `points` is required, indices refer to `points`
 `heights` one z per point (interpolated at new vertices). Unknown keys, wrong types and bad indices fail with
 `invalid_arguments` (inline `--geometry`) or `read_error` (a file). The written mesh lies in the XY plane, oriented
 counterclockwise, the labels are its triangle groups (OBJ: `g mmGroup<label>`); only vertices of triangles are written.
-The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (areas below the double range, at coordinates around 1e-160 and smaller, are 0), `bad_triangles`
+The result reports `triangles`, `vertices`, `added_vertices` (Steiner and crossing points), `smallest_angle`, `largest_area`, `area` (summed in units of a power of two near the extent of the mesh, so it is right down to the double range; below it, at coordinates around 1e-162 and smaller, it is 0), `area_relative` (the area in units of the squared extent of the mesh: independent of the scale, and not 0 there), `bad_triangles`
 (below the angle bound, near locked segments or small input angles), `steiner_limit_reached`, `labels` (triangles per
 label) and the diagnostics of the mesher as `warnings`. Crossing constraints with `--resolve-crossings false`, and inputs
 without a triangle (collinear points), fail with `operation_failed` and the coordinate of the problem.
@@ -410,7 +427,7 @@ the server until they finish.
 cubes, sphere) and generated 2D domains and terrains: format round trips, quality bounds and labels of `mesh2d`, heights
 and box queries of `query2d` against brute force, fuzzed `mesh2d` JSON, expected volumes of booleans and repairs, error cases with their result
 and exit codes, the MCP protocol in process and the real executable as a child process (stdio). CI runs it
-on every push.
+on every pull request and master push that changes the library, its tests or `tools/g3cli` (`tools/ci_scope.py`).
 
 ```
 dotnet test tests/g3cli.Tests
