@@ -145,7 +145,7 @@ def cache_key(args):
     for f in listing:
         if any(f["name"].startswith(f"gru_vereinf_{d}_") for d in districts):
             h.update(json.dumps(f, sort_keys=True).encode())
-    print("alkis-sample-" + h.hexdigest()[:20])
+    return "alkis-sample-" + h.hexdigest()[:20]
 
 
 def classify(nb, np_, use, big):
@@ -243,7 +243,7 @@ def main():
         plan(args)
     elif args.cache_key:
         at.index(args.cache)
-        cache_key(args)
+        print(cache_key(args))
     elif args.draw:
         draw(args)
     else:

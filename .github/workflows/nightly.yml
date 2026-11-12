@@ -13,6 +13,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -61,7 +64,7 @@ jobs:
         run: |
           mkdir -p "$ALKIS_DIR/zips"
           echo "key=$(python3 benchmarks/Meshing2Benchmark/corpus/alkis_sample.py --cache-key --first 1 --cache "$ALKIS_DIR/zips")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: cache
         with:
           path: ${{ env.ALKIS_DIR }}/sample
@@ -69,12 +72,18 @@ jobs:
       - name: Fetch and prepare the tiles (cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
         run: python3 benchmarks/Meshing2Benchmark/corpus/alkis_sample.py --draw --first 1 --cache "$ALKIS_DIR/zips" --out "$ALKIS_DIR/sample"
+      # saved right after the preparation, not at the end of the job: a night with a finding (the job fails) still fills the cache
+      - uses: actions/cache/save@v4
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.ALKIS_DIR }}/sample
+          key: ${{ steps.key.outputs.key }}
       - name: Build the benchmark
         run: dotnet build benchmarks/Meshing2Benchmark -c Release -f net10.0
       - name: Mesh and judge
         run: |
           rm -f "$ALKIS_DIR/sample/results.jsonl"
-          python3 benchmarks/Meshing2Benchmark/corpus/alkis_run.py --sample "$ALKIS_DIR/sample" --known benchmarks/Meshing2Benchmark/corpus/alkis_known.json --timeout 900
+          python3 benchmarks/Meshing2Benchmark/corpus/alkis_run.py --sample "$ALKIS_DIR/sample" --known benchmarks/Meshing2Benchmark/corpus/alkis_known.json --expect-runs 50 --timeout 300
       - name: Table
         if: always()
         run: |
@@ -86,8 +95,3 @@ jobs:
         with:
           name: alkis-results
           path: ${{ env.ALKIS_DIR }}/sample/results.jsonl
-      - name: Keep only the prepared inputs in the cache
-        if: always()
-        run: |
-          rm -f "$ALKIS_DIR/sample/results.jsonl"
-          find "$ALKIS_DIR/sample" -name '*.out' -delete

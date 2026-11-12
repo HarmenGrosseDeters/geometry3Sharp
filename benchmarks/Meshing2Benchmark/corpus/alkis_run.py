@@ -95,6 +95,7 @@ def main():
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--no-oracle", action="store_true")
     ap.add_argument("--known", help="JSON {run name: issue} of known findings: exit 1 on a failing run not listed, and on a listed run that now passes")
+    ap.add_argument("--expect-runs", type=int, help="with --known: the number of runs the sample must have (an empty or partial draw fails)")
     ap.add_argument("--summary", action="store_true", help="print the table of results.jsonl and stop")
     args = ap.parse_args()
     manifest = json.load(open(os.path.join(args.sample, "sample.json"), encoding="utf-8"))["tiles"]
@@ -138,6 +139,9 @@ def check_known(args, manifest, path):
         results[(r["stratum"], r["name"])] = r
     wanted = {(t["stratum"], n) for t in manifest if not args.only or t["stratum"] in args.only for n in t["files"]}
     bad = 0
+    if not wanted or (args.expect_runs is not None and len(wanted) != args.expect_runs):
+        print(f"the sample has {len(wanted)} runs, expected {args.expect_runs if args.expect_runs is not None else 'at least 1'}: an empty or partial draw is a failure")
+        bad += 1
     for key in sorted(wanted):
         r = results.get(key)
         name = key[1]
