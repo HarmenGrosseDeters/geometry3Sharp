@@ -1,0 +1,7 @@
+projection (W 256): main carving loop at the round ceiling, divided by the re-evaluation factor; everything else as today (incl. today's parallel parts)
+40118.stl: T 67.4 s, main carve 39.1 s (58 %), 4 cores 40.0 s, 16 cores 21.0 s (rest serial 14.4 s)
+860049.stl: T 52.9 s, main carve 23.9 s (45 %), 4 cores 36.0 s, 16 cores 22.7 s (rest serial 18.1 s)
+69261.stl: T 36.5 s, main carve 21.2 s (58 %), 4 cores 20.9 s, 16 cores 10.2 s (rest serial 6.5 s)
+535629.stl: T 36.3 s, main carve 19.6 s (54 %), 4 cores 22.0 s, 16 cores 11.7 s (rest serial 8.2 s)
+679615.stl: T 28.2 s, main carve 13.3 s (47 %), 4 cores 18.4 s, 16 cores 11.2 s (rest serial 8.7 s)
+49998.stl: T 22.3 s, main carve 13.4 s (60 %), 4 cores 12.4 s, 16 cores 6.3 s (rest serial 4.2 s)
