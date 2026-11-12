@@ -4,12 +4,10 @@ using Xunit;
 
 namespace geometry3Sharp.Tests
 {
-    /// <summary>
-    /// The filters of Orient3d, InCircle and InSphere add their underflow term (sum times 2^-1066, a subnormal product)
-    /// only where it can change the bound (ExactPredicates.with_underflow). The decisions must be those of the full
-    /// expression bit for bit, and the predicates stay exact around the threshold.
-    /// </summary>
-    public class ExactPredicatesUnderflowTermTests
+    // The filters of Orient3d, InCircle and InSphere add their underflow term (sum times 2^-1066, a subnormal product)
+    // only where it can change the bound (ExactPredicates.with_underflow). The decisions must be those of the full
+    // expression bit for bit, and the predicates stay exact around the threshold.
+    public partial class ExactPredicatesTests
     {
         const double Epsilon = 1.1102230246251565e-16;
         const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
