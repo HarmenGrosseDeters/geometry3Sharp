@@ -757,7 +757,7 @@ g3cli polygon2d zone.geojson --op offset --delta 3 --join miter --return-geojson
 
 The same command works on lines (GeoJSON `LineString` / `MultiLineString` as the subject, a `MultiLineString` or polygons out): `--op clip_lines`
 with clip polygons keeps the pieces of the lines inside (`--clip-type intersection`, default) or outside (`difference`) them; `--op offset_lines
---delta d` gives the band of width 2 d around each line (`--end-type round` / `square` / `butt` / `joined`; a negative delta is refused);
+--delta d` gives the band of width 2 d around each line (`--end-type round` / `square` / `butt` / `joined`; delta must be > 0);
 `--op simplify --epsilon e` (polygons) and `--op simplify_lines --epsilon e` remove vertices closer than e to the line through their
 neighbours (Clipper2 `SimplifyPaths`; the ends of a line are kept, and `simplify` repairs overlaps this creates). The grid and scale
 invariance are those of the booleans (`frame`).

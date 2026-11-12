@@ -455,8 +455,8 @@ namespace g3cli
                 epsilon = args.Number("epsilon");
             }
             if (offsetting) {
-                if (args.Has("delta") == false || !double.IsFinite(args.Number("delta")))
-                    throw new CommandException(ResultCodes.InvalidArguments, "offset_lines needs a finite delta >= 0 (a band of width 2 delta around the lines; the library refuses a negative one)");
+                if (args.Has("delta") == false || !(args.Number("delta") > 0) || double.IsInfinity(args.Number("delta")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "offset_lines needs a finite delta > 0 (a band of width 2 delta around the lines)");
                 delta = args.Number("delta");
                 if (args.Has("miter_limit") && args.String("join") != "miter")
                     throw new CommandException(ResultCodes.InvalidArguments, "miter_limit applies to join miter");
@@ -504,9 +504,11 @@ namespace g3cli
             if (offsetting) {
                 AxisAlignedBox2d box = subject.Lines[0].GetBounds();
                 foreach (var l in subject.Lines.Skip(1)) box.Contain(l.GetBounds());
-                double extent = Math.Max(box.Width, box.Height);
-                if (delta > 1000 * Math.Max(extent, 1e-300) && extent > 0)
-                    throw new CommandException(ResultCodes.InvalidArguments, "delta must be at most 1000 times the extent of the lines (" + PolyNum(1000 * extent) + ")");
+                // (the extent, or for lines of no extent their largest coordinate, else 1: a delta far beyond it would make the grid useless)
+                double scale = Math.Max(Math.Max(box.Width, box.Height), Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y))));
+                if (scale == 0) scale = 1;
+                if (delta > 1000 * scale)
+                    throw new CommandException(ResultCodes.InvalidArguments, "delta must be at most 1000 times the extent of the lines or their largest coordinate (" + PolyNum(1000 * scale) + ")");
             }
 
             Clipper2Result res = null;

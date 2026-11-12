@@ -154,7 +154,7 @@ namespace g3cli.Tests
                 ("simplify", new string[0]),                                                      // no epsilon
                 ("simplify", new[] { "--epsilon", "-1" }), ("simplify", new[] { "--epsilon", "NaN" }),
                 ("offset_lines", new string[0]),                                                  // no delta
-                ("offset_lines", new[] { "--delta", "-1" }), ("offset_lines", new[] { "--delta", "NaN" }),
+                ("offset_lines", new[] { "--delta", "-1" }), ("offset_lines", new[] { "--delta", "0" }), ("offset_lines", new[] { "--delta", "NaN" }),
                 ("offset_lines", new[] { "--delta", "1", "--epsilon", "1" }),
                 ("offset_lines", new[] { "--delta", "1", "--fill-rule", "even_odd" }),
                 ("offset_lines", new[] { "--delta", "1", "--miter-limit", "2" }),                 // join is round
@@ -198,6 +198,15 @@ namespace g3cli.Tests
             File.WriteAllText(file, json);
             var (e2, r2) = Run("polygon2d", file, "--op", "simplify_lines", "--epsilon", "1", "--compact");
             Assert.Contains(S(r2["code"]), new[] { "read_error", "empty_mesh" });
+        }
+
+        [Fact]
+        public void OffsetLines_DeltaIsBoundedByTheSizeOfTheLines()
+        {
+            AssertError(P("offset_lines", Line(1, 1, 1, 1, 1), null, "--delta", "1e300").exit, P("offset_lines", Line(1, 1, 1, 1, 1), null, "--delta", "1e300").r, "invalid_arguments");
+            var (e1, ok) = P("offset_lines", Line(1, 1, 1, 1, 1), null, "--delta", "100");        // a point: a disc of radius 100
+            Assert.Equal(0, e1);
+            Assert.InRange(D(ok["result"]["area"]), Math.PI * 100 * 100 * 0.99, Math.PI * 100 * 100);
         }
 
         [Fact]
