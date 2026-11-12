@@ -721,7 +721,9 @@ Changes to the vendored code: namespace and `internal` visibility; tables as `st
 .NET Core 3.0 and later behind one helper, the software version elsewhere: both are correctly rounded and give the same bits,
 pinned by a test); own `IsNormal` / `IsFinite` / `Ldexp` / `BigMul` / bit-count helpers; and two defects of the port fixed
 (`Tint.Lshift` lost the bits of the low limb for shifts of 64 to 127; `Dint.Mul21` returned a product twice too large,
-which doubled the highest polynomial term of the accurate `sin` / `cos` paths), both found by the verification below.
+which doubled the highest polynomial term of the accurate `sin` / `cos` paths), both found by the verification below; a third
+defect, found by the coverage round (#718): `asExpAccurate` tested `((ix & ~0ul) >> 12) == 0` where CORE-MATH has `(ix << 12) == 0`
+(low part of the result is a power of two), so `exp(2^-53)` was rounded to 1 instead of 1 + 2^-52; fixed to the CORE-MATH condition.
 
 Not re-derived, so "correctly rounded" is an empirical claim backed by the tests below, not a proof: the error bounds of the accurate (128-bit `Dint`) paths of the port; its `Add` truncates a shifted operand and its `Mul` drops the low cross terms, where the C code rounds (the independent review). The campaign below and the hard cases are the evidence, not a proof. Dead code of the port (`Mul11`, `MulPow`, `Add11`, `MulInt64`, `Mul21Tan` and the 128-bit division, used by none of the five functions) was removed.
 
@@ -730,3 +732,9 @@ Verification (tests, independent of the vendored code): `CoreMathReference` comp
 on evenly spread hard-to-round arguments taken from the CORE-MATH worst-case lists (`CoreMathHardCases`, inputs only, MIT);
 `CoreMathTintTests` / `CoreMathDintTests` pin the 192-bit and 128-bit helper types; `CoreMathCampaignTests` (Nightly tier) runs
 the large comparison (1 000 000 random arguments and up to 30 000 worst cases per function for the PR).
+
+## ALKIS cadastral data (2D mesher benchmark, `benchmarks/Meshing2Benchmark/corpus/alkis_*.py`)
+
+| Item | Source and license |
+|---|---|
+| Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |

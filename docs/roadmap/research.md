@@ -395,6 +395,20 @@ Ordered by expected value for the library.
      (ideal crease-aligned flips and splits, without the exact checks). Below 70 % of B's Chamfer gain the flip path is
      dropped in favour of the B hybrid / intersection-free DC; above it the 1-2 week build is justified. #498 (probe
      harness and results) merges as measurement and docs.
+     Sharp-feature study (owner 2026-11-12, branch runs/sharp-features, master 30099f6): the 70 % rule above is
+     replaced. Chamfer against the input is the wrong reference for an enclosing result: with an offset, the miter line
+     of a 90° crease lies 1.41 offsets from the input edge, so no offset result can reach B's 0.70 (B has no offset).
+     The flip / split path is now judged on references an enclosing result can reach: concave crease length within
+     1 offset of the miter line, edge F at 0.1 %, crease normal error (as mitered-offset work compares against the
+     offset surface, not the input). K (a Kobbelt / EdgeSharpener-style pass on the wrap: plane snap, crease snap, edge
+     splits and flips, every move exactly checked) passes: T1 KR edge F 0.61 -> 0.88, crease normal 14.7° -> 4.6°,
+     concave within 1 offset 0.02 -> 0.75, 20/20 clean, 0 input crossings, 0.72x triangles, +1.1 s; on the procedural
+     CAD solids 0.995 / 0.03° / 0.98. Why B fails: self-intersection fixed on master (#552/#572), angles fixable with
+     SimplifyWithin's guard, no offset (inherent to the winding-number field), time (inherent to the uniform grid).
+     Offset DC and a local alpha are dominated by K. Owner 2026-11-12: build K as an opt-in pass between the wrap and
+     SimplifyAlphaWrap (AW3 work, tier M, one PR, exact KeepClearOf input test; prototype patch on runs/sharp-features);
+     default on or off after the 800 run; corners and split retries in a follow-up. Separate small PR:
+     WindingContouring.PostProcess with the pipeline's quality guard instead of 0.05 (> 170° triangles 17934 -> 52).
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:

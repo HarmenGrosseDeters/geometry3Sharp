@@ -195,3 +195,16 @@ FMA is too high (then net48 would still be exact, only slower), or if a defect i
    geodesic tests move once, justified in the PR (decided).
 3. Source: CORE-MATH checked first (this section); the decision between CoreMathSharp-based CORE-MATH and fdlibm is open
    (recommendation above). Built with CoreMathSharp-based CORE-MATH (#617).
+
+## Known limits of internal helpers (2026-11-12, found by the coverage round, #716)
+
+The public `CoreMath` functions are not affected by any of these; they are reachable only by calling the internal helpers
+directly, and none is fixed (no caller needs it). The tests in `CoreMathCoverageTests` check these helpers to within one unit
+where the limit applies.
+
+- `Dint.ToDouble` for a subnormal result rounds twice, does not round ties to even and loses the sign of a zero; a negative
+  value with exponent 1026 or more becomes `+inf`. No sin, cos or log result can be subnormal.
+- `Tint.Inv` starts from a truncated subnormal double, so for tiny `Tint` values it is only about 2^-(2(53-sh)) accurate.
+- The `c1 == 0` branch of `setDd` (sin) and `setdd` (cos) is wrong (sin does not normalise the low limb, cos puts the exponent of
+  the low limb off by 11, `c0 == 1` wraps the shift by 64). No double reaches it: it needs x/(2π) within 2^-64 of an integer,
+  and the closest double to a multiple of π/2 is about 2^-63.5 turns away.

@@ -218,6 +218,16 @@ namespace g3cli
     {
         // ---- mesh2d ----
 
+        // the extent of the vertices (the larger side of their bounding box; 0 for fewer than two distinct) and its exponent: the unit 2^exp of
+        // the areas
+        static double Extent(IReadOnlyList<Vector2d> vertices)
+        {
+            if (vertices.Count == 0) return 0;
+            double x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
+            foreach (var v in vertices) { x0 = Math.Min(x0, v.x); x1 = Math.Max(x1, v.x); y0 = Math.Min(y0, v.y); y1 = Math.Max(y1, v.y); }
+            return Math.Max(x1 - x0, y1 - y0);
+        }
+
         static double SmallestAngleDegrees(Vector2d a, Vector2d b, Vector2d c)
         {
             // the edge vectors scaled by a power of two (exact) to about 1, so that tiny triangles do not underflow
@@ -401,6 +411,11 @@ namespace g3cli
                     if (i >= m2.InputCount) added++;    // made by the mesher: Steiner points, crossings
                 }
                 double minAng = double.MaxValue, maxArea = 0, area = 0;
+                // the areas are summed in units of 2^exp (a power of two near the extent of the mesh: exact), so that the products of the
+                // edge vectors neither underflow nor lose bits for tiny coordinates; one scaling back at the end
+                // (of the vertices of the triangles: a point far from the domain, in no triangle, does not enlarge the unit)
+                double extent = Extent(m2.Vertices.Where((v, i) => map[i] >= 0).ToList());
+                int exp = extent > 0 && double.IsFinite(extent) ? Math.ILogB(extent) : 0;
                 var labels = new SortedDictionary<int, int>();
                 for (int t = 0; t < m2.TriangleCount; ++t) {
                     Index3i tri = m2.Triangles[t];
@@ -408,12 +423,17 @@ namespace g3cli
                     if (mesh.AppendTriangle(new Index3i(map[tri.a], map[tri.b], map[tri.c]), label) < 0)
                         throw new CommandException(ResultCodes.InternalError, $"triangle {t} could not be added to the output mesh");
                     Vector2d a = m2.Vertices[tri.a], b = m2.Vertices[tri.b], cc = m2.Vertices[tri.c];
-                    double ta = 0.5 * ((b.x - a.x) * (cc.y - a.y) - (b.y - a.y) * (cc.x - a.x));
+                    double bax = Math.ScaleB(b.x - a.x, -exp), bay = Math.ScaleB(b.y - a.y, -exp), cax = Math.ScaleB(cc.x - a.x, -exp), cay = Math.ScaleB(cc.y - a.y, -exp);
+                    double ta = 0.5 * (bax * cay - bay * cax);
                     area += ta;
                     maxArea = Math.Max(maxArea, ta);
                     minAng = Math.Min(minAng, SmallestAngleDegrees(a, b, cc));
                     labels[label] = labels.TryGetValue(label, out int n) ? n + 1 : 1;
                 }
+                // (the areas back in the coordinate units; areaRelative is the total in units of the squared extent)
+                double extentUnits = Math.ScaleB(extent, -exp), areaRelative = extentUnits > 0 ? area / (extentUnits * extentUnits) : 0;
+                area = Math.ScaleB(area, 2 * exp);
+                maxArea = Math.ScaleB(maxArea, 2 * exp);
                 JsonArray files = null;
                 if (outputBase != null) {
                     // the Triangle files, of the written vertices (numbered from 1, as Triangle does by default)
@@ -455,6 +475,9 @@ namespace g3cli
                 o["smallest_angle"] = MeshReport.Num(minAng);
                 o["largest_area"] = MeshReport.Num(maxArea);
                 o["area"] = MeshReport.Num(area);
+                // the same in units of the squared extent of the mesh: independent of the scale, and not zero where the area is below the
+                // smallest double (coordinates below about 1e-162)
+                o["area_relative"] = MeshReport.Num(areaRelative);
                 o["bad_triangles"] = m2.BadTriangles.Count;
                 o["steiner_limit_reached"] = m2.SteinerLimitReached;
                 // (the effective options and the triangles below the angle bound, for an agent that reads the result and not the call)

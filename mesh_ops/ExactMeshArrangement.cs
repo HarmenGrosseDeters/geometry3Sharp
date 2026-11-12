@@ -3166,13 +3166,18 @@ namespace g3
             return visited;
         }
 
+        [ThreadStatic] static Stack<int> segmentStack;
         /// <summary> call f for every box that the segment p-q intersects, with all boxes expanded by pad </summary>
         [MethodImpl(JitHints.Optimize)]
         public void QuerySegment(Vector3d p, Vector3d q, double pad, Action<int> f)
         {
             if (nodeCount == 0)
                 return;
-            var stack = new Stack<int>();
+            // (one stack per thread, reused: the queries of ExactMeshBoolean's tracing are many and short; a callback that
+            // queries again on the same thread gets its own)
+            Stack<int> stack = segmentStack ?? new Stack<int>();
+            segmentStack = null;
+            stack.Clear();
             stack.Push(0);
             while (stack.Count > 0) {
                 int node = stack.Pop();
@@ -3187,6 +3192,7 @@ namespace g3
                     stack.Push(nodeRight[node]);
                 }
             }
+            segmentStack = stack;
         }
 
         // slab test of segment p-q against the box b[6 i ..] expanded by pad (conservative: pad covers the rounding)
