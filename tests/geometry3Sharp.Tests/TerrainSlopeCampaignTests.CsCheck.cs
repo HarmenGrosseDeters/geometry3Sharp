@@ -198,7 +198,7 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static void AssertCertified(Scene s)
+        static TerrainSlopeDesign AssertCertified(Scene s)
         {
             TerrainSlopeDesign d = Make(s, 0);
             Assert.True(d.Compute(), d.Status + ": " + d.Message);
@@ -209,6 +209,7 @@ namespace geometry3Sharp.Tests
             // (the campaign's property: the oracles of the catch lines, the composite and the volumes, a second Compute and a
             // new instance bit for bit, the design at UTM, and scaled by 2^-9 and 2^11 bit for bit)
             Assert.Equal("", Property(s, Shifts));
+            return d;
         }
 
         /// <summary>
@@ -223,24 +224,32 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void InsideOfAToe_NeedleAtTheApex_IsCertified()
         {
-            var s = new Scene { Dir = 1, Toe = 4, Radius = 26, Ratio = 8, Amp = 8, Wave = 11, Height = 18, Jitter = 1, Nx = 24, Ny = 18, Flip = false, Seed = 70671, Side = 1, Holes = 0 };
-            AssertCertified(s);
-            TerrainSlopeDesign d = Make(s, 0);
-            d.Compute();
+            TerrainSlopeDesign d = AssertCertified(InsideOfAToe);
             // (by the merge of the region's needle, at the first margin, not by a larger one: its edge recorded and found
             // by the band merge)
             Assert.True(d.RegionNeedles > 0 && d.RegionNeedleHits > 0, $"{d.RegionNeedles} edges, {d.RegionNeedleHits} hits");
             Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
-            // the reference path, a new build for every lowering (TerrainSlopeOneBuildTests), keeps the margin's region
-            // needles: the same result bit for bit, and it ends (a time limit, not a hang)
-            TerrainSlopeDesign r = Make(s, 0);
+        }
+
+        static readonly Scene InsideOfAToe = new Scene { Dir = 1, Toe = 4, Radius = 26, Ratio = 8, Amp = 8, Wave = 11, Height = 18, Jitter = 1, Nx = 24, Ny = 18, Flip = false, Seed = 70671, Side = 1, Holes = 0 };
+
+        // the reference path, a new build for every lowering (TerrainSlopeOneBuildTests), keeps the margin's region needles:
+        // the same result bit for bit, in one build per realization of the normal path (it looped before, each rebuild without them; the build limit
+        // turns a hang into a failure)
+        [Fact]
+        public void InsideOfAToe_RebuildForEachLowering_GivesTheSameResult()
+        {
+            TerrainSlopeDesign d = Make(InsideOfAToe, 0);
+            Assert.True(d.Compute(), d.Status + ": " + d.Message);
+            TerrainSlopeDesign r = Make(InsideOfAToe, 0);
             r.RebuildForEachLowering = true;
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            r.CancelF = () => sw.Elapsed.TotalSeconds > 60;
+            r.CancelF = () => r.Attempts > d.Realizations || sw.Elapsed.TotalSeconds > 60;
             Assert.True(r.Compute(), r.Status + ": " + r.Message);
+            // (one build per realization of the normal path)
+            Assert.True(r.Attempts <= d.Realizations, $"{r.Attempts} builds, {d.Realizations} realizations without rebuilds");
             Assert.Equal(d.UsedToeLowering, r.UsedToeLowering);
             Assert.Equal("", SameDesign(d, r, 1));
-            Assert.True(d.Attempts <= r.Attempts);
         }
 
         // the edge key of the region needles: the order of its ends and the sign of a zero do not matter
