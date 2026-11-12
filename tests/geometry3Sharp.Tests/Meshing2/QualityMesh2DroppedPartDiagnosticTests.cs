@@ -19,10 +19,11 @@ namespace geometry3Sharp.Tests
         static readonly double[] Y = { 5.780948464734603E-86, 7.105427357601002E-14, -4.547473508864641E-13, -1.4127834472400946E-104, -4.902744876744691E-13, 5.780948464734603E-86, -4.973799150320701E-13, 3.126388037344441E-13 };
         static readonly int[][] Segments = { new[] { 0, 2 }, new[] { 1, 2 }, new[] { 0, 1 }, new[] { 1, 3 }, new[] { 0, 3 }, new[] { 2, 3 }, new[] { 4, 6 }, new[] { 5, 6 }, new[] { 4, 5 }, new[] { 5, 7 }, new[] { 4, 7 }, new[] { 6, 7 } };
 
-        static Mesh2Input Sliver(bool constrainedQuality)
+        /// <summary> the sliver; reversed: the segments to the tail point 3 given as 3 - i </summary>
+        static Mesh2Input Sliver(bool constrainedQuality, bool reversed = false)
         {
             var input = new Mesh2Input { X = (double[])X.Clone(), Y = (double[])Y.Clone(), MinAngleDeg = 20, ConstrainedQuality = constrainedQuality, SteinerLimit = 1500 };
-            foreach (var s in Segments) input.Segments.Add(new SegmentInput(s[0], s[1]));
+            foreach (var s in Segments) input.Segments.Add(reversed && s[1] == 3 ? new SegmentInput(s[1], s[0]) : new SegmentInput(s[0], s[1]));
             return input;
         }
 
@@ -64,11 +65,12 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public void SliverTail_IsReported_AsTheOracleExcusesIt(bool constrainedQuality)
+        [InlineData(true, false)]
+        [InlineData(false, false)]
+        [InlineData(true, true)]
+        public void SliverTail_IsReported_AsTheOracleExcusesIt(bool constrainedQuality, bool reversed)
         {
-            var input = Sliver(constrainedQuality);
+            var input = Sliver(constrainedQuality, reversed);
             var r = Run(input, "sliver");
             Assert.Equal(new[] { 3 }, r.Result.Mesh.DroppedInputPoints);
             Assert.Equal(new[] { 3, 4, 5 }, r.Result.Mesh.DroppedInputSegments);
@@ -88,6 +90,40 @@ namespace geometry3Sharp.Tests
             AssertReportMatchesOracle(r.Result, r.Report, input.Segments.Count, "square");
         }
 
+        /// <summary> a square ring with a square hole, a free point in the hole and a free segment crossing out of it: the point and the
+        /// part of the segment in the hole are in no triangle, but they were never in the domain, so nothing is reported </summary>
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void PointsInAHole_AreNotReported(bool constrainedQuality)
+        {
+            var input = new Mesh2Input {
+                X = new double[] { 0, 4, 4, 0, 1, 3, 3, 1, 2, 1.5, 3.5 }, Y = new double[] { 0, 0, 4, 4, 1, 1, 3, 3, 2, 1.5, 3.5 },
+                MinAngleDeg = 20, ConstrainedQuality = constrainedQuality, SteinerLimit = 1500 };
+            input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+            input.Rings.Add(new RingInput(new[] { 4, 5, 6, 7 }, true));
+            input.Segments.Add(new SegmentInput(9, 10));
+            var r = Run(input, "hole");
+            var mesh = r.Result.Mesh;
+            var used = new HashSet<int>(mesh.Triangles.SelectMany(t => new[] { t.a, t.b, t.c }));
+            Assert.False(used.Contains(mesh.InputToVertex[8]), "the point in the hole is in a triangle");
+            Assert.Empty(mesh.DroppedInputPoints);
+            Assert.Empty(mesh.DroppedInputSegments);
+            AssertReportMatchesOracle(r.Result, r.Report, input.Segments.Count, "hole");
+        }
+
+        /// <summary> on the snap grid the "snap grid:" lines report what snapping collapsed and refinement pinched: no second report
+        /// (QualityMesh2CollapsedPartsTests' zigzag, whose teeth collapse) </summary>
+        [Fact]
+        public void OnTheSnapGrid_TheSnapGridLinesReport_NotThisOne()
+        {
+            var c = ConstrainedDelaunayMesh2Candidate.Convert(QualityMesh2CollapsedPartsTests.Zigzag(0, 20));
+            var r = new QualityMesh2 { MinAngle = 20, SnapTolerance = 0.01, SteinerLimit = 50000, Conforming = true }.Compute(c);
+            Assert.Contains(r.Diagnostics, l => l.StartsWith("snap grid: "));
+            Assert.DoesNotContain(r.Diagnostics, l => l.Contains("vanished in refinement"));
+            Assert.Empty(r.Mesh.DroppedInputPoints);
+        }
+
         public static TheoryData<string> Similarities()
         {
             var data = new TheoryData<string>();
@@ -95,8 +131,8 @@ namespace geometry3Sharp.Tests
             return data;
         }
 
-        /// <summary> under every similarity the report is the oracle's vanished sets; the 2^k scales give the same mesh and the same
-        /// report bit for bit </summary>
+        /// <summary> under every similarity the report is the oracle's vanished sets (or, translated to utm, the input rounds to a line:
+        /// Empty, nothing to drop); the 2^k scales give the same mesh and the same report bit for bit </summary>
         [Theory]
         [MemberData(nameof(Similarities))]
         public void SliverTail_UnderEverySimilarity(string name)
@@ -105,6 +141,17 @@ namespace geometry3Sharp.Tests
             var plain = Sliver(true);
             var moved = Sliver(true);
             for (int i = 0; i < plain.X.Length; ++i) { var q = s.Apply(new Vector3d(plain.X[i], plain.Y[i], 0)); moved.X[i] = q.x; moved.Y[i] = q.y; }
+            if (s.Translation.x != 0 || s.Translation.y != 0) {
+                // (a translation to utm coordinates, about 1e6, rounds the cluster of 1e-13 to one point: the input is collinear, Empty, and
+                // nothing is in the domain to drop; the oracle accepts that)
+                var r = Mesher(moved).Compute(ConstrainedDelaunayMesh2Candidate.Convert(moved));
+                if (r.Status == Triangulation2Status.Empty) {
+                    var empty = Oracle.Check(moved, new QualityMesh2Candidate().Run(moved), new OracleExpect { Milestone = Milestone.M3 });
+                    Assert.True(empty.Ok, name + ": " + empty);
+                    Assert.Empty(r.Diagnostics.Where(d => d.Contains("vanished in refinement")));
+                    return;
+                }
+            }
             var b = Run(moved, name);
             AssertReportMatchesOracle(b.Result, b.Report, moved.Segments.Count, name);
             if (s.IsExact) {

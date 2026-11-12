@@ -312,27 +312,15 @@ namespace g3
                 return result;
             }
 
-            /// <summary> the input segments (indices) with a piece that has a triangle of the domain on a side </summary>
-            HashSet<int> SegmentsWithDomain()
-            {
-                var result = new HashSet<int>();
-                int from = b.SegmentSourcesFrom, count = b.input.Segments?.Count ?? 0;
-                for (int e = 0; e < 3 * k.TriangleSlots; ++e) {
-                    if (k.Seg[e] < 0 || k.IsGhost(e / 3) || !(InDomain(e / 3) || InDomain(k.H[e] / 3))) continue;
-                    foreach (int src in k.Sources[k.Seg[e]]) if (src >= from && src < from + count) result.Add(src - from);
-                }
-                return result;
-            }
-
             /// <summary>
             /// No silent deletion: a part of the domain narrower than the automatic tolerance can vanish in refinement (a sliver tail of a
             /// hull domain whose sides merged: the hull flood or the carve takes its triangles, and its input points and segments end up in
             /// no triangle; the oracle excuses a part whose twice area is at most tube times perimeter, OracleReport.VanishedPoints /
             /// VanishedSegments). Reported here: the input points in the domain before refinement and in no triangle after it, and the
-            /// input segments that had a piece in the domain before and none after, or an end point among those points. The mesh is
-            /// unchanged. (Off the snap grid; on it, the "snap grid:" diagnostics report collapsed and pinched parts.)
+            /// input segments with such an end point. The mesh is unchanged. (Off the snap grid; on it, the
+            /// "snap grid:" diagnostics report collapsed and pinched parts.)
             /// </summary>
-            void ReportDropped(bool[] domainBefore, HashSet<int> segmentsBefore)
+            void ReportDropped(bool[] domainBefore)
             {
                 var domainAfter = DomainVertices();
                 var points = new List<int>();
@@ -341,12 +329,10 @@ namespace g3
                     if (v < domainBefore.Length && domainBefore[v] && !domainAfter[v]) points.Add(i);
                 }
                 var droppedPoint = new HashSet<int>(points);
-                var segmentsAfter = SegmentsWithDomain();
                 var segments = new List<int>();
                 var input = b.input.Segments ?? new List<Mesh2Segment>();
                 for (int si = 0; si < input.Count; ++si) {
-                    if (b.KV(input[si].A) == b.KV(input[si].B)) continue;   // (merged into a point: no segment left to drop)
-                    if (segmentsBefore.Contains(si) && !segmentsAfter.Contains(si) || droppedPoint.Contains(input[si].A) || droppedPoint.Contains(input[si].B))
+                    if (droppedPoint.Contains(input[si].A) || droppedPoint.Contains(input[si].B))
                         segments.Add(si);
                 }
                 if (points.Count == 0 && segments.Count == 0) return;
@@ -435,7 +421,6 @@ namespace g3
                 if (!any) return null;
                 // (what is in the domain before refinement: an input point or segment that refinement leaves in no triangle is reported)
                 var domainBefore = grid == null ? DomainVertices() : null;
-                var segmentsBefore = grid == null ? SegmentsWithDomain() : null;
                 var hullFailure = ConstrainHull();
                 if (hullFailure != null) return hullFailure;
                 // (Q17: what snapping already collapsed, to tell it apart from what refinement pinches; taken before the carve, which
@@ -507,7 +492,7 @@ namespace g3
                     if (collapsedBySnapping.Count > 0) b.diagnostics.Add("snap grid: " + collapsedBySnapping.Count + " input segments with pieces on parts that snapping collapsed (no triangle on either side after snapping)");
                     if (pinched > 0) b.diagnostics.Add("snap grid: " + pinched + " input segments with pieces on parts that refinement pinched (a triangle on a side after snapping, none after refinement)");
                 }
-                if (domainBefore != null) ReportDropped(domainBefore, segmentsBefore);
+                if (domainBefore != null) ReportDropped(domainBefore);
                 if (CountsForBenchmarks != null) { CountsForBenchmarks[5] += GridBlocked; CountsForBenchmarks[6] += GridUnsplittable; }
                 if (grid != null && (GridBlocked > 0 || GridUnsplittable > 0))
                     b.diagnostics.Add("snap grid: " + GridBlocked + " triangles kept because the pixel of their circumcentre (or off-centre and then circumcentre) is taken or crossed by a constraint, "
