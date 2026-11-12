@@ -5,14 +5,16 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** the CLI / MCP server `g3cli`, analysis building blocks and evaluation metrics, verifiable agent work
   (machine checks, mutation shards, property tests), the CLI / MCP docs for the new operations, the Clipper2 adapter,
   the DAP audit, the test suite on other locales, and the release.
-- **Status (2026-11-08):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
-  issue-tracker fix list is complete (2026-11-03). Open: the release, a few small items.
+- **Status (2026-11-12):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299); the
+  issue-tracker fix list is complete (2026-11-03). QA 2.0 rollout continuing (status table
+  [QA20_STATUS.md](../design/QA20_STATUS.md), #635); the mutation 3.0 process and coverage-pass fix are in #615 (open).
+  Open: the release, the unreliable scheduled runs, a few small items.
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
   it (today the pass is silent for up to ~200 min); (2) upload the Stryker logs as an artifact with `if: always()`,
   so a shard cancelled at the time limit still shows which mutants ran and how long each took; (3) stop a shard early
   when the ticker's projection after the capture is clearly over the limit, and report it; (4) test whether the
-  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (draft, measured 8 November 2026): (1) `--verbosity debug` / `trace` log no line per test during capture
+  `dots` reporter prints without a terminal (a cheap per-mutant stream next to the ticker). Done in PR #445 (measured 8 November 2026, merged 2026-11-09 as 9c76be0a): (1) `--verbosity debug` / `trace` log no line per test during capture
   (a 51-test filter: the capture test host logs `InProgressTests is null` / `Sending test run statistics` lines in batches,
   20 and 6 of them after 10 min), so the ticker shows elapsed time only; (2) the Stryker logs are uploaded with `if: always()`
   (`mutation-logs-mesh-<shard>`, 7 days); (3) `run_stryker.sh` stops a shard early when the projection after the capture
@@ -56,6 +58,10 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **Scheduled workflows do not fire reliably** (found 2026-11-12): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
+  has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
+  2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
+  runs of the 3.0 process (#615) would depend on the same mechanism.
 - **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-11, open) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
@@ -240,7 +246,8 @@ and the test tiers and time limit (#447, the backlog program).
   (`MeshRoundingRepair.fix_degenerate` hang for components below ~1e-154). Sweep list, not fixed yet:
   `DMeshAABBTree3` ray and inside queries fail on a sphere of radius 1e100 (`FindNearestHitTriangle` -1,
   `IsInside(centre)` false; probably absolute tolerances in the ray code); `MeshRobustRepair` takes 4-11 s on 4-12
-  triangle inputs through the wrap / solidify fallbacks (performance, not a hang).
+  triangle inputs through the wrap / solidify fallbacks (performance, not a hang). Later state (QA20_STATUS.md): the
+  ray / inside failure is fixed (#493); the repair time is bugfix issue #636 (open).
 - **Step 1 done (2026-11-09, analysis session):** [design/QA20_INVENTORY.md](../design/QA20_INVENTORY.md) has the matrix
   tool x area, the gap list of public operations without a fuzz harness or property campaign, and the rollout order
   (T1-T15, each with its "done when"). Top of the order: sweep table extension, mesh-ops fuzz harness on master, CsCheck repair / rounding.
@@ -254,6 +261,11 @@ and the test tiers and time limit (#447, the backlog program).
   "Supported input range" paragraphs; range-check bugfix PRs per module and the generator / fuzz domain changes follow.
 - **Timing:** the inventory after the Exact Boolean 2.0 and Alpha Wrap 2.0 milestones; the rollout next to the
   CLI / MCP update. The mesh-ops fuzz pilot (Boolean session, after #449) is its first piece.
+- **Rollout status (2026-11-12):** step 0, the status of T1-T15 against their done-when, is
+  [design/QA20_STATUS.md](../design/QA20_STATUS.md) (#635). Open PRs: #639 (spatial structures, inventory cell K),
+  #641 and #642 (T14 Z3 termination lemmas), #643 (T10 Z3 frame lemma), #646 and #648 (gap-list operations), #627
+  (T12 FPTaylor, draft). Open bugfix issues from it: #636 (repair time, F2), #637 (F5), #638 (F7), #644, #645 (`ConvexHull2`),
+  #647 (`VoxelSurfaceGenerator`). #628 was fixed by #634 (merged).
 
 #### Test suite on German Windows
 
