@@ -123,6 +123,49 @@ layer of zero volume (pass 17 / 16, Hausdorff 2.3 / 2.6 target); with it the las
   moves, collapses and flips, so the vertices end in other places; these meshes also lose most of their flat triangles
   and self-intersections (eg 1053376: 292 -> 66 pairs, 48 -> 9 flat; 63709: 1366 -> 876 pairs, 12 -> 1 flat).
 
+### Rim self-intersections: diagnosis and a fold check that was not adopted (#621)
+Per-operation trace on master (every flip, collapse, split, smoothing and projection pass; pairs identified by their
+triangles' vertex ids), the nine cases above plus cone12_x0.15:
+- **One configuration.** Every pair left at the end involves a *fold*: a side triangle lying in the cap's plane,
+  facing up, over cap triangles facing down (a coplanar overlap; no normal flips, so the normal checks pass it). In
+  8 cases its corners are all feature vertices (rim curve or fixed corners), created by a valence flip whose new edge
+  joins two rim vertices across a third, sometimes by a collapse of a side vertex onto a rim vertex; in the coarse
+  x0.6 cases two corners are on the rim and the third was projected onto the cap. Valence flips of quads with only
+  feature vertices are about 10% of the flips but create about 80% of the pairs that flips create (cone24_x0.3: 41
+  such flips create 142 pairs, the other 366 flips 34).
+- **The final count is chance.** During the passes thousands of pairs appear and disappear in both modes; the
+  survivors are created in pass 19. The same inputs moved by 8 small translations (k * (0.37, -0.61, 0.23)), final
+  pairs summed, quality 0 -> 0.2: taper16_x0.1 0 -> 66, taper32_x0.1 0 -> 46, cone24_x0.6 0 -> 248, cone32_x0.6
+  0 -> 64, taper32_x0.6 0 -> 32, cone16_x0.45 0 -> 54, cone24_x0.3 20 -> 44, cone24_x0.15 16 -> 26, taper10_x0.15
+  108 -> 128; better with the option: cone12_x0.15 137 -> 16, taper10_x0.3 160 -> 48, taper12_x0.15 27 -> 12. A
+  gate on the single axis-aligned count overfits; the ensemble is the measure.
+- **No large-coordinate bug.** cone24_x0.3 under the UTM translation ends 0.51 edges from the untranslated result,
+  but a translation by (0.5, 0.25, 0.125) gives 0.25..0.53 and quality 0 gives 0.28 (master): rounding tips ties of
+  the symmetric input and the passes amplify them. A vertex-distance bound of 0.25 edges holds for cylinder12 (the
+  existing similarity test), not for these cones.
+
+The fold check (`docs/research/REMESH_RIM_FOLD_CHECK.diff`, against master c013f31, with its tests): with
+MinTriangleQuality, a flip or collapse is rejected if a new triangle with two or more feature vertices intersects
+(exactly, `pair_intersects`) more triangles around its feature corners, facing more than 120 degrees away, than the
+old triangles did; flips whose new edge is longer than 4 x the split length (the coarse input) are exempt. Results:
+the ensemble above ends with 0 pairs in all cases except cone12_x0.15 (6); primitives 281 -> 134 pairs, cases with
+pairs 16 -> 2 (the flattened cones cone12_x0.6, cone16_x0.6); mean Hausdorff/target 0.341 -> 0.344; time about
+1.09x (paired, alternating runs of an earlier variant). It is not adopted:
+- with `PinSharpVertices` (30 and 75 degrees; the 12 rim vertices of cone12 are pinned too) cone12_x0.3 ends with
+  264 pairs (8 translations: 2023, master 0) and 2.5 target from the input, cone12_x0.2 with 81 (master 0): the 2..5
+  fold flips rejected on the coarse input in passes 0..1 change the evolution, and from pass 2 projection carries
+  long side triangles across the cap (transversal crossings, not folds; checking projection moves the same way
+  reduces the count only to about 165);
+- existing tests fail: `RemesherInversionGuardTests` (Tube135363 and the cavity end inside out with the option,
+  RemesherPro parallel/serial), `PinSharpVerticesTests.Remeshed_ApexKept`, and RemesherPro on cone16_x0.45 under a
+  translation (4 pairs);
+- without the coarse-input exemption the pinned cases are worse (cone12_x0.1 893 pairs), with an exemption at 1 x
+  the split length the rim folds come back (10 primitives with more pairs). Variants that also checked smoothing and
+  projection moves changed nothing in the default setting.
+
+`PreventSelfIntersections` remains the guarantee. A remaining idea, not tried: refine the coarse input to the target
+before the guarded passes, so that the fold flips of the first passes do not arise.
+
 ## PreventSelfIntersections (opt-in)
 `Remesher.PreventSelfIntersections` rejects the collapses, flips and splits whose new triangles would intersect
 another triangle, and reverts the smoothing and projection moves that would. 4 cores, net10.0, Release, `runs=1`:

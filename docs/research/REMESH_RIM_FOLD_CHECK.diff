@@ -1,0 +1,347 @@
+diff --git a/mesh/Remesher.cs b/mesh/Remesher.cs
+index e9d84e51..2c982b98 100644
+--- a/mesh/Remesher.cs
++++ b/mesh/Remesher.cs
+@@ -697,6 +697,9 @@ namespace g3 {
+                     }
+                 }
+ 
++                if (MinTriangleQuality > 0 && collapse_creates_feature_fold(a, b, iKeep, vNewPos, t0, t1))
++                    goto abort_collapse;
++
+                 if (PreventSelfIntersections && collapse_creates_intersection(a, b, iKeep, vNewPos)) {
+                     SelfIntersectionsRejected++;
+                     goto abort_collapse;
+@@ -769,6 +772,9 @@ namespace g3 {
+                 if (bTryFlip == false && MinTriangleQuality > 0 && flip_improves_poor(ref vA, ref vB, c, d))
+                     bTryFlip = true;
+ 
++                if (bTryFlip && MinTriangleQuality > 0 && flip_creates_feature_fold(a, b, c, d, t0, t1, maxEdgeLen))
++                    bTryFlip = false;
++
+                 if (bTryFlip && PreventSelfIntersections && flip_creates_intersection(a, b, c, d, t0, t1)) {
+                     SelfIntersectionsRejected++;
+                     bTryFlip = false;
+@@ -963,6 +969,149 @@ namespace g3 {
+             return dot > 0 && dot * dot > c * c * u.LengthSquared * v.LengthSquared;
+         }
+ 
++        // MinTriangleQuality, issue #621. At the rim of a flat cap (the rim a feature curve) a flip or collapse can create a
++        // side triangle with its corners on the rim (or two on it and one on the cap): it lies in the cap's plane, folded
++        // onto the cap, and overlaps the cap's triangles there without flipping a normal (the side faces sideways, the
++        // fold upwards, the cap downwards), so the normal checks pass it. Such a fold has two or more feature vertices
++        // (constrained to a curve or fixed), and the triangles it overlaps lie around its feature corners, facing against
++        // it. So the new triangles with two or more feature vertices are tested exactly (pair_intersects) against the
++        // triangles around their feature corners that face more than 120 degrees away, after the operation. The operation
++        // is rejected if it gives more such intersections than its old triangles had (an operation at an existing
++        // intersection, which the passes may still repair, is not blocked for it). The filters keep the exact tests to
++        // operations at feature curves.
++
++        bool is_feature_vertex(int vid) => vertex_is_constrained(vid);
++
++        // the flip of edge [a,b] (triangles t0, t1, opposite vertices c, d) creates a feature fold
++        bool flip_creates_feature_fold(int a, int b, int c, int d, int t0, int t1, double maxEdgeLen)
++        {
++            if (mesh.GetVertex(c).DistanceSquared(mesh.GetVertex(d)) > 16 * maxEdgeLen * maxEdgeLen)
++                return false;
++            int nFeature = (is_feature_vertex(c) ? 1 : 0) + (is_feature_vertex(d) ? 1 : 0);
++            if (nFeature == 0)
++                return false;       // both new triangles have fewer than two feature vertices
++            Index3i tri = mesh.GetTriangle(t0);
++            int oa = a, ob = b;
++            IndexUtil.orient_tri_edge(ref oa, ref ob, ref tri);
++            var n0 = new Index3i(c, d, ob);
++            var n1 = new Index3i(d, c, oa);
++            int after = 0;
++            if (nFeature + (is_feature_vertex(ob) ? 1 : 0) >= 2)
++                after += fold_count(n0, n1, t0, t1, -1, -1, -1, Vector3d.Zero, false);
++            if (nFeature + (is_feature_vertex(oa) ? 1 : 0) >= 2)
++                after += fold_count(n1, n0, t0, t1, -1, -1, -1, Vector3d.Zero, false);
++            if (after == 0)
++                return false;
++            Index3i o0 = mesh.GetTriangle(t0), o1 = mesh.GetTriangle(t1);
++            int before = fold_count(o0, o1, t0, t1, -1, -1, -1, Vector3d.Zero, true) + fold_count(o1, o0, t0, t1, -1, -1, -1, Vector3d.Zero, true);
++            return after > before;
++        }
++
++        // collapsing edge [a,b] (triangles t0, t1) to vKeep at newPos creates a feature fold. Only a collapse of a vertex
++        // that is not on a feature onto one that is (or onto a point of its curve): its triangles gain a feature vertex,
++        // the way a side triangle next to the rim gets all its corners on the rim. (A collapse along a curve or away from
++        // the curves leaves the number of feature vertices of each triangle as it was.)
++        bool collapse_creates_feature_fold(int a, int b, int vKeep, Vector3d newPos, int t0, int t1)
++        {
++            bool fa = is_feature_vertex(a), fb = is_feature_vertex(b);
++            if (fa == fb)
++                return false;
++            int v = fa ? b : a;         // the vertex that joins the feature
++            foldRing.Clear();
++            mesh.GetVtxTriangles(v, foldRing, true);
++            int after = 0;
++            foreach (int tid in foldRing) {
++                if (tid == t0 || tid == t1)
++                    continue;
++                Index3i t = mesh.GetTriangle(tid);
++                int nFeature = 1;       // vKeep
++                for (int i = 0; i < 3; ++i)
++                    if (t[i] != v && is_feature_vertex(t[i])) nFeature++;
++                if (nFeature >= 2) {
++                    Index3i mt = map_collapsed(t, a, b, vKeep);
++                    after += fold_count(mt, mt, t0, t1, a, b, vKeep, newPos, false);
++                }
++            }
++            if (after == 0)
++                return false;
++            int before = 0;
++            foreach (int tid in foldRing) {
++                Index3i t = mesh.GetTriangle(tid);
++                before += fold_count(t, t, -1, -1, -1, -1, -1, Vector3d.Zero, true);
++            }
++            return after > before;
++        }
++
++        // (scratch lists of the fold checks, which run in ProcessEdge, serially)
++        readonly List<int> foldRing = new List<int>(), foldNbrs = new List<int>(), foldSeen = new List<int>();
++
++        static Index3i map_collapsed(Index3i t, int a, int b, int vKeep)
++        {
++            if (a < 0)
++                return t;
++            if (t.a == a || t.a == b) t.a = vKeep;
++            if (t.b == a || t.b == b) t.b = vKeep;
++            if (t.c == a || t.c == b) t.c = vKeep;
++            return t;
++        }
++
++        Vector3d mapped_vertex(int v, int vKeep, Vector3d newPos) => (v == vKeep) ? newPos : mesh.GetVertex(v);
++
++        // the number of triangles that triangle nt (vertex ids after the operation) intersects and that face more than
++        // 120 degrees away from it: the other new triangle other (a flip; nt itself otherwise), and the current triangles
++        // around the feature corners of nt (all its corners if allCorners) other than nt, r0 and r1, with a and b
++        // collapsed to vKeep at newPos (a < 0: no collapse)
++        int fold_count(Index3i nt, Index3i other, int r0, int r1, int a, int b, int vKeep, Vector3d newPos, bool allCorners)
++        {
++            var T = new Triangle3d(mapped_vertex(nt.a, vKeep, newPos), mapped_vertex(nt.b, vKeep, newPos), mapped_vertex(nt.c, vKeep, newPos));
++            if (ExactTriangleIntersection.IsDegenerate(ref T))
++                return 0;       // (no orientation, and the metric skips it; collapse_creates_flat rejects new ones)
++            Vector3d nT = (T.V1 - T.V0).Cross(T.V2 - T.V0);
++            int count = 0;
++            if (other != nt) {
++                var O = new Triangle3d(mapped_vertex(other.a, vKeep, newPos), mapped_vertex(other.b, vKeep, newPos), mapped_vertex(other.c, vKeep, newPos));
++                if (faces_against(ref nT, ref O) && ExactTriangleIntersection.IsDegenerate(ref O) == false && pair_intersects(nt, ref T, other, ref O))
++                    count++;
++            }
++            foldSeen.Clear();
++            for (int i = 0; i < 3; ++i) {
++                int w = nt[i];
++                if (allCorners == false && w != vKeep && is_feature_vertex(w) == false)
++                    continue;       // (the triangles a fold overlaps lie at its feature corners)
++                for (int k = 0; k < 2; ++k) {
++                    int src = (w == vKeep) ? (k == 0 ? a : b) : (k == 0 ? w : -1);
++                    if (src < 0)
++                        continue;
++                    foldNbrs.Clear();
++                    mesh.GetVtxTriangles(src, foldNbrs, true);
++                    foreach (int tid in foldNbrs) {
++                        if (tid == r0 || tid == r1 || foldSeen.Contains(tid))
++                            continue;
++                        foldSeen.Add(tid);
++                        Index3i u = map_collapsed(mesh.GetTriangle(tid), a, b, vKeep);
++                        if (u == nt)
++                            continue;
++                        var U = new Triangle3d(mapped_vertex(u.a, vKeep, newPos), mapped_vertex(u.b, vKeep, newPos), mapped_vertex(u.c, vKeep, newPos));
++                        if (faces_against(ref nT, ref U) == false || ExactTriangleIntersection.IsDegenerate(ref U))
++                            continue;
++                        if (pair_intersects(nt, ref T, u, ref U))
++                            count++;
++                    }
++                }
++            }
++            return count;
++        }
++
++        // the triangle U faces more than 120 degrees away from the (unnormalized) normal nT. A fold lies on the cap facing
++        // against it (180 degrees); the side and the cap at a rim face 90..125 degrees apart for these cones and tapers.
++        // Cosine from unnormalized cross products: no absolute thresholds
++        static bool faces_against(ref Vector3d nT, ref Triangle3d U)
++        {
++            Vector3d nU = (U.V1 - U.V0).Cross(U.V2 - U.V0);
++            double dot = nT.Dot(nU);
++            return dot < 0 && dot * dot > 0.25 * nT.LengthSquared * nU.LengthSquared;
++        }
++
+         // edge [a,b] with opposite vertices c and d (d may be invalid): a neighbouring triangle is flat
+         bool has_flat_neighbour(ref Vector3d vA, ref Vector3d vB, int c, int d)
+         {
+diff --git a/tests/geometry3Sharp.Tests/RemesherRimFoldTests.cs b/tests/geometry3Sharp.Tests/RemesherRimFoldTests.cs
+new file mode 100644
+index 00000000..57326bd7
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/RemesherRimFoldTests.cs
+@@ -0,0 +1,167 @@
++using System;
++using System.Collections.Generic;
++using System.Globalization;
++using System.Linq;
++using g3;
++using gs;
++using Xunit;
++
++namespace geometry3Sharp.Tests
++{
++    /// <summary>
++    /// Issue #621: with Remesher.MinTriangleQuality, procedural cones and tapers ended with more self-intersecting pairs
++    /// than without it, all at the bottom rim where the flat cap meets the side. Every such pair involved a fold: a side
++    /// triangle with its corners on the rim (two on it and one projected onto the cap at coarse targets) lying in the
++    /// cap's plane, facing up, over the cap's triangles, which face down. Flips (a new edge joining two rim vertices
++    /// across a third) and collapses created it without flipping a normal, so the normal checks passed it. The remesher
++    /// now tests a new triangle with two or more feature vertices exactly against the triangles around its corners.
++    /// Which pairs survive the last pass depends on rounding (a small translation changes the count from 0 to 22 on
++    /// master, with and without the option), so the cases are also checked under translations.
++    /// </summary>
++    public class RemesherRimFoldTests
++    {
++        static DMesh3 Cone(int slices) =>
++            new ConeGenerator() { BaseRadius = 1f, Height = 2f, Slices = slices, NoSharedVertices = false }.Generate().MakeDMesh();
++        static DMesh3 Taper(int slices) =>
++            new CappedCylinderGenerator() { BaseRadius = 1f, TopRadius = 0.3f, Height = 1f, Slices = slices, NoSharedVertices = false }.Generate().MakeDMesh();
++
++        static double MeanEdge(DMesh3 m) =>
++            m.EdgeIndices().Average(e => { Index2i ev = m.GetEdgeV(e); return m.GetVertex(ev.a).Distance(m.GetVertex(ev.b)); });
++
++        static double Q(DMesh3 m, int t)
++        {
++            Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
++            m.GetTriVertices(t, ref a, ref b, ref c);
++            return MeshRefinerBase.TriangleQuality(ref a, ref b, ref c);
++        }
++
++        // "cone24_x0.3": the input and the target edge length (0.3 x its mean edge), as in benchmarks/RemeshQualityBenchmark
++        static (DMesh3 input, double edge) Case(string name)
++        {
++            bool cone = name.StartsWith("cone");
++            string[] parts = name.Substring(cone ? 4 : 5).Split("_x");
++            DMesh3 input = cone ? Cone(int.Parse(parts[0])) : Taper(int.Parse(parts[0]));
++            return (input, double.Parse(parts[1], CultureInfo.InvariantCulture) * MeanEdge(input));
++        }
++
++        // as g3cli remesh with its defaults (20 passes, smoothing 0.5, projection onto the input, 30 degree creases)
++        static DMesh3 Remesh(DMesh3 input, double edge, double minQuality, bool parallel = true, bool pro = false)
++        {
++            DMesh3 mesh = new DMesh3(input);
++            Remesher r = pro ? new RemesherPro(mesh) : new Remesher(mesh);
++            r.SmoothSpeedT = 0.5;
++            r.MinTriangleQuality = minQuality;
++            r.EnableParallelSmooth = r.EnableParallelProjection = parallel;
++            r.SetProjectionTarget(MeshProjectionTarget.Auto(input));
++            MeshConstraintUtil.PreserveBoundaryAndFeatures(r, 30);
++            r.SetTargetEdgeLength(edge);
++            for (int k = 0; k < 20; ++k) {
++                if (pro) ((RemesherPro)r).RemeshIteration();
++                else r.BasicRemeshPass();
++            }
++            return mesh;
++        }
++
++        static DMesh3 Translated(DMesh3 m, Vector3d t)
++        {
++            var copy = new DMesh3(m);
++            foreach (int v in copy.VertexIndices())
++                copy.SetVertex(v, copy.GetVertex(v) + t);
++            return copy;
++        }
++
++        // closed, no bowties, oriented consistently, no flat triangles, finite
++        static void AssertValid(DMesh3 m, string name)
++        {
++            Assert.True(m.IsClosed(), name);
++            Assert.Empty(MeshIterators.BowtieVertices(m));
++            Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(m));
++            Assert.True(m.Vertices().All(p => p.IsFinite), name);
++            double qmin = m.TriangleIndices().Min(t => Q(m, t));
++            Assert.True(qmin >= 1e-3, $"{name}: a triangle of quality {qmin}");
++        }
++
++        // the nine cases of the issue (master: 12 -> 16, 0 -> 12, 0 -> 12, 0 -> 8, 0 -> 10, 0 -> 6, 0 -> 10, 0 -> 31, 0 -> 8
++        // pairs without -> with the option) and cone12_x0.15 (22 -> 8; a guard of an earlier attempt gave 503 there)
++        [Theory]
++        [InlineData("taper10_x0.15")]
++        [InlineData("taper16_x0.1")]
++        [InlineData("taper32_x0.1")]
++        [InlineData("taper32_x0.6")]
++        [InlineData("cone16_x0.45")]
++        [InlineData("cone24_x0.15")]
++        [InlineData("cone24_x0.3")]
++        [InlineData("cone24_x0.6")]
++        [InlineData("cone32_x0.6")]
++        [InlineData("cone12_x0.15")]
++        public void Rim_NoNewSelfIntersections(string name)
++        {
++            var (input, edge) = Case(name);
++            DMesh3 before = Remesh(input, edge, 0), after = Remesh(input, edge, 0.2);
++            int pairsBefore = MeshRepairMetrics.SelfIntersections(before), pairsAfter = MeshRepairMetrics.SelfIntersections(after);
++            Assert.True(pairsAfter == 0, $"{name}: {pairsAfter} self-intersecting pairs with the option, {pairsBefore} without");
++            AssertValid(after, name);
++            // on the input as closely as without the option (cones: both round off the apex, which is no feature)
++            var hd = new MeshHausdorffDistance(input, after) { Tolerance = 0.01 * edge };
++            var hd0 = new MeshHausdorffDistance(input, before) { Tolerance = 0.01 * edge };
++            Assert.True(hd.Compute() && hd0.Compute());
++            Assert.True(hd.UpperBound <= hd0.UpperBound + 0.5 * edge, $"{name}: {hd.UpperBound / edge} edges from the input, {hd0.UpperBound / edge} without the option");
++        }
++
++        // which pairs survive the last pass depends on rounding: the same cases moved by small translations (master:
++        // 44, 54 and 248 pairs in the 8 runs of each with the option, 20, 0 and 0 without it)
++        [Theory]
++        [InlineData("cone24_x0.3", false)]
++        [InlineData("cone16_x0.45", false)]
++        [InlineData("cone24_x0.6", false)]
++        [InlineData("cone24_x0.3", true)]
++        [InlineData("cone16_x0.45", true)]
++        public void Rim_NoSelfIntersections_UnderTranslations(string name, bool pro)
++        {
++            var (input, edge) = Case(name);
++            for (int k = 0; k < 8; ++k) {
++                var t = new Vector3d(0.37 * k, -0.61 * k, 0.23 * k);
++                DMesh3 moved = Translated(input, t);
++                DMesh3 m = Remesh(moved, edge, 0.2, true, pro);
++                int pairs = MeshRepairMetrics.SelfIntersections(m);
++                Assert.True(pairs == 0, $"{name}, translation {k}{(pro ? ", RemesherPro" : "")}: {pairs} self-intersecting pairs");
++                AssertValid(m, name);
++            }
++        }
++
++        [Theory]
++        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
++        public void Rim_SameResultUnderSimilarity(string similarity)
++        {
++            Similarity s = Similarity.ByName(similarity);
++            foreach (string name in new[] { "cone24_x0.3", "taper32_x0.6" }) {
++                var (input, edge) = Case(name);
++                DMesh3 m0 = Remesh(input, edge, 0.2, false);
++                DMesh3 back = Invariance.MappedBack(Remesh(Invariance.Transformed(input, s), s.ApplyLength(edge), 0.2, false), s);
++                if (s.IsExact)
++                    Assert.Equal("", Invariance.Difference(m0, back));
++                // otherwise rounding tips decisions at the ties of these symmetric inputs, and the passes amplify them
++                // (cone24_x0.3 ends about 0.3 edges apart under any translation, with and without the option): the
++                // result is checked, not compared vertex by vertex
++                int pairs = MeshRepairMetrics.SelfIntersections(back);
++                Assert.True(pairs == 0, $"{name}, {s.Name}: {pairs} self-intersecting pairs");
++                AssertValid(back, $"{name}, {s.Name}");
++                var hd = new MeshHausdorffDistance(input, back) { Tolerance = 0.01 * edge };
++                var hd0 = new MeshHausdorffDistance(input, m0) { Tolerance = 0.01 * edge };
++                Assert.True(hd.Compute() && hd0.Compute());
++                Assert.True(hd.UpperBound <= hd0.UpperBound + 0.5 * edge, $"{name}, {s.Name}: {hd.UpperBound / edge} edges from the input, {hd0.UpperBound / edge} untransformed");
++            }
++        }
++
++        [Theory]
++        [InlineData(false)]
++        [InlineData(true)]
++        public void Rim_ParallelEqualsSerial_RepeatedRuns(bool pro)
++        {
++            var (input, edge) = Case("cone24_x0.3");
++            DMesh3 serial = Remesh(input, edge, 0.2, false, pro);
++            for (int k = 0; k < 2; ++k)
++                Assert.Equal("", Invariance.Difference(serial, Remesh(input, edge, 0.2, true, pro)));
++        }
++    }
++}
