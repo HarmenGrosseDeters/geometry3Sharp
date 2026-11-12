@@ -154,8 +154,7 @@ Residuals of the independent review of `PointCloudNormals` (fixed in #575: a lim
   paths survive (the closed-wrap check of the first branch, a probe that is not finite).
 - `NoiseSigma` is about 0.6 of the true noise (calibrated by `NoiseFactor` 6.5); a better estimator (larger neighbourhood, or a robust fit) is
   open if the Alpha rule needs it.
-- Outside this work: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the number of digits with the platform parser; on net48 that parser is not always
-  correctly rounded, so a subnormal could be written with too few digits (the XYZ round-trip test of 5e-320 would show it on the Windows run).
+- Done outside this work (2026-11-12): `MeshIOUtil.FormatDouble` / `FormatFloat` now write the shortest round-trip digits with an own integer implementation (`ShortestDecimal`, Ryu), the same text on every target; net10 output is byte-identical to the former `"R"`.
 
 
 ## 8. Step C1 as built (2026-11-10): `PointCloudSurface`

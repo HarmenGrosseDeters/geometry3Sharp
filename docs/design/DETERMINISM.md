@@ -102,6 +102,8 @@ same file when it carries 17 or more significant digits (writers of other tools 
 same mesh differs (`v 0.5066380290214285 ...` against `v 0.506638029021429 ...`) and **the net48 file does not read back
 to the same vertices** (`roundtrip exact: False`; net10: True). The STL text round trip is not exact on any runtime (not examined
 further: probably the float precision of the format). On the x86 net48 process the 17-digit form differs in the last digit as well (x87).
+Fixed for `MeshIOUtil.FormatDouble` / `FormatFloat` (all writers using them): one integer implementation (`ShortestDecimal`, Ryu) writes the shortest
+round-trip text on every target in the layout of net10 `"R"`, so net10 output did not change and net48 now matches it. STL and OFF text use fixed precision format strings and are not covered.
 
 **C4. 32-bit net48 (x87 / legacy FPU semantics).** Float arithmetic differs (`probe.float-cast`), and the libm functions
 differ further (asin, acos, atan, exp, log10, sinh, cosh, tanh, atan2, pow against x64). Plain double arithmetic does not
