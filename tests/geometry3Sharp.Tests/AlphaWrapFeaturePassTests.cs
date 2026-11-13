@@ -312,6 +312,8 @@ namespace geometry3Sharp.Tests
             // the moved fan crosses the needle: refused by the end state alone, degenerate or not
             Assert.False(tryMove(input(true), false), "degenerate needle");
             Assert.False(tryMove(input(false), false), "the same as a sliver");
+            // (with the sweep test as well: the needle's midpoint lies on p-x, an edge of every swept tetrahedron, so no corner is
+            // strictly inside one; only the face test and the end state refuse it, which the two asserts above already show)
             Assert.False(tryMove(input(true), true));
         }
 
@@ -331,8 +333,9 @@ namespace geometry3Sharp.Tests
             for (int k = 0; k < 4; ++k) { m.AppendTriangle(top, l[k], l[(k + 1) % 4]); m.AppendTriangle(bot, l[(k + 1) % 4], l[k]); }
             Assert.True(m.IsClosed());
             Vector3d x = new Vector3d(0.25, 0, 0.6);
-            // in the face (top, l[0], x), away from its edges: inside the bipyramid, outside it after the move
-            Vector3d c0 = new Vector3d(0.375, 0, 0.75), c1 = new Vector3d(0.4375, 0, 0.75), c2 = new Vector3d(0.375, 0, 0.8125);
+            // in the face (top, l[0], x), off its edges (the old edge top-l[0] is z = 1 - x / 2, at x = 0.375 z = 0.8125: c2 below it,
+            // so the old surface is not touched and only the side face finds the triangle): inside the bipyramid, outside after the move
+            Vector3d c0 = new Vector3d(0.375, 0, 0.75), c1 = new Vector3d(0.4375, 0, 0.75), c2 = new Vector3d(0.375, 0, 0.78125);
             DMesh3 input = PolyCube(1, 1, 1, (i, j, k) => true);
             MeshTransforms.Scale(input, 0.125); MeshTransforms.Translate(input, new Vector3d(-0.0625, -0.0625, -0.75));
             int a = input.AppendVertex(c0), b = input.AppendVertex(c1), d = input.AppendVertex(c2);

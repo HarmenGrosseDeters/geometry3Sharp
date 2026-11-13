@@ -478,7 +478,8 @@ namespace gs
             for (int i = 0; i < tris.Count; ++i) {
                 Triangle3d A = tris[i];
                 Index3i ia = ids[i];
-                // (for a moved fan this is implied by the test against the rest: if fan triangles (x, e1) and (x, e2) cross, a
+                // (for a moved fan of a closed mesh, where every link edge has a rest triangle outside the ring, and with non-degenerate
+                // rest triangles, this is implied by the test against the rest: if fan triangles (x, e1) and (x, e2) cross, a
                 // ray from x meets both link edges, so the farther triangle contains a point of the nearer edge, beyond the shared
                 // vertices, and touches the rest triangle on that edge; it stays for splits and flips, and for a degenerate rest
                 // triangle, which the grid test skips)
