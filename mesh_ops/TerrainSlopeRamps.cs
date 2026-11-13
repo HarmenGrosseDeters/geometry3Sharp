@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -377,7 +378,7 @@ namespace gs
                         Vector3d a = c3[j], b = c3[(j + 1) % c3.Length];
                         gmax = Math.Max(gmax, Math.Abs(b.z - a.z) / a.xy.Distance(b.xy));
                     }
-                    unit.Slb = sb * (1 - gmax * gmax / (sb * sb)) * Math.Cos(2 * theta) * (1 - 1e-6);
+                    unit.Slb = sb * (1 - gmax * gmax / (sb * sb)) * CoreMath.Cos(2 * theta) * (1 - 1e-6);
                     pc.Slb = wall.Slb = unit.Slb;
                     pc.Sb = wall.Sb = sb;
                     var reach = unit.Box;
@@ -437,13 +438,13 @@ namespace gs
                 for (int tries = 0; tries <= 60; ++tries) {
                     R = new Vector3d(b.x + outward.x * L, b.y + outward.y * L, b.z + rise);
                     if (Slope.IsNotSteeper(a, b, R, sbSpec)) { ok = true; break; }
-                    rise *= 1 - 1e-12 * Math.Pow(2, tries);
+                    rise *= 1 - 1e-12 * CoreMath.Ldexp(1, tries);
                 }
                 if (ok == false || belowCorners(a, b, R) == false)
                     return ramp_problem(Statuses.Failed, ramp, unit.Seg, "a wall plane of the road polygon");
                 unit.Walls.Add(kernel.AddPlane(a, b, R));
                 Vector2d G = g * uu + gn * outward;
-                stripAngle[j] = Math.Atan2(G.y, G.x);
+                stripAngle[j] = CoreMath.Atan2(G.y, G.x);
             }
             for (int j = 0; j < m; ++j) {
                 Vector3d c = C[j], prev = C[(j + m - 1) % m], next = C[(j + 1) % m];
@@ -454,7 +455,7 @@ namespace gs
                 var angles = new List<double>();
                 for (int mm = 0; mm < nTheta; ++mm) {
                     double ang = mm * (2 * Math.PI / nTheta);
-                    var d = new Vector2d(Math.Cos(ang), Math.Sin(ang));
+                    var d = new Vector2d(CoreMath.Cos(ang), CoreMath.Sin(ang));
                     if (!(d.Dot(e1) < g1 / sb) || !(d.Dot(e2) < g2 / sb)) continue;
                     if (Math.Abs(wrap(stripAngle[(j + m - 1) % m] - ang)) < 0.5 * theta || Math.Abs(wrap(stripAngle[j] - ang)) < 0.5 * theta) continue;
                     double rise = sb * rFan;
@@ -468,7 +469,7 @@ namespace gs
                             }
                             break;
                         }
-                        rise *= 1 - 1e-12 * Math.Pow(2, tries);
+                        rise *= 1 - 1e-12 * CoreMath.Ldexp(1, tries);
                     }
                 }
                 unit.Apexes.Add(c.xy);
