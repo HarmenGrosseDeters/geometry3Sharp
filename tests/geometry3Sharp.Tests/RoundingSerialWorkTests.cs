@@ -27,12 +27,12 @@ namespace geometry3Sharp.Tests
         }
 
         // split edge (u, v) at a needle's distance from u: two degenerate triangles
-        static void Poke(DMesh3 m, int u, int v)
+        static void Poke(DMesh3 m, int u, int v, double needle = Needle)
         {
             int e = m.FindEdge(u, v);
             Vector3d p = m.GetVertex(u), q = m.GetVertex(v);
             Assert.Equal(MeshResult.Ok, m.SplitEdge(e, out DMesh3.EdgeSplitInfo info));
-            m.SetVertex(info.vNew, p + Needle * (q - p).Normalized);
+            m.SetVertex(info.vNew, p + needle * (q - p).Normalized);
         }
 
         // three spheres in a row (about 3 x 2900 triangles: more than one block of ids), each with needles (every 37th edge
@@ -260,6 +260,27 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void NoPasses_OneBlock_DefectReportedIsTheSmallestId()
+        {
+            // one sphere with needles, fewer than 4096 triangle ids (the serial path of the scans): without passes the
+            // defect reported is the needle with the smallest id, as with several blocks (below)
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            foreach (int eid in m.EdgeIndices().ToArray()) {
+                if (eid % 23 != 5)
+                    continue;
+                Index2i ev = m.GetEdgeV(eid);
+                // (finer than the field's: the degenerate area of one sphere is about 1.2e-11)
+                Poke(m, ev.a, ev.b, 1e-12);
+            }
+            Assert.True(m.MaxTriangleID < 4096);
+            var r = new MeshRoundingRepair(m) { MaxPasses = 0 };
+            r.Apply();
+            Assert.True(r.RemainingDegenerate > 2);
+            int first = m.TriangleIndices().First(t => m.GetTriArea(t) < 1e-9);
+            Assert.Equal(m.GetTriCentroid(first), r.RemainingDefectAt);
+        }
+
+        [Fact]
         public void NoPasses_TinyDegenerateComponentsRemovedByTheirDefect()
         {
             // without passes no vertex is touched: the poked tetrahedra are removed because they hold a degenerate
@@ -272,6 +293,11 @@ namespace geometry3Sharp.Tests
             Assert.Equal(components - 3, Components(m).Count);
             Assert.True(r.RemainingDegenerate > 0);
             Assert.True(m.CheckValidity(true, FailMode.ReturnOnly));
+            // the degenerate triangles are listed in id order (the passes sort them by area, a sort that keeps no
+            // order of ties): the defect reported is the needle with the smallest id (needles: area about 1e-11, every
+            // other triangle above 1e-4)
+            int first = m.TriangleIndices().First(t => m.GetTriArea(t) < 1e-9);
+            Assert.Equal(m.GetTriCentroid(first), r.RemainingDefectAt);
         }
     }
 }

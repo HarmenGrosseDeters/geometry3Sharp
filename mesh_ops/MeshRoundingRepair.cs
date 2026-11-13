@@ -478,6 +478,13 @@ namespace g3
         // its own id
         static void for_triangles(DMesh3 mesh, Action<int> body)
         {
+            // (one block: in this thread, without starting a parallel loop)
+            if (triangle_blocks(mesh) <= 1) {
+                for (int tid = 0; tid < mesh.MaxTriangleID; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);
+                return;
+            }
             gParallel.ForRange(triangle_blocks(mesh), (b) => {
                 int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
                 for (int tid = b * TriangleBlock; tid < end; ++tid)
@@ -1175,6 +1182,14 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         List<int> degenerate_triangles()
         {
+            // (one block: a serial scan, without the marks)
+            if (triangle_blocks(Mesh) <= 1) {
+                var few = new List<int>();
+                foreach (int tid in Mesh.TriangleIndices())
+                    if (is_bad(tid))
+                        few.Add(tid);
+                return few;
+            }
             // (the test per triangle in parallel, read only: no proposed edit is pending, movedV = -1; the list in id
             // order, as a serial scan)
             var isBad = new bool[Mesh.MaxTriangleID];
@@ -2844,9 +2859,9 @@ namespace g3
             foreach (int t in bad)
                 isBad[t] = true;
             var isTouched = new bool[Mesh.MaxVertexID];
+            // (the edits add no vertices: every touched id is below MaxVertexID)
             foreach (int v in touched)
-                if (v >= 0 && v < isTouched.Length)
-                    isTouched[v] = true;
+                isTouched[v] = true;
             int count = 0;
             foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;

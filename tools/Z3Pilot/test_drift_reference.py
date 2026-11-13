@@ -180,8 +180,10 @@ class DriftReferenceTests(unittest.TestCase):
             ('MeshRoundingRepair.cs', 'double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;\n            if (within_bound',
              'double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;\n            if (movedV >= 0 && room_at(movedV) > 0) return true;\n            if (within_bound'),
             ('MeshRoundingRepair.cs', 'set_reference(t, editDrift);', 'set_reference(t, 0);'),
-            ('MeshRoundingRepair.cs', 'refCarry = new double[Mesh.MaxTriangleID];\n            foreach (int t in Mesh.TriangleIndices()) {',
-             'refCarry = new double[Mesh.MaxTriangleID];\n            foreach (int t in new int[0]) {'),
+            ('MeshRoundingRepair.cs', 'refCarry = new double[Mesh.MaxTriangleID];\n            for_triangles(Mesh, (t) => {',
+             'refCarry = new double[Mesh.MaxTriangleID];\n            for_triangles(new DMesh3(), (t) => {'),
+            ('MeshRoundingRepair.cs', 'int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);\n                for (int tid = b * TriangleBlock; tid < end; ++tid)\n                    if (mesh.IsTriangle(tid))',
+             'int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock - 1);\n                for (int tid = b * TriangleBlock; tid < end; ++tid)\n                    if (mesh.IsTriangle(tid))'),
         ]
         for name, old, new in changes:
             with self.subTest(change=new):
