@@ -19,7 +19,9 @@ namespace geometry3Sharp.Tests
         public void Retry_OnlyWhenNotCertified_AndOffGivesTheOldResult()
         {
             DMesh3 sphere = SimplifyWithinRetryTests.BumpySphere(16);
+            // (without the retry, as before issue #747: a reduction not certified within the much smaller distance is rejected)
             Assert.Null(Simplify(sphere, 0.01, 1e-3, false, 0, 0));
+            Assert.Null(Simplify(sphere, 0.01, 1e-3, false, MeshRobustRepair.WrapSimplifySlabs, 0));
             var phases = new System.Collections.Generic.Dictionary<string, long>();
             Assert.NotNull(Simplify(sphere, 0.01, 1e-3, true, 0, 0, phases));
             Assert.True(phases.ContainsKey("retry"), "retried");

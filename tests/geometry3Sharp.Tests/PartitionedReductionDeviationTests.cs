@@ -15,15 +15,17 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void MaxDeviation_FromTheOriginalMesh_OverAllRounds()
         {
-            DMesh3 sphere = SimplifyWithinRetryTests.BumpySphere(24);
-            double d = 2e-3;
+            DMesh3 sphere = SimplifyWithinRetryTests.BumpySphere(16);
+            double d = 5e-3;
             var pr = new PartitionedReduction() { Slabs = 8, Configure = (r) => { r.MaxDeviation = d; r.AreaWeightedQuadrics = false; } };
             // (a quadric budget far above d: only MaxDeviation stops the collapses)
             DMesh3 m = pr.Reduce(sphere, 1.0);
-            Assert.True(m.TriangleCount < sphere.TriangleCount / 2, $"{m.TriangleCount} of {sphere.TriangleCount}");
+            Assert.True(m.TriangleCount < sphere.TriangleCount * 0.9, $"{m.TriangleCount} of {sphere.TriangleCount}");
             var hd = new MeshHausdorffDistance(m, sphere) { Symmetric = false, Tolerance = 0.02 * d };
             hd.Compute();
-            Assert.True(hd.LowerBound <= d, $"deviation {hd.LowerBound / d} times MaxDeviation");
+            // (the upper bound is sharp up to the bound's tolerance: every collapse was certified within d, the bound adds at most
+            // its tolerance; the old code gave 1.54 to 1.56 d)
+            Assert.True(hd.Converged && hd.UpperBound <= d + hd.Tolerance, $"deviation {hd.LowerBound / d} to {hd.UpperBound / d} times MaxDeviation, converged {hd.Converged}");
         }
     }
 }

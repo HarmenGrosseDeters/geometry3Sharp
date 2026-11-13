@@ -318,11 +318,14 @@ namespace gs
             // Reducer.MaxDeviation from the mesh given, for every region and the last pass: by default each Reducer would
             // measure from the mesh it starts on (the region of a later round, the last pass's mesh: already reduced), and
             // the deviations of the rounds would add up (issue #747). One tree, built on first use, only read
-            DMesh3 reference = new DMesh3(m);
+            // (a copy only if Configure sets a MaxDeviation: probed on an empty Reducer)
+            var probe = new Reducer(new DMesh3());
+            Configure?.Invoke(probe);
+            DMesh3 reference = probe.MaxDeviation > 0 ? new DMesh3(m) : null;
             var referenceTree = new Lazy<DMeshAABBTree3>(() => new DMeshAABBTree3(reference, true), System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
             configure = (r) => {
                 Configure?.Invoke(r);
-                if (r.MaxDeviation > 0 && r.HasDeviationReference == false)
+                if (reference != null && r.MaxDeviation > 0 && r.HasDeviationReference == false)
                     r.SetDeviationReference(referenceTree.Value);
             };
             Vector3d origin;
