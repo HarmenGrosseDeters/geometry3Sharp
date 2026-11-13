@@ -798,8 +798,49 @@ documentation says so.
     (`TerrainVerticalUncertainty`, a caller input, default 0). Survey errors of the terrain are not included
     unless they are given. Exact signs decide the topology of the catch line, not its exact position.
   - Every catch-line segment carries |∇D| and δ_xy. In phase 1, δ_xy is a **local linearized estimate**,
-    documented as such; a proven bound would need the minimum of |∇D| over the neighbourhood and is a later
-    item.
+    documented as such (`CatchLine.Uncertainty`). Since 2026-11-12 each segment also carries a **proven bound**
+    (`CatchLine.ProvenUncertainty`), derived below.
+  - **The proven bound (derivation).** Write D = S − T for the exact R1 surface S and the true terrain T, and
+    D̃ = S̃ − T̃ for the realized slope surface S̃ and the given terrain TIN T̃ (cut; fill mirrored, z ↦ −z).
+    1. *Premises.* 0 ≤ S − S̃ ≤ `Tolerance` on the slope surface's domain (the budget of 5.1 and 5.4, certified per
+       result: S̃ is conservative and within `Tolerance`); |T̃ − T| ≤ ε_T = `TerrainVerticalUncertainty`.
+    2. *The band.* D = D̃ + (S − S̃) + (T̃ − T) ∈ [D̃ − ε_T, D̃ + Tol + ε_T], so at every point of the true catch line
+       {D = 0}, D̃ ∈ [−Tol − ε_T, ε_T]. The true line lies in the band B = {x : −Tol − ε_T ≤ D̃(x) ≤ ε_T}, within
+       the overlay's domain (the slope surface's footprint; outside it nothing is claimed).
+    3. *Per overlay face.* D̃ is linear on an overlay face f (one plane of S̃, one of T̃), and f is convex, so
+       P_f = f ∩ B is a convex polygon. Its vertices are f's vertices with D̃ in the band and the points on f's edges
+       where D̃ = −Tol − ε_T or ε_T. They are enclosed in boxes by interval arithmetic: the vertices of f (overlay
+       vertices: a vertex of one surface, or the crossing of two edges, an exact rational point) as intervals, D̃ there
+       as an interval of the two planes, and the edge parameter of a band crossing as an interval. A vertex whose
+       D̃ interval meets the band is kept (outward). So P_f lies in the convex hull of the boxes' corners.
+    4. *Distance to the computed line.* For a computed catch-line segment σ, x ↦ dist(x, σ) is convex, so its maximum
+       over P_f is at most its maximum over the boxes' corners, each rounded up. Any segment gives a valid bound. The
+       one taken for P_f is the best (smallest bound) of the segments in f and in the faces reached from f through
+       band faces (breadth first, a fixed number of steps, deterministic order). P_f is assigned to that σ.
+       The bound is not tight: one segment per piece, so a piece's far corner along the line counts its distance to
+       that segment's end. On the pit tests it is 1.5 (flat terrain) to 1.8 (gradient 0.2) times the estimate. A finer
+       assignment (pieces split along the line) is a later refinement, if a use case needs it.
+    5. *The bound of a segment.* U(σ) = the largest bound of the pieces assigned to σ (0 if none), plus the largest
+       move of a catch point by the composite's snap (5.5, at most `MinFeatureSize` in a single run), as for the
+       estimate. **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
+       segment σ.
+    6. *Pieces without a segment.* A band piece with no computed segment within its steps is a place where the
+       slope and the terrain come within the band without the computed line there: a possible contact away from the
+       line (a grazing contact, or a hill the cone passes just above). It is reported (`CatchLineBandWithoutLine`,
+       its box). It is not a bound of any segment, so a binding `RequiredCatchLineAccuracy` cannot be met there:
+       `CatchLineAccuracyNotReached`.
+    7. *Binding accuracy.* `RequiredCatchLineAccuracy` is checked against U, the proven bound. The warning threshold
+       stays on the estimate, which is the cheaper early signal. A smaller `Tolerance` narrows the band (the 1 / |∇D|
+       factor of the estimate is the band's width over the gradient where the faces are planar), so the refinement of
+       today still applies.
+    8. *Numerics* (for the review). All values that bound are rounded outward: the band limits (−Tol − ε_T rounded
+       down, ε_T up), D̃ on intervals, the crossing parameters on intervals, the distances rounded up. The planes of S̃
+       and T̃ are those of their stored doubles, so D̃ has no other error. The premise 0 ≤ S − S̃ ≤ Tol is the existing
+       certificate; nothing here relaxes it.
+  - **Prior art** for the bound: a level set of an approximated function lies in the sublevel band of the error
+    bound (the standard argument of certified contouring and of error-bounded isolines, eg Lorensen and Cline's
+    marching cubes with interval arithmetic, Snyder 1992, *Interval analysis for computer graphics*); the distance
+    to a set over a convex cell is bounded at its vertices (convexity of the distance to a convex set).
   - **Warning threshold exceeded** (`CatchLineWarningThreshold`, set by the caller; 10 cm is a sensible start in
     an application, not a library default): the result is returned, with the affected catch-line sections and
     their uncertainty (`IllConditionedCatchLine`).

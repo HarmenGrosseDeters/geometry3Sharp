@@ -44,6 +44,8 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
+  Catch-line bound (2026-11-13): `CatchLine.ProvenUncertainty` and `CatchLineBandWithoutLine`; `RequiredCatchLineAccuracy`
+  checks the proven bound (up to about 2x the estimate; +6 % slope time on the 24-gon wave benchmark).
 - **Sector polygons, exterior distance on demand.**
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
