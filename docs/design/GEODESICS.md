@@ -1,6 +1,8 @@
 # Geodesic distances with accuracy bounds (study)
 
-Status: study, docs only (2026-11-13). No library code. Decisions for the owner at the end.
+Status: study, docs only (2026-11-13). No library code. Owner decisions recorded in section 9; the dominance-trimming
+argument of option A is written out for an independent review in [Appendix A](#appendix-a-the-enclosure-argument-for-review);
+the citation check is in section 3.5; the measurement that stopped option C is in section 4.2.
 
 ## 1. Question
 
@@ -57,62 +59,78 @@ better than the straight 3D distance. So:
 
 ## 3. Prior art
 
-Citations marked (m) are recalled from memory, not re-read for this note; they must be checked against the papers
-before the first code PR, as SOURCES.md requires.
+Citations marked (m) were first recalled from memory. The bibliographic data (authors, venue, volume, pages) was then
+checked by web search on 2026-11-13 (section 3.5). The full texts were not read: the hosts of the open PDFs are not
+reachable from this container. Statements about a paper's content that remain unverified keep the mark (m); they must
+be checked against the papers before the first code PR, as SOURCES.md requires.
 
 ### 3.1 Exact polyhedral distance
 
 - J. S. B. Mitchell, D. M. Mount, C. H. Papadimitriou, *The discrete geodesic problem*, SIAM J. Comput. 16(4),
-  647-668, 1987 (m). "Continuous Dijkstra": **windows** on edges (an interval of the edge, the unfolded position of a
+  647-668, 1987, DOI 10.1137/0216045. "Continuous Dijkstra": **windows** on edges (an interval of the edge, the unfolded position of a
   pseudo-source in the edge's plane and its distance offset), propagated across triangles in order of distance;
   overlapping windows trimmed to the part where each is closer; vertices with angle sum above 2 pi (saddles) and
-  boundary vertices become pseudo-sources. O(n^2 log n) time, O(n^2) space worst case.
-- J. Chen, Y. Han, *Shortest paths on a polyhedron*, SoCG 1990; Int. J. Comput. Geom. Appl. 6(2), 127-144, 1996 (m).
+  boundary vertices become pseudo-sources (m: the treatment of boundary vertices). O(n^2 log n) time, O(n^2) space
+  worst case (O(n^2) windows, each handled in O(log n) through the priority queue; the OCR'd abstract of one online copy
+  reads "O(n log n)", which secondary sources treat as a transcription error); distance queries afterwards in O(log n).
+- J. Chen, Y. Han, *Shortest paths on a polyhedron*, SoCG 1990; journal version *Shortest paths on a polyhedron,
+  Part I: computing shortest paths*, Int. J. Comput. Geom. Appl. 6(2), 127-144, 1996, DOI 10.1142/S0218195996000095.
   A tree of windows, "one angle one split": at most one child per window survives per vertex; O(n^2) time, O(n) space.
 - V. Surazhsky, T. Surazhsky, D. Kirsanov, S. J. Gortler, H. Hoppe, *Fast exact and approximate geodesics on meshes*,
-  ACM TOG 24(3) (SIGGRAPH 2005), 553-560 (m). The practical MMP: window trimming by solving a quadratic for the
+  ACM TOG 24(3) (SIGGRAPH 2005), 553-560, DOI 10.1145/1073204.1073228. The practical MMP: window trimming by solving a quadratic for the
   intersection point of two windows' distance functions, a priority queue by the window's minimum distance; measured
-  about O(n^1.5) windows and run time. An **approximate** variant merges adjacent windows when the merged window
-  changes the distance by less than a threshold; the paper reports small errors and large speedups. Whether the
-  per-merge threshold gives a proven bound on the final distance (merges accumulate along a path) is to be checked in
-  the paper (m).
-- S.-Q. Xin, G.-J. Wang, *Improving Chen and Han's algorithm on the discrete geodesic problem*, ACM TOG 28(4), 104,
-  2009 (m). ICH: Chen-Han with a priority queue and a filter that discards a window if a vertex already has a smaller
-  distance to the window's region; much faster than CH in practice, O(n^2 log n) worst case, O(n) space. CGAL's
+  that the exact algorithm runs far below its worst case (secondary sources: about O(n^1.5 log n) on real meshes). An
+  **approximate** variant merges adjacent windows; the abstract claims "bounded error" and the paper reports O(n log n)
+  run time even for small thresholds; a later paper measured about 0.1% relative error. A *lower-bound property* of the
+  approximation prunes the exact frontier for point-to-point queries. The formal statement of the bound (per merge or
+  on the final distance, relative or absolute) is **not verified** (m): section 4 of the paper must be read before it
+  is relied on.
+- S.-Q. Xin, G.-J. Wang, *Improving Chen and Han's algorithm on the discrete geodesic problem*, ACM TOG 28(4),
+  104:1-104:8, 2009, DOI 10.1145/1559755.1559761. ICH: Chen-Han with a priority queue and a filter that discards a window if a vertex already has a smaller
+  distance to the window's region; faster than MMP with considerably less space (the abstract); O(n^2 log n) worst case (m). CGAL's
   `Surface_mesh_shortest_path` is based on it (m; GPL, approach cited only).
-- Y. Qin, X. Han, H. Fang, S.-Q. Xin, Y. He, *Fast and exact discrete geodesic computation based on triangle-oriented
-  wavefront propagation*, ACM TOG 35(4) (SIGGRAPH 2016), 125 (m). VTP: windows propagated triangle by triangle with
-  pruning by the vertex distances of the triangle (a window that cannot beat the current vertex distances plus the edge
-  lengths is dropped); reported several times faster than MMP and ICH and lighter in memory.
+- Y. Qin, X. Han, H. Yu, Y. Yu, J. Zhang, *Fast and exact discrete geodesic computation based on triangle-oriented
+  wavefront propagation*, ACM TOG 35(4) (SIGGRAPH 2016), DOI 10.1145/2897824.2925930 (the author list of the first
+  draft of this note was wrong). VTP: triangle-oriented region growing, window pruning synchronised across the edges of
+  a triangle (m: the exact pruning rules); the abstract reports 4-15 times faster than MMP and ICH, 2-4 times faster
+  than FWP-MMP / FWP-CH, the least memory, O(n^2) time. A replicability review measured 4.8 s on a 474K-triangle mesh,
+  matching the paper.
 - P. Trettner, D. Bommes, L. Kobbelt, *Geodesic distance computation via virtual source propagation*, Computer Graphics
-  Forum 40(5) (SGP 2021) (m). VSP: propagates virtual sources rather than windows; reported faster than VTP on large
-  meshes. Newer, fewer independent implementations.
-- Theory: S. Kapoor, STOC 1999, claims O(n log^2 n) (the proof is considered incomplete); Y. Schreiber, M. Sharir,
-  *An optimal-time algorithm for shortest paths on a convex polytope in three dimensions*, DCG 39, 2008, O(n log n)
-  for convex polytopes (m). Neither is practical.
-- Implementations (approach only, source not read): D. Kirsanov's `geodesic` (MMP after Surazhsky et al.; licence to be
-  checked before anyone reads it), wrapped by libigl (MPL, paper only) and pygeodesic; geometry-central (MIT) has a
+  Forum 40(5), 247-260 (SGP 2021), DOI 10.1111/cgf.14371. **Approximate**, not exact (corrected from the first draft):
+  propagates virtual sources (GSP), also on triangle soups, point clouds and line sources; better run time and accuracy
+  than earlier approximate methods on about 10000 meshes; code MIT (not read). Belongs to section 3.2.
+- Theory: S. Kapoor, *Efficient computation of geodesic shortest paths*, STOC 1999, announces O(n log^2 n); its
+  details have never been published (surveys up to 2025 say so). Y. Schreiber, M. Sharir, *An optimal-time algorithm
+  for shortest paths on a convex polytope in three dimensions*, DCG 39(1-3), 500-579, 2008, DOI
+  10.1007/s00454-007-9031-0: O(n log n) time and space, convex polytopes only. Neither is practical.
+- Implementations (approach only, source not read): D. Kirsanov's `geodesic` (MMP after Surazhsky et al., originally on
+  code.google.com; MIT according to the pygeodesic wrapper, secondhand, to be checked before anyone reads it), wrapped by libigl (MPL, paper only) and pygeodesic; geometry-central (MIT) has a
   polyhedral exact geodesics module (m) and uses the heat method by default; CGAL (GPL, never read).
 
 ### 3.2 Approximations with a bound
 
-- R. Kimmel, J. A. Sethian, *Computing geodesic paths on manifolds*, PNAS 95(15), 8431-8435, 1998 (m). Fast marching
+- R. Kimmel, J. A. Sethian, *Computing geodesic paths on manifolds*, PNAS 95(15), 8431-8435, 1998, DOI
+  10.1073/pnas.95.15.8431. Fast marching
   on triangulated domains, O(n log n); first order; **obtuse triangles** break the causality of the update and are
   handled by unfolding a virtual edge into a neighbouring triangle. Convergence to the viscosity solution, no explicit
   error constant for a given mesh. Already cited in SOURCES.md for the terrain option R2.
-- J. A. Sethian, A. Vladimirsky, *Ordered upwind methods for static Hamilton-Jacobi equations*, SIAM J. Numer. Anal.
-  41(1), 2003 (m): the anisotropic generalisation; first order, monotone.
+- J. A. Sethian, A. Vladimirsky, *Ordered upwind methods for static Hamilton-Jacobi equations: theory and algorithms*,
+  SIAM J. Numer. Anal. 41(1), 325-363, 2003: the anisotropic generalisation, O(M log M), convergence to the viscosity
+  solution proven.
 - L. Aleksandrov, M. Lanthier, A. Maheshwari, J.-R. Sack, *An epsilon-approximation algorithm for weighted shortest
-  paths on polyhedral surfaces*, SWAT 1998; L. Aleksandrov, A. Maheshwari, J.-R. Sack, *Determining approximate shortest
-  paths on weighted polyhedral surfaces*, J. ACM 52(1), 25-53, 2005 (m). Steiner points on the edges in a
+  paths on polyhedral surfaces*, SWAT 1998 (m); L. Aleksandrov, A. Maheshwari, J.-R. Sack, *Determining approximate
+  shortest paths on weighted polyhedral surfaces*, J. ACM 52(1), 25-53, 2005, DOI 10.1145/1044731.1044733. Steiner
+  points **inside the faces on the angle bisectors** (corrected from the first draft, which put them on the edges), in a
   **geometric progression** away from each vertex (ratio set by epsilon and the smallest angle at the vertex), a graph
   between the points of each triangle, Dijkstra: a **proven (1 + epsilon)** approximation with
-  O(n / sqrt(epsilon) log(1/epsilon)) Steiner points (constants depend on the mesh's angles). M. Lanthier, A.
-  Maheshwari, J.-R. Sack, *Approximating shortest paths on weighted polyhedral surfaces*, Algorithmica 30, 2001 (m):
-  uniform points, an additive bound. Survey: P. Bose, A. Maheshwari, C. Shu, S. Wuhrer, *A survey of geodesic paths on
-  3D surfaces*, CGTA 44(9), 2011 (m).
-- S.-Q. Xin, X. Ying, Y. He, *Constant-time all-pairs geodesic distance query on triangle meshes*, I3D 2012, and X. Ying,
-  X. Wang, Y. He, *Saddle vertex graph (SVG)*, ACM TOG 32(6), 2013 (m): precomputed graphs for fast repeated queries;
+  O(n / sqrt(epsilon) log(1/epsilon)) Steiner points (m: the exact count and its constants, which depend on the mesh's
+  angles). M. Lanthier, A. Maheshwari, J.-R. Sack, *Approximating shortest paths on weighted polyhedral surfaces*,
+  Algorithmica 30, 2001, DOI 10.1007/s00453-001-0027-5: uniform points, an additive bound (m: the bound's form).
+  Survey: P. Bose, A. Maheshwari, C. Shu, S. Wuhrer, *A survey of geodesic paths on 3D surfaces*, CGTA 44(9),
+  486-498, 2011, DOI 10.1016/j.comgeo.2011.05.006.
+- S.-Q. Xin, X. Ying, Y. He, *Constant-time all-pairs geodesic distance query on triangle meshes*, I3D 2012 (m), and X.
+  Ying, X. Wang, Y. He, *Saddle vertex graph (SVG): a novel solution to the discrete geodesic problem*, ACM TOG 32(6),
+  170, 2013, DOI 10.1145/2508363.2508379: precomputed graphs for fast repeated queries;
   exact with an unbounded graph, approximate with a degree limit (measured).
 
 ### 3.3 The heat method and intrinsic triangulations
@@ -126,7 +144,10 @@ before the first code PR, as SOURCES.md requires.
   removes negative cotan weights (the "obtuse triangle" problem of the heat method); FlipOut gives exact locally shortest
   paths, which are an upper bound of the distance.
 - Survey: K. Crane, M. Livesu, E. Puppo, Y. Qin, *A survey of algorithms for geodesic paths and distances*,
-  arXiv:2007.10430, 2020 (m): compares MMP, ICH, VTP, FMM, heat, SVG on common meshes; VTP among the fastest exact ones.
+  arXiv:2007.10430, 2020: practical algorithms and their behaviour on real data (m: its specific comparisons).
+- A. Belyaev, P.-A. Fayolle, *On variational and PDE-based distance function approximations*, CGF 34(8), 2015 (m), and
+  later work: the distance as the largest (viscosity) subsolution of the eikonal equation, computed by convex
+  optimisation. Relevant to the lower bound of section 4.2.
 
 ### 3.4 Robustness
 
@@ -141,10 +162,24 @@ before the first code PR, as SOURCES.md requires.
 - Exactness in the strict sense is out of reach: the polyhedral distance is a sum of square roots of algebraic numbers
   whose degree grows with the number of unfoldings (each unfolded vertex position needs a square root), and comparing
   two such sums is the **sum-of-square-roots problem**, with no known polynomial bound (M. R. Garey, R. L. Graham, D.
-  S. Johnson, *Some NP-complete geometric problems*, STOC 1976 (m)). Expression trees with separation bounds (C.
+  S. Johnson, *Some NP-complete geometric problems*, STOC 1976, 10-22, DOI 10.1145/800113.803626; the paper discusses
+  why membership in NP of the Euclidean problems is in question; the name "sum of square roots" for it is later usage). Expression trees with separation bounds (C.
   Burnikel, S. Funke, K. Mehlhorn, S. Schirra, S. Schmitt, *A separation bound for real algebraic expressions*,
-  Algorithmica 2009 (m); the approach of LEDA / CORE, paper only) would decide every comparison exactly, at a cost that
+  ESA 2001; Algorithmica 55, 14-28, 2009, DOI 10.1007/s00453-007-9132-4; the approach of LEDA / CORE, paper only) would decide every comparison exactly, at a cost that
   grows with the expression depth, ie with the path length in triangles. Not practical for a distance field.
+
+### 3.5 Citation check (2026-11-13)
+
+Checked by web search (bibliographic records, abstracts, secondary citations); full texts not read (the PDF hosts
+are blocked here, not circumvented). Corrections made: the VTP author list; Trettner et al. 2021 is approximate, not
+exact; Aleksandrov-Maheshwari-Sack place the Steiner points on the angle bisectors inside the faces; Kapoor's details
+are unpublished. Confirmed: MMP, Chen-Han, Surazhsky et al., Xin-Wang, Qin et al., Trettner et al., Schreiber-Sharir,
+Kimmel-Sethian, Sethian-Vladimirsky, Aleksandrov-Maheshwari-Sack (venue), Lanthier et al. (venue), Bose et al., SVG,
+the Crane et al. survey, Garey-Graham-Johnson, Burnikel et al. Still (m): the error bound of the approximate MMP, the
+treatment of boundary vertices in MMP, VTP's pruning rules, ICH's worst case, the AMS point count and constants, the
+Lanthier bound's form, Xin-Ying-He 2012, Belyaev-Fayolle 2015, the heat method's convergence statement. Before code:
+read MMP sections 3-4 (the lemma that shortest paths pass only through saddle and boundary vertices, used in Appendix
+A) and VTP's pruning section, from a copy the owner provides or a reachable host.
 
 How others solve it: geometry-central / potpourri3d and libigl offer the heat method as the default and an MMP
 implementation as the exact option (m); CGAL offers ICH (m); none of them, to my knowledge, certifies the rounding of the
@@ -156,27 +191,17 @@ exact method (m).
 
 The usable form of "exact" is an **enclosure**: for each vertex an interval [Lower, Upper] of doubles that provably
 contains the polyhedral distance, computed by window propagation (MMP / VTP) in `ExactInterval` arithmetic (extended by
-`/` and `sqrt`, both correctly rounded in IEEE 754, so the existing one-ulp widening covers them; no `Math` functions
-other than `Sqrt` are needed, so no libm dependence). The argument (own, to be written out and reviewed in the design
-step of the code PR):
+`/` and `sqrt`, both correctly rounded in IEEE 754, so the existing one-ulp widening covers them). The only other
+function is the corner angle for the pseudo-source test (angle sum at least 2 pi), from `CoreMath.Atan2`, which is
+correctly rounded and so enclosed the same way; no `System.Math` function and no libm dependence.
 
-1. Every window stands for a set of real surface paths: a straight segment in the unfolding of a triangle strip from a
-   pseudo-source, plus the pseudo-source's distance. Keep two bounds per window: an **inner** interval of the edge
-   (certainly visible through the strip) and an **outer** one (contains the exact window).
-2. Upper: for a point x in a window's inner interval the path exists, so `Hi(|x - s| + sigma)` is an upper bound of the
-   distance. The minimum over windows of these bounds is an upper bound.
-3. Lower: the true shortest path to x crosses the edge in some window of the exact algorithm. If windows are trimmed or
-   dropped **only where the dominance is certain** (the other window's upper bound is below this window's lower bound
-   on the whole part removed, and the other window is inner-valid there), the window carrying the shortest path (or one
-   dominating it) survives, and `Lo(|x - s| + sigma)` over its outer interval is at most the distance. The minimum of
-   the lower bounds over the windows is a lower bound. Extra windows that rounding forced us to keep, and outer
-   intervals that reach slightly beyond the exact window, can only lower that minimum, so it stays a lower bound; they
-   cost time and loosen the bound by about the overshoot (a straight line in the unfolding is never longer than the
-   real path through the window's end point).
-4. Width: the enclosure widens by a few ulps per operation along each unfolding chain, and more where the unfolding is
-   ill conditioned (needles). That is measured, not bounded a priori; a `MaxWidth` check with a status reports a
-   vertex whose enclosure is wider than a tolerance relative to the distance. Upper equals Lower up to the width, so for
-   all practical purposes it is the exact distance, with a proof that says how close.
+The argument is written out, self-contained, in [Appendix A](#appendix-a-the-enclosure-argument-for-review). In short:
+each window keeps an **outer** interval (lower side) and an **inner** interval (upper side, certainly realised by a
+real path). Upper is sound because inner intervals are realised. Lower is sound because every pruning test has the
+form "this window's lower bound exceeds an upper bound of a real path", which can never hold at a point of a true
+shortest path, so the window chain carrying a shortest path is never cut. The lower side needs no visibility at all,
+only the triangle inequality in the unfolding. The width of [Lower, Upper] is measured, not bounded a priori; a
+`MaxWidth` check reports a vertex whose enclosure is wider than a tolerance relative to its distance.
 
 Determinism: one priority queue, serial. Ties in the queue are broken by a total order (distance bound, then window id
 by creation order), so repeated runs and platforms give the same bits (only `+ - * / sqrt` and comparisons; .NET does
@@ -192,17 +217,39 @@ where two windows agree within a few ulps). Surazhsky et al. measure about O(n^1
 times faster (m). Upper-bound estimate for the use cases here: terrain bands of TerrainSafety (10^4 to 10^5 vertices),
 test meshes (10^3 to 10^4): if the plain VTP runs in about 0.1-1 s at 10^5 vertices as reported for its era (m), the
 interval version is about 0.5-5 s, which fits the 20 s per operation rule but **must be measured first** (section 6,
-stop rule). Memory: windows per edge grow like n^0.5 in practice (m); at 10^5 vertices a few 10^7 windows would be
+stop rule). The replicability review of VTP (4.8 s on 474K triangles, section 3.1) is consistent with this estimate. Memory: windows per edge grow like n^0.5 in practice (m); at 10^5 vertices a few 10^7 windows would be
 too much, so the first step measures the window count on procedural terrain and the 169-degree plane.
 
 ### 4.2 Proven two-sided bounds without the exact method
 
-- **Lower bound by Lipschitz check (own, simple).** A piecewise linear function phi on the mesh with phi <= 0 at the
-  sources and |grad phi| <= 1 in every triangle (in the triangle's own flat metric) is at most the polyhedral distance
-  everywhere: along any surface path phi changes by at most the path length. So any field (the heat method's, scaled)
-  is turned into a certified lower bound by `phi / max(1, max_T |grad phi|_T)`, the gradient bound evaluated in
-  interval arithmetic. Cheap (one pass), but loose where one triangle has a large gradient (near sources, cut loci);
-  measured.
+- **Lower bound by Lipschitz check (own): proven, but measured too weak (option C stopped, 2026-11-13).** A
+  piecewise linear function phi on the mesh with phi <= 0 at the sources and |grad phi| <= 1 in every triangle (in the
+  triangle's own flat metric) is at most the polyhedral distance everywhere: along any surface path phi changes by at
+  most the path length. So any field is turned into a certified lower bound by `phi / max(1, max_T |grad phi|_T)`, with
+  |grad phi|_T = |d2 e1 - d1 e2| / |e1 x e2| (e1, e2 the edges from corner 0, d1, d2 the value differences) evaluated
+  in interval arithmetic. The upper-bound probe before any code (throwaway, not committed; `MeshGeodesicDistance` with
+  default settings, max per-triangle |grad| of its field on the input triangles):
+
+  | mesh | max \|grad\| | p99.9 | triangles above 1 |
+  |---|---|---|---|
+  | plane 101 x 101, source in the centre | 1.100 | 1.100 | 44.9% |
+  | plane 101 x 101, source at a corner | 1.178 | 1.140 | 46.3% |
+  | bumpy terrain 101 x 101 | 1.147 | 1.096 | 17.7% |
+  | ridge with 75 degree faces, line source | 1.417 | 1.117 | 51.7% |
+  | sphere (normalized cube, 40 edge vertices) | 1.713 | 1.169 | 12.3% |
+  | noisy plane 81 x 81 (vertices moved by up to 0.15 h) | 27.15 | 1.250 | 39.8% |
+
+  The global factor therefore costs 10% to 96% of the distance everywhere: useless for `TerrainSafety`. It is a
+  **limit of the certificate, not of the heat method**: the PL interpolant of the *exact* Euclidean distance on the same
+  plane also violates it (max |grad| 1.099 over all triangles, 1.059 beyond 5 h, 1.017 beyond 20 h, 1.008 beyond 45 h:
+  an excess of about 0.35 h / r). A naive local repair (lower the vertices of violating triangles towards the
+  triangle's minimum, repeat, certify) reaches max |grad| 1.000000 in 15-160 ms but loses 70-86% of the distance (the
+  lowering cascades). The best such certificate is the largest PL subsolution below the field (the distance as the
+  largest subsolution: Belyaev and Fayolle, section 3.3; a capped fast-marching or convex-optimisation sweep); from the
+  measured 0.35 h / r excess its loss would be about the heat error plus 0.35 h ln(r / h), a few h at r = 50 h
+  (estimate, not measured). Prior-art check (2 searches): no paper found that certifies a lower bound this way on
+  triangle meshes; landmark lower bounds (triangle inequality, VMV 2015) need exact distances to the landmarks. The
+  proper lower bound is option A's Lower.
 - **Upper bound by real paths:** the Steiner-point Dijkstra that `TerrainSafety` already has, or FlipOut's length for a
   pair. Proven, a-priori loose.
 - **(1 + epsilon) by Aleksandrov-Maheshwari-Sack:** with the paper's geometric Steiner point placement, the graph
@@ -213,10 +260,11 @@ too much, so the first step measures the window count on procedural terrain and 
 
 ### 4.3 What stays measured only
 
-- The heat method: no a-priori bound. It can carry the a-posteriori Lipschitz lower bound of 4.2, and against an oracle
-  of 4.1 its error becomes measurable on any mesh, not only on analytic ones.
+- The heat method: no a-priori bound. The a-posteriori Lipschitz lower bound of 4.2 is proven but too weak to use;
+  against the oracle of 4.1 its error becomes measurable on any mesh, not only on analytic ones.
 - Fast marching: a first-order monotone scheme; convergence is proven, a bound for a given mesh is not (m).
-- The approximate MMP of Surazhsky et al.: a per-merge error threshold; a global bound to be checked in the paper.
+- The approximate MMP of Surazhsky et al.: "bounded error" per its abstract; the form of the bound is to be checked in
+  the paper (section 3.5).
 
 ## 5. Options
 
@@ -224,7 +272,7 @@ too much, so the first step measures the window count on procedural terrain and 
 |---|---|---|---|---|---|
 | A | **Exact window propagation with a certified enclosure** (MMP after Surazhsky et al. 2005 with the VTP / Xin-Wang vertex filter, in `ExactInterval`), new class, vertex sources first | [Lower, Upper] per vertex, practically exact; an oracle for every other method; `TerrainSafety.AlongSurface` could become guaranteed | yes (enclosure argument 4.1, own, to be reviewed) | ~1500-2500 lines with tests; risk in the window bookkeeping (saddles, boundaries, degenerate windows) | L |
 | B | **(1 + epsilon) Steiner graph** (Aleksandrov-Maheshwari-Sack 2005), generalising the `TerrainSafety` Steiner Dijkstra | enclosure [D / (1+eps), D] | yes (the paper's theorem, if the placement is faithful) | ~600-900 lines; many graph nodes for small eps or small angles | M |
-| C | **Heat method plus certificates**: the Lipschitz lower bound of 4.2 as an optional output of `MeshGeodesicDistance`; the Steiner or FlipOut upper bound | a proven lower bound, a measured accuracy | lower bound yes, accuracy no | ~200-300 lines | S |
+| C | **Heat method plus certificates**: the Lipschitz lower bound of 4.2 as an optional output of `MeshGeodesicDistance`; the Steiner or FlipOut upper bound | a proven lower bound, a measured accuracy | lower bound yes, accuracy no | ~200-300 lines; **stopped after the probe of 4.2**: the global factor loses 10-96%; the optimal variant (largest PL subsolution) is tier M and still loses a few h | S (M) |
 | D | Fast marching (Kimmel-Sethian) | a first-order field | no | ~600 lines; obtuse unfolding; dominated by the heat method we have (similar accuracy, no factorization reuse, intrinsic Delaunay already fixes obtuse cases for heat) | M |
 | E | Exact with expression trees / separation bounds | truly exact comparisons | yes | cost grows with path length; not practical (3.4) | L+ |
 
@@ -245,11 +293,13 @@ Not recommended: D (no bound, no gain over the existing heat method), E (cost), 
    added to the exact list in `.editorconfig`; it should be, since its proof depends on them.
 3. Use it as the **oracle** in the heat, FlipOut and vector heat tests on non-analytic meshes, and benchmark the heat
    method's true error in `IntrinsicBenchmark`.
-4. Later, separate decision: `TerrainSafety.AlongSurface` on the enclosure (Upper for the safe side), which would close
-   the documented "not guaranteed" gap.
+4. Later, separate decision: `TerrainSafety.AlongSurface` on the enclosure, which would close the documented "not
+   guaranteed" gap. The safe side is **Lower**: a point is certainly at least SafetyDistance away along the surface if
+   Lower >= SafetyDistance (the first draft said Upper; corrected).
 
-Option C is cheap and independent; it can come any time as an S task. Option B is the fallback if the stop rule fires,
-and the better choice if many sources and huge meshes matter more than tightness.
+Option C was stopped after its probe (4.2); the owner decides between dropping it and its tier-M variant (section 9).
+Option B is the fallback if the stop rule fires, and the better choice if many sources and huge meshes matter more
+than tightness.
 
 ## 7. Test plan (repo style)
 
@@ -290,7 +340,11 @@ and the better choice if many sources and huge meshes matter more than tightness
 - **Mutation**: a new shard for the file (exact-code rules, so it belongs with the exact shards); mutants the tests must
   kill: trimming without the certainty check (an enclosure that misses the true value on the prism and the L-domain),
   the inner and outer intervals swapped, a saddle vertex not made a pseudo-source (the monkey saddle), a boundary vertex
-  not made a pseudo-source (the L-domain), the tie order changed (the reuse and determinism tests).
+  not made a pseudo-source (the L-domain), the tie order changed (the reuse and determinism tests); per claim of
+  Appendix A: a pruning comparison made non-strict or against an outer-only window (A4), the child's inner interval
+  computed from the box midpoint instead of for every s in the box (A1), no re-emission after Lower(p) decreases (A5),
+  a merged window keeping the union of the inner intervals (A6). A mutant that only costs time (eg a pseudo-source at
+  every vertex) is equivalent and is listed as such.
 - **Test time**: meshes of at most a few thousand vertices; each test well under 1 s; the 10^5 measurements stay in the
   benchmark.
 - **New tests on base**: the oracle tests fail on base by construction (the class does not exist); heat tests that
@@ -311,14 +365,124 @@ and the better choice if many sources and huge meshes matter more than tightness
 - Several citations above are from memory (m) and must be checked; in particular the bound of the approximate MMP and
   the constants of Aleksandrov-Maheshwari-Sack.
 
-## 9. Decisions for the owner
+## 9. Decisions
 
-1. Approve **option A** (exact window propagation with a certified [Lower, Upper] enclosure) as the next geodesics item,
-   tier L, with the stop rule of section 6 (fallback: option B).
-2. Public API or test oracle first? Recommendation: public class (it answers a real gap, TerrainSafety AlongSurface),
-   marked experimental in its doc comment until the 10^5-vertex numbers are in.
-3. Put the new file under the exact-code rules (`.editorconfig` list, analyzers G3E0001-3, mutation shard)?
-   Recommendation: yes; its proof depends on them.
-4. Degenerate triangles: fail with a status, or compute on the mollified intrinsic metric? Recommendation: status first.
-5. Option C (Lipschitz lower bound for the heat method) as a separate S task: yes or later.
-6. Confirm that fast marching (option D) is not pursued.
+Owner decisions on the first draft (2026-11-13, via the coordinator):
+
+1. Option A with the stop rule of section 6. Before any code: the citations are checked (section 3.5, done as far as
+   the network allows) and the dominance-trimming argument gets an independent review (Appendix A).
+2. A test oracle first; a public class only after the review and the measurement.
+3. The file goes under the exact-code rules.
+4. Degenerate triangles fail with a status for now.
+5. Option C now, as a small separate PR. **Reopened:** the probe of section 4.2 shows that the planned certificate
+   loses 10-96% of the distance; option C was stopped before any code and the choice went back to the owner: (a) drop
+   C, option A's Lower is the lower bound for `TerrainSafety` (recommended); (b) the largest-PL-subsolution variant,
+   tier M, a few h of loss, uses a fast-marching-style update as a repair step; (c) the global factor as a documented
+   diagnostic only.
+6. No fast marching as a distance method.
+
+Order: C (now pending 5), the citation check and the argument section (this revision), then the measurement step of A.
+
+Open for the review of Appendix A: the claims A1-A6 and the assumptions listed there.
+
+## Appendix A: the enclosure argument (for review)
+
+Self-contained statement of why option A's [Lower, Upper] contains the polyhedral distance. The reviewer needs only
+this appendix; the algorithm details beyond what is stated here are free choices that do not affect soundness.
+
+### A.1 Setting
+
+- M: a manifold triangle mesh, possibly with boundary; every triangle certainly non-degenerate (its doubled area
+  enclosed away from 0; otherwise Compute fails with a status, owner decision 4). Vertex coordinates are doubles; the
+  true edge lengths l_e = |p_a - p_b| are real numbers, enclosed in intervals.
+- S: the source vertices. d(x): the polyhedral distance from S to a point x of M (the infimum of the lengths of surface
+  paths), the quantity to enclose at the vertices.
+- Interval arithmetic: every computed quantity q is an interval [q-, q+] that contains the real value computed by the
+  same formula from the true inputs (inclusion property of `ExactInterval`: + - * / sqrt rounded to nearest and widened
+  by one ulp; corner angles from `CoreMath.Atan2`, correctly rounded, evaluated at the corners of the argument box and
+  widened by one ulp; atan2(y, x) with y > 0 is monotone in each argument on a box, so the corners give its range).
+- Fact F (MMP 1987, (m) for the boundary case): a shortest path from S to x is a polyline that is straight inside
+  every face and across every edge (straight in the unfolding of two adjacent faces), and passes through a vertex other
+  than its ends only if the vertex is a saddle (angle sum > 2 pi) or a boundary vertex.
+
+### A.2 Data
+
+A **window** w lives on one side of an edge e (it propagates into the face F on that side) and carries:
+
+- an origin o(w): a source or a pseudo-source vertex, with an interval [sigma-, sigma+] for d(o);
+- the position s(w) of o unfolded into the plane of F, as an interval box (computed from the edge length intervals
+  along the window's history of faces);
+- an outer interval O(w) and an inner interval I(w) of e (parameter intervals; I may be empty).
+
+Lower and upper values of w at a point x of e: L_w(x) = (|x - s| + sigma)- and U_w(x) = (|x - s| + sigma)+, evaluated
+in interval arithmetic over the box s and the point x.
+
+Lower(v) = the minimum of L_w(v) over all windows whose outer interval contains the vertex v (as an edge end) and over
+v itself if v is in S (value 0); Upper(v) = the minimum of U_w(v) over windows whose inner interval contains v, and of
+Upper(u) + l_uv+ over the neighbours u (an edge path is a real path), iterated to a fixed point (Dijkstra on these
+values), so Upper is finite on every component with a source.
+
+### A.3 Claims
+
+- **A1 (realised inner intervals).** For every window w there are a real point s* in the box s(w) and a real path P*
+  from S to o(w) of length at most sigma+ such that for every x in I(w) the segment from s* to x lies in the unfolded
+  strip of w's history. Then P* followed by that segment is a surface path to x of length at most U_w(x).
+  *Initialisation:* a source o in face F: s* = o, sigma = [0, 0], I = the whole opposite edge (a face is convex).
+  *Propagation* across the face F' beyond e: the child's inner interval on an edge e' of F' is computed as the set of
+  points that lie on a ray from s through I(w) **for every s in the box** (endpoints: Hi of the projection of I's lower
+  end, Lo of the projection of I's upper end; the projection is monotone along an edge). In particular they lie on such
+  a ray from s*, so the segment from s* stays in the strip extended by F'. The child keeps s* and P*.
+  *Pseudo-sources:* a pseudo-source at vertex p gets sigma+ = Upper(p) at its creation, which by A2 is at least the
+  length of a real path P* to p; its windows start at s* = p.
+  *Inner intervals may be shrunk by any rule* (heuristic trimming included): a subset of a realised set is realised.
+- **A2 (Upper).** Upper(v) >= d(v). From A1 and from edge paths being real paths.
+- **A3 (outer coverage of a shortest path).** Let gamma be a shortest path from S to a vertex v, crossing edges at
+  y_1, ..., y_k between its pseudo-source vertices p_0 (a source), ..., p_m. Claim: for every crossing y_i after p_j
+  there is a window w with o(w) = p_j, y_i in O(w) and L_w(y_i) <= d(y_i); and at each p_j, Lower(p_j) <= d(p_j).
+  *Lower side needs no visibility:* for the window of gamma's segment, s(w) contains the true unfolding of p_j along
+  gamma's faces, gamma's piece from p_j to y_i is the straight segment in that unfolding (F), so its length is
+  |y_i - s*| and d(y_i) = d(p_j) + |y_i - s*| >= sigma- + |y_i - s*| >= L_w(y_i), given sigma- <= d(p_j).
+  *Propagation:* the child's outer interval on e' contains every point on a ray from any s in the box through any point
+  of O(w) (interval evaluation of the projection: Lo of the projection of O's lower end, Hi of the upper end). gamma
+  continues straight from s* through y_i to y_{i+1}, so y_{i+1} is in the child's outer interval. At the last crossing
+  before p_{j+1} (or v), the edge end p_{j+1} is reached: O(w) contains it (outer intervals are closed and include
+  edge ends they reach), so Lower(p_{j+1}) <= L_w(p_{j+1}) <= d(p_{j+1}).
+- **A4 (safe pruning).** Every rule that removes a part of an outer interval, or a whole window, must be of the form:
+  *remove x from O(w) only if there is a real path to x of length less than L_w(x), certified*, ie
+  U_{w2}(x) < L_w(x) for a window w2 with x in I(w2) (MMP trimming, made one-sided), or Upper(u) + |u - x|+ < L_w(x)
+  for a vertex u of the face containing x (the vertex filters of ICH and VTP), with strict inequalities between
+  computed bounds. Such a rule never removes gamma's crossing y_i from gamma's window: there d(y_i) >= L_w(y_i) and every
+  real path has length >= d(y_i), so the condition cannot hold. Hence A3's chain survives every pruning.
+- **A5 (pseudo-source test and re-emission).** A vertex is made a pseudo-source unless its angle sum is certainly below
+  2 pi and it is not on the boundary (an uncertain test makes it a pseudo-source: extra pseudo-sources cost time only,
+  missing ones would break A3 at a vertex of gamma). Its windows use sigma- = Lower(p) at emission. If Lower(p) later
+  decreases, p is emitted again with the new value (label correcting), so the final sigma- of the windows of the chain
+  is <= d(p). The queue order (by window minimum lower value, ties by creation id) affects only cost and determinism,
+  not soundness. A limit on re-emissions and windows ends with a status, never with a wrong bound.
+- **A6 (merging duplicates).** Two windows on the same edge side with the same origin and overlapping outer intervals
+  (they arise when two face sequences unfold the same pseudo-source to the same place, eg on a plane) may be merged
+  into one with the hull of their boxes and sigma intervals, outer = the union, inner = the inner interval of one of
+  them. A3: the merged L is at most both, and its outer propagation covers both rays. A1: the kept inner interval keeps
+  its witness s*, which lies in the hull, and the child's inner interval is computed for every s in the hull, so it is
+  realised from s*. Without merging, such duplicates are never certainly dominated (equal functions) and would double at
+  every step.
+
+**Conclusion.** Lower(v) <= d(v) (A3, A4, A5) and d(v) <= Upper(v) (A1, A2), for every vertex v of a component with a
+source; both bounds are bit-identical under 2^k scalings (every step scales exactly) and deterministic (serial, total
+order).
+
+### A.4 Assumptions and open points for the reviewer
+
+1. Fact F for boundary vertices and the exact statement of MMP's lemma (to be read in MMP 1987; section 3.5).
+2. A3 needs the window of gamma's segment to be created at all: the initialisation from each source into every
+   incident face and the emission of every pseudo-source into every incident face (including the faces "behind" a
+   saddle, where the exact algorithm emits windows only in the shadow region; emitting everywhere is safe and costs
+   time, restricting to the shadow needs a certified shadow test).
+3. Points on edge ends: windows whose outer interval reaches an edge end must record it for that vertex; a window that
+   ends exactly at a vertex must also be seen by the edges on the other side only through the pseudo-source mechanism
+   (gamma through a non-pseudo-source vertex is impossible by F).
+4. Termination and cost are not part of the argument (limits with a status). Whether the uncertain regions stay small
+   (they should: two windows with different origins are within rounding of each other only near a bisector point) is a
+   measurement of the first step.
+5. Non-manifold input and degenerate triangles are refused with a status; the mollified metric is not used (owner
+   decision 4).
