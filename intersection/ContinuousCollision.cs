@@ -1,0 +1,457 @@
+// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
+using System;
+using System.Runtime.CompilerServices;
+
+namespace g3
+{
+    /// <summary> Outcome of a continuous collision query (ContinuousCollision) </summary>
+    public enum CcdStatus
+    {
+        /// <summary> proven: the primitives stay farther apart than MinSeparation for every t in [0, TimeLimit] </summary>
+        NoCollision,
+        /// <summary>
+        /// possible contact: there is no contact on [0, TimeOfImpact), and at NearContactTime the primitives are within
+        /// sqrt(3) (MinSeparation + 2 ErrorBound + ToleranceReached) of each other (a false positive is near)
+        /// </summary>
+        Collision,
+        /// <summary>
+        /// MaxIterations boxes were evaluated before a near contact was found: treat as a collision at TimeOfImpact
+        /// (there is no contact on [0, TimeOfImpact)), but nothing is known about the distance after it
+        /// </summary>
+        IterationLimit,
+        /// <summary> a non-finite coordinate or an invalid option; nothing is proven </summary>
+        InvalidInput
+    }
+
+    /// <summary> Options of a continuous collision query </summary>
+    public sealed class CcdOptions
+    {
+        /// <summary> the distance below which the primitives count as in contact (absolute, &gt;= 0) </summary>
+        public double MinSeparation = 0;
+        /// <summary>
+        /// the width (per coordinate) of the image of a parameter box below which the search stops and reports a
+        /// collision (absolute). NaN: RelativeTolerance times the largest extent (per axis) of the query's points.
+        /// </summary>
+        public double Tolerance = double.NaN;
+        /// <summary> see Tolerance </summary>
+        public double RelativeTolerance = 1e-6;
+        /// <summary> the number of parameter boxes evaluated before IterationLimit; &lt;= 0: no limit </summary>
+        public int MaxIterations = 1000000;
+        /// <summary>
+        /// prove [0, TimeLimit] only (0 &lt;= TimeLimit &lt;= 1). The search still bisects [0, 1] (so that every box
+        /// corner is exact) and stops at the first box that starts after TimeLimit.
+        /// </summary>
+        public double TimeLimit = 1;
+        /// <summary>
+        /// once a near contact is found, the search stops refining when every box it has not discarded starts at most
+        /// this much before it (so NearContactTime - TimeOfImpact &lt;= TimeTolerance unless MaxIterations stops it)
+        /// </summary>
+        public double TimeTolerance = 1e-6;
+
+        internal bool IsValid()
+        {
+            return MinSeparation >= 0 && MinSeparation < double.PositiveInfinity
+                && (double.IsNaN(Tolerance) || (Tolerance >= 0 && Tolerance < double.PositiveInfinity))
+                && RelativeTolerance >= 0 && RelativeTolerance < double.PositiveInfinity
+                && TimeLimit >= 0 && TimeLimit <= 1
+                && TimeTolerance >= 0 && TimeTolerance <= 1;
+        }
+    }
+
+    /// <summary> Result of a continuous collision query </summary>
+    public struct CcdResult
+    {
+        /// <summary> see CcdStatus </summary>
+        public CcdStatus Status;
+        /// <summary>
+        /// a lower bound of the time of the first contact: there is no contact on [0, TimeOfImpact). +infinity for
+        /// NoCollision and InvalidInput.
+        /// </summary>
+        public double TimeOfImpact;
+        /// <summary>
+        /// Collision: a time at which the primitives are within sqrt(3) (MinSeparation + 2 ErrorBound +
+        /// ToleranceReached) of each other (TimeOfImpact &lt;= NearContactTime); +infinity otherwise
+        /// </summary>
+        public double NearContactTime;
+        /// <summary> an upper bound of the width (per coordinate) of the reported box's image </summary>
+        public double ToleranceReached;
+        /// <summary> the largest bound of the evaluation error that was used (0 on the interval path) </summary>
+        public double ErrorBound;
+        /// <summary> the number of parameter boxes evaluated </summary>
+        public int Iterations;
+    }
+
+    /// <summary>
+    /// Conservative continuous collision detection of a vertex against a triangle and of an edge against an edge, all
+    /// points moving linearly from their positions at t = 0 to those at t = 1. NoCollision is a proof that the
+    /// primitives stay farther apart than MinSeparation; a Collision may be a false positive, but only if the
+    /// primitives came near (CcdStatus.Collision).
+    ///
+    /// Method (inclusion-based root finding, after B. Wang, Z. Ferguson, T. Schneider, X. Jiang, M. Attene, D. Panozzo,
+    /// "A Large-scale Benchmark and an Inclusion-based Algorithm for Continuous Collision Detection", ACM TOG 40(5),
+    /// 2021; implemented from the paper, bounds our own, docs/design/CCD.md): the difference F(t, u, v) of the two
+    /// moving points of the primitives (u, v their barycentric or edge parameters) is affine in each of t, u, v
+    /// separately, so the image of a parameter box lies in the convex hull of the values at its 8 corners. A box is
+    /// discarded when on some axis all corner values are beyond MinSeparation (with the evaluation error), and split
+    /// at the midpoint otherwise; boxes are taken in the order of their start time, so the first box whose image is
+    /// narrower than the tolerance gives the time of impact.
+    /// </summary>
+    public static class ContinuousCollision
+    {
+        static readonly CcdOptions defaults = new CcdOptions();
+
+        /// <summary>
+        /// Vertex p against the triangle (a, b, c), with the positions at t = 0 (p0, a0, b0, c0) and at t = 1 (p1, a1,
+        /// b1, c1) and linear motion in between.
+        /// </summary>
+        public static CcdResult VertexTriangle(Vector3d p0, Vector3d a0, Vector3d b0, Vector3d c0,
+                                               Vector3d p1, Vector3d a1, Vector3d b1, Vector3d c1,
+                                               CcdOptions options = null)
+        {
+            var s = new CcdSolver();
+            s.Set(p0, a0, b0, c0, p1, a1, b1, c1);
+            return s.Solve(true, options ?? defaults);
+        }
+
+        /// <summary>
+        /// Edge (a, b) against the edge (c, d), with the positions at t = 0 (a0, b0, c0, d0) and at t = 1 (a1, b1, c1,
+        /// d1) and linear motion in between.
+        /// </summary>
+        public static CcdResult EdgeEdge(Vector3d a0, Vector3d b0, Vector3d c0, Vector3d d0,
+                                         Vector3d a1, Vector3d b1, Vector3d c1, Vector3d d1,
+                                         CcdOptions options = null)
+        {
+            var s = new CcdSolver();
+            s.Set(a0, b0, c0, d0, a1, b1, c1, d1);
+            return s.Solve(false, options ?? defaults);
+        }
+    }
+
+
+    /// <summary>
+    /// The solver of ContinuousCollision, reusable for many queries (one per thread). The four points of a query are
+    /// (p, a, b, c) for vertex-triangle and (a, b, c, d) for edge-edge, at t = 0 and t = 1.
+    /// F(t, u, v) = p(t) - ((1 - u - v) a(t) + u b(t) + v c(t)) over u, v &gt;= 0, u + v &lt;= 1 (vertex-triangle) and
+    /// F(t, u, v) = (a(t) + u (b(t) - a(t))) - (c(t) + v (d(t) - c(t))) over [0, 1]^2 (edge-edge), t in [0, 1].
+    /// </summary>
+    internal sealed class CcdSolver
+    {
+        // start[3 i + axis], end[3 i + axis] of the four points i
+        readonly double[] start = new double[12], end = new double[12];
+
+        // the queue of parameter boxes, a binary heap ordered by t0, then depth (deeper first), then seq: a total order,
+        // so the search is deterministic
+        struct Box
+        {
+            public double t0, t1, u0, u1, v0, v1;
+            public int depth, seq;
+        }
+        Box[] heap = new Box[64];
+        int count, seq;
+
+        // corner values of the current box: corner k has t = bit 0, u = bit 1, v = bit 2 (lower or upper end); on the
+        // interval path lo / hi of the interval, on the filter path both the computed value
+        readonly double[] cornerLo = new double[24], cornerHi = new double[24];
+
+        /// <summary> the smallest parameter interval that is still split: its halves' ends stay exact doubles
+        /// (multiples of 2^-53 in [0, 1]) </summary>
+        internal const double MinSplitWidth = 1.0 / (1L << 52);
+
+        /// <summary> tests: take the outward-rounded interval path even where the filter applies </summary>
+        internal bool ForceIntervals;
+
+        public void Set(Vector3d s0, Vector3d s1, Vector3d s2, Vector3d s3, Vector3d e0, Vector3d e1, Vector3d e2, Vector3d e3)
+        {
+            put(start, 0, s0); put(start, 1, s1); put(start, 2, s2); put(start, 3, s3);
+            put(end, 0, e0); put(end, 1, e1); put(end, 2, e2); put(end, 3, e3);
+        }
+
+        static void put(double[] a, int i, Vector3d v) { a[3 * i] = v.x; a[3 * i + 1] = v.y; a[3 * i + 2] = v.z; }
+
+        [MethodImpl(JitHints.Optimize)]
+        public CcdResult Solve(bool vertexTriangle, CcdOptions o)
+        {
+            var r = new CcdResult { Status = CcdStatus.InvalidInput, TimeOfImpact = double.PositiveInfinity, NearContactTime = double.PositiveInfinity };
+            if (o.IsValid() == false)
+                return r;
+            for (int i = 0; i < 12; ++i)
+                if (double.IsInfinity(start[i]) || double.IsNaN(start[i]) || double.IsInfinity(end[i]) || double.IsNaN(end[i]))
+                    return r;
+            vf = vertexTriangle;
+            delta = o.Tolerance;
+            if (double.IsNaN(delta))
+                delta = o.RelativeTolerance * extent();
+            ms = o.MinSeparation;
+            maxIterations = o.MaxIterations;
+            iterations = 0;
+            errorBound = 0;
+            bool haveNear = false;
+            Box near = default(Box);
+            double nearWidth = 0;
+
+            // The search keeps a partition of the domain into discarded boxes, the boxes of the queue and (once found)
+            // the near box: so every point of time before the smallest start of the queue's boxes and the near box is
+            // contact-free (G2), whatever the order. The order only decides how tight that time is: boxes are taken by
+            // their start time; the first box that is not discarded starts a dive (depth-first, earlier half first) for
+            // a near box; once one is found, only the boxes that start more than TimeTolerance before it are refined.
+            count = 0; seq = 0;
+            push(new Box { t0 = 0, t1 = 1, u0 = 0, u1 = 1, v0 = 0, v1 = 1 });
+            while (count > 0) {
+                Box b = heap[0];
+                if (haveNear && b.t0 >= near.t0 - o.TimeTolerance)
+                    break;
+                if (haveNear == false && b.t0 > o.TimeLimit)
+                    break;
+                if (limit_reached())
+                    return stop(ref r, b.t0, haveNear, ref near, nearWidth);
+                pop();
+                double width;
+                if (evaluate(ref b, out width))
+                    continue;
+                if (width <= delta) {
+                    // the earliest box of the queue: tight
+                    near = b; nearWidth = width; haveNear = true;
+                    return finish(ref r, near.t0, ref near, nearWidth);
+                }
+                int split = choose_split(ref b, haveNear ? near.t0 - o.TimeTolerance : double.NaN);
+                if (split < 0) {
+                    // no parameter can be split further (2^-52): the box counts as near, honestly with its width
+                    return finish(ref r, b.t0, ref b, width);
+                }
+                Box c1, c2;
+                halves(ref b, split, out c1, out c2);
+                if (haveNear) {
+                    push(c1); push(c2);
+                    continue;
+                }
+                // dive: follow the earlier half that is not discarded, the other half goes into the queue
+                while (true) {
+                    if (limit_reached()) {
+                        push(c1); push(c2);
+                        return stop(ref r, heap[0].t0, false, ref near, 0);
+                    }
+                    double w1, w2 = 0;
+                    bool d1 = evaluate(ref c1, out w1);
+                    Box next;
+                    double wNext;
+                    if (d1 == false) {
+                        push(c2);
+                        next = c1; wNext = w1;
+                    } else {
+                        if (limit_reached()) {
+                            push(c2);
+                            return stop(ref r, heap[0].t0, false, ref near, 0);
+                        }
+                        if (evaluate(ref c2, out w2))
+                            break;
+                        next = c2; wNext = w2;
+                    }
+                    if (next.t0 > o.TimeLimit) {
+                        push(next);     // evaluated again when it comes up (and then stops the search)
+                        break;
+                    }
+                    if (wNext <= delta) {
+                        near = next; nearWidth = wNext; haveNear = true;
+                        break;
+                    }
+                    split = choose_split(ref next, double.NaN);
+                    if (split < 0) {
+                        near = next; nearWidth = wNext; haveNear = true;
+                        break;
+                    }
+                    halves(ref next, split, out c1, out c2);
+                }
+            }
+            if (haveNear)
+                return finish(ref r, count > 0 ? Math.Min(heap[0].t0, near.t0) : near.t0, ref near, nearWidth);
+            r.Status = CcdStatus.NoCollision;
+            r.TimeOfImpact = double.PositiveInfinity;
+            r.Iterations = iterations;
+            r.ErrorBound = errorBound;
+            return r;
+        }
+
+        bool vf;
+        double delta, ms, errorBound;
+        int maxIterations, iterations;
+
+        bool limit_reached() { return maxIterations > 0 && iterations >= maxIterations; }
+
+        static void halves(ref Box b, int split, out Box c1, out Box c2)
+        {
+            c1 = b; c2 = b;
+            c1.depth = c2.depth = b.depth + 1;
+            if (split == 0) { double m = 0.5 * (b.t0 + b.t1); c1.t1 = m; c2.t0 = m; }
+            else if (split == 1) { double m = 0.5 * (b.u0 + b.u1); c1.u1 = m; c2.u0 = m; }
+            else { double m = 0.5 * (b.v0 + b.v1); c1.v1 = m; c2.v0 = m; }
+        }
+
+        // true if the box is discarded: outside the vertex-triangle domain, or on some axis every corner value is
+        // beyond the minimum separation; else width is an upper bound of the largest per-axis width of the corner values
+        [MethodImpl(JitHints.Optimize)]
+        bool evaluate(ref Box b, out double width)
+        {
+            width = 0;
+            // the vertex-triangle domain u + v <= 1: 1 - v0 is exact (v0 a multiple of 2^-53 in [0, 1])
+            if (vf && b.u0 > 1 - b.v0)
+                return true;
+            ++iterations;
+            for (int axis = 0; axis < 3; ++axis) {
+                corners_interval(vf, axis, ref b);
+                double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                for (int k = 0; k < 8; ++k) {
+                    lo = Math.Min(lo, cornerLo[8 * axis + k]);
+                    hi = Math.Max(hi, cornerHi[8 * axis + k]);
+                }
+                // every exact corner value lies in [lo, hi] (NaN bounds never discard: the comparisons are false)
+                if (lo > ms || hi < -ms)
+                    return true;
+                width = Math.Max(width, ExactInterval.Up(hi - lo));
+            }
+            return false;
+        }
+
+        // the time of impact is a lower bound; the near box gives NearContactTime (its start: its corner (t0, u0, v0) is
+        // in the domain and near, G3)
+        CcdResult finish(ref CcdResult r, double toi, ref Box b, double width)
+        {
+            LastBox[0] = b.t0; LastBox[1] = b.t1; LastBox[2] = b.u0; LastBox[3] = b.u1; LastBox[4] = b.v0; LastBox[5] = b.v1;
+            r.Status = CcdStatus.Collision;
+            r.TimeOfImpact = toi;
+            r.NearContactTime = b.t0;
+            r.ToleranceReached = width;
+            r.Iterations = iterations;
+            r.ErrorBound = errorBound;
+            return r;
+        }
+
+        // the iteration limit: with a near box still a Collision (with a looser time of impact), else IterationLimit
+        CcdResult stop(ref CcdResult r, double toi, bool haveNear, ref Box near, double nearWidth)
+        {
+            if (haveNear)
+                return finish(ref r, Math.Min(toi, near.t0), ref near, nearWidth);
+            r.Status = CcdStatus.IterationLimit;
+            r.TimeOfImpact = toi;
+            r.Iterations = iterations;
+            r.ErrorBound = errorBound;
+            return r;
+        }
+
+        /// <summary> tests: the parameter box of the last Collision (t0, t1, u0, u1, v0, v1) </summary>
+        internal readonly double[] LastBox = new double[6];
+
+        // the largest extent (max - min) per axis of the eight points; only steers the default tolerance
+        double extent()
+        {
+            double e = 0;
+            for (int axis = 0; axis < 3; ++axis) {
+                double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                for (int i = 0; i < 4; ++i) {
+                    lo = Math.Min(lo, Math.Min(start[3 * i + axis], end[3 * i + axis]));
+                    hi = Math.Max(hi, Math.Max(start[3 * i + axis], end[3 * i + axis]));
+                }
+                e = Math.Max(e, hi - lo);
+            }
+            return e;
+        }
+
+        // corner values of F on one axis in outward-rounded interval arithmetic: each contains the exact value at the
+        // exact corner (t, u, v are doubles)
+        [MethodImpl(JitHints.Optimize)]
+        void corners_interval(bool vertexTriangle, int axis, ref Box b)
+        {
+            ExactInterval s0 = ExactInterval.Of(start[axis]), s1 = ExactInterval.Of(start[3 + axis]),
+                s2 = ExactInterval.Of(start[6 + axis]), s3 = ExactInterval.Of(start[9 + axis]);
+            ExactInterval d0 = ExactInterval.Of(end[axis]) - s0, d1 = ExactInterval.Of(end[3 + axis]) - s1,
+                d2 = ExactInterval.Of(end[6 + axis]) - s2, d3 = ExactInterval.Of(end[9 + axis]) - s3;
+            ExactInterval u0 = ExactInterval.Of(b.u0), u1 = ExactInterval.Of(b.u1), v0 = ExactInterval.Of(b.v0), v1 = ExactInterval.Of(b.v1);
+            for (int kt = 0; kt < 2; ++kt) {
+                ExactInterval t = ExactInterval.Of(kt == 0 ? b.t0 : b.t1);
+                ExactInterval x0 = s0 + t * d0, x1 = s1 + t * d1, x2 = s2 + t * d2, x3 = s3 + t * d3;
+                ExactInterval e0, e1, e2;
+                if (vertexTriangle) { e0 = x0 - x1; e1 = x2 - x1; e2 = x3 - x1; }
+                else { e0 = x0 - x2; e1 = x1 - x0; e2 = x3 - x2; }
+                for (int kuv = 0; kuv < 4; ++kuv) {
+                    ExactInterval u = (kuv & 1) == 0 ? u0 : u1, v = (kuv & 2) == 0 ? v0 : v1;
+                    ExactInterval f = vertexTriangle ? (e0 - u * e1) - v * e2 : (e0 + u * e1) - v * e2;
+                    int k = kt | (kuv << 1);
+                    cornerLo[8 * axis + k] = f.Lo;
+                    cornerHi[8 * axis + k] = f.Hi;
+                }
+            }
+        }
+
+        // the parameter (0 t, 1 u, 2 v) whose box edges change the corner values most (ties: t, then u, then v),
+        // among those still wider than MinSplitWidth; -1 if none. A box that reaches past target (the start of the near
+        // box minus TimeTolerance) is split in t, so that its part before target can be discarded. Only steers the
+        // order of the search.
+        int choose_split(ref Box b, double target)
+        {
+            if (b.t1 > target && b.t1 - b.t0 >= MinSplitWidth)
+                return 0;
+            int best = -1;
+            double bestValue = -1;
+            for (int p = 0; p < 3; ++p) {
+                double w = p == 0 ? b.t1 - b.t0 : (p == 1 ? b.u1 - b.u0 : b.v1 - b.v0);
+                if (w < MinSplitWidth)
+                    continue;
+                int bit = 1 << p;
+                double change = 0;
+                for (int axis = 0; axis < 3; ++axis)
+                    for (int k = 0; k < 8; ++k)
+                        if ((k & bit) == 0) {
+                            double a = cornerLo[8 * axis + k] + cornerHi[8 * axis + k], c = cornerLo[8 * axis + (k | bit)] + cornerHi[8 * axis + (k | bit)];
+                            double diff = Math.Abs(c - a);
+                            if (double.IsNaN(diff)) diff = double.PositiveInfinity;
+                            change = Math.Max(change, diff);
+                        }
+                if (change > bestValue) { best = p; bestValue = change; }
+            }
+            return best;
+        }
+
+        void push(Box b)
+        {
+            b.seq = seq++;
+            if (count == heap.Length)
+                Array.Resize(ref heap, 2 * heap.Length);
+            int i = count++;
+            while (i > 0) {
+                int parent = (i - 1) >> 1;
+                if (less(ref heap[parent], ref b))
+                    break;
+                heap[i] = heap[parent];
+                i = parent;
+            }
+            heap[i] = b;
+        }
+
+        Box pop()
+        {
+            Box top = heap[0];
+            Box last = heap[--count];
+            int i = 0;
+            while (true) {
+                int c = 2 * i + 1;
+                if (c >= count)
+                    break;
+                if (c + 1 < count && less(ref heap[c + 1], ref heap[c]))
+                    ++c;
+                if (less(ref last, ref heap[c]))
+                    break;
+                heap[i] = heap[c];
+                i = c;
+            }
+            if (count > 0)
+                heap[i] = last;
+            return top;
+        }
+
+        static bool less(ref Box a, ref Box b)
+        {
+            if (a.t0 != b.t0) return a.t0 < b.t0;
+            if (a.depth != b.depth) return a.depth > b.depth;   // deeper first: a contact at a point of (u, v) is reached depth-first
+            return a.seq < b.seq;
+        }
+    }
+}
