@@ -259,6 +259,19 @@ namespace gs
         /// <summary> computes Result; true on Success (see Status; Result is also set for PointLimitReached) </summary>
         public bool Compute()
         {
+            // (the threads of the carving rounds and the trial passes, for this call)
+            int threads = MaxThreads > 0 ? MaxThreads : Environment.ProcessorCount;
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            try {
+                return compute_with_retry();
+            } finally {
+                team?.Dispose();
+                team = null;
+            }
+        }
+
+        bool compute_with_retry()
+        {
             asymmetricBox = StartWithOtherBox;
             forceRefineNonManifold = false;
             bool ok = compute_once();
@@ -715,8 +728,6 @@ namespace gs
 
         WrapStatus carve_rounds()
         {
-            int threads = MaxThreads > 0 ? MaxThreads : Environment.ProcessorCount;
-            team = threads > 1 ? new WorkerTeam(threads) : null;
             if (evaluateBody == null) {
                 evaluateBody = k => {
                     RoundGate g = roundGates[k];
@@ -726,12 +737,7 @@ namespace gs
                 applyBody = k => apply_gate(roundKept[k]);
                 pushBody = k => compute_pushes(roundKept[k]);
             }
-            try {
-                return carve_rounds_loop();
-            } finally {
-                team?.Dispose();
-                team = null;
-            }
+            return carve_rounds_loop();
         }
 
         WrapStatus carve_rounds_loop()
@@ -1631,6 +1637,8 @@ namespace gs
             if (++pocketStampValue == int.MaxValue) { Array.Clear(pocketStamp, 0, pocketStamp.Length); pocketStampValue = 1; }
             int[] reachedAt = pocketStamp;
             int mark = pocketStampValue;
+            if (parallel_trials(dt.MaxCellID))
+                return remove_pockets_parallel(reachedAt, mark, flipped);
             var stack = pocketStack;
             stack.Clear();
             foreach (int c in dt.CellIndices()) {
@@ -1656,6 +1664,145 @@ namespace gs
             return count;
         }
 
+        /// <summary> (tests) the stars of the last triangulation (offsets, cells), built in parallel or not, with `threads` threads </summary>
+        internal (int[] start, int[] cells) StarsForTests(bool parallel, int threads)
+        {
+            bool saved = ParallelTrials;
+            int savedMin = MinParallelTrialCells;
+            ParallelTrials = parallel;
+            MinParallelTrialCells = 0;
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            try {
+                starsOf = null;
+                build_stars();
+                int nv = dt.VertexCount;
+                var start = new int[nv + 1];
+                Array.Copy(starStart, start, nv + 1);
+                var cells = new int[start[nv]];
+                Array.Copy(starCells, cells, start[nv]);
+                return (start, cells);
+            } finally {
+                team?.Dispose();
+                team = null;
+                ParallelTrials = saved;
+                MinParallelTrialCells = savedMin;
+            }
+        }
+
+        /// <summary>
+        /// (tests) labels every cell of the last triangulation by outside(cell) and returns the vertices whose manifold-step
+        /// check the parallel precheck finds to change nothing (all vertices checked, `threads` threads); the labels stay changed
+        /// </summary>
+        internal List<int> UnchangedByCheckForTests(Func<int, bool> outside, int threads)
+        {
+            foreach (int c in dt.CellIndices()) label[c] = outside(c) ? Outside : Inside;
+            int savedMin = MinParallelTrialCells;
+            MinParallelTrialCells = 0;
+            team = new WorkerTeam(Math.Max(2, threads));
+            try {
+                starsOf = null;
+                build_stars();
+                var work = new Queue<int>();
+                for (int v = 0; v < dt.VertexCount; ++v) work.Enqueue(v);
+                precheck_stars(work);
+                var res = new List<int>();
+                for (int v = 0; v < dt.VertexCount; ++v)
+                    if (starTrivial[v] == starMark) res.Add(v);
+                return res;
+            } finally {
+                team.Dispose();
+                team = null;
+                MinParallelTrialCells = savedMin;
+            }
+        }
+
+        /// <summary>
+        /// (tests) labels every cell of the last triangulation by outside(cell), runs the pocket search (in parallel if
+        /// parallel, with `threads` threads) and returns the cells it moved inside, in its order; the labels stay changed
+        /// </summary>
+        internal List<int> PocketsForTests(Func<int, bool> outside, bool parallel, int threads)
+        {
+            foreach (int c in dt.CellIndices()) label[c] = outside(c) ? Outside : Inside;
+            var flipped = new List<int>();
+            bool saved = ParallelTrials;
+            int savedMin = MinParallelTrialCells;
+            ParallelTrials = parallel;
+            MinParallelTrialCells = 0;
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            try {
+                remove_pockets(flipped);
+            } finally {
+                team?.Dispose();
+                team = null;
+                ParallelTrials = saved;
+                MinParallelTrialCells = savedMin;
+            }
+            return flipped;
+        }
+
+        // remove_pockets with a level-synchronous search: the reached set is the outside region connected to the box boundary,
+        // whatever the order; the flipped cells are collected per block of ids and joined in block order, which is the order of
+        // the serial scan (increasing id)
+        readonly List<List<int>> blockLists = new List<List<int>>();
+        int remove_pockets_parallel(int[] reachedAt, int mark, List<int> flipped)
+        {
+            int nc = dt.MaxCellID;
+            int blocks = (nc + TrialBlock - 1) / TrialBlock;
+            while (blockLists.Count < Math.Max(blocks, 64)) blockLists.Add(new List<int>());
+            // the outside cells on the box
+            for_cell_blocks(nc, (b, c0, c1) => {
+                var list = blockLists[b];
+                list.Clear();
+                for (int c = c0; c < c1; ++c) {
+                    if (!dt.IsCell(c) || label[c] != Outside) continue;
+                    for (int i = 0; i < 4; ++i)
+                        if (dt.Neighbour(c, i) < 0) { reachedAt[c] = mark; list.Add(c); break; }
+                }
+            });
+            var frontier = new List<int>();
+            for (int b = 0; b < blocks; ++b) frontier.AddRange(blockLists[b]);
+            var next = new List<int>();
+            while (frontier.Count > 0) {
+                int chunks = Math.Min(blockLists.Count, Math.Max(1, frontier.Count / 256));
+                List<int> f = frontier;
+                team.For(chunks, k => {
+                    var list = blockLists[k];
+                    list.Clear();
+                    int i0 = (int)((long)f.Count * k / chunks), i1 = (int)((long)f.Count * (k + 1) / chunks);
+                    for (int q = i0; q < i1; ++q) {
+                        int c = f[q];
+                        for (int i = 0; i < 4; ++i) {
+                            int n = dt.Neighbour(c, i);
+                            if (n < 0 || label[n] != Outside) continue;
+                            int was = System.Threading.Volatile.Read(ref reachedAt[n]);
+                            if (was != mark && System.Threading.Interlocked.CompareExchange(ref reachedAt[n], mark, was) == was)
+                                list.Add(n);
+                        }
+                    }
+                });
+                next.Clear();
+                for (int k = 0; k < chunks; ++k) next.AddRange(blockLists[k]);
+                var t = frontier; frontier = next; next = t;
+            }
+            // the outside cells not reached become inside
+            for_cell_blocks(nc, (b, c0, c1) => {
+                var list = blockLists[b];
+                list.Clear();
+                for (int c = c0; c < c1; ++c)
+                    if (dt.IsCell(c) && label[c] == Outside && reachedAt[c] != mark) {
+                        label[c] = Inside;
+                        list.Add(c);
+                    }
+            });
+            int count = 0;
+            for (int b = 0; b < blocks; ++b) {
+                count += blockLists[b].Count;
+                flipped?.AddRange(blockLists[b]);
+            }
+            Counts["pocket_cells"] = (Counts.TryGetValue("pocket_cells", out long pc) ? pc : 0) + count;
+            return count;
+        }
+
         // cells incident to each vertex (CSR), built for the triangulation starsOf after starsInsertions successful insertions
         // into it (only insertions change it: the manifold step changes labels)
         int[] starStart = new int[0], starCells = new int[0], starFill = new int[0];
@@ -1667,6 +1814,10 @@ namespace gs
                 return;
             starsOf = dt;
             starsInsertions = insertions;
+            if (parallel_trials(dt.MaxCellID)) {
+                build_stars_parallel();
+                return;
+            }
             int nv = dt.VertexCount;
             if (starStart.Length < nv + 1) starStart = new int[Math.Max(nv + 1, 2 * starStart.Length)];
             else Array.Clear(starStart, 0, nv + 1);
@@ -1682,6 +1833,61 @@ namespace gs
                     int v = dt.CellVertex(c, j);
                     starCells[starStart[v] + fill[v]++] = c;
                 }
+        }
+
+        // ---- the trial passes in parallel (Alpha Wrap 3.0 lever (B), second part): the same results bit for bit ----
+
+        /// <summary> (tests) false: the trial passes (stars, pockets, the vertex checks of the manifold step) in one thread </summary>
+        internal bool ParallelTrials = true;
+        // cells per block of a parallel pass over the cells (a constant: the result does not depend on it)
+        const int TrialBlock = 4096;
+        /// <summary> (tests) the size (cells; 4 per queued vertex) from which a trial pass runs in parallel; the result does not depend on it </summary>
+        internal int MinParallelTrialCells = 4 * TrialBlock;
+
+        bool parallel_trials(int cells) { return ParallelTrials && team != null && cells >= MinParallelTrialCells; }
+
+        // body(c0, c1) for the blocks [c0, c1) of [0, n), on the team
+        void for_cell_blocks(int n, Action<int, int, int> body)
+        {
+            int blocks = (n + TrialBlock - 1) / TrialBlock;
+            team.For(blocks, b => body(b, b * TrialBlock, Math.Min(n, (b + 1) * TrialBlock)));
+        }
+
+        // the stars as build_stars makes them, by vertex ranges: each part scans every cell (sequential reads) and counts and
+        // fills only the stars of its vertices, in increasing cell id as the serial fill; no atomics, no shared writes
+        void build_stars_parallel()
+        {
+            int nv = dt.VertexCount, nc = dt.MaxCellID;
+            if (starStart.Length < nv + 1) starStart = new int[Math.Max(nv + 1, 2 * starStart.Length)];
+            else Array.Clear(starStart, 0, nv + 1);
+            int[] start = starStart;
+            int parts = team.Threads;
+            Func<int, int> lo = k => (int)((long)nv * k / parts);
+            team.For(parts, k => {
+                int v0 = lo(k), v1 = lo(k + 1);
+                for (int c = 0; c < nc; ++c) {
+                    if (!dt.IsCell(c)) continue;
+                    for (int j = 0; j < 4; ++j) {
+                        int v = dt.CellVertex(c, j);
+                        if (v >= v0 && v < v1) start[v + 1]++;
+                    }
+                }
+            });
+            for (int v = 0; v < nv; ++v) start[v + 1] += start[v];
+            if (starCells.Length < start[nv]) starCells = new int[Math.Max(start[nv], 2 * starCells.Length)];
+            if (starFill.Length < nv) starFill = new int[Math.Max(nv, 2 * starFill.Length)];
+            else Array.Clear(starFill, 0, nv);
+            int[] fill = starFill, cells = starCells;
+            team.For(parts, k => {
+                int v0 = lo(k), v1 = lo(k + 1);
+                for (int c = 0; c < nc; ++c) {
+                    if (!dt.IsCell(c)) continue;
+                    for (int j = 0; j < 4; ++j) {
+                        int v = dt.CellVertex(c, j);
+                        if (v >= v0 && v < v1) cells[start[v] + fill[v]++] = c;
+                    }
+                }
+            });
         }
 
         /// <summary>
@@ -1727,6 +1933,9 @@ namespace gs
                 edgeStampValue = 0;
             }
             long limit = 100L * dt.VertexCount + 1000;
+            // (in parallel, before the loop: the queued vertices whose check changes nothing; such a result stays valid while
+            // no cell of the vertex's star is flipped, as the check reads only the labels of its star)
+            bool pre = precheck_stars(work);
             while (true) {
                 while (work.Count > 0) {
                     if (++processed > limit)
@@ -1736,6 +1945,8 @@ namespace gs
                     int v = work.Dequeue();
                     queued[v] = false;
                     flippedCells.Clear();
+                    if (pre && starTrivial[v] == starMark && starDirty[v] != starMark)
+                        continue;
                     // edges v-x: result facets around them (all contain v, so they are facets of the star of v)
                     edgeX.Clear(); edgeN.Clear();
                     if (++edgeStampValue == int.MaxValue) { Array.Clear(edgeStamp, 0, edgeStamp.Length); edgeStampValue = 1; }
@@ -1773,15 +1984,19 @@ namespace gs
                     if (flippedCells.Count == 0 && !(edgeX.Count == 0 || !hull && link_is_one_cycle()))
                         fix_star(v, -1);
                     flips += flippedCells.Count;
-                    foreach (int c in flippedCells)
+                    foreach (int c in flippedCells) {
                         enqueue_cell(c);
+                        if (pre) mark_dirty(c);
+                    }
                 }
                 flippedCells.Clear();
                 remove_pockets(flippedCells);
                 if (flippedCells.Count == 0)
                     break;
-                foreach (int c in flippedCells)
+                foreach (int c in flippedCells) {
                     enqueue_cell(c);
+                    if (pre) mark_dirty(c);
+                }
             }
             Counts["manifold_flips"] = flips;
             Counts["manifold_vertex_checks"] = processed;
@@ -1789,6 +2004,87 @@ namespace gs
         }
 
         readonly List<int> flippedCells = new List<int>();
+
+        // per vertex: its check changes nothing (starTrivial == starMark), a cell of its star was flipped since (starDirty == starMark)
+        int[] starTrivial = new int[0], starDirty = new int[0];
+        int starMark;
+        sealed class StarScratch
+        {
+            public readonly List<int> X = new List<int>(), N = new List<int>(), A = new List<int>(), B = new List<int>(), P = new List<int>();
+        }
+        readonly List<StarScratch> starScratch = new List<StarScratch>();
+
+        void mark_dirty(int c)
+        {
+            for (int j = 0; j < 4; ++j) starDirty[dt.CellVertex(c, j)] = starMark;
+        }
+
+        bool precheck_stars(Queue<int> work)
+        {
+            if (!parallel_trials(4 * work.Count))
+                return false;
+            int nv = dt.VertexCount;
+            if (starTrivial.Length < nv) {
+                starTrivial = new int[Math.Max(nv, 2 * starTrivial.Length)];
+                starDirty = new int[starTrivial.Length];
+                starMark = 0;
+            }
+            if (++starMark == int.MaxValue) { Array.Clear(starTrivial, 0, starTrivial.Length); Array.Clear(starDirty, 0, starDirty.Length); starMark = 1; }
+            int[] vs = work.ToArray();
+            int chunks = Math.Min(64, Math.Max(1, vs.Length / 256));
+            while (starScratch.Count < chunks) starScratch.Add(new StarScratch());
+            int mark = starMark;
+            team.For(chunks, k => {
+                StarScratch sc = starScratch[k];
+                int i0 = (int)((long)vs.Length * k / chunks), i1 = (int)((long)vs.Length * (k + 1) / chunks);
+                for (int q = i0; q < i1; ++q)
+                    if (check_changes_nothing(vs[q], sc)) starTrivial[vs[q]] = mark;
+            });
+            return true;
+        }
+
+        // (read only) true if the manifold step's check of v changes nothing: no result facet around v, or (away from the box)
+        // every edge v-x on two result facets and those facets forming one cycle around v, as in make_manifold
+        bool check_changes_nothing(int v, StarScratch sc)
+        {
+            sc.X.Clear(); sc.N.Clear(); sc.A.Clear(); sc.B.Clear();
+            bool hull = false;
+            for (int k = starStart[v]; k < starStart[v + 1]; ++k) {
+                int c = starCells[k];
+                for (int i = 0; i < 4; ++i) {
+                    if (dt.CellVertex(c, i) == v) continue;
+                    int nb = dt.Neighbour(c, i);
+                    if (nb < 0) hull = true;
+                    if (label[c] != Inside || label_of(nb) != Outside) continue;
+                    int first = -1;
+                    for (int j = 0; j < 4; ++j) {
+                        int x = dt.CellVertex(c, j);
+                        if (j == i || x == v) continue;
+                        int slot = sc.X.IndexOf(x);
+                        if (slot < 0) { slot = sc.X.Count; sc.X.Add(x); sc.N.Add(0); }
+                        sc.N[slot]++;
+                        if (first < 0) first = slot;
+                        else { sc.A.Add(first); sc.B.Add(slot); }
+                    }
+                }
+            }
+            int n = sc.X.Count;
+            if (n == 0) return true;
+            if (hull) return false;
+            for (int e = 0; e < n; ++e)
+                if (sc.N[e] != 2) return false;
+            var parent = sc.P;
+            parent.Clear();
+            for (int e = 0; e < n; ++e) parent.Add(e);
+            int parts = n;
+            for (int k = 0; k < sc.A.Count; ++k) {
+                int a = sc.A[k], b = sc.B[k];
+                while (parent[a] != a) a = parent[a];
+                while (parent[b] != b) b = parent[b];
+                if (a != b) { parent[a] = b; parts--; }
+            }
+            return parts == 1;
+        }
         // the link of a vertex v away from the box: a triangulated sphere, whose triangles are the cells of the star and whose
         // edges are their facets through v. The result facets through v are link edges between an inside and an outside
         // triangle. If every link vertex x has exactly two of them (edge v-x on two result facets) and they are connected,
