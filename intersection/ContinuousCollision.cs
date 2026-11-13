@@ -8,15 +8,20 @@ namespace g3
     public enum CcdStatus
     {
         /// <summary>
-        /// a non-finite coordinate or an invalid option; nothing is proven (the zero value, so that a default CcdResult
-        /// proves nothing)
+        /// a coordinate that is not finite or above 2^1000 in magnitude, or an invalid option; nothing is proven (the
+        /// zero value, so that a default CcdResult proves nothing)
         /// </summary>
         InvalidInput,
-        /// <summary> proven: the primitives stay farther apart than MinSeparation for every t in [0, TimeLimit] </summary>
+        /// <summary>
+        /// proven: for every t in [0, TimeLimit] the primitives stay farther apart than MinSeparation in the L-infinity
+        /// distance (the largest coordinate difference of any two of their points), which implies the same for the
+        /// Euclidean distance
+        /// </summary>
         NoCollision,
         /// <summary>
-        /// possible contact: there is no contact on [0, TimeOfImpact), and at NearContactTime the primitives are within
-        /// sqrt(3) (MinSeparation + 2 ErrorBound + ToleranceReached) of each other (a false positive is near)
+        /// possible contact: there is no contact (L-infinity distance &lt;= MinSeparation) on [0, TimeOfImpact), and at
+        /// NearContactTime the primitives are within MinSeparation + 2 ErrorBound + ToleranceReached of each other in every
+        /// coordinate, so within sqrt(3) times that in the Euclidean distance (a false positive is near)
         /// </summary>
         Collision,
         /// <summary>
@@ -76,8 +81,9 @@ namespace g3
         /// <summary> see CcdStatus </summary>
         public CcdStatus Status;
         /// <summary>
-        /// a lower bound of the time of the first contact: there is no contact on [0, TimeOfImpact). +infinity for
-        /// NoCollision and InvalidInput.
+        /// a lower bound of the time of the first contact: there is no contact on [0, TimeOfImpact). NoCollision:
+        /// TimeLimit if it is below 1 (only [0, TimeLimit] is proven), +infinity for the whole step; InvalidInput:
+        /// +infinity (nothing is proven).
         /// </summary>
         public double TimeOfImpact;
         /// <summary>
@@ -197,8 +203,9 @@ namespace g3
             var r = new CcdResult { Status = CcdStatus.InvalidInput, TimeOfImpact = double.PositiveInfinity, NearContactTime = double.PositiveInfinity };
             if (o.IsValid() == false)
                 return r;
+            // finite and at most InputRange in magnitude, so that no extent, difference or corner value overflows
             for (int i = 0; i < 12; ++i)
-                if (double.IsInfinity(start[i]) || double.IsNaN(start[i]) || double.IsInfinity(end[i]) || double.IsNaN(end[i]))
+                if ((Math.Abs(start[i]) <= InputRange) == false || (Math.Abs(end[i]) <= InputRange) == false)
                     return r;
             vf = vertexTriangle;
             delta = o.Tolerance;
@@ -290,7 +297,7 @@ namespace g3
             if (haveNear)
                 return finish(ref r, count > 0 ? Math.Min(heap[0].t0, near.t0) : near.t0, ref near, nearWidth);
             r.Status = CcdStatus.NoCollision;
-            r.TimeOfImpact = double.PositiveInfinity;
+            r.TimeOfImpact = no_collision_time();
             r.Iterations = iterations;
             r.ErrorBound = errorBound;
             return r;
@@ -299,6 +306,9 @@ namespace g3
         bool vf;
         double delta, ms, errorBound, timeLimit;
         int maxIterations, iterations;
+
+        // NoCollision proves [0, TimeLimit]: the time of impact is TimeLimit, or +infinity for the whole step
+        double no_collision_time() { return timeLimit < 1 ? timeLimit : double.PositiveInfinity; }
 
         bool limit_reached() { return maxIterations > 0 && iterations >= maxIterations; }
 
@@ -442,7 +452,7 @@ namespace g3
             // every box left starts after TimeLimit: [0, TimeLimit] is proven
             if (toi > timeLimit) {
                 r.Status = CcdStatus.NoCollision;
-                r.TimeOfImpact = double.PositiveInfinity;
+                r.TimeOfImpact = no_collision_time();
                 r.Iterations = iterations;
                 r.ErrorBound = errorBound;
                 return r;
@@ -483,6 +493,11 @@ namespace g3
         internal const double FilterAbsolute = 16 * double.Epsilon;
         /// <summary> above this coordinate magnitude the interval path is taken (no intermediate can overflow below it) </summary>
         internal static readonly double FilterRange = BitConverter.Int64BitsToDouble((1023L + 500) << 52);   // 2^500
+        /// <summary>
+        /// larger coordinates are InvalidInput: up to 2^1000 the extent (&lt;= 2^1001), the differences and the corner values
+        /// (&lt;= 6 * 2^1000, also with the interval path's widening) stay finite
+        /// </summary>
+        public static readonly double InputRange = BitConverter.Int64BitsToDouble((1023L + 1000) << 52);   // 2^1000
 
         readonly double[] diff = new double[12], thresholds = new double[3], errors = new double[3];
         bool useFilter;

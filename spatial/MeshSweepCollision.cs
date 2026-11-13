@@ -18,7 +18,10 @@ namespace g3
         /// first contact, but there may be no near contact up to EarliestNearContactTime
         /// </summary>
         IterationLimit,
-        /// <summary> a mesh is null, an end position array is too short, or the options are invalid </summary>
+        /// <summary>
+        /// a mesh is null, an end position array is too short, a position is not finite or above 2^1000 in magnitude, or
+        /// the options are invalid
+        /// </summary>
         InvalidInput
     }
 
@@ -73,7 +76,10 @@ namespace g3
 
         /// <summary> see MeshSweepStatus </summary>
         public MeshSweepStatus Status;
-        /// <summary> no contact between any two primitives on [0, EarliestTimeOfImpact); +infinity if none may touch </summary>
+        /// <summary>
+        /// no contact between any two primitives on [0, EarliestTimeOfImpact); at most Options.TimeLimit if that is
+        /// below 1 (only [0, TimeLimit] is searched), +infinity if no pair may touch in the whole step
+        /// </summary>
         public double EarliestTimeOfImpact;
         /// <summary> the smallest NearContactTime of a pair; +infinity if none </summary>
         public double EarliestNearContactTime;
@@ -165,7 +171,9 @@ namespace g3
                     one(i, solver);
             }
 
-            // reduce serially (min of times: exact, independent of the order)
+            // reduce serially (min of times: exact, independent of the order); a time limit below 1 bounds the claim
+            if (Options.TimeLimit < 1)
+                EarliestTimeOfImpact = Options.TimeLimit;
             bool invalid = false;
             for (int i = 0; i < results.Length; ++i) {
                 CcdResult r = results[i];
@@ -197,12 +205,15 @@ namespace g3
             return Status;
         }
 
-        // the start and end positions of the mesh's vertices are finite (a NaN box would drop its pairs silently)
+        // the start and end positions of the mesh's vertices are finite and within the solver's range (a NaN box would
+        // drop its pairs silently)
         static bool finite(DMesh3 m, Vector3d[] end)
         {
             foreach (int vid in m.VertexIndices()) {
                 Vector3d p = m.GetVertex(vid), q = end[vid];
-                if (p.IsFinite == false || q.IsFinite == false)
+                double r = CcdSolver.InputRange;
+                if ((Math.Abs(p.x) <= r && Math.Abs(p.y) <= r && Math.Abs(p.z) <= r
+                     && Math.Abs(q.x) <= r && Math.Abs(q.y) <= r && Math.Abs(q.z) <= r) == false)
                     return false;
             }
             return true;

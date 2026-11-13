@@ -210,6 +210,40 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshSweepStatus.NoCollision, none.Compute());
         }
 
+        // bound review of #793, S1: a subnormal minimum separation (0.5 * 5 2^-1074 rounds to 2 2^-1074): a static vertex at
+        // x = 0 and a triangle in the plane x = 5 2^-1074, exactly at the minimum separation, touch
+        [Fact]
+        public void SubnormalMinSeparation_ExactlyAtTheDistance()
+        {
+            double ms = 5 * double.Epsilon;
+            var a = new DMesh3();
+            a.AppendVertex(new Vector3d(0, 0.25, 0.25));
+            var b = new DMesh3();
+            int v0 = b.AppendVertex(new Vector3d(ms, 0, 0)), v1 = b.AppendVertex(new Vector3d(ms, 1, 0)), v2 = b.AppendVertex(new Vector3d(ms, 0, 1));
+            b.AppendTriangle(v0, v1, v2);
+            var o = new CcdOptions { MinSeparation = ms };
+            var sweep = new MeshSweepCollision(a, moved(a, x => x), b, moved(b, x => x)) { Options = o };
+            Assert.Equal(MeshSweepStatus.Collision, sweep.Compute());
+            Assert.Equal(CcdStatus.Collision, ContinuousCollision.VertexTriangle(a.GetVertex(0), b.GetVertex(v0), b.GetVertex(v1), b.GetVertex(v2),
+                a.GetVertex(0), b.GetVertex(v0), b.GetVertex(v1), b.GetVertex(v2), o).Status);
+        }
+
+        // bound review of #793, S2 / S3: positions beyond the range are InvalidInput; a time limit bounds the earliest time
+        [Fact]
+        public void HugePositions_AndTimeLimit()
+        {
+            DMesh3 a = box(new Vector3d(-0.5, 0, 0), 1), b = box(new Vector3d(0.75, 0.25, 0.125), 1);
+            var huge = moved(a, x => x);
+            huge[0] = new Vector3d(-Math.Pow(2, 1020), 0, 0);    // away from B: no candidate pair, only the sweep's own check sees it
+            Assert.Equal(MeshSweepStatus.InvalidInput, new MeshSweepCollision(a, huge, b, moved(b, x => x)).Compute());
+            var early = approach(0.5, new CcdOptions { TimeLimit = 0.4 });
+            Assert.Equal(MeshSweepStatus.NoCollision, early.Compute());
+            Assert.Equal(0.4, early.EarliestTimeOfImpact);
+            var late = approach(0.5, new CcdOptions { TimeLimit = 0.6 });
+            Assert.Equal(MeshSweepStatus.Collision, late.Compute());
+            Assert.True(late.EarliestTimeOfImpact <= 0.5 && late.EarliestTimeOfImpact >= 0.5 - 1e-5);
+        }
+
         // review #793: an uncomputed sweep proves nothing; SetEndPositions without endB keeps B's
         [Fact]
         public void NotComputed_AndSetEndPositionsKeepsB()

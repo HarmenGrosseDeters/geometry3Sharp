@@ -181,6 +181,30 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Iterations <= 2, $"{r.Iterations} iterations");
         }
 
+        // bound review of #793, S2: coordinates whose differences or extent would overflow are InvalidInput
+        [Fact]
+        public void HugeCoordinates_BeyondTheRangeAreInvalid()
+        {
+            foreach (double scale in new[] { Math.Pow(2, 1010), Math.Pow(2, 1020), double.MaxValue / 2 }) {
+                CcdResult r = Run(vertexThrough(0.25, 0.25).Map(x => x * scale));
+                Assert.Equal(CcdStatus.InvalidInput, r.Status);
+                Assert.True(double.IsPositiveInfinity(r.TimeOfImpact));
+            }
+            // 2^1000 itself is in range (the unit triangle and the path stay below it)
+            Assert.Equal(CcdStatus.Collision, Run(vertexThrough(0.25, 0.25).Map(x => x * Math.Pow(2, 999))).Status);
+            Assert.Equal(Math.Pow(2, 1000), CcdSolver.InputRange);
+        }
+
+        // bound review of #793, S3: NoCollision under a time limit below 1 proves [0, TimeLimit] only
+        [Fact]
+        public void TimeLimit_BoundsTheTimeOfImpact()
+        {
+            var r = Run(vertexThrough(0.25, 0.25), new CcdOptions { TimeLimit = 0.4 });
+            Assert.Equal(CcdStatus.NoCollision, r.Status);
+            Assert.Equal(0.4, r.TimeOfImpact);
+            Assert.True(double.IsPositiveInfinity(Run(vertexThrough(2, 2)).TimeOfImpact));
+        }
+
         [Fact]
         public void InvalidInput()
         {

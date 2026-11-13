@@ -433,15 +433,21 @@ Files: `intersection/ContinuousCollision.cs` (`CcdStatus`, `CcdOptions`, `CcdRes
 Per axis, `u = 2^-53`, `M` the largest magnitude of the axis' 8 input coordinates, `|t|, |u_p|, |v_p| <= 1` exact, every
 operation `fl(a op b) = (a op b)(1 + d) + eta_op`, `|d| <= u`, `eta = 0` for `+ -` (exact when subnormal) and `|eta| <= 2^-1075`
 for `*`. Exact values with a star.
-1. `d = fl(x1 - x0)`: `|d - D*| <= 2Mu`, `|d| <= 2M(1 + u)`.
-2. `m = fl(t d)`: `|m - t D*| <= 2Mu + 2M(1 + u)u + eta`.
-3. `X = fl(x0 + m)`, `|X*| <= M`: `|X - X*| <= (4Mu + 2Mu^2 + eta) + (M + 4Mu + ...)u <= 6Mu + 2 eta` (rounded up).
-4. `e_k = fl(X_i - X_j)`, `|E*| <= 2M`: `<= 2(6Mu + 2 eta) + (2M + ...)u <= 15Mu + 5 eta`.
-5. `w = fl(u_p e_k)`: `<= 15Mu + 5 eta + (2M + ...)u + eta <= 18Mu + 7 eta`.
-6. `s = fl(e0 -/+ w1)`, `|S*| <= 4M`: `<= 33Mu + 12 eta + (4M + ...)u <= 38Mu + 13 eta`.
-7. `F = fl(s - w2)`, `|F*| <= 6M`: `<= 38Mu + 13 eta + 18Mu + 7 eta + (6M + ...)u <= 62Mu + 21 eta`.
+
+| step | operation | magnitude of the exact value | error bound (after the step) |
+|---|---|---|---|
+| 1 | `d = fl(x1 - x0)` | `abs(D*) <= 2M` | `2Mu` |
+| 2 | `m = fl(t d)` | `abs(t D*) <= 2M` | `2Mu + 2M(1 + u)u + eta` |
+| 3 | `X = fl(x0 + m)` | `abs(X*) <= M` (a convex combination) | `6Mu + 2 eta` |
+| 4 | `e_k = fl(X_i - X_j)` | `abs(E*) <= 2M` | `15Mu + 5 eta` |
+| 5 | `w = fl(u_p e_k)` | `<= 2M` | `18Mu + 7 eta` |
+| 6 | `s = fl(e0 -/+ w1)` | partial sum `<= 4M` (each term `<= 2M`) | `38Mu + 13 eta` |
+| 7 | `F = fl(s - w2)` | `abs(F*) <= 6M` | `62Mu + 21 eta` |
+
+Each bound adds the propagated errors of the operands and `u` times the computed magnitude (exact magnitude plus the
+operands' errors), rounded up to whole multiples of `Mu` and `eta` (the second-order terms are below `Mu` for `u = 2^-53`).
 Used: `e = Up(M 2^-47 + 16 2^-1074)` (`64 M u`; `16 * 2^-1074 = 32 * 2^-1075 >= 21 eta`), threshold `Up(ms + e)`. Inputs with
-`M > 2^500` take the interval path (no intermediate overflows below it). The crossing points of 10.1 use the same order
+`M > 2^500` take the interval path; above `2^1000` they are `InvalidInput` (10.7, S2). The crossing points of 10.1 use the same order
 of operations with u_p, v_p in [0, 1]. Observed worst error / e on the adversarial test set: above 1/16 (a constant 16
 times smaller fails the test; 4 times smaller passes).
 
@@ -486,3 +492,16 @@ cores (minimum separation 0), 2.1 s (0.01).
 - Performance left for later (code review of #793): the broad phase runs serially; with `CollectAll = false` every
   candidate pair still runs its tightening, also those the reduction drops (a first pass without tightening, then
   tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the result and save time).
+
+### 10.7 Bound review (2026-11-13)
+
+Independent review of the head e97d285: no must-fix. B1 is sound; the reviewer's own derivation gives `44 Mu + 4 2^-1074`,
+below the table's `62 Mu + 21 2^-1075`; the used `e = Up(M 2^-47 + 16 2^-1074)` covers both. The clipping, the separating
+directions, G2 on every return path and determinism are sound. Should-fix items, fixed in #793:
+- S1: the sweep's half separation was inexact for a subnormal `ms` (`0.5 * 5 2^-1074` ties to `2 2^-1074`): rounded up
+  (also found by the code review); regression test with a vertex exactly `ms = 5 2^-1074` from a triangle.
+- S2: coordinates near `2^1023` overflowed (every box survived, `ToleranceReached` infinite; an infinite extent made the
+  first box near): coordinates above `InputRange = 2^1000` in magnitude are `InvalidInput` (query and sweep).
+- S3: `NoCollision` under `TimeLimit < 1` reported `TimeOfImpact = +infinity`, which claimed more than `[0, TimeLimit]`:
+  it is `TimeLimit` now, and the sweep's `EarliestTimeOfImpact` is at most `TimeLimit`.
+- Nits: the per-operation table above; the status docs name the L-infinity statement and its Euclidean consequence.
