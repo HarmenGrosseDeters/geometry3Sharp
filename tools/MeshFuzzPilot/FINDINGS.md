@@ -225,6 +225,22 @@ Open, gated or outside the domain (none has a procedural reproduction inside the
    the domain); the code returns false for more than one loop but not for none.
 5. **`mesh-cut`: the snap tolerance is absolute (1e-5).** A target of area 4e-11 (a flat mesh of the size 1) lost 2 % of its area to the snap.
 
+### libFuzzer campaigns of the third wave (2026-11-13, 3 workers, `-max_total_time` per target)
+
+- **`marching-cubes`**: 55 minutes (about 3.4 million executions), no finding. The first minutes found a missing domain (a mesh beyond 2^16 extents
+  from the origin: the bounds of the 2^40 copy overflow), now excluded in `RunMarchingCubes`.
+- **`terrain-tin`**: 55 minutes, 1 045 artifacts, two library classes:
+  - **#854** (145 of 150 sampled `crash-*`): the ear choice of `RemoveVertices` compares errors with an absolute 1e-12 (`TerrainGreedyTIN.cs:365`), so
+    the 2^40 copy differs from the scaled TIN; procedural reproduction in the issue (4 by 4 grid, plateau heights with 1e-14 noise), the mutation "no tolerance"
+    removes it for 8 000 swept cases.
+  - **#855** (the 27 `timeout-*`; one replayed): `Compute()` with `MaxError = 0` and a height of -2.87e-223 never ends and dies with out of memory
+    (the default `MaxVertices` is `int.MaxValue`).
+- **`mesh-cut`**: stopped by the session limit after about 50 minutes, 105 artifacts: 47 "the area changed", 12 `update_from_split: unsortable vertex?`, most
+  with a dynamic range of 1e-130 and below inside the case (outside the range). The in-range class is a cut mesh that touches the target (vertices exactly on a
+  face plane): **#856** (the same case at 2^108 .. 2^120 gives 14, 14, ... , an exception at 2^113, then 20 triangles; no contact gives 12 at every scale).
+  The class is in the target's domain, so the target keeps reporting it until `MeshMeshCut` handles touching input or the domain excludes contact (owner).
+- **`insert-polygon`, `trim-loop`**: see the entry added when their runs (30 minutes each) finished.
+
 ## Judgement notes
 
 - **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with
