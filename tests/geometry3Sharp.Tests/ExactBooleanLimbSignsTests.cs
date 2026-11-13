@@ -87,7 +87,8 @@ namespace geometry3Sharp.Tests
         }
 
         // Measured (one thread, .NET 10): 17 / 34 / 55 MB with the limb stages, 73 / 160 / 158 MB with the BigInteger
-        // expressions. The bound is on the allocation of the operation, which does not depend on the machine's speed.
+        // expressions. The bound is on the allocation of the operation, which does not depend on the machine's speed;
+        // it is checked where the library has the limb stages (net10.0, not the netstandard2.0 build under net48).
         [Theory]
         [InlineData("sheets3", 40)]
         [InlineData("sheets4", 80)]
@@ -105,7 +106,13 @@ namespace geometry3Sharp.Tests
             Assert.True(filtered.Result.TriangleCount > 300, $"{filtered.Result.TriangleCount} triangles");
             // every decision by the exact stages: the mesh of the filtered run, triangle for triangle
             Assert.Equal(Triangles(filtered.Result), Triangles(exact.Result));
+#if NET
             Assert.True(bytes < megabytes * 1048576L, $"{kind}: {bytes / 1048576.0:0.0} MB allocated with the filters off, bound {megabytes} MB");
+#else
+            // the netstandard2.0 library (no BigInteger.TryWriteBytes on a span) keeps the BigInteger expressions in these
+            // stages (71 / 154 / 155 / 62 MB on .NET Framework 4.8): there only the result is checked
+            Assert.True(bytes > 0 && megabytes > 0);
+#endif
         }
 
         // The three operations with the filters off give the filtered results (the stages decide intersections and

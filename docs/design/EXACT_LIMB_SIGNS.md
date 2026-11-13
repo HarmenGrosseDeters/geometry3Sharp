@@ -94,6 +94,16 @@ only from 9.0 to 8.1 s: loading eight operands per call costs about what the Big
 gain of the side stage (2 x in the micro benchmark) needs the limbs stored with the points, which is candidate C on
 the same representation.
 
+The table is the first version of the kernels (af87765). The limits and the determinant's scratch space of section 2
+came with the review; against af87765 on the slow tail (5 alternating runs, the same conditions, `results/b3`) the
+medians of the six operations change by -2.2 to +3.0 % with overlapping ranges, the allocation is the same to the
+megabyte (no call of these models moved to the BigInteger path) and the hashes are equal.
+
+`centroid_point` on stack limbs with the result converted back to a BigInteger point (candidate C, part 1) was probed
+on the prototype and not built: slow tail -5.2 to +3.6 % per operation with overlapping ranges (4 cores, wall time
+with collections, median of 5), normal strata unchanged, one thread 0.8 to 4.2 % slower; allocation -0.3 GB per
+operation. The conversion back costs what the temporaries cost (`results/c`).
+
 ## 4. Tests
 
 - `ExactLimbSignsTests`: the three kernels against the BigInteger expressions on operands of every width (small, at the
