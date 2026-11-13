@@ -1,0 +1,1 @@
+copy copy_42327 /tmp/claude-0/-home-user-geometry3Sharp/49db7f38-a9ab-58f1-b2eb-8536a50f6cdc/scratchpad/exactnum/meshes/42327.stl 0

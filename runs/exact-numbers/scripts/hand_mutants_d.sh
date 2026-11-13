@@ -42,11 +42,11 @@ run "scratch: orient, the first row" $K 'return 6L * a + 15L' 'return 3L * a + 1
 run "scratch: orient, the other rows" $K '15L * ((long)b + c) + 32;' '12L * ((long)b + c) + 32;'
 run "scratch: orient, no constant" $K '15L * ((long)b + c) + 32;' '15L * ((long)b + c);'
 run "scratch: in-circle, the first point" $K 'return 28L * p + 46L' 'return 20L * p + 46L'
-run "scratch: in-circle, the other points" $K '46L * ((long)q + r) + 128;' '40L * ((long)q + r) + 128;'
-run "scratch: in-circle, the third point not counted" $K '46L * ((long)q + r) + 128;' '46L * ((long)q + q) + 128;'
-run "scratch: in-circle, no constant" $K '46L * ((long)q + r) + 128;' '46L * ((long)q + r);'
+run "scratch: in-circle, the other points" $K '46L * (q + r) + 128;' '40L * (q + r) + 128;'
+run "scratch: in-circle, the third point not counted" $K '46L * (q + r) + 128;' '46L * (q + q) + 128;'
+run "scratch: in-circle, no constant" $K '46L * (q + r) + 128;' '46L * (q + r);'
 run "scratch: in-circle, the fourth point's width not added" $K 'Math.Max(n[0], Math.Max(n[1], n[2])) + wd, Math.Max(n[3]' 'Math.Max(n[0], Math.Max(n[1], n[2])), Math.Max(n[3]'
-run "scratch: in-circle, the fourth point's widest entry from two of three" $K 'int wd = Math.Max(n[9], Math.Max(n[10], n[11]));' 'int wd = Math.Max(n[9], n[10]);'
+run "scratch: in-circle, the fourth point's widest entry from two of three" $K 'long wd = Math.Max(n[9], Math.Max(n[10], n[11]));' 'long wd = Math.Max(n[9], n[10]);'
 run "scratch: orient, a row's widest entry from two of three" $K 'long need = OrientScratch(Math.Max(n[0], Math.Max(n[1], n[2])),' 'long need = OrientScratch(Math.Max(n[0], n[1]),'
 # the limits
 run "limit: orient, the last sum excluded" $K 'if (total + need <= MaxDeterminantLimbs) {' 'if (total + need < MaxDeterminantLimbs) {' 1
@@ -62,19 +62,22 @@ run "orient: reports the stack path without a sign" $K 'sign = det3(f0, f1, f2, 
 run "hook: orient reports nothing used" $K 'used = scratch - ar.Remaining;' 'used = 0;' 4
 run "hook: in-circle reports nothing used" $K 'used = scratch - ar.Remaining;' 'used = 0;' 5
 # the call sites
-run "call site Orient: two points exchanged" $A 'return orient_exact(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;' 'return orient_exact(Exact(q), Exact(p), Exact(r), i, j) * t.Sign;'
-run "call site Orient: the axes exchanged" $A 'return orient_exact(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;' 'return orient_exact(Exact(p), Exact(q), Exact(r), j, i) * t.Sign;'
-run "call site Orient: the triangle's sign dropped" $A 'return orient_exact(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;' 'return orient_exact(Exact(p), Exact(q), Exact(r), i, j);'
-run "call site InCircle: two points exchanged" $A 'return incircle_exact(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;' 'return incircle_exact(Exact(q), Exact(p), Exact(r), Exact(s), i, j) * t.Sign;'
-run "call site InCircle: the fourth point exchanged with the third" $A 'return incircle_exact(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;' 'return incircle_exact(Exact(p), Exact(q), Exact(s), Exact(r), i, j) * t.Sign;'
-run "call site InCircle: the triangle's sign dropped" $A 'return incircle_exact(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;' 'return incircle_exact(Exact(p), Exact(q), Exact(r), Exact(s), i, j);'
-run "orient_exact: the kernel's zero sent to the fallback" $A 'if (ExactLimbSigns.Orient2(a, b, c, i, j, out sign) == false)' 'if (ExactLimbSigns.Orient2(a, b, c, i, j, out sign) == false && sign != 0)'
-run "orient_exact: the fallback's sign reversed" $A 'sign = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;' 'sign = -ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;'
-run "orient_exact: the fallback not evaluated" $A 'if (ExactLimbSigns.Orient2(a, b, c, i, j, out sign) == false)
-                sign = ExactPoint3.Det3' 'if (ExactLimbSigns.Orient2(a, b, c, i, j, out sign))
-                sign = ExactPoint3.Det3'
-run "incircle_exact: the fallback's sign reversed" $A 'sign = incircle_big(p, q, r, d, i, j);' 'sign = -incircle_big(p, q, r, d, i, j);'
-run "incircle_exact: the fallback not evaluated" $A 'if (ExactLimbSigns.InCircle(p, q, r, d, i, j, out sign) == false)
-                sign = incircle_big' 'if (ExactLimbSigns.InCircle(p, q, r, d, i, j, out sign))
-                sign = incircle_big'
+run "call site Orient: two points exchanged" $A 'return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;' 'return ExactLimbSigns.Orient2(Exact(q), Exact(p), Exact(r), i, j) * t.Sign;'
+run "call site Orient: the axes exchanged" $A 'return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;' 'return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), j, i) * t.Sign;'
+run "call site Orient: the triangle's sign dropped" $A 'return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;' 'return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j);'
+run "call site InCircle: two points exchanged" $A 'return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;' 'return ExactLimbSigns.InCircle(Exact(q), Exact(p), Exact(r), Exact(s), i, j) * t.Sign;'
+run "call site InCircle: the fourth point exchanged with the third" $A 'return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;' 'return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(s), Exact(r), i, j) * t.Sign;'
+run "call site InCircle: the triangle's sign dropped" $A 'return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;' 'return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j);'
+# the BigInteger forms (beyond the limit)
+run "big: orient beyond the limit is zero" $K 'return Orient2Big(a, b, c, i, j);' 'return 0;'
+run "big: orient beyond the limit, the sign reversed" $K 'return Orient2Big(a, b, c, i, j);' 'return -Orient2Big(a, b, c, i, j);'
+run "big: orient, two columns exchanged" $K 'return ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;' 'return ExactPoint3.Det3(a[j], a[i], a.W, b[j], b[i], b.W, c[j], c[i], c.W).Sign;'
+run "big: in-circle beyond the limit is zero" $K 'return InCircleBig(p, q, r, d, i, j);' 'return 0;'
+run "big: in-circle beyond the limit, the sign reversed" $K 'return InCircleBig(p, q, r, d, i, j);' 'return -InCircleBig(p, q, r, d, i, j);'
+run "big: in-circle row, A added" $K 'A = v[i] * d.W - d[i] * v.W;' 'A = v[i] * d.W + d[i] * v.W;'
+run "big: in-circle row, the factor s dropped from x" $K 'x = A * s; y = B * s;' 'x = A; y = B * s;'
+run "big: in-circle row, A^2 - B^2" $K 'l = A * A + B * B;' 'l = A * A - B * B;'
+run "big: in-circle row, the shortcut's B from the axis i" $K 'A = v[i] - d[i]; B = v[j] - d[j];' 'A = v[i] - d[i]; B = v[i] - d[j];'
+run "big: in-circle row, the shortcut without the fourth point's W" $K 'if (v.W.IsOne && d.W.IsOne) {' 'if (v.W.IsOne) {'
+run "big: in-circle, two rows exchanged" $K 'return ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl).Sign;' 'return ExactPoint3.Det3(bx, by, bl, ax, ay, al, cx, cy, cl).Sign;'
 echo "hand mutants D finished"

@@ -674,15 +674,19 @@ The first series of 5 (107554, then 42327 in one process) showed 42327 at +2.1 /
   `DOTNET_ThreadPool_ForceMaxWorkerThreads=4` slow classifications remain and nothing gets faster, `results/d4`); a
   difference in work; the per-process seed of `BigInteger.GetHashCode` (#789) alone (the state switches inside a
   process).
-- Open: the tiered JIT's code state (with `DOTNET_TieredPGO=0` 0 of 10 processes slow against 8 of 56 by default,
-  which chance gives in 22 % of the cases).
+- The cause is the tiered JIT's dynamic PGO (`results/d5`, `scripts/slowmode_pgo.sh`: one 42327 union per process,
+  40 processes per setting, alternating, the base binary): by default the classification takes 13.92 s in the median
+  (12.46-16.43), 11 of 40 processes at 14.4 s or more; with `DOTNET_TieredPGO=0` 12.76 s (11.90-13.97), 0 of 40
+  (Fisher, one-sided, p = 0.0002). The whole operation: 25.43 -> 24.06 s (-5.4 %), CPU 76.0 -> 70.5 s; counters,
+  allocation and hash equal in all 80. Which methods is not known. Issue #825.
 
 Wrong turns, for the record: concurrent GC (the run that seemed to show it had no comparison), then oversubscription
 of the thread pool (the summed stage times of the instrumented run, `results/d3`, are inflated by the 20 pool threads
 in every process, not only in the slow ones).
 
-For A/B runs on this model: one slow process moves a median of 5 by up to 2.5 s. Compare per process, look at the
-classification stage and the counters before reading a regression, and use more than 5 processes per side.
+For A/B runs on this model: one slow process moves a median of 5 by up to 2.5 s. Run both sides with
+`DOTNET_TieredPGO=0`, or compare per process, look at the classification stage and the counters before reading a
+regression, and use clearly more than 5 processes per side.
 
 ## 6. Literature (papers only)
 
