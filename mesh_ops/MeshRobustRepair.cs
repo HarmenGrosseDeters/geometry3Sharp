@@ -171,6 +171,13 @@ namespace gs
         /// <summary> the divisor of the median edge length for the alpha of a small input (see <see cref="SmallInputWrapTriangles"/>) </summary>
         public double SmallInputWrapEdgeDivisor = 4;
         /// <summary>
+        /// alpha wrap fallback: the raw-size budget of the wrap (MeshAlphaWrap.MaxEstimatedTriangles; 0 = off, the default): above this
+        /// estimated size the wrap's alpha and offset are coarsened before the refinement, and AlphaWrapCoarsening reports the factor.
+        /// The wrap's size, and the time of the wrap and its simplification, go with the input's surface area / alpha^2, not with its
+        /// triangle count (issue #694: 260 triangles of a flattened sphere wrapped to 211,614 triangles, about 6 s per Apply).
+        /// </summary>
+        public int WrapMaxEstimatedTriangles = 0;
+        /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
         /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
         /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
@@ -278,6 +285,11 @@ namespace gs
         public MeshAlphaWrap AlphaWrap;
         /// <summary> alpha wrap fallback: triangles of the wrap before simplification (0 if not run) </summary>
         public int AlphaWrapTriangles;
+        /// <summary>
+        /// alpha wrap fallback: the factor by which WrapMaxEstimatedTriangles coarsened the wrap's alpha and offset (1: not coarsened, or
+        /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on
+        /// </summary>
+        public double AlphaWrapCoarsening = 1;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
         /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
@@ -558,6 +570,7 @@ namespace gs
             UsedInput = false;
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
+            AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
             AlphaWrapSharpFeaturesApplied = false;
             AlphaWrapQualityImproved = false;
@@ -777,8 +790,10 @@ namespace gs
                 double smallAlpha = 0, smallOffset = 0;
                 if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
-                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF };
+                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
+                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles };
                 AlphaWrap.Compute();
+                AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
                 end_phase("wrap");
                 // (PointLimitReached: less detail, same guarantees)
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
