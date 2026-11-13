@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Xunit;
 using Pkg = Clipper2Lib;
@@ -13,6 +14,8 @@ namespace geometry3Sharp.Clipper2.Tests
     /// point for point and in the same order, and the same PolyTree nesting. Inputs: self-intersecting rings on a coarse
     /// lattice (vertices on other edges, collinear overlaps: the degenerate cases) and on a fine one (generic positions),
     /// and open polylines, at the magnitudes of the adapter's grid (±2^20 to ±2^50), with degenerate paths mixed in.
+    /// Since the fix of FINDINGS item 5 the booleans may differ, but only where the package's area is off the exact area
+    /// (ExactRegionArea) by more than the grid rounding and the vendored one is not (AssertFixes).
     /// On net48 (Windows CI) this compares the netstandard2.0 builds; the net10.0 build of the vendored sources binds
     /// List.EnsureCapacity to the BCL method instead of Clipper2's extension, which changes only list capacities.
     /// </summary>
@@ -120,7 +123,7 @@ namespace geometry3Sharp.Clipper2.Tests
         [Fact]
         public void Booleans_AreIdentical()
         {
-            int compared = 0;
+            int compared = 0, fixes = 0;
             foreach (var (a, b, _, name) in Pairs(11, 240))
                 foreach (Pkg.ClipType op in ClipTypes)
                     foreach (Pkg.FillRule fill in FillRules)
@@ -135,16 +138,74 @@ namespace geometry3Sharp.Clipper2.Tests
                             bool vOk = vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vTree, vOpen);
                             string where = name + ", " + op + " " + fill + (collinear ? " PreserveCollinear" : "");
                             Assert.True(pOk == vOk, where);
-                            Assert.True(Text(pTree) == Text(vTree), where);
-                            Assert.True(Text(pOpen) == Text(vOpen), where);
                             // the flat output, from a fresh run (Clipper64 can be reused: run the same once more)
                             var pFlat = new Pkg.Paths64(); var vFlat = new V.Paths64();
                             pc.Execute(op, fill, pFlat);
                             vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vFlat);
-                            Assert.True(Text(pFlat) == Text(vFlat), where + " (flat)");
                             ++compared;
+                            if (Text(pFlat) != Text(vFlat)) {
+                                // the item 5 fix: allowed only where it corrects the package
+                                AssertFixes(a, b, op, fill, pFlat, vFlat, where);
+                                ++fixes;
+                                continue;
+                            }
+                            Assert.True(Text(pTree) == Text(vTree), where);
+                            Assert.True(Text(pOpen) == Text(vOpen), where);
                         }
             Assert.Equal(240 * 4 * 4 * 2, compared);
+            Assert.True(fixes < compared / 100, fixes + " differences");
+        }
+
+        /// <summary> the vendored result differs from the package's: the package's area must be off the exact area and the vendored one not </summary>
+        static void AssertFixes(Pkg.Paths64 a, Pkg.Paths64 b, Pkg.ClipType op, Pkg.FillRule fill, Pkg.Paths64 pOut, V.Paths64 vOut, string where)
+        {
+            double exact = ExactRegionArea.Area(new[] { Rings(a), Rings(b) }, Clipper2DegenerateUnionTests.Predicate(op, fill));
+            var (pArea, pPerimeter) = Measure(pOut);
+            var (vArea, vPerimeter) = Measure(g3.Clipper2.Bridge.ToPackage(vOut));
+            where += ": exact " + exact + ", package " + pArea + ", vendored " + vArea;
+            Assert.True(Math.Abs(vArea - exact) <= vPerimeter + 1, where + " (vendored off)");
+            Assert.True(Math.Abs(pArea - exact) > pPerimeter + 1, where + " (differs where the package is right)");
+        }
+
+        static (long x, long y)[][] Rings(Pkg.Paths64 paths) => paths.Select(p => p.Select(q => (q.X, q.Y)).ToArray()).ToArray();
+
+        static (double area, double perimeter) Measure(Pkg.Paths64 paths)
+        {
+            double area = 0, perimeter = 0;
+            foreach (Pkg.Path64 p in paths) {
+                area += Pkg.Clipper.Area(p);
+                for (int i = 0; i < p.Count; ++i) {
+                    Pkg.Point64 s = p[i], t = p[(i + 1) % p.Count];
+                    perimeter += Math.Sqrt((double)(t.X - s.X) * (t.X - s.X) + (double)(t.Y - s.Y) * (t.Y - s.Y));
+                }
+            }
+            return (area, perimeter);
+        }
+
+        [Fact]
+        public void DegenerateBooleans_DifferOnlyWhereThePackageIsWrong()
+        {
+            // the vendored sources carry the fix of FINDINGS item 5 (Clipper2Lib/README.md): on inputs full of exact
+            // degeneracies (16-gons on the lattice -4..4) they may differ from the package only where the package's area
+            // is off the exact area (ExactRegionArea) by more than the grid rounding and theirs is not
+            var rand = new Random(18);
+            int differ = 0;
+            for (int i = 0; i < 200; ++i) {
+                var a = new Pkg.Paths64 { RandomRing(rand, 16, 4) };
+                var b = new Pkg.Paths64 { RandomRing(rand, 16, 4) };
+                foreach (Pkg.ClipType op in ClipTypes)
+                    foreach (Pkg.FillRule fill in FillRules) {
+                        var pc = new Pkg.Clipper64(); pc.AddSubject(a); pc.AddClip(b);
+                        var vc = new V.Clipper64(); vc.AddSubject(ToVendored(a)); vc.AddClip(ToVendored(b));
+                        var pOut = new Pkg.Paths64(); var vOut = new V.Paths64();
+                        pc.Execute(op, fill, pOut);
+                        vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vOut);
+                        if (Text(pOut) == Text(vOut)) continue;
+                        ++differ;
+                        AssertFixes(a, b, op, fill, pOut, vOut, "pair " + i + ", " + op + " " + fill);
+                    }
+            }
+            Assert.InRange(differ, 1, 200 * 16);   // the data does exercise the fix
         }
 
         [Fact]

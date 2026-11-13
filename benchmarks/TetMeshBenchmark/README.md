@@ -87,3 +87,10 @@ and zero tets count as inverted, nothing is re-oriented silently), matched facet
 (`TetMeshQuality.NotValidReason`), the boundary free of self-intersections (exact), quality (`TetMeshQuality.Measure`) and the
 vertex-sampled surface deviation both ways relative to the input's diagonal. `compare/summarize.py` makes the table; the CSVs and
 `SUMMARY.md` go to the data branch `runs/tet-meshing` (`compare/<date>-run<id>/`).
+
+## Stage 1 and 2 (`refine`)
+
+`refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]` runs `MeshTetrahedralization` (stage 1
+refinement, peeling, and stage 2 improvement with its defaults) and prints the `eval` row plus status, times and counts.
+Subset numbers (one thread, 4-core cloud container): `results/thingi10k-subset-stage1*.csv` and `results/thingi10k-subset-stage2-*.csv`;
+summary in `docs/design/TET_MESHING.md` sections 14.8, 14.9 and 15 (stage 2: p01 >= 10 and min >= 1 degree on 40 of 40).

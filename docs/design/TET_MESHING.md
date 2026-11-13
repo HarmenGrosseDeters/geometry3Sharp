@@ -615,3 +615,50 @@ slivers; Klingner and Shewchuk 2007); (b) surface points on the offset surface i
 own refinement rule, run on request from the tet refinement: a restricted-Delaunay surface mesher in the manner of
 Boissonnat-Oudot, more work in `MeshAlphaWrap`); (c) relax the stage-1 target to the measured values and meet 10 degrees in
 stage 2 only.
+
+## 15. Stage 2: flips and smoothing (2026-11-13; coordinator: option (a), target kept)
+
+Built: `TetMeshImprover` (internal), run by `MeshTetrahedralization` when `Improve` (default on) after stage 1. After B. M.
+Klingner, J. R. Shewchuk, *Aggressive tetrahedral mesh improvement*, IMR 2007 (paper only; Stellar's code not read): hill
+climbing on the smallest dihedral angle over the tets below `SliverDihedralDegrees` (10), worst first, in passes until nothing
+changes (at most 20):
+
+- **edge removal**: the m <= 8 tets around an interior edge replaced by the 2 (m - 2) tets of the best triangulation of the ring
+  polygon (dynamic programming over the ring; m = 3 is the 3-2 flip);
+- **face removal**: the 2-3 flip of an interior facet;
+- **smoothing of interior vertices**: steps along the numerical gradient of the worst tet of the star, or to the star's centroid;
+- **boundary vertex moves**: the same steps for boundary vertices, in any direction (`BoundaryMovesTangentOnly` = false) or in
+  the tangent plane of the vertex's boundary fan, each move capped cumulatively at `BoundarySlideFactor` (0.5) offsets from
+  the vertex's original position on the wrap.
+
+What is enforced, per operation (an operation that fails a check is not made):
+- every tet it creates is exactly positively oriented (`ExactPredicates.Orient3d`), and the smallest dihedral angle of the tets
+  it replaces strictly increases;
+- edge and face removal never change the boundary facets (they work on interior edges and facets);
+- a boundary move is kept only if the swept tets (old position, new position, each boundary link edge of the vertex) share
+  no point with any input triangle (exact, as the peeling test), and the moved boundary triangles intersect no other boundary
+  triangle beyond shared corners (`ExactTriangleIntersection.IntersectsBeyondShared`, exact).
+
+So, **proven by construction**: every tet positive, the boundary closed and 2-manifold (no operation changes its topology), free
+of self-intersections, and the input strictly inside it (no boundary point ever passes over an input point). **Bounded by
+construction**: every boundary vertex is at most 0.5 offsets from its wrap position (cumulative cap; test
+`BoundaryDisplacement_IsCumulativelyCapped_FromTheOriginalWrapPosition`). **Measured, not proven**: the distance from the
+boundary to the input, at most 1.5 offsets on the subset (the wrap's own distance to the input is about one offset but has no
+proven upper bound in `MeshAlphaWrap`, so no bound wrap + 0.5 offset is claimed).
+
+Measured on the 40-mesh subset after every lever (one thread; rows `benchmarks/TetMeshBenchmark/results/thingi10k-subset-stage2-*.csv`):
+
+| Measure (40 meshes) | end of stage 1 | lever 1: interior flips + smoothing | lever 2a: + boundary moves, tangent only, cap 0.25 offset | lever 2b (default): + boundary moves, any direction, cap 0.5 offset |
+|---|---|---|---|---|
+| valid (exact), boundary without self-intersection | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 |
+| p01 dihedral >= 10 degrees | 16 | 38 | 39 (839690: 8.57) | **40** |
+| smallest dihedral >= 1 degree | 23 | 40 | 40 | **40** (worst 2.86) |
+| smallest dihedral >= 10 degrees | 1 | 7 | 9 | 16 |
+| median smallest / p01 dihedral | 1.18 / 9.3 | 6.2 / 10.8 | 6.8 / 10.8 | 9.5 / 10.9 |
+| boundary to input, max (offsets) | 1.0 | 1.0 | 1.25 | 1.5 |
+| time wrap + refinement + improvement, median / max | 0.49 s / 10.3 s | 0.53 s / 9.9 s | 0.65 s / 15.0 s | 0.60 s / 13.4 s |
+
+The stage-2 target (p01 >= 10 and min >= 1 degree on every mesh of the subset) is met by lever 2b, the default; lever 2a, which keeps
+the boundary vertices in their tangent planes, is the conservative option (switch `BoundaryMovesTangentOnly`, and
+`BoundarySlideFactor` = 0.25) and misses one mesh (839690, p01 8.57). Face removal is tested (a constructed 2-3 case) but was never
+an improvement on the subset; edge removal (3.3k) and smoothing (2.2k interior, boundary moves) do the work.

@@ -27,6 +27,7 @@ dotnet_diagnostic.G3E0003.severity = error
 
 # The libm rule (docs/design/DETERMINISM.md): code that promises cross-platform bit identity calls the correctly rounded
 # g3.CoreMathPort.CoreMath, not the platform's Math.Sin, Cos, Atan2, Exp, Log, ... (G3E0004). First the geodesic family;
-# extended only where the determinism harness shows a difference that the result depends on.
-[{mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,solvers/SparseCholesky.cs,math/CoreMath/*.cs}]
+# extended only where the determinism harness shows a difference that the result depends on: the terrain slope design
+# (issue 802: the fan directions differed between the Windows CRT of .NET and the others).
+[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,solvers/SparseCholesky.cs,math/CoreMath/*.cs}]
 dotnet_diagnostic.G3E0004.severity = error

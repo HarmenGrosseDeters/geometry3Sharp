@@ -110,6 +110,28 @@ namespace geometry3Sharp.Tests
             return area;
         }
 
+        /// <summary>
+        /// every triangle of the slope region (the clipped slope triangles of the composite) by the exact oracle of the
+        /// library, independently of the design's own check: not steeper than its piece's spec, its plane on or below the
+        /// piece's toe ends (fill mirrored), counter-clockwise, finite
+        /// </summary>
+        internal static void AssertRegionNeverSteeper(TerrainSlopeDesign d)
+        {
+            Assert.NotNull(d.SlopeRegion);
+            Assert.True(d.SlopeRegion.TriangleCount > 0);
+            foreach (int t in d.SlopeRegion.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                d.SlopeRegion.GetTriVertices(t, ref a, ref b, ref c);
+                Assert.True(MathUtil.IsFinite(a.x + a.y + a.z + b.x + b.y + b.z + c.x + c.y + c.z), $"region triangle {t} is not finite");
+                SlopePiece pc = d.Pieces[d.SlopeRegion.GetTriangleGroup(t)];
+                Vector3d p0 = pc.P0, p1 = pc.P1;
+                if (pc.Direction == TerrainSlopeDesign.Directions.Fill) { a.z = -a.z; b.z = -b.z; c.z = -c.z; p0.z = -p0.z; p1.z = -p1.z; }
+                Assert.True(ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0, $"region triangle {t} is not counter-clockwise");
+                Assert.True(Slope.IsNotSteeper(a, b, c, pc.Spec), $"region triangle {t} is steeper than its spec");
+                Assert.True(Slope.IsPlaneOnOrBelow(a, b, c, p0) && Slope.IsPlaneOnOrBelow(a, b, c, p1), $"region triangle {t} rises above its toe segment's ends");
+            }
+        }
+
         // the composite: finite, counter-clockwise, a height field covering exactly the terrain's footprint, the slope
         // part passing the exact check against its pieces (O1), every catch point a vertex of both parts
         internal static void AssertComposite(TerrainSlopeDesign d, bool fill = false)

@@ -8,7 +8,7 @@ using gs;
 namespace g3
 {
     /// <summary> The triply periodic minimal surface (nodal approximation) that makes the lattice. </summary>
-    public enum TpmsType { Gyroid, SchwarzP, SchwarzD, Neovius, IWP }
+    public enum TpmsType { Gyroid, SchwarzP, SchwarzD, Neovius, IWP, Lidinoid }
 
     /// <summary>
     /// Sheet: the solid is {|f| &lt;= t} (a wall around the surface). SkeletalLow: {f &lt;= c}. SkeletalHigh: {f &gt;= -c}
@@ -39,7 +39,7 @@ namespace g3
     /// </summary>
     public class TpmsLattice
     {
-        /// <summary> The surface. </summary>
+        /// <summary> The surface (nodal approximation; see docs/design/TPMS_LATTICE.md for the formulas and sources). </summary>
         public TpmsType Type = TpmsType.Gyroid;
         /// <summary> Sheet or skeletal solid. </summary>
         public TpmsStyle Style = TpmsStyle.Sheet;
@@ -123,6 +123,10 @@ namespace g3
                 case TpmsType.Neovius: return 3 * (cx + cy + cz) + 4 * cx * cy * cz;
                 case TpmsType.IWP:
                     return 2 * (cx * cy + cy * cz + cz * cx) - (Math.Cos(2 * px) + Math.Cos(2 * py) + Math.Cos(2 * pz));
+                case TpmsType.Lidinoid:
+                    return 0.5 * (Math.Sin(2 * px) * cy * sz + Math.Sin(2 * py) * cz * sx + Math.Sin(2 * pz) * cx * sy)
+                         - 0.5 * (Math.Cos(2 * px) * Math.Cos(2 * py) + Math.Cos(2 * py) * Math.Cos(2 * pz) + Math.Cos(2 * pz) * Math.Cos(2 * px))
+                         + 0.15;
                 default: throw new ArgumentOutOfRangeException(nameof(type));
             }
         }
@@ -137,6 +141,8 @@ namespace g3
                 case TpmsType.SchwarzD: return 4 * r3;   // four products of three factors per component
                 case TpmsType.Neovius: return 7 * r3;    // 3|sin x| + 4|sin x cos y cos z|
                 case TpmsType.IWP: return 6 * r3;        // 2|sin x|(|cos y| + |cos z|) + 2|sin 2x|
+                // d/dx = cos 2x cos y sin z + 0.5 sin 2y cos z cos x - 0.5 sin 2z sin x sin y + sin 2x (cos 2y + cos 2z): <= 1 + 0.5 + 0.5 + 2 = 4
+                case TpmsType.Lidinoid: return 4 * r3;
                 default: throw new ArgumentOutOfRangeException(nameof(type));
             }
         }
@@ -163,13 +169,14 @@ namespace g3
         }
 
         // bound of the sum of the absolute values of the terms, for the rounding error of an evaluation
-        static double TermSum(TpmsType type)
+        internal static double TermSum(TpmsType type)
         {
             switch (type) {
                 case TpmsType.Gyroid: return 3;
                 case TpmsType.SchwarzP: return 3;
                 case TpmsType.SchwarzD: return 4;
                 case TpmsType.Neovius: return 13;
+                case TpmsType.Lidinoid: return 3.15;
                 default: return 9;
             }
         }
