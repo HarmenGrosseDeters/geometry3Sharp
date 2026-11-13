@@ -88,22 +88,87 @@ namespace geometry3Sharp.Tests
                 }
         }
 
-        [Fact]
-        public void RandomPairs_AsMathMinMax_BitForBit()
+        // the rule of the helper, written out independently: IEEE 754-2019 minimum / maximum with double.NaN for a NaN
+        static double RefMin(double a, double b)
         {
+            if (double.IsNaN(a) || double.IsNaN(b)) return double.NaN;
+            if (a == 0 && b == 0) return (Bits(a) == MinusZero || Bits(b) == MinusZero) ? -0.0 : 0.0;
+            return a < b ? a : b;
+        }
+        static double RefMax(double a, double b)
+        {
+            if (double.IsNaN(a) || double.IsNaN(b)) return double.NaN;
+            if (a == 0 && b == 0) return (Bits(a) == PlusZero || Bits(b) == PlusZero) ? 0.0 : -0.0;
+            return a > b ? a : b;
+        }
+
+        [Fact]
+        public void RandomPairsWithSpecialValues_AsTheRule_BitForBit()
+        {
+            // random bit patterns (NaNs with payloads among them), every third operand one of the special values, so that
+            // equal operands, zeros of both signs and NaN meet each other and random values
             ulong s = 2026;
-            Func<double> next = () => {
+            Func<ulong> next = () => {
                 ulong z = (s += 0x9E3779B97F4A7C15UL);
                 z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
                 z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
-                z ^= z >> 31;
-                double x = BitConverter.Int64BitsToDouble((long)z);       // any bit pattern
-                return double.IsNaN(x) ? 0.5 : x;
+                return z ^ (z >> 31);
             };
+            int zeros = 0, nans = 0, equal = 0;
             for (int i = 0; i < 200000; ++i) {
-                double a = next(), b = (i % 7 == 0) ? a : next();
-                Assert.Equal(Bits(Math.Min(a, b)), Bits(MathUtil.MinExact(a, b)));
-                Assert.Equal(Bits(Math.Max(a, b)), Bits(MathUtil.MaxExact(a, b)));
+                ulong r = next();
+                double a = (r % 3 == 0) ? At((int)((r >> 8) % (ulong)Values.Length)) : BitConverter.Int64BitsToDouble((long)next());
+                double b = ((r >> 4) % 3 == 0) ? At((int)((r >> 20) % (ulong)Values.Length)) : BitConverter.Int64BitsToDouble((long)next());
+                if (a == 0 && b == 0 && Bits(a) != Bits(b)) zeros++;
+                if (double.IsNaN(a) || double.IsNaN(b)) nans++;
+                if (a == b) equal++;
+                Assert.True(Bits(RefMin(a, b)) == Bits(MathUtil.MinExact(a, b)), $"min ({a:R}, {b:R})");
+                Assert.True(Bits(RefMax(a, b)) == Bits(MathUtil.MaxExact(a, b)), $"max ({a:R}, {b:R})");
+            }
+            Assert.True(zeros > 100 && nans > 1000 && equal > 1000, $"{zeros} {nans} {equal}");
+        }
+
+        // ---------------------------------------------------------------- a call site
+
+        // two crease vertices p (0, 0) and q (dx, 0) inside a ring W, S, E, N (the mesh of TerrainSlopeBandMergeTests): the
+        // band merge collapses pq onto p, which takes the lowest of the planes of both at its position
+        static DMesh3 NearQuadruple(out System.Collections.Generic.List<System.Collections.Generic.List<int>> labels, out System.Collections.Generic.List<bool> onBarrier)
+        {
+            var m = new DMesh3(false, false, false, true);
+            int p = m.AppendVertex(new Vector3d(0, 0, 0)), q = m.AppendVertex(new Vector3d(1e-9, 0, 0));
+            int w = m.AppendVertex(new Vector3d(-10, 0, 0)), so = m.AppendVertex(new Vector3d(0, -10, 0));
+            int e = m.AppendVertex(new Vector3d(10, 0, 0)), n = m.AppendVertex(new Vector3d(0, 10, 0));
+            foreach (var t in new[] { new Index3i(w, so, p), new Index3i(p, so, q), new Index3i(q, so, e), new Index3i(e, n, q), new Index3i(q, n, p), new Index3i(p, n, w) })
+                Assert.True(m.AppendTriangle(t) >= 0);
+            labels = new System.Collections.Generic.List<System.Collections.Generic.List<int>> {
+                new System.Collections.Generic.List<int> { 1, 2, 3 }, new System.Collections.Generic.List<int> { 2, 3, 4 },
+                new System.Collections.Generic.List<int> { 1 }, new System.Collections.Generic.List<int> { 2 },
+                new System.Collections.Generic.List<int> { 3 }, new System.Collections.Generic.List<int> { 4 } };
+            onBarrier = new System.Collections.Generic.List<bool> { false, false, false, false, false, false };
+            return m;
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        public void BandMerge_HeightOfPlanesAtPlusAndMinusZero_OneZeroWhicheverPlaneComesLast(int minusZeroParity)
+        {
+            // the planes of the kept vertex pass through height zero, some as +0 and some as -0 (which the exact quotient
+            // gives for a zero of either sign). With Math.Min the height of the output vertex was the zero of the plane that
+            // came last on .NET Framework (+0 for one parity, -0 for the other) and -0 on .NET; now -0 everywhere, and for
+            // fill, where the height is mirrored, +0
+            double pz = At(0), mz = At(1);
+            Func<int, double, double, double> height = (l, x, y) => (l % 2 == minusZeroParity) ? mz : pz;
+            foreach (bool fill in new[] { false, true }) {
+                System.Collections.Generic.List<System.Collections.Generic.List<int>> labels; System.Collections.Generic.List<bool> onBarrier;
+                DMesh3 m = NearQuadruple(out labels, out onBarrier);
+                double merged;
+                Assert.Equal(1, gs.SlopeMap.BandMerge(m, labels, onBarrier, height, 1e-6, fill, null, out merged));
+                Assert.True(m.IsVertex(0) && m.IsVertex(1) == false);
+                Assert.Equal(4, labels[0].Count);
+                Vector3d v = m.GetVertex(0);
+                Assert.Equal(PlusZero, Bits(v.x));
+                Assert.Equal(fill ? PlusZero : MinusZero, Bits(v.z));
             }
         }
     }

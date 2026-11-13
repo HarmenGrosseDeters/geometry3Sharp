@@ -1019,7 +1019,7 @@ namespace gs
                 }
                 up = MathUtil.MaxExact(up, uz); low = MathUtil.MinExact(low, lz);
             }
-            // (MinExact / MaxExact: the bound is reported; the sign of a zero is the same on every runtime)
+            // (MinExact / MaxExact: the bound goes to SnapTriangleBounds (tests); the sign of a zero is the same on every runtime)
             return MathUtil.MaxExact(up, -low);
         }
 

@@ -625,7 +625,7 @@ namespace gs
             // the snap certificate of the mixed composite (TERRAIN.md 5.5): the larger of the two runs' budgets, which each
             // reserved Tolerance / 4 for it
             {
-                double budget = Math.Max(c.SnapBudget, f.SnapBudget);
+                double budget = MathUtil.MaxExact(c.SnapBudget, f.SnapBudget);
                 double dev = comp.SnapDeviation();
                 CatchMove = CatchLineMove(comp);
                 SnapBudget = budget; SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
