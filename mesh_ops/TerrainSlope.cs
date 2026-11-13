@@ -7,7 +7,8 @@ namespace gs
     /// <summary>
     /// A slope as the user specified it (docs/design/TERRAIN.md section 1). The kind of input is kept, so that the
     /// check runs against what was entered: a ratio 1:n and a percentage are checked exactly, an angle against the
-    /// double S = tan(angle), which is only as exact as Math.Tan (ExactlyCheckable is false).
+    /// double S, a proven lower bound of tan(angle) within a few ulps (ExactlyCheckable is false: a slope between S and
+    /// the true tangent is rejected, never one above it).
     /// The slope is rise / run: the magnitude of the gradient over XY, measured against the horizontal.
     /// </summary>
     public struct SlopeSpec
@@ -44,12 +45,16 @@ namespace gs
             }
         }
 
-        /// <summary> false for Degrees: checked against the double S, not against the angle as entered </summary>
+        /// <summary>
+        /// false for Degrees: checked against the double S, a proven lower bound of the tangent of the angle as entered,
+        /// so the check is conservative there (never steeper than the angle), not exact
+        /// </summary>
         public bool ExactlyCheckable { get { return Kind != Kinds.Degrees; } }
 
         /// <summary>
-        /// rise / run as a double, never steeper than the spec for Ratio, Percent and Rise (the largest double that
-        /// is not above it; checked exactly); tan of the angle for Degrees; NaN if not IsValid
+        /// rise / run as a double, never steeper than the spec: for Ratio and Percent the largest double that is not above
+        /// it (checked exactly); for Degrees a double not above tan of the angle as entered, proven (TanLowerBound), within
+        /// a few ulps of it; NaN if not IsValid
         /// </summary>
         public double S {
             get { return IsValid ? raw_s() : double.NaN; }
@@ -70,10 +75,98 @@ namespace gs
                     return s;
                 }
                 case Kinds.Degrees:
-                    return Math.Tan(Value * Math.PI / 180);
+                    return TanLowerBound(Value);
                 default:
                     return Value;
             }
+        }
+
+        /// <summary> tests: the most angles the cache of TanLowerBound holds before it is cleared, and its count </summary>
+        internal const int TanCacheSize = 4096;
+        internal static int TanCacheCount { get { return tanCache.Count; } }
+        internal static void ClearTanCache() { tanCache.Clear(); }
+
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<long, double> tanCache =
+            new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
+
+        /// <summary>
+        /// a double t with 0 &lt;= t &lt;= tan(a pi / 180), proven, for 0 &lt; a &lt; 90 (0 only where tan is below the smallest
+        /// positive double, a below about 2.8e-322): the largest double not above tan, or the one just below it (docs/design/TERRAIN.md section 1): the
+        /// largest double t for which sin_lo(x) &gt;= t cos_hi(x) holds exactly, with x = a pi_lo / 180
+        /// &lt;= a pi / 180 (pi_lo = Math.PI plus a double below pi - Math.PI, exactly), and sin_lo, cos_hi the Taylor sums of
+        /// sin and cos up to x^47 and x^48, which end with a negative and a positive term of alternating series whose
+        /// omitted terms fall (x &lt; pi / 2): a lower bound of sin x and an upper bound of cos x &gt; 0. Then tan(a pi / 180) &gt;= tan x =
+        /// sin x / cos x &gt;= sin_lo / cos_hi &gt;= t. The comparison is made exactly on integers, the sums times 180^48 48!.
+        /// The same on every platform (no Math.Tan). NaN outside (0, 90)
+        /// </summary>
+        internal static double TanLowerBound(double a)
+        {
+            if (!(a > 0 && a < 90)) return double.NaN;
+            // (45 degrees, the one angle in (0, 90) whose tangent is a double: tan = 1 exactly, so 1 is the largest double not
+            // above it; the bound below would give the double just below 1, as x = 45 pi_lo / 180 is below pi / 4)
+            if (a == 45) return 1.0;
+            long key = BitConverter.DoubleToInt64Bits(a);
+            double t;
+            if (tanCache.TryGetValue(key, out t)) return t;
+            t = tan_lower_bound(a);
+            // (bounded: a host that sweeps angles does not grow it for ever; a cleared entry is computed again, the same)
+            if (tanCache.Count >= TanCacheSize) tanCache.Clear();
+            tanCache[key] = t;
+            return t;
+        }
+
+        // pi - Math.PI = 1.2246467991473531772e-16; one double lower is below it
+        static readonly double piTail = ExactInterval.Down(1.2246467991473532e-16);
+
+        /// <summary>
+        /// the Taylor sums of sin x and cos x for x = a pi_lo / 180, up to the terms x^(N-1) and x^N, times 180^N N! (exact);
+        /// for N = 0 mod 4 the last sin term (m = N - 1 = 3 mod 4) is negative and the last cos term (m = N) positive, so
+        /// sinL / L &lt;= sin x and cosH / L &gt;= cos x (Leibniz: the omitted terms fall)
+        /// </summary>
+        internal static void TaylorSums(double a, int N, out ExactDyadic sinL, out ExactDyadic cosH)
+        {
+            // y = a pi_lo exactly, x = y / 180; the terms times L = 180^N N!: x^m / m! L = y^m 180^(N - m) N! / m!
+            ExactDyadic y = ExactDyadic.Of(a) * PiLo();
+            sinL = new ExactDyadic(System.Numerics.BigInteger.Zero, 0); cosH = sinL;
+            ExactDyadic yp = new ExactDyadic(System.Numerics.BigInteger.One, 0);
+            for (int m = 0; m <= N; ++m) {
+                // 180^(N - m) N! / m!
+                System.Numerics.BigInteger f = System.Numerics.BigInteger.Pow(180, N - m);
+                for (int j = m + 1; j <= N; ++j) f *= j;
+                ExactDyadic term = yp * new ExactDyadic(f, 0);
+                bool negative = (m / 2) % 2 == 1;
+                if (m % 2 == 0) cosH = negative ? cosH - term : cosH + term;
+                else sinL = negative ? sinL - term : sinL + term;
+                yp = yp * y;
+            }
+        }
+
+        /// <summary> N of the Taylor sums: 0 mod 4, so the sums end with a negative sin and a positive cos term </summary>
+        internal const int TaylorTerms = 48;
+
+        /// <summary> pi_lo = Math.PI + a double below pi - Math.PI, exactly (below pi) </summary>
+        internal static ExactDyadic PiLo() { return ExactDyadic.Of(Math.PI) + ExactDyadic.Of(piTail); }
+
+        static double tan_lower_bound(double a)
+        {
+            ExactDyadic sinL, cosH;
+            TaylorSums(a, TaylorTerms, out sinL, out cosH);
+            // (sin ends at m = 47, negative: a lower bound; cos at m = 48, positive: an upper bound)
+            // Stryker disable once Equality: > and >= differ only where sin_lo = c cos_hi exactly, ie where the rational lower
+            // bound sin_lo / cos_hi of tan is itself a double; that is so for no angle tested (2134 angles, numerics review)
+            Func<double, bool> proven = (c) => ExactDyadic.Compare(sinL, ExactDyadic.Of(c) * cosH) >= 0;
+            // the largest proven double, which depends on a only: proven is monotone (true up to the bound's sin_lo / cos_hi,
+            // false above), so the bracket [the smallest positive double, the largest] is bisected on the bit patterns (positive
+            // doubles are ordered as their bits) to adjacent doubles, at most 64 steps. The largest double is never proven
+            // (tan of an angle below 90 degrees is finite, and cos_hi > 0)
+            double lo = double.Epsilon, hi = double.MaxValue;
+            if (proven(lo) == false) return 0;     // (none proven: tan of the angle is below the smallest double)
+            long bl = BitConverter.DoubleToInt64Bits(lo), bh = BitConverter.DoubleToInt64Bits(hi);
+            while (bh - bl > 1) {
+                long mid = bl + (bh - bl) / 2;
+                if (proven(BitConverter.Int64BitsToDouble(mid))) bl = mid; else bh = mid;
+            }
+            return BitConverter.Int64BitsToDouble(bl);
         }
 
         // slope^2 * k1 <= k2, k1 = k1a * k1b, k2 = k2a * k2b
@@ -107,6 +200,9 @@ namespace gs
         /// <summary>
         /// exact: the slope of triangle (a, b, c), sqrt(nx^2 + ny^2) / |nz| with n = (b - a) x (c - a), is at most the
         /// spec: exactly against the spec as entered for Ratio and Percent, against the double S for Rise and Degrees.
+        /// For Degrees S is a proven lower bound of tan of the angle (since 2026-11-12; before, Math.Tan's double, which can
+        /// be above it), so a true result proves the triangle not steeper than the angle as entered, and a slope within a
+        /// few ulps below the angle's tangent may be rejected.
         /// The orientation does not matter. False for a triangle that is degenerate in XY (nz = 0), for an invalid
         /// spec and for coordinates that are not finite.
         /// </summary>
@@ -116,6 +212,14 @@ namespace gs
                 return false;
             double k1a, k1b, k2a, k2b;
             spec.Factors(out k1a, out k1b, out k2a, out k2b);
+            return IsNotSteeper(a, b, c, k1a, k1b, k2a, k2b);
+        }
+
+        /// <summary> IsNotSteeper with the factors of a valid spec (SlopeSpec.Factors) computed by the caller, for many triangles </summary>
+        internal static bool IsNotSteeper(Vector3d a, Vector3d b, Vector3d c, double k1a, double k1b, double k2a, double k2b)
+        {
+            if (finite(a) == false || finite(b) == false || finite(c) == false)
+                return false;
             bool degenerate;
             int sign = ExactSlopePredicates.SlopeSign(a, b, c, k1a, k1b, k2a, k2b, out degenerate);
             return degenerate == false && sign >= 0;

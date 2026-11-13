@@ -206,6 +206,8 @@ namespace gs
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
         /// <summary> the triangulation of the last Compute() (for tests) </summary>
         internal Delaunay3 Triangulation { get { return dt; } }
+        /// <summary> (tet meshing) true if cell c of Triangulation is inside the wrap after the last successful Compute() </summary>
+        internal bool IsInsideCell(int c) { return label_of(c) == Inside; }
 
         public MeshAlphaWrap(DMesh3 mesh)
         {

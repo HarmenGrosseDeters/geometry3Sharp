@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace g3
 {
@@ -17,6 +18,10 @@ namespace g3
     /// With cospherical points (eg the box corners) the triangulation is one of the Delaunay triangulations.
     /// The conflict region of a new point is grown, where needed, until it is star-shaped from the point, so
     /// every cell has positive volume (exactly) and the adjacency stays valid also for degenerate input.
+    ///
+    /// RefinementSupport (off by default) adds what Delaunay refinement needs (docs/design/TET_MESHING.md section 14.6 step 1):
+    /// an int label per cell (new cells take the label of the cavity cell whose facet they are built on), one incident cell
+    /// per vertex (IncidentCells, IsEdge, IsFacet), and an undo record of the last successful insertion (UndoLastInsert).
     ///
     /// Sources (docs/SOURCES.md): A. Bowyer 1981, D. F. Watson 1981 (insertion by cavities); O. Devillers,
     /// S. Pion, M. Teillaud, "Walking in a triangulation", 2002 (point location by a stochastic walk).
@@ -51,6 +56,17 @@ namespace g3
         int lastCell = 0;
         uint rng = 2463534242;
 
+        // RefinementSupport: per-cell labels, a live incident cell per vertex, the undo record of the last insertion
+        bool support;
+        int[] label = new int[0];
+        int[] vcell = new int[0];
+        bool undoValid;
+        int undoVertex, undoMaxCell, undoLastCell;
+        uint undoRng, insertRng;
+        readonly List<int> undoCavity = new List<int>();       // the cavity's cells keep their data while dead (new cells get other ids)
+        readonly List<int> undoNewCells = new List<int>();
+        readonly List<int> undoFreePopped = new List<int>();   // per new cell: 1 if its id came from the free list
+
         /// <summary> cells visited by the last point location (for diagnostics) </summary>
         public int LastWalkSteps;
 
@@ -82,6 +98,24 @@ namespace g3
                 }
             }
         }
+
+        Delaunay3(Delaunay3 other)
+        {
+            Box = other.Box;
+            vertices.AddRange(other.vertices);
+            cv = (int[])other.cv.Clone(); cn = (int[])other.cn.Clone(); stamp = (int[])other.stamp.Clone();
+            alive = (bool[])other.alive.Clone(); mark = new int[other.mark.Length];
+            maxCell = other.maxCell; cellCount = other.cellCount; lastCell = other.lastCell; rng = other.rng;
+            foreach (int c in other.freeCells.ToArray().Reverse()) freeCells.Push(c);
+            support = other.support;
+            label = (int[])other.label.Clone(); vcell = (int[])other.vcell.Clone();
+        }
+
+        /// <summary>
+        /// an independent copy (cells, ids, neighbours, stamps, the free ids and the walk's random state, so the same
+        /// insertions give the same result on both; RefinementSupport and the labels too, but not the undo record)
+        /// </summary>
+        public Delaunay3 Clone() { return new Delaunay3(this); }
 
         static (int, int, int) sorted_key(int a, int b, int c)
         {
@@ -152,7 +186,8 @@ namespace g3
         int new_cell(int a, int b, int c, int d)
         {
             int id;
-            if (freeCells.Count > 0) {
+            bool fromFree = freeCells.Count > 0;
+            if (fromFree) {
                 id = freeCells.Pop();
             } else {
                 id = maxCell++;
@@ -160,6 +195,7 @@ namespace g3
                     int n = Math.Max(64, 2 * alive.Length);
                     Array.Resize(ref cv, 4 * n); Array.Resize(ref cn, 4 * n);
                     Array.Resize(ref stamp, n); Array.Resize(ref alive, n); Array.Resize(ref mark, n);
+                    if (support) Array.Resize(ref label, n);
                 }
             }
             cv[4 * id] = a; cv[4 * id + 1] = b; cv[4 * id + 2] = c; cv[4 * id + 3] = d;
@@ -169,7 +205,140 @@ namespace g3
             mark[id] = 0;
             cellCount++;
             lastCell = id;
+            if (support) {
+                label[id] = 0;
+                set_vcells(id);
+                undoFreePopped.Add(fromFree ? 1 : 0);
+            }
             return id;
+        }
+
+        void set_vcells(int c)
+        {
+            for (int i = 0; i < 4; ++i) {
+                int v = cv[4 * c + i];
+                if (v >= vcell.Length) Array.Resize(ref vcell, Math.Max(v + 1, 2 * vcell.Length));
+                vcell[v] = c;
+            }
+        }
+
+        /// <summary>
+        /// Turns on the bookkeeping for refinement (see the class comment): labels (all 0 when turned on), an incident cell per
+        /// vertex, the undo record. Off by default; turning it on scans the cells once, turning it off drops the bookkeeping.
+        /// </summary>
+        public bool RefinementSupport
+        {
+            get { return support; }
+            set {
+                if (value == support) return;
+                support = value;
+                undoValid = false;
+                if (!support) { label = new int[0]; vcell = new int[0]; return; }
+                label = new int[alive.Length];
+                vcell = new int[Math.Max(1, vertices.Count)];
+                for (int v = 0; v < vcell.Length; ++v) vcell[v] = -1;
+                for (int c = 0; c < maxCell; ++c)
+                    if (alive[c]) set_vcells(c);
+            }
+        }
+
+        /// <summary> label of cell c (RefinementSupport); new cells take the label of the cavity cell they replace </summary>
+        public int CellLabel(int c) { return label[c]; }
+        public void SetCellLabel(int c, int value) { label[c] = value; }
+
+        /// <summary> the cells incident to vertex v, into cells (cleared first; RefinementSupport) </summary>
+        public void IncidentCells(int v, List<int> cells)
+        {
+            cells.Clear();
+            int c0 = v < vcell.Length ? vcell[v] : -1;
+            if (c0 < 0 || !IsCell(c0)) return;
+            if (++markValue == int.MaxValue) { Array.Clear(mark, 0, mark.Length); markValue = 1; }
+            cells.Add(c0); mark[c0] = markValue;
+            for (int k = 0; k < cells.Count; ++k) {
+                int c = cells[k];
+                for (int i = 0; i < 4; ++i) {
+                    if (cv[4 * c + i] == v) continue;             // the facet opposite v does not contain v
+                    int n = cn[4 * c + i];
+                    if (n >= 0 && mark[n] != markValue) { mark[n] = markValue; cells.Add(n); }
+                }
+            }
+        }
+
+        bool mark_is_cavity(int c) { return mark[c] == markValue; }
+
+        readonly List<int> starCells = new List<int>();
+
+        /// <summary> true if (a, b) is an edge of the triangulation; cell then contains both (RefinementSupport) </summary>
+        public bool IsEdge(int a, int b, out int cell)
+        {
+            cell = -1;
+            IncidentCells(a, starCells);
+            foreach (int c in starCells)
+                if (VertexIndexIn(c, b) >= 0) { cell = c; return true; }
+            return false;
+        }
+
+        /// <summary>
+        /// true if (a, b, c) is a facet of the triangulation (any orientation); cell and facet then name it in one of its two
+        /// cells (RefinementSupport)
+        /// </summary>
+        public bool IsFacet(int a, int b, int c, out int cell, out int facet)
+        {
+            cell = facet = -1;
+            IncidentCells(a, starCells);
+            foreach (int t in starCells) {
+                int ib = VertexIndexIn(t, b), ic = VertexIndexIn(t, c);
+                if (ib < 0 || ic < 0) continue;
+                cell = t; facet = 6 - VertexIndexIn(t, a) - ib - ic;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Undoes the last successful Insert (RefinementSupport; only directly after it, at most once): the cavity's cells come
+        /// back with their ids, vertices, neighbours, stamps and labels, the new vertex and cells are removed, and the cell id
+        /// allocation and the point location's random state are as before the insertion (so the same insertion again gives the
+        /// same cells and ids). Not restored: the stamps of the ids the undone insertion took from the free list stay incremented
+        /// (stamps only mark staleness, so a cell id reused later just has a higher stamp). Lists passed to Insert as removed /
+        /// added are not changed. False if there is nothing to undo.
+        /// </summary>
+        public bool UndoLastInsert()
+        {
+            if (!support || !undoValid) return false;
+            undoValid = false;
+            // the cavity ids were pushed onto the free list last, in cavity order
+            for (int k = undoCavity.Count - 1; k >= 0; --k) freeCells.Pop();
+            for (int k = undoNewCells.Count - 1; k >= 0; --k) {
+                int nc = undoNewCells[k];
+                alive[nc] = false;
+                cellCount--;
+                if (undoFreePopped[k] != 0) freeCells.Push(nc);
+            }
+            if (++markValue == int.MaxValue) { Array.Clear(mark, 0, mark.Length); markValue = 1; }
+            foreach (int c in undoCavity) mark[c] = markValue;
+            // the cavity's cells were only marked dead: their vertices, neighbours, stamps and labels are unchanged (the new
+            // cells took ids from before the cavity was freed)
+            foreach (int c in undoCavity) { alive[c] = true; cellCount++; }
+            // outside neighbours pointed at the new cells: back to the cavity cells. The slot of n is the one opposite n's
+            // vertex that is not on the shared facet (n can border several cavity cells)
+            for (int k = 0; k < undoCavity.Count; ++k) {
+                int c = undoCavity[k];
+                for (int i = 0; i < 4; ++i) {
+                    int n = cn[4 * c + i];
+                    if (n < 0 || mark_is_cavity(n)) continue;
+                    int f0 = cv[4 * c + FacetIndices[i, 0]], f1 = cv[4 * c + FacetIndices[i, 1]], f2 = cv[4 * c + FacetIndices[i, 2]];
+                    for (int j = 0; j < 4; ++j) {
+                        int w = cv[4 * n + j];
+                        if (w != f0 && w != f1 && w != f2) { cn[4 * n + j] = c; break; }
+                    }
+                }
+            }
+            for (int k = 0; k < undoCavity.Count; ++k) set_vcells(undoCavity[k]);
+            maxCell = undoMaxCell; lastCell = undoLastCell; rng = undoRng;
+            vertices.RemoveAt(undoVertex);
+            if (undoVertex < vcell.Length) vcell[undoVertex] = -1;
+            return true;
         }
 
         void free_cell(int c)
@@ -262,6 +431,8 @@ namespace g3
         public InsertResult Insert(Vector3d p, int hint, double minSeparation, out int vertex, List<int> removed = null, List<int> added = null)
         {
             vertex = -1;
+            undoValid = false;
+            insertRng = rng;
             if (!(p.x > Box.Min.x && p.x < Box.Max.x && p.y > Box.Min.y && p.y < Box.Max.y && p.z > Box.Min.z && p.z < Box.Max.z))
                 return InsertResult.Outside;
             int c0 = Locate(p, hint);
@@ -337,6 +508,11 @@ namespace g3
             foreach (int v in boundaryVerts)
                 if (vertices[v].DistanceSquared(p) <= minSqr) return InsertResult.TooClose;
 
+            if (support) {
+                undoVertex = vertices.Count; undoMaxCell = maxCell; undoLastCell = lastCell; undoRng = insertRng;
+                undoCavity.Clear(); undoNewCells.Clear(); undoFreePopped.Clear();
+                undoCavity.AddRange(cavity);
+            }
             vertex = vertices.Count;
             vertices.Add(p);
             int nb = boundary.Count;
@@ -348,6 +524,7 @@ namespace g3
                 // the facet is outward for the cavity, so (a, d, b) faces p
                 int nc = new_cell(a, d, b, vertex);
                 newCells.Add(nc);
+                if (support) { label[nc] = label[c]; undoNewCells.Add(nc); }
                 int n = cn[4 * c + i];
                 cn[4 * nc + 3] = n;
                 if (n >= 0)
@@ -375,6 +552,7 @@ namespace g3
             if (added != null)
                 added.AddRange(newCells);
             lastCell = newCells[0];
+            if (support) undoValid = true;
             return InsertResult.Inserted;
         }
 

@@ -103,6 +103,20 @@ namespace gs
         /// <summary> return true to cancel; Compute() then returns false </summary>
         public Func<bool> CancelF = () => { return false; };
 
+        /// <summary>
+        /// Compute the topology certificate of the contour (docs/design/CONTOURING_TOPOLOGY.md): for a clean input (closed,
+        /// manifold, consistently oriented, no self-intersections and no triangle of zero area, after merging vertices with
+        /// identical coordinates) and the adaptive dual contouring (Adaptive, Methods.DualContouring), exact tests per grid
+        /// cell that the level set of the input's winding number (its components across which the winding number steps
+        /// from 0 to 1) and the contour cross the cell in the same way. TopologyCertified and UncertifiedCells report the
+        /// result. Off by default; it does not change the contour or the result.
+        /// </summary>
+        public bool ComputeTopologyCertificate = false;
+        /// <summary> (tests) the certificate's cell tests in parallel (the same result as serial, bit for bit) </summary>
+        internal bool CertificateParallel = true;
+        /// <summary> (tests) the fewest cells per chunk of the certificate's parallel path </summary>
+        internal int CertificateMinChunk = 2048;
+
         // outputs
         /// <summary> the solid surface computed by Compute() (a new, compacted mesh); null before </summary>
         public DMesh3 Result;
@@ -127,6 +141,29 @@ namespace gs
         /// StopIfSelfIntersecting); Result is then the raw contour
         /// </summary>
         public bool StoppedOnSelfIntersections;
+        /// <summary>
+        /// true if the topology certificate (ComputeTopologyCertificate) proves that Result is ambient isotopic to the level
+        /// set of the input's winding number (Theorem 1 of docs/design/CONTOURING_TOPOLOGY.md): the contour is certified
+        /// and Result is the contour itself (CleanupResult false and ReduceTolerance 0: the cleanup and the reduction are
+        /// not covered by the proof). False if not computed.
+        /// </summary>
+        public bool TopologyCertified;
+        /// <summary>
+        /// true if the topology certificate proves that the contour (before the cleanup and the reduction) is ambient
+        /// isotopic to the level set of the input's winding number; false if not computed
+        /// </summary>
+        public bool ContourTopologyCertified;
+        /// <summary> the outcome of the topology certificate of the last Compute() (NotComputed if ComputeTopologyCertificate is off) </summary>
+        public ContouringCertificateStatus TopologyCertificateStatus = ContouringCertificateStatus.NotComputed;
+        /// <summary>
+        /// the grid cells of the contour that the topology certificate does not certify, with a reason each (empty if it
+        /// certifies the contour or was not computed). With uncertified cells: inside the union of the certified cells, the
+        /// contour differs from the level set only by a deformation that keeps every grid cell, face and edge in place
+        /// (Theorem 1b); nothing is claimed inside the uncertified cells, and so nothing about the topology of the whole (a
+        /// handle can hide in one uncertified cell).
+        /// </summary>
+        public List<ContouringUncertifiedCell> UncertifiedCells = new List<ContouringUncertifiedCell>();
+
         /// <summary>
         /// milliseconds per phase of the last Compute(), eg "winding", "contour", "selfint" (the check for
         /// StopIfSelfIntersecting), "cleanup", "reduce"
@@ -173,7 +210,8 @@ namespace gs
                 Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels,
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
-                CancelF = CancelF, KeepRawContour = KeepRawContour
+                CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate,
+                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk
             };
             bool ok = inner.compute_unit();
             Result = inner.Result;
@@ -189,6 +227,12 @@ namespace gs
             RefinedCells = inner.RefinedCells; RefineFactor = inner.RefineFactor;
             StoppedOnSelfIntersections = inner.StoppedOnSelfIntersections;
             PhaseMilliseconds = inner.PhaseMilliseconds;
+            TopologyCertified = inner.TopologyCertified; ContourTopologyCertified = inner.ContourTopologyCertified;
+            TopologyCertificateStatus = inner.TopologyCertificateStatus;
+            // (the cells in the input's frame: a power of two, exact)
+            UncertifiedCells = new List<ContouringUncertifiedCell>(inner.UncertifiedCells.Count);
+            foreach (ContouringUncertifiedCell c in inner.UncertifiedCells)
+                UncertifiedCells.Add(new ContouringUncertifiedCell() { Box = new AxisAlignedBox3d(c.Box.Min / s, c.Box.Max / s), Reason = c.Reason });
             return ok;
         }
 
@@ -208,6 +252,9 @@ namespace gs
             RefinedCells = 0;
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
+            TopologyCertified = ContourTopologyCertified = false;
+            TopologyCertificateStatus = ComputeTopologyCertificate ? ContouringCertificateStatus.NotSupported : ContouringCertificateStatus.NotComputed;
+            UncertifiedCells = new List<ContouringUncertifiedCell>();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
             if (MathUtil.IsFinite(CellSize) == false)
                 return false;
@@ -230,7 +277,9 @@ namespace gs
             DMesh3 contour;
             if (Adaptive && Method == Methods.DualContouring) {
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
-                    Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement
+                    Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement,
+                    ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
+                    CertificateMinChunk = CertificateMinChunk
                 };
                 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
                 WindingEvaluations = wc.WindingEvaluations;
@@ -241,6 +290,11 @@ namespace gs
                 GapEdgesPerLevel = new List<int>(wc.GapEdgesPerLevel);
                 RefinedCells = wc.RefinedCells; RefineFactor = wc.RefineFactor;
                 knownFree = wc.SelfIntersectionFree;
+                if (ComputeTopologyCertificate) {
+                    TopologyCertificateStatus = wc.CertificateStatus;
+                    UncertifiedCells = wc.UncertifiedCells;
+                    ContourTopologyCertified = wc.CertificateStatus == ContouringCertificateStatus.Certified;
+                }
                 foreach (var kv in wc.PhaseMilliseconds) PhaseMilliseconds["contour." + kv.Key] = kv.Value;
                 end_phase("contour");
             } else {
@@ -259,10 +313,16 @@ namespace gs
                 if (intersects) {
                     Result = contour;
                     StoppedOnSelfIntersections = true;
+                    TopologyCertified = ContourTopologyCertified;
                     return true;
                 }
             }
             Result = WindingContouring.PostProcess(contour, CleanupResult, ReduceTolerance, cellSize, CancelF, end_phase);
+            // the result is the certified contour only without the cleanup and the reduction
+            bool postProcessed = CleanupResult || ReduceTolerance > 0;
+            TopologyCertified = ContourTopologyCertified && !postProcessed;
+            if (ContourTopologyCertified && postProcessed)
+                TopologyCertificateStatus = ContouringCertificateStatus.PostProcessing;
             return true;
         }
 
@@ -285,6 +345,10 @@ namespace gs
             if (s != 1 && Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
             StoppedOnSelfIntersections = false;
+            bool postProcessed = CleanupResult || ReduceTolerance > 0;
+            TopologyCertified = ContourTopologyCertified && !postProcessed;
+            if (ContourTopologyCertified && postProcessed)
+                TopologyCertificateStatus = ContouringCertificateStatus.PostProcessing;
         }
 
         // the scale of the last Compute() (1: it ran on the mesh as it is), for FinishPostProcess

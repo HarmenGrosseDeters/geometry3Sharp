@@ -1166,6 +1166,24 @@ Two earlier versions on the same 13 meshes (master `3d58441`):
   wrap can then reach the input (the wrap lies only about one offset outside it), and on 87345.stl the quadric
   underestimated the distance (2.5 offsets, rejected by the check).
 
+Retry of an uncertified simplification in two stages (#747, 2026-11-13): first with `Reducer.SampleDeviation` (the
+centroid and edge midpoints of each new triangle within half the distance of the unsimplified wrap: a sampled filter,
+not a certificate; the certification still decides), then, only if that is not certified either, with
+`Reducer.MaxDeviation` (#763). `wrappipe`, `BENCH_FIDELITY=0`, the 5 wraps of the 800 sample whose first pass is not
+certified plus 30 that are (seed 747), master `cbb96ad` vs the change: the 30 give the same output bit for bit (time
+sum x1.012); the 5 all certify in the sampled stage:
+
+| mesh | pipeline before | after | triangles before | after |
+|---|---:|---:|---:|---:|
+| 175914 | 84.8 s | 29.3 s | 114,202 | 114,276 |
+| 42179 | 49.2 s | 19.4 s | 101,804 | 101,886 |
+| 64891 | 14.2 s | 8.8 s | 65,072 | 65,072 |
+| 67121 | 26.1 s | 8.1 s | 39,172 | 39,188 |
+| 69259 | 30.3 s | 14.4 s | 49,904 | 49,970 |
+
+The same sampled guard in the first pass was discarded: median pipeline +9.2 %, simplification +24 %, every output
+changed.
+
 ## Alpha wrap quality pass (`MeshRobustRepair.AlphaWrapQualityPass`, stage 7b)
 
 The simplified wrap keeps slivers: the `Reducer` stops at needles and caps of about 1.7 degrees.
@@ -1185,6 +1203,9 @@ The angle diagnostics of the result are in `AlphaWrapMinAngleDegrees`, `AlphaWra
 above 170 degrees is kept, and only these fields show it.
 
 Switches:
+- `BENCH_WRAP_FEATURES=1` (`wrappipe`): the sharp-feature pass (`AlphaWrapFeaturePass`, `MeshRobustRepair.AlphaWrapSharpFeatures`)
+  on the raw wrap before the simplification (off by default, as in the library); `features` = plane moves / crease snaps / splits / flips /
+  rejected, phase `wrap.features`.
 - `BENCH_WRAP_QUALITY=1`: turns the pass on (off by default, as in the library; in `wrappipe` mode it was on unless
   `BENCH_WRAP_QUALITY=0` until 2026-11-09).
 - `BENCH_WRAP_THREADS=n`: threads of the simplification's partitioned reduction (0, the default: the platform's; the

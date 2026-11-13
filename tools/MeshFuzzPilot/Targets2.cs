@@ -165,7 +165,7 @@ public static partial class Program
         // the scale claim holds inside the Reducer's range (QA.md 2.5a: nonzero coordinates 2^-200 .. 2^200; the copy is 2^40 larger): a mesh
         // with a coordinate of a tiny magnitude beside large ones (the case's offset against its extent) is judged without it
         double k = Pow2(40);
-        bool inRange = input.Vertices().All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || (Math.Abs(v) >= Pow2(-200) && Math.Abs(v) <= Pow2(150))));
+        bool inRange = !HasHugeCoordinates(input) && input.Vertices().All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || Math.Abs(v) >= Pow2(-200)));
         DMesh3? scaled = null;
         if (inRange) {
             DMesh3 big = new DMesh3(input);

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -297,7 +298,7 @@ namespace gs
                 if (facesOfA.TryGetValue(ta, out fl) == false || fl.Exists(f => O.Faces[f].Region) == false) continue;
                 if (slope_whole(ta, fl)) {
                     Index3i t = A.GetTriangle(ta);
-                    emit(true, A.GetTriangleGroup(ta) + GroupOffset, A.GetVertex(t.a), A.GetVertex(t.b), A.GetVertex(t.c));
+                    emit(true, A.GetTriangleGroup(ta) + GroupOffset, A.GetVertex(t.a), A.GetVertex(t.b), A.GetVertex(t.c), ta);
                     continue;
                 }
                 if (partial(true, ta, fl) == false) return false;
@@ -548,6 +549,7 @@ namespace gs
             }
             if (Partner != null) snap_partner();
             regionVerts.Clear(); compVerts.Clear();
+            RegionParent.Clear();
             Region = new DMesh3(false, false, false, true);
             Composite = new DMesh3(false, false, false, true);
             constructed.Clear();
@@ -774,7 +776,7 @@ namespace gs
             if (ok1 && p2.At(p, out z2)) {
                 ExactInterval df = z1 - z2;
                 double scale = Math.Max(Math.Max(Math.Abs(z1.Lo), Math.Abs(z1.Hi)), Math.Max(Math.Abs(z2.Lo), Math.Abs(z2.Hi)));
-                if (df.Hi - df.Lo <= scale * Math.Pow(2, -30)) return up ? df.Hi : df.Lo;
+                if (df.Hi - df.Lo <= scale * CoreMath.Ldexp(1, -30)) return up ? df.Hi : df.Lo;
             }
             ExactDyadic n1, d1, n2, d2;
             plane_at(p1.A, p1.B, p1.C, p, out n1, out d1);
@@ -945,32 +947,43 @@ namespace gs
                         if (crossing(tri[i], tri[(i + 1) % 3], e[0], e[1], out x)) pts.Add(x);
                     }
             // the step at a boundary edge of a run's slope surface (the toe, a lateral limit, the cap): where the overlap
-            // of t with the run's surface lies within the moves (and the rounding of the points on that edge) of one
-            // boundary edge, it is that step, displaced by the move; the run is not compared there
-            // (the overlap is the convex hull of the candidates where the run's S counts, so the capsule around the
-            // edge, convex, holds it if it holds them)
+            // of t with one of the run's triangles lies within the moves (and the rounding of the points on that edge) of one
+            // boundary edge, it is that step, displaced by the move; the run is not compared there through that triangle
+            // (the overlap of t with a triangle s is convex, the convex hull of the candidates in closed s: t's corners in s,
+            // s's corners in t and the crossings of their edges are its vertices; so the capsule around the edge, convex,
+            // holds it if it holds them. Per triangle, not per run: at a corner of the toe the run's overlap is a sliver
+            // along each of the two toe segments, which no one capsule holds, while each triangle's part lies along one)
             var stepOnly = new bool[slopes.Count];
             {
                 double bm = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)));
                 double step = ExactInterval.Up(maxMove + 8 * (ExactInterval.Up(bm) - bm));
                 for (int r = 0; r < slopes.Count; ++r) {
                     if (r == ownRun || overlapping[r].Count == 0) continue;
-                    var counted = new List<RPoint>();
-                    foreach (RPoint x in pts) {
-                        PlaneI sp;
-                        if (slopes[r].Containing(overlapping[r], x, out sp)) counted.Add(x);
-                    }
                     DMesh3 a = slopes[r].M;
+                    // (the boundary edges of the run's triangles that overlap t)
+                    var boundary = new List<Vector2d[]>();
                     foreach (int st in overlapping[r]) {
                         Index3i te = a.GetTriEdges(st);
                         foreach (int e in new[] { te.a, te.b, te.c }) {
                             if (a.IsBoundaryEdge(e) == false) continue;
                             Index2i ev = a.GetEdgeV(e);
-                            Vector2d e0 = a.GetVertex(ev.a).xy, e1 = a.GetVertex(ev.b).xy;
-                            if (counted.All(x => within_of_segment(e0, e1, step, x))) { stepOnly[r] = true; break; }
+                            boundary.Add(new[] { a.GetVertex(ev.a).xy, a.GetVertex(ev.b).xy });
                         }
-                        if (stepOnly[r]) break;
                     }
+                    if (boundary.Count == 0) continue;
+                    var kept = new List<int>();
+                    var one = new List<int> { -1 };
+                    foreach (int st in overlapping[r]) {
+                        one[0] = st;
+                        var counted = new List<RPoint>();
+                        foreach (RPoint x in pts) {
+                            PlaneI sp;
+                            if (slopes[r].Containing(one, x, out sp)) counted.Add(x);
+                        }
+                        if (boundary.Exists(be => counted.All(x => within_of_segment(be[0], be[1], step, x))) == false) kept.Add(st);
+                    }
+                    overlapping[r] = kept;
+                    stepOnly[r] = kept.Count == 0;
                 }
             }
             // the bounds at each candidate x: f <= U(x), f >= L(x) on every cell whose closure holds x
@@ -1086,7 +1099,7 @@ namespace gs
             }
             // (the largest move, rounded up: a move of a point by d moves the triangles' edges at it by at most d)
             double maxMove = 0;
-            foreach (double d in moved.Values) maxMove = Math.Max(maxMove, ExactInterval.Up(ExactInterval.Up(d) * (1 + Math.Pow(2, -50))));
+            foreach (double d in moved.Values) maxMove = Math.Max(maxMove, ExactInterval.Up(ExactInterval.Up(d) * (1 + CoreMath.Ldexp(1, -50))));
             SnapTriangles = tris.ToList(); SnapStep = maxMove;
             // (the terrain triangles of the overlays, those where the slope surfaces are: of both runs in a mixed one)
             var terrain = Partner == null ? new SurfaceIndex(B, O.TerrainTree, O.TerrainTreeTris)
@@ -1137,6 +1150,21 @@ namespace gs
             if (best < 0) foreach (var kv in moved) if (kv.Value > bestMove || (kv.Value == bestMove && kv.Key < best)) { bestMove = kv.Value; best = kv.Key; }
             SnapWorstCatchOwn = movedFrom[best]; SnapWorstCatchAt = Composite.GetVertex(best);
             return dev;
+        }
+
+        /// <summary>
+        /// the largest XY move of a catch point by the composite (its own snap and merge, the nudge onto the slope side, and
+        /// in a mixed run the partner snap): from the overlay's catch point (CatchLine.Points) to its final position, over this
+        /// composite and its partner, an upper bound (rounded up). Measured, not bounded: the own snap and the merge can add
+        /// up to almost 2 MinFeatureSize (TERRAIN.md 5.5, the proven catch-line bound)
+        /// </summary>
+        internal double MaxCatchMove()
+        {
+            double m = 0;
+            foreach (SlopeComposite c in Partner != null ? new[] { this, Partner } : new[] { this })
+                foreach (var kv in c.catchAt)
+                    m = Math.Max(m, SlopeMap.distance_up(c.O.CatchPoint(kv.Key).xy, kv.Value.xy));
+            return m;
         }
 
         /// <summary> added to the slope surface's group ids (the second overlay of a mixed run: its pieces after the first's) </summary>
@@ -1211,7 +1239,15 @@ namespace gs
             return true;
         }
 
-        void emit(bool slope, int group, Vector3d a, Vector3d b, Vector3d c)
+        /// <summary>
+        /// per triangle of Region, its slope triangle (of A, the realized surface of the run that made it) in XY: the
+        /// position of its corners, in A's order. A region triangle that fails the exact check names the realized triangle
+        /// it was cut from (TerrainSlopeDesign: a needle there is merged on the next realization, TERRAIN.md 5.5). Of this
+        /// composite's own slope triangles only (a mixed run's partner keeps its own)
+        /// </summary>
+        internal Dictionary<int, Vector2d[]> RegionParent = new Dictionary<int, Vector2d[]>();
+
+        void emit(bool slope, int group, Vector3d a, Vector3d b, Vector3d c, int parent = -1)
         {
             if (ExactPredicates.Orient2d(a.xy, b.xy, c.xy) < 0) { Vector3d x = b; b = c; c = x; }
             int ca = vertex(Composite, compVerts, a), cb = vertex(Composite, compVerts, b), cc = vertex(Composite, compVerts, c);
@@ -1221,8 +1257,13 @@ namespace gs
             constructed.Add(tid);
             if (slope) {
                 int ra = vertex(Region, regionVerts, a), rb = vertex(Region, regionVerts, b), rc = vertex(Region, regionVerts, c);
-                if (Region.AppendTriangle(ra, rb, rc, group) < 0)
+                int rt = Region.AppendTriangle(ra, rb, rc, group);
+                if (rt < 0)
                     throw new InvalidOperationException("SlopeComposite: non-manifold slope region");
+                if (parent >= 0) {
+                    Index3i pt = A.GetTriangle(parent);
+                    RegionParent[rt] = new[] { A.GetVertex(pt.a).xy, A.GetVertex(pt.b).xy, A.GetVertex(pt.c).xy };
+                }
             }
         }
 
@@ -1428,7 +1469,7 @@ namespace gs
                 Index3i x = tris[t];
                 if (x.a >= n0 || x.b >= n0 || x.c >= n0) { Problem = "the part reaches the outer triangle"; return false; }
                 emit(slope, group, new Vector3d(pts[x.a].x, pts[x.a].y, zs[x.a]), new Vector3d(pts[x.b].x, pts[x.b].y, zs[x.b]),
-                     new Vector3d(pts[x.c].x, pts[x.c].y, zs[x.c]));
+                     new Vector3d(pts[x.c].x, pts[x.c].y, zs[x.c]), slope ? tri : -1);
             }
             return true;
         }

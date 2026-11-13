@@ -1,7 +1,9 @@
 # Design note: sector polygons and the exterior distance (terrain item 3)
 
-Status: **proposal, owner decision pending** (2026-11-13). Nothing is built. `TerrainSlopeDesign.Modes.SectorPolygons` and
-`Modes.ExteriorDistance` exist in the API sketch (TERRAIN.md 6) and are rejected today (`NotImplemented`).
+Status: **owner decision 2026-11-13: yes to the proposals** (below): E1, the exterior distance, first; R2 attribution with the
+smaller slope on a sector boundary; an ε-approximation within the Tolerance budget for S1. Ordered after ramps R1;
+nothing is built yet. `TerrainSlopeDesign.Modes.SectorPolygons` and `Modes.ExteriorDistance` exist in the API sketch
+(TERRAIN.md 6) and are rejected today (`NotImplemented`).
 
 ## Goal
 
@@ -89,7 +91,13 @@ bounds the over-excavation against the exact surface of the mode.
 - Both get the usual tests: the exact oracle per triangle, `Similarity.All()` in a `LocalFrame`, reuse, and campaign
   generators.
 
-## Questions for the owner
+## Owner decisions (2026-11-13)
+
+1. **E1 (the exterior distance) first**, then the sectors (S1); both after ramps R1.
+2. Sectors: **attribution by the location of the wall point (R2)**, the smaller slope on a sector boundary.
+3. Sectors: an **ε-approximation** of the R2 optimum (Steiner points) **within the Tolerance budget** is acceptable.
+
+## Questions for the owner (answered above)
 
 1. The order: E1 (exterior distance) first, as proposed, or the sectors first?
 2. Sectors: the attribution by the location of the wall point (R2), and the smaller slope on a sector boundary?
