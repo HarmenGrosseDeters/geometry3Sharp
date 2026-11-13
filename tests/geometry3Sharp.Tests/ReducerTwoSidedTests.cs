@@ -261,10 +261,13 @@ namespace geometry3Sharp.Tests
             Assert.Throws<ArgumentException>(() => new PartitionedReducer { Configure = r => r.MaxDeviationTwoSided = true }.Reduce(input, 1e-3));
         }
 
-        static DMesh3 FastPass(DMesh3 input, double eps, bool twoSided, double len)
+        static DMesh3 FastPass(DMesh3 input, double eps, bool twoSided, double len) { return FastPass(input, eps, twoSided, len, out Reducer _); }
+
+        static DMesh3 FastPass(DMesh3 input, double eps, bool twoSided, double len, out Reducer r)
         {
             var m = new DMesh3(input);
-            new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = twoSided }.FastCollapsePass(len, 5);
+            r = new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = twoSided };
+            r.FastCollapsePass(len, 5);
             return m;
         }
 
@@ -277,10 +280,39 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 input = name == "spiky" ? Spiky(n) : Terrain(n);
             double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
-            DMesh3 one = FastPass(input, eps, false, 0.05 * diag), two = FastPass(input, eps, true, 0.05 * diag);
+            DMesh3 one = FastPass(input, eps, false, 0.05 * diag), two = FastPass(input, eps, true, 0.05 * diag, out Reducer r);
             Assert.True(Hausdorff(input, one, 1e-3 * eps).LowerBound > eps, "the one-sided pass keeps the input within eps: the case does not exercise the option");
             AssertTwoSided(input, two, eps, name);
             Assert.True(two.TriangleCount < 0.5 * input.TriangleCount && two.TriangleCount <= 1.1 * one.TriangleCount + 8, $"{two.TriangleCount} (one-sided {one.TriangleCount}) of {input.TriangleCount} triangles");
+            Assert.True(r.reverseCoverage.Refused > 0 && r.reverseCoverage.Committed > 0);
+        }
+
+        /// <summary> the closed hint on an open mesh lets the pass move the rim: one-sided far off, two-sided within eps </summary>
+        [Fact]
+        public void TwoSided_FastCollapsePass_ClosedHintOnAnOpenMesh()
+        {
+            DMesh3 input = Terrain(20);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            var one = new DMesh3(input); new Reducer(one) { MaxDeviation = eps }.FastCollapsePass(0.1 * diag, 5, true);
+            var two = new DMesh3(input); new Reducer(two) { MaxDeviation = eps, MaxDeviationTwoSided = true }.FastCollapsePass(0.1 * diag, 5, true);
+            Assert.True(Hausdorff(input, one, 1e-3 * eps).LowerBound > eps);
+            AssertTwoSided(input, two, eps, "closed hint");
+            Assert.True(two.TriangleCount < input.TriangleCount);
+        }
+
+        /// <summary> determinism of the fast pass: parallel equals serial, repeated runs equal </summary>
+        [Fact]
+        public void TwoSided_FastCollapsePass_ParallelEqualsSerial_AndRepeatable()
+        {
+            DMesh3 input = Spiky(16);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            DMesh3 p1 = FastPass(input, eps, true, 0.05 * diag, out Reducer r1), p2 = FastPass(input, eps, true, 0.05 * diag), serial;
+            gParallel.SerialOnThisThread = true;
+            try { serial = FastPass(input, eps, true, 0.05 * diag); } finally { gParallel.SerialOnThisThread = false; }
+            AssertSame(p1, p2);
+            AssertSame(p1, serial);
+            // (at 8 or more affected inputs a collapse certifies them through gParallel)
+            Assert.True(r1.reverseCoverage.Certified >= 8 * (r1.reverseCoverage.Committed + r1.reverseCoverage.Refused), "the parallel path is taken");
         }
 
         /// <summary> reuse across entry points: a fast pass, then a quadric reduction on the same Reducer, both within eps of the original </summary>
@@ -295,9 +327,17 @@ namespace geometry3Sharp.Tests
             int afterFast = m.TriangleCount;
             Assert.True(afterFast < input.TriangleCount);
             AssertTwoSided(input, m, eps, "after the fast pass");
-            r.ReduceToTriangleCount(4);
-            Assert.True(m.TriangleCount < afterFast);
+            r.ReduceToTriangleCount(m.TriangleCount * 3 / 4);
+            int afterReduce = m.TriangleCount;
+            Assert.True(afterReduce < afterFast);
             AssertTwoSided(input, m, eps, "after the reduction");
+            // and the other order: a fast pass (twice) after a reduction, still against the original
+            r.FastCollapsePass(0.3 * diag, 5);
+            r.FastCollapsePass(0.4 * diag, 5);
+            AssertTwoSided(input, m, eps, "after two more fast passes");
+            r.ReduceToTriangleCount(4);
+            AssertTwoSided(input, m, eps, "at the end");
+            Assert.True(m.TriangleCount < afterReduce);
         }
 
         /// <summary> invariance of the fast pass: the guarantee at every similarity, 2^k scales bit for bit </summary>

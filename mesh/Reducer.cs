@@ -92,7 +92,8 @@ namespace g3
         /// and result is at most MaxDeviation; thin input features (eg a spike) are then kept. Every input triangle keeps
         /// the few output triangles it is certified against, and a collapse re-certifies only the input triangles that
         /// depend on its one-ring (bounds of TriangleDeviationBounds' kind, floating point; docs/design/BOUNDED_SIMPLIFICATION.md).
-        /// Costs about 1.4x the time of a MaxDeviation reduction (median, benchmarks/ReducerBenchmark README, "twosided"). Off by default.
+        /// Costs about 1.4x the time of a MaxDeviation reduction (median, benchmarks/ReducerBenchmark README, "twosided"; up to
+        /// 1.7x there, up to 2.5x in FastCollapsePass). Off by default.
         /// Applies to FastCollapsePass as well. Throws InvalidOperationException where the bound cannot be kept: with a ProjectionTarget
         /// projected after the reduction (ProjectionMode AfterRefinement), with a reference from SetDeviationReference or
         /// from an earlier reduction without this option, after MaxDeviation changed, or after the mesh was changed outside

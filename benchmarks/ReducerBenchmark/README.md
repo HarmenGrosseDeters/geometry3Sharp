@@ -235,8 +235,8 @@ time B / A: median 1.41x, max 1.65x (target about 2x).
 ### FastCollapsePass (#792)
 
 Since #792 the option also covers `FastCollapsePass` (midpoint collapses of short edges). The second table of the same
-run (`twosided 3`, the same cases): A is `FastCollapsePass(0.05 * diag, 5)` with `MaxDeviation`, B adds
-`MaxDeviationTwoSided`; medians of 3 alternating rounds, on the commit that adds it (master 08b61b9).
+run (`twosided 3`, the same meshes, at eps 0.003 and 0.01 of the diagonal): A is `FastCollapsePass(0.05 * diag, 5)` with `MaxDeviation`, B adds
+`MaxDeviationTwoSided`; medians of 3 alternating rounds, on this branch (base master 08b61b9).
 
 | mesh | triangles | eps / diag | A: triangles, ms | B: triangles, ms | time B / A | A: h(M,S) / eps (lower) | B: h(M,S) / eps | B: h(S,M) / eps |
 |---|---|---|---|---|---|---|---|---|

@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 // Reducer.MaxDeviationTwoSided (docs/design/BOUNDED_SIMPLIFICATION.md): the one-sided MaxDeviation reduction (A) against the
-// two-sided one (B), reduced as far as the checks allow, at 0.001 and 0.003 of the bounding-box diagonal. Rounds alternate
+// two-sided one (B), reduced as far as the checks allow, at 0.001 and 0.003 of the bounding-box diagonal; then the same
+// for FastCollapsePass (edges below 0.05 of the diagonal, 5 rounds) at 0.003 and 0.01. Rounds alternate
 // A and B; the times are medians. The Hausdorff distances are certified upper bounds (lower bounds in brackets) of
 // MeshHausdorffDistance at a tolerance of 0.01 eps, in units of eps. Procedural meshes; further meshes (eg Thingi10K,
 // fetched at run time, never committed) can be given as file arguments.
