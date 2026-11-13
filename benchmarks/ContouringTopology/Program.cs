@@ -27,7 +27,7 @@ class Program
         var inputs = new List<string>();
         int[] resolutions = { 64, 128 };
         for (int i = 1; i < args.Length; ++i) {
-            if (args[i] == "--") { resolutions = args[i + 1].Split(',').Select(int.Parse).ToArray(); break; }
+            if (args[i] == "--") { if (i + 1 < args.Length) resolutions = args[i + 1].Split(',').Select(int.Parse).ToArray(); break; }
             if (args[i] == "mesh:all") inputs.AddRange(Procedural.Names.Select(n => "mesh:" + n));
             else inputs.Add(args[i]);
         }
@@ -66,7 +66,8 @@ class Program
         return 0;
     }
 
-    // components, the genus of each (sorted), boundary loops and bowties: "c=2;g=0,1;b=0;bow=0"
+    // components and the genus of each (sorted): "c=2;g=0,1". Boundary loops and bowties are separate fields, not
+    // part of the signature: analyze.py counts a result that is not closed as wrong whatever its genus.
     static string Topology(DMesh3 mesh, Dictionary<string, object> r, string prefix)
     {
         var t = MeshTopologySummary.Compute(mesh);

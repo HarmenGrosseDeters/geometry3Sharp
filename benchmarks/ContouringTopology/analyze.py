@@ -14,6 +14,9 @@ def short(sig):
 
 
 imp = [r for r in rows if r['input'].startswith('imp:') and r.get('status') == 'ok']
+failed = [r for r in rows if r.get('status') != 'ok']
+if failed:   # never dropped silently: a failed run is in no table below
+    print(f"{len(failed)} runs without a result (not in the tables):", ', '.join(f"{r['input']}@{r['res']}:{r.get('status')}" for r in failed[:20]))
 probe = [r for r in rows if r['input'].startswith('probe:')]
 wind = [r for r in rows if not r['input'].startswith(('imp:', 'probe:'))]
 
@@ -24,7 +27,8 @@ for r in imp:
         ref.setdefault(r['shape'], collections.Counter())[(r['res'], r['sig'])] += 1
 for s, c in sorted(ref.items()):
     print('reference', s, {(res, short(sig)): n for (res, sig), n in c.items()})
-refsig = {s: collections.Counter(sig for (res, sig) in c.elements()).most_common(1)[0][0] for s, c in ref.items()}
+# a reference only if all fine runs agree (the gyroid's do not: it has none)
+refsig = {s: next(iter(c))[1] for s, c in ref.items() if len({sig for (res, sig) in c}) == 1}
 
 def table(rs, keyf, title):
     g = collections.defaultdict(list)
@@ -35,7 +39,11 @@ def table(rs, keyf, title):
     for k in sorted(g):
         v = g[k]
         truth = v[0].get('truth_sig') or refsig.get(v[0]['shape'])
-        wrong = [r for r in v if r['sig'] != truth]
+        if truth is None:
+            print(f"| {k[0]} | {k[1]} | {k[2] if k[2] else '-'} | {len(v)} | no reference | | | {sum(1 for r in v if not r['closed'])} | | |")
+            continue
+        # an open result is wrong whatever its genus (the signature does not carry the boundary loops)
+        wrong = [r for r in v if r['sig'] != truth or not r['closed']]
         tc = int(truth.split(';')[0][2:])
         cw = sum(1 for r in wrong if r['components'] != tc)
         gw = sum(1 for r in wrong if r['components'] == tc)
@@ -51,7 +59,7 @@ if fam:
     print('\n| feature / cell | runs | wrong | share |')
     print('|---|---|---|---|')
     g = collections.defaultdict(list)
-    for r in fam: g[r['k']].append(r['sig'] != r['truth_sig'])
+    for r in fam: g[r['k']].append(r['sig'] != r['truth_sig'] or not r['closed'])
     for k in sorted(g): print(f"| {k} | {len(g[k])} | {sum(g[k])} | {100 * sum(g[k]) / len(g[k]):.0f} % |")
 
 if wind:
@@ -63,16 +71,19 @@ if wind:
     stats = collections.Counter()
     for name in sorted(by):
         rs = by[name]
-        any_r = next(iter(rs.values()))
+        any_r = next((r for r in rs.values() if 'in_clean' in r), next(iter(rs.values())))
         clean = any_r.get('in_clean', False)
         top = max(rs)
         truth = any_r.get('truth_sig') if clean else rs[top].get('raw_sig')
+        if truth is None:
+            print(f"| {name} | {'yes' if clean else 'no'} | no reference (the finest run has no result) |" + ' |' * (2 * len(allres)))
+            continue
         cells = []
         for res in allres:
             r = rs.get(res)
             for p in ('raw_', 'final_'):
                 if r is None or p + 'sig' not in r: cells.append('?'); continue
-                ok = r[p + 'sig'] == truth
+                ok = r[p + 'sig'] == truth and r.get(p + 'closed', True)
                 if not (not clean and res == top):
                     stats[(clean, res, p, ok)] += 1
                 extra = '' if r.get(p + 'closed', True) else ' open'
@@ -93,16 +104,15 @@ if wind:
             if r and 'raw_ms' in r: print(f"| {name} | {res} | {r.get('raw_hidden_gaps')} / {r.get('raw_hidden_walls')} | {r.get('raw_refined_cells')} | {r['raw_ms']} | {r['final_ms']} |")
 
 if probe:
-    print('\n| set | res | inputs | surface cells | multi-sheet | not monotone | fails local criterion | fails with neighbours | fails PV variation |')
-    print('|---|---|---|---|---|---|---|---|---|')
+    print('\n| set | res | inputs | surface cells | multi-sheet | not monotone | fails local criterion | fails PV variation |')
+    print('|---|---|---|---|---|---|---|---|')
     g = collections.defaultdict(list)
     for r in probe:
         if 'probe_cells' in r: g[('procedural' if 'mesh:' in r['input'] else 'T1 clean' if r.get('in_clean') else 'T1 not clean', r['res'])].append(r)
     for k in sorted(g):
         v = g[k]; n = sum(r['probe_cells'] for r in v)
         f = lambda key: f"{100 * sum(r[key] for r in v) / n:.2f} %"
-        both = sum(max(r['probe_fail'], r['probe_not_star']) for r in v)
-        print(f"| {k[0]} | {k[1]} | {len(v)} | {n} | {f('probe_multi_sheet')} | {f('probe_not_monotone')} | {f('probe_fail')} | <= {100 * (sum(r['probe_fail'] + r['probe_not_star'] for r in v)) / n:.2f} % | {f('probe_fail_pv')} |")
+        print(f"| {k[0]} | {k[1]} | {len(v)} | {n} | {f('probe_multi_sheet')} | {f('probe_not_monotone')} | {f('probe_fail')} | {f('probe_fail_pv')} |")
     print('\nper input, fails local criterion (share of surface cells) by res:')
     by = collections.defaultdict(dict)
     for r in probe:

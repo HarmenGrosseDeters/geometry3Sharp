@@ -35,5 +35,8 @@ Truth and reference:
   the exact winding number steps between 0 and 1 (`InputTruth`);
 - other meshes: the raw contour of the finest run, a reference only.
 
-One JSON line per input and resolution; a rerun skips the pairs already in the file. Run on master 1f3b6b7, 4 cores,
+One JSON line per input and resolution; a rerun skips the pairs already in the file, failed ones included (delete
+the line to retry; `analyze.py` lists the runs without a result and leaves them out of the tables). Mesh inputs are
+keyed by file name. The cell size uses the bounds of all vertices, the solidify those of the triangles (they differ
+only for files with unused vertices). Run on master 1f3b6b7, 4 cores,
 2026-11-12.

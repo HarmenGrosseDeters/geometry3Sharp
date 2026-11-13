@@ -7,8 +7,9 @@
 //   monotone: a direction d with d . n > 0 for the normals of all triangles of the cell exists (the surface in the
 //             cell is a graph over the plane normal to d: the criterion of Snyder, for any direction)
 //   pv:       all pairs of normals have a positive inner product (Plantinga and Vegter's small normal variation)
-//   star4:    monotone over the cell and its 6 face neighbours together (the non-local condition needs the
-//             neighbours)
+//   star4:    monotone over the cell and its 6 face neighbours together (recorded as probe_not_star; not in the
+//             tables of analyze.py)
+// Zero-area triangles are skipped, which can split a sheet that is connected only through one.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -115,7 +116,10 @@ static class Probe
         return count;
     }
 
-    // a direction with a positive inner product with every normal (perceptron iterations; a margin below 1e-6 counts as none)
+    // A direction with a positive inner product with every normal, by perceptron iterations. "true" is checked
+    // (all inner products above 1e-6), so it is never wrong; "false" can be wrong: the fixed step does not converge
+    // for margins below about 0.01 (a wedge of less than about one degree with unequal triangle counts per face),
+    // so not_monotone, fail and not_star over-count on very thin wedges.
     static bool Monotone(List<Vector3d> normals)
     {
         Vector3d d = Vector3d.Zero;

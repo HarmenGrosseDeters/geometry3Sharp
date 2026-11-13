@@ -104,7 +104,8 @@ row):
 | 3 | 240 | 0 |
 | 4 | 240 | 0 |
 
-All 1920 results are closed and free of self-intersections; nothing in the outputs says which are wrong. Typical wrong
+All 1920 results are free of self-intersections and 1919 are closed (one torus at 0.25 cells is open); nothing in
+the outputs says which are wrong. Typical wrong
 results: a rod in 2-11 pieces, a hollow ball's wall as up to 2500 fragments or one surface of genus 1495, two balls
 merged.
 
