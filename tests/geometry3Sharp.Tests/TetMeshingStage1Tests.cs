@@ -8,7 +8,8 @@ using Xunit;
 namespace geometry3Sharp.Tests
 {
     /// <summary>
-    /// Stage 1 of docs/design/TET_MESHING.md (section 14): MeshTetrahedralization refines the inside of the alpha wrap. The result is
+    /// Stage 1 of docs/design/TET_MESHING.md (section 14): MeshTetrahedralization refines the inside of the alpha wrap (Improve off:
+    /// stage 2 is tested in TetMeshingStage2Tests). The result is
     /// valid (independent exact oracle), its boundary is the wrap surface triangle by triangle, every inside tet not counted in
     /// unrefined_bad_tets meets the radius-edge and dihedral bounds, and the run is deterministic, reusable and scales by 2^k bit for bit.
     /// </summary>
@@ -35,7 +36,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Inputs() => new[] { "sphere", "box", "two spheres" }.Select(n => new object[] { n });
 
-        static MeshTetrahedralization Make(DMesh3 m) => new MeshTetrahedralization(m) { RelativeAlpha = 12, RelativeOffset = 200 };
+        static MeshTetrahedralization Make(DMesh3 m) => new MeshTetrahedralization(m) { RelativeAlpha = 12, RelativeOffset = 200, Improve = false };
 
         // bad by the refiner's own criteria: radius-edge above rho or smallest dihedral below the sliver bound, or degenerate
         static int Bad(TetMesh3 t, double rho, double sliver)
@@ -98,12 +99,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Peeling_LiftsTheBoxToTenDegrees()
         {
-            var box = new MeshTetrahedralization(Box());
+            var box = new MeshTetrahedralization(Box()) { Improve = false };
             Assert.True(box.Compute());
             Assert.True(box.Counts["peeled"] > 0);
             Assert.True(TetMeshQuality.Measure(box.Result).MinDihedral.Worst >= 10, TetMeshQuality.Measure(box.Result).MinDihedral.Worst.ToString());
             BoundaryFromWrapAroundInput(box, box.Result);
-            var plain = new MeshTetrahedralization(Box()) { PeelBoundarySlivers = false };
+            var plain = new MeshTetrahedralization(Box()) { Improve = false, PeelBoundarySlivers = false };
             Assert.True(plain.Compute());
             Assert.True(TetMeshQuality.Measure(plain.Result).MinDihedral.Worst < 5);
         }
@@ -128,7 +129,7 @@ namespace geometry3Sharp.Tests
         public void Peeling_NeverExposesTheInput()
         {
             // a thin torus at the default offset: many boundary slivers would cut the input if peeled (measured: 157 refused)
-            var tm = new MeshTetrahedralization(Torus(64, 16, 1, 0.1));
+            var tm = new MeshTetrahedralization(Torus(64, 16, 1, 0.1)) { Improve = false };
             Assert.True(tm.Compute());
             Assert.True(tm.Counts["peel_refused_input"] > 20 && tm.Counts["peeled"] > 10, tm.Counts["peel_refused_input"] + " / " + tm.Counts["peeled"]);
             Assert.Null(TetOracle.Check(tm.Result, null));
@@ -170,7 +171,7 @@ namespace geometry3Sharp.Tests
             var a = Sphere(1, 12); var b = Sphere(1, 12);
             foreach (int v in b.VertexIndices()) b.SetVertex(v, b.GetVertex(v) + new Vector3d(1.2, 0.3, 0));
             new MeshEditor(a).AppendMesh(b);
-            var tm = new MeshTetrahedralization(a);
+            var tm = new MeshTetrahedralization(a) { Improve = false };
             Assert.True(tm.Compute());
             Assert.True(tm.Counts["peeled_in_sweep"] > 0, tm.Counts["peeled_in_sweep"] + " of " + tm.Counts["peeled"]);
             NothingPeelableLeft(tm);
@@ -233,7 +234,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Sphere_EveryTetMeetsRadiusEdge2AndDihedral10()
         {
-            var tm = new MeshTetrahedralization(Sphere(1, 16));
+            var tm = new MeshTetrahedralization(Sphere(1, 16)) { Improve = false };
             Assert.True(tm.Compute());
             Assert.Equal(0, tm.Counts["unrefined_bad_tets"]);
             TetQualityStatistics q = TetMeshQuality.Measure(tm.Result);
@@ -245,7 +246,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void WithoutTheSliverStep_SliversRemain()
         {
-            var plain = new MeshTetrahedralization(Sphere(1, 16)) { SliverDihedralDegrees = 0 };
+            var plain = new MeshTetrahedralization(Sphere(1, 16)) { Improve = false, SliverDihedralDegrees = 0 };
             Assert.True(plain.Compute());
             Assert.Null(TetMeshQuality.NotValidReason(plain.Result));
             Assert.True(TetMeshQuality.Measure(plain.Result).MinDihedral.Worst < 5);   // radius-edge alone leaves slivers
@@ -293,7 +294,7 @@ namespace geometry3Sharp.Tests
             Assert.False(cancel.Compute());
             Assert.Equal(MeshTetrahedralization.TetStatus.Cancelled, cancel.Status);
             Assert.Null(cancel.Result);
-            var empty = new MeshTetrahedralization(new DMesh3());
+            var empty = new MeshTetrahedralization(new DMesh3()) { Improve = false };
             Assert.False(empty.Compute());
             Assert.Equal(MeshTetrahedralization.TetStatus.WrapFailed, empty.Status);
         }
