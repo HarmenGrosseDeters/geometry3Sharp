@@ -162,7 +162,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
   [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
-  #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
+  #540); exact geodesic distance as a certified test oracle up to about 10^4 vertices, claims A7 / A9 in review
+  ([GEODESICS.md](design/GEODESICS.md)). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: no issue-tracker follow-up left (the flip-guard default follow-up is closed: the Remesher
   defaults stay upstream's, owner November 2026; the P1 collapse is a documented limitation, the real fix is research; P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
 

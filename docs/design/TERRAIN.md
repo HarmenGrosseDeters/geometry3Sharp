@@ -66,11 +66,33 @@ oracle.
   for the check**: the oracle checks against what the user specified, not only against a rounded double.
   - Ratio 1:n: exact check (nx² + ny²)·n² ≤ nz² on the stored triangle, no rounding involved.
   - Percent: exact check (nx² + ny²)·10⁴ ≤ p²·nz².
-  - Angle: tan α is transcendental, so there is no exact rational check. Phase 1 guarantees the slope against the
-    double s that is used and says so (`SlopeSpec.Guarantee = AgainstDouble`). Stepping `Math.Tan` down by "a few
-    ulps" is not a formal guarantee against the angle as entered. A guarantee against the angle needs a proven
-    conservative interval evaluation of tan (a later item, with a derived error bound, tested against a
-    high-precision reference on net48 and net10).
+  - Angle: tan α is transcendental, so there is no exact rational check. The check runs against a proven lower bound
+    S ≤ tan α (2026-11-12; before, against `Math.Tan`'s double, which is not a guarantee: it is above tan α for
+    10°, 50°, 75°, 85° and 89°, by up to 64 ulps (89°), so a triangle at that double was accepted although steeper than the
+    angle). The check is conservative, not exact: a slope between S and tan α is rejected (a few ulps), none above it
+    is accepted. `ExactlyCheckable` stays false for angles. The bound (`SlopeSpec.TanLowerBound`):
+    - x = a·π_lo / 180 with π_lo = `Math.PI` + a double below π − `Math.PI` (their exact sum, 3e-32 below π), so
+      x ≤ α in radians, and tan x ≤ tan α (tan rises on (0, π/2));
+    - sin_lo, cos_hi: the Taylor sums of sin and cos up to x⁴⁷ and x⁴⁸. For x < π/2 the terms x^m / m! fall
+      after the last term kept (x² < (m + 1)(m + 2) for m ≥ 47), so the omitted tail of each alternating series falls:
+      a partial sum that ends with a negative term is below the limit, one that ends with a positive term is above it
+      (Leibniz). The last sin term
+      (m = 47) is negative and the last cos term (m = 48) positive, so sin_lo ≤ sin x and cos_hi ≥ cos x > 0;
+    - a candidate t > 0 is proven if sin_lo ≥ t · cos_hi: then tan x = sin x / cos x ≥ sin_lo / cos_hi ≥ t. The test is
+      exact: both sums times 180⁴⁸ · 48! are dyadic (x^m / m! · 180⁴⁸ 48! = y^m · 180^(48−m) · 48! / m!, y = a·π_lo);
+    - S is the largest proven double: proven is monotone in t, so a bracket (a proven and an unproven double) from
+      `Math.Tan`'s value, widened in growing steps, is bisected on the bit patterns to adjacent doubles (at most 64
+      steps). So S depends on a only, the same on every platform whatever
+      Math.Tan returns; the truncation error of the sums, below x⁴⁹ / 49! ≈ 1e-53, is far below an ulp, so S is at most
+      an ulp or two below tan α up to 89.99999° (closer to 90° the 3e-32 of π_lo grows with tan² α). Near 90° π's rounding matters: tan α ≈ 1 / (π/2 − α), so π's own rounding (`Math.PI` alone is
+      1.2e-16 below π) costs about 1e-16 · α · tan² α relative; π_lo's 3e-32 makes that negligible up to 89.99999°.
+    - 45° is the one angle in (0°, 90°) whose tangent is a double (1, Niven's theorem): S = 1 there, exactly, so a 1:1
+      slope entered as 45° passes. Everywhere else S is the largest double not above tan α, or the one just below it;
+      0 only where tan α is below the smallest positive double (α below about 2.8e-322°).
+    - Tests (`TerrainSlopeOracleTests`): S at or below a 60-digit reference and within 4 ulps of it for angles from
+      1e-6° to 89.99999°; a triangle at `Math.Tan`'s value, accepted before and steeper than the angle, is rejected.
+    Prior art: rigorous elementary functions by argument bounds and series with a remainder (Muller, *Elementary
+    Functions*, 3rd ed. 2016, ch. 2 and 11; interval libraries such as MPFI and Arb evaluate the same way).
 - **Arc length** along the toe (for interpolation) is measured in XY.
 - **Meaning of the input slope** (decided, 2.5): the maximum admissible **local** slope of the generated surface,
   checked for every output triangle. It is not an overall or inter-ramp angle; those are checked separately and
@@ -1130,7 +1152,7 @@ namespace gs
         public enum Kinds { Ratio /* 1:n, reference convention */, Percent, Degrees, Rise }
         public Kinds Kind; public double Value;
         public double S { get; }               // rise / run, conservative (never steeper than the spec)
-        public bool ExactlyCheckable { get; }  // Ratio, Percent, Rise: exact; Degrees: against the double S only
+        public bool ExactlyCheckable { get; }  // Ratio, Percent, Rise: exact; Degrees: conservative, against a proven S <= tan
         public static SlopeSpec Ratio(double n); public static SlopeSpec Percent(double p);
         public static SlopeSpec Degrees(double a); public static SlopeSpec Rise(double s);
     }

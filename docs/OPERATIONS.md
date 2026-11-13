@@ -82,6 +82,16 @@ other results at UTM coordinates.
 
 `ExactMeshArrangement` is internal. Its `Trees` (the box trees of the winding queries) are null after `ExactMeshBoolean.Compute`: the boolean releases them after the classification to save memory (about 80 bytes per input triangle).
 
+Large booleans allocate heavily, mostly in the classification (eg 20 GB for one operation on a 4.6k-triangle CAD part
+with its rotated copy). Workstation GC is the .NET default for console and desktop applications; there, GC pauses
+take 11 % of the run time over the extreme cases of
+[perf/EXTREME_RUNTIME_BOOLEANS.md](perf/EXTREME_RUNTIME_BOOLEANS.md) and up to 27 % on single operations. An
+application that runs large booleans can switch to server GC. This is a host setting, not a library one:
+`<ServerGarbageCollection>true</ServerGarbageCollection>` in the application's project, `"System.GC.Server": true` in
+its `runtimeconfig.json`, or `DOTNET_gcServer=1`. Measured on 4 cores: Thingi10K 107554 intersection 20.5 -> 16.6 s
+(-19 %), 42327 intersection 29.7 -> 26.3 s (-11 %), results bit-identical (the same hashes). It costs memory. ASP.NET
+Core applications use server GC already.
+
 `ExactMeshBoolean` also takes open meshes (`AllowOpenMeshes`, default true): their solid is where the generalized
 winding number is above 1/2 (`ExactWinding[i]` false), and the result is generally open (`IsClosed()` false,
 `MeshRobustRepair.NotCleanReason` "not closed"). It is consistently oriented, also where an open boundary of an
@@ -149,7 +159,10 @@ area is kept instead, counted in `Rounding.ScaleDisparity`, and the result is no
 coordinate per edit). Edits beyond the bound are not applied. The volume changes per edit by at most about the edit's
 displacement times the area of the triangles it replaces, plus the volume of removed components (class comment of
 `MeshRoundingRepair`). `MeshRobustRepair` can run a second repair after its separation step, with a budget of its
-own: there the total is at most twice the bound.
+own: there the total is at most twice the bound. Where the passes of the repair leave a degenerate triangle or an
+intersecting pair, a position search moves one of its corners to one of a fixed set of positions within the bound
+that is left (26 directions, 8 sizes, the smallest first; `Rounding.PositionSearchMoves`), checked like every edit
+(docs/design/SAFE_ROUNDING.md section 9).
 
 More than two meshes go into one arrangement, with an operation or a predicate on the winding numbers of all
 inputs (Zhou et al. 2016). Status is the result code (`Success`, `InvalidInput`, `OpenInput`):
@@ -505,7 +518,9 @@ UVs are indexed by vertex id; all used vertices need finite entries. Every bound
 bit. The input mesh and UV list are unchanged and reread on each Compute. No atlas integration is enabled.
 
 Options: `MaxIterations` (200, zero retains the initial map), `InitialEpsilon` (1) and `MinimumEpsilon`
-(1e-12, positive and <= InitialEpsilon). The epsilon schedule is equation 6 of Garanzha et al.; no alternate
+(1e-12, positive and <= InitialEpsilon) and `EnergyDecreaseTolerance` (1e-3, in [0, 1)). The run stops when no triangle is
+invalid and one iteration lowers the energy by less than that fraction (Algorithm 1, line 11), provided the
+regularized energy is within the same fraction of the unregularized one; the guard is ours, see FOLDOVER_FREE.md. The epsilon schedule is equation 6 of Garanzha et al.; no alternate
 optimizer or free-boundary mode. `Success` requires finite UVs, zero flipped/degenerate triangles and finite
 symmetric Dirichlet distortion; it does **not** mean global injectivity or optimal distortion. Use
 `UVOverlap.Compute(mesh, result.UV)` separately. The result is the final iterate when it has no more invalid
