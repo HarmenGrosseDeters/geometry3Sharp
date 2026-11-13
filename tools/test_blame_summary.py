@@ -104,10 +104,10 @@ class Wiring(unittest.TestCase):
         self.assertIn("if: always()", upload)
         self.assertIn("path: test-results/", upload)
 
-    def test_procdump_for_net_framework_is_installed_without_breaking_the_job(self):
-        s = self.step("Install ProcDump")
-        self.assertIn("continue-on-error: true", s)
-        self.assertIn("PROCDUMP_PATH", s)
+    def test_no_procdump_is_installed(self):
+        # the probe of 2026-11-13 (docs/QA.md 2.13): vstest dumps the .NET Framework test host without ProcDump
+        self.assertNotIn("procdump", self.text.lower().replace("no procdump", ""))
+        self.assertNotIn("PROCDUMP_PATH", self.text)
 
 
 if __name__ == "__main__":

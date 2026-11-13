@@ -487,8 +487,11 @@ trx, so no test was named. The net48 test steps (both shards and the Clipper2 pa
 - a test that runs 10 minutes (the suite's limit is 5 s, 10 s with the `Slow` tag) hangs the test host: vstest kills it and
   writes a mini dump (`*_hangdump*.dmp`) next to `Sequence_<guid>.xml` (the tests that started, `Completed="True"` once finished)
   into `test-results/`, which the `if: always()` artifact step uploads (`netstandard-results`, `netstandard-b-results`);
-- on .NET Framework vstest takes the dump with ProcDump: the step `Install ProcDump` installs it (Chocolatey) and sets
-  `PROCDUMP_PATH`; if that fails, the step is `continue-on-error` and the sequence file still names the test, only the dump is missing;
+- no ProcDump is needed: a forced hang on `windows-latest` (a test that sleeps forever, net48, `--blame-hang-timeout 1m`, run 43482696511 of
+  a probe branch, 2026-11-13) gave the same result with and without ProcDump (Chocolatey, `PROCDUMP_PATH`): the log says "The test running
+  when the crash occurred: <test>", and `probe.trx`, `Sequence_<guid>.xml` (305 bytes) and `testhost.net48_<pid>_<time>_hangdump.dmp` (2 MB)
+  are in the results directory. The step exits 1, so the job fails and the summary step runs. The timeout is an inactivity time (no
+  test finished for that long), not a limit per test;
 - the step `Blame summary` (`tools/blame_summary.py`, run when a step failed or the job was cancelled) lists the tests of the
   sequence files that did not complete in the job summary: the hang is in one of them (usually the last);
 - `--blame` also names the running test when the test host crashes. The trx of a healthy run is the same as before.
