@@ -7,7 +7,7 @@ holes, `PolyLine2d`), on top of [Clipper2](https://github.com/AngusJohnson/Clipp
 boundaries, slicing contours.
 
 ```csharp
-using g3; using g3.Clipper2; using Clipper2Lib;
+using g3; using g3.Clipper2;
 
 Clipper2Result merged = Clipper2Polygons.Union(footprints);          // also Intersection, Difference, Xor
 Clipper2Result zone = Clipper2Polygons.Offset(merged.Polygons, 3.0,
@@ -37,6 +37,17 @@ if (!free.Ok)
   translations to other languages are left to third parties, so the C# package 2.0.0 this adapter uses is frozen and the
   limitation above will not be fixed upstream. This package therefore carries the C# sources of Clipper2 2.0.0 itself
   (internal, `Clipper2Lib/`, owner decision 2026-11-12); they compute what the package computes
-  (`Clipper2VendoredDifferentialTests`), apart from the fix above. The NuGet package `Clipper2` 2.0.0 remains a dependency for the types of the
-  public API (`Point64`, `Path64`, `Paths64` and the enums), so code that also uses Clipper2 directly sees no clash.
+  (`Clipper2VendoredDifferentialTests`), apart from the fix above. Since 2.0 this package does not depend on the
+  NuGet package `Clipper2` (below).
+- **Breaking change in 2.0** (owner decision 2026-11-13: no dependency on the frozen Clipper2 package):
+  - `ClipType`, `FillRule`, `JoinType` and `EndType` are types of this package (namespace `g3.Clipper2`), with the
+    names, members and values of Clipper2's. They replace `Clipper2Lib`'s in `Clipper2Options.FillRule`, `JoinType`,
+    `EndType` and in `Clipper2Polygons.Boolean`, `BooleanPaths` and `ClipPolyLines`. Code that used them with
+    `using Clipper2Lib;` compiles once that line is removed (and is recompiled: the types changed).
+  - Code that also uses the Clipper2 package directly and imports both namespaces gets CS0104 ("ambiguous
+    reference"). Name the type with an alias, eg `using FillRule = g3.Clipper2.FillRule;`, or qualify it.
+  - `ClipperFrame`'s conversions to and from Clipper2's integer types are no longer public: `ToPoint64`,
+    `ToPoint64Displacement`, `ToVector2d(Point64)`, `ToPath64` (two), `ToPaths64` (two), `ToPolygon2d(Path64)`,
+    `ToPolyLine2d(Path64)`, `ToGeneralPolygons(PolyTree64)`. `Origin`, `Scale`, `Resolution`, the constructor,
+    `ForBounds` and the constants stay, so a fixed grid can still be set with `Clipper2Options.Frame`.
 - The full description is in [docs/OPERATIONS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).

@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3.Clipper2.Vendored;
-using Pkg = Clipper2Lib;
 
 namespace g3.Clipper2
 {
@@ -13,7 +12,7 @@ namespace g3.Clipper2
     ///
     /// Clipper2 computes on integers, which makes its booleans robust; the price is that every input coordinate is
     /// snapped to the grid of spacing <see cref="Resolution"/> = 1 / Scale around <see cref="Origin"/>.
-    /// Round-trip precision: <c>|p - ToVector2d(ToPoint64(p))| &lt;= Resolution / 2</c> per coordinate, plus one rounding
+    /// Round-trip precision: a point mapped to the grid and back is within Resolution / 2 per coordinate, plus one rounding
     /// of the subtraction and one of the addition of Origin (one unit in the last place of the coordinate each).
     ///
     /// <see cref="ForBounds"/> picks Origin = the center of the input bounds and Scale = the largest power of two that
@@ -93,16 +92,12 @@ namespace g3.Clipper2
         }
 
         /// <summary> the grid point of p. Throws if p is not finite or outside ±2^52 integer units. </summary>
-        public Pkg.Point64 ToPoint64(Vector2d p) => Bridge.ToPackage(ToPoint(p));
-
         internal Point64 ToPoint(Vector2d p)
         {
             return new Point64(ToInteger(p.x - Origin.x), ToInteger(p.y - Origin.y));
         }
 
         /// <summary> a displacement (no Origin), eg a Minkowski pattern relative to its reference point </summary>
-        public Pkg.Point64 ToPoint64Displacement(Vector2d d) => Bridge.ToPackage(ToDisplacement(d));
-
         internal Point64 ToDisplacement(Vector2d d)
         {
             return new Point64(ToInteger(d.x), ToInteger(d.y));
@@ -117,16 +112,12 @@ namespace g3.Clipper2
         }
 
         /// <summary> the input-space point of a grid point </summary>
-        public Vector2d ToVector2d(Pkg.Point64 q) => ToVector2d(Bridge.ToVendored(q));
-
         internal Vector2d ToVector2d(Point64 q)
         {
             return new Vector2d(Origin.x + q.X / Scale, Origin.y + q.Y / Scale);
         }
 
         /// <summary> the vertices of a polygon, in order (orientation kept) </summary>
-        public Pkg.Path64 ToPath64(Polygon2d polygon) => Bridge.ToPackage(ToPath(polygon));
-
         internal Path64 ToPath(Polygon2d polygon)
         {
             var path = new Path64(polygon.VertexCount);
@@ -136,8 +127,6 @@ namespace g3.Clipper2
         }
 
         /// <summary> the vertices of a polyline, in order </summary>
-        public Pkg.Path64 ToPath64(PolyLine2d polyline) => Bridge.ToPackage(ToPath(polyline));
-
         internal Path64 ToPath(PolyLine2d polyline)
         {
             var path = new Path64(polyline.VertexCount);
@@ -152,8 +141,6 @@ namespace g3.Clipper2
         /// other way round are reversed (by the sign of their area on the grid). With this orientation the fill rules
         /// NonZero and Positive give the region of the polygon. Empty if Outer is null.
         /// </summary>
-        public Pkg.Paths64 ToPaths64(GeneralPolygon2d polygon) => Bridge.ToPackage(ToPaths(polygon));
-
         internal Paths64 ToPaths(GeneralPolygon2d polygon)
         {
             var paths = new Paths64();
@@ -162,8 +149,6 @@ namespace g3.Clipper2
         }
 
         /// <summary> ToPaths64 of each polygon, appended </summary>
-        public Pkg.Paths64 ToPaths64(IEnumerable<GeneralPolygon2d> polygons) => Bridge.ToPackage(ToPaths(polygons));
-
         internal Paths64 ToPaths(IEnumerable<GeneralPolygon2d> polygons)
         {
             var paths = new Paths64();
@@ -191,8 +176,6 @@ namespace g3.Clipper2
         }
 
         /// <summary> a polygon with the vertices of a path </summary>
-        public Polygon2d ToPolygon2d(Pkg.Path64 path) => ToPolygon2d(Bridge.ToVendored(path));
-
         internal Polygon2d ToPolygon2d(Path64 path)
         {
             var vertices = new List<Vector2d>(path.Count);
@@ -202,8 +185,6 @@ namespace g3.Clipper2
         }
 
         /// <summary> a polyline with the vertices of a path </summary>
-        public PolyLine2d ToPolyLine2d(Pkg.Path64 path) => ToPolyLine2d(Bridge.ToVendored(path));
-
         internal PolyLine2d ToPolyLine2d(Path64 path)
         {
             var vertices = new List<Vector2d>(path.Count);
@@ -223,8 +204,6 @@ namespace g3.Clipper2
         /// (reversed to an outer boundary) if none does. Such a path is then no polygon of its own, so the polygons are the tree's
         /// outer boundaries in pre-order, minus the reclassified ones, plus the reclassified ones nested as holes.
         /// </summary>
-        public List<GeneralPolygon2d> ToGeneralPolygons(Pkg.PolyTree64 tree) => ToGeneralPolygons(Bridge.ToVendored(tree));
-
         internal List<GeneralPolygon2d> ToGeneralPolygons(PolyTree64 tree)
         {
             var entries = new List<(Path64 path, double area, bool treeHole, int parent)>();
