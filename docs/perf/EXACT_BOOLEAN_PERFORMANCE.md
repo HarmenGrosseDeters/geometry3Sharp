@@ -139,6 +139,37 @@ round with the faster rounding per operation; raw output
   took 1.62 s.
 - The hash gate (263 runs, all rounding clean on master) is identical, rounding 4.41 against 4.36 s in the sum.
 
+### SafeRounding's work outside the edits (November 2026, after T1b)
+
+The T1b profile ([EXACT_BOOLEAN_T1B_PROFILE.md](../design/EXACT_BOOLEAN_T1B_PROFILE.md)) found the rounding's edit loop
+at 0.5 % of the operation and its serial work outside the edits at 14 % (4 cores). Three bit-identical changes:
+`remove_tiny_components` walks the components with its own depth-first search (the order of
+`MeshConnectedComponents.FindConnectedT`, so its area and volume sums are the same) with marks instead of hash sets; the
+per-triangle scans (anchors, finite and range checks, degenerate triangles, the tree's boxes) run over blocks of 4096
+ids in parallel, each block writing its own slots; `atPosition` is sized for the vertices.
+
+The 65 Thingi10K models of the profile (the 56 sampled from the D1 timing set and the 9 slowest roundings; #385
+pairing, exported with `BooleanComparison export`), 195 operations, 4 cores, master 79ccaf3 against the branch,
+`DOTNET_TieredPGO=0` on both sides (#825: tiered PGO has a random slow mode in the classification), whole sweeps in the
+order before, after, after, before, the faster of the two rounds per operation; raw output
+[perf/rounding_serial_work_2026-11-13.jsonl](../../benchmarks/BooleanComparison/perf/rounding_serial_work_2026-11-13.jsonl)
+(the probe: `runs/t1b-profile`, `runs/t1b/HashRun`):
+
+| | master | after |
+|---|---:|---:|
+| rounding, 195 operations | 38.2 s | 32.2 s (−15.7 %) |
+| whole boolean, 195 operations | 143.6 s | 136.9 s (−4.7 %) |
+| 1150177 union, rounding | 777 ms | 585 ms |
+| 375065 union, rounding | 693 ms | 544 ms |
+| 519511 union, rounding | 4292 ms | 3527 ms |
+| result hashes equal (before / after, both rounds, after on 1 core) | | 195 of 195 |
+
+The edit-heavy operations are unchanged within the noise (119829 union 2109 / 2175 ms: its rounding is the edit loop).
+A first run at default settings on master 58644af gave rounding −12.9 % and whole boolean −2.8 %, hashes equal too.
+
+What is left of the serial work: the tree builds (about 5 s of the 24 s rounding at 4 cores on the profile's sample,
+partly parallel already), `component_scales` (a union-find) and the `atPosition` dictionary itself.
+
 ### Projection filter in SafeRounding's pair test (November 2026, Exact Boolean 2.0 WP3)
 
 On the Thingi10K corpus (#385, harness pairing: B rotated by 20° about (1, 1, 0) and shifted by a quarter of the

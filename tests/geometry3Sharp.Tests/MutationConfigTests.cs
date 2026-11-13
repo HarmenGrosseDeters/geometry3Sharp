@@ -119,14 +119,21 @@ namespace geometry3Sharp.Tests
             string root = RepoRoot();
             Assert.NotNull(root);
             var filters = TestFilters(root);
-            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-1"]));
+            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-4"]));
             Assert.Equal(8, shared.Count);
+            // (RoundingSerialWorkTests, 7 s: the parts with the per-triangle scans, the tree's boxes and
+            // remove_tiny_components)
+            const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests";
             var extras = new Dictionary<string, string[]>() {
+                ["stryker-mesh-rounding-1"] = new[] { serialWork },
+                ["stryker-mesh-rounding-2"] = new[] { serialWork },
+                ["stryker-mesh-rounding-3"] = new[] { serialWork },
                 ["stryker-mesh-rounding-8"] = new[] {
                     "FullyQualifiedName~ExactBooleanFarComponentTests",
                     "FullyQualifiedName~ExactBooleanScaleDisparityTests",
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
-                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip" },
+                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
+                    serialWork },
             };
             for (int i = 1; i <= 8; ++i) {
                 string part = "stryker-mesh-rounding-" + i;
