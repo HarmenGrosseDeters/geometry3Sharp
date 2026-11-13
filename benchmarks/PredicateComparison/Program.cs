@@ -223,6 +223,10 @@ static class Program
 
     static void Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "filters") {
+            Filters();
+            return;
+        }
         if (args.Length > 0 && args[0] == "triangles") {
             CoplanarTriangles.Run();
             return;
@@ -296,5 +300,33 @@ static class Program
         for (int i = 0; i < 200000; ++i) sink += f(cases[i % cases.Count]);
         sw.Stop();
         return sw.ElapsedMilliseconds + (sink == int.MinValue ? "!" : "");
+    }
+
+    // `filters`: ns per call of Orient3d, InCircle and InSphere in general position (the filter decides every call),
+    // best of 5 runs of 2 000 000 calls, single thread; coordinates in [-1, 1] and at 2^-40 and 2^40 (the filters'
+    // underflow term is subnormal for all of them)
+    static void Filters()
+    {
+        var rnd = new Random(7);
+        foreach (double scale in new[] { 1.0, Math.Pow(2, -40), Math.Pow(2, 40) }) {
+            var p = Enumerable.Range(0, 4096).Select(_ => new Vector3d(2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1, 2 * rnd.NextDouble() - 1) * scale).ToArray();
+            int m = p.Length - 1;
+            double o3 = best(() => { int s = 0; for (int i = 0; i < 2000000; ++i) s += ExactPredicates.Orient3d(p[i & m], p[(i + 1) & m], p[(i + 2) & m], p[(i + 3) & m]); return s; });
+            double ic = best(() => { int s = 0; for (int i = 0; i < 2000000; ++i) s += ExactPredicates.InCircle(p[i & m].xy, p[(i + 1) & m].xy, p[(i + 2) & m].xy, p[(i + 3) & m].xy); return s; });
+            double isp = best(() => { int s = 0; for (int i = 0; i < 2000000; ++i) s += ExactPredicates.InSphere(p[i & m], p[(i + 1) & m], p[(i + 2) & m], p[(i + 3) & m], p[(i + 4) & m]); return s; });
+            Console.WriteLine($"scale {scale:g3}: ns per call orient3d {o3:F1}, incircle {ic:F1}, insphere {isp:F1}");
+        }
+    }
+
+    static double best(Func<int> run)
+    {
+        double b = double.MaxValue;
+        int sink = 0;
+        for (int r = 0; r < 6; ++r) {
+            var sw = Stopwatch.StartNew();
+            sink += run();
+            if (r > 0) b = Math.Min(b, sw.Elapsed.TotalMilliseconds * 1e6 / 2000000);    // (the first run warms up)
+        }
+        return sink == int.MinValue ? -b : b;
     }
 }

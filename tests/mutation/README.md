@@ -88,6 +88,50 @@ classified: any edit of it runs everything (the real one has none; `test_select_
 `max-parallel` is 12: a full run has 25 mesh shards (the table below), at most 12 of them at a time; with the
 arithmetic job and the selection job that is 14, which leaves 6 of the account's 20 concurrent jobs for CI.
 
+### Narrowed test sets
+
+A shard needs only the tests that kill its mutants. [narrow_tests.py](narrow_tests.py) turns the report of a full run
+(`killedBy` / `coveredBy` of every mutant) into a filter file `test-filters/<config name>.json` (kept tests, plus a hash of
+the config and the content hashes of the mutated files and of the test files it was made from):
+
+```
+python3 narrow_tests.py make --report mutation-report.json --config stryker-mesh-rounding-2.json \
+    [--durations full-run.trx] -o test-filters/stryker-mesh-rounding-2.json
+```
+
+The kept set is a greedy cover with one recorded killer of every killed mutant (a sole killer is always kept; with
+`--durations` the cover prefers cheap tests). Stryker records no killer for a timed-out mutant (`killedBy` is empty, only
+`coveredBy`), so `--timeouts one` (default; owner decision 2026-11-13) keeps one covering test per such mutant (a timeout can turn
+into a survivor if that test does not hang) and `--timeouts all` keeps every covering test of such a mutant (nothing can be
+lost, but the saving is small on shards with many timeouts).
+
+**Rule: the scheduled run of every Sunday (UTC) is unfiltered** (`full_config` in [run_stryker.sh](run_stryker.sh) ignores the
+filter files when `GITHUB_EVENT_NAME=schedule` and `date -u +%u` is 7; a run that GitHub starts late into Monday counts as
+Monday), as is every run with `G3_FULL_TESTS=1`, so a kill that the narrowed runs lost shows up within a week as a survivor
+of the Sunday report, which is also the report the next filter files are made from. Measured on the stored reports of
+2026-11-09 to 12 (`--timeouts one`; saving of the coverage capture / of the mutant runs): envelope-1 92 / 93 %, -2 86 / 85 %,
+-3 59 / 52 %, -4 50 / 8 % (no filter, below 20 %), fixed 35 / 35 %, rounding-1..8 80-99 / 76-100 %, arithmetic 84 / 66 %,
+terrain-arith 100 / 100 %, terrain-kernel 85 / 85 %; arrangement, boolean, planar and terrain-overlay have no full master
+report yet. With `--timeouts all` only arithmetic, terrain-arith (86 / 40 %) and terrain-kernel keep 20 % or more. Survivors lose no kill by this: a mutant that no test kills stays
+unkilled, and a survivor whose covering tests were all dropped becomes `NoCoverage`, which the score counts the same.
+`make` writes nothing when the estimated saving of the mutant runs is below 20 % (`--min-saving`): such a shard keeps its
+full filter. In the full run (`full()` of [run_stryker.sh](run_stryker.sh), which is also the run without a baseline of a
+`source` shard) the script calls `narrow_tests.py apply`: with a current filter file Stryker gets the exact list of kept
+tests as `test-case-filter` (`FullyQualifiedName=...|...`), so the coverage capture and every survivor / timeout run
+execute those tests only; the job summary says `narrowed: N of M tests`. **Current** means: the config (but `thresholds`, `reporters`, `concurrency`) is unchanged, every mutated file and every test file with a test in the report has its content from the report
+(line breaks and BOM aside), and no other test file mentions a class name of the filter. Anything else (stale, no file,
+unreadable) runs the config as it is and the summary says why (`full: mutated file changed: ...`). Incremental runs and
+`--since` runs keep the config's filter.
+
+Make the filter only from a report of a run with the FULL filter (`G3_FULL_TESTS=1`, or the fallback above): the
+`killedBy` of a narrowed run names kept tests only, so a filter made from it could never grow. A narrowed run is
+therefore a repeat of an earlier result for unchanged code, not a new one; **the unfiltered full run on master is the
+check of record** (code that the mutated files call, test helpers and data files without a test of their own, and test files linked from outside the test project are not in the guard: a change there can make a kept test stop killing a
+mutant that a dropped test still kills). Measured on the stored reports of 2026-11-09 to 12 (test times of the master
+full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
+`G3_TEST_FILTERS=<dir>` reads the filter files from another directory (default `test-filters/`). Tests:
+`python3 test_narrow_tests.py`.
+
 Stryker's own `--with-baseline` (5.0, experimental) is not used: it looks the baseline up by relative path while its
 report stores absolute paths, so it never matches; and it matches mutants by source text and mutator name, which is
 ambiguous for 48 % of the mutants of `MeshRoundingRepair.cs` (`a > b` gives two "Equality mutation"s; measured on

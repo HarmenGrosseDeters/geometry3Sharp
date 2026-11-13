@@ -46,6 +46,8 @@ namespace DeterminismHarness
             list.Add(new Case("probe.format-roundtrip", serial => ProbeFormatRoundTrip()));
             list.Add(new Case("io.obj-text", serial => IoObj()));
             list.Add(new Case("io.stl-text", serial => IoStl()));
+            // ---- runtime behaviour the specification leaves open, and the candidates of DETERMINISM_PROOF.md (Probes.cs)
+            Probes.AddTo(list);
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {

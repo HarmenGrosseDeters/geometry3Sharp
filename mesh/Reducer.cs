@@ -18,7 +18,7 @@ namespace g3
     ///
     /// Boundaries: with PreserveBoundaryShape (default) boundary vertices are never moved (a collapse keeps the
     /// boundary vertex), so the boundary only loses vertices. For a guaranteed geometric tolerance set
-    /// MaxDeviation (certified one-sided bound to the input surface). Use <see cref="MeshConstraints"/> via
+    /// MaxDeviation (certified one-sided bound to the input surface; MaxDeviationTwoSided adds the other direction). Use <see cref="MeshConstraints"/> via
     /// SetExternalConstraints() to fix vertices or edges.
     ///
     /// Prefer Reducer to lower the triangle count while keeping the shape. Use <see cref="Remesher"/> instead
@@ -79,12 +79,27 @@ namespace g3
         /// If > 0, a collapse is only done if every point of the new triangles stays within MaxDeviation
         /// of the input surface (checked with the certified bounds of TriangleDeviationBounds, so the
         /// reduced surface is guaranteed to lie within this distance of the input). One-sided: input
-        /// features thinner than the tolerance (eg a spike) can still be cut off.
+        /// features thinner than the tolerance (eg a spike) can still be cut off (see MaxDeviationTwoSided).
         /// The reference is the mesh at the first reduction with MaxDeviation (so repeated ReduceTo...
         /// calls stay within MaxDeviation of the original), or the one given to SetDeviationReference.
         /// Not covered: the projection of a ProjectionTarget (Reproject) after the collapses.
         /// </summary>
         public double MaxDeviation = 0;
+
+        /// <summary>
+        /// If true (and MaxDeviation &gt; 0), a collapse is also refused unless every point of the input surface stays within
+        /// MaxDeviation of the reduced mesh, so together with MaxDeviation the two-sided (Hausdorff) distance between input
+        /// and result is at most MaxDeviation; thin input features (eg a spike) are then kept. Every input triangle keeps
+        /// the few output triangles it is certified against, and a collapse re-certifies only the input triangles that
+        /// depend on its one-ring (bounds of TriangleDeviationBounds' kind, floating point; docs/design/BOUNDED_SIMPLIFICATION.md).
+        /// Costs about 1.4x the time of a MaxDeviation reduction (median, benchmarks/ReducerBenchmark README, "twosided"). Off by default.
+        /// Throws InvalidOperationException where the bound cannot be kept: in FastCollapsePass, with a ProjectionTarget
+        /// projected after the reduction (ProjectionMode AfterRefinement), with a reference from SetDeviationReference or
+        /// from an earlier reduction without this option, after MaxDeviation changed, or after the mesh was changed outside
+        /// the Reducer between two reductions (also by a subclass in OnEdgeCollapse, or by a reduction with the option off).
+        /// Repeated ReduceTo... calls on one Reducer keep the bound to the original.
+        /// </summary>
+        public bool MaxDeviationTwoSided = false;
 
         /// <summary>
         /// If set, a collapse is only done if its new triangles intersect no other triangle (exact test,
@@ -101,6 +116,14 @@ namespace g3
         /// The alpha wrap simplification uses it with the wrap's input, so the simplified wrap still encloses it.
         /// </summary>
         internal DMeshAABBTree3 KeepClearOf = null;
+        /// <summary>
+        /// (internal, with KeepClearOf) true (default): a collapse is also skipped if the region between the old and the new
+        /// surface meets KeepClearOf (TetrahedraMeet over the tetrahedra (old triangle, new position) of both one-rings), so
+        /// a collapse cannot jump over a part of it that its new triangles do not touch. False: the end state only (before
+        /// the fix of issue 743). The guarantee is an induction: it assumes the mesh starts clear of KeepClearOf (the raw
+        /// alpha wrap does: it never touches its input) and enclosing it; every accepted collapse then keeps both.
+        /// </summary>
+        internal bool KeepClearOfSwept = true;
         /// <summary>
         /// If true (default), a collapse is also rejected if one of its new triangles turns away from the input surface
         /// it stands for: its unit normal must have a positive dot with the reference normal of its corners, the sum of
@@ -354,6 +377,8 @@ namespace g3
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
 
+            if (two_sided_active)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided is not supported by FastCollapsePass");
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
             ensure_deviation_reference();
@@ -444,6 +469,7 @@ namespace g3
         {
             deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
             deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+            reverseCoverage = null;     // (the reverse direction refers to the mesh at its start: MaxDeviationTwoSided then refuses)
         }
 
         /// <summary> (internal) has a MaxDeviation reference been set (SetDeviationReference)? </summary>
@@ -510,7 +536,7 @@ namespace g3
             return a.Min.x <= b.Max.x && a.Max.x >= b.Min.x && a.Min.y <= b.Max.y && a.Max.y >= b.Min.y && a.Min.z <= b.Max.z && a.Max.z >= b.Min.z;
         }
 
-        /// <summary> does one of the triangles intersect or touch a triangle of the tree's mesh (exact predicates)? Only reads the tree. </summary>
+        /// <summary> does one of the triangles intersect or touch a triangle of the tree's mesh, degenerate ones included (exact predicates)? Only reads the tree. </summary>
         internal static bool TrianglesTouch(DMeshAABBTree3 tree, IList<Triangle3d> tris)
         {
             AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
@@ -528,7 +554,9 @@ namespace g3
                     Index3i ot = obstacle.GetTriangle(tid);
                     Triangle3d O = new Triangle3d(obstacle.GetVertex(ot.a), obstacle.GetVertex(ot.b), obstacle.GetVertex(ot.c));
                     var ob = new AxisAlignedBox3d(O.V0); ob.Contain(O.V1); ob.Contain(O.V2);
-                    if (BoxesTouch(ob, union) == false || ExactTriangleIntersection.IsDegenerate(ref O)) return;
+                    // (degenerate obstacle triangles too: ExactTriangleIntersection takes a collinear one as its segment, a
+                    // point one as its point; the wrap's input may have them, and the wrap must keep them enclosed)
+                    if (BoxesTouch(ob, union) == false) return;
                     for (int i = 0; i < tris.Count; ++i) {
                         Triangle3d A = tris[i];
                         if (ExactTriangleIntersection.Intersects(ref A, ref O)) { hit = true; return; }
@@ -536,6 +564,91 @@ namespace g3
                 }
             });
             return hit;
+        }
+
+        /// <summary>
+        /// does a triangle of the tree's mesh meet the region of the tetrahedra (4 corners each in corners)? It meets a
+        /// tetrahedron if it touches one of its faces (TrianglesTouch, exact) or lies inside it (a corner or the centroid
+        /// strictly inside by exact orientations). Used for the region an operation sweeps: the union of the tetrahedra
+        /// (old triangle, new vertex). As a chain their boundary is the old surface minus the new one (the side faces
+        /// cancel), so the winding number of a point changes only inside them, and a triangle that touches neither surface
+        /// changes sides as a whole: one of its corners or its centroid is then strictly inside a tetrahedron, or it lies
+        /// in a face, which the face test finds. Only reads the tree.
+        /// </summary>
+        internal static bool TetrahedraMeet(DMeshAABBTree3 tree, IList<Vector3d> corners)
+        {
+            int nt = corners.Count / 4;
+            if (nt == 0) return false;
+            var faces = new List<Triangle3d>(4 * nt);
+            for (int i = 0; i < nt; ++i) {
+                Vector3d a = corners[4 * i], b = corners[4 * i + 1], c = corners[4 * i + 2], d = corners[4 * i + 3];
+                faces.Add(new Triangle3d(a, b, c)); faces.Add(new Triangle3d(a, b, d));
+                faces.Add(new Triangle3d(b, c, d)); faces.Add(new Triangle3d(c, a, d));
+            }
+            return TetrahedraMeet(tree, corners, faces);
+        }
+
+        /// <summary>
+        /// TetrahedraMeet with the faces to test given: the caller may leave out faces it knows to be clear of the tree's
+        /// mesh (the old surface, kept clear of it; the new triangles, tested on their own) and list a face shared by two
+        /// tetrahedra once
+        /// </summary>
+        internal static bool TetrahedraMeet(DMeshAABBTree3 tree, IList<Vector3d> corners, List<Triangle3d> faces)
+        {
+            int nt = corners.Count / 4;
+            if (nt == 0) return false;
+            AxisAlignedBox3d union = new AxisAlignedBox3d(corners[0]);
+            for (int i = 1; i < corners.Count; ++i) union.Contain(corners[i]);
+            if (faces.Count > 0 && TrianglesTouch(tree, faces)) return true;
+            DMesh3 obstacle = tree.Mesh;
+            bool inside = false;
+            tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (bx, depth) => !inside && BoxesTouch(bx, union),
+                NextTriangleF = (tid) => {
+                    if (inside) return;
+                    Index3i it = obstacle.GetTriangle(tid);
+                    Vector3d p0 = obstacle.GetVertex(it.a), p1 = obstacle.GetVertex(it.b), p2 = obstacle.GetVertex(it.c);
+                    for (int k = 0; k < 4 && !inside; ++k) {
+                        Vector3d p = k == 0 ? p0 : k == 1 ? p1 : k == 2 ? p2 : (p0 + p1 + p2) / 3;
+                        if (!union.Contains(p)) continue;
+                        for (int i = 0; i < nt; ++i)
+                            if (strictly_inside(corners[4 * i], corners[4 * i + 1], corners[4 * i + 2], corners[4 * i + 3], p)) { inside = true; break; }
+                    }
+                }
+            });
+            return inside;
+        }
+
+        static bool strictly_inside(Vector3d a, Vector3d b, Vector3d c, Vector3d d, Vector3d p)
+        {
+            int s = ExactPredicates.Orient3d(a, b, c, d);
+            if (s == 0) return false;
+            return ExactPredicates.Orient3d(p, b, c, d) == s && ExactPredicates.Orient3d(a, p, c, d) == s
+                && ExactPredicates.Orient3d(a, b, p, d) == s && ExactPredicates.Orient3d(a, b, c, p) == s;
+        }
+
+        // the swept region of a collapse to newPos: the tetrahedra (old triangle, newPos) of every triangle around a or b
+        // (gridRingTris, the two removed ones included; their chain boundary is the old patch minus the new fan)
+        // Faces: the old triangles are clear of KeepClearOf (every collapse keeps them so) and the new ones are tested by the
+        // caller, so only the side faces (p, q, newPos) of the edges at a or b remain, each once
+        readonly List<Vector3d> sweptCorners = new List<Vector3d>();
+        readonly List<Triangle3d> sweptFaces = new List<Triangle3d>();
+        readonly HashSet<int> sweptEdges = new HashSet<int>();
+        bool collapse_sweeps_obstacle(int a, int b, Vector3d newPos)
+        {
+            sweptCorners.Clear(); sweptFaces.Clear(); sweptEdges.Clear();
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            foreach (int tid in gridRingTris) {
+                mesh.GetTriVertices(tid, ref va, ref vb, ref vc);
+                sweptCorners.Add(va); sweptCorners.Add(vb); sweptCorners.Add(vc); sweptCorners.Add(newPos);
+            }
+            for (int k = 0; k < 2; ++k)
+                foreach (int eid in mesh.VtxEdgesItr(k == 0 ? a : b)) {
+                    if (!sweptEdges.Add(eid)) continue;
+                    Index2i ev = mesh.GetEdgeV(eid);
+                    sweptFaces.Add(new Triangle3d(mesh.GetVertex(ev.a), mesh.GetVertex(ev.b), newPos));
+                }
+            return TetrahedraMeet(KeepClearOf, sweptCorners, sweptFaces);
         }
 
         // the triangles around a and b after collapsing to vKeep at newPos: does one of them intersect a
@@ -569,7 +682,7 @@ namespace g3
                 if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
                 newIds.Add(nt); newTris.Add(tri);
             }
-            if (KeepClearOf != null && new_triangles_touch_obstacle(newTris))
+            if (KeepClearOf != null && (new_triangles_touch_obstacle(newTris) || (KeepClearOfSwept && collapse_sweeps_obstacle(a, b, newPos))))
                 return true;
             // the new triangles among themselves
             for (int i = 0; i < newTris.Count; ++i) {
@@ -648,6 +761,8 @@ namespace g3
                 if (is_finite(ref tri) == false || ExactTriangleIntersection.IsDegenerate(ref tri)) continue;
                 newIds.Add(nt); newTris.Add(tri);
             }
+            if (KeepClearOf != null && (new_triangles_touch_obstacle(newTris) || (KeepClearOfSwept && collapse_sweeps_obstacle(a, b, newPos))))
+                return true;
             for (int i = 0; i < newTris.Count; ++i) {
                 Triangle3d A = newTris[i];
                 Index3i ia = newIds[i];
@@ -879,8 +994,31 @@ namespace g3
 
         protected void ensure_deviation_reference()
         {
-            if (MaxDeviation > 0 && deviationTarget == null)
+            if (MaxDeviation > 0 && deviationTarget == null) {
                 SetDeviationReference(mesh);
+                if (MaxDeviationTwoSided)
+                    ReducerReverseCoverage.TryCreate(deviationTarget.Mesh, mesh, MaxDeviation, out reverseCoverage);
+            }
+            ensure_two_sided_coverage();
+        }
+
+        // the reverse direction of MaxDeviationTwoSided (null if off, or until the first reduction with it)
+        internal ReducerReverseCoverage reverseCoverage;
+        bool two_sided_active { get { return MaxDeviationTwoSided && MaxDeviation > 0; } }
+
+        // refuse the cases where the two-sided bound could not be kept (see MaxDeviationTwoSided)
+        void ensure_two_sided_coverage()
+        {
+            if (two_sided_active == false)
+                return;
+            if (target != null && ProjectionMode == TargetProjectionMode.AfterRefinement)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: a ProjectionTarget projected after the reduction (ProjectionMode AfterRefinement) moves vertices without the check");
+            if (reverseCoverage == null)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided needs the deviation reference taken from the mesh at the first reduction with the option set (not one from SetDeviationReference or from a reduction without it)");
+            if (reverseCoverage.Eps != MaxDeviation)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: MaxDeviation changed since the first two-sided reduction");
+            if (reverseCoverage.Stamp != mesh.ShapeTimestamp)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: the mesh was changed since the last two-sided reduction (outside the Reducer, or by a reduction with the option off)");
         }
 
         int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
@@ -1467,6 +1605,9 @@ namespace g3
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
 		{
 			collapseToV = DMesh3.InvalidID;
+            // (fail closed: a pass of a subclass that skipped ensure_deviation_reference would collapse without the check)
+            if (two_sided_active && reverseCoverage == null)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: a collapse without the reverse coverage (a pass that skipped ensure_deviation_reference)");
             RuntimeDebugCheck(edgeID);
 
             EdgeConstraint constraint =
@@ -1586,6 +1727,12 @@ namespace g3
                 retVal = ProcessResult.Ignored_CreatesIntersection;
                 goto skip_to_end;
             }
+            // (last: the most expensive check)
+            bool twoSided = two_sided_active;
+            if (twoSided && reverseCoverage.Check(mesh, a, b, t0, t1, vNewPos, MaxDeviationDepth) == false) {
+                retVal = ProcessResult.Ignored_ExceedsDeviation;
+                goto skip_to_end;
+            }
 
             // lots of cases where we cannot collapse, but we should just let
             // mesh sort that out, right?
@@ -1595,6 +1742,8 @@ namespace g3
 			if ( result == MeshResult.Ok ) {
 				collapseToV = iKeep;
 				mesh.SetVertex(iKeep, vNewPos);
+                if (twoSided)
+                    reverseCoverage.Commit(mesh, a, b);
                 forget_bowtie_states(iKeep, iCollapse);
                 if (refNormals != null) {
                     refNormals[iKeep] += refNormals[iCollapse];
