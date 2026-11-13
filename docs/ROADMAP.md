@@ -48,6 +48,8 @@ selectively.
 
 ## Now
 Status on 2026-11-12 (evening, Berlin).
+- **Clipper2 C# sources vendored** (owner decision 2026-11-12, option (b)): PR 1 #751 (behaviour-identical, draft), then PR 2
+  fixes FINDINGS item 5 (`bugfix`). [platform.md](roadmap/platform.md#open)
 - **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3, counted as Exact Boolean 2.1, owner 2026-11-12; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
