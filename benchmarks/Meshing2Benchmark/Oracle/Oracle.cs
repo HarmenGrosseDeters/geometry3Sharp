@@ -81,9 +81,17 @@ namespace Meshing2Acceptance
         public static bool OwnConstraintHoldsEnd(Pt a, Pt b, Pt p, Q pixel)
         {
             Q half = pixel / 2;
-            Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
-            bool SnapsTo(Pt x) => Index(x.Qx) == Index(p.Qx) && Index(x.Qy) == Index(p.Qy);
+            bool SnapsTo(Pt x) => SnapIndex(x.Qx, pixel) == SnapIndex(p.Qx, pixel) && SnapIndex(x.Qy, pixel) == SnapIndex(p.Qy, pixel);
             return EnvelopeHolds(a, b, p, half) || SnapsTo(a) || SnapsTo(b);
+        }
+
+        /// <summary> the index k of the pixel k w that x snaps to: floor(x / w + 1/2), exactly (also below 0) </summary>
+        internal static Q SnapIndex(Q x, Q pixel)
+        {
+            Q q = x / pixel + new Q(1, 2);
+            var f = BigInteger.Divide(q.N, q.D);
+            if (q.N.Sign < 0 && f * q.D != q.N) f -= 1;
+            return new Q(f, 1);
         }
 
         /// <summary> segment a-b meets the closed square of half-width h around p (exact) </summary>
@@ -849,7 +857,7 @@ namespace Meshing2Acceptance
                 var own = sources.Select(s => (s.a, s.b)).Concat(domain.IsHull ? domain.Edges() : Enumerable.Empty<(Pt a, Pt b)>())
                     .Where(s => OwnConstraintHoldsEnd(s.a, s.b, pa, pixel) && OwnConstraintHoldsEnd(s.a, s.b, pb, pixel)).ToList();
                 if (own.Count == 0) return false;
-                Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+                Q Index(Q x) => SnapIndex(x, pixel);
                 Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
                 // (a piece longer than 2^18 pixels along its larger axis is not enumerated and judged splittable: the band of such a piece
                 // costs seconds, which a run of many fine-pixel pieces would multiply; #723: the limit was 2^16 pixels of the piece's box,

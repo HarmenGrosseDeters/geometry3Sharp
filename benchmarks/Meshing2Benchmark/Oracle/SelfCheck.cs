@@ -852,8 +852,8 @@ namespace Meshing2Acceptance
                         // GridUnsplittable's own constraints at a decimal pixel (w = 0.1, #748): the piece's end p = (1, 1) is the pixel centre
                         // 10 w rounded to doubles, 5.6e-17 below the exact centre; x = 1.05 lies in p's pixel (below 10.5 w) but 4.2e-17
                         // outside the square of half a pixel around p. A constraint that ends there holds p (the tie of #728); one that runs
-                        // through x = 1.05 beside p without ending in its pixel does not, although it is within a hair (a hair of 2^-40 of
-                        // a pixel for every constraint, as first proposed in #730, took it in; review of #730)
+                        // through x = 1.05 beside p without ending in its pixel does not, although it is within a hair (a hair of 2^-41 of
+                        // a pixel for every constraint, half 2^-40 as first proposed in #730, took it in; review of #730)
                         {
                             Q w01 = Q.FromDouble(0.1);
                             Pt pEnd = Pt.FromDoubles(1.0, 1.0);
@@ -861,10 +861,15 @@ namespace Meshing2Acceptance
                                 Oracle.OwnConstraintHoldsEnd(Pt.FromDoubles(1.0, 0.5), Pt.FromDoubles(1.0, 1.5), pEnd, w01), "");
                             Must("own: a constraint ending in p's pixel, outside its square by a hair, holds the end p (#728)",
                                 Oracle.OwnConstraintHoldsEnd(Pt.FromDoubles(1.05, 1.0), Pt.FromDoubles(1.05, 1.5), pEnd, w01), "");
+                            Must("own: the same constraint with its ends swapped holds the end p",
+                                Oracle.OwnConstraintHoldsEnd(Pt.FromDoubles(1.05, 1.5), Pt.FromDoubles(1.05, 1.0), pEnd, w01), "");
                             Must("own: a constraint passing beside p's square by a hair, not ending in its pixel, does not hold p (#748)",
                                 !Oracle.OwnConstraintHoldsEnd(Pt.FromDoubles(1.05, 0.5), Pt.FromDoubles(1.05, 1.5), pEnd, w01), "");
                             Must("own: a constraint far from p does not hold it",
                                 !Oracle.OwnConstraintHoldsEnd(Pt.FromDoubles(1.3, 0.5), Pt.FromDoubles(1.3, 1.5), pEnd, w01), "");
+                            // below 0 the pixel index rounds down: x = -0.07 snaps to pixel -1, not to p = (0, 0)'s (truncation took it there)
+                            Must("own: a constraint ending at x = -0.07, in pixel -1, does not hold p = (0, 0)",
+                                !Oracle.OwnConstraintHoldsEnd(Pt.FromDoubles(-0.07, 0), Pt.FromDoubles(-0.07, 0.5), Pt.FromDoubles(0, 0), w01), "");
                         }
                         // the M2 hull model keeps a snapped input point on the hull's boundary (a vertex of a boundary edge): the square with
                         // (5, 0) on its bottom edge, meshed without it, is rejected (review of #36, S1)
