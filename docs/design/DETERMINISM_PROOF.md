@@ -316,7 +316,7 @@ proofs exist only below a verified compiler (CompCert), which .NET does not have
 Recommended: B now (cheap, decides open facts, useful for the whole library), A stage 0 and 1 next, then A stage 2
 together with G after Exact Boolean 3.0, with C for the phases whose P5 obligation cannot be argued. D, E, F not now.
 
-**Decisions asked of the owner:**
+**Decisions asked of the owner** (answered: section 8):
 1. Is "machine-checked reduction to listed assumptions and obligations" (section 1) the accepted meaning of "proof" for
    certification use, or is a stronger form wanted for the kernel (then F for a small part, with its cost)?
 2. The observable result (section 2): timings and counters are diagnostic and outside the claim. Agreed?
@@ -325,7 +325,15 @@ together with G after Exact Boolean 3.0, with C for the phases whose P5 obligati
 5. The candidates of section 5 that concern released behaviour (`TerrainSlope*` libm, `Math.Min / Max` zeros, casts):
    confirm by probe first (part of B), then one issue each if real.
 
-## 8. Sources
+## 8. Owner decision (2026-11-13) and plan
+
+Relayed by the coordinator on #776: (1) "proof" means the machine-checked reduction to listed assumptions and
+obligations of section 1; (2) timings and counters are diagnostic and outside the claim; (3) option B first (probes,
+then the environment adversary); (4) option A stage 0 after B's numbers; (5) the candidates of section 5 are confirmed
+by probe first, then one GitHub issue for each that is real. Options G, C, D wait for stage 2; E and F are not pursued.
+The state of each step is in its PR.
+
+## 9. Sources
 
 Papers and standards (approach only; no code used): Bernstein, "Analysis of programs for parallel processing", IEEE
 Trans. EC 1966. Bocchino et al., "A type and effect system for Deterministic Parallel Java", OOPSLA 2009. Blelloch,
