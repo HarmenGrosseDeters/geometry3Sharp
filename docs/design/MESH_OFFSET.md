@@ -352,3 +352,43 @@ code is not read.
 - **Mutants** (manual, all killed by `MeshOffsetTests`): r without the far corners, r dropped, a lower distance bound 1.2x
   too large, an upper bound 0.8x too small, no sign flood, a wrong edge side, no sign in the certificate.
 
+## 11. Stage A2: the topology certificate, probe result (2026-11-13): report only
+
+The certificate of [MESH_OFFSET_ENCLOSURE.md](MESH_OFFSET_ENCLOSURE.md) was probed locally on the level-set side
+(`mesh_ops/MeshOffsetTopology.cs`): every cell of `MeshOffset`'s grid is proven zero-free (on blocks of cells first),
+certified, or listed; the node signs the contouring used were checked against the proven ones (0 mismatches in every
+run). Inputs: a box 2 x 3 x 1.5, a sphere (radius 5, 600 triangles), both also rotated (non-axis-aligned), offset and
+inset by 0.1 of the bounding box diagonal, cell |d| / 4 (|d| / 8 where noted). Share = certified / (certified + listed),
+the cells that are not proven zero-free; time = certificate / A1.
+
+| input | E (reviewed: directions to whole candidate triangles) | E' + segment rule (nearest-point trichotomy; S1* / S2*) | E'' + segment rule (edges: sigma cone of the two face normals, by convexity) |
+|---|---|---|---|
+| box offset | 73.8 % | 90.3 % (27x) | 90.3 % (25x) |
+| box inset | 8.9 % | 54.4 % (59x) | 64.0 % (124x) |
+| sphere offset | 21.4 % | 38.4 % (104x); 49.2 % at abs(d) / 8 | 75.3 % (334x) |
+| sphere inset | 11.3 % | 21.3 % (84x) | 34.2 % (231x) |
+| rotated box offset | 27.8 % | 62.0 % (50x); 68 % at abs(d) / 8 | 94.4 % (63x) |
+| rotated box inset | 0 % | 0 % (14x); 0 % at abs(d) / 8 | 0.8 % (31x) |
+| rotated sphere offset | - | 38.2 % (86x) | 80.1 % (149x) |
+| rotated sphere inset | - | 19.1 % (42x) | 30.7 % (140x) |
+
+Stop rule (coordinator 2026-11-13): 90 % on the box and sphere offsets and on the smooth insets of convex inputs, 50 % on
+the rotated box inset, certificate time at most 3x A1. E'' fails on the sphere (75 %, smooth inset 34 %), the rotated box
+inset (0.8 %) and the time (25-334x). **Decision: A2 is report only** (the listed cells and the certified share, no
+`TopologyCertified` claim on such inputs); refinement (option (b): finer cells where cells are listed) is later work,
+not scheduled.
+
+What the probe showed, for a later attempt:
+- The reviewed enclosure E is sound but loose by the size of the candidate triangles: a large triangle makes its
+  direction set nearly a hemisphere. E' (the nearest point of a triangle is interior, on an edge, or a vertex, each
+  with its own direction set, dropped where a linear test on the corners excludes it) and E'' (at an edge, the
+  direction lies in sigma times the cone of the two face normals; empty where the edge is convex from the point's side;
+  proof: the polar of the two half-planes in the plane orthogonal to the edge) tighten it; neither is reviewed.
+- What remains listed: cells whose edges or faces are nearly tangent to L (the direction set over the cell is still
+  wider than the angle between the edge and L; refinement shrinks it), the insets (a cell near L sees two or more
+  faces of the shrunken box or a wide cap of the sphere, as L is close to the medial axis there), and S3 cells at the
+  inset's creases.
+- The cost is the zero-free proofs of the segment rule (up to 256 pieces per edge, 4096 per face, one distance bound
+  each) and the exact fallbacks; a cheaper zero-free test (a monotone bound along the piece instead of the Lipschitz
+  ball) would be the first lever.
+

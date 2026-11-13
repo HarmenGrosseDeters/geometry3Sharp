@@ -132,30 +132,12 @@ namespace gs
                 if (sg[q] == 0) return "S0 node";
                 if (contour_sign(idx(a, b, c)) != sg[q]) { NodeSignMismatches++; return "node sign"; }
             }
-            // clear, side, the upper bound U of u over the cell
+            // clear, side, candidates over the cell
             Vector3d cc; double r;
             centre_radius(lo, hi, out cc, out r);
-            double sLo, sHi;
-            MeshOffset.signed_distance_bounds(mesh, tree, cc, out sLo, out sHi);
-            Evaluations++;
-            double uLo = sLo > 0 ? sLo : (sHi < 0 ? -sHi : 0), uHi = Math.Max(Math.Abs(sLo), Math.Abs(sHi));
-            if (!((ExactInterval.Of(uLo) - ExactInterval.Of(r)).Lo > 0)) return "not clear";
-            double U = (ExactInterval.Of(uHi) + ExactInterval.Of(r)).Hi;
-            double U2 = ExactInterval.Up(U * U);
-
-            // candidates C(X): triangles whose box can be within U of the cell; their vertices
-            var tris = new List<Vector3d>();   // 3 vertices per candidate triangle
-            var trav = new DMeshAABBTree3.TreeTraversal() {
-                NextBoxDF = (box, depth) => box_box_lower_sq(box.Min, box.Max, lo, hi) <= U2,
-                NextTriangleF = (t) => {
-                    Index3i tv = mesh.GetTriangle(t);
-                    Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), c = mesh.GetVertex(tv.c);
-                    Vector3d bmin = new Vector3d(Math.Min(a.x, Math.Min(b.x, c.x)), Math.Min(a.y, Math.Min(b.y, c.y)), Math.Min(a.z, Math.Min(b.z, c.z)));
-                    Vector3d bmax = new Vector3d(Math.Max(a.x, Math.Max(b.x, c.x)), Math.Max(a.y, Math.Max(b.y, c.y)), Math.Max(a.z, Math.Max(b.z, c.z)));
-                    if (box_box_lower_sq(bmin, bmax, lo, hi) <= U2) { tris.Add(a); tris.Add(b); tris.Add(c); }
-                }
-            };
-            tree.DoTraversal(trav);
+            int sigma;
+            List<int> tris = candidates(lo, hi, out sigma);
+            if (tris == null) return "not clear";
             if (tris.Count == 0) return "no candidates";
 
             // the crossing pattern from the proven signs: faces with four crossings and boundary circles
@@ -185,11 +167,13 @@ namespace gs
                 int axis = Edges[e, 2];
                 Vector3d p0 = corner(lo, hi, Edges[e, 0]), p1 = corner(lo, hi, Edges[e, 1]);
                 Vector3d a = Vector3d.Zero; a[axis] = 1;
-                if (one_signed(a, tris, new[] { p0, p1 })) continue;
+                if (one_signed(a, tris, new[] { p0, p1 }, sigma)) continue;
                 // (S1*): the edge is zero-free outside one closed piece [s0, s1], on which the axis is one-signed
                 Vector3d s0, s1;
                 if (!nonzero_hull(p0, p1, 8, out s0, out s1)) continue;     // zero-free on the whole edge
-                if (!one_signed(a, tris, new[] { s0, s1 })) return "S1 edge";
+                int sg1;
+                List<int> pt = candidates(s0, s1, out sg1);
+                if (pt == null || !one_signed(a, pt, new[] { s0, s1 }, sigma)) return "S1 edge";
             }
             // (S2) / (S2'): per face an axis of the face, else an in-plane direction, else zero-free
             for (int axis = 0; axis < 3; ++axis)
@@ -200,26 +184,34 @@ namespace gs
                     Vector3d[] fz = { corner(flo, fhi, 0), corner(flo, fhi, 1 << ka), corner(flo, fhi, 1 << kb), corner(flo, fhi, (1 << ka) | (1 << kb)) };
                     Vector3d ea = Vector3d.Zero; ea[ka] = 1;
                     Vector3d eb = Vector3d.Zero; eb[kb] = 1;
-                    if (one_signed(ea, tris, fz) || one_signed(eb, tris, fz)) continue;
+                    if (one_signed(ea, tris, fz, sigma) || one_signed(eb, tris, fz, sigma)) continue;
                     Vector3d g = gradient_at(0.5 * (flo + fhi));
                     g[axis] = 0;
-                    if (g.LengthSquared > 0 && one_signed(g, tris, fz)) continue;
+                    if (g.LengthSquared > 0 && one_signed(g, tris, fz, sigma)) continue;
                     // (S2*): the face is zero-free outside one closed rectangle, on which an axis or in-plane direction is one-signed
                     Vector3d rlo, rhi;
                     if (!nonzero_hull(flo, fhi, 6, out rlo, out rhi)) continue;
                     Vector3d[] rz = { corner(rlo, rhi, 0), corner(rlo, rhi, 1 << ka), corner(rlo, rhi, 1 << kb), corner(rlo, rhi, (1 << ka) | (1 << kb)) };
-                    if (one_signed(ea, tris, rz) || one_signed(eb, tris, rz)) continue;
+                    int sg2;
+                    List<int> rt = candidates(rlo, rhi, out sg2);
+                    if (rt == null) return "S2 face";
+                    if (one_signed(ea, rt, rz, sigma) || one_signed(eb, rt, rz, sigma)) continue;
                     Vector3d g2 = gradient_at(0.5 * (rlo + rhi));
                     g2[axis] = 0;
-                    if (g2.LengthSquared > 0 && one_signed(g2, tris, rz)) continue;
+                    if (g2.LengthSquared > 0 && one_signed(g2, rt, rz, sigma)) continue;
                     return "S2 face";
                 }
             // (S3): a direction one-signed on the enclosure over the cell
             Vector3d[] cz = new Vector3d[8];
             for (int q = 0; q < 8; ++q) cz[q] = corner(lo, hi, q);
             Vector3d dir = gradient_at(cc);
-            if (!(dir.LengthSquared > 0) || !one_signed(dir, tris, cz)) return "S3 cell";
+            if (!(dir.LengthSquared > 0) || !one_signed(dir, tris, cz, sigma)) return "S3 cell";
             return null;
+        }
+
+        static Vector3d corner(Vector3d lo, Vector3d hi, int q)
+        {
+            return new Vector3d((q & 1) != 0 ? hi.x : lo.x, (q & 2) != 0 ? hi.y : lo.y, (q & 4) != 0 ? hi.z : lo.z);
         }
 
         // the unit vector from the nearest input point to x (a direction to try; any double vector is valid)
@@ -232,21 +224,57 @@ namespace gs
             return l > 0 ? q / l : Vector3d.Zero;
         }
 
-        // Theorem E' (tighter than E): for z in X and a candidate t, the nearest point p of t is in t's interior (z - p along
-        // +-N), in an edge's interior (z - p = the part of z - A orthogonal to the edge), or a vertex (z - v). A part is left
-        // out where its condition provably fails for every z in X (linear tests on the corners). a . g has one sign on the
-        // hull of all remaining generators iff it has on each, and each test is linear in z: corners suffice.
-        static bool one_signed(Vector3d a, List<Vector3d> tris, Vector3d[] zs)
+        // the candidate triangles C(X) of a box X (a cell, face, segment or piece): those whose box can be within U of X, U the
+        // upper bound of u over X; null if X is not clear (it may meet the input). sigma: the side of the input on X.
+        List<int> candidates(Vector3d lo, Vector3d hi, out int sigma)
         {
-            int want = 0;
-            Func<int, bool> take = (sg) => { if (sg == 0) return false; if (want == 0) want = sg; return sg == want; };
-            for (int t = 0; t < tris.Count; t += 3) {
-                Vector3d v0 = tris[t], v1 = tris[t + 1], v2 = tris[t + 2];
+            sigma = 0;
+            Vector3d c; double r;
+            centre_radius(lo, hi, out c, out r);
+            double sLo, sHi;
+            MeshOffset.signed_distance_bounds(mesh, tree, c, out sLo, out sHi);
+            Evaluations++;
+            double uLo = sLo > 0 ? sLo : (sHi < 0 ? -sHi : 0), uHi = Math.Max(Math.Abs(sLo), Math.Abs(sHi));
+            if (!((ExactInterval.Of(uLo) - ExactInterval.Of(r)).Lo > 0)) return null;
+            sigma = sLo > 0 ? 1 : -1;
+            double U = (ExactInterval.Of(uHi) + ExactInterval.Of(r)).Hi;
+            double U2 = ExactInterval.Up(U * U);
+            var tris = new List<int>();
+            var trav = new DMeshAABBTree3.TreeTraversal() {
+                NextBoxDF = (box, depth) => box_box_lower_sq(box.Min, box.Max, lo, hi) <= U2,
+                NextTriangleF = (t) => {
+                    Index3i tv = mesh.GetTriangle(t);
+                    Vector3d a = mesh.GetVertex(tv.a), b = mesh.GetVertex(tv.b), cv = mesh.GetVertex(tv.c);
+                    Vector3d bmin = new Vector3d(Math.Min(a.x, Math.Min(b.x, cv.x)), Math.Min(a.y, Math.Min(b.y, cv.y)), Math.Min(a.z, Math.Min(b.z, cv.z)));
+                    Vector3d bmax = new Vector3d(Math.Max(a.x, Math.Max(b.x, cv.x)), Math.Max(a.y, Math.Max(b.y, cv.y)), Math.Max(a.z, Math.Max(b.z, cv.z)));
+                    if (box_box_lower_sq(bmin, bmax, lo, hi) <= U2) tris.Add(t);
+                }
+            };
+            tree.DoTraversal(trav);
+            tris.Sort();
+            return tris;
+        }
+
+        // Theorem E'' (docs: the normal-cone claim): for z in X on side sigma and a candidate t, the nearest point p of t, if it
+        // is the nearest point of M, is in t's interior (z - p = sigma |.| N_t), in the interior of an edge with neighbour t'
+        // (z - p in sigma cone{N_t, N_t'}, empty where the edge is convex from z's side), or a vertex v (z - p = z - v). A part
+        // is left out where its condition provably fails for every z in X (linear tests on the corners). a . g has one sign on
+        // the hull of all generators iff it has on each; the vertex test is linear in z, so corners suffice.
+        bool one_signed(Vector3d a, List<int> tids, Vector3d[] zs, int sigma)
+        {
+            // each part is a list of alternatives (sign lists); a part passes for a sign w if one alternative is all w (the
+            // part's directions lie in the intersection of the alternatives' cones, so one cone being one-signed suffices)
+            var parts = new List<List<int>[]>();
+            Func<int, bool> take = (sg) => { if (sg == 0) return false; parts.Add(new[] { new List<int> { sg } }); return true; };
+            foreach (int tid in tids) {
+                Index3i tv = mesh.GetTriangle(tid);
+                Vector3d v0 = mesh.GetVertex(tv.a), v1 = mesh.GetVertex(tv.b), v2 = mesh.GetVertex(tv.c);
                 Vector3d[] v = { v0, v1, v2 };
+                int[] vid = { tv.a, tv.b, tv.c };
+                int an = Ex.normal_dot_sign(a, v0, v1, v2);
                 bool interior = true;
                 for (int e = 0; e < 3; ++e) {
                     Vector3d A = v[e], B = v[(e + 1) % 3], C = v[(e + 2) % 3];
-                    // outer side of the edge line in t's plane: sign of ((B - A) x N) . (z - A) against that of C
                     int sc = Ex.edge_side(v0, v1, v2, A, B, C);
                     bool allInner = true, allOuterOrOn = true;
                     foreach (Vector3d z in zs) {
@@ -255,44 +283,53 @@ namespace gs
                         if (sz == sc) allOuterOrOn = false;
                     }
                     if (allOuterOrOn) interior = false;
-                    // the edge's interior can hold the nearest point only if some z is on its outer side and projects into it
                     bool edgeRelevant = !allInner;
                     if (edgeRelevant) {
                         bool allBefore = true, allAfter = true;
                         foreach (Vector3d z in zs) {
-                            int s0 = Ex.span_sign(A, B, z);     // sign of (z - A) . (B - A)
-                            int s1 = Ex.span_sign(B, A, z);     // sign of (z - B) . (A - B)
-                            if (s0 > 0) allBefore = false;
-                            if (s1 > 0) allAfter = false;
+                            if (Ex.span_sign(A, B, z) > 0) allBefore = false;
+                            if (Ex.span_sign(B, A, z) > 0) allAfter = false;
                         }
                         if (allBefore || allAfter) edgeRelevant = false;
                     }
-                    if (edgeRelevant)
-                        foreach (Vector3d z in zs) if (!take(Ex.edge_dir_sign(a, z, A, B))) return false;
+                    if (!edgeRelevant) continue;
+                    // the neighbour across the edge and the edge's convexity: the sign of N_t . (c' - A), c' off the edge
+                    int eid = mesh.FindEdge(vid[e], vid[(e + 1) % 3]);
+                    if (eid == DMesh3.InvalidID) return false;
+                    Index2i et = mesh.GetEdgeT(eid);
+                    int other = et.a == tid ? et.b : et.a;
+                    if (other == DMesh3.InvalidID) return false;
+                    Index3i ov = mesh.GetTriangle(other);
+                    int cvid = (ov.a != vid[e] && ov.a != vid[(e + 1) % 3]) ? ov.a : ((ov.b != vid[e] && ov.b != vid[(e + 1) % 3]) ? ov.b : ov.c);
+                    int conv = Ex.plane_side(v0, v1, v2, mesh.GetVertex(cvid));   // < 0 convex, > 0 reflex, 0 coplanar
+                    Vector3d o0 = mesh.GetVertex(ov.a), o1 = mesh.GetVertex(ov.b), o2 = mesh.GetVertex(ov.c);
+                    int ao = Ex.normal_dot_sign(a, o0, o1, o2);
+                    if ((conv < 0 && sigma < 0) || (conv > 0 && sigma > 0)) continue;   // never the nearest point from z's side
+                    var altCone = conv == 0 ? new List<int> { sigma * an } : new List<int> { sigma * an, sigma * ao };
+                    var altPerp = new List<int>();
+                    foreach (Vector3d z in zs) altPerp.Add(Ex.edge_dir_sign(a, z, A, B));
+                    parts.Add(new[] { altCone, altPerp });
                 }
                 for (int k = 0; k < 3; ++k) {
                     Vector3d P = v[k], Q = v[(k + 1) % 3], R = v[(k + 2) % 3];
-                    // the vertex is nearest only if (z - P) . (Q - P) <= 0 and (z - P) . (R - P) <= 0
                     bool outQ = true, outR = true;
                     foreach (Vector3d z in zs) { if (Ex.span_sign(P, Q, z) <= 0) outQ = false; if (Ex.span_sign(P, R, z) <= 0) outR = false; }
                     if (outQ || outR) continue;
                     foreach (Vector3d z in zs) if (!take(Ex.dot_sign(a, z, P))) return false;
                 }
-                if (interior) {
-                    // which side of t's plane the corners are on; both sides possible if they straddle it
-                    bool pos = false, neg = false;
-                    foreach (Vector3d z in zs) { int o = Ex.plane_side(v0, v1, v2, z); if (o >= 0) pos = true; if (o <= 0) neg = true; }
-                    int an = Ex.normal_dot_sign(a, v0, v1, v2);
-                    if (pos && !take(an)) return false;
-                    if (neg && !take(-an)) return false;
-                }
+                if (interior && !take(sigma * an)) return false;
             }
-            return want != 0;
-        }
-
-        static Vector3d corner(Vector3d lo, Vector3d hi, int q)
-        {
-            return new Vector3d((q & 1) != 0 ? hi.x : lo.x, (q & 2) != 0 ? hi.y : lo.y, (q & 4) != 0 ? hi.z : lo.z);
+            if (parts.Count == 0) return false;
+            foreach (int w in new[] { 1, -1 }) {
+                bool ok = true;
+                foreach (var part in parts) {
+                    bool any = false;
+                    foreach (var alt in part) { bool all = true; foreach (int sg in alt) if (sg != w) { all = false; break; } if (all) { any = true; break; } }
+                    if (!any) { ok = false; break; }
+                }
+                if (ok) return true;
+            }
+            return false;
         }
 
         // F is zero-free on the box (lo, hi) (a segment, a face or a cell), proven by splitting it up to depth times
