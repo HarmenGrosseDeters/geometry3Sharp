@@ -1,0 +1,52 @@
+name: Blame probe
+
+# PROBE ONLY (branch probe/blame-hang, never merged, runs on a push to probe/** only): does vstest take the hang dump of a .NET
+# Framework test host on windows-latest without ProcDump? Two jobs: without PROCDUMP_PATH, and with ProcDump from Chocolatey.
+on:
+  push:
+    branches: ['probe/**']
+
+jobs:
+  probe:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: without-procdump
+            procdump: 'false'
+          - name: with-procdump
+            procdump: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Is ProcDump on the runner?
+        shell: powershell
+        run: |
+          Get-Command procdump.exe, procdump64.exe -ErrorAction SilentlyContinue | Format-Table Source
+          "PROCDUMP_PATH='$env:PROCDUMP_PATH'"
+      - name: Install ProcDump
+        if: matrix.procdump == 'true'
+        shell: powershell
+        run: |
+          choco install procdump -y --no-progress
+          $p = (Get-Command procdump64.exe, procdump.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+          "PROCDUMP_PATH=$p" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8; "ProcDump: $p"
+      - name: Hang probe (net48, 1 minute)
+        continue-on-error: true
+        run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --filter "FullyQualifiedName~BlameHangProbeTests" --blame --blame-hang --blame-hang-timeout 1m --blame-hang-dump-type mini --logger "trx;LogFileName=probe.trx" --results-directory test-results
+      - name: What was written
+        if: always()
+        shell: powershell
+        run: |
+          Get-ChildItem -Recurse test-results | Select-Object FullName, Length | Format-Table -AutoSize -Wrap | Out-String -Width 250
+          Get-ChildItem -Recurse test-results | Select-Object FullName, Length | Format-Table -AutoSize -Wrap | Out-String -Width 250 | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ matrix.name }}
+          path: test-results/
