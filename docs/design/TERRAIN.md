@@ -86,6 +86,9 @@ oracle.
       Math.Tan returns; the truncation error of the sums, below x⁴⁹ / 49! ≈ 1e-53, is far below an ulp, so S is at most
       an ulp or two below tan α up to 89.99999° (closer to 90° the 3e-32 of π_lo grows with tan² α). Near 90° π's rounding matters: tan α ≈ 1 / (π/2 − α), so π's own rounding (`Math.PI` alone is
       1.2e-16 below π) costs about 1e-16 · α · tan² α relative; π_lo's 3e-32 makes that negligible up to 89.99999°.
+    - 45° is the one angle in (0°, 90°) whose tangent is a double (1, Niven's theorem): S = 1 there, exactly, so a 1:1
+      slope entered as 45° passes. Everywhere else S is the largest double not above tan α, or the one just below it;
+      0 only where tan α is below the smallest positive double (α below about 2.8e-322°).
     - Tests (`TerrainSlopeOracleTests`): S at or below a 60-digit reference and within 4 ulps of it for angles from
       1e-6° to 89.99999°; a triangle at `Math.Tan`'s value, accepted before and steeper than the angle, is rejected.
     Prior art: rigorous elementary functions by argument bounds and series with a remainder (Muller, *Elementary

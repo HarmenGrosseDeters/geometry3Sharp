@@ -107,7 +107,7 @@ namespace geometry3Sharp.Tests
         {
             Assert.False(SlopeSpec.Degrees(45).ExactlyCheckable);
             Assert.True(SlopeSpec.Ratio(1).ExactlyCheckable && SlopeSpec.Percent(100).ExactlyCheckable);
-            // slope exactly 1: tan(45 deg) in doubles is 0.9999999999999999, so the check against the double fails
+            // slope exactly 1: tan(45 deg) is exactly 1 (S = 1 since 2026-11-13; Math.Tan gave 0.9999999999999999)
             Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 1);
             Assert.Equal(SlopeSpec.Degrees(45).S >= 1, Slope.IsNotSteeper(a, b, c, SlopeSpec.Degrees(45)));
             Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Ratio(1)));
@@ -143,12 +143,17 @@ namespace geometry3Sharp.Tests
             Assert.Equal(s, SlopeSpec.Degrees(angle).S);
         }
 
-        // 45 deg, the one angle in range whose tangent is a double (1): x = 45 pi_lo / 180 is below pi / 4, so tan x &lt; 1 and
-        // the largest proven double is the one below 1. (S = 1 would mean pi_lo is not below pi: the proof's premise)
+        // 45 deg, the one angle in range whose tangent is a double (1): exactly 1, so a 1:1 slope entered as 45 deg passes, and
+        // one a bit steeper does not (the general bound would give the double just below 1: x = 45 pi_lo / 180 is below pi / 4)
         [Fact]
-        public void Degrees_45_IsJustBelowOne()
+        public void Degrees_45_IsExactlyOne()
         {
-            Assert.Equal(0.9999999999999999, SlopeSpec.Degrees(45).S);
+            Assert.Equal(1.0, SlopeSpec.Degrees(45).S);
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 1), c = new Vector3d(0, 1, 0);
+            Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Degrees(45)));
+            Assert.False(Slope.IsNotSteeper(a, new Vector3d(1, 0, 1.0000000000000002), c, SlopeSpec.Degrees(45)));
+            // (just beside 45: the general bound, below 1 and above 1)
+            Assert.True(SlopeSpec.Degrees(44.99999999999999).S < 1 && SlopeSpec.Degrees(45.00000000000001).S > 1);
         }
 
         // the premises of the bound (TERRAIN.md section 1): pi_lo below pi (against pi truncated to 35 decimals, itself

@@ -85,7 +85,8 @@ namespace gs
             new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
 
         /// <summary>
-        /// a double t with 0 &lt; t &lt;= tan(a pi / 180), proven, for 0 &lt; a &lt; 90 (docs/design/TERRAIN.md section 1): the
+        /// a double t with 0 &lt;= t &lt;= tan(a pi / 180), proven, for 0 &lt; a &lt; 90 (0 only where tan is below the smallest
+        /// positive double, a below about 2.8e-322): the largest double not above tan, or the one just below it (docs/design/TERRAIN.md section 1): the
         /// largest double t for which sin_lo(x) &gt;= t cos_hi(x) holds exactly, with x = a pi_lo / 180
         /// &lt;= a pi / 180 (pi_lo = Math.PI plus a double below pi - Math.PI, exactly), and sin_lo, cos_hi the Taylor sums of
         /// sin and cos up to x^47 and x^48, which end with a negative and a positive term of alternating series whose
@@ -96,6 +97,9 @@ namespace gs
         internal static double TanLowerBound(double a)
         {
             if (!(a > 0 && a < 90)) return double.NaN;
+            // (45 degrees, the one angle in (0, 90) whose tangent is a double: tan = 1 exactly, so 1 is the largest double not
+            // above it; the bound below would give the double just below 1, as x = 45 pi_lo / 180 is below pi / 4)
+            if (a == 45) return 1.0;
             long key = BitConverter.DoubleToInt64Bits(a);
             double t;
             if (tanCache.TryGetValue(key, out t)) return t;
