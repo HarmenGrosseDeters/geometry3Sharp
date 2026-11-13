@@ -239,6 +239,7 @@ in the tool project.
   only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
   A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
   the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
+  A1 built 2026-11-13 (#799, `gs.MeshOffset`, design note section 10); open: degenerate triangles (#800), the A2 proof.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level

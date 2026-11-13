@@ -62,12 +62,20 @@ namespace geometry3Sharp.Tests
             return o;
         }
 
+        // what a Success promises (the class comment): closed, manifold, finite, consistently oriented, free of self-intersections
+        // (reported and re-checked exactly here), the band certified. Not promised: no degenerate triangles (issue #800).
         static void AssertGood(MeshOffset o)
         {
             Assert.Equal(MeshOffset.Status.Success, o.ResultStatus);
+            DMesh3 r = o.Result;
+            Assert.True(r.TriangleCount > 0 && r.IsClosed());
+            Assert.DoesNotContain(r.VertexIndices(), v => r.IsBowtieVertex(v));
+            Assert.All(r.VertexIndices(), v => { Vector3d p = r.GetVertex(v); Assert.True(MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z)); });
+            Assert.Equal(0, MeshRepairMetrics.InconsistentlyOrientedEdges(r));
             Assert.True(o.SelfIntersectionFree);
+            Assert.False(MeshRepairMetrics.HasSelfIntersections(r));
             Assert.True(o.BandCertified, $"band {o.BandDeviation}, uncertified {o.UncertifiedTriangles}");
-            Assert.Equal("", MeshRobustRepair.NotCleanReason(o.Result));
+            Assert.True(o.BandDeviation <= (o.BandTolerance > 0 ? o.BandTolerance : 0.5 * o.UsedCellSize));
         }
 
         // signed distance to a closed mesh by an independent path (the nearest triangle and the exact crossing parity)
@@ -137,6 +145,36 @@ namespace geometry3Sharp.Tests
                 return p.z > 0.5 && p.z < 3.5 && new Vector2d(p.x - (5 + d), p.y - (5 + d)).Length < 0.02 * o.UsedCellSize;
             });
             Assert.True(onCrease >= 10, $"{onCrease} vertices on the crease");
+        }
+
+        // the chamfered block of benchmarks/SharpFeatureProbe (an octagon prism): its inset at a cell of |d| / 8 has a degenerate
+        // triangle (issue #800); the promised properties hold
+        [Fact]
+        public void Inset_ChamferedBlock_FineCell_KeepsThePromisedProperties()
+        {
+            var poly = new List<Vector2d> { new Vector2d(1.5, 0), new Vector2d(8.5, 0), new Vector2d(10, 1.5), new Vector2d(10, 4.5),
+                new Vector2d(8.5, 6), new Vector2d(1.5, 6), new Vector2d(0, 4.5), new Vector2d(0, 1.5) };
+            var m = new DMesh3();
+            int n = poly.Count;
+            for (int i = 0; i < n; ++i) m.AppendVertex(new Vector3d(poly[i].x, poly[i].y, 0));
+            for (int i = 0; i < n; ++i) m.AppendVertex(new Vector3d(poly[i].x, poly[i].y, 4));
+            for (int i = 1; i + 1 < n; ++i) { m.AppendTriangle(0, i + 1, i); m.AppendTriangle(n, n + i, n + i + 1); }
+            for (int i = 0; i < n; ++i) { int j = (i + 1) % n; m.AppendTriangle(i, j, n + j); m.AppendTriangle(i, n + j, n + i); }
+            double d = -0.05 * m.CachedBounds.Diagonal.Length;
+            MeshOffset o = Run(m, d, x => x.RelativeCellSize = 0.125);
+            AssertGood(o);
+            // the inset of a convex prism is the prism of the polygon shrunk by |d| (each edge moved inward), height 4 - 2 |d|
+            double area = 0;
+            var inner = new List<Vector2d>();
+            for (int i = 0; i < n; ++i) {
+                Vector2d a = poly[(i + n - 1) % n], b = poly[i], c = poly[(i + 1) % n];
+                Vector2d n0 = -(b - a).Perp.Normalized, n1 = -(c - b).Perp.Normalized;   // inward normals of a ccw polygon (Perp is the right one)
+                Vector2d bis = (n0 + n1).Normalized;
+                inner.Add(b + Math.Abs(d) / bis.Dot(n0) * bis);
+            }
+            for (int i = 0; i < n; ++i) area += inner[i].x * inner[(i + 1) % n].y - inner[(i + 1) % n].x * inner[i].y;
+            double exact = 0.5 * area * (4 - 2 * Math.Abs(d));
+            Assert.True(Math.Abs(Volume(o.Result) - exact) < 2e-3 * exact, $"{Volume(o.Result)} vs {exact}");
         }
 
         [Fact]

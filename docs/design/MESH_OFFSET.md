@@ -1,7 +1,7 @@
 # Robust mesh offsetting with guarantees (study)
 
-Status: **study; decided 2026-11-13** (coordinator, under the owner's autonomy mandate; section 9): option A,
-stage A1 next. No library code changed. One
+Status: **study; decided 2026-11-13** (coordinator, under the owner's autonomy mandate; section 9): option A.
+**Stage A1 implemented** (`gs.MeshOffset`, section 10); A2 waits for the reviewed enclosure proof. No library code changed. One
 throwaway probe was run locally (public API only, not committed; section 5); its numbers are quoted with the command.
 
 ## 1. Question
@@ -314,3 +314,41 @@ Decided (coordinator 2026-11-13, under the owner's autonomy mandate):
 A1 also carries: the invariance test over `Similarity.All()`, a reuse test, mutation checks of the certificate and a
 benchmark against SDF + marching cubes. Papers only (Zint 2023, Topological Offsets 2025, Varadhan & Manocha); their
 code is not read.
+
+## 10. Stage A1, implemented
+
+`gs.MeshOffset` (`mesh_ops/MeshOffset.cs`), tests `MeshOffsetTests`, benchmark
+[`benchmarks/MeshOffsetBenchmark`](../../benchmarks/MeshOffsetBenchmark/README.md).
+
+- **Scale**: the input is processed as a copy scaled by 2^k to an extent in [1, 2) (as `MeshWindingNumberSolidify`);
+  the cell is `RelativeCellSize` (default 1/4, at most 1/2) times |d| and the grid is shifted by an odd fraction of a
+  cell. So (G6) holds bit for bit (tests over `Similarity.All()` and shifts 2^-300 .. 2^300).
+- **Field**: the unsigned distance at the nodes (tree nearest query, capped at |d| + 2h), F = d - sd. Signs: a node
+  farther than 1.5 h from the input shares the side of the input with its neighbours (the grid edge of length h cannot
+  reach the input), so one exact inside test (`DMeshAABBTree3.IsInside`, crossing parity) per connected set of such
+  nodes; nodes nearer than 1.5 h < |d| need no sign (F has the sign of d there).
+- **Contouring**: `DualContouring` in sparse mode (the cells with a sign change), options A and B, `ResolveSelfIntersections`
+  on. Hermite data: on a sign-changing edge the whole edge is on one side of the input (outside for an offset, inside for
+  an inset: both ends are within h < |d| / 2 of a node beyond the offset level), so the crossing is found by bracketed
+  regula falsi (Illinois) on d - side * u and the normal is side times the unit vector from the nearest input point.
+- **Band certificate** (option A item 3, `MeshOffset.CertifyBand`, usable on any surface): per triangle, a centre c and
+  r, an upper bound of the distance from c to the exact corners (interval boxes of the corners); sd(c) enclosed by
+  `ExactInterval` arithmetic on the doubles: above by the distance to an explicit point v0 + b1 (v1 - v0) + b2 (v2 - v0)
+  of the nearest triangle (b1, b2 >= 0, b1 <= 1 - b2 exactly), below by min over the triangles whose (padded) box can be
+  that close of w . (c - x) / |w| over their corners x (w from c towards the triangle's nearest point; Cauchy-Schwarz
+  and linearity over the triangle), the sign by the exact crossing parity where c is provably off the input. Then
+  sd in [sLo - r, sHi + r] on the triangle (1-Lipschitz). A triangle above the tolerance is split by exact dyadic
+  barycentric coordinates, up to `MaxBandSplitDepth` (6), and not split where its centre alone is beyond the tolerance.
+  No hand-derived error constant: the intervals widen every operation by an ulp (ExactIntervals.cs). The default
+  tolerance is half a cell; every one of the 32 benchmark cases reaches it.
+- **Proven in A1**: (G1), (G2) (checked: `Status.Failed` otherwise), (G3) (exact), (G4) one side, (G6).
+  **Measured**: the other side of (G4) and (G5) (the procedural oracles: Steiner volumes, components of a hollow part and
+  across a gap). **Not promised**: triangle quality; degenerate (zero-area) triangles can occur (1 of 32 benchmark
+  cases, issue #800).
+- **Numbers** (4 threads, 32 cases per method, procedural): band certified at half a cell 32 / 32 against 15 / 32 for
+  SDF + MC (its insets fail by chamfered creases, up to 0.37 |d|); clean 31 / 32 against 25 / 32; triangles 0.95-1.07x;
+  time 0.6-4.7x of SDF + MC, median 1.6x (the estimate of 5.3 was 1-3x for the contouring plus below 10 % for the
+  certificate; the certificate takes about half of MeshOffset's time at the default tolerance, eg 736 of 1455 ms on the sphere at |d| / 4).
+- **Mutants** (manual, all killed by `MeshOffsetTests`): r without the far corners, r dropped, a lower distance bound 1.2x
+  too large, an upper bound 0.8x too small, no sign flood, a wrong edge side, no sign in the certificate.
+

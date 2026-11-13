@@ -740,7 +740,7 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
 
-## Mesh offset (`MeshOffset`, planned; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
+## Mesh offset (`MeshOffset`, stage A1 implemented; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
 
 Papers only; no code of these works was read (owner / coordinator rule 2026-11-13). Marks as in the design note:
 details recalled from memory there are checked before the implementation cites them.
@@ -755,3 +755,4 @@ details recalled from memory there are checked before the implementation cites t
 | Volumetric offsets with feature-sensitive extraction (prior art) | D. Pavić, L. Kobbelt, *High-Resolution Volumetric Computation of Offset Surfaces with Feature Preservation*, Computer Graphics Forum 27(2) (Eurographics 2008) |
 | Generalized gradient of a locally Lipschitz function (the distance-field enclosure of stage A2) | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983, chapter 2 |
 | Exact polytope Minkowski sums (the test oracle's idea; CGAL is GPL and not read) | P. Hachenberger, *Exact Minkowski sums of polyhedra and exact and efficient decomposition of polyhedra into convex pieces*, Algorithmica 55, 2009, doi:10.1007/s00453-008-9219-6 |
+| Band certificate (`MeshOffset.CertifyBand`): the 1-Lipschitz bound of the signed distance over a triangle, the distance enclosed by interval arithmetic (an explicit point of the nearest triangle above, the support bound w . (c - x) / \|w\| below), splits by dyadic barycentric coordinates | own construction (design note section 10); the interval rule of `ExactInterval` (one ulp per operation); dual contouring as in its own entry (Ju et al. 2002, Schaefer et al. 2007) |
