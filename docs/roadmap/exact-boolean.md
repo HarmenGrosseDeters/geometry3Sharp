@@ -439,6 +439,10 @@ Open:
     - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
       simplify about 30 %, setup 4 %.
     - Next: presizing and reuse of scratch buffers in the arrangement, after the files are cleared.
+    - Open (snap-rounding follow-up): reusing the `TriangleBoxTree` that `MeshRoundingRepair.rebuild_tree` builds again
+      and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
+      `claude/lever4-arrangement-allocs`: the reuse constructor, the check for a released tree, two tests, and the
+      allow-list entry. Build it together with the call and a benchmark row.
 - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
   coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
