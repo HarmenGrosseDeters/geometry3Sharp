@@ -254,7 +254,7 @@ namespace g3
                 throw new ArgumentException("TriangleDeviationBounds.MaxDistance: spatial is not built on Target");
             worst = a;
             lower = upper = double.NaN;
-            if (!(finite(a) && finite(b) && finite(c)) || double.IsNaN(da + db + dc) || double.IsInfinity(da + db + dc))
+            if (!(a.IsFinite && b.IsFinite && c.IsFinite) || !(MathUtil.IsFinite(da) && MathUtil.IsFinite(db) && MathUtil.IsFinite(dc)))
                 return false;
             lower = da;
             if (db > lower) { lower = db; worst = b; }
@@ -294,11 +294,6 @@ namespace g3
                 heap.Push(double.IsNaN(ub) ? double.PositiveInfinity : ub, t);
         }
 
-        static bool finite(Vector3d v)
-        {
-            double s = v.x + v.y + v.z;
-            return !(double.IsNaN(s) || double.IsInfinity(s));
-        }
 
 
         /// <summary>

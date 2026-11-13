@@ -718,9 +718,12 @@ namespace gs
         Vector3d clamp_center(Vector3d cc, Vector3d fc, Vector3d nrm, int side)
         {
             double lim = 4 * dt.Box.DiagonalLength;
-            if (double.IsNaN(cc.x + cc.y + cc.z) || double.IsInfinity(cc.x + cc.y + cc.z))
+            if (!cc.IsFinite)
                 return fc + side * lim * nrm;
             double t = (cc - fc).Dot(nrm);
+            // (a difference that overflows can make t NaN: then the centre is not trusted either)
+            if (double.IsNaN(t))
+                return fc + side * lim * nrm;
             if (Math.Abs(t) > lim)
                 return fc + Math.Sign(t) * lim * nrm;
             return cc;
