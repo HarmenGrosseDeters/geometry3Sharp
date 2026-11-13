@@ -6,16 +6,16 @@ still kills keeps its kill when the other tests are not run, so a shard needs on
 recorded killer of every killed or timed-out mutant. Its coverage capture and its survivor / timeout runs then run
 that set instead of the whole `test-case-filter`.
 
-  python3 narrow_tests.py make  --report R --config C [--durations TRX] [--min-saving 0.2] [--timeouts all|one] -o OUT
+  python3 narrow_tests.py make  --report R --config C [--durations TRX] [--min-saving 0.2] [--timeouts one|all] -o OUT
   python3 narrow_tests.py apply --config C --filter F --repo ROOT -o RUN_CONFIG
 
 `make` reads the JSON report of a FULL-FILTER full run of the shard and writes the filter file F: the kept tests (greedy
 set cover; a test that is the only recorded killer of a mutant is always kept; with --durations, the .trx of a full
 test run, the cover prefers cheap tests), plus what the filter was made from (below). A Killed mutant needs one of its
 recorded killers. A Timeout mutant has NO recorded killer in Stryker's report (killedBy is empty for all of them), only the
-tests that covered it, and which of them hung is unknown: `--timeouts all` (default) keeps every covering test of a timed-out
-mutant, which is the only choice that cannot lose its timeout (and saves little on a shard with many timeouts);
-`--timeouts one` keeps one covering test per such mutant, which usually still hangs but is not guaranteed to. It writes nothing when the
+tests that covered it, and which of them hung is unknown: `--timeouts one` (default, owner 2026-11-13) keeps one covering test per such
+mutant, which usually still hangs but is not guaranteed to (the unfiltered weekly run checks it); `--timeouts all` keeps
+every covering test, the only choice that cannot lose a timeout (and saves little on a shard with many timeouts). It writes nothing when the
 estimated saving of the mutant runs is below --min-saving (default 20 %): such a shard keeps its full filter.
 The saving is estimated as in the cost model of suggest_split.py: the sum over the tested mutants of the duration of
 the tests covering them (timeouts times 1.5), against the same sum over the kept tests only.
@@ -105,7 +105,7 @@ def filter_terms(test_case_filter):
     return terms
 
 
-def kept_tests(reports, cost, name=str, timeouts="all"):
+def kept_tests(reports, cost, name=str, timeouts="one"):
     """Greedy cover. reports: list of mutants (dicts); cost: test id -> seconds. Returns the set of kept test ids; ties
     go to the test with the smallest name (ids are not stable). A Killed mutant needs one recorded killer. A Timeout
     mutant needs its killedBy if it has one, else (always, in Stryker's report) all its covering tests (timeouts "all") or
@@ -142,7 +142,7 @@ def mutant_cost(mutants, tests, cost):
     return total
 
 
-def make(report_path, config_path, trx=None, min_saving=0.2, timeouts="all"):
+def make(report_path, config_path, trx=None, min_saving=0.2, timeouts="one"):
     """-> (filter dict or None, message)"""
     report = json.load(open(report_path, encoding="utf-8"))
     config = json.load(open(config_path, encoding="utf-8"))["stryker-config"]
@@ -263,7 +263,7 @@ def main(argv=None):
     mk.add_argument("--config", required=True)
     mk.add_argument("--durations")
     mk.add_argument("--min-saving", type=float, default=0.2)
-    mk.add_argument("--timeouts", choices=("all", "one"), default="all")
+    mk.add_argument("--timeouts", choices=("all", "one"), default="one")
     mk.add_argument("-o", required=True)
     ap_ = sub.add_parser("apply")
     ap_.add_argument("--config", required=True)

@@ -101,9 +101,18 @@ python3 narrow_tests.py make --report mutation-report.json --config stryker-mesh
 
 The kept set is a greedy cover with one recorded killer of every killed mutant (a sole killer is always kept; with
 `--durations` the cover prefers cheap tests). Stryker records no killer for a timed-out mutant (`killedBy` is empty, only
-`coveredBy`), so `--timeouts all` (default) keeps every covering test of such a mutant (nothing can be lost, the saving is
-small on shards with many timeouts) and `--timeouts one` keeps one covering test per mutant (larger saving, a timeout can
-turn into a survivor if that test does not hang: the check is the unfiltered run). Survivors lose no kill by this: a mutant that no test kills stays
+`coveredBy`), so `--timeouts one` (default; owner decision 2026-11-13) keeps one covering test per such mutant (a timeout can turn
+into a survivor if that test does not hang) and `--timeouts all` keeps every covering test of such a mutant (nothing can be
+lost, but the saving is small on shards with many timeouts).
+
+**Rule: the scheduled run of every Sunday (UTC) is unfiltered** (`full_config` in [run_stryker.sh](run_stryker.sh) ignores the
+filter files when `GITHUB_EVENT_NAME=schedule` and `date -u +%u` is 7; a run that GitHub starts late into Monday counts as
+Monday), as is every run with `G3_FULL_TESTS=1`, so a kill that the narrowed runs lost shows up within a week as a survivor
+of the Sunday report, which is also the report the next filter files are made from. Measured on the stored reports of
+2026-11-09 to 12 (`--timeouts one`; saving of the coverage capture / of the mutant runs): envelope-1 92 / 93 %, -2 86 / 85 %,
+-3 59 / 52 %, -4 50 / 8 % (no filter, below 20 %), fixed 35 / 35 %, rounding-1..8 80-99 / 76-100 %, arithmetic 84 / 66 %,
+terrain-arith 100 / 100 %, terrain-kernel 85 / 85 %; arrangement, boolean, planar and terrain-overlay have no full master
+report yet. With `--timeouts all` only arithmetic, terrain-arith (86 / 40 %) and terrain-kernel keep 20 % or more. Survivors lose no kill by this: a mutant that no test kills stays
 unkilled, and a survivor whose covering tests were all dropped becomes `NoCoverage`, which the score counts the same.
 `make` writes nothing when the estimated saving of the mutant runs is below 20 % (`--min-saving`): such a shard keeps its
 full filter. In the full run (`full()` of [run_stryker.sh](run_stryker.sh), which is also the run without a baseline of a

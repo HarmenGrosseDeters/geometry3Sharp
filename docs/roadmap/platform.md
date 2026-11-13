@@ -139,10 +139,10 @@ Part of the [roadmap](../ROADMAP.md).
   4 of 46, 100 / 100 %. No full report with tested mutants exists on master for arrangement-1..4, boolean-1/2, planar and
   terrain-overlay (cancelled or empty runs; boolean was re-split by #615). Built: `tests/mutation/narrow_tests.py` (`make`
   from a report, `apply` with the staleness guard), wired into `full()` of `run_stryker.sh`; a stale filter (changed config,
-  mutated file, test file, or a new test file naming the filter's classes) falls back to the full filter. Owner decision
-  open: whether `--timeouts one` may be used (the unfiltered full run on master then checks it). Open: making the filter
-  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), and an
-  unfiltered weekly run as the check of record.
+  mutated file, test file, or a new test file naming the filter's classes) falls back to the full filter. Owner
+  2026-11-13: `--timeouts one` is the default; the scheduled run of every Sunday (UTC) is unfiltered and checks it. Open: making the filter
+  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (follow-up PR, once full master reports exist for
+  arrangement / boolean / planar / overlay).
 - **`Vector2d` / `Vector3d.IsFinite` (owner 2026-11-12):** corrected to a component-wise check (today it tests the sum
   of the components, which overflows to infinity for large finite components); the fix is in work (branch
   `fix/vector-isfinite-components`).

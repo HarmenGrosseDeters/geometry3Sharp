@@ -94,17 +94,22 @@ class Make(Dir):
         flt, _ = self.make(self.BIG + [mutant(20, "Timeout", "d", "abcd")])
         self.assertIn("N.BTests.Four", flt["kept"])
 
-    def test_a_timeout_without_a_recorded_killer_keeps_every_covering_test_by_default(self):
+    def test_timeouts_all_keeps_every_covering_test_of_a_timeout_without_a_recorded_killer(self):
         # Stryker's report has an empty killedBy for every timeout: which covering test hung is unknown
-        flt, _ = self.make(self.BIG + [mutant(20, "Timeout", (), "bcd")], min_saving=0.0)
+        flt, _ = self.make(self.BIG + [mutant(20, "Timeout", (), "bcd")], min_saving=0.0, timeouts="all")
         self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Two", "N.BTests.Four", "N.BTests.Three"])
         self.assertEqual(flt["timeouts"], "all")
 
-    def test_timeouts_one_keeps_one_covering_test_for_all_the_timeouts_it_can(self):
+    def test_timeouts_one_is_the_default_and_keeps_one_covering_test_for_all_the_timeouts_it_can(self):
         ms = self.BIG + [mutant(20, "Timeout", (), "bcd"), mutant(21, "Timeout", (), "abd")]
-        flt, _ = self.make(ms, timeouts="one")
+        flt, _ = self.make(ms)
         self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Two"])  # Two covers both timeouts
         self.assertEqual(flt["timeouts"], "one")
+
+    def test_kept_tests_defaults_to_timeouts_one(self):
+        ms = [mutant(0, "Timeout", (), "bcd")]
+        self.assertEqual(len(nt.kept_tests(ms, lambda t: 1.0)), 1)
+        self.assertEqual(len(nt.kept_tests(ms, lambda t: 1.0, timeouts="all")), 3)
 
     def test_a_timeout_without_coverage_data_asks_for_nothing(self):
         flt, _ = self.make(self.BIG + [mutant(20, "Timeout")])
@@ -301,6 +306,7 @@ class Apply(Dir):
         json.dump(report(Make.BIG, TESTS), open(rp, "w"))
         self.assertEqual(nt.main(["make", "--report", rp, "--config", self.config, "-o", fp]), 0)
         self.assertEqual(json.load(open(fp))["kept"], ["N.ATests.One"])
+        self.assertEqual(json.load(open(fp))["timeouts"], "one")
         self.assertEqual(nt.main(["apply", "--config", self.config, "--filter", fp, "--repo", self.repo, "-o", out]), 0)
         self.assertEqual(json.load(open(out))["stryker-config"]["test-case-filter"], "FullyQualifiedName=N.ATests.One")
 
@@ -354,6 +360,12 @@ class RunStryker(unittest.TestCase):
         json.dump(self.flt, open(self.flt_path, "w"))
         self.assertEqual(self.run_script(), "FullyQualifiedName=N.C.M")
         self.assertIn("narrowed: 1 of 3 tests", open(os.path.join(self.tmp.name, "summary.md")).read())
+
+    def test_the_scheduled_run_of_a_sunday_is_unfiltered_the_other_days_are_not(self):
+        json.dump(self.flt, open(self.flt_path, "w"))
+        self.assertEqual(self.run_script(GITHUB_EVENT_NAME="schedule", G3_WEEKDAY="7"), self.full_filter())
+        self.assertEqual(self.run_script(GITHUB_EVENT_NAME="schedule", G3_WEEKDAY="3"), "FullyQualifiedName=N.C.M")
+        self.assertEqual(self.run_script(GITHUB_EVENT_NAME="workflow_dispatch", G3_WEEKDAY="7"), "FullyQualifiedName=N.C.M")
 
     def test_no_filter_file_a_stale_one_and_G3_FULL_TESTS_run_the_config_as_it_is(self):
         self.assertEqual(self.run_script(), self.full_filter())
