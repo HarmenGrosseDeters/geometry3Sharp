@@ -220,6 +220,22 @@ namespace geometry3Sharp.Clipper2.Tests
                 foreach (Pkg.Point64 q in pb)
                     Assert.Equal((int)Pkg.Clipper.PointInPolygon(q, pa), (int)V.Clipper.PointInPolygon(g3.Clipper2.Bridge.ToVendored(q), va));
             }
+            // point in polygon on a triangle and on 1- and 2-point paths (the length guard), at a vertex, on an edge,
+            // inside and outside
+            var rand = new Random(19);
+            for (int i = 0; i < 40; ++i) {
+                Pkg.Path64 ring = RandomRing(rand, 3, 8);
+                if (Pkg.Clipper.Area(ring) == 0) continue;
+                var probes = new List<Pkg.Point64> { ring[0], ring[1], ring[2],
+                    new Pkg.Point64((ring[0].X + ring[1].X) / 2, (ring[0].Y + ring[1].Y) / 2),   // on an edge (lattice step 2^17: exact)
+                    new Pkg.Point64((ring[0].X + ring[1].X + ring[2].X) / 3, (ring[0].Y + ring[1].Y + ring[2].Y) / 3),
+                    new Pkg.Point64(1L << 22, 1L << 22) };
+                foreach (Pkg.Path64 path in new[] { ring, new Pkg.Path64 { ring[0], ring[1] }, new Pkg.Path64 { ring[0] } })
+                    foreach (Pkg.Point64 q in probes)
+                        Assert.Equal((int)Pkg.Clipper.PointInPolygon(q, path), (int)V.Clipper.PointInPolygon(g3.Clipper2.Bridge.ToVendored(q), g3.Clipper2.Bridge.ToVendored(path)));
+                // a 3-vertex path is a polygon (not cut off by the length guard): a vertex is on it
+                Assert.Equal(Pkg.PointInPolygonResult.IsOn, Pkg.Clipper.PointInPolygon(ring[0], ring));
+            }
         }
 
         [Fact]
