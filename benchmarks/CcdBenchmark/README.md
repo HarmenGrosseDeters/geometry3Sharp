@@ -60,3 +60,33 @@ Sphere sweeps (two spheres, A moving into B, `MaxTighteningIterations` 1024):
 
 The tightening budget (256 / 1024 / 4096) changes the sweep's earliest time of impact by at most 1.5e-3 at 588 and 2700 triangles
 and not at all at 11532, at 0.5x / 1x / 1.4x the time (with a minimum separation; without one it is not used).
+
+## Nearly parallel edges (follow-up, 2026-11-13, CCD.md 10.8)
+
+Raw: `results-sample-2026-11-13b.csv` (same container type, evening; the absolute times of this run are about 40 % above
+the morning run on every row, also on the unchanged vertex-triangle path: an A/B of `synthetic` with master and this
+branch alternating in one job gave equal times within 5 %, eg VF near 73.9-82.4 µs master vs 71.5-76.9 µs branch, EE near
+42.8-45.1 vs 42.6-48.7, so the shift is the machine).
+
+| file | µs / query | µs max | boxes mean | boxes max |
+|---|---|---|---|---|
+| cloth-funnel 227ee, before | 2365 | 270748 | 6073 | 775689 |
+| cloth-funnel 227ee, after | 67 | 1620 | 150 | 3261 |
+
+All other files: the same box counts as before (puffer-ball 20ee and rod-twist 3036ee slightly fewer: max 18479 -> 9164 and
+27908 -> 12856), the same verdicts: 271 852 queries, 0 false negatives, 2 false positives.
+
+After the review of #845 (`results-sample-2026-11-13c.csv`, same evening machine): edge-edge pairs that are not nearly
+parallel are also split along their cross product, on every other level (CCD.md 10.8, with the variants measured).
+
+| file | µs / query | µs max | boxes mean | boxes max |
+|---|---|---|---|---|
+| armadillo-rollers 326ee | 109 (204 before the PR) | 19111 | 209 (408) | 3370 (6425) |
+| cloth-ball 92ee | 104 (191) | 5919 | 193 (378) | 3305 (13459) |
+| cloth-funnel 227ee | 58 (2365 in the morning run) | 971 | 114 (6073) | 1495 (775689) |
+| n-body-simulation 18ee | 78 (146) | 1512 | 153 (291) | 1856 (3209) |
+| puffer-ball 20ee | 97 (183) | 3404 | 188 (352) | 3296 (9164) |
+| rod-twist 3036ee | 225 (363) | 13594 | 405 (678) | 20849 (12856) |
+
+Vertex-triangle rows unchanged (the same box counts). All 271 852 queries: 0 false negatives, 2 false positives, 116 µs
+and 223 boxes per query on average (186 µs and 365 boxes before the PR, same machine).

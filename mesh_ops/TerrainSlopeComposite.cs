@@ -1004,22 +1004,23 @@ namespace gs
                 bool zok = tp.At(x, out zi);
                 double uz = double.NegativeInfinity, lz = double.PositiveInfinity;
                 bool ownFill = ownRun >= 0 && dirs[ownRun] < 0, ownCut = ownRun >= 0 && dirs[ownRun] > 0;
-                if (ownFill) { uz = 0; lz = Math.Min(0, difference(tp, zok, zi, terr, x, false)); }
+                if (ownFill) { uz = 0; lz = MathUtil.MinExact(0, difference(tp, zok, zi, terr, x, false)); }
                 else {
                     double hi = difference(tp, zok, zi, terr, x, true);
-                    uz = ownCut ? Math.Max(0, hi) : hi;
+                    uz = ownCut ? MathUtil.MaxExact(0, hi) : hi;
                     lz = ownCut ? 0 : difference(tp, zok, zi, terr, x, false);
                     for (int r = 0; r < slopes.Count; ++r) {
                         if (r == ownRun || stepOnly[r]) continue;
                         PlaneI sp;
                         if (slopes[r].Containing(overlapping[r], x, out sp) == false) continue;
-                        if (dirs[r] > 0) uz = Math.Max(uz, difference(tp, zok, zi, sp, x, true));
-                        else lz = Math.Min(lz, difference(tp, zok, zi, sp, x, false));
+                        if (dirs[r] > 0) uz = MathUtil.MaxExact(uz, difference(tp, zok, zi, sp, x, true));
+                        else lz = MathUtil.MinExact(lz, difference(tp, zok, zi, sp, x, false));
                     }
                 }
-                up = Math.Max(up, uz); low = Math.Min(low, lz);
+                up = MathUtil.MaxExact(up, uz); low = MathUtil.MinExact(low, lz);
             }
-            return Math.Max(up, -low);
+            // (MinExact / MaxExact: the bound goes to SnapTriangleBounds (tests); the sign of a zero is the same on every runtime)
+            return MathUtil.MaxExact(up, -low);
         }
 
         /// <summary> the certificate's worst point: a moved catch point of the triangle with the largest deviation </summary>
@@ -1667,7 +1668,7 @@ namespace gs
             double z = tri_z(et.a, p);
             if (et.b >= 0) {
                 double z2 = tri_z(et.b, p);
-                z = O.Dir > 0 ? Math.Min(z, z2) : Math.Max(z, z2);
+                z = O.Dir > 0 ? MathUtil.MinExact(z, z2) : MathUtil.MaxExact(z, z2);
             }
             return z;
         }
