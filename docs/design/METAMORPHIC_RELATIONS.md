@@ -1,7 +1,7 @@
 # Metamorphic relations beyond `Similarity.All()`: catalogue, value ranking, plan
 
-Status: study (tier S, docs only). No test or library code is changed. Author: study session for the coordinator;
-decisions for the owner are in section 9.
+Status: study (tier S, docs only), decisions of the owner recorded in section 9 (2026-11-13). No test or library code is
+changed by this note.
 
 **Question.** Which metamorphic relations (properties between the outputs of related inputs) can our harness check
 beyond invariance under `Similarity.All()`, which public operations do they apply to, what do they cost, and which
@@ -310,20 +310,17 @@ cheap (subset in the PR tier).
    (docs/QA.md section 5) was judged not worth it for a study whose first deliverable would be a throwaway test.
    The one measurement worth taking first is R1 on the 25 sweep operations (task 1 of the plan).
 
-## 9. Decisions for the owner
+## 9. Decisions of the owner (2026-11-13)
 
-1. **Approve the plan of section 7** (R1 → R2 → R3, then R4, R5)? Or only R1 and R2 first?
-2. **Where do the 48 symmetries live**: a new `Harness/Symmetry.cs` next to `Similarity` (recommended, `All()` stays
-   unchanged because 90+ tests depend on it and a reflection reverses orientation), or as extra members of
-   `Similarity`?
-3. **Tier of the full group**: all 48 symmetries x all operations in the PR tier (2 min, over the 5 s rule per test
-   if one test; split per operation), or a subset in the PR tier and the full group in the nightly job
-   (recommended)?
-4. **Cost relation**: accept a factor-2 bound for non-exact transformations and equality for 2^k / symmetries, and a
-   nightly wall-clock check with a factor of 20? (#664's 3 000-vertex cap would then be replaced by C1.)
-5. **Boolean identities with three operands** need a triple generator (about a day). Build it in this wave (R4), or
-   wait until Exact Boolean 3.0 is complete so that the test run does not compete with the 3.0 PRs?
-6. **Known limitation policy**: if R1 or R2 finds a difference that is by design (tie-breaks), may the test list it as
-   a classified `Toleranced` row with the reason, as the Boolean findings do, without a `KnownLimitation_` test?
-7. **Citations**: may the study session verify the [M] items and add the confirmed ones to `docs/SOURCES.md`? (no code
-   is taken from them.)
+All as recommended:
+1. Plan accepted. R1 (octahedral symmetry) and R2 (cost invariance) first, as one test-only feature PR; R3-R5 later,
+   each as its own PR.
+2. The symmetries live in their own `Harness/Symmetry.cs`; `Similarity.All()` stays unchanged.
+3. A subset of the 48 symmetries in the PR tier, all 48 in the nightly job.
+4. Cost relation: equality under the 2^k scales and the symmetries, at most a factor of 2 otherwise; a nightly
+   wall-clock check with a factor of 20.
+5. The triple-Boolean generator (B4) waits until Exact Boolean 3.0 is complete.
+6. By-design differences (tie-breaks) are listed as classified `Toleranced` rows with the reason, not as
+   `KnownLimitation_` tests.
+7. The [M] citations are verified before they go into `docs/SOURCES.md`. If R1 finds real defects they become
+   `bugfix` issues and are not fixed in the R1/R2 PR.
