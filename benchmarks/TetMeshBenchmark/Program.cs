@@ -6,6 +6,7 @@
 //   ... -- export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]     (the wrap's inside cells as a tet file)
 //   ... -- eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]       (exact validity, quality, deviation: TetFiles.Header)
 //   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
+//   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset]                  (stage 1, MeshTetrahedralization; refine_s = total - a separate wrap)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -54,6 +55,27 @@ static class Program
             Console.WriteLine(TetFiles.Header);
             // the wrap is serial (one thread); the evaluation is not timed
             Console.WriteLine(t == null ? name + "," + secs.ToString("G6", Inv) + ",1,WRAP_" + w.Status : TetFiles.Evaluate(name, t, input, secs.ToString("G6", Inv), "1"));
+        } else if (mode == "refine") {          // refine [file|proc] [relativeAlpha] [relativeOffset]: stage 1 (MeshTetrahedralization), same row as eval
+            string src = args.Length > 1 ? args[1] : "proc";
+            double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;
+            var inputs = src == "proc" ? Procedural().ToList()
+                : new List<KeyValuePair<string, DMesh3>> { new KeyValuePair<string, DMesh3>(System.IO.Path.GetFileName(src), StandardMeshReader.ReadMesh(src)) };
+            Console.WriteLine(TetFiles.Header + ",status,wrap_s,refine_s,us_per_tet,counts");
+            foreach (var kv in inputs) {
+                var sw = Stopwatch.StartNew();
+                var wrap = new MeshAlphaWrap(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                wrap.Compute();
+                double wrapS = sw.Elapsed.TotalSeconds;
+                sw.Restart();
+                var tm = new MeshTetrahedralization(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                tm.Compute();
+                double totalS = sw.Elapsed.TotalSeconds;
+                if (tm.Result == null) { Console.WriteLine(kv.Key + "," + tm.Status + "," + string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value))); continue; }
+                double refineS = Math.Max(0, totalS - wrapS);
+                string counts = string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value));
+                Console.WriteLine(TetFiles.Evaluate(kv.Key, tm.Result, kv.Value, totalS.ToString("G4", Inv), "1") + "," + tm.Status + "," +
+                    wrapS.ToString("G4", Inv) + "," + refineS.ToString("G4", Inv) + "," + (refineS * 1e6 / Math.Max(1, tm.Result.Tets.Count)).ToString("G4", Inv) + "," + counts);
+            }
         } else return 1;
         return 0;
     }

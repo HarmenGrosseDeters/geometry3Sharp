@@ -524,3 +524,25 @@ Estimate: steps 1-3 about 2 weeks (as section 9), step 4 about 1 week more, larg
 
 Decided: (1) S1-F with fallback to S1-R; (2) stage 1 targets p01 >= 10 degrees and min >= 1 degree, 10 degrees on every tet
 in stage 2; (3) Li-Teng placement, no exudation; (4) steps 1-3 now, step 4 after #736.
+
+### 14.8 Built so far (steps 1-3, 2026-11-13) and a change of plan for S1-R
+
+- **Step 1** (`Delaunay3.RefinementSupport`, `Clone`): cell labels, incident cells, `IsEdge` / `IsFacet`, undo of the last insertion
+  (restores the id allocation and the walk's random state, so the same insertion again gives the same ids). Tests
+  `Delaunay3RefinementSupportTests` (fuzz against a twin triangulation and brute-force stars; 9 hand mutants killed, one
+  equivalent removed by simplifying the undo).
+- **Steps 2-3** (`MeshTetrahedralization`): **the surface is kept fixed** instead of the encroachment splits of 14.2. A point is
+  kept only if every cell its insertion removes is inside (exact, on labels), otherwise it is undone. So the boundary is the
+  wrap's surface triangle by triangle (no rounding at all, T2 exact) and validity holds by construction. Reason: the splits of
+  14.2 were built and tried first; on curved wrap surfaces the midpoint splits cascaded (missing edges between near-coplanar
+  triangles, flips did not settle them) into the floor on 6 of 8 procedural inputs (`RecoveryFailed`), even with the floor at
+  s / 8. Surface splits move to step 4, where the featured surface needs recovery anyway, and need a 2D Delaunay
+  refinement per surface patch rather than independent midpoint splits.
+- Sliver step (Li-Teng, 14.4): candidates are the circumcentre and 2 x 14 fixed directions at 0.3 R and 0.6 R; the first whose new
+  tets have no dihedral below 10 degrees is taken, else the best. Points towards the centroid for tets refused at the surface were
+  tried and removed (they made the box and torus worse).
+- Measured (`TetMeshBenchmark refine proc`, alpha 20 / offset 600, one thread): all 8 procedural inputs valid (exact oracle),
+  boundary = wrap. Spheres n=16 / 40: **every tet radius-edge <= 2 and dihedral >= 10.0 degrees**. Box, cylinder, tori, soup:
+  p01 dihedral 5.2 .. 10.9 degrees, 33 .. 315 tets (0.8 .. 6.5 %) left bad, **all of them with at least two vertices on the
+  surface** (none inside). These are fixed only by changing the surface (step 4 surface refinement, or the stage-2 flips),
+  which is the remaining gap to the stage-1 target (p01 >= 10, min >= 1 degree).
