@@ -310,6 +310,45 @@ namespace geometry3Sharp.Tests
             Assert.True(Math.Abs(sphere.Value(ref exactZero)) < 1e-16);
         }
 
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        public void Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces(bool pro, bool parallel)
+        {
+            // The worst case of the recipe: an exact 1-Lipschitz field (a point distance) whose solid, a ball far smaller than a
+            // cube, sits where all eight nodes of a cube are as far from it as possible (the cube centre, distance sqrt(3) h / 2),
+            // or at a face centre (h sqrt(2) / 2) or an edge midpoint (h / 2) of the grid. The recipe's level sqrt(3) h / 2 + 2^-26
+            // must still make the mesh contain the solid; a pad of half that size (sqrt(3) h / 4) leaves every node high and an
+            // empty mesh, so it fails here geometrically (the mutant check of the pad's size).
+            const double h = 1.0 / 16;
+            double sigma = Math.Sqrt(3) * h / 2 + Math.Pow(2, -26);
+            var centers = new[] {
+                new Vector3d(h / 2, h / 2, h / 2),                 // cube centre: the node distance sqrt(3) h / 2
+                new Vector3d(h / 2, h / 2, 0),                     // face centre
+                new Vector3d(h / 2, 0, 0),                         // edge midpoint
+                new Vector3d(5.5 * h, 3.5 * h, 7.5 * h) };         // a cube centre elsewhere in the grid
+            foreach (Vector3d center in centers) {
+                var ball = new ImplicitSphere3d { Origin = center, Radius = h / 2000 };
+                // the boundary samples of the grid must be high (the recipe), so the grid reaches two cubes beyond every solid
+                var bounds = new AxisAlignedBox3d(new Vector3d(-2 * h, -2 * h, -2 * h), new Vector3d(0.5, 0.5, 0.5));
+                DMesh3 mesh;
+                if (pro) {
+                    var mc = new MarchingCubesPro { Implicit = ball, Bounds = bounds, CubeSize = h, IsoValue = sigma,
+                        RootMode = MarchingCubesPro.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+                    mc.Generate(); mesh = mc.Mesh;
+                } else {
+                    var mc = new MarchingCubes { Implicit = ball, Bounds = bounds, CubeSize = h, IsoValue = sigma,
+                        RootMode = MarchingCubes.RootfindingModes.LinearEdges, ParallelCompute = parallel };
+                    mc.Generate(); mesh = mc.Mesh;
+                }
+                Assert.True(mesh.TriangleCount > 0, "empty mesh for the ball at " + center);
+                Assert.True(mesh.IsClosed());
+                var tree = new DMeshAABBTree3(mesh, true);
+                Assert.True(tree.WindingNumber(center) > 0.99, "the solid at " + center + " is not inside the mesh");
+            }
+        }
+
         sealed class Field : ImplicitFunction3d
         {
             readonly int kind;
