@@ -144,6 +144,20 @@ namespace gs
         const int MaxQualityRounds = 10;
 
         /// <summary>
+        /// Threads of the carving (0 = all cores, 1 = one thread). The result is the same for every value: the carving
+        /// processes its queue in rounds of gates whose cells do not overlap, chosen and committed in a fixed order
+        /// (docs/design/ALPHA_WRAP_ROUNDS.md), so only the time depends on it.
+        /// </summary>
+        public int MaxThreads = 0;
+        /// <summary>
+        /// (tests) gates per round of the carving (Alpha Wrap 3.0 lever (B), docs/design/ALPHA_WRAP_ROUNDS.md); 0 = one gate at
+        /// a time: the order, and the result bit for bit, of the serial loop before the rounds
+        /// </summary>
+        internal int RoundWindow = 256;
+        /// <summary> (tests) a round takes at most the queue's size divided by this (at least 1, at most RoundWindow) gates </summary>
+        internal int RoundQueueDivisor = 64;
+
+        /// <summary>
         /// (tests) gates by the paper's Phi(f) (Definition 2: the smallest empty ball through the facet's vertices, along
         /// its dual Voronoi edge) instead of the facet's circumradius (false: the circumradius, as before). Phi(f) is at
         /// least the circumradius, so more facets are gates: the obtuse facets whose circumcircle is smaller than alpha
@@ -280,7 +294,7 @@ namespace gs
             changedSinceTrial = null;
             lastTrialVertices.Clear();
             localTrials = localFound = confirmTrials = confirmFound = 0;
-            Status = refine_and_carve();
+            Status = refine_and_carve(RoundWindow > 0);
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                 return false;
@@ -478,9 +492,16 @@ namespace gs
             }
         }
 
-        Vector3d circumcenter(int c)
+        Vector3d circumcenter(int c, RoundGate g = null)
         {
             int st = dt.CellStamp(c);
+            if (g != null) {
+                // (a parallel phase: read the cache, never write it; the value is written back in a serial pass)
+                if (centerStamp[c] == st) return centerCache[c];
+                Vector3d x = dt.Circumcenter(c);
+                g.Centers.Add((c, st, x));
+                return x;
+            }
             if (centerStamp[c] != st) {
                 centerCache[c] = dt.Circumcenter(c);
                 centerStamp[c] = st;
@@ -515,15 +536,25 @@ namespace gs
         // gates whose Phi(f) changed after they were queued (see refine_and_carve): dropped, queued again
         long staleGates, requeuedGates;
 
-        WrapStatus refine_and_carve()
+        // rounds: the main carving (most of the wrap's time); the carving after the pinch and quality points stays serial
+        WrapStatus refine_and_carve(bool rounds = false)
         {
             long carveStart = Stopwatch.GetTimestamp();
-            WrapStatus status = refine_and_carve_loop();
+            WrapStatus status = refine_and_carve_loop(rounds);
             ticksCarve += Stopwatch.GetTimestamp() - carveStart;
             return status;
         }
 
-        WrapStatus refine_and_carve_loop()
+        WrapStatus refine_and_carve_loop(bool rounds)
+        {
+            WrapStatus status = rounds ? carve_rounds() : carve_serial();
+            // (as before the rounds: a cancelled carving leaves the counts of the last completed one)
+            if (status != WrapStatus.Cancelled)
+                report_carve_counts();
+            return status;
+        }
+
+        WrapStatus carve_serial()
         {
             WrapStatus status = WrapStatus.Success;
             while (gates.Count > 0) {
@@ -591,6 +622,11 @@ namespace gs
                         push_gate(m, dt.FacetTo(m, c));
                 }
             }
+            return status;
+        }
+
+        void report_carve_counts()
+        {
             Counts["steiner_points"] = steiner;
             if (staleGates > 0) Counts["gates_stale"] = staleGates;
             if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
@@ -611,7 +647,410 @@ namespace gs
             PhaseMilliseconds["wrap.intersection"] = ticksIntersection * 1000 / Stopwatch.Frequency;
             PhaseMilliseconds["wrap.touch"] = ticksTouch * 1000 / Stopwatch.Frequency;
             PhaseMilliseconds["wrap.insert"] = ticksInsert * 1000 / Stopwatch.Frequency;
+        }
+
+        // ---- round-based carving (Alpha Wrap 3.0 lever (B), docs/design/ALPHA_WRAP_ROUNDS.md) ----
+        //
+        // A round: pop up to min(RoundWindow, queue / RoundQueueDivisor) gates in heap order; evaluate them in parallel
+        // against the triangulation at the start of the round (read only: no cache, counter or triangulation field is
+        // written); keep in heap order each gate whose read set misses the write sets of the gates kept before it (the
+        // others go back into the queue); assign the vertex and cell ids of the kept insertions serially in heap order and
+        // apply them in parallel (disjoint cells); compute the new gates in parallel from the state after the round and push
+        // them serially in heap order. The kept gates of a round give the state that the serial loop gives when it pops them
+        // one after the other (the note's lemma), so the wrap's guarantees hold; the schedule and every write depend on the
+        // state only, so the result is the same for every MaxThreads.
+
+        const int GateDrop = 0, GateRequeue = 1, GateRejected = 2, GateInsert = 3, GateCarve = 4;
+        // rounds smaller than this run in a plain loop (a constant: the result does not depend on it)
+        const int MinParallelRound = 16;
+
+        /// <summary> one gate of a round: its evaluation (read only), then what the round did with it </summary>
+        internal sealed class RoundGate
+        {
+            public double Key; public int C, I, Stamp, N;
+            public int Kind, Which;
+            public double NewKey;
+            public Vector3d P;
+            public uint Seed;
+            public bool Fallback;
+            public long TicksIntersection, TicksTouch, TicksEval;
+            public readonly Delaunay3.InsertPlan Plan = new Delaunay3.InsertPlan();
+            // cache values computed in a parallel phase, written back serially
+            public readonly List<(int cell, int stamp, Vector3d center)> Centers = new List<(int, int, Vector3d)>();
+            public readonly List<(int cell, int stamp, bool touches)> Touches = new List<(int, int, bool)>();
+            public readonly List<(int vertex, double distance)> Distances = new List<(int, double)>();
+            // the new gates after the round
+            public readonly List<(double key, int c, int i)> Pushes = new List<(double, int, int)>();
+            public void Reset(double key, int c, int i, int stamp, int n)
+            {
+                Key = key; C = c; I = i; Stamp = stamp; N = n;
+                Kind = GateDrop; Which = 0; NewKey = 0; P = Vector3d.Zero; Fallback = false;
+                TicksIntersection = TicksTouch = TicksEval = 0;
+                Centers.Clear(); Touches.Clear(); Distances.Clear(); Pushes.Clear();
+            }
+        }
+
+        readonly List<RoundGate> roundPool = new List<RoundGate>();
+        readonly List<RoundGate> roundGates = new List<RoundGate>(), roundKept = new List<RoundGate>(), roundDeferred = new List<RoundGate>();
+        // per cell: written by a kept gate of this round (roundMark), the outside cell of a kept carving (roundOutside), the
+        // inside cell of a gate of this round (roundInner)
+        int[] roundMark = new int[0], roundOutside = new int[0], roundInner = new int[0];
+        int roundMarkValue = 0;
+        WorkerTeam team;
+        Action<int> evaluateBody, applyBody, pushBody;
+        double roundMinSeparation;
+
+        bool round_marked(int c) { return c >= 0 && roundMark[c] == roundMarkValue; }
+        void round_mark(int c) { if (c >= 0) roundMark[c] = roundMarkValue; }
+
+        // body(k) for k in [0, count): on the team unless one thread or a small round (the result is the same)
+        void round_for(int count, Action<int> body)
+        {
+            if (team == null || count < MinParallelRound) {
+                for (int k = 0; k < count; ++k) body(k);
+                return;
+            }
+            team.For(count, body);
+        }
+
+        WrapStatus carve_rounds()
+        {
+            int threads = MaxThreads > 0 ? MaxThreads : Environment.ProcessorCount;
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            if (evaluateBody == null) {
+                evaluateBody = k => {
+                    RoundGate g = roundGates[k];
+                    g.Seed = unchecked(2463534242u ^ (uint)(k + 1) * 2654435761u);
+                    evaluate_gate(g, g.Seed);
+                };
+                applyBody = k => apply_gate(roundKept[k]);
+                pushBody = k => compute_pushes(roundKept[k]);
+            }
+            try {
+                return carve_rounds_loop();
+            } finally {
+                team?.Dispose();
+                team = null;
+            }
+        }
+
+        WrapStatus carve_rounds_loop()
+        {
+            WrapStatus status = WrapStatus.Success;
+            roundMinSeparation = 1e-9 * alpha;
+            long rounds = 0, largeRounds = 0, kept = 0, deferred = 0, sharedOutside = 0, limitMidRound = 0;
+            while (gates.Count > 0 && status == WrapStatus.Success) {
+                if (cancelled())
+                    return WrapStatus.Cancelled;
+                if (roundMark.Length < dt.MaxCellID) {
+                    int len = Math.Max(dt.MaxCellID, 2 * roundMark.Length);
+                    Array.Resize(ref roundMark, len); Array.Resize(ref roundOutside, len); Array.Resize(ref roundInner, len);
+                }
+                if (++roundMarkValue == int.MaxValue) {
+                    Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);
+                    Array.Clear(roundInner, 0, roundInner.Length);
+                    roundMarkValue = 1;
+                }
+                roundKept.Clear(); roundDeferred.Clear();
+                // 1. pop (the stale test of the serial loop, against the state at the start of the round). A gate whose inside
+                // cell already has a gate in this round is deferred unevaluated: after that gate the cell is carved or
+                // replaced in almost every case, and the deferred gate is then dropped as stale when it is popped again
+                roundGates.Clear();
+                int window = Math.Max(1, Math.Min(RoundWindow, gates.Count / Math.Max(1, RoundQueueDivisor)));
+                for (int k = 0; k < window && gates.Count > 0; ++k) {
+                    gates.Pop(out double key, out int c, out int i, out int stampC);
+                    ++popped;
+                    if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)
+                        continue;
+                    int n = dt.Neighbour(c, i);
+                    if (label_of(n) != Outside)
+                        continue;
+                    if (roundPool.Count <= roundGates.Count + roundDeferred.Count) roundPool.Add(new RoundGate());
+                    RoundGate g = roundPool[roundGates.Count + roundDeferred.Count];
+                    g.Reset(key, c, i, stampC, n);
+                    if (roundInner[c] == roundMarkValue) {
+                        roundDeferred.Add(g);
+                        continue;
+                    }
+                    roundInner[c] = roundMarkValue;
+                    roundGates.Add(g);
+                }
+                if (roundGates.Count == 0) {
+                    // (only stale gates and none deferred: the first gate of a cell is never deferred at the pop)
+                    continue;
+                }
+                rounds++;
+                if (roundGates.Count >= MinParallelRound) largeRounds++;
+                // 2. evaluate (read only)
+                long te = Stopwatch.GetTimestamp();
+                round_for(roundGates.Count, evaluateBody);
+                te = Stopwatch.GetTimestamp() - te;
+                // 3. select in heap order
+                int keptInsertions = 0;
+                bool rejectedInRound = false;
+                long cpuEval = 0, cpuIntersection = 0, cpuTouch = 0;
+                for (int k = 0; k < roundGates.Count; ++k) {
+                    RoundGate g = roundGates[k];
+                    cpuEval += g.TicksEval; cpuIntersection += g.TicksIntersection; cpuTouch += g.TicksTouch;
+                    bool clash = round_marked(g.C) || round_marked(g.N);
+                    if (!clash && g.Kind == GateInsert)
+                        foreach (int q in g.Plan.Reads)
+                            if (round_marked(q)) { clash = true; break; }
+                    if (clash) { roundDeferred.Add(g); continue; }
+                    write_back_caches(g);
+                    if (g.Fallback) projectionFallbacks++;
+                    if (g.Kind == GateDrop) { staleGates++; continue; }
+                    if (g.Kind == GateRequeue) { requeuedGates++; roundKept.Add(g); continue; }
+                    if (g.Kind == GateRejected) { rejected++; rejected2++; continue; }
+                    if (g.Kind == GateInsert) {
+                        // (as the serial loop: the limit is checked when the rule decides to insert, before the triangulation
+                        // can reject the point; this gate is consumed, the ones after it were not popped there)
+                        if (steiner + keptInsertions >= MaxSteinerPoints) {
+                            status = WrapStatus.PointLimitReached;
+                            if (rejectedInRound && roundKept.Count > 0) limitMidRound++;
+                            for (int j = k + 1; j < roundGates.Count; ++j)
+                                roundDeferred.Add(roundGates[j]);
+                            break;
+                        }
+                        if ((RejectInsertF != null && RejectInsertF(g.Which)) || g.Plan.Result != Delaunay3.InsertResult.Inserted) {
+                            rejectedInRound = true;
+                            rejected++;
+                            if (g.Which == 1) rejected1++; else rejected2++;
+                            continue;
+                        }
+                        keptInsertions++;
+                        round_mark(g.C); round_mark(g.N);
+                        foreach (int q in g.Plan.Reads) round_mark(q);
+                        roundKept.Add(g);
+                        continue;
+                    }
+                    // carve: writes label[c] only (n is read: it can be the outside cell of other gates of the round)
+                    round_mark(g.C);
+                    if (g.N >= 0) {
+                        if (roundOutside[g.N] == roundMarkValue) sharedOutside++;
+                        roundOutside[g.N] = roundMarkValue;
+                    }
+                    roundKept.Add(g);
+                }
+                // (the evaluation's wall time, split by its CPU time, so that the parts add up to the phase as in the serial loop)
+                if (cpuEval > 0) {
+                    ticksIntersection += (long)((double)te * cpuIntersection / cpuEval);
+                    ticksTouch += (long)((double)te * cpuTouch / cpuEval);
+                }
+                // 4. assign ids (serial, heap order), apply (parallel, disjoint)
+                long t2 = Stopwatch.GetTimestamp();
+                bool anyWrite = false;
+                if (ValidateRounds) {
+                    anyWrite = replay_round();
+                } else {
+                    foreach (RoundGate g in roundKept)
+                        anyWrite |= assign_gate(g);
+                    if (anyWrite) {
+                        ensure_labels();
+                        round_for(roundKept.Count, applyBody);
+                    }
+                }
+                if (anyWrite) {
+                    foreach (RoundGate g in roundKept) {
+                        if (g.Kind == GateInsert) {
+                            changedSinceTrial?.AddRange(g.Plan.NewIds);
+                            touched?.AddRange(g.Plan.NewIds);
+                        } else if (g.Kind == GateCarve) {
+                            changedSinceTrial?.Add(g.C);
+                            touched?.Add(g.C);
+                        }
+                    }
+                }
+                ticksInsert += Stopwatch.GetTimestamp() - t2;
+                // 5. the new gates (computed in parallel from the state after the round, pushed in heap order), then the deferred
+                round_for(roundKept.Count, pushBody);
+                foreach (RoundGate g in roundKept) {
+                    write_back_caches(g);
+                    if (g.Kind == GateRequeue) {
+                        gates.Push(g.NewKey, g.C, g.I, g.Stamp);
+                        continue;
+                    }
+                    foreach (var (r, c, i) in g.Pushes)
+                        gates.Push(r, c, i, dt.CellStamp(c));
+                }
+                foreach (RoundGate g in roundDeferred)
+                    gates.Push(g.Key, g.C, g.I, g.Stamp);
+                kept += roundKept.Count;
+                deferred += roundDeferred.Count;
+            }
+            // (diagnostics: rounds, kept and deferred gates, kept carvings sharing their outside cell with an earlier one of
+            // their round, point limits reached in the middle of a round after a rejected insertion of that round)
+            add_count("rounds", rounds);
+            // (rounds large enough for the parallel phases, whatever the thread count)
+            add_count("round_parallel", largeRounds);
+            add_count("round_kept", kept);
+            add_count("round_deferred", deferred);
+            if (sharedOutside > 0) add_count("round_shared_outside", sharedOutside);
+            if (limitMidRound > 0) add_count("round_limit_mid_round", limitMidRound);
             return status;
+        }
+
+        // the serial part of a kept gate's commit (ids, counters); true if it writes
+        bool assign_gate(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                dt.AssignInsertIds(g.Plan);
+                labelsManifold = false;
+                steiner++;
+                insertions++;
+                vertexDistance.Add(offset);
+                if (g.Which == 1) rule1++; else rule2++;
+                return true;
+            }
+            if (g.Kind == GateCarve) {
+                labelsManifold = false;
+                carved++;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// (tests) checks the note's lemma in every round: the kept gates are committed one after the other, and before each,
+        /// its evaluation is repeated against the state after the gates kept before it (its stale test, decision, key, point
+        /// and plan must be those of the evaluation against the state at the start of the round). The result is the same as
+        /// without the check (the ids are assigned in the same order). Counts round_checked, round_checked_shared_outside
+        /// (carvings whose outside cell an earlier kept carving of the round had), round_check_mismatches.
+        /// </summary>
+        internal bool ValidateRounds = false;
+        readonly RoundGate replayGate = new RoundGate();
+        readonly HashSet<(int, int, int, int, int)> replayCells = new HashSet<(int, int, int, int, int)>();
+
+        bool replay_round()
+        {
+            bool anyWrite = false;
+            long checkedGates = 0, shared = 0, mismatches = 0;
+            var outsideOfKept = new HashSet<int>();
+            for (int j = 0; j < roundKept.Count; ++j) {
+                RoundGate g = roundKept[j];
+                if (j > 0) {
+                    checkedGates++;
+                    if (g.Kind == GateCarve && outsideOfKept.Contains(g.N)) shared++;
+                    if (!replay_matches(g)) mismatches++;
+                }
+                if (g.Kind == GateCarve && g.N >= 0) outsideOfKept.Add(g.N);
+                if (assign_gate(g)) {
+                    anyWrite = true;
+                    ensure_labels();
+                    apply_gate(g);
+                }
+            }
+            add_count("round_checked", checkedGates);
+            add_count("round_checked_shared_outside", shared);
+            add_count("round_check_mismatches", mismatches);
+            return anyWrite;
+        }
+
+        // the gate evaluated again against the current state: the same as its evaluation at the start of the round?
+        bool replay_matches(RoundGate g)
+        {
+            int c = g.C, i = g.I;
+            if (!dt.IsCell(c) || dt.CellStamp(c) != g.Stamp || label[c] != Inside || dt.Neighbour(c, i) != g.N || label_of(g.N) != Outside)
+                return false;
+            RoundGate r = replayGate;
+            r.Reset(g.Key, c, i, g.Stamp, g.N);
+            evaluate(r, g.Seed);
+            if (r.Kind != g.Kind || r.Which != g.Which || r.Fallback != g.Fallback)
+                return false;
+            if (g.Kind == GateRequeue && BitConverter.DoubleToInt64Bits(r.NewKey) != BitConverter.DoubleToInt64Bits(g.NewKey))
+                return false;
+            if (g.Kind != GateInsert)
+                return true;
+            if (r.P != g.P || r.Plan.Result != g.Plan.Result || r.Plan.Cells.Count != g.Plan.Cells.Count)
+                return false;
+            // (the cavity as a set of new cells: its order follows the walk, which may pass other cells now)
+            replayCells.Clear();
+            foreach (var x in g.Plan.Cells) replayCells.Add((x.A, x.B, x.C, x.Outer, x.OuterFacet));
+            foreach (var x in r.Plan.Cells)
+                if (!replayCells.Contains((x.A, x.B, x.C, x.Outer, x.OuterFacet))) return false;
+            return true;
+        }
+
+        // the serial loop's evaluation of a gate, against the current state, writing nothing shared
+        void evaluate_gate(RoundGate g, uint walkSeed)
+        {
+            long t = Stopwatch.GetTimestamp();
+            evaluate(g, walkSeed);
+            g.TicksEval = Stopwatch.GetTimestamp() - t;
+        }
+
+        void evaluate(RoundGate g, uint walkSeed)
+        {
+            int c = g.C, i = g.I;
+            if (TraverseByEmptyBall) {
+                double r = facet_empty_ball(c, i, g);
+                if (!(r > alpha)) { g.Kind = GateDrop; return; }
+                if (r != g.Key) { g.Kind = GateRequeue; g.NewKey = r; return; }
+            }
+            dual_edge(c, i, out Vector3d from, out Vector3d to, g);
+            long t0 = Stopwatch.GetTimestamp();
+            bool crossing = rule_intersection(from, to, out Vector3d p);
+            long t1 = Stopwatch.GetTimestamp();
+            g.TicksIntersection = t1 - t0;
+            bool touching = !crossing && cell_touches_input(c, g);
+            g.TicksTouch = Stopwatch.GetTimestamp() - t1;
+            if (crossing) {
+                g.Kind = GateInsert; g.Which = 1;
+            } else if (touching) {
+                g.Which = 2;
+                if (!rule_projection(c, i, to, out p, g)) { g.Kind = GateRejected; return; }
+                g.Kind = GateInsert;
+            } else {
+                g.Kind = GateCarve;
+                return;
+            }
+            g.P = p;
+            dt.PlanInsert(p, c, roundMinSeparation, g.Plan, walkSeed);
+        }
+
+        // the writes of a kept gate (disjoint from those of the other kept gates of its round)
+        void apply_gate(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                dt.ApplyInsert(g.Plan);
+                foreach (int nc in g.Plan.NewIds) label[nc] = Inside;
+            } else if (g.Kind == GateCarve) {
+                label[g.C] = Outside;
+            }
+        }
+
+        // the gates the serial loop pushes after the gate, from the state after the round (read only)
+        void compute_pushes(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                foreach (int nc in g.Plan.NewIds)
+                    for (int j = 0; j < 4; ++j)
+                        if (label_of(dt.Neighbour(nc, j)) == Outside) add_push(g, nc, j);
+            } else if (g.Kind == GateCarve) {
+                for (int j = 0; j < 4; ++j) {
+                    int m = dt.Neighbour(g.C, j);
+                    if (m >= 0 && label[m] == Inside)
+                        add_push(g, m, dt.FacetTo(m, g.C));
+                }
+            }
+        }
+
+        void add_push(RoundGate g, int c, int i)
+        {
+            double r = TraverseByEmptyBall ? facet_empty_ball(c, i, g) : facet_radius(c, i);
+            if (r > alpha)
+                g.Pushes.Add((r, c, i));
+        }
+
+        // the cache values a parallel phase computed (the values a serial fill writes), each with the stamp of the cell it was
+        // computed for (an entry whose cell has changed since is not used, as any other)
+        void write_back_caches(RoundGate g)
+        {
+            foreach (var (c, st, x) in g.Centers) { centerCache[c] = x; centerStamp[c] = st; }
+            foreach (var (c, st, x) in g.Touches) { touchCache[c] = (sbyte)(x ? 1 : 0); touchStamp[c] = st; }
+            foreach (var (v, d) in g.Distances)
+                vertexDistance[v] = d;
+            g.Centers.Clear(); g.Touches.Clear(); g.Distances.Clear();
         }
 
         // inserts a Steiner point on the offset surface (from cell hint); its new cells are inside, and their facets
@@ -655,10 +1094,10 @@ namespace gs
         /// circumradius if the edge passes through the facet's plane, otherwise the radius at the edge's end nearer to
         /// it. An alpha ball can pass through the facet if Phi(f) is larger than alpha. At least the circumradius.
         /// </summary>
-        double facet_empty_ball(int c, int i)
+        double facet_empty_ball(int c, int i, RoundGate g = null)
         {
             Index3i f = dt.FacetVertices(c, i);
-            dual_edge(c, i, out Vector3d from, out Vector3d to);
+            dual_edge(c, i, out Vector3d from, out Vector3d to, g);
             return EmptyBallRadius(dt.GetVertex(f.a), dt.GetVertex(f.b), dt.GetVertex(f.c), from, to);
         }
 
@@ -697,7 +1136,7 @@ namespace gs
         /// The Voronoi edge dual to facet i of the inside cell c, from the circumcenter of the outside cell to
         /// that of c (centers of the empty balls through the facet; a ray for a facet on the box)
         /// </summary>
-        void dual_edge(int c, int i, out Vector3d from, out Vector3d to)
+        void dual_edge(int c, int i, out Vector3d from, out Vector3d to, RoundGate g = null)
         {
             Index3i f = dt.FacetVertices(c, i);
             Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
@@ -705,12 +1144,12 @@ namespace gs
             double w2 = w.LengthSquared;
             Vector3d nrm = w / Math.Sqrt(w2);       // outwards of c
             Vector3d fc = a + (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
-            to = clamp_center(circumcenter(c), fc, nrm, -1);
+            to = clamp_center(circumcenter(c, g), fc, nrm, -1);
             int n = dt.Neighbour(c, i);
             if (n < 0)
                 from = fc + (Math.Max((to - fc).Dot(nrm), 0) + 4 * dt.Box.DiagonalLength) * nrm;
             else
-                from = clamp_center(circumcenter(n), fc, nrm, 1);
+                from = clamp_center(circumcenter(n, g), fc, nrm, 1);
         }
 
         // circumcenters of flat cells can be far away or not finite: keep them on the facet's normal line,
@@ -753,20 +1192,27 @@ namespace gs
             return true;
         }
 
-        double vertex_distance(int v)
+        double vertex_distance(int v, RoundGate g = null)
         {
             double d = vertexDistance[v];
             if (double.IsNaN(d)) {
                 d = oracle.Distance(dt.GetVertex(v));
-                vertexDistance[v] = d;
+                if (g != null) g.Distances.Add((v, d));
+                else vertexDistance[v] = d;
             }
             return d;
         }
 
         // does cell c intersect the input (come closer than the contact tolerance)?
-        bool cell_touches_input(int c)
+        bool cell_touches_input(int c, RoundGate g = null)
         {
             int st = dt.CellStamp(c);
+            if (g != null) {
+                if (touchStamp[c] == st) return touchCache[c] == 1;
+                bool x = touches_input(c, g);
+                g.Touches.Add((c, st, x));
+                return x;
+            }
             if (touchStamp[c] != st) {
                 touchCache[c] = (sbyte)(touches_input(c) ? 1 : 0);
                 touchStamp[c] = st;
@@ -774,18 +1220,18 @@ namespace gs
             return touchCache[c] == 1;
         }
 
-        bool touches_input(int c)
+        bool touches_input(int c, RoundGate g = null)
         {
             Index4i t = dt.GetCell(c);
             for (int j = 0; j < 4; ++j)
-                if (vertex_distance(t[j]) < contact) return true;
+                if (vertex_distance(t[j], g) < contact) return true;
             Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
             // the cell is within (longest edge at v) of each vertex v: far enough from the input if a vertex is
             // farther from it than that (distance is 1-Lipschitz). (A closest point query at the centroid rejects
             // almost nothing either: near the result the cells are larger than their distance to the input.)
             double ab = a.Distance(b), ad = a.Distance(d), ae = a.Distance(e), bd = b.Distance(d), be = b.Distance(e), de = d.Distance(e);
-            if (vertex_distance(t.a) - Math.Max(ab, Math.Max(ad, ae)) > contact || vertex_distance(t.b) - Math.Max(ab, Math.Max(bd, be)) > contact
-                || vertex_distance(t.c) - Math.Max(ad, Math.Max(bd, de)) > contact || vertex_distance(t.d) - Math.Max(ae, Math.Max(be, de)) > contact)
+            if (vertex_distance(t.a, g) - Math.Max(ab, Math.Max(ad, ae)) > contact || vertex_distance(t.b, g) - Math.Max(ab, Math.Max(bd, be)) > contact
+                || vertex_distance(t.c, g) - Math.Max(ad, Math.Max(bd, de)) > contact || vertex_distance(t.d, g) - Math.Max(ae, Math.Max(be, de)) > contact)
                 return false;
             return oracle.TetrahedronTouches(a, b, d, e, contact);
         }
@@ -801,13 +1247,14 @@ namespace gs
         // circumsphere after all (center not finite, rounding), the clamped end of the dual edge is projected as before
         // (counted, see Counts["projection_fallbacks"]). The guard proves that the cell is removed, not the depth: with
         // a rounded circumcenter the separation holds up to that rounding.
-        bool rule_projection(int c, int i, Vector3d to, out Vector3d p)
+        bool rule_projection(int c, int i, Vector3d to, out Vector3d p, RoundGate g = null)
         {
-            Vector3d cc = circumcenter(c);
+            Vector3d cc = circumcenter(c, g);
             if (ForceProjectionFallback == false && MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)
                 && project_to_offset(c, i, cc, out p) && dt.InCircumsphere(c, p) > 0)
                 return true;
-            projectionFallbacks++;
+            if (g != null) g.Fallback = true;
+            else projectionFallbacks++;
             return project_to_offset(c, i, to, out p);
         }
 
