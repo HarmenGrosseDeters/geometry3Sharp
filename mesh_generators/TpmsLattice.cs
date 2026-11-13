@@ -56,6 +56,18 @@ namespace g3
         public double WallThickness = 0;
         /// <summary> Optional grading: the volume fraction at a world position (replaces VolumeFraction; not with Enclosure). Called from several threads with ParallelCompute, so it must be thread-safe; a NaN gives ContouringFailed, a fraction outside (0, 1) is clamped to [0.001, 0.999]. </summary>
         public Func<Vector3d, double> VolumeFractionAt;
+        /// <summary>
+        /// Graded cell size: the phase of the lattice in periods as a function of the local position (null: x / CellSize, a constant
+        /// period). The field is f(2 pi PhaseMap(x)). It must be pure, thread-safe and finite on the grid. CellSize stays the nominal
+        /// period that sets the cube (CellSize / Divisions): set it to the smallest local period. A general map distorts the cells
+        /// (see docs/design/TPMS_GRADED_CELL.md). Not with WallThickness. See <see cref="LinearGrade"/>.
+        /// </summary>
+        public Func<Vector3d, Vector3d> PhaseMap;
+        /// <summary>
+        /// An upper bound of the operator norm of the Jacobian of PhaseMap, in periods per unit length (a proof obligation of the caller,
+        /// needed for Enclosure with a PhaseMap; the library only refutes a bound that its sampled Jacobian exceeds). 0 = unknown.
+        /// </summary>
+        public double PhaseJacobianBound;
         /// <summary> Lattice frame: the world position of the local origin (lattice phase zero). </summary>
         public Vector3d Origin = Vector3d.Zero;
         /// <summary> Lattice frame: local to world rotation (orthonormal, determinant +1). </summary>
@@ -97,6 +109,10 @@ namespace g3
         // test hooks: reject a grid attempt as if the contouring had failed; the lowest node of the grid last used
         internal Func<int, bool> RejectAttempt;
         internal Vector3d LastGridMin;
+        /// <summary> With a PhaseMap: the smallest local period seen on the sample points (1 / the largest sampled phase gradient), else 0. </summary>
+        public double MinLocalCellSize;
+        /// <summary> The Lipschitz bound of the lattice field in length units that normalises it (Lf 2 pi J); a report for tests and proofs. </summary>
+        public double LipschitzBoundUsed;
         /// <summary> NotCleanReason of a rejected result. </summary>
         public string NotCleanReason = "";
 
@@ -236,6 +252,7 @@ namespace g3
         {
             public TpmsType Type; public TpmsStyle Style;
             public double K;                  // 2 pi / L
+            public Func<Vector3d, Vector3d> PhaseMap;   // graded cell size: local position -> phase in periods
             public double Level;              // c (constant fraction)
             public double InvLipschitz;       // 1 / Lw
             public bool UseBox; public Vector3d Center, Half;
@@ -244,7 +261,12 @@ namespace g3
 
             public double Value(ref Vector3d p)
             {
-                double f = Evaluate(Type, K * p.x, K * p.y, K * p.z);
+                double f;
+                if (PhaseMap != null) {
+                    Vector3d ph = PhaseMap(p);
+                    f = Evaluate(Type, 2 * Math.PI * ph.x, 2 * Math.PI * ph.y, 2 * Math.PI * ph.z);
+                } else
+                    f = Evaluate(Type, K * p.x, K * p.y, K * p.z);
                 double c = LevelAt != null ? LevelAt(p) : Level;
                 double g = (StyleValue(Style, f) - c) * InvLipschitz;
                 if (UseBox) {
@@ -285,7 +307,7 @@ namespace g3
         public void Compute()
         {
             Mesh = null; Message = ""; NotCleanReason = ""; Level = 0; RealizedVolumeFraction = 0; MeanWallThickness = 0;
-            SelfIntersectionsFound = 0; CellsEvaluated = 0; GridShiftsUsed = 0; IsoValueUsed = 0;
+            SelfIntersectionsFound = 0; CellsEvaluated = 0; GridShiftsUsed = 0; IsoValueUsed = 0; MinLocalCellSize = 0; LipschitzBoundUsed = 0;
             Status = TpmsStatus.InvalidOptions;
 
             // ---- options ----
@@ -297,6 +319,9 @@ namespace g3
             if (VolumeFractionAt == null && WallThickness <= 0 && !(VolumeFraction > 0 && VolumeFraction < 1)) { Fail(TpmsStatus.InvalidOptions, "VolumeFraction must be in (0, 1)"); return; }
             if (double.IsNaN(WallThickness) || double.IsInfinity(WallThickness) || WallThickness < 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness must be finite and not negative"); return; }
             if (WallThickness > 0 && Style != TpmsStyle.Sheet) { Fail(TpmsStatus.InvalidOptions, "WallThickness is defined for Sheet only"); return; }
+            if (PhaseMap != null && WallThickness > 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness assumes a constant period: not with a PhaseMap"); return; }
+            if (double.IsNaN(PhaseJacobianBound) || double.IsInfinity(PhaseJacobianBound) || PhaseJacobianBound < 0) { Fail(TpmsStatus.InvalidOptions, "PhaseJacobianBound must be finite and not negative"); return; }
+            if (Enclosure && PhaseMap != null && !(PhaseJacobianBound > 0)) { Fail(TpmsStatus.InvalidOptions, "Enclosure with a PhaseMap needs PhaseJacobianBound (the caller's bound of the map's Jacobian)"); return; }
             if (Enclosure && (VolumeFractionAt != null || DomainMesh != null)) { Fail(TpmsStatus.InvalidOptions, "Enclosure needs a box domain and a constant volume fraction"); return; }
             if (MaxCells < 1) { Fail(TpmsStatus.InvalidOptions, "MaxCells must be positive"); return; }
 
@@ -337,7 +362,23 @@ namespace g3
             }
             double level = LevelForFraction(table, fraction);
             double k = 2 * Math.PI / CellSize;
-            double lw = GradientBound(Type) * k;       // Lipschitz bound of g in length units
+            double jac = 1 / CellSize, phaseMax = 0;      // bound of the Jacobian of the phase (periods per length) and of its magnitude
+            if (PhaseMap != null) {
+                if (!SamplePhase(PhaseMap, box, CellSize / Divisions, out double gradMax, out phaseMax)) {
+                    Fail(TpmsStatus.InvalidOptions, "PhaseMap must be finite on the domain"); return;
+                }
+                MinLocalCellSize = gradMax > 0 ? 1 / gradMax : double.PositiveInfinity;
+                if (PhaseJacobianBound > 0 && gradMax > PhaseJacobianBound * 1.01) {
+                    Fail(TpmsStatus.InvalidOptions, "PhaseJacobianBound " + PhaseJacobianBound + " is below the sampled phase gradient " + gradMax); return;
+                }
+                if (!(gradMax > 0)) { Fail(TpmsStatus.InvalidOptions, "PhaseMap is constant on the domain"); return; }
+                if (CellSize / Divisions > MinLocalCellSize / 4) {
+                    Fail(TpmsStatus.InvalidOptions, "the grid does not resolve the smallest local period " + MinLocalCellSize + ": CellSize / Divisions must be at most a quarter of it (set CellSize to the smallest period, raise Divisions)"); return;
+                }
+                jac = PhaseJacobianBound > 0 ? PhaseJacobianBound : 1.5 * gradMax;
+            }
+            double lw = PhaseMap == null ? GradientBound(Type) * k : GradientBound(Type) * 2 * Math.PI * jac;       // Lipschitz bound of g in length units
+            LipschitzBoundUsed = lw;
             Func<Vector3d, double> levelAt = null;
             if (VolumeFractionAt != null) {
                 Func<Vector3d, double> frac = VolumeFractionAt;
@@ -387,7 +428,8 @@ namespace g3
                 }
                 double u = Math.Pow(2, -53);
                 // evaluation error of g in normalised units: terms (64 u per unit of term sum) / (Lw s); the phase error is 4 u
-                double eNorm = 64 * u * TermSum(Type) / (lw * s) + 4 * u;
+                // (with a PhaseMap the phase term is 4 u |phase| / (J s) and assumes the map is evaluated to a relative error of 4 u)
+                double eNorm = 64 * u * TermSum(Type) / (lw * s) + (PhaseMap == null ? 4 * u : 4 * u * 2 * phaseMax / (jac * s));
                 if (!(eNorm <= Math.Pow(2, -30))) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain is too small against the period for the proven error bound");
                     return;
@@ -402,7 +444,7 @@ namespace g3
 
             IsoValueUsed = isoValue;
             var field = new FieldFunction {
-                Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt,
+                Type = Type, Style = Style, K = k, PhaseMap = PhaseMap, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
                 DomainTree = tree, DomainBounds = box
             };
@@ -477,6 +519,66 @@ namespace g3
         }
 
         // ================= helpers =================
+
+        // Samples the phase map on a regular set of points of the box: false if a value is not finite, else the largest sampled
+        // column norm of the Jacobian (central differences over an eighth of a cube) and the largest sampled phase magnitude.
+        static bool SamplePhase(Func<Vector3d, Vector3d> map, AxisAlignedBox3d box, double h, out double gradMax, out double phaseMax)
+        {
+            gradMax = 0; phaseMax = 0;
+            double e = h / 8;
+            const int n = 9;
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j)
+                    for (int l = 0; l < n; ++l) {
+                        var p = new Vector3d(box.Min.x + (box.Max.x - box.Min.x) * i / (n - 1), box.Min.y + (box.Max.y - box.Min.y) * j / (n - 1),
+                                             box.Min.z + (box.Max.z - box.Min.z) * l / (n - 1));
+                        Vector3d v = map(p);
+                        if (!IsFinite(v)) return false;
+                        phaseMax = Math.Max(phaseMax, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+                        for (int axis = 0; axis < 3; ++axis) {
+                            Vector3d a = p, b = p;
+                            a[axis] -= e; b[axis] += e;
+                            Vector3d va = map(a), vb = map(b);
+                            if (!IsFinite(va) || !IsFinite(vb)) return false;
+                            gradMax = Math.Max(gradMax, (vb - va).Length / (2 * e));
+                        }
+                    }
+            return true;
+        }
+
+        /// <summary>
+        /// A phase map for a period that varies linearly along one axis: the period is period0 at z0 and period1 at z1 (constant
+        /// outside), the phase along the axis is the exact integral of 1 / period, the transverse phase is the transverse coordinate over
+        /// the local period (so the cells are stretched with the period, distorted by the slope times the transverse distance from the
+        /// frame origin: centre the box on the axis for the smallest distortion). jacobianBound is a bound of the Frobenius (hence the
+        /// operator) norm of the Jacobian over a transverse half extent (the largest |coordinate| of the box in the two other axes),
+        /// to be passed to <see cref="PhaseJacobianBound"/>. Set CellSize to the smaller period.
+        /// </summary>
+        public static Func<Vector3d, Vector3d> LinearGrade(int axis, double z0, double period0, double z1, double period1, double transverseHalfExtent, out double jacobianBound)
+        {
+            if (axis < 0 || axis > 2) throw new ArgumentOutOfRangeException(nameof(axis));
+            if (!(period0 > 0) || !(period1 > 0) || double.IsInfinity(period0) || double.IsInfinity(period1)) throw new ArgumentException("the periods must be finite and positive");
+            if (!(z1 > z0) || double.IsInfinity(z1) || double.IsInfinity(z0)) throw new ArgumentException("z1 must be above z0");
+            if (!(transverseHalfExtent >= 0) || double.IsInfinity(transverseHalfExtent)) throw new ArgumentException("the transverse extent must be finite and not negative");
+            double slope = (period1 - period0) / (z1 - z0);
+            double minPeriod = Math.Min(period0, period1);
+            jacobianBound = Math.Sqrt(3 / (minPeriod * minPeriod) + 2 * Math.Pow(transverseHalfExtent * Math.Abs(slope) / (minPeriod * minPeriod), 2));
+            Func<double, double> period = z => period0 + (Math.Min(Math.Max(z, z0), z1) - z0) * slope;
+            Func<double, double> phase = z => {
+                if (z <= z0) return (z - z0) / period0;
+                double top = Math.Min(z, z1);
+                double inside = Math.Abs(slope) < 1e-14 * period0 / (z1 - z0) ? (top - z0) / period0 : Math.Log(period(top) / period0) / slope;
+                return inside + (z > z1 ? (z - z1) / period1 : 0);
+            };
+            return p => {
+                double z = p[axis], l = period(z);
+                var v = new Vector3d();
+                v[axis] = phase(z);
+                v[(axis + 1) % 3] = p[(axis + 1) % 3] / l;
+                v[(axis + 2) % 3] = p[(axis + 2) % 3] / l;
+                return v;
+            };
+        }
 
         static bool IsFinite(Vector3d v)
         {

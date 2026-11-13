@@ -352,6 +352,182 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TpmsStatus.Cancelled, cancelled.Status);
         }
 
+        // ---- graded cell size (#816) ----
+
+        // An independent phase map in periods: the period 1 at z = 0 growing linearly to 2 at z = 3 (constant outside), the phase
+        // along z the integral of 1 / period (3 ln(period) inside, linear outside), x and y over the local period.
+        static Vector3d GradedPhase(Vector3d q)
+        {
+            double zc = Math.Min(Math.Max(q.z, 0), 3), period = 1 + zc / 3;
+            double pz = q.z <= 0 ? q.z : (q.z <= 3 ? 3 * Math.Log(period) : 3 * Math.Log(2) + (q.z - 3) / 2);
+            return new Vector3d(q.x / period, q.y / period, pz);
+        }
+
+        static double GradedG(TpmsType type, TpmsStyle style, Vector3d q) => G(type, style, GradedPhase(q));
+
+        static TpmsLattice MakeGraded(TpmsType type, TpmsStyle style, double fraction = 0.3, int divisions = 16)
+        {
+            var lattice = new TpmsLattice {
+                Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
+                Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 3))
+            };
+            lattice.PhaseMap = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1, out double bound);
+            lattice.PhaseJacobianBound = bound;
+            return lattice;
+        }
+
+        [Theory]
+        [MemberData(nameof(Combinations))]
+        public void Graded_IsCleanForEveryTypeAndStyle(TpmsType type, TpmsStyle style)
+        {
+            var lattice = MakeGraded(type, style, 0.35, 16);
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
+            Assert.True(Invariance.AllFinite(lattice.Mesh));
+            Assert.InRange(lattice.MinLocalCellSize, 0.5, 1.0);
+        }
+
+        [Theory]
+        [InlineData(TpmsType.Gyroid, TpmsStyle.SkeletalLow)]
+        [InlineData(TpmsType.SchwarzP, TpmsStyle.Sheet)]
+        [InlineData(TpmsType.Neovius, TpmsStyle.SkeletalHigh)]
+        public void Graded_MeshAgreesWithTheIndependentGradedField(TpmsType type, TpmsStyle style)
+        {
+            var lattice = MakeGraded(type, style, 0.35, 16);
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            double h = L / 16;
+            double level = TpmsLattice.LevelForFraction(TpmsLattice.QuantileTable(type, style), 0.35);
+            var tree = new DMeshAABBTree3(lattice.Mesh, true);
+            var rand = new Random(31);
+            int tested = 0;
+            for (int i = 0; i < 20000 && tested < 1500; ++i) {
+                var q = new Vector3d(-0.8 + 1.6 * rand.NextDouble(), -0.8 + 1.6 * rand.NextDouble(), 0.2 + 2.6 * rand.NextDouble());
+                // first-order distance to the graded level set by central differences of the composite field
+                const double e = 1e-5;
+                double gx = (GradedG(type, style, q + new Vector3d(e, 0, 0)) - GradedG(type, style, q - new Vector3d(e, 0, 0))) / (2 * e);
+                double gy = (GradedG(type, style, q + new Vector3d(0, e, 0)) - GradedG(type, style, q - new Vector3d(0, e, 0))) / (2 * e);
+                double gz = (GradedG(type, style, q + new Vector3d(0, 0, e)) - GradedG(type, style, q - new Vector3d(0, 0, e))) / (2 * e);
+                double dist = (GradedG(type, style, q) - level) / Math.Max(Math.Sqrt(gx * gx + gy * gy + gz * gz), 1e-9);
+                if (Math.Abs(dist) < 2.5 * h) continue;
+                ++tested;
+                Assert.Equal(dist < 0, tree.IsInside(q));
+            }
+            Assert.True(tested >= 300, "only " + tested + " points");
+        }
+
+        [Fact]
+        public void Graded_LocalPeriodFollowsTheMap()
+        {
+            // The number of surface crossings of a line through the lattice grows where the period is small: along z the period
+            // is 1 at the bottom and 2 at the top, so a sheet has about twice the crossings per length near z = 0 as near z = 3.
+            var lattice = MakeGraded(TpmsType.SchwarzP, TpmsStyle.Sheet, 0.3, 24);
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            var tree = new DMeshAABBTree3(lattice.Mesh, true);
+            int low = 0, high = 0;
+            for (int i = 0; i < 60; ++i) {
+                double x = -0.7 + 1.4 * i / 59, y = 0.3 - 0.5 * x;
+                bool prev = false; bool first = true;
+                for (int k = 0; k <= 600; ++k) {
+                    double z = 3.0 * k / 600;
+                    bool inside = tree.IsInside(new Vector3d(x, y, z));
+                    if (!first && inside != prev) { if (z < 1.5) ++low; else ++high; }
+                    prev = inside; first = false;
+                }
+            }
+            Assert.True(low > 0 && high > 0);
+            double ratio = (double)low / high;   // z in [0, 1.5] has period 1 to 1.5, z in [1.5, 3] has 1.5 to 2: about 1.4 to 1.7 times more
+            Assert.InRange(ratio, 1.15, 2.0);
+        }
+
+        [Fact]
+        public void Graded_IsInvariantUnderSimilarities_Reusable_AndDeterministic()
+        {
+            TpmsLattice reference = null;
+            foreach (Similarity s in Similarity.All()) {
+                var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.Sheet, 0.3, 12);
+                lattice.CellSize = s.Scale * L;
+                lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0) * s.Scale, new Vector3d(1, 1, 3) * s.Scale);
+                lattice.PhaseMap = TpmsLattice.LinearGrade(2, 0, s.Scale, 3 * s.Scale, 2 * s.Scale, s.Scale, out double bound);
+                lattice.PhaseJacobianBound = bound;
+                lattice.Origin = s.Apply(Vector3d.Zero);
+                lattice.Rotation = s.Rotation;
+                lattice.Compute();
+                Assert.True(lattice.Status == TpmsStatus.Ok, s.Name + " " + lattice.Status + ": " + lattice.Message);
+                if (reference == null) { reference = lattice; continue; }
+                Assert.Equal(reference.Mesh.TriangleCount, lattice.Mesh.TriangleCount);
+                DMesh3 back = Invariance.MappedBack(lattice.Mesh, s);
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(reference.Mesh, back));
+                else
+                    foreach (int vid in back.VertexIndices())
+                        Assert.True((back.GetVertex(vid) - reference.Mesh.GetVertex(vid)).Length < 1e-6 * L, s.Name);
+            }
+            // reuse and parallel = serial
+            var a = MakeGraded(TpmsType.SchwarzD, TpmsStyle.SkeletalLow, 0.4, 12);
+            a.ParallelCompute = false;
+            a.Compute();
+            DMesh3 first = a.Mesh;
+            a.Compute();
+            Assert.Equal("", Invariance.Difference(first, a.Mesh));
+            var b = MakeGraded(TpmsType.SchwarzD, TpmsStyle.SkeletalLow, 0.4, 12);
+            b.ParallelCompute = true;
+            b.Compute();
+            Assert.Equal("", Invariance.Difference(first, b.Mesh));
+        }
+
+        [Fact]
+        public void Graded_RejectsBadOptions()
+        {
+            void Expect(Action<TpmsLattice> change, TpmsStatus status)
+            {
+                var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.Sheet, 0.3, 16);
+                change(lattice);
+                lattice.Compute();
+                Assert.Equal(status, lattice.Status);
+                Assert.Null(lattice.Mesh);
+                Assert.NotEqual("", lattice.Message);
+            }
+            Expect(l => l.WallThickness = 0.05, TpmsStatus.InvalidOptions);
+            Expect(l => { l.Enclosure = true; l.PhaseJacobianBound = 0; }, TpmsStatus.InvalidOptions);
+            Expect(l => l.PhaseJacobianBound = double.NaN, TpmsStatus.InvalidOptions);
+            Expect(l => l.PhaseJacobianBound = 0.5, TpmsStatus.InvalidOptions);          // refuted by the sampled gradient
+            Expect(l => l.PhaseMap = p => new Vector3d(double.NaN, 0, 0), TpmsStatus.InvalidOptions);
+            Expect(l => l.PhaseMap = p => new Vector3d(1, 2, 3), TpmsStatus.InvalidOptions);   // constant
+            Expect(l => l.Divisions = 4, TpmsStatus.InvalidOptions);                     // the cube is not a quarter of the smallest period
+            Expect(l => l.CellSize = 8, TpmsStatus.InvalidOptions);
+        }
+
+        [Fact]
+        public void Graded_EnclosureUsesTheSuppliedBoundAndContainsTheExactLattice()
+        {
+            var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16);
+            lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 2));
+            lattice.PhaseMap = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1, out double bound);
+            lattice.PhaseJacobianBound = bound;
+            lattice.Enclosure = true;
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
+            // the normalising Lipschitz bound is exactly Lf 2 pi J with the supplied J
+            Assert.Equal(TpmsLattice.GradientBound(TpmsType.Gyroid) * 2 * Math.PI * bound, lattice.LipschitzBoundUsed, 9);
+            double h = L / 16, lw = lattice.LipschitzBoundUsed;
+            double level = TpmsLattice.LevelForFraction(TpmsLattice.QuantileTable(TpmsType.Gyroid, TpmsStyle.SkeletalLow), 0.3);
+            var tree = new DMeshAABBTree3(lattice.Mesh, true);
+            var rand = new Random(41);
+            int tested = 0;
+            for (int i = 0; i < 400000 && tested < 3000; ++i) {
+                var q = new Vector3d(-0.8 + 1.6 * rand.NextDouble(), -0.8 + 1.6 * rand.NextDouble(), 0.2 + 1.6 * rand.NextDouble());
+                double g = (GradedG(TpmsType.Gyroid, TpmsStyle.SkeletalLow, q) - level) / lw;
+                if (g > 0 || g < -0.1 * h) continue;
+                ++tested;
+                Assert.True(tree.IsInside(q), "an exact graded-lattice point " + q + " is outside the enclosure (g " + g + ")");
+            }
+            Assert.True(tested >= 750, "only " + tested);
+        }
+
         static DMesh3 Sphere(double radius, Vector3d center)
         {
             var gen = new Sphere3Generator_NormalizedCube { Radius = radius, EdgeVertices = 16 };
