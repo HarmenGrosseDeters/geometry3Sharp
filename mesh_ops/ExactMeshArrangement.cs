@@ -2586,7 +2586,7 @@ namespace g3
 
             var local = LocalFilters ? new LocalPoints(this, t) : null;
             var tri = new ExactTriangulation2(t.Corners[0], t.Corners[1], t.Corners[2],
-                (a, b, c) => Orient(t, a, b, c, local), (a, b, c, d) => InCircle(t, a, b, c, d, local));
+                (a, b, c) => Orient(t, a, b, c, local), (a, b, c, d) => InCircle(t, a, b, c, d, local), pts.Length);
             int[] ordered = pts;
             foreach (int p in ordered)
                 tri.InsertPoint(p);
@@ -2905,7 +2905,8 @@ namespace g3
     internal class TriangleBoxTree
     {
         List<AxisAlignedBox3d> boxes;       // the input of the build; released at its end (the trees live through the classification)
-        readonly int[] order;
+        int[] order;                        // (its first boxCount entries: Rebuild may reuse a longer array)
+        int boxCount;
         const int LeafSize = 8;
         // small trees (eg SafeRounding's tree of the changed triangles, rebuilt often) take the median split on the
         // longest axis per node, which is cheaper to build; larger ones the Morton order
@@ -2919,14 +2920,26 @@ namespace g3
         double[] nodeBox;
         int[] nodeStart, nodeSize, nodeLeft, nodeRight;
         // the boxes in the order of `order` (6 doubles each), so that the leaves are scanned in sequence
-        readonly double[] leafBox;
+        double[] leafBox;
+
+        public TriangleBoxTree(List<AxisAlignedBox3d> boxes) : this(boxes, null) { }
+
+        /// <summary>
+        /// the tree of boxes, the same as new TriangleBoxTree(boxes), in the arrays of this tree where they are large
+        /// enough (for a tree that is rebuilt often): this tree must not be used afterwards
+        /// </summary>
+        public TriangleBoxTree Rebuild(List<AxisAlignedBox3d> boxes)
+        {
+            return new TriangleBoxTree(boxes, this);
+        }
 
         [MethodImpl(JitHints.Optimize)]
-        public TriangleBoxTree(List<AxisAlignedBox3d> boxes)
+        TriangleBoxTree(List<AxisAlignedBox3d> boxes, TriangleBoxTree reuse)
         {
             this.boxes = boxes;
             int n = boxes.Count;
-            order = new int[n];
+            boxCount = n;
+            order = (reuse != null && reuse.order.Length >= n) ? reuse.order : new int[n];
             for (int i = 0; i < n; ++i)
                 order[i] = i;
             median = n <= MedianSplitBelow;
@@ -2939,8 +2952,13 @@ namespace g3
             // Stryker restore all
             // (at most 2 n / LeafSize * 2 + 1 nodes: every inner node splits a range of more than LeafSize in halves)
             int cap = capacity(n);
-            nodeBox = new double[6 * cap];
-            nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
+            if (reuse != null && reuse.nodeStart.Length >= cap) {
+                // (the builds write every node they count; entries beyond nodeCount are not read)
+                nodeBox = reuse.nodeBox; nodeStart = reuse.nodeStart; nodeSize = reuse.nodeSize; nodeLeft = reuse.nodeLeft; nodeRight = reuse.nodeRight;
+            } else {
+                nodeBox = new double[6 * cap];
+                nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
+            }
             if (n > 0) {
                 if (median == false && n >= ParallelBuildFrom)
                     build_parallel(n);
@@ -2951,7 +2969,13 @@ namespace g3
                 }
             }
             sortedCodes = null;
-            leafBox = new double[6 * n];
+            leafBox = (reuse != null && reuse.leafBox.Length >= 6 * n) ? reuse.leafBox : new double[6 * n];
+            if (reuse != null) {
+                // (the old tree gives its arrays away)
+                reuse.order = null; reuse.leafBox = null; reuse.nodeBox = null;
+                reuse.nodeStart = reuse.nodeSize = reuse.nodeLeft = reuse.nodeRight = null;
+                reuse.nodeCount = 0; reuse.boxCount = 0;
+            }
             if (n >= ParallelBuildFrom && median == false)
                 gParallel.ForRange(blocks(n), (b) => {
                     for (int i = b * BlockSize; i < Math.Min(n, (b + 1) * BlockSize); ++i)
@@ -3067,7 +3091,7 @@ namespace g3
         // tests: the same nodes, order and leaf boxes
         internal bool SameAs(TriangleBoxTree o)
         {
-            if (nodeCount != o.nodeCount || order.Length != o.order.Length)
+            if (nodeCount != o.nodeCount || boxCount != o.boxCount)
                 return false;
             for (int i = 0; i < nodeCount; ++i) {
                 if (nodeStart[i] != o.nodeStart[i] || nodeSize[i] != o.nodeSize[i] || nodeLeft[i] != o.nodeLeft[i] || nodeRight[i] != o.nodeRight[i])
@@ -3076,10 +3100,10 @@ namespace g3
                     if (BitConverter.DoubleToInt64Bits(nodeBox[6 * i + k]) != BitConverter.DoubleToInt64Bits(o.nodeBox[6 * i + k]))
                         return false;
             }
-            for (int i = 0; i < order.Length; ++i)
+            for (int i = 0; i < boxCount; ++i)
                 if (order[i] != o.order[i])
                     return false;
-            for (int i = 0; i < leafBox.Length; ++i)
+            for (int i = 0; i < 6 * boxCount; ++i)
                 if (BitConverter.DoubleToInt64Bits(leafBox[i]) != BitConverter.DoubleToInt64Bits(o.leafBox[i]))
                     return false;
             return true;

@@ -103,6 +103,32 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(expected[i], got[i]);
         }
 
+        [Fact]
+        public void TreeRebuild_SameAsAFreshBuild_GrowingAndShrinking()
+        {
+            // the median split (small trees), the Morton order and its parallel build; sizes that fit the old arrays and
+            // sizes that do not; the rebuilt tree answers queries as a fresh one
+            int keep = TriangleBoxTree.ParallelBuildFrom;
+            TriangleBoxTree.ParallelBuildFrom = 6000;
+            try {
+                var rand = new Random(6);
+                TriangleBoxTree tree = new TriangleBoxTree(RandomBoxes(rand, 100, 0.05));
+                foreach (int n in new[] { 50, 0, 3000, 5000, 9000, 4200, 7000, 20, 9000 }) {
+                    var boxes = RandomBoxes(rand, n, 0.02);
+                    var fresh = new TriangleBoxTree(boxes);
+                    tree = tree.Rebuild(boxes);
+                    Assert.True(tree.SameAs(fresh), n.ToString());
+                    Assert.True(fresh.SameAs(tree), n.ToString());
+                    foreach (var q in RandomBoxes(rand, 20, 0.1)) {
+                        Assert.Equal(ListQuery(fresh, q), ListQuery(tree, q));
+                        Assert.Equal(fresh.Any(q), tree.Any(q));
+                    }
+                }
+            } finally {
+                TriangleBoxTree.ParallelBuildFrom = keep;
+            }
+        }
+
         // boxes on a grid with coincident corners and faces, and a rotated one through them: many coincident
         // constructions (merge_cluster's hashed groups) and segments crossing in the triangles (BoxGrid2)
         static List<DMesh3> CoincidentBoxes(int seed)
