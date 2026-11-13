@@ -458,7 +458,13 @@ is queued or running today (UTC date), or already succeeded. Rules:
   created together exactly one of them runs. Only runs of the default branch are looked at, one request per event, so 100 PR
   runs cannot push the earlier daily run out of the page. The guard is not keyed on the master SHA: master moves during the day,
   and a late cron must not run the day a second time on a newer commit.
-- It fails open: when the runs API cannot be read, the run goes ahead.
+- A live earlier run counts only once its guard step is listed in the jobs API: a queued run has no steps, so a custom run
+  (`shards=...`, `ref=...`) cannot be told from a plain one yet. Such a run does not cause a skip: a double run of the day is
+  acceptable, a lost day is not.
+- A `schedule` payload has no `repository`, so `github.event.repository.default_branch` is empty there; the workflows fall back to
+  `master`, and the guard treats an empty default branch as unknown and never gives a schedule run a branch verdict (a schedule
+  runs on the default branch only).
+- It fails open: when the API cannot be read or answers anything unexpected (any exception), the run goes ahead.
 - Known gap, retry by hand: when the only running starter is cancelled or fails after the other one was skipped, nothing
   retries by itself. Dispatch the workflow again (`force` is not needed: the failed or cancelled run does not count).
 - In `mutation.yml` the guard is a step of the `changes` job, not a job of its own (`select_shards.py` takes a new job or top key

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Tests of schedule_guard.py and of its wiring in the three scheduled workflows. Run by ci.yml (CI scripts step)."""
+import contextlib
+import io
 import os
 import re
 import unittest
@@ -67,9 +69,24 @@ class Decide(unittest.TestCase):
         ran = only_selection[:1] + [{"name": "exact-mesh (rounding-1)", "conclusion": "success", "steps": []}]
         self.assertFalse(decide(runs=[run(90)], jobs_of=lambda r: ran))
 
-    def test_unreadable_jobs_fail_open_for_a_success_and_count_for_a_live_run(self):
+    def test_a_live_run_whose_marker_cannot_be_read_yet_does_not_skip(self):
+        # a queued custom run shows no steps, so its [custom] marker is invisible: the daily run goes ahead (a double run is
+        # acceptable, a lost day is not). Once the guard step is listed, the run counts as before.
+        live = run(90, status="queued", conclusion=None)
+        for unread in (None, [], [{"name": "guard", "conclusion": None, "steps": []}]):
+            self.assertTrue(decide(runs=[live], jobs_of=lambda r: unread), unread)
+        self.assertFalse(decide(runs=[live], jobs_of=lambda r: jobs()))
+        self.assertTrue(decide(runs=[live], jobs_of=lambda r: jobs(custom=True)))
+
+    def test_unreadable_jobs_of_a_success_fail_open(self):
         self.assertTrue(decide(runs=[run(90)], jobs_of=lambda r: None))
-        self.assertFalse(decide(runs=[run(90, status="in_progress", conclusion=None)], jobs_of=lambda r: None))
+
+    def test_schedule_without_a_default_branch_still_skips(self):
+        # the schedule payload has no `repository`: the default branch arrives empty
+        live = run(90, "workflow_dispatch", status="in_progress", conclusion=None)
+        self.assertFalse(decide("schedule", [live], branch="master", default=""))
+        self.assertFalse(decide("schedule", [run(90, "workflow_dispatch")], branch="master", default=None))
+        self.assertFalse(decide("schedule", [live], branch="feature", default="master"))      # a schedule gets no branch verdict
 
     def test_yesterday_does_not_count(self):
         self.assertTrue(decide(runs=[run(90, day="2026-11-12")]))
@@ -81,7 +98,6 @@ class Decide(unittest.TestCase):
     def test_a_run_on_another_branch_neither_counts_nor_is_skipped(self):
         self.assertTrue(decide(runs=[run(90, branch="feature")]))
         self.assertTrue(decide("workflow_dispatch", [run(90)], branch="feature"))
-        self.assertTrue(decide("schedule", [run(90)], branch="feature"))
 
     def test_custom_runs_do_not_count(self):
         # a dispatch of one shard is not the day's full run; the jobs API shows it as a step name
@@ -101,6 +117,53 @@ class Decide(unittest.TestCase):
         self.assertTrue(decide("push", [run(90)]))
 
 
+class Main(unittest.TestCase):
+    """The command line, with the GitHub API replaced"""
+
+    def run_main(self, args, answer):
+        paths = []
+
+        def api(path, token):
+            paths.append(path)
+            return answer(path)
+
+        saved = g.api, dict(os.environ)
+        g.api = api
+        os.environ.update({"GITHUB_REPOSITORY": "o/r", "GITHUB_TOKEN": "t"})
+        os.environ.pop("GITHUB_OUTPUT", None)
+        os.environ.pop("GITHUB_STEP_SUMMARY", None)
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                g.main(args)
+            return out.getvalue(), paths
+        finally:
+            g.api = saved[0]
+            os.environ.clear()
+            os.environ.update(saved[1])
+
+    def test_schedule_with_an_empty_default_branch_asks_for_master_runs_and_skips(self):
+        def answer(path):
+            if path.endswith("/runs/200"):
+                return {"created_at": TODAY + "T09:57:10Z"}
+            if "/workflows/nightly.yml/runs?" in path:
+                return {"workflow_runs": [run(90, "workflow_dispatch")] if "event=workflow_dispatch" in path else []}
+            return {"jobs": jobs()}
+
+        out, paths = self.run_main(["--workflow", "nightly.yml", "--event", "schedule", "--run-id", "200", "--branch", "master",
+                                    "--default-branch", ""], answer)
+        self.assertIn("SKIP", out)
+        self.assertTrue(all("branch=master" in p for p in paths if "/runs?" in p), paths)
+        self.assertEqual(2, len([p for p in paths if "/runs?" in p]))        # one request per event
+
+    def test_a_broken_payload_fails_open(self):
+        def answer(path):
+            raise TypeError("unexpected shape")
+
+        out, _ = self.run_main(["--workflow", "nightly.yml", "--event", "schedule", "--run-id", "200", "--branch", "master"], answer)
+        self.assertIn("Schedule guard: run", out)
+
+
 class Wiring(unittest.TestCase):
     """The guard is only worth something if every scheduled workflow calls it and gates its work on it."""
 
@@ -116,6 +179,7 @@ class Wiring(unittest.TestCase):
             text = self.workflow(name)
             self.assertIn("python3 tools/schedule_guard.py --workflow " + name, text, name)
             self.assertIn("--branch \"$BRANCH\" --default-branch \"$DEFAULT_BRANCH\"", text, name)
+            self.assertIn("github.event.repository.default_branch || 'master'", text, name + ": a schedule payload has no repository")
             self.assertIn("cron:", text, name + ": the cron line stays as the fallback")
             self.assertIn("workflow_dispatch:", text, name)
             self.assertRegex(text, r"force:\n\s+description:", name + ": force input")
