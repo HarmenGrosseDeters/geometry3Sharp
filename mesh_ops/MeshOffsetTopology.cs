@@ -186,7 +186,10 @@ namespace gs
                 Vector3d p0 = corner(lo, hi, Edges[e, 0]), p1 = corner(lo, hi, Edges[e, 1]);
                 Vector3d a = Vector3d.Zero; a[axis] = 1;
                 if (one_signed(a, tris, new[] { p0, p1 })) continue;
-                if (!zero_free_split(p0, p1, 10)) return "S1 edge";
+                // (S1*): the edge is zero-free outside one closed piece [s0, s1], on which the axis is one-signed
+                Vector3d s0, s1;
+                if (!nonzero_hull(p0, p1, 8, out s0, out s1)) continue;     // zero-free on the whole edge
+                if (!one_signed(a, tris, new[] { s0, s1 })) return "S1 edge";
             }
             // (S2) / (S2'): per face an axis of the face, else an in-plane direction, else zero-free
             for (int axis = 0; axis < 3; ++axis)
@@ -201,7 +204,15 @@ namespace gs
                     Vector3d g = gradient_at(0.5 * (flo + fhi));
                     g[axis] = 0;
                     if (g.LengthSquared > 0 && one_signed(g, tris, fz)) continue;
-                    if (!zero_free_split(flo, fhi, 8)) return "S2 face";
+                    // (S2*): the face is zero-free outside one closed rectangle, on which an axis or in-plane direction is one-signed
+                    Vector3d rlo, rhi;
+                    if (!nonzero_hull(flo, fhi, 6, out rlo, out rhi)) continue;
+                    Vector3d[] rz = { corner(rlo, rhi, 0), corner(rlo, rhi, 1 << ka), corner(rlo, rhi, 1 << kb), corner(rlo, rhi, (1 << ka) | (1 << kb)) };
+                    if (one_signed(ea, tris, rz) || one_signed(eb, tris, rz)) continue;
+                    Vector3d g2 = gradient_at(0.5 * (rlo + rhi));
+                    g2[axis] = 0;
+                    if (g2.LengthSquared > 0 && one_signed(g2, tris, rz)) continue;
+                    return "S2 face";
                 }
             // (S3): a direction one-signed on the enclosure over the cell
             Vector3d[] cz = new Vector3d[8];
@@ -298,6 +309,40 @@ namespace gs
             return zero_free_split(lo, hi0, depth - 1) && zero_free_split(lo1, hi, depth - 1);
         }
 
+        // split the box (a segment or a face) into a regular grid of 2^depth pieces per free axis: false if every piece is
+        // zero-free; else the hull (lo, hi) of the pieces that are not. The pieces are closed and share their boundaries, so
+        // outside the hull every point is in a zero-free piece; the hull's boundary inside the box lies in zero-free pieces too
+        bool nonzero_hull(Vector3d lo, Vector3d hi, int depth, out Vector3d hlo, out Vector3d hhi)
+        {
+            hlo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue); hhi = -hlo;
+            bool any = false;
+            collect(lo, hi, depth, ref any, ref hlo, ref hhi);
+            return any;
+        }
+        void collect(Vector3d lo, Vector3d hi, int depth, ref bool any, ref Vector3d hlo, ref Vector3d hhi)
+        {
+            if (zero_free(lo, hi) != 0) return;
+            if (depth == 0) {
+                any = true;
+                for (int k = 0; k < 3; ++k) { hlo[k] = Math.Min(hlo[k], lo[k]); hhi[k] = Math.Max(hhi[k], hi[k]); }
+                return;
+            }
+            // split every non-flat axis in two (exact pieces: the midpoint is a double shared by both halves)
+            var los = new List<Vector3d> { lo }; var his = new List<Vector3d> { hi };
+            for (int k = 0; k < 3; ++k) {
+                if (!(hi[k] > lo[k])) continue;
+                int n = los.Count;
+                for (int q = 0; q < n; ++q) {
+                    double m = 0.5 * (los[q][k] + his[q][k]);
+                    Vector3d l2 = los[q], h1 = his[q];
+                    h1[k] = m; l2[k] = m;
+                    los.Add(l2); his.Add(his[q]);
+                    his[q] = h1;
+                }
+            }
+            for (int q = 0; q < los.Count; ++q) collect(los[q], his[q], depth - 1, ref any, ref hlo, ref hhi);
+        }
+
         // lower bound of the squared distance between two boxes
         static double box_box_lower_sq(Vector3d amin, Vector3d amax, Vector3d bmin, Vector3d bmax)
         {
@@ -339,7 +384,7 @@ namespace gs
         static int sign(Func<IR, ExactInterval> fi, Func<DR, ExactDyadic> fd)
         {
             int s = fi(new IR()).Sign();
-            if (s == 1 || s == -1) return s;
+            if (s == 1 || s == -1 || s == 0) return s;   // 0: the interval is exactly [0, 0], a proven zero
             return fd(new DR()).Sign;
         }
 
