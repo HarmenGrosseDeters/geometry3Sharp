@@ -254,7 +254,11 @@ namespace geometry3Sharp.Tests
                     soup.AppendVertex(off(closed.GetVertex(f.c))));
             }
             DMesh3 b = Sphere(CenterB, 0.5);
-            var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { RecordOpenWinding = true };
+            // (the areas are those of the plainly rounded results, SafeRounding off: the test is about the classification, and
+            // the repair of a result that does not round clean, as this soup's with its ulp-wide slivers, moves vertices by up
+            // to its own bound, 1.2e-8 of the area here since #755; the plain rounding moves each vertex by at most half an
+            // ulp, so the same exact solid gives the same area within a few 1e-13, and 1e-9 separates a classification change)
+            var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { RecordOpenWinding = true, SafeRounding = false };
             Assert.True(byDefault.Compute(), byDefault.Error);
             Assert.True(byDefault.OpenBoundarySegments[0] >= 1000 && byDefault.OpenBoundarySegments[0] < 20000);
             // (both: the soup and B, open at its cap)
@@ -265,21 +269,24 @@ namespace geometry3Sharp.Tests
             Assert.True(Invariance.AllFinite(byDefault.Result));
             // (the welded sphere is closed: exact winding numbers; the soup's Antipodal values give the same surface up to the
             // ulp gaps between its triangles)
-            var welded = new ExactMeshBoolean(new DMesh3(closed), new DMesh3(b), Ops.Intersection);
+            var welded = new ExactMeshBoolean(new DMesh3(closed), new DMesh3(b), Ops.Intersection) { SafeRounding = false };
             Assert.True(welded.Compute(), welded.Error);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(byDefault.Result)) <= 1e-9 * Invariance.Area(welded.Result),
                 $"{Invariance.Area(byDefault.Result)} for {Invariance.Area(welded.Result)}");
             // (fast winding numbers for both, as for an input above the cap: their far field misreads pieces next to the
             // surface, 0.4 % more area here)
-            ExactMeshBoolean fwn = Run(soup, b, Ops.Intersection, Fwn);
+            var fwn = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = Fwn, SafeRounding = false };
+            Assert.True(fwn.Compute(), fwn.Error);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(fwn.Result)) > 1e-3 * Invariance.Area(welded.Result));
             // (at the cap, here set to the soup's own count instead of 20000 to keep the test small, as the former default of
-            // 1000 did: the soup goes to fast winding numbers, B, below the cap, stays with Antipodal; the soup's far field
-            // is off by about 6e-8 of the area here, Antipodal's sum by 4e-10)
-            var capped = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = byDefault.OpenBoundarySegments[0] };
+            // 1000 did: the soup goes to fast winding numbers, B, below the cap, stays with Antipodal; plainly rounded, that
+            // gives the welded sphere's area as well here, the far field of the soup alone does not misread a piece; the
+            // 6e-8 measured before with SafeRounding was the repair's, not the classification's)
+            var capped = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = byDefault.OpenBoundarySegments[0], SafeRounding = false };
             Assert.True(capped.Compute(), capped.Error);
             Assert.Equal(1, capped.Counts["antipodal_meshes"]);
-            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(capped.Result)) > 1e-8 * Invariance.Area(welded.Result));
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(capped.Result)) <= 1e-9 * Invariance.Area(welded.Result),
+                $"{Invariance.Area(capped.Result)} for {Invariance.Area(welded.Result)}");
         }
 
         [Fact]
