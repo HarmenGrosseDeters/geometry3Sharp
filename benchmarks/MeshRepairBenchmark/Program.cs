@@ -580,6 +580,15 @@ class Program
             r["pipe_phases"] = phases;
             return raw ?? new DMesh3();
         }
+        // BENCH_WRAP_FEATURES=1: the sharp-feature pass on the raw wrap (MeshRobustRepair.AlphaWrapSharpFeatures) before the simplification
+        if (Environment.GetEnvironmentVariable("BENCH_WRAP_FEATURES") == "1") {
+            long tf = sw.ElapsedMilliseconds;
+            var fp = new AlphaWrapFeaturePass(new DMesh3(raw, true), input, wrap.UsedAlpha, wrap.UsedOffset);
+            fp.Compute();
+            phases["wrap.features"] = sw.ElapsedMilliseconds - tf;
+            r["features"] = $"{fp.PlaneMoves}/{fp.CreaseSnaps}/{fp.Splits}/{fp.Flips}/{fp.Rejected}";
+            raw = new DMesh3(fp.Mesh, true);
+        }
         DMesh3 result = raw;
         if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {
             var sp = new System.Collections.Generic.Dictionary<string, long>();
