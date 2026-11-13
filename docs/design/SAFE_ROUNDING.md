@@ -1216,13 +1216,14 @@ the D1 cohort: Thingi10K 837999 intersection and difference, 838003, 958469 and 
   triangles).
 
 **Acceptance on the cohort** (as built, #755; branch `runs/position-search-cohort`, `runs/ps/results/summary.md`; master
-1f3b6b7 against 36ff5bf): 3000 of the 5413 models of the D1 cohort (the 30 with an operation that is not clean in the
-D1 rows and a seeded sample of 2970 of the others), 9000 operations.
-- No operation newly unclean; 8743 clean after 8739, 52 unclean after 56 (the 4 of the table above; the other unclean
-  ones are rounding clean: contacts and bowties of the inputs).
-- 8993 operations are rounding clean on master: all with the same result hash. Of the 7 that are not, 5 change (4
+1f3b6b7 against 36ff5bf): all 5413 models of the D1 cohort, 16 239 operations (owner decision 2026-11-13; a first run
+of 3000 of them, the 30 with an operation that is not clean in the D1 rows and a seeded sample of the others, gave the
+same verdict: `summary_cut3000.md`).
+- No operation newly unclean; 15 775 clean after 15 771, 52 unclean after 56 (the 4 of the table above; the other
+  unclean ones are rounding clean: contacts and bowties of the inputs), 412 empty.
+- 16 232 operations are rounding clean on master: all with the same result hash. Of the 7 that are not, 5 change (4
   clean, 838003 difference with one degenerate triangle instead of two), none with more defects.
 - `MaxDrift` never above `MaxLength`; its distribution is unchanged (0.9 quantile of `MaxDrift / MaxLength` 0.217,
-  135 against 136 operations above 0.9). 11 search moves in 6 operations; one of them in a component that is then
+  241 against 242 operations above 0.9). 11 search moves in 6 operations; one of them in a component that is then
   removed as tiny (the same result as on master).
-- Rounding time on single cores 683 s against 692 s in the sum.
+- Time on single cores, in the sum: operations 5438 s against 5444 s, rounding 1091 s against 1104 s.
