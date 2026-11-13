@@ -58,5 +58,5 @@ Sphere sweeps (two spheres, A moving into B, `MaxTighteningIterations` 1024):
 | 11532 | 0 | 37332 | 0.88 s | 0.24 s |
 | 11532 | 0.01 | 63373 | 8.4 s | 2.1 s |
 
-The tightening budget (256 / 1024 / 4096) changes the sweep's earliest time of impact by at most 1.5e-3 at 588 triangles
+The tightening budget (256 / 1024 / 4096) changes the sweep's earliest time of impact by at most 1.5e-3 at 588 and 2700 triangles
 and not at all at 11532, at 0.5x / 1x / 1.4x the time (with a minimum separation; without one it is not used).
