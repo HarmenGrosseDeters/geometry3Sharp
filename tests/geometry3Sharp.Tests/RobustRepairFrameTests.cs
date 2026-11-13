@@ -151,7 +151,7 @@ namespace geometry3Sharp.Tests
 
         // the public results of the stages are in the caller's frame after Apply(): the wrap's alpha and offset, its result, the solidify's cell size
         // (a solidify of 16 cells, still self-intersecting, so the wrap runs, and a wrap at diag / 40: issue #692)
-        // Slow: four Applies of the 12 plates (solidify, wrap, simplify each), about 6 s alone, 8 s before the coarser parameters
+        // Slow: four Applies of the 12 plates (solidify, wrap, simplify each), about 5-6 s alone, 8 s before the coarser parameters
         [Trait("Category", "Slow")]
         [Fact]
         public void PublicStageResults_AreInTheCallersFrame()

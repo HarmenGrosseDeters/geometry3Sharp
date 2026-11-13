@@ -9,7 +9,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// Exact orientation predicates and the exact triangle-triangle intersection test built on them.
     /// </summary>
-    public class ExactPredicatesTests
+    public partial class ExactPredicatesTests
     {
         // reference: exact determinant of integer coordinates
         static int Orient2dInt(long[] a, long[] b, long[] c)
