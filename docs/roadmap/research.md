@@ -20,7 +20,7 @@ Part of the [roadmap](../ROADMAP.md).
   builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
   list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
   item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
-  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection) and 7
+  item 9 (`ContourLoft`) stage 1 started (owner 2026-11-12, own session); items 2 (collision detection) and 7
   (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
   feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
   upper bound, design note) started, then built up to step C1 (#580, see item 6); item 3 (tet meshing) waits until the alpha wrap has sharp features.
@@ -123,8 +123,8 @@ Part of the [roadmap](../ROADMAP.md).
      ([design/TERRAIN.md](../design/TERRAIN.md) §9.2: plain lofting has no slope guarantee), medical / orthotics
      (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
      the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
-     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Priority medium
-     until a concrete case (a medical or CAD one would raise it).
+     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 started
+     (owner 2026-11-12: own session; library and short prior-art check, design note, then build).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).

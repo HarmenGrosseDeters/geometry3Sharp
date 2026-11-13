@@ -624,7 +624,7 @@ python -m unittest discover -s tools/Z3Pilot -p 'test_drift_reference.py' -v
 - **Source contract**: the facts about `MeshRoundingRepair.cs` and `Vector3d.Distance` that the lemma assumes (one
   writer of positions; only `try_move` and `try_collapse` propose a moved vertex and list its triangles corner for
   corner), and the rule as implemented: the methods of the bounds, the proposal, the ghosts and the commit compared as
-  text (`RULE_METHODS`), the drift checked first in `improves`, the moves past the evaluation limit by `move_bound`,
+  text (`RULE_METHODS`), the drift checked first in `improves`, no move proposed past the evaluation limit (and no second copy of the rule),
   every generic edit naming its added triangles, the records starting at `Apply`. A test applies the seven mutants and
   five other changes to the code and expects the contract to fail on each.
 
