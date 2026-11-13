@@ -17,7 +17,7 @@ static class Program
         if (args.Length >= 1 && args[0] == "synthetic") { Synthetic(); return 0; }
         if (args.Length >= 2 && args[0] == "sweep") return Sweep(args[1], args.Length >= 3 ? double.Parse(args[2], CultureInfo.InvariantCulture) : 0);
         if (args.Length >= 2 && args[0] == "sample") return Sample(args[1], args.Length >= 3 ? double.Parse(args[2], CultureInfo.InvariantCulture) : 0);
-        Console.Error.WriteLine("usage: synthetic | sample <dir> [minSeparation]");
+        Console.Error.WriteLine("usage: synthetic | sample <dir> [minSeparation] | sweep <dir> [minSeparation]");
         return 2;
     }
 
@@ -154,7 +154,7 @@ static class Program
     // broad and the narrow phase, serial and parallel
     static int Sweep(string dir, double ms)
     {
-        Console.WriteLine("scene,vertices,triangles,mode,candidate_pairs,broad_ms,narrow_ms,total_ms,broad_share,status,earliest_toi");
+        Console.WriteLine("scene,vertices,triangles,mode,candidate_pairs,prepare_ms,pairs_ms,total_ms,prepare_share,status,earliest_toi");
         string only = Environment.GetEnvironmentVariable("G3_SWEEP_SCENES");
         foreach (string scene in Directory.GetDirectories(dir).OrderBy(d => d, StringComparer.Ordinal)) {
             if (only != null && only.Split(',').Contains(Path.GetFileName(scene)) == false) continue;
@@ -169,13 +169,13 @@ static class Program
             foreach (bool parallel in new[] { false, true }) {
                 var s = new MeshSweepCollision(m0, end) { Parallel = parallel, Options = new CcdOptions { MinSeparation = ms } };
                 // (experiments: G3_SWEEP_BLOCK, G3_SWEEP_TASKS override the job sizes)
-                if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_BLOCK"), out int blk)) s.BlockSize = blk;
-                if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_TASKS"), out int tsk)) s.SelfTasks = tsk;
+                if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_BLOCK"), out int blk) && blk > 0) s.BlockSize = blk;
+                if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_TASKS"), out int tsk) && tsk > 0) s.SelfTasks = tsk;
                 s.Compute();      // warm-up
                 var sw = Stopwatch.StartNew();
                 s.Compute();
                 double total = sw.Elapsed.TotalMilliseconds;
-                Console.WriteLine(FormattableString.Invariant($"{Path.GetFileName(scene)},{m0.VertexCount},{m0.TriangleCount},{(parallel ? "parallel" : "serial")},{s.CandidatePairs},{s.BroadPhaseSeconds * 1000:F1},{s.NarrowPhaseSeconds * 1000:F1},{total:F1},{s.BroadPhaseSeconds * 1000 / total:F2},{s.Status},{s.EarliestTimeOfImpact:R}"));
+                Console.WriteLine(FormattableString.Invariant($"{Path.GetFileName(scene)},{m0.VertexCount},{m0.TriangleCount},{(parallel ? "parallel" : "serial")},{s.CandidatePairs},{s.PrepareSeconds * 1000:F1},{s.PairsSeconds * 1000:F1},{total:F1},{s.PrepareSeconds * 1000 / total:F2},{s.Status},{s.EarliestTimeOfImpact:R}"));
             }
         }
         return 0;

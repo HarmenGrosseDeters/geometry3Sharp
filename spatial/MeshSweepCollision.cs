@@ -72,7 +72,7 @@ namespace g3
 
         /// <summary> options of every pair query </summary>
         public CcdOptions Options = new CcdOptions();
-        /// <summary> run the pair queries on all cores (the result equals the serial one) </summary>
+        /// <summary> run the whole sweep (boxes, tree queries, pair queries) on all cores (the result equals the serial one) </summary>
         public bool Parallel = true;
         /// <summary> false: Contacts holds the pairs that may give the first contact; true: every candidate pair </summary>
         public bool CollectAll = false;
@@ -98,9 +98,9 @@ namespace g3
         public long CandidatePairCount;
         /// <summary>
         /// benchmarks: the wall time of the last Compute's preparation (boxes, trees, jobs) and of the batches (the tree
-        /// queries and the pair queries)
+        /// queries, which are the rest of the broad phase, and the pair queries)
         /// </summary>
-        internal double BroadPhaseSeconds, NarrowPhaseSeconds;
+        internal double PrepareSeconds, PairsSeconds;
 
         /// <summary> a self sweep of mesh; endPositions[vid] is the position of vertex vid at t = 1 </summary>
         public MeshSweepCollision(DMesh3 mesh, Vector3d[] endPositions)
@@ -131,11 +131,14 @@ namespace g3
         {
             Contacts = new List<SweepContact>();
             CandidatePairs = 0;
+            CandidatePairCount = 0;
+            PrepareSeconds = PairsSeconds = 0;
             EarliestTimeOfImpact = double.PositiveInfinity;
             EarliestNearContactTime = double.PositiveInfinity;
             Status = MeshSweepStatus.InvalidInput;
             if (meshA == null || meshB == null || endA == null || endB == null || Options == null || Options.IsValid() == false
-                || endA.Length < meshA.MaxVertexID || endB.Length < meshB.MaxVertexID)
+                || endA.Length < meshA.MaxVertexID || endB.Length < meshB.MaxVertexID
+                || BlockSize < 1 || BlockSize > (1 << 20) || SelfTasks < 1 || BatchPairs < 1)
                 return Status;
             if (finite(meshA, endA) == false || (self == false && finite(meshB, endB) == false))
                 return Status;
@@ -165,59 +168,79 @@ namespace g3
             }
             long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            // In batches of about BatchPairs candidate pairs (bounded memory; the batches depend only on the input):
+            // In batches of about BatchPairs candidate pairs (the batches depend only on the input; the memory is that of
+            // a group of jobs' candidates and of a batch, plus the kept pairs):
             // (1) the jobs' candidate pairs, in parallel over the jobs; (2) the pairs, in parallel over the pairs (so that
             // expensive pairs that cluster in one job still spread over the cores); (3) the results recorded per job, in
             // order.
             var outputs = new JobOutput[jobs.Count];
             var jobPairs = new List<PairRef>[jobs.Count];
-            for (int b0 = 0; b0 < jobs.Count; ) {
-                // (1) candidates of groups of jobs (parallel over a group's jobs) until the batch holds BatchPairs pairs
-                int b1 = b0;
-                long held = 0;
-                while (b1 < jobs.Count && held < BatchPairs) {
-                    int g0 = b1, ng = Math.Min(BatchJobs, jobs.Count - b1);
-                    Action<int, Worker> collect = (jj, w) => { jobPairs[g0 + jj] = job_candidates(jobs[g0 + jj], vertsA, vertsB, edgesA, selfTasks, triA, triB, edgB, half, w); };
-                    if (parallel && ng > 1)
-                        gParallel.ForRange(ng, () => new Worker(), collect);
-                    else {
-                        var w = new Worker();
-                        for (int jj = 0; jj < ng; ++jj)
-                            collect(jj, w);
-                    }
-                    for (int jj = 0; jj < ng; ++jj)
-                        held += jobPairs[g0 + jj].Count;
-                    b1 += ng;
+            // the batch's pairs and results, grown once and reused (no new large arrays per batch)
+            var flat = new PairRef[0];
+            var results = new CcdResult[0];
+            Action<int, int> flush = (a, b) => {
+                // (2) the pairs of jobs [a, b), in parallel over the pairs
+                int total = 0;
+                for (int jj = a; jj < b; ++jj)
+                    total = checked(total + jobPairs[jj].Count);
+                if (flat.Length < total) {
+                    flat = new PairRef[total];
+                    results = new CcdResult[total];
                 }
-                // (2) the batch's pairs, in parallel over the pairs
-                var offsets = new int[b1 - b0 + 1];
-                for (int jj = b0; jj < b1; ++jj)
-                    offsets[jj - b0 + 1] = checked(offsets[jj - b0] + jobPairs[jj].Count);
-                var flat = new PairRef[offsets[b1 - b0]];
-                for (int jj = b0; jj < b1; ++jj)
-                    jobPairs[jj].CopyTo(flat, offsets[jj - b0]);
-                var results = new CcdResult[flat.Length];
-                Action<int, CcdSolver> solve = (k, solver) => { results[k] = solve_pair(flat[k], solver); };
-                if (parallel && flat.Length > 1)
-                    gParallel.ForRange(flat.Length, () => new CcdSolver(), solve);
+                int at = 0;
+                for (int jj = a; jj < b; ++jj) {
+                    jobPairs[jj].CopyTo(flat, at);
+                    at += jobPairs[jj].Count;
+                }
+                PairRef[] f = flat;
+                CcdResult[] res = results;
+                Action<int, CcdSolver> solve = (k, solver) => { res[k] = solve_pair(f[k], solver); };
+                if (parallel && total > 1)
+                    gParallel.ForRange(total, () => new CcdSolver(), solve);
                 else {
                     var solver = new CcdSolver();
-                    for (int k = 0; k < flat.Length; ++k)
+                    for (int k = 0; k < total; ++k)
                         solve(k, solver);
                 }
                 // (3) the results recorded per job, in order
-                for (int jj = b0; jj < b1; ++jj) {
+                at = 0;
+                for (int jj = a; jj < b; ++jj) {
                     var o = new JobOutput();
-                    for (int k = offsets[jj - b0]; k < offsets[jj - b0 + 1]; ++k)
-                        record(o, flat[k], results[k]);
+                    int n = jobPairs[jj].Count;
+                    for (int k = at; k < at + n; ++k)
+                        record(o, f[k], res[k]);
+                    at += n;
                     outputs[jj] = o;
                     jobPairs[jj] = null;
                 }
-                b0 = b1;
+            };
+            int pending = 0;
+            long held = 0;
+            for (int g0 = 0; g0 < jobs.Count; g0 += BatchJobs) {
+                // (1) the candidates of a group of jobs, in parallel over its jobs
+                int ng = Math.Min(BatchJobs, jobs.Count - g0);
+                Action<int, Worker> collect = (jj, w) => { jobPairs[g0 + jj] = job_candidates(jobs[g0 + jj], vertsA, vertsB, edgesA, selfTasks, triA, triB, edgB, half, w); };
+                if (parallel && ng > 1)
+                    gParallel.ForRange(ng, () => new Worker(), collect);
+                else {
+                    var w = new Worker();
+                    for (int jj = 0; jj < ng; ++jj)
+                        collect(jj, w);
+                }
+                // a batch ends after the first job (in job order) at which it holds BatchPairs pairs
+                for (int jj = g0; jj < g0 + ng; ++jj) {
+                    held += jobPairs[jj].Count;
+                    if (held >= BatchPairs) {
+                        flush(pending, jj + 1);
+                        pending = jj + 1;
+                        held = 0;
+                    }
+                }
             }
+            flush(pending, jobs.Count);
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
-            BroadPhaseSeconds = (t1 - t0) / (double)System.Diagnostics.Stopwatch.Frequency;
-            NarrowPhaseSeconds = (t2 - t1) / (double)System.Diagnostics.Stopwatch.Frequency;
+            PrepareSeconds = (t1 - t0) / (double)System.Diagnostics.Stopwatch.Frequency;
+            PairsSeconds = (t2 - t1) / (double)System.Diagnostics.Stopwatch.Frequency;
 
             // reduce serially in job order (min of times: exact, independent of the order); a time limit below 1 bounds
             // the claim
@@ -383,8 +406,9 @@ namespace g3
         }
 
         // jobs per group of the candidate search, and the candidate pairs per batch (they live at the same time, with
-        // their results: about 64 bytes each)
-        const int BatchJobs = 64;
+        // their results: about 64 bytes each); a batch ends at the job that reaches BatchPairs, so it holds at most
+        // BatchPairs plus one job's pairs
+        const int BatchJobs = 16;
         internal int BatchPairs = 1 << 21;
 
         // the candidate pairs of one job

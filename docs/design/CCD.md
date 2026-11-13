@@ -584,6 +584,15 @@ Measured, parallel, master vs this (two alternating rounds in one job, mean):
 
 The fused variant (each job queries and solves its own pairs) was faster on the large scenes but slower than master on
 cloth-funnel, where expensive pairs cluster in a few jobs and then run one after the other; solving each batch in parallel
-over the pairs spreads them, at the cost of the barriers. Same candidates, contacts and times in every variant. Tests:
+over the pairs spreads them, at the cost of the barriers. The puffer-ball sweep (40.9 s parallel, 121 s serial; linear in
+its 250M candidates) is above the 20 s of CLAUDE.md: issue #866, with the diagnosis and options.
+
+Code review of #857, fixed in the same PR: a batch ends at the job (in job order) that reaches `BatchPairs`, not after a
+whole group, so a batch holds at most `BatchPairs` plus one job's pairs; the batch arrays are reused across batches;
+`CandidatePairCount` and the phase times are reset by `Compute`; invalid job sizes are `InvalidInput`; the phase times are
+named for what they measure (`PrepareSeconds`, `PairsSeconds`); tests for `CollectAll = false` against one job, for
+backwards and permuted serial orders (`gParallel.SerialOrderOnThisThread`), and for pairs at the iteration limit. Not
+changed: the copy of the box array into the list `TriangleBoxTree` takes (its file is on the locked list of Exact Boolean
+3.0). Equivalent survivor: a batch cut one job earlier (only the batch boundary moves). Same candidates, contacts and times in every variant. Tests:
 `Jobs_ParallelEqualsSerial` (single job vs small jobs and batches vs the defaults, parallel vs serial, repeated runs, self
 and A against B), `SelfSweep_Invariance` over `Similarity.All()`.
