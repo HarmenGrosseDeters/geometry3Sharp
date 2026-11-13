@@ -269,17 +269,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
       # A net48 shard hung until the 60-minute timeout without a trx or a name (#824). --blame-hang kills the test host after 10 minutes
-      # without progress of one test, writes Sequence_*.xml (the tests that started) and, with ProcDump, a mini dump into
-      # test-results/, which the artifact step below uploads; the Blame summary step names the tests that did not complete. No test
-      # of the suite runs near 10 minutes (CLAUDE.md: 5 s, 10 s with the Slow tag), so a healthy run is unchanged.
-      - name: Install ProcDump (hang dumps of the .NET Framework test host)
-        if: needs.scope.outputs.library == 'true'
-        continue-on-error: true
-        shell: powershell
-        run: |
-          choco install procdump -y --no-progress
-          $p = (Get-Command procdump64.exe, procdump.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-          if ($p) { "PROCDUMP_PATH=$p" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8; "ProcDump: $p" } else { "ProcDump not found: the hang is named by the sequence file, without a dump" }
+      # without a test finishing, names the running test in the log, writes the trx, Sequence_*.xml (the tests that started) and a mini
+      # dump into test-results/, which the artifact step below uploads; the Blame summary step names the tests that did not complete.
+      # No ProcDump is installed: vstest takes the dump of the .NET Framework test host by itself (probe on windows-latest, 2026-11-13).
+      # No test of the suite runs near 10 minutes (CLAUDE.md: 5 s, 10 s with the Slow tag), so a healthy run is unchanged.
       - name: Test (net48 / netstandard2.0)
         if: needs.scope.outputs.library == 'true'
         run: dotnet test tests/geometry3Sharp.Tests -c Release -f net48 --blame --blame-hang --blame-hang-timeout 10m --blame-hang-dump-type mini --filter "${{ matrix.filter }}&Category!=Nightly${{ env.FULL_TIER != 'true' && '&Category!=Slow' || '' }}" --logger "trx;LogFileName=net48-${{ matrix.shard }}.trx" --results-directory test-results

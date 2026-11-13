@@ -325,6 +325,39 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void TopologyCertificate_AnyLoopOrder_SameCellsAndReasons()
+        {
+            // the certificate's parallel path (ContouringTopologyCertificate.Cells through gParallel.ForEach), in chunks of
+            // 16 cells (many borders between chunks): the same status, the same uncertified cells in the same order with
+            // the same reasons, and the same result for every loop order; on a tilted sphere, whose tangencies and wedges
+            // leave cells uncertified
+            DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
+            MeshTransforms.Rotate(sphere, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 17));
+            MeshTransforms.Translate(sphere, new Vector3d(0.013, -0.007, 0.021));
+            Func<MeshWindingNumberSolidify> run = () => {
+                var s = new MeshWindingNumberSolidify(sphere) {
+                    Adaptive = true, GridResolution = 24, ComputeTopologyCertificate = true, CleanupResult = false, ReduceTolerance = 0,
+                    CertificateParallel = true, CertificateMinChunk = 16
+                };
+                Assert.True(s.Compute());
+                return s;
+            };
+            Func<MeshWindingNumberSolidify, string> cells = s => string.Join(";", s.UncertifiedCells.Select(c =>
+                $"{c.Box.Min.x:R},{c.Box.Min.y:R},{c.Box.Min.z:R},{c.Box.Max.x:R},{c.Box.Max.y:R},{c.Box.Max.z:R},{c.Reason}"));
+            MeshWindingNumberSolidify reference = WithOrder(0, run);
+            Assert.Equal(ContouringCertificateStatus.CellsUncertified, reference.TopologyCertificateStatus);
+            Assert.True(reference.UncertifiedCells.Count > 0);
+            ResultChecks.AssertClean(reference.Result);
+            foreach (int order in Orders) {
+                MeshWindingNumberSolidify r = WithOrder(order, run);
+                Assert.Equal(reference.TopologyCertificateStatus, r.TopologyCertificateStatus);
+                Assert.Equal(cells(reference), cells(r));
+                string diff = Invariance.Difference(reference.Result, r.Result);
+                Assert.True(diff == "", $"loop order {order}: {diff}");
+            }
+        }
+
+        [Fact]
         public void RemesherAndReducer_AnyLoopOrder_BitIdentical()
         {
             DMesh3 reduced = AssertOrderIndependent(() => {

@@ -259,7 +259,10 @@ in the tool project.
   only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
   A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
   the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
-  A1 built 2026-11-13 (#799, `gs.MeshOffset`, design note section 10); degenerate triangles fixed in DualContouring's quad split (#800); open: the A2 proof.
+  A1 done 2026-11-13 (#799, `gs.MeshOffset`, design note section 10); degenerate triangles fixed in DualContouring's
+  quad split (#800). A2 (topology certificate) shelved 2026-11-13 after the probe (design note section 11: certified
+  share and cost short of the stop rule); it resumes only with refinement (finer cells where cells are listed, with
+  #749 stage 2), starting from `wip/mesh-offset-a2-probe`.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
@@ -351,6 +354,9 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
+  Later item (coordinator 2026-11-13, #802): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
+  (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
+  about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean
