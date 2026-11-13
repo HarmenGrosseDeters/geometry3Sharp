@@ -83,7 +83,7 @@ namespace gs
             AxisAlignedBox3d bounds = AxisAlignedBox3d.Empty;
             for (int k = 0; k < n; ++k) {
                 Vector3d p = Points[k];
-                valid[k] = !(double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z));
+                valid[k] = p.IsFinite;   // (each component: their sum overflows for finite large values)
                 if (valid[k]) bounds.Contain(p);
             }
             int nValid = 0;

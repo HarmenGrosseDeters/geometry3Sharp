@@ -76,9 +76,13 @@ namespace gs
         }
 
 
+        // (2^500: the largest extent whose squares, and sums of a few of them, stay finite)
+        const double MaxExtent = 3.273390607896142E+150;
+
         /// <summary>
         /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN,
-        /// if either mesh has no triangles or a non-finite vertex; also returns false if cancelled.
+        /// if either mesh has no triangles or a non-finite vertex, or if the extent of both meshes together exceeds 2^500 (about 3e150:
+        /// the distance queries square it); also returns false if cancelled.
         /// Returns true otherwise, even if not Converged (check Converged).
         /// </summary>
         public bool Compute()
@@ -90,6 +94,12 @@ namespace gs
             if (SpatialB == null) SpatialB = new DMeshAABBTree3(MeshB, true);
             AxisAlignedBox3d bounds = MeshA.CachedBounds;
             bounds.Contain(MeshB.CachedBounds);
+            // the distance queries square lengths of the meshes' extent: beyond 2^500 (about 3e150) they overflow, the nearest-triangle
+            // search finds no triangle and the query threw a NullReferenceException (at extents from about 1e155; large coordinates
+            // with a small extent are fine). Refused instead, as non-finite coordinates are
+            double extent = Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z));
+            if (!(extent <= MaxExtent))
+                return false;
             double tol = (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength;
 
             Subdivisions = 0;
@@ -118,7 +128,7 @@ namespace gs
             foreach (int vid in mesh.VertexIndices()) {
                 if (mesh.GetVtxEdgeCount(vid) == 0) continue;
                 Vector3d v = mesh.GetVertex(vid);
-                if (double.IsNaN(v.x + v.y + v.z) || double.IsInfinity(v.x + v.y + v.z)) return false;
+                if (!v.IsFinite) return false;   // (each component: their sum overflows for finite large values)
             }
             return true;
         }

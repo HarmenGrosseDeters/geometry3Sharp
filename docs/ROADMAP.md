@@ -128,9 +128,6 @@ Status on 2026-11-12 (evening, Berlin).
 
 Checked line by line against the owner's decisions and git on 2026-11-12; settled items moved to "Later" or the subpages.
 
-- **Clipper2 C# sources:** upstream archived 2026-10-28 (C++ only from now on, new maintainer at PolyClipping/Clipper2);
-  integrate the frozen C# 2.0.0 sources into the addon and fix FINDINGS item 5 ourselves, or keep the package? No
-  upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
   library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
 - **Exact Boolean 2.0 leftovers:** the speed exceptions (519511, 1517923, 519507) and manifold M2 closed as documented
@@ -142,6 +139,11 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 ([sources-surveys.md](roadmap/sources-surveys.md#open)).
 
 ## Next / queued
+
+- Started 2026-11-12 (owner), one session each: platform-independent number formatting in `MeshIOUtil` (bugfix, Sonnet);
+  TPMS lattices (research item 5, Sonnet); a Fable study of topology-certified contouring (item 4 follow-up); Clipper2
+  option (b): vendor the C# 2.0.0 sources and fix FINDINGS item 5 (Opus); foldover-free maps: the energy-decrease stop and
+  the SLIM gap (Sonnet); the terrain close-out of the parked items (Opus); `ContourLoft` stage 1.
 
 The next steps per topic, in order ("in progress" where a session works on them).
 

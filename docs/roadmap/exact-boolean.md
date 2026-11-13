@@ -409,6 +409,33 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
+- **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
+  its tail (4 cores, median of 5, alternating A/B, hashes equal):
+  - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
+    triangles (0.47 M pairs on 104969, 6 M on `sph300`, 15 M on 1063860). Every `Orient3d` / `InCircle` / `InSphere` filter
+    call computed a subnormal product (about 50 ns of microcode assist on x86). Now it is skipped where it cannot change
+    the bound, so the bound is the same double.
+    - Microbenchmark: orient3d 53 to 7.5 ns, incircle 56 to 9, insphere 70 to 28.
+    - Normal 36: wall -9.6 %, pairs -48 %.
+    - Tail: wall -5.7 %.
+  - **Pair search, step 2 (compact per-triangle data in tree order for the self-join): dropped, no measurable gain.**
+    On 104969, sph300, 1063860, 1036403 and 131971, on top of #753: wall +0.8 %, pairs +3.8 %. What is left of the self-join
+    is branching and traversal, not memory.
+  - **Merge: dominated by the exact-numbers study's C.** merge.points is concentrated in 1017018 (800 ms) and 112826 (414 ms)
+    of about 1.6 s on the stratum. There the BigInteger point construction (`compute_exact`, `edge_plane_exact`,
+    `BigIntegerCalculator.Gcd`) is 24-40 % of the phase's samples.
+  - **Assembly: not worth it on its own.** On 112826: GC waits 19 % and memmove 8 % (lever 4); `assemble` 13.5 %,
+    `SmallListSet.FindByKey` 6.7 % and `sort_by_key` 6 %. The part that is not allocation would give about 1 % of the
+    stratum at 1.5x.
+  - **Triangulation: dominated by lever 4 and the exact-numbers study.** On 112826: GC waits 37 %; Dictionary, HashSet and
+    List resizing 15 %; BigInteger and FixedArith 16 %.
+  - **Lever 4 (allocations), upper bound** on top of #753, with the GC pause stated separately:
+    - Normal 36: the GC pause is 7.9 % of the wall. A 1 GB gen0 budget gives wall -7.5 %; server GC -5.2 % (single cases
+      +32 % and +78 %).
+    - Tail: -3.2 % with gen0 and -1.6 % with server GC (the four 3 s models -8 to -19 %, 1088051 about -2 %).
+    - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
+      simplify about 30 %, setup 4 %.
+    - Next: presizing and reuse of scratch buffers in the arrangement, after the files are cleared.
 - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
   coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility

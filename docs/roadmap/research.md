@@ -66,6 +66,8 @@ Part of the [roadmap](../ROADMAP.md).
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
      is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
      first, then 2-3 days with an Opus-level review of the bounds.
+     Stage 1 note (2026-11-13, for the owner's decision): [design/CCD.md](../design/CCD.md) (Tight-Inclusion MIT,
+     implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -101,12 +103,19 @@ Part of the [roadmap](../ROADMAP.md).
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
      `WindingContouring` a certified repair path.
      Study done 2026-11-12 ([design/CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md), measurement
-     `benchmarks/ContouringTopology`), nothing built, waits for the owner: today's topology is wrong for every feature
-     below about 1.5 cells (implicit shapes, 1920 runs) and on 4 of 14 clean lever-6 meshes at one cell size at least
-     (7 of 42 runs; 0 of 18 on the procedural solids), without a signal; no published method covers winding-number
-     fields; recommended: a per-cell certificate (exact tests on the input triangles for clean meshes, the mesh side
-     from options A and B's coverage), refinement of the failing cells, the rest reported; stages and options in the
-     note.
+     `benchmarks/ContouringTopology`, #749): today's topology is wrong for every feature below about 1.5 cells
+     (implicit shapes, 1920 runs) and on 4 of 14 clean lever-6 meshes at one cell size at least (7 of 42 runs; 0 of
+     18 on the procedural solids), without a signal; no published method covers winding-number fields.
+     Decision (owner 2026-11-13): option A, implement now: stages 1-2, an exact topology certificate for clean closed
+     meshes and refinement driven by it (its own session, tier L). Options B (interval implicits / TPMS) and C (broken
+     inputs): attempt the proof first (docs only, in the #749 note); build them only once the proof is complete and
+     independently reviewed. B and C run alongside and do not delay A.
+     Proofs (2026-11-13, section 7 of the note, each independently reviewed): the isotopy proof for clean closed
+     meshes (Theorems 1-3); B: Theorem 5 covers level sets that are not piecewise linear under interval tests (its
+     citations of Brown 1960 / 1962 and Clarke 1983 are from memory, to be checked before SOURCES.md); C: only a
+     partial statement is provable (inside the certified cells the result differs from the level set by a
+     deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
+     yet; no cell at a defect edge can be certified.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
@@ -233,6 +242,12 @@ in the tool project.
   closed manifold for any input but rounds off features. Its bottleneck, the exact union of many convex bodies, is our
   exact Boolean kernel; the EMBER early-out ideas would apply. Before building: a patent check (authors partly at
   Tencent LightSpeed Studios) and a comparison with Zint 2023. Not scheduled (budget; owner 2026-11-05)
+  Study 2026-11-13 ([design/MESH_OFFSET.md](../design/MESH_OFFSET.md)): Euclidean offset / inset with guarantees;
+  recommends certified contouring of the distance field (class S of the #749 certificate plus a Lipschitz band
+  certificate), the alpha wrap as the fallback for broken inputs, the exact polytope Minkowski sum as a test oracle
+  only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
+  A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
+  the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level

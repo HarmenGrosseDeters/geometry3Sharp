@@ -31,18 +31,22 @@ Part of the [roadmap](../ROADMAP.md).
   states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
   limit, #696).
 
-Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+**Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
+distance, then the proven tan interval and catch-line bound. Still owner decisions: the slope-envelope construction,
+berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
 - **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
   paused):** (1) slope on the inside of a closed toe needs up to 4 retries of the exact check and ends in
   `SlopeViolation` in about 1 of 500 such designs (the outside certifies at once); (2) `Direction = Auto` on a terrain
   that tilts through the toe plane: composite not certified at a toe edge, 1 of 700. Both never return a violating
   result; both are pinned as example tests and counted in the campaign.
-- **Ramps as design geometry** (path, width, grade; access ramps into pits).
+- **Ramps as design geometry** (path, width, grade; access ramps into pits). Design note [TERRAIN_RAMPS.md](../design/TERRAIN_RAMPS.md) (2026-11-12): proposal, owner decision
+  pending (three questions), not built.
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
-- **Sector polygons, exterior distance on demand.**
+- **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13): proposal, owner
+  decision pending (order, attribution, ε-approximation), not built.
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
