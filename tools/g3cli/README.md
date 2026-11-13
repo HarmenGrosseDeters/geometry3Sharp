@@ -26,12 +26,13 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `offset` | offset surface of a closed mesh at a signed distance (positive outward, negative inward) by marching cubes on a signed distance grid; `--cell-size` / `--relative-cell-size`, `--root-mode single_lerp` / `lerp_steps` / `bisection` / `linear_edges` (`LinearEdges`: one linear interpolation of the corner samples, fails with `linear_edges_precondition` where its preconditions are violated), a cell budget (`--max-cells`); `enclosure_claim` is always `none` (no guarantee that the offset surface encloses the input) | `MeshSignedDistanceGrid`, `MarchingCubes` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
 | `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices; intrinsic refinement, the descent path from a vertex or point with `--trace-from`) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
-| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
+| `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays (text, JSON, or a pinhole `--camera` with a distance image `--depth-output` as PGM / CSV) and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
 | `thickness` | wall thickness of a closed mesh (`--method ray` / `shape_diameter` / `inscribed_sphere`) as statistics; with `--min-thickness` the thin triangles (count, area share, ids), vertices | `MeshWallThickness` |
 | `fit` | plane, sphere, cylinder or cone fitted to the vertices (RANSAC + least squares, deterministic for a seed; `--primitive all` fits every one): parameters, inliers, RMS and maximum error | `PrimitiveFit3` |
-| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`), simplification (`--op simplify --epsilon e`), and on lines: `simplify_lines`, `clip_lines` (the pieces of GeoJSON LineStrings inside / outside the clip polygons, `--clip-type`) and `offset_lines` (the band of width 2 delta around lines, `--end-type round/square/butt/joined`) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
+| `polygon2d` | robust 2D polygon booleans (`--op union` / `intersection` / `difference` / `xor`) and offsets (`--op offset --delta d --join round/miter/square/bevel`), simplification (`--op simplify --epsilon e`), and on lines: `simplify_lines`, `clip_lines` (the pieces of GeoJSON LineStrings inside / outside the clip polygons, `--clip-type`) and `offset_lines` (the band of width 2 delta around lines, `--end-type round/square/butt/joined`) and `minkowski_sum` / `minkowski_difference` (a pattern polygon swept along a polygon or an open LineString, `--pattern`, `--path-closed`; at most 100000 pattern x path vertex pairs, the result keeps collinear vertices) on GeoJSON polygons (Polygon, MultiPolygon, with holes; subject, clip, `--output`) with the optional Clipper2 adapter; the result as GeoJSON (a file, or inline with `--return-geojson`), counts, areas and the integer grid used | `Clipper2Polygons` (geometry3Sharp.Clipper2) |
 | `polygon_solids` | solid regions (polygons with holes) from loops: every ring of GeoJSON Polygons / MultiPolygons and every closed LineString is a loop, the nesting is found from containment; absolute (`--simplify-tolerance`, library default 0.1) and relative (`--relative-tolerance`) simplification, `--trust-orientations`, `--allow-overlapping-holes`; the result as GeoJSON (a file, or inline with `--return-geojson`), counts and areas | `PlanarComplex.FindSolidRegions` |
+| `hull2d` | convex hull of 2D points (`--points` as text, `@file` or JSON, or the x/y of a mesh's vertices): dimension (2 polygon, 1 line, 0 point), vertices counterclockwise with their input indices, area, perimeter, GeoJSON out; `--query double` (default) or `int64` (points rounded to a 2^20 grid of their bounding square; there is no exact mode; at most 50000 points) | `ConvexHull2` |
 
 ## Build and run
 
@@ -171,6 +172,11 @@ g3cli offset part.stl part_offset.stl --distance 0.5 --cell-size 0.1
 g3cli offset part.stl part_offset.stl --distance 0.5 --relative-cell-size 0.005 --root-mode linear_edges
 #   -> or operation_failed with "offset_status": "linear_edges_precondition" and no output file
 
+# convex hull of 2D points (or of the x/y of a mesh's vertices); the hull vertices counterclockwise with their indices in the input
+g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1" --return-geojson
+#   -> "dimension": 2, "hull_vertices": 4, "area": 12, "perimeter": 14, "indices": [2, 3, 0, 1], "polygon": [[4, 3], [0, 3], [0, 0], [4, 0]]
+g3cli hull2d part.stl --output hull.geojson
+
 # quality and topology of one mesh
 g3cli quality part.stl
 #   -> "quality": { "min_angle": { "worst": 3.1, "worst_1_percent": 11.2, "median": 44.0 }, ... }, "topology": { "components": 1, "genus": 0, ... }
@@ -204,6 +210,9 @@ g3cli query3d part.stl --rays @rays.txt --any-hit --max-distance 100
 # every result to a file (CSV: index, triangle, t, point_x.. / JSON: the entries), rays as JSON, the inside method chosen by the mesh
 g3cli query3d part.stl --rays @rays.json --output hits.csv
 g3cli query3d part.stl --points @points.json --inside auto --output inside.csv
+# a pinhole camera instead of rays: 'position;target;vertical fov in degrees;width;height', one ray per pixel center (row by row from the top left), up is +z
+g3cli query3d part.stl --camera "0,-300,80;0,0,40;45;640;480" --depth-output depth.pgm
+#   -> "camera": {"width": 640, "height": 480, "forward": [...], "right": [...], "up": [...]}, "depth_image": {"hits": 120384, "t_min": 281.2, "t_max": 390.7}
 #   -> "points": { "method_used": "crossings", "inside_count": 1, ... }, "output": "inside.csv", "output_rows": 50000
 
 # deviation of a simplified mesh from the original: statistics only (positive = outside the reference's solid), certified Hausdorff bound
@@ -231,6 +240,9 @@ g3cli polygon2d roads.geojson district.geojson --op clip_lines --output roads_in
 g3cli polygon2d route.geojson --op offset_lines --delta 15 --end-type butt --output corridor.geojson
 g3cli polygon2d parcel.geojson --op simplify --epsilon 0.05          # vertices closer than 0.05 to the line through their neighbours
 g3cli polygon2d track.geojson --op simplify_lines --epsilon 0.5
+# Minkowski sum: a pattern (coordinates around its reference point, eg a circle around 0,0) swept along a polygon (closed, interior included) or an open line
+g3cli polygon2d footprint.geojson --pattern robot.geojson --op minkowski_sum --output clearance.geojson
+g3cli polygon2d route.geojson --pattern robot.geojson --op minkowski_sum --path-closed=false --output swept.geojson
 
 # loops from several sources (rings of Polygons, closed lines) to solids with holes; simplification: absolute, library default 0.1
 g3cli polygon_solids loops.geojson solids.geojson

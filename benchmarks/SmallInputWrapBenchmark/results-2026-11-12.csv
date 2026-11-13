@@ -1,0 +1,15 @@
+input,mode,seconds,ok,wrap,wrap_triangles,result_triangles,alpha_rel,offset_rel,result_to_input_rel,input_to_result_rel
+62 B repro,old,10.56,True,True,204222,11884,0.00333,0.000333,0.000381,0.000197
+62 B repro,new,0.37,True,True,232,164,0.118,0.0118,0.0127,0.00684
+tet-jitter-6,old,3.92,True,True,135834,7178,0.00333,0.000333,0.000383,8.99E-05
+tet-jitter-6,new,0.10,True,True,144,110,0.177,0.0177,0.0196,0.00454
+oct-jitter-22,old,6.74,True,True,179816,11386,0.00333,0.000333,0.000382,0.000204
+oct-jitter-22,new,0.19,True,True,192,148,0.131,0.0131,0.0142,0.00845
+tet-jitter-24,old,4.93,True,True,135054,7766,0.00333,0.000333,0.000377,0.000131
+tet-jitter-24,new,0.12,True,True,102,74,0.204,0.0204,0.0221,0.00634
+tet-jitter-25,old,3.45,True,True,125368,7420,0.00333,0.000333,0.000373,0.000241
+tet-jitter-25,new,0.05,True,True,154,114,0.155,0.0155,0.017,0.00893
+tet-jitter-28,old,2.85,True,True,102472,6566,0.00333,0.000333,0.000387,0.000333
+tet-jitter-28,new,0.07,True,True,152,112,0.125,0.0125,0.0131,0.0126
+tet-jitter-34,old,5.35,True,True,161284,6972,0.00333,0.000333,0.00038,0.000154
+tet-jitter-34,new,0.15,True,True,166,122,0.174,0.0174,0.0188,0.00717

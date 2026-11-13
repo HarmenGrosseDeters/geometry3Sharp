@@ -172,8 +172,13 @@ class DriftReferenceTests(unittest.TestCase):
              'most = Math.Max(most, ghosts_bound(vanishing, movedV, vanishing, movedPos));'),             # move_skips_ghosts
             # the bookkeeping around the rule
             ('MeshRoundingRepair.cs', 'if (within_bound(proposed_drift(step), bound) == false)', 'if (within_bound(proposed_drift(0), bound) == false)'),
-            ('MeshRoundingRepair.cs', 'within_bound(move_bound(v, p), maxLength_of(v));', 'within_bound(0, maxLength_of(v));'),
+            ('MeshRoundingRepair.cs', 'if (stopped)\n                return false;\n            begin_edit();\n            foreach (int t in Mesh.VtxTrianglesItr(v)) {',
+             'begin_edit();\n            foreach (int t in Mesh.VtxTrianglesItr(v)) {'),
             ('MeshRoundingRepair.cs', 'addedIds.Add(tid);\n            commit_drift();', 'commit_drift();'),
+            # the position search: a candidate that is not judged by try_move, room_at used as a drift elsewhere
+            ('MeshRoundingRepair.cs', 'if (try_move(v, c + s * d)) {', 'if (s < room && try_move(v, c + s * d)) {'),
+            ('MeshRoundingRepair.cs', 'double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;\n            if (within_bound',
+             'double bound = removed.Count > 0 ? maxLength_of(Mesh.GetTriangle(removed[0]).a) : double.NaN;\n            if (movedV >= 0 && room_at(movedV) > 0) return true;\n            if (within_bound'),
             ('MeshRoundingRepair.cs', 'set_reference(t, editDrift);', 'set_reference(t, 0);'),
             ('MeshRoundingRepair.cs', 'refCarry = new double[Mesh.MaxTriangleID];\n            foreach (int t in Mesh.TriangleIndices()) {',
              'refCarry = new double[Mesh.MaxTriangleID];\n            foreach (int t in new int[0]) {'),

@@ -54,7 +54,7 @@ namespace g3cli.Tests
 
             r = Handle(server, Request(3, "tools/list"));
             var tools = r["result"]["tools"].AsArray();
-            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset" },
+            Assert.Equal(new[] { "measure", "repair", "boolean", "resolve", "remesh", "simplify", "uv", "convert", "mesh2d", "query2d", "slope", "dgm", "dgm_tin", "cell_volumes", "fidelity", "quality", "deviation", "thickness", "fit", "wrap", "geodesic", "query3d", "polygon2d", "polygon_solids", "curvature", "offset", "hull2d" },
                 tools.Select(t => S(t["name"])).ToArray());
             foreach (JsonNode t in tools) {
                 Assert.False(string.IsNullOrEmpty(S(t["description"])));
@@ -228,6 +228,37 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Query3d_Camera_IsAToolArgument()
+        {
+            var server = Server();
+            string depth = m.Path_("mcp_depth.pgm");
+            JsonObject r = Handle(server, Call(1, "query3d", new JsonObject() { ["input"] = m.Cube, ["camera"] = "-5,0,0;0,0,0;90;16;16", ["depth_output"] = depth }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(16, I(sc["rays"]["hits"]));
+            Assert.Equal(16, I(sc["depth_image"]["hits"]));
+            Assert.Equal("P2", System.IO.File.ReadAllLines(depth)[0]);
+            r = Handle(server, Call(2, "query3d", new JsonObject() { ["input"] = m.Cube, ["camera"] = "-5,0,0;0,0,0;0;16;16" }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
+        public void Hull2d_IsATool()
+        {
+            var server = Server();
+            JsonObject r = Handle(server, Call(1, "hull2d", new JsonObject() { ["points"] = "0,0;4,0;4,3;0,3;2,1", ["query"] = "int64", ["return_geojson"] = true }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(4, I(sc["hull_vertices"]));
+            Assert.Equal("int64", S(sc["query"]));
+            Assert.Equal("Polygon", S(sc["hull_geojson"]["geometry"]["type"]));
+            r = Handle(server, Call(2, "hull2d", new JsonObject() { ["points"] = "0,0;4,0", ["epsilon"] = 0.0 }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
         public void Offset_IsATool()
         {
             var server = Server();
@@ -241,6 +272,20 @@ namespace g3cli.Tests
             r = Handle(server, Call(2, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_off2.obj"), ["distance"] = 0.0, ["cell_size"] = 0.25, ["root_mode"] = "linear_edges" }));
             Assert.True(B(r["result"]["isError"]));
             Assert.Equal("linear_edges_precondition", S(r["result"]["structuredContent"]["offset_status"]));
+        }
+
+        [Fact]
+        public void Polygon2d_MinkowskiOps_AreToolArguments()
+        {
+            var server = Server();
+            string line = "{\"type\":\"LineString\",\"coordinates\":[[0,0],[10,0]]}";
+            string pattern = "{\"type\":\"Polygon\",\"coordinates\":[[[-1,-1],[1,-1],[1,1],[-1,1],[-1,-1]]]}";
+            JsonObject r = Handle(server, Call(1, "polygon2d", new JsonObject() { ["op"] = "minkowski_sum", ["subject_geojson"] = line, ["pattern_geojson"] = pattern, ["path_closed"] = false }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal(24.0, D(r["result"]["structuredContent"]["result"]["area"]), 6);
+            r = Handle(server, Call(2, "polygon2d", new JsonObject() { ["op"] = "minkowski_difference", ["subject_geojson"] = line, ["pattern_geojson"] = pattern }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
         }
 
         [Fact]

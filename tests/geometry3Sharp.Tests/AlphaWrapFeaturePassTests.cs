@@ -283,6 +283,38 @@ namespace geometry3Sharp.Tests
             Assert.False(make(box).TryMove(v, new Vector3d(pv.x, pv.y, 4 + 0.5 * delta)));
         }
 
+        // a degenerate input triangle (a needle, collinear corners) just under the flat top of the wrap: a move that cuts it must be
+        // refused (review of #736, finding 1; Reducer.TrianglesTouch used to skip degenerate obstacle triangles, #746)
+        [Fact]
+        public void TryMove_RefusesToCutADegenerateInputTriangle()
+        {
+            DMesh3 box = PolyCube(10, 6, 4, (x, y, z) => true);
+            MeshAlphaWrap w = Wrap(box);
+            DMesh3 raw = w.Result;
+            double delta = w.UsedOffset, al = w.UsedAlpha;
+            int v = raw.VertexIndices().Where(i => { Vector3d p = raw.GetVertex(i); return p.z > 4 && p.x > 3 && p.x < 7 && p.y > 2 && p.y < 4; }).First();
+            Vector3d pv = raw.GetVertex(v), x = pv - 0.05 * delta * Vector3d.AxisZ;
+            // the needle: long, horizontal, between the old and the new height of the vertex, through its x
+            Vector3d n0 = new Vector3d(pv.x - 3 * al, pv.y, pv.z - 0.02 * delta), n1 = new Vector3d(pv.x + 3 * al, pv.y, pv.z - 0.02 * delta);
+            Func<bool, DMesh3> input = (degenerate) => {
+                DMesh3 m = new DMesh3(box);
+                Vector3d c = degenerate ? 0.5 * n0 + 0.5 * n1 : 0.5 * n0 + 0.5 * n1 + new Vector3d(0, 1e-3 * delta, 0);
+                m.AppendTriangle(m.AppendVertex(n0), m.AppendVertex(n1), m.AppendVertex(c));
+                return m;
+            };
+            Func<DMesh3, bool, bool> tryMove = (inp, sweep) => {
+                var p = new AlphaWrapFeaturePass(new DMesh3(raw, true), inp, al, delta) {
+                    CheckSweep = sweep, MinAngleFloorDegrees = 0, MaxAngleCeilingDegrees = 180, MaxNormalTurnDegrees = 180, MinDistance = 0 };
+                Assert.True(p.Prepare());
+                return p.TryMove(v, x);
+            };
+            Assert.True(tryMove(box, true), "without the needle the move is accepted");
+            // the moved fan crosses the needle: refused by the end state alone, degenerate or not
+            Assert.False(tryMove(input(true), false), "degenerate needle");
+            Assert.False(tryMove(input(false), false), "the same as a sliver");
+            Assert.False(tryMove(input(true), true));
+        }
+
         // the sweep's face test: an input triangle that lies in a side face (p, u, x) of the swept tetrahedra has no point
         // strictly inside one, and the end state does not see it (it touches no new triangle), but the move leaves it outside.
         // (Where the triangle is not in a face, the winding number of its points changes only across the old or the new fan,

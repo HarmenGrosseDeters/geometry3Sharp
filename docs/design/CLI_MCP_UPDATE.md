@@ -201,7 +201,7 @@ the sessions that added the library options (Alpha Wrap 2.0, SafeRounding) expec
 | P2 | D | `polygon2d` ops `simplify`, `clip_lines`, `offset_lines` (6) | M |
 | P2 | E | `curvature` (4), `fidelity` / `geodesic` options (2, 3) | M |
 | P2 | F | `offset` with `--root-mode` (1), after Q1 | M |
-| P3 | G | `hull2d` (8), Minkowski (6), `voxelize` (1), `query3d --camera` (5.4) | each S-M |
+| P3 | G | `hull2d` (8), Minkowski (6), `query3d --camera` (5.4); `voxelize` (1) dropped, see section 11 | each S-M |
 
 Each PR: tests in `tests/g3cli.Tests` (`McpTests` for the MCP schema and call, `CliTests`-style for the command, `McpFuzzReplayTests` /
 `ReaderFuzzTests` where an input format is read), `tools/g3cli/README.md`, `docs/OPERATIONS.md`, and the roadmap line
@@ -215,6 +215,10 @@ Each PR: tests in `tests/g3cli.Tests` (`McpTests` for the MCP schema and call, `
 - **Q3** `hull2d` exposes `double` and `int64`.
 - **Q4** Order: PR A, PR B, then C to G as in section 10.
 - **Q5** `tetquality` and `--mode all` stay out of this update.
+- **Later decisions (owner 2026-11-12):** `voxelize` (section 1) is dropped: no `MeshVoxelizer` library class and no CLI command. First approved as
+  proposed (voxel = center inside, Parity and WindingNumber, cell-count guard), then withdrawn the same day: simulation will be covered by tet meshing
+  ([research.md](../roadmap/research.md), item 3), and block models come back as a small feature only if the owner needs them. G is therefore
+  `hull2d` (#690), the Minkowski ops of `polygon2d` and `query3d --camera`.
 
 The questions as asked:
 

@@ -239,7 +239,9 @@ namespace g3
         /// Fast approximation of the winding number of an oriented point cloud at p, using far-field approximations
         /// (Barill et al. 2018). Requires per-point normals (Points.GetVertexNormal) and a proper FWNAreaEstimateF.
         /// Roughly 1 inside and 0 outside a closed surface sampled with outward normals.
-        /// The cache is built on the first call (thread-safe) and rebuilt if the point set changes.
+        /// The cache is built on the first call (thread-safe) and rebuilt if the point set changes. Scale-free (no absolute
+        /// tolerance; the areas come from FWNAreaEstimateF): scaling the points, the areas (by the square) and p by a power of
+        /// two gives the same value bit for bit, for cloud sizes and distances between about 2^-200 and 2^200.
         /// </summary>
         public virtual double FastWindingNumber(Vector3d p)
         {
@@ -284,8 +286,7 @@ namespace g3
 
                     // if we have winding cache, we can more efficiently compute contribution of all points
                     // below this box. Otherwise, recursively descend tree.
-                    bool contained = box_contains(iChild1, p);
-                    if (contained == false && can_use_fast_winding_cache(iChild1, ref p))
+                    if (use_fast_winding_expansion(iChild1, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild1, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild1, p);
@@ -294,14 +295,12 @@ namespace g3
                     iChild1 = iChild1 - 1;
                     int iChild2 = index_list[idx + 1] - 1;
 
-                    bool contained1 = box_contains(iChild1, p);
-                    if (contained1 == false && can_use_fast_winding_cache(iChild1, ref p))
+                    if (use_fast_winding_expansion(iChild1, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild1, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild1, p);
 
-                    bool contained2 = box_contains(iChild2, p);
-                    if (contained2 == false && can_use_fast_winding_cache(iChild2, ref p))
+                    if (use_fast_winding_expansion(iChild2, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild2, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild2, p);
@@ -309,6 +308,52 @@ namespace g3
             }
 
             return branch_sum;
+        }
+
+
+        // the gate of the far-field expansion of a child box (branch_fast_winding_num and the test hook below). With FWNBeta
+        // >= sqrt(3) (default 2) the box test uses the stored (tight) box: R is the largest distance from the stored centre to
+        // a point, so the tight box lies in the cube of half size R around it and every point of it is within sqrt(3) R; a
+        // query more than FWNBeta R away is outside it already. The padding (a fixed 1.1e-14) only decides here whether
+        // the expansion may be used; it made every box of a cloud below about 1e-13 contain the queries near it, so the
+        // expansion was not used (#745). Below sqrt(3) the box test still matters: the padded box as before.
+        bool use_fast_winding_expansion(int iBox, ref Vector3d p)
+        {
+            bool contained = FWNBeta >= 1.7320508075688772 ? box_contains_unpadded(iBox, p) : box_contains(iBox, p);
+            return contained == false && can_use_fast_winding_cache(iBox, ref p);
+        }
+
+        bool box_contains_unpadded(int iBox, Vector3d p)
+        {
+            Vector3d c = box_centers[iBox];
+            Vector3d e = box_extents[iBox];
+            return new AxisAlignedBox3d(ref c, e.x, e.y, e.z).Contains(p);
+        }
+
+        /// <summary> Test hook: the number of points FastWindingNumber(p) evaluates directly (the rest by expansions); the cache must have been built by a FastWindingNumber call. </summary>
+        internal int FastWindingDirectPointCount(Vector3d p)
+        {
+            return fast_winding_direct(root_index, ref p);
+        }
+        int fast_winding_direct(int iBox, ref Vector3d p)
+        {
+            int idx = box_to_index[iBox];
+            if (idx < points_end)
+                return index_list[idx];
+            int iChild1 = index_list[idx], count = 0;
+            if (iChild1 < 0) {
+                iChild1 = (-iChild1) - 1;
+                if (use_fast_winding_expansion(iChild1, ref p) == false)
+                    count += fast_winding_direct(iChild1, ref p);
+            } else {
+                iChild1 = iChild1 - 1;
+                int iChild2 = index_list[idx + 1] - 1;
+                if (use_fast_winding_expansion(iChild1, ref p) == false)
+                    count += fast_winding_direct(iChild1, ref p);
+                if (use_fast_winding_expansion(iChild2, ref p) == false)
+                    count += fast_winding_direct(iChild2, ref p);
+            }
+            return count;
         }
 
 
@@ -404,8 +449,14 @@ namespace g3
                 return false;
 
             double dist_qp = cacheInfo.Center.Distance(ref q);
-            if (dist_qp > FWNBeta * cacheInfo.R)
-                return true;
+            // (as DMeshAABBTree3: the expansion only where 4 pi d^5 is finite and its inverse normal, distances about 2^-204
+            // .. 2^203.8, the direct sum otherwise. Without the rounding slack of DMeshAABBTree3: no caller subtracts the
+            // direct terms of the points a query lies on, and a collapsed cloud at 1e12 gives the direct sum within 0.1 also
+            // without it)
+            if (dist_qp > FWNBeta * cacheInfo.R) {
+                double d2 = dist_qp * dist_qp, d5 = d2 * d2 * dist_qp;
+                return d5 >= 2.2250738585072014e-308 && d5 <= 5.617791046444737e306;
+            }
 
             return false;
         }
@@ -707,7 +758,10 @@ namespace g3
             double midpoint = interval.Center;
 
             int n0, n1;
-            if (Math.Abs(interval.a - interval.b) > MathUtil.ZeroTolerance) {
+            // (any spread splits, as in DMeshAABBTree3: below an absolute 1e-8 a set was split half and half, so a cloud of
+            // size below about 1e-8 (or a thin one) got another tree than the same cloud scaled up, and FastWindingNumber
+            // other values (#745); a midpoint that rounds onto an end is handled below)
+            if (interval.a < interval.b) {
                 // we have to re-sort the centers & indices lists so that centers < midpoint
                 // are first, so that we can recurse on the two subsets. We walk in from each side,
                 // until we find two out-of-order locations, then we swap them.
@@ -717,9 +771,11 @@ namespace g3
                     // [RMS] is <= right here? if v.axis == midpoint, then this loop
                     //   can get stuck unless one of these has an equality test. But
                     //   I did not think enough about if this is the right thing to do...
-                    while (positions[iStart + l][axis] <= midpoint)
+                    // (bounded: when the extremes are adjacent doubles the midpoint can round to the larger one, so every
+                    // position is <= midpoint and the scan ran past the set)
+                    while (l < iCount && positions[iStart + l][axis] <= midpoint)
                         l++;
-                    while (positions[iStart + r][axis] > midpoint)
+                    while (r >= 0 && positions[iStart + r][axis] > midpoint)
                         r--;
                     if (l >= r)
                         break;      //done!
@@ -730,9 +786,13 @@ namespace g3
 
                 n0 = l;
                 n1 = iCount - n0;
-                Debug.Assert(n0 >= 1 && n1 >= 1);
+                // a side left empty (every position on one side of the rounded midpoint): half and half
+                if (n0 < 1 || n1 < 1) {
+                    n0 = iCount / 2;
+                    n1 = iCount - n0;
+                }
             } else {
-                // interval is near-empty, so no point trying to do sorting, just split half and half
+                // interval is empty, so no point trying to do sorting, just split half and half
                 n0 = iCount / 2;
                 n1 = iCount - n0;
             }

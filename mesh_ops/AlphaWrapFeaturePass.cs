@@ -513,39 +513,11 @@ namespace gs
         /// </summary>
         bool sweeps_input(IList<Tet> tets)
         {
-            var faces = new List<Triangle3d>(4 * tets.Count);
-            AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
-            foreach (Tet t in tets) {
-                faces.Add(new Triangle3d(t.A, t.B, t.C)); faces.Add(new Triangle3d(t.A, t.B, t.D));
-                faces.Add(new Triangle3d(t.B, t.C, t.D)); faces.Add(new Triangle3d(t.C, t.A, t.D));
-                union.Contain(t.A); union.Contain(t.B); union.Contain(t.C); union.Contain(t.D);
-            }
-            if (Reducer.TrianglesTouch(inputTree, faces)) return true;
-            bool inside = false;
-            inputTree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
-                NextBoxDF = (bx, depth) => !inside && bx.Intersects(union),
-                NextTriangleF = (tid) => {
-                    if (inside) return;
-                    // (a triangle that meets no face lies inside or outside as a whole: its corners and its centroid, one of which is
-                    // strictly inside a tetrahedron unless the triangle lies in a face, which the face test finds)
-                    Index3i it = input.GetTriangle(tid);
-                    Vector3d p0 = input.GetVertex(it.a), p1 = input.GetVertex(it.b), p2 = input.GetVertex(it.c);
-                    foreach (Vector3d p in new[] { p0, p1, p2, (p0 + p1 + p2) / 3 }) {
-                        if (!union.Contains(p)) continue;
-                        foreach (Tet t in tets)
-                            if (strictly_inside(t, p)) { inside = true; return; }
-                    }
-                }
-            });
-            return inside;
-        }
-
-        static bool strictly_inside(Tet t, Vector3d p)
-        {
-            int s = ExactPredicates.Orient3d(t.A, t.B, t.C, t.D);
-            if (s == 0) return false;
-            return ExactPredicates.Orient3d(p, t.B, t.C, t.D) == s && ExactPredicates.Orient3d(t.A, p, t.C, t.D) == s
-                && ExactPredicates.Orient3d(t.A, t.B, p, t.D) == s && ExactPredicates.Orient3d(t.A, t.B, t.C, p) == s;
+            // (Reducer.TetrahedraMeet: the faces exactly, corners and centroids strictly inside; shared with the Reducer's and the
+            // quality pass's KeepClearOf, issue #743)
+            var corners = new List<Vector3d>(4 * tets.Count);
+            foreach (Tet t in tets) { corners.Add(t.A); corners.Add(t.B); corners.Add(t.C); corners.Add(t.D); }
+            return Reducer.TetrahedraMeet(inputTree, corners);
         }
 
         // ---- geometry helpers ----

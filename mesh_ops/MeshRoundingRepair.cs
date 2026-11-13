@@ -62,6 +62,15 @@ namespace g3
     /// the last place first), checked like every edit, so that they then meet the other sheet nowhere; the point with the
     /// most vertices there stays, and a point with several vertices there is not moved apart, so a contact of one exact
     /// point is kept (InitialFalseContacts, RemainingFalseContacts; IsClean requires none left).
+    /// What the passes leave (a degenerate triangle or an intersecting pair that no edit above repairs) is searched for a
+    /// vertex position that does: one corner of the defect (of an intersecting pair: of its first triangle; corners kept
+    /// by FixedVertexF last, no boundary vertex and no bowtie) is moved along one of the 26 directions with components
+    /// -1, 0, 1 by its room over 2^j, j = 7 down to 0 (the smallest size first; the room: the bound minus the largest
+    /// bound of the triangles and ghosts at the vertex), to the first position that is accepted like every edit: within the bound,
+    /// no new intersection or degenerate triangle, one defect fewer. Then the passes run again, and the search, until it
+    /// accepts nothing (PositionSearchMoves; docs/design/SAFE_ROUNDING.md section 9). Not with MaxPasses 0. Its
+    /// candidates are evaluated within the effort limits like the edits of the passes, so on a result with many defects
+    /// that no position repairs the search can be what reaches the limit (EvaluationLimitReached).
     ///
     /// Usage: construct with the mesh (modified in place), optionally set FixedVertexF to the vertices whose
     /// position should be kept where possible (eg input vertices), call Apply(). Apply() returns IsClean:
@@ -140,12 +149,13 @@ namespace g3
         /// it to false
         /// </summary>
         public bool FixedWhereCoarse = true;
-        /// <summary> passes over the defects </summary>
+        /// <summary> passes over the defects (0: no pass and no position search; the defects are counted, and what does not depend on the passes still runs: the contact steps and the removal of tiny components) </summary>
         public int MaxPasses = 4;
         /// <summary>
         /// bounds the time on meshes with many defects that cannot be repaired: proposed edits evaluated at most, per
         /// defect found at the start (plus 10000), and exact triangle pair tests in the evaluations at most
-        /// (EvaluationLimitReached tells; the result is valid, the defects left are counted)
+        /// (EvaluationLimitReached tells; the result is valid, the defects left are counted). The candidates of the
+        /// position search count like the edits of the passes
         /// </summary>
         public int MaxEvaluationsPerDefect = 50;
         /// <summary>
@@ -157,7 +167,7 @@ namespace g3
         /// ExactMeshBoolean.RoundingMaxPairTests and MeshRobustRepair.RoundingMaxPairTests pass it through
         /// </summary>
         public long MaxPairTests = 5000000;
-        /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests </summary>
+        /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests: from there on no edit is proposed (see SmallestRejectedDrift) </summary>
         public bool EvaluationLimitReached;
         /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
         public bool RemoveTinyComponents = true;
@@ -170,6 +180,17 @@ namespace g3
         public int Collapses, Flips, Moves, Zips;
         /// <summary> of the Zips: strips of degenerate triangles zipped at once (see class comment) </summary>
         public int StripZips;
+        /// <summary>
+        /// of the Moves: those of the position search after the passes (see class comment): a corner of a defect that is
+        /// left, moved to one of a fixed set of positions within the drift that is left at it
+        /// </summary>
+        public int PositionSearchMoves;
+        // for tests: the moves the position search proposed in the last Apply
+        internal long PositionSearchProposals;
+        // for tests: the passes are left out, so that the position search is the only repair
+        internal bool SearchWithoutPasses;
+        // for tests: the rounds of search and passes at most (to show what the later rounds repair)
+        internal int MaxSearchRounds = int.MaxValue;
         /// <summary>
         /// the tolerance in units in the last place of the largest coordinate: the bound maxLength is the largest of
         /// MaxDisplacement times the diagonal (of the largest component), UlpFactor times ulp(largest absolute coordinate
@@ -201,7 +222,12 @@ namespace g3
         /// <summary>
         /// the smallest drift that a proposed edit rejected by the bound would have needed (infinity if none was
         /// rejected): how large the bound would have to be for that edit (StrictRounding of ExactMeshBoolean reports it).
-        /// Edits that are not proposed (contractions of edges longer than the bound, longer moves) are not counted
+        /// Edits that are not proposed (contractions of edges longer than the bound, longer moves) are not counted, nor are
+        /// the candidates of the position search (they are within the bound by their size, up to rounding). Where
+        /// the repair stopped at its effort limit (EvaluationLimitReached), no edit is proposed after the limit: the
+        /// value is then the smallest over the edits proposed before it, at least the smallest a rejected edit of a
+        /// repair without the limit would have needed (before, the passes went on proposing past the limit only to
+        /// find that value, most of the time of such a repair; the mesh is the same)
         /// </summary>
         public double SmallestRejectedDrift;
         /// <summary> the centroid of a defect left after the repair (a degenerate triangle, else an intersecting one) </summary>
@@ -356,8 +382,7 @@ namespace g3
         HashSet<int> pairsStale = new HashSet<int>();
 
         // for tests: Apply on this thread checks the incremental intersecting pairs against a full search, and the
-        // canonical ids against the dictionary (InvalidOperationException if they differ), and proposes the moves past
-        // the evaluation limit in full (as before the shortcut in try_move: the same SmallestRejectedDrift), and compares every
+        // canonical ids against the dictionary (InvalidOperationException if they differ), and compares every
         // decision of the projection filter in intersects with the exact test
         [ThreadStatic] internal static bool CheckOnThisThread;
         bool check;
@@ -375,10 +400,15 @@ namespace g3
         internal long SkippedExactQueries;
         // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
         internal int FullPairSearches, IncrementalPairSearches, UnchangedPairSearches;
-        // for tests: moves past the evaluation limit whose drift try_move computed directly, in the last Apply
-        internal long MovesPastTheLimit;
-        // for tests: such moves are not counted in SmallestRejectedDrift (to show that they set it)
-        internal bool SkipMovesPastTheLimit;
+        // for tests: the passes go on proposing edits past the effort limit, as before the stop (every one is rejected at
+        // the limit, so the mesh is the same; only SmallestRejectedDrift can be smaller)
+        internal bool ProposePastTheLimit;
+        // for tests: the proposals within the bound that reached improves after the limit, in the last Apply (0 with the stop)
+        internal long ProposalsPastTheLimit;
+        // the effort limit is reached: improves rejects every edit from here on (evaluations and pairTests only grow), so
+        // no edit is proposed any more (the proposals, 20 to 26 million moves on rotated Thingi10K results that reach the
+        // limit, were up to three quarters of the rounding time, docs/design/SNAP_ROUNDING_3D.md section 5.5)
+        bool stopped { get { return EvaluationLimitReached && ProposePastTheLimit == false; } }
         // for tests (with CheckOnThisThread): the pair tests of the last Apply, and those the projection filter decided
         // (each compared with the exact test), and the threads they ran on
         internal long PairTestsChecked, FilterDecisions;
@@ -420,6 +450,8 @@ namespace g3
         public bool Apply()
         {
             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+            PositionSearchMoves = 0;
+            PositionSearchProposals = 0;
             MaxDrift = 0;
             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
             refCarry = new double[Mesh.MaxTriangleID];
@@ -501,7 +533,7 @@ namespace g3
             DirtyTreeBuilds = 0;
             MaxPendingScanned = 0;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
-            MovesPastTheLimit = 0;
+            ProposalsPastTheLimit = 0;
             PairTestsChecked = FilterDecisions = 0;
             checkedThreads.Clear();
             if (Script != null) {
@@ -537,6 +569,16 @@ namespace g3
                 pairs = intersecting_pairs();
                 repair_passes(ref pairs, ref bad);
             }
+            // what the passes leave: for each defect, a corner moved to one of a fixed set of positions within the drift
+            // that is left at it (position_search), and the passes again where the moves changed the mesh; until a
+            // search accepts nothing. It ends: every accepted move lowers the number of defects (improves), and no edit
+            // of the passes raises it
+            // (not with MaxPasses 0, which repairs nothing)
+            for (int round = 0; round < MaxSearchRounds && MaxPasses > 0 && (bad.Count > 0 || pairs.Count > 0) && stopped == false && position_search(bad, pairs) > 0; ++round) {
+                bad = degenerate_triangles();
+                pairs = intersecting_pairs();
+                repair_passes(ref pairs, ref bad);
+            }
             if (check)
                 check_all_bounds();
             if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
@@ -561,7 +603,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void repair_passes(ref List<Index2i> pairs, ref List<int> bad)
         {
-            for (int pass = 0; pass < MaxPasses && (pairs.Count > 0 || bad.Count > 0); ++pass) {
+            for (int pass = 0; pass < MaxPasses && SearchWithoutPasses == false && (pairs.Count > 0 || bad.Count > 0); ++pass) {
                 int edits = Collapses + Flips + Moves + Zips;
                 // after the first pass, only where the mesh changed since (elsewhere the same edits would fail again)
                 HashSet<int> retry = (pass > 0) ? changed : null;
@@ -572,6 +614,9 @@ namespace g3
                     if (Mesh.IsTriangle(t) == false || is_bad(t) == false)
                         continue;
                     Index3i tv = Mesh.GetTriangle(t);
+                    // (at the effort limit no edit is accepted any more, see stopped)
+                    if (stopped)
+                        break;
                     if ((retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c)))
                         fix_degenerate(t);
                 }
@@ -579,9 +624,12 @@ namespace g3
                 if (pairs.Count > 0) {
                     if (Collapses + Flips + Moves + Zips > edits)
                         pairs = intersecting_pairs();
-                    foreach (Index2i p in pairs)
+                    foreach (Index2i p in pairs) {
+                        if (stopped)
+                            break;
                         if (Mesh.IsTriangle(p.a) && Mesh.IsTriangle(p.b) && intersects(p.a, p.b))
                             fix_intersection(p.a, p.b);
+                    }
                     pairs = intersecting_pairs();
                 }
                 bad = degenerate_triangles();
@@ -1147,19 +1195,6 @@ namespace g3
             return most;
         }
 
-        // the bound of moving v to p: the largest bound of v's triangles and ghosts with v at p (what improves computes
-        // for the move, from the mesh instead of the proposal)
-        double move_bound(int v, Vector3d p)
-        {
-            double most = ghosts_bound(v, v, -1, p);
-            foreach (int t in Mesh.VtxTrianglesItr(v)) {
-                Index3i tv = Mesh.GetTriangle(t);
-                most = Math.Max(most, triangle_bound(t, tv.a == v ? p : Mesh.GetVertex(tv.a), tv.b == v ? p : Mesh.GetVertex(tv.b),
-                    tv.c == v ? p : Mesh.GetVertex(tv.c)));
-            }
-            return most;
-        }
-
         // the drift of the proposed edit (removed, added; movedV, movedPos, vanishing), see the class comment. A
         // displacement edit (a vertex is moved: try_move, try_collapse): the largest bound of the triangles that keep
         // their reference (each added triangle is the removed one it comes from, corner for corner), of the triangles
@@ -1261,6 +1296,9 @@ namespace g3
                 return false;
             if (Script != null)
                 return true;
+            // (for tests: a proposal within the bound that arrives after the limit; none with the stop)
+            if (EvaluationLimitReached)
+                ProposalsPastTheLimit++;
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
                 return false;
@@ -1666,7 +1704,7 @@ namespace g3
         bool try_collapse(int a, int b, Vector3d p)
         {
             int eid = Mesh.FindEdge(a, b);
-            if (eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
+            if (stopped || eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
                 return false;
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(a)) {
@@ -1712,7 +1750,7 @@ namespace g3
 
         bool try_flip(int eid)
         {
-            if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+            if (stopped || Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
                 return false;
             // as DMesh3.FlipEdge: edge a -> b in t0 = (a, b, c), t1 has d; afterwards t0 = (c, d, b), t1 = (d, c, a)
             Index2i ev = Mesh.GetEdgeV(eid), et = Mesh.GetEdgeT(eid);
@@ -1771,7 +1809,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool try_zip(int eid)
         {
-            if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+            if (stopped || Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
                 return false;
             Index2i ev = Mesh.GetEdgeV(eid), et = Mesh.GetEdgeT(eid);
             int a = ev.a, b = ev.b;
@@ -2389,7 +2427,7 @@ namespace g3
         bool try_slide(int v, double s)
         {
             Vector3d p;
-            if (Mesh.IsBowtieVertex(v) || inputBoundary.TryGetValue(v, out p) == false)
+            if (stopped || Mesh.IsBowtieVertex(v) || inputBoundary.TryGetValue(v, out p) == false)
                 return false;
             int before;
             bool slid = slidTowards.TryGetValue(v, out before);
@@ -2418,14 +2456,8 @@ namespace g3
         {
             if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
                 return false;
-            if (EvaluationLimitReached && check == false) {
-                // (past the limit improves rejects every move: only the smallest rejected drift is left, the same as
-                // improves finds)
-                MovesPastTheLimit++;
-                if (SkipMovesPastTheLimit == false)
-                    within_bound(move_bound(v, p), maxLength_of(v));
+            if (stopped)
                 return false;
-            }
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(v)) {
                 removed.Add(t);
@@ -2557,6 +2589,108 @@ namespace g3
             for (double s = s0; s <= bound; s *= 4)
                 if (try_move(apex, c + s * off))
                     return;
+        }
+
+        // ---- the position search (docs/design/SAFE_ROUNDING.md section 9) ----
+
+        // the sizes of the search: the room of the vertex over 2^j, j < SearchSizes, the smallest first (as the moves of
+        // the passes: the surface moves no farther than the defect needs)
+        const int SearchSizes = 8;
+
+        // the 26 directions of the search: the unit vectors along (a, b, c) with a, b, c in -1, 0, 1, not all 0, in the
+        // order of a, then b, then c. Fixed axes, no frame of the defect: a 2^k scale keeps them, bit for bit
+        internal static readonly Vector3d[] SearchDirections = search_directions();
+
+        static Vector3d[] search_directions()
+        {
+            var list = new List<Vector3d>();
+            for (int a = -1; a <= 1; ++a)
+                for (int b = -1; b <= 1; ++b)
+                    for (int c = -1; c <= 1; ++c)
+                        if (a != 0 || b != 0 || c != 0)
+                            list.Add(unit(new Vector3d(a, b, c)));
+            return list.ToArray();
+        }
+
+        // how far v can still move within the bound: the bound of its component minus the largest bound of its triangles
+        // and ghosts where it is now. Only the sizes of the search come from it: the drift of every move it proposes is
+        // computed and checked by improves (proposed_drift), as for every edit
+        internal double room_at(int v)
+        {
+            Vector3d p = Mesh.GetVertex(v);
+            double most = ghosts_bound(v, v, -1, p);
+            foreach (int t in Mesh.VtxTrianglesItr(v)) {
+                Index3i tv = Mesh.GetTriangle(t);
+                most = Math.Max(most, triangle_bound(t, Mesh.GetVertex(tv.a), Mesh.GetVertex(tv.b), Mesh.GetVertex(tv.c)));
+            }
+            return maxLength_of(v) - most;
+        }
+
+        // the vertices whose search found no move in this round: each is searched once per round (a corner of several
+        // defects, eg of the pairs of one triangle, would fail again on the same mesh; after a move of the search the
+        // next round searches them again, so the set is not cleared at a move: clearing it there would be as valid
+        // and give another result)
+        readonly HashSet<int> searchFailed = new HashSet<int>();
+
+        // after the passes: for each defect that is left (the degenerate triangles by id, then the intersecting pairs in
+        // their order, each at its first triangle), the search at its corners; returns the moves made. A move is
+        // accepted by improves like every edit, so it removes a defect and adds none
+        [MethodImpl(JitHints.Optimize)]
+        int position_search(List<int> bad, List<Index2i> pairs)
+        {
+            int before = PositionSearchMoves;
+            searchFailed.Clear();
+            // (bad is in id order: it comes from degenerate_triangles)
+            foreach (int t in bad) {
+                if (stopped)
+                    break;
+                if (Mesh.IsTriangle(t) && is_bad(t))
+                    search_corners(t);
+            }
+            foreach (Index2i p in pairs) {
+                if (stopped)
+                    break;
+                if (Mesh.IsTriangle(p.a) && Mesh.IsTriangle(p.b) && intersects(p.a, p.b))
+                    search_corners(p.a);
+            }
+            return PositionSearchMoves - before;
+        }
+
+        // move one corner of triangle t (the fixed ones last; no boundary vertex, which moves only along the boundary,
+        // and no bowtie) by its room over 2^j, the smallest first, along one of the 26 directions: the first move that
+        // improves. At most 26 SearchSizes proposals per corner (at the effort limit try_move returns at once, and
+        // position_search goes to no further defect)
+        [MethodImpl(JitHints.Optimize)]
+        bool search_corners(int t)
+        {
+            Index3i tv = Mesh.GetTriangle(t);
+            for (int pass = 0; pass < 2; ++pass)
+                for (int k = 0; k < 3; ++k) {
+                    int v = tv[k];
+                    if (is_fixed(v) == (pass == 0) || Mesh.IsBoundaryVertex(v) || Mesh.IsBowtieVertex(v) || searchFailed.Contains(v))
+                        continue;
+                    Vector3d c = Mesh.GetVertex(v);
+                    double room = room_at(v);
+                    // (a room that is 0, negative or not a number: nothing to try)
+                    if (!(room > 0))
+                        continue;
+                    // (room / 2^(SearchSizes - 1), doubled up to the room itself: exact powers of two)
+                    double s = room / (1 << (SearchSizes - 1));
+                    double rejected = SmallestRejectedDrift;
+                    for (int j = 0; j < SearchSizes; ++j, s *= 2)
+                        foreach (Vector3d d in SearchDirections) {
+                            PositionSearchProposals++;
+                            if (try_move(v, c + s * d)) {
+                                PositionSearchMoves++;
+                                return true;
+                            }
+                            // (a candidate is within the bound by its size, so only the rounding of its position, a
+                            // few ulps of the coordinates, can put it beyond: that is no edit the bound stood against)
+                            SmallestRejectedDrift = rejected;
+                        }
+                    searchFailed.Add(v);
+                }
+            return false;
         }
 
         [MethodImpl(JitHints.Optimize)]
