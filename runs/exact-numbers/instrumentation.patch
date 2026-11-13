@@ -848,7 +848,7 @@ index 0000000..65ef9f5
 +
 +}
 diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
-index 941d751..fd78370 100644
+index 941d751..1621d0e 100644
 --- a/mesh_ops/ExactMeshArrangement.cs
 +++ b/mesh_ops/ExactMeshArrangement.cs
 @@ -132,7 +132,15 @@ namespace g3
@@ -993,12 +993,16 @@ index 941d751..fd78370 100644
              // (in the triangulation, before the BigInteger stage: points collinear by their constructions, the points on a
              // segment or on an edge of the triangle, give 0 without arithmetic; then the local filter, which the stages
              // above beat: they cost less than the conversion)
-@@ -1620,8 +1688,12 @@ namespace g3
+@@ -1620,8 +1688,16 @@ namespace g3
                  if (fdet > err) { local.Decided++; return t.Sign; }
                  if (-fdet > err) { local.Decided++; return -t.Sign; }
              }
 +            long tb = PathStats.T();
              ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
++            if (LimbProtoD.OrientOn) {
++                int lsO = LimbProtoD.Orient(a, b, c, i, j);
++                if (lsO != 2) { PathStats.Add(PathStats.P.ArrOrientBig, tb); return lsO * t.Sign; }
++            }
              BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
 +            PathStats.Add(PathStats.P.ArrOrientBig, tb);
 +            if (PathStats.HistOn)
@@ -1006,7 +1010,7 @@ index 941d751..fd78370 100644
              return det.Sign * t.Sign;
          }
  
-@@ -1687,8 +1759,13 @@ namespace g3
+@@ -1687,8 +1763,13 @@ namespace g3
              // one with rows (x/w, y/w, |.|^2, 1) (w^2 > 0), which equals the 3x3 determinant with rows (dx, dy,
              // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
              // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
@@ -1022,13 +1026,17 @@ index 941d751..fd78370 100644
              // (the local filter only before the BigInteger stage, as in Orient)
              Vector3d lp, lq, lr, ls;
              if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
-@@ -1697,12 +1774,16 @@ namespace g3
+@@ -1697,12 +1778,20 @@ namespace g3
                  if (fdet > bound) { local.Decided++; return t.Sign; }
                  if (-fdet > bound) { local.Decided++; return -t.Sign; }
              }
 +            long tb = PathStats.T();
              ExactPoint3 pd = Exact(s);
              BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
++            if (LimbProtoD.InCircleOn) {
++                int lsI = LimbProtoD.InCircle(Exact(p), Exact(q), Exact(r), pd, i, j);
++                if (lsI != 2) { PathStats.Add(PathStats.P.ArrInCircleBig, tb); return lsI * t.Sign; }
++            }
              incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
              incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
              incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
@@ -1039,7 +1047,7 @@ index 941d751..fd78370 100644
              // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
              // may mirror the triangle, which flips the orientation of a, b, c and the sign
              return det.Sign * t.Sign;
-@@ -1780,13 +1861,19 @@ namespace g3
+@@ -1780,13 +1869,19 @@ namespace g3
              int r1 = exact_ref(p1), r2 = exact_ref(p2);
              if (r1 > 0 && r2 > 0) {
                  int c;
@@ -1061,7 +1069,7 @@ index 941d751..fd78370 100644
          }
  
          // compare_along on fixed-width points, false if a component of the direction has more than 8 limbs
-@@ -1953,7 +2040,7 @@ namespace g3
+@@ -1953,7 +2048,7 @@ namespace g3
                      buckets[bucketKey] = reps = new List<int>(1);
                  int same = -1;
                  foreach (int r in reps)
@@ -1070,7 +1078,7 @@ index 941d751..fd78370 100644
                  if (same >= 0)
                      rep[ti] = same;
                  else if (reps.Count < MaxPlaneCandidates)
-@@ -2022,6 +2109,14 @@ namespace g3
+@@ -2022,6 +2117,14 @@ namespace g3
          }
  
          // the planes are the same point set: (A, B, C, D) proportional (all 2x2 minors zero)

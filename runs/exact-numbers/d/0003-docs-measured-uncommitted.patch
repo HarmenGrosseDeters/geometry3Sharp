@@ -1,0 +1,69 @@
+diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
+index f4f8174..c4c16e7 100644
+--- a/docs/design/EXACT_LIMB_SIGNS.md
++++ b/docs/design/EXACT_LIMB_SIGNS.md
+@@ -175,7 +175,34 @@ off, so that every Orient and InCircle on a constructed point takes this stage:
+ triangle for the three operations, under `Similarity.All()`, on a reused instance and with the loops serial; the
+ union allocates 7 / 11 / 28 / 17 MB against 20 / 32 / 73 / 36 MB with the BigInteger determinants).
+ 
+-@@D_MEASURED@@
++Measured: before = the kernels of sections 1 to 4 (d555e22), after = this section on it. 4-core cloud container,
++.NET SDK 10.0.115, Release, workstation GC; alternating runs, medians (range in brackets); wall time with
++collections, the collector's pause and the allocation separately. Rows: branch `runs/exact-numbers`, `results/d2`
++(the probe before the build, a prototype on c0f8aa9: `results/d`, 371.0 -> 318.8 s on 55928) and `results/d4`.
++
++| stratum | operation | runs | before | after | change | GC pause | allocated |
++|---|---|---|---|---|---|---|---|
++| slow tail | 55928 with its rotated copy, difference | 5 | 352.8 s (349.1-376.2) | 310.4 s (291.8-331.3) | -12.0 % | 78.4 -> 63.0 s | 180.1 -> 93.8 GB |
++| slow tail | 107554, union | 5 | 23.5 s (23.2-25.1) | 23.5 s (22.1-24.3) | -0.1 % | 5.0 -> 5.1 s | 9.2 -> 8.8 GB |
++| slow tail | 107554, intersection | 5 | 17.9 s (17.6-18.2) | 17.6 s (17.2-18.3) | -1.2 % | 4.7 -> 4.6 s | 8.5 -> 8.0 GB |
++| slow tail | 107554, difference | 5 | 18.1 s (17.2-18.5) | 18.1 s (17.5-19.3) | 0.0 % | 4.7 -> 4.7 s | 8.5 -> 8.0 GB |
++| slow tail | 42327, union | 21 | 24.4 s (23.0-27.9) | 24.7 s (23.2-27.8) | +1.2 % | 3.7 -> 3.7 s | 7.6 -> 7.4 GB |
++| slow tail | 42327, intersection | 21 | 22.6 s (20.7-24.7) | 22.3 s (20.6-26.5) | -1.3 % | 3.7 -> 3.5 s | 7.3 -> 7.1 GB |
++| slow tail | 42327, difference | 21 | 22.7 s (20.7-25.2) | 23.0 s (21.1-27.6) | +1.3 % | 3.6 -> 3.8 s | 7.4 -> 7.2 GB |
++| normal | 20 pairs, 60 operations (sum of the medians) | 5 | 6.79 s (6.72-7.09) | 6.70 s (6.68-7.06) | -1.3 %, inside the run-to-run range | 0.14 -> 0.15 s | 2.36 -> 2.36 GB |
++| normal | 13 models with a rotated copy, 39 operations | 5 | 4.50 s (4.38-4.74) | 4.43 s (4.30-4.66) | -1.5 %, inside the range | 0.13 -> 0.13 s | 1.48 -> 1.48 GB |
++
++Result hashes and statuses are equal in every run. On 55928 (4 cores, collections included) the ranges of before
++and after do not overlap; 15 s of the 42 s are the collector's pause (86 GB less allocation). On 107554 and on the
++normal strata nothing changes beyond the run-to-run range: their points stay inside the fixed width, the stage is
++hardly reached. 42327 does not reach it either (its allocation drops by 0.2 GB); its rows are 21 processes per
++side (the 5 of the series with 107554 before it in the process, 5 with 107554 after it, 8 with 42327 alone, 3 of
++`results/d4`), because its classification time spreads between processes: 12 to 16 s for the same work (all
++counters, the allocation and the hash are equal), in 3 of 33 processes before and 5 of 33 after the median of the
++three operations is 14.4 s or more, with more CPU time and the same collector's pause. In the first series of 5
++that put three such processes on the after side (+2.1 / +9.1 / +10.3 % per operation), in the series with the
++order of the models reversed two on the before side (the sum of the six operations 129.7 -> 124.1 s). The spread
++is in the base, is not an effect of this change, and is tracked in its own issue (@@ISSUE@@).
+ 
+ ## 6. Sources
+ 
+diff --git a/docs/roadmap/exact-boolean.md b/docs/roadmap/exact-boolean.md
+index 875ad3e..91fa693 100644
+--- a/docs/roadmap/exact-boolean.md
++++ b/docs/roadmap/exact-boolean.md
+@@ -382,7 +382,8 @@ Open:
+   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
+ - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
+ - **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
+-  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
++  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`. Built as candidate D of the exact-number study
++  (below).
+ - **Extreme-runtime boolean levers (owner 2026-11-12, study #734, `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`):**
+   (1) a hierarchical antipodal boundary sum (Barnes-Hut far field with a certified fallback to the full sum, decisions
+   unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression), design note and
+@@ -420,7 +421,13 @@ Open:
+   models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
+   that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
+   15 % of the slow tail's one-thread time, nothing on the normal stratum) are parked until lever 1 (#767) has
+-  landed, which changes how often these stages run, and are measured again then.
++  landed, which changes how often these stages run, and are measured again then. Candidate D is built
++  (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
++  BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
++  `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the
++  branch of B (4 cores, wall time with collections, median of 5): 55928 352.8 -> 310.4 s (-12.0 %, 15 s of it the
++  collector's pause, allocation 180 -> 94 GB); 107554, 42327 and the normal stratum unchanged within the run-to-run
++  range; hashes equal.
+ - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
+   its tail (4 cores, median of 5, alternating A/B, hashes equal):
+   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent

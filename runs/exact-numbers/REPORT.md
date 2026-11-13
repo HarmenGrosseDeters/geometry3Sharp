@@ -639,6 +639,51 @@ Reading:
 So D is a gain for the class of 55928 (many InCircle tests on points beyond the fixed width) and nothing measurable
 elsewhere.
 
+## 5f. Candidate D, built, and the spread of 42327's classification between processes (2026-11-13)
+
+Built on the branch of B (d555e22): `ExactLimbSigns.Orient2` / `InCircle`, the call sites `orient_exact` /
+`incircle_exact` of `ExactMeshArrangement`; the local branch is in `d/` as patches. Before = d555e22, after = the
+branch. 4 cores, timers off, wall time with collections, alternating runs (`results/d2`):
+
+| stratum | operation | runs | before | after | change | GC pause | allocated |
+|---|---|---|---|---|---|---|---|
+| slow tail | 55928 with its rotated copy, difference | 5 | 352.8 s (349.1-376.2) | 310.4 s (291.8-331.3) | -12.0 % | 78.4 -> 63.0 s | 180.1 -> 93.8 GB |
+| slow tail | 107554, union / intersection / difference | 5 | 23.5 / 17.9 / 18.1 s | 23.5 / 17.6 / 18.1 s | -0.1 / -1.2 / 0.0 % | 5.0 -> 5.1 s | 9.2 -> 8.8 GB |
+| slow tail | 42327, union / intersection / difference | 21 | 24.4 / 22.6 / 22.7 s | 24.7 / 22.3 / 23.0 s | +1.2 / -1.3 / +1.3 % | 3.7 -> 3.7 s | 7.6 -> 7.4 GB |
+| normal | 20 pairs, 60 operations | 5 | 6.79 s (6.72-7.09) | 6.70 s (6.68-7.06) | -1.3 % (inside the range) | 0.14 -> 0.15 s | 2.36 -> 2.36 GB |
+| normal | 13 models with a rotated copy, 39 operations | 5 | 4.50 s (4.38-4.74) | 4.43 s (4.30-4.66) | -1.5 % (inside the range) | 0.13 -> 0.13 s | 1.48 -> 1.48 GB |
+
+Hashes equal in every run. Coordinator: D passes.
+
+The first series of 5 (107554, then 42327 in one process) showed 42327 at +2.1 / +9.1 / +10.3 %. What it was
+(66 processes, 33 per side; `scripts/analyze_slowmode.py`, `scripts/analyze_slowcounts.py`):
+
+- The classification of 42327 takes 12 to 16 s for the same work: every counter of the stage (plane sides
+  9,715,682, exact 2,033,164, traced 142,003, carried 595,003, exact centroids 273,907, ...), the allocation and the
+  hash are equal in all 66 processes. A slow process burns more CPU (65-70 -> 78-86 s per operation), the
+  collector's pause and the rest of the operation (9 to 10 s) do not change.
+- It is a state of the process and of this stage on this model: 107554 before or after it in the same process is at
+  its normal time; the three operations of a process mostly share it; it switched between operations three times
+  (fast to slow once, slow on the first operation only twice).
+- Both sides: median classification of a process >= 14.4 s in 3 of 33 before, 5 of 33 after. The slow processes are
+  adjacent pairs of the alternating schedule (after: rounds 3 and 4 of the first series; before: rounds 4 and 5 of the
+  reversed one), which made each series of 5 look one-sided. Per-process sums of the six operations: 107554 first
+  130.1 -> 136.9 s, 42327 first 129.7 -> 124.1 s, 107554 first with `DOTNET_TieredPGO=0` 130.1 -> 131.1 s.
+- Checked and not the cause: the collector's pause; concurrent collection (`gcConcurrent=0`: 1 of 8 slow); the size
+  of the thread pool (19 to 27 threads after every operation in every process, fast or slow; with
+  `DOTNET_ThreadPool_ForceMaxWorkerThreads=4` slow classifications remain and nothing gets faster, `results/d4`); a
+  difference in work; the per-process seed of `BigInteger.GetHashCode` (#789) alone (the state switches inside a
+  process).
+- Open: the tiered JIT's code state (with `DOTNET_TieredPGO=0` 0 of 10 processes slow against 8 of 56 by default,
+  which chance gives in 22 % of the cases).
+
+Wrong turns, for the record: concurrent GC (the run that seemed to show it had no comparison), then oversubscription
+of the thread pool (the summed stage times of the instrumented run, `results/d3`, are inflated by the 20 pool threads
+in every process, not only in the slow ones).
+
+For A/B runs on this model: one slow process moves a median of 5 by up to 2.5 s. Compare per process, look at the
+classification stage and the counters before reading a regression, and use more than 5 processes per side.
+
 ## 6. Literature (papers only)
 
 Marks: [V] checked against the paper or its abstract in this study, [S] from a citing paper or a search result.
