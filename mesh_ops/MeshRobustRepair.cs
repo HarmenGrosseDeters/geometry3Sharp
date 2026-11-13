@@ -1043,10 +1043,13 @@ namespace gs
 
         /// <summary> the retry of SimplifyWithin bounds every collapse to this fraction of maxDistance (Reducer.MaxDeviation) </summary>
         internal const double RetryDeviationFraction = 0.8;
+        /// <summary> the first retry of SimplifyWithin keeps sample points of every new triangle within this fraction of maxDistance (Reducer.SampleDeviation) </summary>
+        internal const double RetrySampleFraction = 0.5;
 
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
-            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null, bool retryWithDeviation = true)
+            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null, bool retryWithDeviation = true,
+            bool retrySampled = true)
         {
             hausdorffSubdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
@@ -1069,17 +1072,34 @@ namespace gs
                 return within ? m : null;
             // Not certified: the quadric error bounds the distance of each vertex to the planes it absorbed, not of the
             // triangles to the mesh (on the Thingi10K 800 sample 5 of 800 wraps, 1.2 to 10.7 times maxDistance, at a fold of
-            // the wrap and elsewhere; issue 747). Once more with Reducer.MaxDeviation = maxDistance, which certifies every
-            // collapse against the mesh (10 to 30 times slower, so only here), then certified again as a whole (the bound
-            // with a margin: the certification's own bound cannot prove a distance right at maxDistance)
+            // the wrap and elsewhere; issue 747). First once more with Reducer.SampleDeviation (the new triangles' centroids
+            // and edge midpoints within RetrySampleFraction of maxDistance of the mesh: a few nearest-point queries per
+            // collapse, about 1.3 times the plain reduction; it certified all 5), then certified again as a whole
+            if (retrySampled) {
+                var sampleRef = new DMeshAABBTree3(new DMesh3(mesh), true);
+                Action<Reducer> sampled = (r) => { configure(r); r.SampleDeviation = RetrySampleFraction * maxDistance; r.SampleReference = sampleRef; };
+                m = reduce(mesh, quadricDistance, slabs, maxThreads, sampled, cancelF, phases, "retry/");
+                lap(phases, "retry", timer);
+                if (cancelF())
+                    return null;
+                if (NotCleanReason(m, checkSelfIntersections) == "") {
+                    within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+                    lap(phases, "retry/certify", timer);
+                    if (within || cancelF())
+                        return within ? m : null;
+                }
+            }
+            // Still not: with Reducer.MaxDeviation, which certifies every collapse against the mesh (10 to 30 times slower,
+            // so only here), then certified again as a whole (the bound with a margin: the certification's own bound cannot
+            // prove a distance right at maxDistance)
             // (PartitionedReduction measures every slab and its last pass from the mesh given)
             Action<Reducer> bounded = (r) => { configure(r); r.MaxDeviation = RetryDeviationFraction * maxDistance; };
-            m = reduce(mesh, quadricDistance, slabs, maxThreads, bounded, cancelF, phases, "retry/");
-            lap(phases, "retry", timer);
+            m = reduce(mesh, quadricDistance, slabs, maxThreads, bounded, cancelF, phases, "retry2/");
+            lap(phases, "retry2", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
             within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
-            lap(phases, "retry/certify", timer);
+            lap(phases, "retry2/certify", timer);
             return within ? m : null;
         }
 
