@@ -373,30 +373,101 @@ namespace g3
         bool separated_by_normals(ref Box b)
         {
             for (int kt = 0; kt < 2; ++kt) {
-                double t = kt == 0 ? b.t0 : b.t1;
                 double nx, ny, nz;
-                normal(t, out nx, out ny, out nz);
-                if (nx == 0 && ny == 0 && nz == 0 || double.IsNaN(nx + ny + nz) || double.IsInfinity(nx + ny + nz))
-                    continue;
-                // ms |n|_1, rounded up
-                ExactInterval bound = ExactInterval.Of(ms) * (ExactInterval.Of(Math.Abs(nx)) + ExactInterval.Of(Math.Abs(ny)) + ExactInterval.Of(Math.Abs(nz)));
-                double limit = bound.Hi;
-                bool allAbove = true, allBelow = true;
-                for (int k = 0; k < 8 + 2 * extraCount && (allAbove || allBelow); ++k) {
-                    ExactInterval d;
-                    if (k < 8) {
-                        if ((insideMask & (1 << (k >> 1))) == 0)
-                            continue;
-                        d = dot(nx, ny, nz, k, false);
-                    } else
-                        d = dot(nx, ny, nz, k - 8, true);
-                    if ((d.Lo > limit) == false) allAbove = false;
-                    if ((d.Hi < -limit) == false) allBelow = false;
-                }
-                if (allAbove || allBelow)
+                normal(kt == 0 ? b.t0 : b.t1, out nx, out ny, out nz);
+                if (separated_along(nx, ny, nz))
                     return true;
             }
+            // Nearly parallel edges: the cross product vanishes and the image is a thin strip along the edges'
+            // direction, which no axis separates until the boxes are tiny (a query of the ToI sample needed 775 689
+            // boxes). The value of F near the box's centre (the mean of the corner values; any accuracy will do) with
+            // its part along an edge removed is a direction across the strip; it separates the strip as soon as the
+            // strip is narrower than the distance, and choose_split splits along it. Only for nearly parallel edges:
+            // elsewhere such extra directions changed the search for the worse (a later near box, a looser time).
+            splitDirValid = false;
+            if (vf)
+                return false;
+            double tm = 0.5 * (b.t0 + b.t1);
+            if (nearly_parallel(tm) == false)
+                return false;
+            double cx = 0, cy = 0, cz = 0;
+            for (int k = 0; k < 8; ++k) {
+                cx += cornerLo[k] + cornerHi[k];
+                cy += cornerLo[8 + k] + cornerHi[8 + k];
+                cz += cornerLo[16 + k] + cornerHi[16 + k];
+            }
+            for (int edge = 0; edge < 2; ++edge) {
+                int i0 = 2 * edge, i1 = 2 * edge + 1;
+                double ex = at(i1, 0, tm) - at(i0, 0, tm), ey = at(i1, 1, tm) - at(i0, 1, tm), ez = at(i1, 2, tm) - at(i0, 2, tm);
+                double ee = ex * ex + ey * ey + ez * ez;
+                if ((ee > 0) == false)
+                    continue;
+                double f = (cx * ex + cy * ey + cz * ez) / ee;
+                if (separated_along(cx - f * ex, cy - f * ey, cz - f * ez))
+                    return true;
+                if (edge == 0)
+                    set_split_direction(cx - f * ex, cy - f * ey, cz - f * ez);
+            }
             return false;
+        }
+
+        // the direction choose_split measures along (only steers the order of the search)
+        bool splitDirValid;
+        double sdx, sdy, sdz;
+
+        // edge-edge: the edges' directions at time t make an angle with a sine below 0.01 (only steers the split:
+        // nearly parallel edges are split along their separating direction)
+        bool nearly_parallel(double t)
+        {
+            double ax = at(1, 0, t) - at(0, 0, t), ay = at(1, 1, t) - at(0, 1, t), az = at(1, 2, t) - at(0, 2, t);
+            double bx = at(3, 0, t) - at(2, 0, t), by = at(3, 1, t) - at(2, 1, t), bz = at(3, 2, t) - at(2, 2, t);
+            double cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+            double c2 = cx * cx + cy * cy + cz * cz, a2 = ax * ax + ay * ay + az * az, b2 = bx * bx + by * by + bz * bz;
+            return c2 <= 1e-4 * a2 * b2;
+        }
+
+        // the spread of n . F over the box's corner values, n the split direction (|n|_1 = 1)
+        double projected_spread()
+        {
+            double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+            for (int k = 0; k < 8; ++k) {
+                double d = sdx * (cornerLo[k] + cornerHi[k]) + sdy * (cornerLo[8 + k] + cornerHi[8 + k]) + sdz * (cornerLo[16 + k] + cornerHi[16 + k]);
+                lo = Math.Min(lo, d); hi = Math.Max(hi, d);
+            }
+            return 0.5 * (hi - lo);
+        }
+
+        void set_split_direction(double x, double y, double z)
+        {
+            double len = Math.Abs(x) + Math.Abs(y) + Math.Abs(z);
+            if ((len > 0) == false || double.IsInfinity(len))
+                return;
+            splitDirValid = true;
+            sdx = x / len; sdy = y / len; sdz = z / len;
+        }
+
+        // true if n . F > ms |n|_1 at every vertex of the hull (or < -ms |n|_1 at every one): then the hull misses the
+        // cube [-ms, ms]^3, for any n (dot products and the bound in outward-rounded intervals)
+        bool separated_along(double nx, double ny, double nz)
+        {
+            if (nx == 0 && ny == 0 && nz == 0 || double.IsNaN(nx + ny + nz) || double.IsInfinity(nx + ny + nz))
+                return false;
+            // ms |n|_1, rounded up
+            ExactInterval bound = ExactInterval.Of(ms) * (ExactInterval.Of(Math.Abs(nx)) + ExactInterval.Of(Math.Abs(ny)) + ExactInterval.Of(Math.Abs(nz)));
+            double limit = bound.Hi;
+            bool allAbove = true, allBelow = true;
+            for (int k = 0; k < 8 + 2 * extraCount && (allAbove || allBelow); ++k) {
+                ExactInterval d;
+                if (k < 8) {
+                    if ((insideMask & (1 << (k >> 1))) == 0)
+                        continue;
+                    d = dot(nx, ny, nz, k, false);
+                } else
+                    d = dot(nx, ny, nz, k - 8, true);
+                if ((d.Lo > limit) == false) allAbove = false;
+                if ((d.Hi < -limit) == false) allBelow = false;
+            }
+            return allAbove || allBelow;
         }
 
         // the exact n . F at a corner (or crossing point) lies in the result
@@ -629,6 +700,33 @@ namespace g3
         {
             if (b.t1 > target && b.t1 - b.t0 >= MinSplitWidth)
                 return 0;
+            // the parameter that changes F most along the box's separating direction (the direction in which the box is
+            // closest to being discarded: along the edges of nearly parallel edges F changes a lot, across them little)
+            // Only while the image's spread along that direction exceeds the tolerance and the minimum separation (n is
+            // scaled to |n|_1 = 1, so the band of the cube along n is [-ms, ms]): below that a split along the direction
+            // cannot separate the box any more, and the widths that decide a near box must shrink instead.
+            if (splitDirValid && projected_spread() > Math.Max(delta, ms)) {
+                int bestDir = -1;
+                double bestDirValue = 0;
+                for (int p = 0; p < 3; ++p) {
+                    double w = p == 0 ? b.t1 - b.t0 : (p == 1 ? b.u1 - b.u0 : b.v1 - b.v0);
+                    if (w < MinSplitWidth)
+                        continue;
+                    int bit = 1 << p;
+                    double change = 0;
+                    for (int k = 0; k < 8; ++k)
+                        if ((k & bit) == 0) {
+                            int k2 = k | bit;
+                            double d = sdx * ((cornerLo[k2] + cornerHi[k2]) - (cornerLo[k] + cornerHi[k]))
+                                     + sdy * ((cornerLo[8 + k2] + cornerHi[8 + k2]) - (cornerLo[8 + k] + cornerHi[8 + k]))
+                                     + sdz * ((cornerLo[16 + k2] + cornerHi[16 + k2]) - (cornerLo[16 + k] + cornerHi[16 + k]));
+                            change = Math.Max(change, Math.Abs(d));
+                        }
+                    if (change > bestDirValue) { bestDir = p; bestDirValue = change; }
+                }
+                if (bestDir >= 0)
+                    return bestDir;
+            }
             int best = -1;
             double bestValue = -1;
             for (int p = 0; p < 3; ++p) {

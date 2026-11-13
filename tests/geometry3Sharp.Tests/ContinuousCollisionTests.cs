@@ -205,6 +205,45 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsPositiveInfinity(Run(vertexThrough(2, 2)).TimeOfImpact));
         }
 
+        // Nearly parallel, nearly coincident edges (the pattern of a cloth-funnel query of the ToI sample, built here
+        // procedurally): the offset between the edges crosses zero in x at t = 0.4 and in z at t = 0.41, so the edges
+        // miss by about 1.7e-7 (far beyond the false-positive distance); with both at t = 0.4 they coincide. Before the
+        // separating direction across the strip and the split along it, the miss took 7.8e5 boxes.
+        [Fact]
+        public void NearlyParallelEdges_DecideQuickly()
+        {
+            const double s = 2.4e-5, len = 0.006;
+            Vector3d dir = new Vector3d(0.33, 0.92, -0.11).Normalized * len;
+            Vector3d drift = V(1e-4, 0, -3e-3);
+            Vector3d a0 = V(0.0489, -0.023, -0.6051);
+            Query query(double zCross)
+            {
+                // the offset of edge (c, d) from edge (a, b): x = s (t - 0.4), z = s (t - zCross), across the edges
+                Vector3d w(double t) => V(s * (t - 0.4), 0, s * (t - zCross));
+                Vector3d a1 = a0 + drift;
+                return EEq(a0, a0 + dir, a0 + w(0), a0 + dir + w(0), a1, a1 + dir, a1 + w(1), a1 + dir + w(1));
+            }
+            CcdResult miss = Run(query(0.41));
+            Assert.Equal(CcdStatus.NoCollision, miss.Status);
+            Assert.True(miss.Iterations < 20000, $"{miss.Iterations} boxes");
+            CcdResult touch = Run(query(0.4));
+            Assert.Equal(CcdStatus.Collision, touch.Status);
+            Assert.True(touch.TimeOfImpact <= 0.4 + 1e-12 && touch.TimeOfImpact >= 0.4 - 1e-3, $"{touch.TimeOfImpact:R}");
+            Assert.True(touch.Iterations < 20000, $"{touch.Iterations} boxes");
+            // a minimum separation above the miss distance: the contact set is a thin slab along the edges, where the
+            // split along the separating direction stops once the spread is within the separation band
+            CcdResult slab = Run(query(0.41), new CcdOptions { MinSeparation = 1e-6 });
+            Assert.Equal(CcdStatus.Collision, slab.Status);
+            Assert.True(slab.Iterations < 20000, $"{slab.Iterations} boxes");
+            // the miss in exact arithmetic: no sampled point of the domain is within the false-positive distance
+            Query q = query(0.41);
+            for (int i = 0; i <= 200; ++i)
+                for (int j = 0; j <= 8; ++j) {
+                    double t = 0.35 + i * (0.1 / 200), u = j / 8.0;
+                    Assert.False(ExactContact(q, Math.Round(t * 4096) / 4096, u, u, 1e-8));
+                }
+        }
+
         [Fact]
         public void InvalidInput()
         {
