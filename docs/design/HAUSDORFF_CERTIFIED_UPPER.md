@@ -232,7 +232,8 @@ prototype. That bound is new and needs its own review.
   - B1, at every exponent and near the surface, with its tightness;
   - NaN;
   - the cut-point allowance;
-  - the clip's coverage;
+  - the clip's coverage, at depth 1 and at depth 2 with rounded parents (nonzero off);
+  - `split` under arbitrary sign patterns that no plane gives (zeros, alternating signs), exactly;
   - B5;
   - the cascade against exact dyadic samples over random roofs and valleys;
   - B2's off.
@@ -247,9 +248,9 @@ prototype. That bound is new and needs its own review.
 
 Mutation: section 11.
 
-## 11. Mutation (local, 20 mutants of the new code, against the new tests)
+## 11. Mutation (local, 22 mutants of the new code, against the new tests)
 
-16 are killed, 4 survive: 3 explained below, and the fourth equivalent (the last paragraph).
+18 are killed, 4 survive: 3 explained below, and the fourth equivalent (the last paragraph).
 
 **Surviving:**
 - **`Up` after `Math.Sqrt` in B1 dropped.** S's enclosure is widened by at least a step above the exact square, which
@@ -265,7 +266,7 @@ Mutation: section 11.
 **Killed** (each named in the PR):
 - B1's enclosure end, the clamp's Down and its Sterbenz threshold, the edge length's end;
 - B5's l/√3, the circumradius denominator, and the cut-point rounding;
-- the NaN rejection of the clip, the cut points' off, B2's off;
+- the NaN rejection of the clip, the cut points' off and their parents' off in it, a zero vertex into both pieces, B2's off;
 - the witness's adopted side j; the single-triangle maximum; u1's longer edge; u2's covering radius;
 - the corner distances (`OneSided.query`), and `max`'s NaN rule.
 

@@ -118,7 +118,7 @@ namespace g3
             double best = double.MaxValue; int bestTid = cand[0];
             foreach (int tid in cand) {
                 double m = max_distance(piece.P, tid, ref corners);
-                if (m < best || double.IsNaN(best)) { best = m; bestTid = tid; }
+                if (m < best) { best = m; bestTid = tid; }
             }
             List<(Piece, int)> adopted = null;
             if (!(cand.Count < 2 || depth >= 2 || best <= threshold))
@@ -156,12 +156,21 @@ namespace g3
         internal static bool certified_clip(Piece poly, Vector3d origin, Vector3d normal, out Piece pos, out Piece neg)
         {
             int n = poly.Count;
-            pos = new Piece(n + 2); neg = new Piece(n + 2);
+            pos = neg = null;
             var dist = new double[n];
             for (int k = 0; k < n; ++k) {
                 dist[k] = normal.Dot(poly.P[k] - origin);
                 if (double.IsNaN(dist[k])) return false;
             }
+            split(poly, dist, out pos, out neg);
+            return true;
+        }
+
+        // the split by given signed distances of the points (not NaN): any signs, consistent with a plane or not (B3 coverage)
+        internal static void split(Piece poly, double[] dist, out Piece pos, out Piece neg)
+        {
+            int n = poly.Count;
+            pos = new Piece(n + 2); neg = new Piece(n + 2);
             for (int k = 0; k < n; ++k) {
                 int k1 = (k + 1) % n;
                 Vector3d a = poly.P[k], b = poly.P[k1];
@@ -179,7 +188,6 @@ namespace g3
                     pos.Add(x, off); neg.Add(x, off);
                 }
             }
-            return true;
         }
 
         // B2: the largest certified distance to triangle tid over the piece's points, each plus its off (convexity and 1-Lipschitz); a

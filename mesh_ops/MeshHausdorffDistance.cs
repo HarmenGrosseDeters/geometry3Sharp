@@ -61,7 +61,9 @@ namespace gs
         /// evaluated with outward rounding (ExactInterval), so UpperBound is never below the exact distance. Without it UpperBound is
         /// certified only up to the floating-point evaluation of the distance queries (see Compute), which can put it below the exact
         /// distance where a point of one mesh lies very near the other (a distance d much below the size E of the nearest triangle).
-        /// Takes about twice the time (1.2 to 2.2 times, benchmarks/HausdorffBenchmark); the internal patch bound is not used then.
+        /// Takes about twice the time (+16 to +115%, benchmarks/HausdorffBenchmark); the internal patch bound is not used then. Every
+        /// certified distance is at least about 2^-537 (the outward rounding), so an absolute Tolerance below that cannot converge for
+        /// meshes that touch.
         /// Off by default (the results are then as before, bit for bit). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
         /// </summary>
         public bool CertifiedUpper = false;
@@ -192,12 +194,10 @@ namespace gs
                 upper = Math.Max(upper, ba.Upper);
             }
             upper = Math.Max(upper, lower);
-            // (CertifiedUpper on copies scaled down: their coordinates below 2^(e - 1022) round into the subnormal range, each vertex by
-            // at most sqrt(3) 2^-1075, so the copies' distance may be below the meshes' (scaled) by up to twice that. An upper bound of
-            // 2^-1020 or more ends with a rounding up, whose half step, at least 2^-1073, covers it; a smaller one gets 2^-1072 added.
-            // docs/design/HAUSDORFF_CERTIFIED_UPPER.md section 8)
-            if (CertifiedUpper && e > 0 && upper < 8.9002954340288055E-308)
-                upper = ExactInterval.Up(upper + 1.9762625833649862E-323);
+            // (CertifiedUpper on copies scaled down: their coordinates below 2^(e - 1022) round into the subnormal range, so the copies'
+            // distance may be below the meshes' (scaled) by less than 2^-1072; every certified triangle bound is at least 2^-537 and
+            // ends with a rounding up, at least about 2^-590 above its exact value, which covers it; HAUSDORFF_CERTIFIED_UPPER.md
+            // section 8)
             // where the certified lower bound is below the computed one (a rounded point off the triangles, #738), the gap to the upper
             // bound may exceed the tolerance
             if (lower < computed && !(upper - lower <= tol))

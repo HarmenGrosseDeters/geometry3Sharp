@@ -171,6 +171,193 @@ namespace geometry3Sharp.Tests
             Assert.True(covered > 4000);
         }
 
+        /// <summary> B3 at depth 2: a piece with rounded cut points (nonzero off) clipped again. Each new cut point is within its off of the
+        /// exact point on the exact edge (the parents' exact points, at the clip's parameter); the two exact pieces cover the exact piece
+        /// (exact dyadic sample points: combinations of its exact vertices with dyadic weights) </summary>
+        [Fact]
+        public void CertifiedClip_DepthTwo_OffAndCoverage()
+        {
+            var rnd = new Random(29);
+            int checkedPieces = 0;
+            for (int it = 0; it < 300; ++it) {
+                double sc = Math.Pow(2, rnd.Next(-30, 30));
+                Vector3d p0 = sc * new Vector3d(rnd.NextDouble(), rnd.NextDouble(), 0), p1 = sc * new Vector3d(1 + rnd.NextDouble(), rnd.NextDouble(), 0),
+                    p2 = sc * new Vector3d(rnd.NextDouble(), 1 + rnd.NextDouble(), 0);
+                if (orient(p0, p1, p2).Sign <= 0) { Vector3d t = p1; p1 = p2; p2 = t; }
+                var root = new TriangleDeviationBounds.Piece(3);
+                root.Add(p0, 0); root.Add(p1, 0); root.Add(p2, 0);
+                var rootExact = new List<(ExactDyadic, ExactDyadic)> { (D(p0.x), D(p0.y)), (D(p1.x), D(p1.y)), (D(p2.x), D(p2.y)) };
+                Vector3d n1 = unit(rnd), o1 = sc * new Vector3d(0.4 + 0.4 * rnd.NextDouble(), 0.4 + 0.4 * rnd.NextDouble(), 0);
+                Assert.True(TriangleDeviationBounds.certified_clip(root, o1, n1, out var a, out var b));
+                foreach (var (piece, pieceExact) in new[] { (a, clip_exact(root, rootExact, o1, n1, a)), (b, clip_exact(root, rootExact, o1, n1, b)) }) {
+                    if (piece.Count < 3) continue;
+                    // a second plane through a point near the piece's centre, or through one of its cut points
+                    Vector3d o2 = (it % 2 == 0) ? piece.P[rnd.Next(piece.Count)] : sc * new Vector3d(0.5 + 0.2 * rnd.NextDouble(), 0.5 + 0.2 * rnd.NextDouble(), 0);
+                    Vector3d n2 = unit(rnd);
+                    Assert.True(TriangleDeviationBounds.certified_clip(piece, o2, n2, out var c, out var d));
+                    var ce = clip_exact(piece, pieceExact, o2, n2, c);
+                    var de = clip_exact(piece, pieceExact, o2, n2, d);
+                    assert_covered(pieceExact, ce, de, rnd, $"it {it}");
+                    checkedPieces++;
+                }
+            }
+            Assert.True(checkedPieces > 300);
+        }
+
+        /// <summary> B3 with signs that no plane gives: the split of convex polygons (up to 8 points, on a circle) by arbitrary signed
+        /// distances (zeros, alternating signs); the pieces still cover the polygon (exact) </summary>
+        [Fact]
+        public void Split_AnySignPattern_Covers()
+        {
+            var rnd = new Random(31);
+            int alternating = 0;
+            for (int it = 0; it < 600; ++it) {
+                int n = 3 + rnd.Next(6);
+                var angles = new List<double>();
+                for (int k = 0; k < n; ++k) angles.Add(rnd.NextDouble() * 2 * Math.PI);
+                angles.Sort();
+                Vector3d[] q = new Vector3d[n];
+                for (int k = 0; k < n; ++k) q[k] = new Vector3d(Math.Cos(angles[k]), Math.Sin(angles[k]), 0);
+                if (!strictly_convex(q)) continue;
+                var piece = new TriangleDeviationBounds.Piece(n);
+                var exact = new List<(ExactDyadic, ExactDyadic)>();
+                foreach (Vector3d p in q) { piece.Add(p, 0); exact.Add((D(p.x), D(p.y))); }
+                double[] dist = new double[n];
+                int changes = 0;
+                for (int k = 0; k < n; ++k) dist[k] = (rnd.Next(5) == 0) ? 0 : (rnd.NextDouble() - 0.5) * Math.Pow(2, -rnd.Next(0, 60));
+                for (int k = 0; k < n; ++k) if (dist[k] * dist[(k + 1) % n] < 0) changes++;
+                if (changes > 2) alternating++;
+                TriangleDeviationBounds.split(piece, dist, out var pos, out var neg);
+                assert_covered(exact, split_exact(piece, exact, dist, pos), split_exact(piece, exact, dist, neg), rnd, $"it {it}");
+            }
+            Assert.True(alternating > 100, alternating + " patterns no plane gives");
+        }
+
+        // clip_exact for given distances
+        static List<(ExactDyadic, ExactDyadic)> split_exact(TriangleDeviationBounds.Piece parent, List<(ExactDyadic, ExactDyadic)> parentExact,
+            double[] dist, TriangleDeviationBounds.Piece piece)
+        {
+            int n = parent.Count;
+            var result = new List<(ExactDyadic, ExactDyadic)>();
+            for (int j = 0; j < piece.Count; ++j) {
+                Vector3d p = piece.P[j];
+                int same = -1;
+                for (int k = 0; k < n; ++k) if (parent.P[k] == p && parent.Off[k] == piece.Off[j]) { same = k; break; }
+                if (same >= 0) { result.Add(parentExact[same]); continue; }
+                bool cut = false;
+                for (int k = 0; k < n && !cut; ++k) {
+                    int k1 = (k + 1) % n;
+                    double da = dist[k], db = dist[k1];
+                    if (!((da > 0 && db < 0) || (da < 0 && db > 0))) continue;
+                    double lambda = da / (da - db);
+                    if (!(lambda >= 0)) lambda = 0;
+                    if (lambda > 1) lambda = 1;
+                    Vector3d a = parent.P[k], b = parent.P[k1];
+                    if (a + lambda * (b - a) != p) continue;
+                    ExactDyadic l = D(lambda);
+                    result.Add((parentExact[k].Item1 + l * (parentExact[k1].Item1 - parentExact[k].Item1),
+                        parentExact[k].Item2 + l * (parentExact[k1].Item2 - parentExact[k].Item2)));
+                    cut = true;
+                }
+                Assert.True(cut, "a point of neither the parent nor a cut");
+            }
+            return result;
+        }
+
+        static bool strictly_convex(Vector3d[] q)
+        {
+            int n = q.Length, sign = 0;
+            for (int i = 0; i < n; ++i) {
+                int o = orient(q[i], q[(i + 1) % n], q[(i + 2) % n]).Sign;
+                if (o == 0 || (sign != 0 && o != sign)) return false;
+                sign = o;
+            }
+            return true;
+        }
+
+        static Vector3d unit(Random rnd)
+        {
+            double ang = rnd.NextDouble() * Math.PI * 2;
+            return new Vector3d(Math.Cos(ang), Math.Sin(ang), 0);
+        }
+
+        // the exact vertices of a piece of the clip of parent (whose exact vertices are parentExact, in order): a point taken from the
+        // parent is its exact vertex; a cut point is the exact point on the exact edge at the clip's parameter, and its stored point is
+        // checked to be within its off of it (L1, exact)
+        static List<(ExactDyadic, ExactDyadic)> clip_exact(TriangleDeviationBounds.Piece parent, List<(ExactDyadic, ExactDyadic)> parentExact,
+            Vector3d origin, Vector3d normal, TriangleDeviationBounds.Piece piece)
+        {
+            int n = parent.Count;
+            var result = new List<(ExactDyadic, ExactDyadic)>();
+            for (int j = 0; j < piece.Count; ++j) {
+                Vector3d p = piece.P[j];
+                int same = -1;
+                for (int k = 0; k < n; ++k) if (parent.P[k] == p && parent.Off[k] == piece.Off[j]) { same = k; break; }
+                if (same >= 0) { result.Add(parentExact[same]); continue; }
+                bool cut = false;
+                for (int k = 0; k < n && !cut; ++k) {
+                    int k1 = (k + 1) % n;
+                    Vector3d a = parent.P[k], b = parent.P[k1];
+                    double da = normal.Dot(a - origin), db = normal.Dot(b - origin);
+                    if (!((da > 0 && db < 0) || (da < 0 && db > 0))) continue;
+                    double lambda = da / (da - db);
+                    if (!(lambda >= 0)) lambda = 0;
+                    if (lambda > 1) lambda = 1;
+                    if (a + lambda * (b - a) != p) continue;
+                    ExactDyadic l = D(lambda);
+                    ExactDyadic ex = parentExact[k].Item1 + l * (parentExact[k1].Item1 - parentExact[k].Item1);
+                    ExactDyadic ey = parentExact[k].Item2 + l * (parentExact[k1].Item2 - parentExact[k].Item2);
+                    ExactDyadic dx = D(p.x) - ex, dy = D(p.y) - ey;
+                    ExactDyadic l1 = (dx.Sign < 0 ? -dx : dx) + (dy.Sign < 0 ? -dy : dy);
+                    Assert.True(ExactDyadic.Compare(l1, D(piece.Off[j])) <= 0, "cut point outside its off");
+                    result.Add((ex, ey)); cut = true;
+                }
+                Assert.True(cut, "a point of neither the parent nor a cut");
+            }
+            return result;
+        }
+
+        // dyadic convex combinations of the piece's exact vertices lie in one of the two exact pieces
+        static void assert_covered(List<(ExactDyadic, ExactDyadic)> piece, List<(ExactDyadic, ExactDyadic)> a, List<(ExactDyadic, ExactDyadic)> b,
+            Random rnd, string what)
+        {
+            int n = piece.Count;
+            int orientation = area_sign(piece);
+            for (int s = 0; s < 60; ++s) {
+                // weights k_i / 2^10, summing to 1
+                int[] w = new int[n]; int left = 1024;
+                for (int i = 0; i < n - 1; ++i) { w[i] = rnd.Next(0, left + 1); left -= w[i]; }
+                w[n - 1] = left;
+                ExactDyadic x = D(0), y = D(0);
+                for (int i = 0; i < n; ++i) { x = x + D(w[i] / 1024.0) * piece[i].Item1; y = y + D(w[i] / 1024.0) * piece[i].Item2; }
+                Assert.True(inside_exact(a, x, y, orientation) || inside_exact(b, x, y, orientation), what + ": a point of the piece in neither part");
+            }
+        }
+
+        static int area_sign(List<(ExactDyadic, ExactDyadic)> poly)
+        {
+            ExactDyadic s = D(0);
+            for (int i = 0; i < poly.Count; ++i) {
+                var p = poly[i]; var q = poly[(i + 1) % poly.Count];
+                s = s + (p.Item1 * q.Item2 - q.Item1 * p.Item2);
+            }
+            return s.Sign >= 0 ? 1 : -1;
+        }
+
+        // (x, y) in the closed convex polygon of the given orientation; a polygon of fewer than 3 points, or of zero area, contains a
+        // point only on it (checked as collinear and between)
+        static bool inside_exact(List<(ExactDyadic, ExactDyadic)> poly, ExactDyadic x, ExactDyadic y, int orientation)
+        {
+            int n = poly.Count;
+            if (n == 0) return false;
+            for (int i = 0; i < n; ++i) {
+                var p = poly[i]; var q = poly[(i + 1) % n];
+                ExactDyadic o = (q.Item1 - p.Item1) * (y - p.Item2) - (q.Item2 - p.Item2) * (x - p.Item1);
+                if (o.Sign * orientation < 0) return false;
+            }
+            return n >= 3;
+        }
+
         // the exact vertices of a piece of the triangle: its corners as they are, its cut points at the parameter the clip used (on the
         // exact edge); checks that each stored cut point is within its off of it
         static (ExactDyadic[] x, ExactDyadic[] y) exact_vertices(TriangleDeviationBounds.Piece piece, Vector3d[] corners, Vector3d origin, Vector3d normal)
