@@ -1,11 +1,11 @@
 # Position search cohort run: base (master) against cand (the position search)
 
-9000 operations of 3000 models; rows: base 9000, cand 9000
+16239 operations of 5413 models; rows: base 16239, cand 16239
 
-- base: 8739 clean, 205 empty, 56 unclean
-- cand: 8743 clean, 205 empty, 52 unclean
+- base: 15771 clean, 412 empty, 56 unclean
+- cand: 15775 clean, 412 empty, 52 unclean
 
-cand: 8995 operations took the verdict of base (the same result hash), the others were evaluated
+cand: 16234 operations took the verdict of base (the same result hash), the others were evaluated
 
 ## 1a. clean -> not clean (stop rule: each one analysed before the merge): 0
 
@@ -22,7 +22,7 @@ cand: 8995 operations took the verdict of base (the same result hash), the other
 ## 1c. other status changes (eg clean <-> empty, one reason for another): 0
 
 
-## 2. rounding clean in base: 8993 operations, 0 with a different result (stop rule: each one analysed)
+## 2. rounding clean in base: 16232 operations, 0 with a different result (stop rule: each one analysed)
 
 Not rounding clean in base: 7 operations, 5 with a different result; the search moved a vertex in 6 operations (11 moves).
 
@@ -40,49 +40,51 @@ Of them with more defects left in cand than in base: 0 (expected 0: no edit adds
 
 | build | n | 0 | 0.1 | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 | 1 | > 0.9 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| base | 8795 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.217 | 1 | 135 |
-| cand | 8795 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.217 | 1 | 136 |
+| base | 15827 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.8e-13 | 0.217 | 1 | 241 |
+| cand | 15827 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 1.8e-13 | 0.217 | 1 | 242 |
 | base, the operations the search moved a vertex in | 6 | 0.0182 | 0.0182 | 0.367 | 0.405 | 0.405 | 0.405 | 0.539 | 0.786 | 0.786 | 0.786 | 0.969 | 1 |
 | cand, the same | 6 | 0.0625 | 0.0625 | 0.367 | 0.539 | 0.539 | 0.539 | 0.786 | 0.969 | 0.969 | 0.969 | 1 | 2 |
 
 MaxDrift above MaxLength in cand: 0 (expected 0).
 
-## 4. times (ms), correctness pass (one core per process): 9000 operations
+## 4. times (ms), correctness pass (one core per process): 16239 operations
 
 | build | field | sum | median | p95 | max |
 |---|---|---|---|---|---|
-| base | ms | 3377367 | 145 | 1477 | 52081 |
-| base | rounding_ms | 683196 | 23 | 305 | 18884 |
-| cand | ms | 3379013 | 146 | 1469 | 51039 |
-| cand | rounding_ms | 692338 | 22 | 305 | 18202 |
-| base | rounding_ms, rounding clean in base | 680627 | 22 | 302 | 18884 |
-| cand | rounding_ms, rounding clean in base | 688297 | 22 | 303 | 18202 |
+| base | ms | 5437838 | 129 | 1266 | 52081 |
+| base | rounding_ms | 1091313 | 20 | 274 | 18884 |
+| cand | ms | 5444224 | 128 | 1296 | 51039 |
+| cand | rounding_ms | 1104363 | 20 | 274 | 18202 |
+| base | rounding_ms, rounding clean in base | 1088744 | 20 | 272 | 18884 |
+| cand | rounding_ms, rounding clean in base | 1100322 | 20 | 272 | 18202 |
 | base | rounding_ms, not rounding clean in base | 2569 | 366 | 859 | 859 |
 | cand | rounding_ms, not rounding clean in base | 4041 | 438 | 1498 | 1498 |
 
-Slower by more than 20 % and 0.5 s: 9
+Slower by more than 20 % and 0.5 s: 14
 
 | id | op | base ms | cand ms | base rounding ms | cand rounding ms | rounding clean in base | search moves |
 |---|---|---|---|---|---|---|---|
+| 668057 | intersection | 4992 | 6885 | 655 | 710 | True | 0 |
+| 1063860 | difference | 2872 | 4576 | 581 | 1623 | True | 0 |
+| 688367 | difference | 3788 | 5205 | 462 | 754 | True | 0 |
 | 99269 | difference | 3280 | 4530 | 594 | 1431 | True | 0 |
 | 99269 | intersection | 1775 | 2972 | 150 | 274 | True | 0 |
 | 472139 | difference | 4798 | 5856 | 818 | 930 | True | 1 |
 | 73416 | difference | 3911 | 4774 | 549 | 1448 | True | 0 |
+| 688367 | intersection | 2792 | 3426 | 417 | 715 | True | 0 |
 | 1417966 | union | 1061 | 1675 | 321 | 518 | True | 0 |
 | 74730 | difference | 2916 | 3526 | 540 | 1122 | True | 0 |
 | 1396906 | union | 1820 | 2413 | 531 | 670 | True | 0 |
 | 212138 | intersection | 1272 | 1862 | 153 | 258 | True | 0 |
+| 762586 | union | 2690 | 3269 | 752 | 933 | True | 0 |
 | 74730 | intersection | 2480 | 3029 | 545 | 822 | True | 0 |
 
 ## Notes of the build session (not from analyze.py)
 
-- The run: 3000 models, 4 workers, started 2026-11-12T23:48:13Z, interrupted once by a restart of the session's
-  machine at about 00:50Z with 2553 models done, resumed 00:51:36Z, done 01:03:00Z: about 74 minutes of run time.
-  Model 117423 failed to export in the first chunk (download) and was run again in the second.
-- Section 4 is a rough comparison (one core per process, four at a time). Three of the listed models were timed again
-  alone on the machine with every core (`BooleanComparison profile --repeat 1 --safe-rounding`, two rounds, base and
-  cand in turn; rounding ms): 99269 difference 405, 406 against 466, 561 and intersection 53, 47 against 55, 126;
-  73416 difference 339, 234 against 251, 217; 74730 difference 233, 378 against 244, 261 and intersection 300, 222
-  against 263, 325: within the noise, with the same hashes.
-- 472139 difference is rounding clean in base and has one search move with the same result hash: the search moved a
-  vertex of a component that was then removed as tiny (the search runs before the removal).
+- The full cohort (owner decision 2026-11-13): all 5413 models, 16 239 operations. The 3000 models of the cut ran
+  2026-11-12T23:48Z to 2026-11-13T01:03Z (one restart of the machine in between; `summary_cut3000.md` is that run's
+  summary; its rows are part of base.jsonl / cand.jsonl here), the other 2413 on 2026-11-13 from 05:14:43Z to
+  06:04:59Z, in the same work directory with the same builds: about 124 minutes of run time in all. Models 117423 and
+  56265 failed to export once (download) and were run again.
+- Section 4 is a rough comparison (one core per process, four at a time); see the re-timing of three models alone on
+  the machine in `summary_cut3000.md`.
