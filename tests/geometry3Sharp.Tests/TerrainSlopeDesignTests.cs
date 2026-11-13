@@ -472,8 +472,12 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
         }
 
-        // regular polygons whose realization merges positions within 64 ulps (found by a sweep over random regular
-        // polygons) and whose measured lowering alone stays below what the merge needs
+        // regular polygons whose realization merged positions within 64 ulps (found by a sweep over random regular
+        // polygons). The clusters of map vertices there came from faces at an apex that the insertion's prefilter skipped
+        // by their approximate distance alone (TERRAIN_RAMPS.md, "A fix found by the ramp campaign"): with the prefilter
+        // counting the corners' error, the map is the exact envelope and nothing is merged (none in 1500 random regular
+        // polygons). The merge's lowering stays tested on the wavy toe (TerrainSlopeBandMergeTests); here: the designs
+        // are certified, and a merge, if any, is covered by the lowering
         [Theory]
         [InlineData(16, 27.33760196358785, 0.4471245046924448, 2.280296943513815)]
         [InlineData(22, 12.984759201288576, 0.5293125866583142, 3.0107992275202644)]
@@ -483,8 +487,7 @@ namespace geometry3Sharp.Tests
             var d = Run(r * 0.6, 0.05, toe);
             AssertAll(d);
             // the triangles of a merged vertex may rise above S̃ by 2 sMax (r + e_xy): the lowering covers it
-            Assert.True(d.MergedPositions > 0);
-            Assert.True(d.MergeLambdaRequired > 0);
+            Assert.Equal(0, d.MergedPositions);
             Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
         }
 

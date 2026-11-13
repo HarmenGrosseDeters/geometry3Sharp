@@ -237,6 +237,24 @@ namespace geometry3Sharp.Tests
             Gen.Select(GenScene, Gen.Int[4, 12], Gen.Int[4, 10], Gen.Int[8, 30], Gen.Int[4, 9],
                 (sc, g, w, l, len) => { sc.Dir = 0; sc.Side = 0; sc.Tilt = 0; sc.Ramp = true; sc.Grade = g; sc.Width = w; sc.Leave = l; sc.Length = len; return sc; });
 
+        /// <summary>
+        /// found by the ramp campaign (seed cWs6): the prefilter of SlopeMap.InsertPiece skipped a face smaller than the error
+        /// of its approximate corners (at the ramp's start on a toe vertex, where many planes meet) by its approximate
+        /// distance alone, differently at the scale 2^-9, and the design was not the same scaled bit for bit
+        /// </summary>
+        [Fact]
+        public void Regression_PrefilterOfTinyFaces_IsScaleInvariant()
+        {
+            var sc = new Scene { Dir = 0, Toe = 6, Radius = 16, Ratio = 16, Amp = 9, Wave = 13, Height = 19, Jitter = 0, Nx = 14, Ny = 20, Flip = false, Seed = 80058, Side = 0, Holes = 1,
+                                 Ramp = true, Grade = 8, Width = 5, Leave = 29, Length = 9 };
+            TerrainSlopeDesign a = Make(sc, 0), b = Make(sc, -9);
+            Assert.True(a.Compute(), a.Message);
+            Assert.True(b.Compute(), b.Message);
+            Assert.Equal("", SameMesh(a.SlopeSurface, b.SlopeSurface, Math.ScaleB(1.0, -9)));
+            Assert.Equal("", SameDesign(a, b, Math.ScaleB(1.0, -9)));
+            Assert.Equal("", Oracles(sc, a));
+        }
+
         /// <summary> the campaign with a random ramp per scene (TERRAIN_RAMPS.md, R1): the same properties, with the ramp's oracles </summary>
         [Fact]
         public void RampCampaign()
