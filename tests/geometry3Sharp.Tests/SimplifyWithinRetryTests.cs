@@ -28,7 +28,8 @@ namespace geometry3Sharp.Tests
             Assert.True(simp != null, what + ": not simplified");
             Assert.Equal("", MeshRobustRepair.NotCleanReason(simp));
             Assert.True(simp.TriangleCount < mesh.TriangleCount * maxShare, $"{what}: {simp.TriangleCount} of {mesh.TriangleCount}");
-            var hd = new MeshHausdorffDistance(simp, mesh) { Symmetric = false, Tolerance = 0.05 * maxDistance };
+            // (the tolerance of SimplifyWithin's own certification: the retry may end close to maxDistance)
+            var hd = new MeshHausdorffDistance(simp, mesh) { Symmetric = false, Tolerance = 0.01 * maxDistance };
             hd.Compute();
             Assert.True(hd.UpperBound <= maxDistance, $"{what}: hausdorff {hd.UpperBound} > {maxDistance}");
         }

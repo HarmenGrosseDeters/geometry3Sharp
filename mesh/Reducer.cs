@@ -85,6 +85,33 @@ namespace g3
         /// Not covered: the projection of a ProjectionTarget (Reproject) after the collapses.
         /// </summary>
         public double MaxDeviation = 0;
+        /// <summary>
+        /// (internal, issue #747) with SampleReference: a collapse is skipped if a sample point of one of its new triangles (the
+        /// centroid and the edge midpoints) is farther than this from SampleReference (a built tree, only read, so slabs share
+        /// it). Not a certificate (MaxDeviation is one): a cheap filter that keeps the collapses near the reference
+        /// </summary>
+        internal double SampleDeviation = 0;
+        internal DMeshAABBTree3 SampleReference = null;
+        bool collapse_samples_far(int a, int b, Vector3d np)
+        {
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            double d2max = SampleDeviation * SampleDeviation;
+            for (int k = 0; k < 2; ++k) {
+                int v = k == 0 ? a : b, o = k == 0 ? b : a;
+                foreach (int t in mesh.VtxTrianglesItr(v)) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    if (tv.a == o || tv.b == o || tv.c == o) continue;
+                    mesh.GetTriVertices(t, ref va, ref vb, ref vc);
+                    if (tv.a == v) va = np; else if (tv.b == v) vb = np; else vc = np;
+                    for (int s = 0; s < 4; ++s) {
+                        Vector3d p = s == 0 ? (va + vb + vc) / 3 : s == 1 ? 0.5 * (va + vb) : s == 2 ? 0.5 * (vb + vc) : 0.5 * (vc + va);
+                        double d2;
+                        if (SampleReference.FindNearestTriangle(p, out d2, SampleDeviation) < 0 || d2 > d2max) return true;
+                    }
+                }
+            }
+            return false;
+        }
 
         /// <summary>
         /// If true (and MaxDeviation &gt; 0), a collapse is also refused unless every point of the input surface stays within
@@ -1717,6 +1744,10 @@ namespace g3
                     retVal = ProcessResult.Ignored_CreatesFlip;
                     goto skip_to_end;
                 }
+            }
+            if (SampleDeviation > 0 && SampleReference != null && collapse_samples_far(a, b, vNewPos)) {
+                retVal = ProcessResult.Ignored_ExceedsDeviation;
+                goto skip_to_end;
             }
             if (MaxDeviation > 0 && collapse_within_deviation(a, b, vNewPos) == false) {
                 retVal = ProcessResult.Ignored_ExceedsDeviation;
