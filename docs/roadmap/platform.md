@@ -112,6 +112,11 @@ Part of the [roadmap](../ROADMAP.md).
   as is and document the limitation (current state); (b) vendor the C# 2.0.0 sources into the addon (Boost-1.0, allowed;
   listed in `docs/SOURCES.md`, license file kept) and fix item 5 ourselves; (c) follow a third-party C# port of the new
   C++ line, if one appears. Decide before the next addon change that needs Clipper2 itself.
+  Follow-ups (owner 2026-11-13): remove the Clipper2 NuGet package from the addon (an addon API break, accepted:
+  the four enums move to `g3.Clipper2` with the same names and values, the integer `ClipperFrame` conversions become
+  internal, addon version 2.0.0; the test project keeps the package for the differential test); the remaining
+  Intersection case #756 gets option (c), an own narrower fix of the "micro self-intersection" branch (prior-art check
+  first). Order: #751, the item 5 PR, the package removal, #756 (c).
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
