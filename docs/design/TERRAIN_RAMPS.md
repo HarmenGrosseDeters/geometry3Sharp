@@ -1,6 +1,6 @@
 # Design note: ramps as design geometry (terrain item 2)
 
-Status: **proposal, owner decision pending** (2026-11-12; the coordinator routes the three questions at the end to the owner). Nothing is built. Proposed answers: the path is the inner edge, R1 is cut only with access ramps ending at daylight, one constant grade per ramp.
+Status: **R1 implemented** (branch `claude/terrain-ramps-r1`, see "R1 as built"); the owner decided the three questions on 2026-11-13 (PR #771): the path is the inner edge, R1 is cut only with access ramps ending at daylight, one constant grade per ramp.
 
 ## Goal
 
@@ -142,3 +142,85 @@ merged in (not stacked). Tier L.
 8. **Reviews.** An independent review. The bounds review of the min/max step is routed by the coordinator. No new
    error bound is expected: the signs are exact, and the road's z is rounded once per vertex and enters the budget like
    the toe heights.
+
+## R1 as built (branch `claude/terrain-ramps-r1`)
+
+Code: `mesh_ops/TerrainSlopeRamps.cs` (`SlopeRamp`, the road polygons, the width oracle), `SlopeMap.InsertPolygonPiece`,
+hooks in `TerrainSlopeDesign` (pieces, checks, statuses, the tolerance budget) and `TerrainSlopeLocalFrame`. Tests:
+`TerrainSlopeRampTests`, `TerrainSlopeCampaignTests.RampCampaign`. Benchmark: `TerrainBenchmark` `slope ... ramp=1`.
+
+### Deviation from steps 3 and 4: the road as pieces of the envelope (reuse check)
+
+The reuse check of step 4 found that `SlopeMap` already builds F = min over pieces of F_k, where F_k is the maximum of
+a piece's planes (strips and fans, a convex function), with exact labels. A road polygon with the road plane Z_i is
+such a function too: F_road = max(Z_i, the outward strip planes of its edges, the cone tangent planes at its corners) is
+Z_i on the polygon and the slope cone of its boundary outside. Every wall plane is checked exactly at construction
+(not steeper than the wall's slope, on or below every corner of the polygon), which makes F_road = Z_i on the polygon.
+So the ramp's pieces go into the same envelope as the toe's:
+
+- min(S_lo, road with its walls) comes out of the existing exact map: the crest {S_lo = Z_R} and the upper wall S_up
+  (the cone of the outer edge) are lines of the map, with no new TIN-vs-TIN pairing.
+- `SlopeTerrainOverlay` and `SlopeComposite` are reused unchanged for the clamp with the terrain, as for any design;
+  realization, toe lowering λ, the δ/λ loop, catch lines, volumes, `LocalFrame` and the 2^k invariance stay as they are.
+- The start, end and outer edges all get cones, so there is no lateral-limit step at the ramp's ends (with S_up as an
+  open toe with normal limits there would be a vertical step of about s W at the start).
+- Each segment's polygon reaches inwards from the path towards the toe (to the distance of its ends from the toes), so
+  a crest that lies inwards of the path widens the road (the plan's semantics), without a lip on the pit side.
+
+### Bends (R1)
+
+- A bend away from the road (towards the pit: a convex wall) gets a flat kite at the vertex height between the two
+  segments' polygons, out to the miter point.
+- The end face of a segment (rising at s from its end line) must not cut into the next segment's road (rising at g):
+  for any point of the next strip this holds when s cos(turn) >= g; 0.9 covers the facets of the cone. Sharper turns
+  are `NotImplemented` (a switchback is R2).
+- A bend towards the road (a concave wall) is `NotImplemented`: with a road that is constant across, the two segments'
+  planes differ along any line across the road through the vertex, so either a wall cuts into the road or the road is
+  lowered by up to g W sin(turn). It needs a road that is not constant across (R2).
+
+### Margins and the tolerance budget
+
+- The road is built at the grade g − RoadMargin, RoadMargin = δ sMin / 2: a road vertex is off its plane by the rounding
+  of its height and of its XY times g (< sMin), so a triangle with altitudes of at least MinFeatureSize is steeper than
+  its plane by at most about δ sMin / 4. The exact check decides; a failure raises δ like any slope failure.
+- New budget term (**bound review**): the road lies below its specified heights by at most RoadMargin x the path's
+  length, `ramp_share` = Up(Up(Up(RoadMargin) x Up(L (1 + 1e-12))) x 1.01), subtracted from the facet share and part
+  of the snap certificate's budget.
+- The outer edge is built at Width (1 + 2δ); the width oracle's nominal polygons run from Width δ / 2 to Width
+  (1 + 3δ / 2) and end Width δ inside each segment, so no rounding of a boundary they share with the road decides it.
+- The road's z at the path's vertices: z_{i+1} = z_i + g_b L_i in doubles (rounded once per vertex); the polygon
+  corners' heights are the road plane's, rounded down exactly (`height_down`).
+
+### Checks and oracles
+
+- Road triangles: `Slope.IsNotSteeper(Grade)` and every vertex on or below the road plane (exact; this proves the
+  triangle lies below the road, without extrapolating it to far corners).
+- Wall triangles: `IsNotSteeper(wall slope)` and their plane on or below every corner of the polygon (exact): then
+  they lie below the polygon's slope cone.
+- Width oracle (instead of `MinLineDistance`, the same intent, stronger): every nominal polygon, at least Width wide
+  (checked exactly), is road: no triangle of another kind overlaps its interior (exact separating-axis test), and the
+  road triangles cover its area (to 1e-7, relative to the polygon; a hole can only be where nothing is built). Else
+  `RampNotOnWall` with `RampProblems` (ramp, path segment). This also finds a hanging road.
+- The wall's slope is the cut slope of the toe segment the path starts on (the API has no field for it).
+- Tests (independent of the construction): the surface between a brute-force reference from below (roads reaching far
+  inwards, Tolerance) and above (the specified roads and their cones, the toe's cone envelope), every triangle not
+  steeper than its piece's spec, slope triangles supported (O1), the road's heights, the width by point samples, the
+  boundary only at the toe and the height limit, the catch lines between the references.
+
+### A fix found by the ramp campaign
+
+The second prefilter of `SlopeMap.InsertPiece` took the distance of a face from its approximate corners (within
+4e-12 (|x| + |y|) of the exact ones, `ExactSlopeKernel.Approx`) as a lower bound. A face smaller than that error, at an
+apex where many planes meet (here: the ramp's start on a toe vertex), could be skipped although the piece is lower
+there, and differently at different scales: the campaign found a design that was not the same scaled by 2^-9. The
+distance is now taken that error shorter and the label's height at a corner may be off by `MaxGradient` times it. A
+right skip does not change the map, so only wrong skips change results: on the regular polygons of
+`Merge_RaisesTheToeLowering` the clusters of map vertices that the realization merged are gone (none in 1500 random
+regular polygons), so that test now asserts that nothing is merged; the merge's lowering stays tested by
+`TerrainSlopeBandMergeTests`.
+
+### Limits of R1
+
+Cut only (`Direction` Fill or Auto: `NotImplemented`); straight segments of one grade; no bends towards the road, no
+turns with s cos(turn) < g / 0.9; the road above the terrain is clipped by the clamp (the access ramp ends where it
+daylights; a road through a terrain valley has a gap there, which R2's fill would close).

@@ -511,7 +511,8 @@ namespace gs
             public int Kind;
             public int Ramp = -1;
             public bool Bend;
-            // the points the check supports a triangle by: null for a toe piece (A and B), the polygon's corners for a ramp
+            // the points the check supports a triangle by: null for a toe piece (A and B), the polygon's corners for a ramp's
+            // wall; a ramp's road: the three points of its plane (each vertex of a road triangle on or below the road plane)
             public Vector3d[] Support;
             public RampUnit Unit;          // a road piece: its polygon and planes (per build)
         }
@@ -526,6 +527,14 @@ namespace gs
                 return;
             }
             supportOk = true;
+            if (pc.Kind == 1) {
+                // (a road triangle lies on or below the road plane if its vertices do: both are planes)
+                Vector3d p = pc.Support[0], q = pc.Support[1], r = pc.Support[2];
+                int o2 = ExactPredicates.Orient2d(p.xy, q.xy, r.xy);
+                foreach (Vector3d v in new[] { a, b, c })
+                    if (ExactPredicates.Orient3d(p, q, r, v) * o2 > 0) { supportOk = false; return; }
+                return;
+            }
             foreach (Vector3d p in pc.Support)
                 if (Slope.IsPlaneOnOrBelow(a, b, c, p) == false) { supportOk = false; return; }
         }
@@ -534,6 +543,11 @@ namespace gs
         {
             if (pc.Support == null) return Math.Max(plane_excess(a, b, c, pc.A), plane_excess(a, b, c, pc.B));
             double m = 0;
+            if (pc.Kind == 1) {
+                Vector3d p = pc.Support[0], q = pc.Support[1], r = pc.Support[2];
+                foreach (Vector3d v in new[] { a, b, c }) m = Math.Max(m, vertex_excess(p, q, r, v));
+                return m;
+            }
             foreach (Vector3d p in pc.Support) m = Math.Max(m, plane_excess(a, b, c, p));
             return m;
         }
@@ -1137,9 +1151,9 @@ namespace gs
             // (on a terrain, Tolerance / 4 is reserved for the move of the composite's catch points, which its certificate
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
-            // (a ramp's road is built at the grade g - delta sMax: it lies below its specified heights by at most
-            // delta sMax times its length, TERRAIN_RAMPS.md, "Margins")
-            double rampShare = ramp_share(delta, sMax);
+            // (a ramp's road is built at the grade g - delta sMin / 2: it lies below its specified heights by at most
+            // that times its length, TERRAIN_RAMPS.md, "Margins")
+            double rampShare = ramp_share(delta, sMin);
             double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare - rampShare;
             if (!(facetShare > 0))
                 return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3})");
@@ -1200,7 +1214,7 @@ namespace gs
             }
             if (rampNominal != null) rampNominal.Clear();
             if (pieces.Any(p => p.Kind != 0)) {
-                Statuses rs = build_ramps(kernel, pieces, delta, sMax, theta, nTheta, rFan, H, dMax, minFeatureMax);
+                Statuses rs = build_ramps(kernel, pieces, delta, sMin, theta, nTheta, rFan, H, dMax, minFeatureMax);
                 if (rs != Statuses.Success)
                     return rs;
             }
@@ -1238,7 +1252,7 @@ namespace gs
                 if (pieces[k].Kind == 2) continue;
                 if (pieces[k].Kind == 1) {
                     RampUnit u = pieces[k].Unit;
-                    map.InsertPolygonPiece(k, k + 1, u.RoadPlane, u.Walls, u.Apexes, u.Fans, u.Angles, u.Box, u.ZMin, u.Slb, u.Reach, theta);
+                    map.InsertPolygonPiece(k, k + 1, u.RoadPlane, u.Walls, u.Apexes, u.Fans, u.Angles, u.Box, u.ZMin, u.Slb, u.Reach, theta, u.Apexes);
                     continue;
                 }
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
@@ -1615,6 +1629,19 @@ namespace gs
 
         // the plane of (a, b, c) at p's XY minus p.z, its positive part (for the measured toe lowering): exact, rounded
         // to nearest, so a triangle that fails the support check has an excess > 0 even where doubles cannot see it
+        // how far the point p lies above the plane of (a, b, c) (0 if on or below)
+        static double vertex_excess(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
+        {
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay, uz = ExactDyadic.Of(b.z) - az;
+            ExactDyadic wx = ExactDyadic.Of(c.x) - ax, wy = ExactDyadic.Of(c.y) - ay, wz = ExactDyadic.Of(c.z) - az;
+            ExactDyadic nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            if (nz.Sign == 0) return 0;
+            ExactDyadic num = (ExactDyadic.Of(p.z) - az) * nz + nx * (ExactDyadic.Of(p.x) - ax) + ny * (ExactDyadic.Of(p.y) - ay);
+            double e = ExactDyadic.Quotient(num, nz);
+            return (MathUtil.IsFinite(e) && e > 0) ? e : 0;
+        }
+
         static double plane_excess(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
         {
             ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);

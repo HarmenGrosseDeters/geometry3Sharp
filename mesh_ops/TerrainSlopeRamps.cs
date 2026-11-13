@@ -211,14 +211,20 @@ namespace gs
             return (w / (1 + n0.Dot(n1))) * (n0 + n1);
         }
 
-        // the ramps' share of the tolerance budget: the road at the grade g - delta sMax lies below its specified heights
-        // by at most delta sMax times the path's length (rounded up)
-        double ramp_share(double delta, double sMax)
+        // the road's grade margin: the road is built at g - delta sMin / 2. A road vertex's height is off its plane by at
+        // most the rounding of its height and its XY times the road's grade (below sMin), so a triangle with altitudes of
+        // at least MinFeatureSize = 2 (8 e_xy + 4 e_eval / sMin) / delta is steeper than its plane by at most about
+        // delta sMin / 4; the exact check decides, and a failure raises delta
+        internal static double RoadMargin(double delta, double sMin) { return 0.5 * delta * sMin; }
+
+        // the ramps' share of the tolerance budget: the road at the grade g - RoadMargin lies below its specified heights
+        // by at most RoadMargin times the path's length (rounded up)
+        double ramp_share(double delta, double sMin)
         {
             double m = 0;
             if (rampsIn == null || Ramps == null || Ramps.Count == 0) return 0;
             foreach (RampIn ri in rampsIn) m = Math.Max(m, ri.Length);
-            return ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(delta * sMax) * ExactInterval.Up(m * (1 + 1e-12))) * 1.01);
+            return ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(RoadMargin(delta, sMin)) * ExactInterval.Up(m * (1 + 1e-12))) * 1.01);
         }
 
         // the box of the toes grown by the ramps' road polygons (with room for the margins): the domain and the
@@ -245,17 +251,17 @@ namespace gs
             return h;
         }
 
-        // one build's road polygons and planes (the margin delta: the grade g - delta sMax, the outer edge at
+        // one build's road polygons and planes (the margin delta: the grade g - RoadMargin, the outer edge at
         // Width (1 + 2 delta)), and the nominal polygons of the width oracle (Width (1 + delta) wide)
-        Statuses build_ramps(ExactSlopeKernel kernel, List<InPiece> pieces, double delta, double sMax, double theta, int nTheta,
+        Statuses build_ramps(ExactSlopeKernel kernel, List<InPiece> pieces, double delta, double sMin, double theta, int nTheta,
                              double rFan, double H, double dMax, double minFeatureMax)
         {
             foreach (RampIn ri in rampsIn) {
                 int r = ri.Index, n = ri.P.Count;
                 List<Vector2d> P = ri.P;
-                double gb = ri.G - delta * sMax;
+                double gb = ri.G - RoadMargin(delta, sMin);
                 if (!(gb > 0.5 * ri.G))
-                    return ramp_problem(Statuses.InvalidInput, r, -1, $"the grade is too small for the slope margin (below {2 * delta * sMax:G3})");
+                    return ramp_problem(Statuses.InvalidInput, r, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
                 if (ri.R.Width < minFeatureMax)
                     return ramp_problem(Statuses.InvalidInput, r, -1, $"Width is below the smallest feature that can be realized ({minFeatureMax:G3})");
                 for (int i = 0; i + 1 < n; ++i)
@@ -279,7 +285,7 @@ namespace gs
                     RampUnit unit = pc.Unit;
                     int i = unit.Seg;
                     Vector2d[] c2;
-                    Vector3d[] c3;
+                    Vector3d[] c3, roadPts;
                     if (unit.Bend == false) {
                         Vector2d nn = side_normal(u[i], ri.Sigma);
                         double E = ri.Extend[i];
@@ -292,6 +298,7 @@ namespace gs
                             return ramp_problem(Statuses.InvalidInput, r, i, "the road plane is steeper than the grade (the margin does not cover the rounding)");
                         unit.RoadPlane = kernel.AddPlane(p0, p1, p2);
                         c3 = c2.Select(c => new Vector3d(c.x, c.y, height_down(kernel, unit.RoadPlane, p0, p1, p2, c.x, c.y))).ToArray();
+                        roadPts = new[] { p0, p1, p2 };
                         pc.A = pc.A1 = p0; pc.B = pc.B1 = p1;
                         Vector2d na = P[i] + We * u[i] + Wi * nn, nb = P[i + 1] - We * u[i] + Wi * nn;
                         add_nominal(new RampNominal() { Ramp = r, Seg = i, A = na, B = nb,
@@ -302,6 +309,7 @@ namespace gs
                         c2 = new[] { v, v + Wb * n0, v + miter(n0, n1, Wb), v + Wb * n1 };
                         unit.RoadPlane = kernel.AddHorizontalPlane(z[i]);
                         c3 = c2.Select(c => new Vector3d(c.x, c.y, z[i])).ToArray();
+                        roadPts = new[] { c3[0], c3[1], c3[2] };
                         pc.A = pc.A1 = pc.B = pc.B1 = new Vector3d(v.x, v.y, z[i]);
                         Vector2d vi = v + miter(n0, n1, Wi), q1 = v + Wn * n0, mq = v + miter(n0, n1, Wn), q2 = v + Wn * n1;
                         add_nominal(new RampNominal() { Ramp = r, Seg = i, Bend = true, A = vi, Q1 = q1, M = mq, Q2 = q2, Poly = new[] { vi, q1, mq, q2 } });
@@ -309,7 +317,7 @@ namespace gs
                     // counter-clockwise
                     if (polygon_area(c3.Select(c => c.xy).ToArray()) < 0) Array.Reverse(c3);
                     unit.Corners = c3;
-                    pc.Support = c3; wall.Support = c3;
+                    pc.Support = roadPts; wall.Support = c3;
                     wall.A = wall.A1 = pc.A; wall.B = wall.B1 = pc.B;
                     Statuses ws = make_polygon_walls(kernel, unit, sb, sbSpec, theta, nTheta, rFan, r);
                     if (ws != Statuses.Success)
