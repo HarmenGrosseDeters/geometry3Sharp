@@ -343,8 +343,8 @@ code is not read.
   tolerance is half a cell; every one of the 32 benchmark cases reaches it.
 - **Proven in A1**: (G1), (G2) (checked: `Status.Failed` otherwise), (G3) (exact), (G4) one side, (G6).
   **Measured**: the other side of (G4) and (G5) (the procedural oracles: Steiner volumes, components of a hollow part and
-  across a gap). **Not promised**: triangle quality; degenerate (zero-area) triangles can occur (1 of 32 benchmark
-  cases, issue #800).
+  across a gap). **Not promised**: triangle quality; degenerate (zero-area) triangles were measured in 1 of 32 benchmark
+  cases until DualContouring's quad split avoided them (#800; 0 of 32 since), and a quad with two degenerate splits can still give one.
 - **Numbers** (4 threads, 32 cases per method, procedural): band certified at half a cell 32 / 32 against 15 / 32 for
   SDF + MC (its insets fail by chamfered creases, up to 0.37 |d|); clean 31 / 32 against 25 / 32; triangles 0.95-1.07x;
   time 0.6-4.7x of SDF + MC, median 1.6x (the estimate of 5.3 was 1-3x for the contouring plus below 10 % for the

@@ -149,6 +149,26 @@ namespace geometry3Sharp.Tests
 
         // the chamfered block of benchmarks/SharpFeatureProbe (an octagon prism): its inset at a cell of |d| / 8 has a degenerate
         // triangle (issue #800); the promised properties hold
+        // #800: the chamfered block's inset at a cell of |d| / 8 had a degenerate triangle: three dual contouring vertices on the
+        // inset's crease (the top plane z = 4 - |d| meets the chamfer's plane x + y = 1.5 + |d| sqrt 2) are collinear, and the quad
+        // split put them into one triangle (its normal is noise, so it could win the normal-agreement choice)
+        [Fact]
+        public void Inset_ChamferedBlock_FineCell_NoDegenerateTriangles()
+        {
+            var poly = new List<Vector2d> { new Vector2d(1.5, 0), new Vector2d(8.5, 0), new Vector2d(10, 1.5), new Vector2d(10, 4.5),
+                new Vector2d(8.5, 6), new Vector2d(1.5, 6), new Vector2d(0, 4.5), new Vector2d(0, 1.5) };
+            var m = new DMesh3();
+            int n = poly.Count;
+            for (int i = 0; i < n; ++i) m.AppendVertex(new Vector3d(poly[i].x, poly[i].y, 0));
+            for (int i = 0; i < n; ++i) m.AppendVertex(new Vector3d(poly[i].x, poly[i].y, 4));
+            for (int i = 1; i + 1 < n; ++i) { m.AppendTriangle(0, i + 1, i); m.AppendTriangle(n, n + i, n + i + 1); }
+            for (int i = 0; i < n; ++i) { int j = (i + 1) % n; m.AppendTriangle(i, j, n + j); m.AppendTriangle(i, n + j, n + i); }
+            double d = -0.05 * m.CachedBounds.Diagonal.Length;
+            MeshOffset o = Run(m, d, x => x.RelativeCellSize = 0.125);
+            AssertGood(o);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(o.Result));
+        }
+
         [Fact]
         public void Inset_ChamferedBlock_FineCell_KeepsThePromisedProperties()
         {
