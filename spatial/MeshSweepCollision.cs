@@ -72,6 +72,14 @@ namespace g3
 
         /// <summary> options of every pair query </summary>
         public CcdOptions Options = new CcdOptions();
+        /// <summary>
+        /// the broad phase splits the step into this many equal sub-steps (a power of two, 1 to 64; 4 by default): a pair
+        /// is a candidate if the boxes of its primitives overlap in some sub-step. Fewer candidates for large motions; every
+        /// candidate is still solved over the whole step, so a pair's result does not depend on SubSteps. A pair is left
+        /// out only if it is farther apart than MinSeparation in every sub-step: no contact is lost, but a false positive or
+        /// an IterationLimit pair of SubSteps = 1 can be left out (docs/design/CCD.md 10.10).
+        /// </summary>
+        public int SubSteps = 4;
         /// <summary> run the whole sweep (boxes, tree queries, pair queries) on all cores (the result equals the serial one) </summary>
         public bool Parallel = true;
         /// <summary> false: Contacts holds the pairs that may give the first contact; true: every candidate pair </summary>
@@ -138,7 +146,8 @@ namespace g3
             Status = MeshSweepStatus.InvalidInput;
             if (meshA == null || meshB == null || endA == null || endB == null || Options == null || Options.IsValid() == false
                 || endA.Length < meshA.MaxVertexID || endB.Length < meshB.MaxVertexID
-                || BlockSize < 1 || BlockSize > (1 << 20) || SelfTasks < 1 || BatchPairs < 1)
+                || BlockSize < 1 || BlockSize > (1 << 20) || SelfTasks < 1 || BatchPairs < 1
+                || SubSteps < 1 || SubSteps > 64 || (SubSteps & (SubSteps - 1)) != 0)
                 return Status;
             if (finite(meshA, endA) == false || (self == false && finite(meshB, endB) == false))
                 return Status;
@@ -161,10 +170,14 @@ namespace g3
                 add_blocks(jobs, JobKind.EdgeEdge, true, edgesA.Length);
             }
             List<Index2i> selfTasks = null;
-            if (self && edgB.Tree != null) {
-                selfTasks = edgB.Tree.SelfPairTasks(SelfTasks);
-                for (int k = 0; k < selfTasks.Count; ++k)
-                    jobs.Add(new Job { Kind = JobKind.SelfEdges, Start = k, End = k + 1 });
+            if (self && edgB.Trees != null) {
+                if (SubSteps == 1) {
+                    selfTasks = edgB.Trees[0].SelfPairTasks(SelfTasks);
+                    for (int k = 0; k < selfTasks.Count; ++k)
+                        jobs.Add(new Job { Kind = JobKind.SelfEdges, Start = k, End = k + 1 });
+                } else
+                    // (with sub-steps: per edge, the union over the sub-step trees, each pair once)
+                    add_blocks(jobs, JobKind.SelfEdgesByEdge, true, edgB.Ids.Length);
             }
             long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -326,7 +339,7 @@ namespace g3
         internal int SelfTasks = 4096;
         internal int BlockSize = 128;
 
-        enum JobKind { VertexTriangle, EdgeEdge, SelfEdges }
+        enum JobKind { VertexTriangle, EdgeEdge, SelfEdges, SelfEdgesByEdge }
 
         struct Job
         {
@@ -355,7 +368,7 @@ namespace g3
         sealed class Prepared
         {
             public int[] Ids;
-            public TriangleBoxTree Tree;
+            public TriangleBoxTree[] Trees;      // one per sub-step (null without primitives)
         }
 
         static int[] ids(IEnumerable<int> e) { return new List<int>(e).ToArray(); }
@@ -377,17 +390,74 @@ namespace g3
                 for (int b = 0; b < blocks; ++b) block(b);
         }
 
+        // The box of point v of mesh m (end positions end) over sub-step i of SubSteps: the box of its positions at
+        // t_i = i / SubSteps and t_(i+1). The ends of the step are the exact positions; at an inner t_i (exact: SubSteps is
+        // a power of two) the position s + t (e - s) is enclosed in outward-rounded intervals. Under linear motion the
+        // point stays in the box during the sub-step (a convex combination of the two positions).
+        void sub_box(DMesh3 m, Vector3d[] end, int v, int i, ref double x0, ref double y0, ref double z0, ref double x1, ref double y1, ref double z1)
+        {
+            Vector3d s = m.GetVertex(v), e = end[v];
+            for (int j = i; j <= i + 1; ++j) {
+                if (j == 0 || j == SubSteps) {
+                    Vector3d q = j == 0 ? s : e;
+                    x0 = Math.Min(x0, q.x); y0 = Math.Min(y0, q.y); z0 = Math.Min(z0, q.z);
+                    x1 = Math.Max(x1, q.x); y1 = Math.Max(y1, q.y); z1 = Math.Max(z1, q.z);
+                    continue;
+                }
+                ExactInterval t = ExactInterval.Of(j / (double)SubSteps);
+                ExactInterval px = ExactInterval.Of(s.x) + t * (ExactInterval.Of(e.x) - ExactInterval.Of(s.x));
+                ExactInterval py = ExactInterval.Of(s.y) + t * (ExactInterval.Of(e.y) - ExactInterval.Of(s.y));
+                ExactInterval pz = ExactInterval.Of(s.z) + t * (ExactInterval.Of(e.z) - ExactInterval.Of(s.z));
+                x0 = Math.Min(x0, px.Lo); y0 = Math.Min(y0, py.Lo); z0 = Math.Min(z0, pz.Lo);
+                x1 = Math.Max(x1, px.Hi); y1 = Math.Max(y1, py.Hi); z1 = Math.Max(z1, pz.Hi);
+            }
+        }
+
+        // the box of the points v0..v(n-1) over sub-step i, clipped to their box over the whole step (both hold the
+        // points during the sub-step; the clip keeps the interval widening at inner t_i inside the SubSteps = 1 box, so
+        // the candidates are a subset of those of SubSteps = 1), widened by pad with outward rounding
+        AxisAlignedBox3d sub_box(DMesh3 m, Vector3d[] end, int i, double pad, int n, int v0, int v1, int v2)
+        {
+            double x0 = double.PositiveInfinity, y0 = x0, z0 = x0, x1 = double.NegativeInfinity, y1 = x1, z1 = x1;
+            sub_box(m, end, v0, i, ref x0, ref y0, ref z0, ref x1, ref y1, ref z1);
+            if (n > 1) sub_box(m, end, v1, i, ref x0, ref y0, ref z0, ref x1, ref y1, ref z1);
+            if (n > 2) sub_box(m, end, v2, i, ref x0, ref y0, ref z0, ref x1, ref y1, ref z1);
+            double fx0 = double.PositiveInfinity, fy0 = fx0, fz0 = fx0, fx1 = double.NegativeInfinity, fy1 = fx1, fz1 = fx1;
+            for (int k = 0; k < n; ++k) {
+                int v = k == 0 ? v0 : k == 1 ? v1 : v2;
+                Vector3d ps = m.GetVertex(v), pe = end[v];
+                fx0 = Math.Min(fx0, Math.Min(ps.x, pe.x)); fy0 = Math.Min(fy0, Math.Min(ps.y, pe.y)); fz0 = Math.Min(fz0, Math.Min(ps.z, pe.z));
+                fx1 = Math.Max(fx1, Math.Max(ps.x, pe.x)); fy1 = Math.Max(fy1, Math.Max(ps.y, pe.y)); fz1 = Math.Max(fz1, Math.Max(ps.z, pe.z));
+            }
+            x0 = Math.Max(x0, fx0); y0 = Math.Max(y0, fy0); z0 = Math.Max(z0, fz0);
+            x1 = Math.Min(x1, fx1); y1 = Math.Min(y1, fy1); z1 = Math.Min(z1, fz1);
+            if (pad > 0) {
+                x0 = ExactInterval.Down(x0 - pad); y0 = ExactInterval.Down(y0 - pad); z0 = ExactInterval.Down(z0 - pad);
+                x1 = ExactInterval.Up(x1 + pad); y1 = ExactInterval.Up(y1 + pad); z1 = ExactInterval.Up(z1 + pad);
+            }
+            var b = new AxisAlignedBox3d();
+            b.Min = new Vector3d(x0, y0, z0);
+            b.Max = new Vector3d(x1, y1, z1);
+            return b;
+        }
+
         Prepared triangles(DMesh3 m, Vector3d[] end, double half, bool parallel)
         {
             var p = new Prepared { Ids = ids(m.TriangleIndices()) };
             if (p.Ids.Length == 0)
                 return p;
-            var boxes = new AxisAlignedBox3d[p.Ids.Length];
-            for_blocks(boxes.Length, parallel, i => {
-                Index3i t = m.GetTriangle(p.Ids[i]);
-                boxes[i] = box(half, m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), end[t.a], end[t.b], end[t.c], 6);
-            });
-            p.Tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxes));
+            p.Trees = new TriangleBoxTree[SubSteps];
+            for (int st = 0; st < SubSteps; ++st) {
+                var boxes = new AxisAlignedBox3d[p.Ids.Length];
+                int sub = st;
+                for_blocks(boxes.Length, parallel, i => {
+                    Index3i t = m.GetTriangle(p.Ids[i]);
+                    boxes[i] = SubSteps == 1
+                        ? box(half, m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), end[t.a], end[t.b], end[t.c], 6)
+                        : sub_box(m, end, sub, half, 3, t.a, t.b, t.c);
+                });
+                p.Trees[st] = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxes));
+            }
             return p;
         }
 
@@ -396,13 +466,35 @@ namespace g3
             var p = new Prepared { Ids = ids(m.EdgeIndices()) };
             if (p.Ids.Length == 0)
                 return p;
-            var boxes = new AxisAlignedBox3d[p.Ids.Length];
-            for_blocks(boxes.Length, parallel, i => {
-                Index2i e = m.GetEdgeV(p.Ids[i]);
-                boxes[i] = box(half, m.GetVertex(e.a), m.GetVertex(e.b), end[e.a], end[e.b], Vector3d.Zero, Vector3d.Zero, 4);
-            });
-            p.Tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxes));
+            p.Trees = new TriangleBoxTree[SubSteps];
+            for (int st = 0; st < SubSteps; ++st) {
+                var boxes = new AxisAlignedBox3d[p.Ids.Length];
+                int sub = st;
+                for_blocks(boxes.Length, parallel, i => {
+                    Index2i e = m.GetEdgeV(p.Ids[i]);
+                    boxes[i] = SubSteps == 1
+                        ? box(half, m.GetVertex(e.a), m.GetVertex(e.b), end[e.a], end[e.b], Vector3d.Zero, Vector3d.Zero, 4)
+                        : sub_box(m, end, sub, half, 2, e.a, e.b, -1);
+                });
+                p.Trees[st] = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxes));
+            }
             return p;
+        }
+
+        // the boxes found by the query primitive's box in every sub-step, sorted, each once (w.Found)
+        void query_all(Prepared prep, Func<int, AxisAlignedBox3d> subBox, Worker w)
+        {
+            w.Found.Clear();
+            for (int st = 0; st < SubSteps; ++st)
+                prep.Trees[st].Query(subBox(st), w.Found);
+            w.Found.Sort();
+            if (SubSteps > 1) {
+                int n = 0;
+                for (int k = 0; k < w.Found.Count; ++k)
+                    if (k == 0 || w.Found[k] != w.Found[k - 1])
+                        w.Found[n++] = w.Found[k];
+                w.Found.RemoveRange(n, w.Found.Count - n);
+            }
         }
 
         // jobs per group of the candidate search, and the candidate pairs per batch (they live at the same time, with
@@ -421,13 +513,16 @@ namespace g3
                 Vector3d[] ve = job.OfA ? endA : endB;
                 Prepared tri = job.OfA ? triB : triA;
                 int[] verts = job.OfA ? vertsA : vertsB;
-                if (tri.Tree != null)
+                if (tri.Trees != null)
                     for (int k = job.Start; k < job.End; ++k)
                         vertex_against(verts[k], vm, ve, tm, tri, job.OfA, half, w, list);
             } else if (job.Kind == JobKind.EdgeEdge) {
-                if (edgB.Tree != null)
+                if (edgB.Trees != null)
                     for (int k = job.Start; k < job.End; ++k)
                         edge_against(edgesA[k], edgB, half, w, list);
+            } else if (job.Kind == JobKind.SelfEdgesByEdge) {
+                for (int k = job.Start; k < job.End; ++k)
+                    self_edge(k, edgB, half, w, list);
             } else
                 self_edges(selfTasks[job.Start], edgB, w, list);
             return list;
@@ -477,9 +572,12 @@ namespace g3
         void vertex_against(int vid, DMesh3 vm, Vector3d[] ve, DMesh3 tm, Prepared tri, bool ofA, double half, Worker w, List<PairRef> pairs)
         {
             Vector3d p = vm.GetVertex(vid);
-            w.Found.Clear();
-            tri.Tree.Query(box(half, p, ve[vid], p, p, p, p, 2), w.Found);
-            w.Found.Sort();
+            if (SubSteps == 1) {
+                w.Found.Clear();
+                tri.Trees[0].Query(box(half, p, ve[vid], p, p, p, p, 2), w.Found);
+                w.Found.Sort();
+            } else
+                query_all(tri, st => sub_box(vm, ve, st, half, 1, vid, -1, -1), w);
             foreach (int k in w.Found) {
                 int tid = tri.Ids[k];
                 if (self) {
@@ -495,11 +593,32 @@ namespace g3
         void edge_against(int eid, Prepared edgB, double half, Worker w, List<PairRef> pairs)
         {
             Index2i ea = meshA.GetEdgeV(eid);
-            w.Found.Clear();
-            edgB.Tree.Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), w.Found);
-            w.Found.Sort();
+            if (SubSteps == 1) {
+                w.Found.Clear();
+                edgB.Trees[0].Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), w.Found);
+                w.Found.Sort();
+            } else
+                query_all(edgB, st => sub_box(meshA, endA, st, half, 2, ea.a, ea.b, -1), w);
             foreach (int k in w.Found)
                 pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = eid, Second = edgB.Ids[k] });
+        }
+
+        // self sweep with sub-steps: the edges with a larger box index that edge (box index) j overlaps in some sub-step,
+        // edges sharing a vertex skipped; each pair once, as (smaller id, larger id)
+        void self_edge(int j, Prepared edg, double half, Worker w, List<PairRef> pairs)
+        {
+            int eid = edg.Ids[j];
+            Index2i ea = meshA.GetEdgeV(eid);
+            query_all(edg, st => sub_box(meshA, endA, st, half, 2, ea.a, ea.b, -1), w);
+            foreach (int k in w.Found) {
+                if (k <= j)
+                    continue;
+                int other = edg.Ids[k];
+                Index2i eb = meshA.GetEdgeV(other);
+                if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b)
+                    continue;
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = Math.Min(eid, other), Second = Math.Max(eid, other) });
+            }
         }
 
         // self sweep: the overlapping edge pairs of one SelfPairs task (each pair once), sorted by ids; edges that share
@@ -507,7 +626,7 @@ namespace g3
         void self_edges(Index2i task, Prepared edg, Worker w, List<PairRef> pairs)
         {
             w.Pairs.Clear();
-            edg.Tree.SelfPairs(task, w.Pairs);
+            edg.Trees[0].SelfPairs(task, w.Pairs);
             for (int i = 0; i < w.Pairs.Count; ++i) {
                 int x = edg.Ids[w.Pairs[i].a], y = edg.Ids[w.Pairs[i].b];
                 w.Pairs[i] = x < y ? new Index2i(x, y) : new Index2i(y, x);

@@ -278,6 +278,13 @@ namespace geometry3Sharp.Tests
         public void SelfSweep_Invariance(string name)
         {
             Similarity sim = Similarity.ByName(name);
+            foreach (int subSteps in new[] { 1, 4 })
+                self_sweep_invariance(sim, subSteps);
+        }
+
+        void self_sweep_invariance(Similarity sim, int subSteps)
+        {
+            string name = sim.Name;
             DMesh3 a = box(new Vector3d(-0.5, 0, 0), 1), b = box(new Vector3d(0.75, 0.25, 0.125), 1);
             var both = new DMesh3(a);
             int n = both.MaxVertexID;
@@ -287,7 +294,7 @@ namespace geometry3Sharp.Tests
                 DMesh3 m = map(both, f);
                 var end = new Vector3d[both.MaxVertexID];
                 foreach (int vid in both.VertexIndices()) end[vid] = f(both.GetVertex(vid) + (vid < n ? new Vector3d(0.5, 0, 0) : Vector3d.Zero));
-                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5 };
+                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5, SubSteps = subSteps };
                 Assert.Equal(MeshSweepStatus.Collision, s.Compute());
                 return s;
             }
@@ -299,6 +306,61 @@ namespace geometry3Sharp.Tests
             } else {
                 double slack = 1e-5 + 256 * sim.Resolution(2) / 0.5;
                 Assert.True(r.EarliestTimeOfImpact <= 0.5 + 1e-12 && r.EarliestTimeOfImpact >= 0.5 - slack, $"{name}: {r.EarliestTimeOfImpact:R}");
+            }
+        }
+
+        // #866: with sub-steps the candidates are a subset of those of SubSteps = 1 (with the same results, the pairs are
+        // solved over the whole step), on random scenes the contacts and times are identical, and large motions give
+        // fewer candidates
+        [Fact]
+        public void SubSteps_SubsetOfOneSubStep()
+        {
+            var rnd = new Random(21);
+            for (int round = 0; round < 8; ++round) {
+                bool self = round % 2 == 1;
+                DMesh3 a = sphere(Vector3d.Zero, 1, 4), b = sphere(new Vector3d(2.1, 0.3 * rnd.NextDouble(), 0.1), 1, 4);
+                Vector3d move = new Vector3d(0.4 + 0.5 * rnd.NextDouble(), 0.3 * rnd.NextDouble(), 0.2 * rnd.NextDouble());
+                double twist = rnd.NextDouble();
+                Func<Vector3d, Vector3d> fa = x => x + move + twist * new Vector3d(0, 0.3 * x.z, -0.3 * x.y);
+                var o = new CcdOptions { MinSeparation = (round % 3) * 0.004 };
+                MeshSweepCollision make(int k, bool all)
+                {
+                    MeshSweepCollision sw;
+                    if (self) {
+                        var m = new DMesh3(a);
+                        int n = m.MaxVertexID;
+                        new MeshEditor(m).AppendMesh(b);
+                        var end = new Vector3d[m.MaxVertexID];
+                        foreach (int v in m.VertexIndices()) end[v] = v < n ? fa(m.GetVertex(v)) : m.GetVertex(v);
+                        sw = new MeshSweepCollision(m, end);
+                    } else
+                        sw = new MeshSweepCollision(a, moved(a, fa), b, moved(b, x => x));
+                    sw.SubSteps = k; sw.CollectAll = all; sw.Options = o;
+                    sw.Compute();
+                    return sw;
+                }
+                var one = make(1, true);
+                var key = new Dictionary<(SweepContactKind, bool, int, int), CcdResult>();
+                foreach (SweepContact c in one.Contacts) key[(c.Kind, c.FirstOfMeshA, c.First, c.Second)] = c.Result;
+                foreach (int k in new[] { 2, 4, 8 }) {
+                    var sub = make(k, true);
+                    Assert.True(sub.CandidatePairCount <= one.CandidatePairCount);
+                    foreach (SweepContact c in sub.Contacts) {
+                        Assert.True(key.TryGetValue((c.Kind, c.FirstOfMeshA, c.First, c.Second), out CcdResult r), $"round {round} k {k}: a candidate SubSteps = 1 does not have");
+                        Assert.Equal(r, c.Result);
+                    }
+                    // (the dropped pairs are farther apart than the minimum separation in every sub-step: no contact)
+                    var a1 = make(1, false); var ak = make(k, false);
+                    Assert.Equal(a1.Status, ak.Status);
+                    Assert.Equal(a1.EarliestTimeOfImpact, ak.EarliestTimeOfImpact);
+                    Assert.Equal(a1.EarliestNearContactTime, ak.EarliestNearContactTime);
+                    Assert.Equal(a1.Contacts, ak.Contacts);
+                    if (k == 4 && move.x > 0.6) Assert.True(sub.CandidatePairCount < one.CandidatePairCount, $"round {round}: no fewer candidates");
+                }
+            }
+            foreach (int bad in new[] { 0, 3, 6, 128, -4 }) {
+                DMesh3 a = box(Vector3d.Zero, 1);
+                Assert.Equal(MeshSweepStatus.InvalidInput, new MeshSweepCollision(a, moved(a, x => x)) { SubSteps = bad }.Compute());
             }
         }
 
