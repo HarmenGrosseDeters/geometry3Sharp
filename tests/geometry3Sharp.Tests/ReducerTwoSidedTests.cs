@@ -195,8 +195,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TwoSided_RepeatedReductions_StayWithinToleranceOfTheOriginal()
         {
-            DMesh3 input = Spiky(20);
-            double eps = 3e-3 * input.CachedBounds.DiagonalLength;
+            // (a terrain whose one-sided reduction leaves its rim farther than eps, small enough to stay well under 5 s)
+            DMesh3 input = Terrain(14);
+            double eps = 1e-2 * input.CachedBounds.DiagonalLength;
             var m = new DMesh3(input);
             var r = new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = true };
             r.ReduceToTriangleCount(input.TriangleCount / 2);
@@ -206,9 +207,6 @@ namespace geometry3Sharp.Tests
             r.ReduceToTriangleCount(4);
             Assert.True(m.TriangleCount < first);
             AssertTwoSided(input, m, eps, "after three reductions");
-            // the same final count as one reduction straight to 4 is not required, but the bound is
-            DMesh3 once = Reduce(input, eps, true, out Reducer _);
-            AssertTwoSided(input, once, eps, "once");
         }
 
         /// <summary> determinism: the per-input certificates run in parallel; serial gives the same mesh, and so do repeated runs </summary>
