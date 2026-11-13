@@ -54,6 +54,25 @@ namespace gs
             return (r > 0 && !double.IsInfinity(r)) ? r : (r > 0 ? double.MaxValue : 0);
         }
 
+        /// <summary> (tests) is u at least the exact distance from p to the triangles of mesh? Exact, over all triangles (true for no
+        /// triangle only if u is +infinity) </summary>
+        internal static bool AtLeastDistance(DMesh3 mesh, Vector3d p, double u)
+        {
+            if (double.IsNaN(u)) return false;
+            if (double.IsPositiveInfinity(u)) return true;
+            if (u < 0) return false;
+            bool any = false; BigInteger bn = 0, bd = 1; int bx = 0;
+            foreach (int tid in mesh.TriangleIndices()) {
+                exact_squared(mesh, tid, p, out BigInteger n, out BigInteger d, out int x);
+                if (!any || less(n, d, x, bn, bd, bx)) { bn = n; bd = d; bx = x; any = true; }
+            }
+            if (!any) return false;
+            if (u == 0) return bn.IsZero;
+            // u^2 >= bn / bd 2^bx  <=>  m^2 bd 2^(2e - bx) >= bn
+            ExactPoint3.Decompose(u, out BigInteger m, out int e);
+            return compare(m * m * bd, 2 * e - bx, bn) >= 0;
+        }
+
         // a lower bound of the squared distance from p to the bounding box of the triangle: per axis the gap below the box or above
         // it, each difference and the sum of squares rounded down
         static double box_lower_squared(DMesh3 mesh, int tid, Vector3d p)
