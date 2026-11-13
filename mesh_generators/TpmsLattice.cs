@@ -78,7 +78,7 @@ namespace g3
         /// Graded cell size, general form: the phase of the lattice in periods as a function of the local position (null: x / CellSize,
         /// a constant period). The field is f(2 pi PhaseMap(x)). It must be pure, thread-safe and finite on the grid. CellSize stays the
         /// nominal period that sets the cube (CellSize / Divisions): set it to the smallest local period. A general map distorts the cells
-        /// (see docs/design/TPMS_GRADED_CELL.md). Not with WallThickness, and not with Enclosure (the library cannot certify the Jacobian
+        /// (see docs/design/TPMS_GRADED_CELL.md). The map is sampled on a 9^3 set of points of the domain (and at +-h/8 around them, so it must be finite slightly outside the domain) to check that the grid resolves the smallest period: a narrow feature between the samples can be missed (the result is still certified). Not with WallThickness, and not with Enclosure (the library cannot certify the Jacobian
         /// bound of an arbitrary delegate: use <see cref="Grade"/>). Do not set both.
         /// </summary>
         public Func<Vector3d, Vector3d> PhaseMap;
@@ -393,12 +393,13 @@ namespace g3
             Func<Vector3d, Vector3d> map = Grade != null ? Grade.Map : PhaseMap;
             if (map != null) {
                 if (Grade != null) {
-                    // the derived Jacobian bound holds within the transverse extent of the grade
-                    double ext = Grade.TransverseHalfExtent * (1 + 1e-12);
+                    // the derived Jacobian bound holds within the transverse extent of the grade: the domain plus the grid pad (3.5 cubes:
+                    // the grid reaches 3 cubes beyond the box, a shifted grid one more)
+                    double ext = Grade.TransverseHalfExtent * (1 + 1e-12), pad = 3.5 * CellSize / Divisions;
                     for (int d = 1; d <= 2; ++d) {
                         int ax = (Grade.Axis + d) % 3;
-                        if (Math.Abs(box.Min[ax]) > ext || Math.Abs(box.Max[ax]) > ext) {
-                            Fail(TpmsStatus.InvalidOptions, "the domain leaves the transverse extent " + Grade.TransverseHalfExtent + " of the Grade (axis " + ax + ")"); return;
+                        if (Math.Abs(box.Min[ax]) + pad > ext || Math.Abs(box.Max[ax]) + pad > ext) {
+                            Fail(TpmsStatus.InvalidOptions, "the domain and the grid pad (3.5 cubes) leave the transverse extent " + Grade.TransverseHalfExtent + " of the Grade (axis " + ax + ")"); return;
                         }
                     }
                 }
@@ -464,7 +465,7 @@ namespace g3
                 double u = Math.Pow(2, -53);
                 // evaluation error of g in normalised units: terms (64 u per unit of term sum) / (Lw s); the phase error is 4 u
                 // (with a Grade the phase term is 4 u |phase| / (J s) and assumes the map is evaluated to a relative error of 4 u)
-                double eNorm = 64 * u * TermSum(Type) / (lw * s) + (map == null ? 4 * u : 4 * u * 2 * phaseMax / (jac * s));
+                double eNorm = EnclosureError(Type, lw, s, map != null, phaseMax, jac, h);
                 if (!(eNorm <= Math.Pow(2, -30))) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain is too small against the period for the proven error bound");
                     return;
@@ -602,7 +603,10 @@ namespace g3
             Func<double, double> phase = z => {
                 if (z <= z0) return (z - z0) / period0;
                 double top = Math.Min(z, z1);
-                double inside = Math.Abs(slope) < 1e-14 * period0 / (z1 - z0) ? (top - z0) / period0 : Math.Log(period(top) / period0) / slope;
+                // the integral of 1 / period: (top - z0) / period0 * log(1 + x) / x with x = slope (top - z0) / period0, accurate to a
+                // few ulps for every x (log1p by the u = 1 + x trick), so the phase has a relative error of a few u, also for gentle grades
+                double len = top - z0, x = slope * len / period0;
+                double inside = len / period0 * Log1pOverX(x);
                 return inside + (z > z1 ? (z - z1) / period1 : 0);
             };
             Func<Vector3d, Vector3d> map = p => {
@@ -614,6 +618,26 @@ namespace g3
                 return v;
             };
             return new TpmsPhaseGrade(map, bound, axis, transverseHalfExtent);
+        }
+
+        // The evaluation error of the normalised field in the Enclosure proof, in units of s: the terms of f (64 u per unit of term sum, over
+        // Lw s) plus the phase rounding: 4 u for the constant lattice (phase = x / L), and for a graded map 8 u |phase| / (J s) with the phase
+        // magnitude taken as twice the sampled maximum plus J times the grid pad (the grid reaches 3.5 cubes beyond the box). The 8 u is the
+        // assumption on the map (LinearGrade evaluates to a few ulps, see Log1pOverX); a PhaseMap is not allowed with Enclosure.
+        internal static double EnclosureError(TpmsType type, double lw, double s, bool graded, double phaseMax, double jac, double h)
+        {
+            double u = Math.Pow(2, -53);
+            double phase = graded ? 8 * u * (2 * phaseMax + 4 * jac * h) / (jac * s) : 4 * u;
+            return 64 * u * TermSum(type) / (lw * s) + phase;
+        }
+
+        // log(1 + x) / x to a few ulps for all x > -1 (x == 0 gives 1): log1p by the trick log(u) x / (u - 1) with u = 1 + x
+        internal static double Log1pOverX(double x)
+        {
+            if (x == 0) return 1;
+            double u = 1 + x;
+            if (u == 1) return 1 - x / 2;          // |x| below 2^-53: the series is exact to rounding
+            return Math.Log(u) / (u - 1);
         }
 
         static bool IsFinite(Vector3d v)

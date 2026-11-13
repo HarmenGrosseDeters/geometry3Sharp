@@ -38,7 +38,7 @@ internal static class Program
         };
         if (graded) {
             lattice.Box = new AxisAlignedBox3d(new Vector3d(-periods / 2.0, -periods / 2.0, 0), new Vector3d(periods / 2.0, periods / 2.0, periods));
-            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, periods, 2, periods / 2.0);
+            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, periods, 2, periods / 2.0 + 1.0);
         }
         int g0 = GC.CollectionCount(0), g1 = GC.CollectionCount(1), g2 = GC.CollectionCount(2);
         long a0 = GC.GetTotalAllocatedBytes(true);

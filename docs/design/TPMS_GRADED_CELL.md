@@ -32,12 +32,12 @@ public sealed class TpmsPhaseGrade { Map, JacobianBound, Axis, TransverseHalfExt
 - The field is `f(2 pi Map(x))`, so periodicity in phase space is exact. A map must be pure, thread-safe and finite on the grid
   (`InvalidOptions` otherwise, and when it is constant on the domain). Set `PhaseMap` or `Grade`, not both.
 - `CellSize` stays the nominal period of the grid (the cube is `CellSize / Divisions`): the user sets it to the **smallest** local
-  period. `Compute` samples the map on a 9^3 set of points of the domain, reports the smallest local period it saw
+  period. `Compute` samples the map on a 9^3 set of points of the domain and at +-h/8 around them (the map must be finite slightly outside the domain; the largest column norm of the sampled Jacobian can be up to sqrt 3 below the operator norm, and a narrow feature between the samples can be missed: the check is a guard, the result is certified separately, and for a `Grade` the extremes sit at the sampled box corners), reports the smallest local period it saw
   (`MinLocalCellSize`) and refuses (`InvalidOptions`) a grid whose cube is larger than a quarter of it.
 - `LinearGrade`: the period varies linearly along one axis, the phase along it is the exact integral `ln(period(z) / period0) / slope`,
   the transverse phase is the coordinate over the local period. It derives the Jacobian bound itself
   (`sqrt(3 / Lmin^2 + 2 (e |slope| / Lmin^2)^2)`, the Frobenius norm, with `e` the transverse half extent) and the library checks that the
-  domain lies within that extent (`InvalidOptions` if not). `WallThickness` is not defined with a map or a grade.
+  domain lies within that extent (`InvalidOptions` if not; the check is on the domain plus the grid pad of 3.5 cubes, since the grid reaches 3 cubes beyond the box and a shifted grid one more). `WallThickness` is not defined with a map or a grade.
 
 ## 3. What stays guaranteed, what is not
 
@@ -47,7 +47,10 @@ public sealed class TpmsPhaseGrade { Map, JacobianBound, Axis, TransverseHalfExt
   similarity (tested above z = 3 of the linear grade, where the period is constant); where the cells are distorted it deviates.
 - **Enclosure**: with a `Grade` the field is Lipschitz with `Lf 2 pi J`, `J` the derived bound, and the recipe applies unchanged
   with `Lw = Lf 2 pi J` (the phase rounding term of the error bound becomes `4 u |phase| / (J s)`, checked against `2^-30`;
-  this assumes the map is evaluated to a relative error of `4 u`, the same assumption as for `Math.Sin` and `Math.Cos`). A general
+  after the first review the term is `8 u (2 phaseMax + 4 J h) / (J s)`: `LinearGrade` evaluates the exact phase integral with the
+  `log(1 + x) / x` form (`Log1pOverX`), accurate to a few ulps also for gentle grades where `log(period / period0) / slope` would lose
+  digits, and the phase magnitude is padded by the grid reach; the assumption of 8 u is on the map, the same kind of assumption as for
+  `Math.Sin` and `Math.Cos`). A general
   `PhaseMap` with `Enclosure` is `InvalidOptions` (owner / coordinator decision 2026-11-13: a user-supplied bound is a certificate
   the library cannot check). A user-bound path can be a follow-up if someone needs it. The sampled Jacobian check that the first
   draft of this note had as a runtime refutation is a test of the helper's derived bound instead.

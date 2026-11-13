@@ -432,7 +432,7 @@ namespace geometry3Sharp.Tests
                 Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
                 Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 3))
             };
-            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1);
+            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1.5);
             return lattice;
         }
 
@@ -510,7 +510,7 @@ namespace geometry3Sharp.Tests
                 var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.Sheet, 0.3, 12);
                 lattice.CellSize = s.Scale * L;
                 lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0) * s.Scale, new Vector3d(1, 1, 3) * s.Scale);
-                lattice.Grade = TpmsLattice.LinearGrade(2, 0, s.Scale, 3 * s.Scale, 2 * s.Scale, s.Scale);
+                lattice.Grade = TpmsLattice.LinearGrade(2, 0, s.Scale, 3 * s.Scale, 2 * s.Scale, 1.5 * s.Scale);
                 lattice.Origin = s.Apply(Vector3d.Zero);
                 lattice.Rotation = s.Rotation;
                 lattice.Compute();
@@ -553,7 +553,7 @@ namespace geometry3Sharp.Tests
             Expect(l => l.PhaseMap = l.Grade.Map, TpmsStatus.InvalidOptions);                     // both PhaseMap and Grade
             Expect(l => { var g = l.Grade; l.Grade = null; l.PhaseMap = g.Map; l.Enclosure = true; }, TpmsStatus.InvalidOptions);   // Enclosure needs a Grade
             Expect(l => { var g = l.Grade; l.Grade = null; l.PhaseMap = g.Map; l.WallThickness = 0.05; }, TpmsStatus.InvalidOptions);
-            Expect(l => l.Box = new AxisAlignedBox3d(new Vector3d(-1.5, -1, 0), new Vector3d(1, 1, 3)), TpmsStatus.InvalidOptions);  // leaves the extent
+            Expect(l => l.Box = new AxisAlignedBox3d(new Vector3d(-1.45, -1, 0), new Vector3d(1, 1, 3)), TpmsStatus.InvalidOptions);  // leaves the extent with the grid pad
             Expect(l => { l.Grade = null; l.PhaseMap = p => new Vector3d(double.NaN, 0, 0); }, TpmsStatus.InvalidOptions);
             Expect(l => { l.Grade = null; l.PhaseMap = p => new Vector3d(1, 2, 3); }, TpmsStatus.InvalidOptions);   // constant
             Expect(l => l.Divisions = 4, TpmsStatus.InvalidOptions);                     // the cube is not a quarter of the smallest period
@@ -594,6 +594,46 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Graded_LinearGradeIsAccurateForGentleGrades()
+        {
+            // The phase along the axis is the integral of 1 / period. For a gentle grade the naive log(period / period0) / slope loses
+            // digits (the quotient of two nearly equal numbers); the log1p form keeps a few ulps. Reference: the series
+            // len / p0 * (1 - x/2 + x^2/3 - x^3/4 + x^4/5) with x = slope len / p0, exact to double precision for |x| < 1e-3.
+            foreach (var (p0, p1) in new[] { (1.0, 1.0 + 1e-9), (1.0, 1.0 + 1e-6), (2.0, 2.0 - 1e-7), (1.0, 1.0 + 1e-3) }) {
+                TpmsPhaseGrade grade = TpmsLattice.LinearGrade(2, 0, p0, 1, p1, 1);
+                double slope = (p1 - p0) / 1.0;
+                foreach (double z in new[] { 0.1, 0.5, 0.9, 1.0 }) {
+                    double x = slope * z / p0;
+                    double reference = z / p0 * (1 - x / 2 + x * x / 3 - x * x * x / 4 + x * x * x * x / 5);
+                    double actual = grade.Map(new Vector3d(0, 0, z)).z;
+                    Assert.True(Math.Abs(actual - reference) <= 4e-16 * Math.Max(1, Math.Abs(reference)), p0 + " " + p1 + " z " + z + ": " + actual + " vs " + reference);
+                }
+            }
+            // the helper itself: log(1 + x) / x near 0, at 0 and for a large and a negative argument
+            Assert.Equal(1.0, TpmsLattice.Log1pOverX(0));
+            Assert.Equal(1 - 1e-17 / 2, TpmsLattice.Log1pOverX(1e-17), 15);
+            Assert.Equal(Math.Log(3) / 2, TpmsLattice.Log1pOverX(2), 14);
+            Assert.Equal(Math.Log(0.5) / -0.5, TpmsLattice.Log1pOverX(-0.5), 14);
+        }
+
+        [Fact]
+        public void Graded_EnclosureErrorTermFollowsTheDerivation_AndTheConstantLatticeIsUnchanged()
+        {
+            // pins the phase part of the Enclosure error model: constant lattice 4 u; graded 8 u (2 phaseMax + 4 J h) / (J s)
+            double u = Math.Pow(2, -53), lw = 10, s = 4;
+            double terms = 64 * u * TpmsLattice.TermSum(TpmsType.Gyroid) / (lw * s);
+            Assert.Equal(terms + 4 * u, TpmsLattice.EnclosureError(TpmsType.Gyroid, lw, s, false, 123, 2, 0.1), 15);
+            double graded = TpmsLattice.EnclosureError(TpmsType.Gyroid, lw, s, true, 50, 2, 0.1);
+            Assert.Equal(terms + 8 * u * (2 * 50 + 4 * 2 * 0.1) / (2 * s), graded, 15);
+            Assert.True(graded > terms + 4 * u);
+            // the constant lattice normalises with exactly Lf 2 pi / L as before the graded cells existed (bit for bit)
+            var lattice = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 12);
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Message);
+            Assert.Equal(TpmsLattice.GradientBound(TpmsType.Gyroid) * (2 * Math.PI / L), lattice.LipschitzBoundUsed);
+        }
+
+        [Fact]
         public void Graded_LocalFractionIsTheTargetWhereTheMapIsASimilarity()
         {
             // The period is constant (2) above z = 3: there the phase map is a similarity and the local volume fraction is the
@@ -601,7 +641,7 @@ namespace geometry3Sharp.Tests
             var lattice = new TpmsLattice {
                 Type = TpmsType.Gyroid, Style = TpmsStyle.SkeletalLow, CellSize = L, Divisions = 16, VolumeFraction = 0.35,
                 Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 6)),
-                Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1)
+                Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1.5)
             };
             lattice.Compute();
             Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
@@ -620,7 +660,7 @@ namespace geometry3Sharp.Tests
         {
             var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16);
             lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 2));
-            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1);
+            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1.5);
             double bound = lattice.Grade.JacobianBound;
             lattice.Enclosure = true;
             lattice.Compute();
