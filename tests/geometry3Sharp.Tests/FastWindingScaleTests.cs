@@ -120,6 +120,30 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Theory]
+        [InlineData(202)]
+        [InlineData(203)]
+        [InlineData(204)]
+        public void NearTheUpperRange_ErrorNoLargerThanAtUnitScale(int exponent)
+        {
+            // near the top of the range a box is either expanded with the unit-scale bits or summed exactly, so the error
+            // against the exact sum can only shrink; with the gate at d^5 <= MaxValue, 4 pi d^5 overflowed for distances
+            // in (2^204.07, 2^204.8] and the second-order term was silently wrong (numerics review of #744)
+            double s = BitConverter.Int64BitsToDouble((long)(1023 + exponent) << 52);
+            DMesh3 unit = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 20 }.Generate().MakeDMesh();
+            DMesh3 m = new DMesh3(unit);
+            MeshTransforms.Scale(m, s);
+            var unitTree = new DMeshAABBTree3(unit, true);
+            var tree = new DMeshAABBTree3(m, true);
+            var rnd = new Random(4);
+            for (int i = 0; i < 1000; ++i) {
+                Vector3d q = new Vector3d(6 * rnd.NextDouble() - 3, 6 * rnd.NextDouble() - 3, 6 * rnd.NextDouble() - 3);
+                double errUnit = Math.Abs(unitTree.FastWindingNumber(q) - unitTree.WindingNumber(q));
+                double err = Math.Abs(tree.FastWindingNumber(s * q) - tree.WindingNumber(s * q));
+                Assert.True(err <= errUnit + 1e-12, $"2^{exponent}, query {i}: error {err} vs {errUnit} at unit scale");
+            }
+        }
+
         [Fact]
         public void FastWindingNumber_Reuse_And_ParallelBuildEqualsSerial()
         {

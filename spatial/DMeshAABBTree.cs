@@ -1814,11 +1814,12 @@ namespace g3
             double magnitude = Math.Max(Math.Abs(q.x), Math.Max(Math.Abs(q.y), Math.Abs(q.z)))
                 + Math.Max(Math.Abs(cc.x), Math.Max(Math.Abs(cc.y), Math.Abs(cc.z)));
             if (dist_qp > FWNBeta * cacheInfo.R + 3.552713678800501e-15 * magnitude) {
-                // (the expansion divides by the fifth power of the distance: only where that is a normal double, ie
-                // distances from about 2^-204 to 2^204. Below, it underflowed to 0 or a subnormal and the value was NaN,
-                // infinite or wrong (a sphere of size 2^-210: NaN for every query); the exact sum is right there)
+                // (the expansion divides by the fifth power of the distance (times 4 pi): only where that is a normal double,
+                // ie distances from about 2^-204 to 2^203.8. Below, it underflowed to 0 or a subnormal and the value was
+                // NaN, infinite or wrong (a sphere of size 2^-210: NaN for every query); above 2^1019, 4 pi d^5 overflows
+                // and the second-order term lost its d (x) d part (finite, 18 % off); the exact sum is right there)
                 double d2 = dist_qp * dist_qp, d5 = d2 * d2 * dist_qp;
-                return d5 >= 2.2250738585072014e-308 && d5 <= double.MaxValue;
+                return d5 >= 2.2250738585072014e-308 && d5 <= 5.617791046444737e306;
             }
 
             return false;
