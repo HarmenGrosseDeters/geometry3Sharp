@@ -1139,6 +1139,21 @@ namespace gs
             return dev;
         }
 
+        /// <summary>
+        /// the largest XY move of a catch point by the composite (its own snap and merge, the nudge onto the slope side, and
+        /// in a mixed run the partner snap): from the overlay's catch point (CatchLine.Points) to its final position, over this
+        /// composite and its partner, an upper bound (rounded up). Measured, not bounded: the own snap and the merge can add
+        /// up to almost 2 MinFeatureSize (TERRAIN.md 5.5, the proven catch-line bound)
+        /// </summary>
+        internal double MaxCatchMove()
+        {
+            double m = 0;
+            foreach (SlopeComposite c in Partner != null ? new[] { this, Partner } : new[] { this })
+                foreach (var kv in c.catchAt)
+                    m = Math.Max(m, SlopeMap.distance_up(c.O.CatchPoint(kv.Key).xy, kv.Value.xy));
+            return m;
+        }
+
         /// <summary> added to the slope surface's group ids (the second overlay of a mixed run: its pieces after the first's) </summary>
         public int GroupOffset;
         /// <summary> build the whole terrain with the region replaced (else only the replacement: Replaced are not in it) </summary>

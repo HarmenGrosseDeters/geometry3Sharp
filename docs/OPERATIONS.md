@@ -588,9 +588,14 @@ if (design.Status != TerrainSlopeDesign.Statuses.Success && design.Status != Ter
   instead of returning a violating surface.
 - **Within `Tolerance`.** The composite is within `Tolerance` of the clamp of the terrain and the slope (cut below
   the terrain, fill above it), except near the steps at the toe, the lateral limits and the cap, where the move of the
-  catch points shifts the step: within `UsedMinFeatureSize` in a single run, up to 1e-4 × the toes' size more at a
+  catch points shifts the step: within 2 × `UsedMinFeatureSize` in a single run, up to 1e-4 × the toes' size more at a
   toe crossing with `Direction` Auto. That is certified per composite: a
   composite whose catch points moved it too far fails with `SlopeViolation` (the message names the catch point).
+- **Catch-line accuracy.** Per segment `CatchLine.Uncertainty`, a local estimate ((`Tolerance` + `TerrainVerticalUncertainty`) /
+  gradient), and `CatchLine.ProvenUncertainty`, a proven bound: the true catch line lies within it of some segment, given
+  the certified `Tolerance` and the terrain's `TerrainVerticalUncertainty` (TERRAIN.md 5.5). It is up to about 2 × the
+  estimate. Places where slope and terrain come within that band away from the computed line are
+  `CatchLineBandWithoutLine`. `RequiredCatchLineAccuracy` is checked against the proven bound.
 - **Slopes** per toe segment (start and end, cut and fill): `SlopeSpec.Ratio(n)` (1:n), `Percent`, `Degrees`, `Rise`.
   Open toes (`Closed` false) have lateral limits; closed ones a side `Inside` or `Outside`.
 - **Statuses** and what to do (`StatusKind` says which kind a status is):
@@ -903,7 +908,7 @@ checked against the library's result in `SlopeCliTests`; the input format is in 
 g3cli dgm_tin dgm.asc dgm_tin.ply --epsilon 0.05 --breaklines benches.geojson
 g3cli slope dgm_tin.ply pit_toe.geojson pit_composite.ply --tolerance 0.05 --catch-lines pit_catch.geojson --region pit_region.ply
 #   -> "design_status": "success", "status_kind": "none", "complete": true, "cut_volume": ..., "fill_volume": 0,
-#      "catch_lines": [{"points": ..., "closed": true, "max_uncertainty": ...}], "min_feature_size": 0.0149, "attempts": 1, ...
+#      "catch_lines": [{"points": ..., "closed": true, "max_uncertainty": ..., "max_proven_uncertainty": ...}], "min_feature_size": 0.0149, "attempts": 1, ...
 g3cli slope dgm_tin.ply road.geojson part.g3mesh --tolerance 0.05 --direction auto --composite replacement
 g3cli slope dgm_tin.ply pit_toe.geojson local.g3mesh --tolerance 0.05 --local-frame     # outputs local: add "used_origin"
 ```

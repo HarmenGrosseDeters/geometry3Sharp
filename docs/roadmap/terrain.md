@@ -46,8 +46,10 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
-  Resumed 2026-11-12 (owner; coordinator approved both, as separate PRs): the proven tan bound for `SlopeSpec.Degrees` in
-  its own PR (TERRAIN.md section 1; `Slope.IsNotSteeper` for angles is now conservative); the catch-line bound next.
+  Resumed 2026-11-12 (owner; coordinator approved both, as separate PRs). Tan bound (#757, merged 2026-11-13): the proven
+  lower bound for `SlopeSpec.Degrees` (TERRAIN.md section 1; `Slope.IsNotSteeper` for angles is now conservative).
+  Catch-line bound (2026-11-13, #761): `CatchLine.ProvenUncertainty` and `CatchLineBandWithoutLine`; `RequiredCatchLineAccuracy`
+  checks the proven bound (up to about 2x the estimate; +6 % slope time on the 24-gon wave benchmark).
 - **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13). Owner 2026-11-13:
   yes to the proposals (E1, the exterior distance, first; R2 attribution with the smaller slope on a boundary; an
   ε-approximation within the Tolerance budget). After ramps R1, not built yet.
