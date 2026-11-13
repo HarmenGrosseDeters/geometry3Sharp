@@ -98,6 +98,10 @@ namespace gs
         /// <summary> ms per phase of the last Compute() </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
 
+        /// <summary> stage A2 (in progress, internal): run the level-set side of the topology certificate </summary>
+        internal bool CertifyTopology = false;
+        internal MeshOffsetTopology Topology;
+
         public MeshOffset(DMesh3 mesh, double distance)
         {
             Mesh = mesh; Distance = distance;
@@ -252,6 +256,13 @@ namespace gs
                 return fail(Status.Empty);
             NonManifoldTriangles = dc.NonManifoldTriangles;
             SelfIntersectionFree = dc.SelfIntersectionFree;
+
+            Topology = null;
+            if (CertifyTopology) {
+                Topology = new MeshOffsetTopology(mesh, tree, d, origin, h, nx, ny, nz, n => f[n]);
+                Topology.Run();
+                phase("topology");
+            }
 
             // the band certificate, on the scaled copy
             int unc;
