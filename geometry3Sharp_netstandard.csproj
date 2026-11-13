@@ -82,6 +82,8 @@
     <InternalsVisibleTo Include="CoreMathBenchmark" />
     <!-- the topology certificate of the contouring (benchmarks/ContouringCertificate) -->
     <InternalsVisibleTo Include="ContouringCertificate" />
+    <!-- the interval path of the CCD solver (benchmarks/CcdBenchmark) -->
+    <InternalsVisibleTo Include="CcdBenchmark" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;

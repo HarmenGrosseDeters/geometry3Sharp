@@ -212,6 +212,14 @@ namespace gs
                 return false;
             double k1a, k1b, k2a, k2b;
             spec.Factors(out k1a, out k1b, out k2a, out k2b);
+            return IsNotSteeper(a, b, c, k1a, k1b, k2a, k2b);
+        }
+
+        /// <summary> IsNotSteeper with the factors of a valid spec (SlopeSpec.Factors) computed by the caller, for many triangles </summary>
+        internal static bool IsNotSteeper(Vector3d a, Vector3d b, Vector3d c, double k1a, double k1b, double k2a, double k2b)
+        {
+            if (finite(a) == false || finite(b) == false || finite(c) == false)
+                return false;
             bool degenerate;
             int sign = ExactSlopePredicates.SlopeSign(a, b, c, k1a, k1b, k2a, k2b, out degenerate);
             return degenerate == false && sign >= 0;

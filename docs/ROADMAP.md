@@ -100,7 +100,7 @@ Status on 2026-11-12 (evening, Berlin).
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
   machine: no kill data (Windows runner failure), so kills only in CI. Process since 2026-11-11 (owner): no full shards
-  on PRs, full shard runs nightly on master. Next: smaller test sets per shard from the exclusive kills. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
+  on PRs, full shard runs nightly on master. Smaller test sets per shard from the recorded killers: tool and guard in PR #777 (`tests/mutation/narrow_tests.py`); the guaranteed saving is large only on 3 of 18 measurable shards because Stryker records no killer for timeouts (`--timeouts one`, owner-approved, saves 50-100 % on 14 shards; Sunday run unfiltered). Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
   the shard's `mutate` filter only skips them (579 tested in boolean-1), so the coverage capture pays for every placed
   mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); the fix (only the shard's files are
   mutated) is in #615 (CI-speed session, open), with the 3.0 process (no full shards on PRs, scheduled full runs).
@@ -157,7 +157,7 @@ The next steps per topic, in order ("in progress" where a session works on them)
   repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4 merged (#670), L1 merged (#681, 2026-11-12), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report (in progress, started 2026-11-12), a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667, D #669
-  and E #672 merged; F (`offset`) in review, G next). [research.md](roadmap/research.md#open)
+  E #672, F #689 and G (`hull2d` #690, Minkowski #702) merged; the last PR #707 (`query3d --camera`) in review; `voxelize` dropped). [research.md](roadmap/research.md#open)
 - Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
   the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
   [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
