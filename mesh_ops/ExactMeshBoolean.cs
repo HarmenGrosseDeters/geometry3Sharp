@@ -4056,7 +4056,7 @@ namespace g3
                 Vector3d last = g[Seg[b - 1] + 1];
                 sum += last;
                 Vector3d c = sum / count;
-                double r = 0, l1 = 0, length = 0, abs = 0;
+                double r = 0, l1 = 0, length = 0, abs = 0, prods = 0;
                 Vector3d va = Vector3d.Zero;
                 for (int q = a; q <= b; ++q) {
                     Vector3d v = q < b ? g[Seg[q]] : last, w = q + 1 < b ? g[Seg[q + 1]] : (q + 1 == b ? last : g[Seg[a]]);
@@ -4066,15 +4066,20 @@ namespace g3
                     Vector3d cr = (v - c).Cross(w - c);
                     va += cr;
                     abs += cr.Length;
+                    prods += (v - c).Length * (w - c).Length;
                 }
                 cx.Add(c.x); cy.Add(c.y); cz.Add(c.z);
                 // (rounded up: the roundings of the differences, the squares and the root, relative a few ulps)
                 rr.Add(r * (1 + 1e-14));
                 vx.Add(0.5 * va.x); vy.Add(0.5 * va.y); vz.Add(0.5 * va.z);
-                aa.Add(0.5 * abs * (1 + (count + 4) * 4.5e-16));
-                // (the error of va per component: each cross product of two rounded differences within about 6 u of its
-                // size, the sum of count + 1 of them within (count + 1) u of the sum of the sizes: (count + 8) u of AAbs)
-                vaErr.Add(0.5 * abs * (count + 8) * 4.5e-16);
+                // (the error of va per component, review of #813: a cross product of two rounded differences errs by a few
+                // u times |v - c| |w - c|, not times its own size, which can be about 0 on a nearly straight run; the sum
+                // of count + 1 of them adds (count + 1) u of the sum of their sizes: (count + 8) 4.5e-16 times the sum
+                // of |v - c| |w - c|, as an absolute bound; AAbs, rounded up by the same absolute amount, bounds the true
+                // unsigned area)
+                double vaError = 0.5 * prods * (count + 8) * 4.5e-16;
+                vaErr.Add(vaError);
+                aa.Add(0.5 * abs + vaError);
                 len.Add(length * (1 + (count + 4) * 4.5e-16));
                 m1.Add(l1);
                 if (b - a > LeafSegments) {
@@ -4120,8 +4125,8 @@ namespace g3
         /// as above, and fullBound, an upper bound of the bound the full sum (antipodal_sum) gets with this ray at the exact
         /// point: the leaves' terms with their hypot lowered by twice their tol (the displacement to the exact point), the
         /// node's segments with hypot at least sqrt(2 (1 + cos 2 alpha)) (1 - cos beta) (num^2 + den^2 = 2 (1 + A.B)
-        /// (1 + A.x1) (1 + B.x1), beta the smallest angle between -x1 and the cap) and |theta| summing to at most
-        /// pi Len / (d - r). Where it is at most 1e-6 the full sum gives a value with this ray, so a value of the tree that
+        /// (1 + A.x1) (1 + B.x1), beta the smallest angle between -x1 and the cap) and |theta| at most 2 pi per
+        /// segment (a principal value of 2 atan2). Where it is at most 1e-6 the full sum gives a value with this ray, so a value of the tree that
         /// decides the threshold decides the full sum's: the caller requires it, so that a piece the full sum leaves
         /// undecided (every ray above its bound) stays undecided (bit-identical)
         /// </summary>
@@ -4170,7 +4175,10 @@ namespace g3
                             if (beta > 0) {
                                 double hmin = Math.Sqrt(2 * (1 + Math.Cos(2 * alpha))) * (1 - Math.Cos(beta)) * (1 - 1e-12);
                                 double tolU = tolNode * 1.01;
-                                errU += hmin > 2 * tolU ? nk * (4 * tolU / (hmin - 2 * tolU) + 2 * PortableAtan2Error) : double.PositiveInfinity;
+                                // (at the exact point hypot is at least hmin - 2 tol: (num, den) move by at most sqrt 2 tol; the term's
+                                // error derivation needs hypot above 2 sqrt 2 tol, so at least 3 tolU here, whatever the gate's
+                                // constant; review of #813)
+                                errU += hmin > 3 * tolU ? nk * (4 * tolU / (hmin - 2 * tolU) + 2 * PortableAtan2Error) : double.PositiveInfinity;
                             } else
                                 errU = double.PositiveInfinity;
                             // (|theta| of any term is at most 2 pi: a principal value of 2 atan2)
@@ -4201,7 +4209,9 @@ namespace g3
                         double tt, hy;
                         if (tree_term(segments[s], segments[s + 1], p, pm, x1, pointError, directionError, out th, out te, out tt, out hy) != 0)
                             return 3;
-                        errU += hy > 2 * tt ? 4 * tt / (hy - 2 * tt) + 2 * PortableAtan2Error : double.PositiveInfinity;
+                        // (the full sum's term at the exact point: its tol is at most tt, having no pointError or
+                        // directionError, and its hypot is within sqrt 2 tt < 2 tt of hy)
+                        errU += hy > 3 * tt ? 4 * tt / (hy - 2 * tt) + 2 * PortableAtan2Error : double.PositiveInfinity;
                         absU += Math.Abs(th) + te;
                         sum += th;
                         abs += Math.Abs(th);
@@ -4229,7 +4239,7 @@ namespace g3
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int tree_term(Vector3d sa0, Vector3d sb0, Vector3d p, double pm, Vector3d x1, double pointError, double directionError,
+        internal static int tree_term(Vector3d sa0, Vector3d sb0, Vector3d p, double pm, Vector3d x1, double pointError, double directionError,
             out double theta, out double termError, out double tol, out double hypot)
         {
             theta = 0;
@@ -4247,7 +4257,10 @@ namespace g3
                 return 3;
             a /= la;
             b /= lb;
-            if (1 + a.Dot(b) <= tol)
+            // (at a displaced point, L2's approximated centroid, the full sum at the exact one must not take its status-1
+            // test 1 + a.b <= tol there either: 1 + a.b moves by at most about tol between the two, so twice tol; review
+            // of #813)
+            if (1 + a.Dot(b) <= ((pointError > 0 || directionError > 0) ? 2 * tol : tol))
                 return 3;
             double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
             if (Math.Abs(num) <= tol && den <= tol)

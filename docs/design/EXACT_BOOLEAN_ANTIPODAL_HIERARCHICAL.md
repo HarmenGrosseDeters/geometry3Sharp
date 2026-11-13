@@ -76,6 +76,11 @@ the time differ.
   - "the ray through the segment" needs `num ≈ 0, den ≤ tol`, which the cone test excludes.
 - So the hand-over sees exactly the cases where today's sum would return 1 or 2, or more. In the extra cases, today's
   sum then gives 0 and its value.
+- At L2's approximated centroid (pointError > 0), the leaf tests run at the approximation, not at the exact centroid
+  where the full sum runs. tree_term therefore requires 1 + a·b > 2 tol there instead of > tol: 1 + a·b moves by at most
+  about tol between the two points, so the full sum's status-1 test cannot fire at the exact centroid where the tree
+  admits (review of #813). The other tests are covered by fullBound: a failure of "ray through the segment" at the
+  exact point leaves hypot within about 3 tol, which makes fullBound refuse.
 
 ## 3. The sum over a cluster
 
@@ -203,7 +208,7 @@ a value with this ray (`tree_decides`). The bound is built as follows:
   - for unit vectors, num² + den² = 2 (1 + A·B)(1 + A·x1)(1 + B·x1);
   - with A and B in the cap of angular radius α, and β the smallest angle between −x1 and the cap (minus the margin),
     hypot ≥ sqrt(2 (1 + cos 2α)) (1 − cos β);
-  - the |θ| of the node's terms sum to at most π Len/(d − r).
+  - the |θ| of each of the node's terms is at most 2π, the bound of a principal value of 2 atan2.
 
 With this, 112798 has its base hash again (34 undecided). The property test checks that wherever fullBound admits a
 value, the full sum gives one within fullBound. It also covers rays just past a segment's end, where the full sum
