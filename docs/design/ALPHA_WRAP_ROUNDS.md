@@ -1,6 +1,6 @@
 # Alpha Wrap 3.0 lever (B): round-based parallel carving, guarantee and determinism note
 
-Status: design note for review before the build (owner's lever choice 2026-11-12, docs/roadmap/alpha-wrap-and-repair.md,
+Status: reviewed 2026-11-13 (independent review via the coordinator; its three apply / push fixes and comments folded in), basis of the build (owner's lever choice 2026-11-12, docs/roadmap/alpha-wrap-and-repair.md,
 "Lever choice"; the owner required a guarantee argument for (B)). Builds on the AW3 probe (`aw3/B/` on runs/alpha-wrap-3:
 `GUARANTEE-NOTE.md`, `rounds_probe.patch`, `rounds_tail.txt`) and the performance study (`aw3study/REPORT.md` on
 runs/alpha-wrap-3-fable). Paper references are to Portaneri et al. 2022 as summarized in
@@ -15,8 +15,10 @@ serial (study, section 2a: queries, Delaunay and bookkeeping a third each).
 
 (B) processes the queue in **rounds**. A round:
 
-1. **Pop** (serial): the next W gates from the heap, in heap order (W a fixed constant, section 5). Gates that are stale by
-   the existing stamp / label test are dropped as today.
+1. **Pop** (serial): up to W gates from the heap, in heap order (W a fixed constant, section 5). Gates that are stale by
+   the existing stamp / label test are dropped as today (they count towards W). The first non-stale gate is admitted
+   unconditionally; after it, the heap top is peeked and popped only if its key is at least `RoundKeyBand` times the first
+   gate's key (section 3; a NaN key never passes the comparison, so it only enters a round as its first gate).
 2. **Evaluate** (parallel, read only): for every gate of the round, against the triangulation as it is at the start of
    the round: the Phi(f) re-check, the dual edge, rule 1, the touch test, rule 2, and for a gate that inserts a point p
    the conflict region of p (the cavity: the cells whose circumsphere strictly contains p, grown to be star-shaped as in
@@ -29,15 +31,19 @@ serial (study, section 2a: queries, Delaunay and bookkeeping a third each).
    - insertion: R = W = {c, n} + the cavity + the cavity's outer neighbours (their adjacency changes);
    - a gate that writes nothing (Phi(f) no longer above alpha: dropped; changed Phi(f): re-queued; rule 2 found no
      point, or `Insert` would reject the point: the facet stays): R as for its kind, W empty.
-   The first gate of a round that survives the stale test is always kept (nothing is marked yet).
+   The first gate of a round that survives the stale test is always kept (nothing is marked yet). A carve gate whose n
+   lies in an earlier kept gate's cavity is deferred through n in R. The labels of new cells are Inside and read nothing.
 4. **Apply** (parallel over the kept gates, writes disjoint by step 3): insertions with the cell and vertex ids assigned
    serially in heap order before the parallel step (section 4.3); carvings set label[c] = Outside.
 5. **Push** (parallel compute, serial push): the new gates of every kept gate, computed from the state after the round,
    pushed in heap order of the round (the facets of the new cells towards outside cells for an insertion; the facets of
-   c's inside neighbours towards c for a carving), then the deferred gates.
+   c's inside neighbours towards c for a carving; a kept gate whose Phi(f) changed goes back under its new key, at its
+   place in this order), then the deferred gates.
 
-The loop ends when the heap is empty, as today. Counters, `MaxSteinerPoints` (applied in heap order: the first kept
-insertion over the limit ends the round there and the loop with PointLimitReached), the cancellation check (once per
+The loop ends when the heap is empty, as today. Counters, `MaxSteinerPoints` (applied in heap order, as the serial loop checks it: when a
+kept gate's rule decides to insert, before `Insert` could reject the point, so a gate whose point `Insert` would reject
+counts too; the first such gate at the limit ends the round there, keeping the gates before it, and the loop with
+PointLimitReached), the cancellation check (once per
 round) and the `touched` / `changedSinceTrial` lists (appended in heap order) keep their meaning.
 
 ## 2. Serialization lemma
@@ -54,14 +60,15 @@ cell of R(g_j) exists in S_{j-1} with the same vertices, neighbours, labels and 
 
 - the Phi(f) re-check, the dual edge (circumcenters of c and n), the rule 1 query, the touch test (vertices of c), the
   rule 2 projection and its circumsphere test give the same values;
-- for an insertion, the conflict region of p in S_{j-1} is the cavity found in S_0. The strict conflict region of p is
-  the connected set of cells whose circumsphere strictly contains p that contains the cells containing p; the
-  star-shape growth adds a neighbour across every boundary facet that p does not see strictly from inside, a monotone
-  rule, so the grown region is its least fixed point and does not depend on the walk that located p or on the order of
-  the search. Every cell the search tested (the cavity and its outer neighbours) is in R(g_j) and unchanged, and an
-  earlier point p_i of the round is not inside the circumsphere of a cavity cell C of g_j (else C would be in p_i's
-  cavity, a write of g_i, contradicting disjointness). So the same cells test positive and the search stops at the same
-  boundary. The checks of `Insert` (outside the box, a vertex of the cavity removed, the nearest vertex closer than the
+- for an insertion, the conflict region of p in S_{j-1} is the cavity found in S_0. The cells of S_0 containing p are
+  cavity cells (a point of a closed tetrahedron other than a vertex lies strictly inside its circumball), so they are
+  unchanged in S_{j-1} and the walk there ends in one of them. From there the search (BFS over InSphere, then the
+  star-shape growth across every boundary facet that p does not see strictly from inside) only ever tests cavity cells
+  and their outer neighbours, all in R(g_j) and unchanged; so it tests the same cells with the same results and stops at
+  the same boundary. (The growth rule is monotone, so the grown region is its least fixed point and as a set does not
+  depend on the start cell or the search order.) No other cell of S_{j-1} can join: the search reaches a cell only
+  through a tested facet. Consistently, a cavity cell C stays a Delaunay cell of S_{j-1}, the serial result, so its open
+  circumball holds no earlier point p_i of the round. The checks of `Insert` (outside the box, a vertex of the cavity removed, the nearest vertex closer than the
   separation: the nearest vertex of p is a vertex of its cavity) read only the cavity and its boundary, so they agree;
 - a carving changes label[c] only; c is in no other kept gate's read set.
 
@@ -80,11 +87,12 @@ with the reason it does not depend on the order (paper notes section 2):
 
 | guarantee | why order-free |
 |---|---|
-| termination | Lemma 1 / 2 hold per insertion (the point lies inside the empty ball it breaks; its insertion radius is at least min(alpha, offset)), so the packing bound on the number of points holds for any order. Carvings: each changes a cell's label from inside to outside, at most once per cell id and stamp. Deferrals: each deferral is caused by a write kept earlier in the same round, so at most W per write; every round keeps at least one gate (step 3) and every kept gate is a popped gate of the serial algorithm. Finite. |
+| termination | Lemma 1 / 2 hold per insertion (the point lies inside the empty ball it breaks; its insertion radius is at least min(alpha, offset)), so the packing bound on the number of points holds for any order. Carvings: each changes a cell's label from inside to outside, at most once per cell id and stamp. Deferrals: at most W - 1 per round, and a round with a deferral has a kept gate that writes; a round that keeps no gate has popped only stale gates, each removed for good (still progress, as in the serial loop); every kept gate is a popped gate of the serial algorithm. Finite. |
 | closed, oriented | the result is the interface of a labelling of a partition of the box; each step carves whole cells. Per step. |
 | strict enclosure (no outside cell touches the input) | a cell that touches the input is never carved: the touch test is part of the gate's evaluation, which the lemma makes exact for the state the gate is applied to. Per step. |
-| separation of the Steiner points (min(offset, alpha - offset), up to rounding) and the derived angle bound sin(theta) > min(alpha, offset) / (2 alpha) | per insertion, from the empty ball of the cell the point breaks in the state it is inserted into (lemma). |
-| offset band [0, alpha + offset] and the size criterion (every final facet has Phi(f) < alpha) | from the end state: the heap is empty, so no traversable facet between an inside and an outside cell remains. This needs the invariant "every such facet has a valid gate in the heap or in the current round": an insertion pushes its new cells' facets, a carving pushes c's inside neighbours' facets towards c (step 5, from the state after the round, so a facet changed later in the round is pushed in its final form), a deferred gate goes back. |
+| separation of the Steiner points (min(offset, alpha - offset), up to rounding; as in master not for the rule 2 projection fallbacks, `Counts["projection_fallbacks"]`) | per insertion, from the empty ball of the cell the point breaks in the state it is inserted into (lemma). |
+| the derived angle bound sin(theta) > min(alpha, offset) / (2 alpha) | from the separation (per insertion) and the end-state size criterion (next row). |
+| offset band [0, alpha + offset] and the size criterion (every final facet has Phi(f) < alpha) | from the end state: the heap is empty, so no traversable facet between an inside and an outside cell remains. This needs the invariant "every facet between an inside and an outside cell with Phi(f) > alpha (`push_gate`'s filter) has a valid gate in the heap or in the current round": an insertion pushes its new cells' facets, a carving pushes c's inside neighbours' facets towards c (step 5, from the state after the round, so a facet changed later in the round is pushed in its final form), a deferred gate goes back. |
 | 2-manifold, no self-intersections | made by the pinch refinement and the final manifold step on the final labels, and checked by the result check (exact). Order-free. |
 | no contact with the input (raw: vertices on the offset surface; simplified: `Reducer.KeepClearOf`) | per result triangle, exact checks downstream; independent of how the raw wrap was produced. |
 | certification of the simplified wrap | runs on the result; unchanged. |
@@ -110,28 +118,42 @@ pushed serially in heap order. So the sequence of rounds and their kept sets are
 
 ### 4.2 Evaluation writes nothing shared
 - Oracle queries (`AlphaWrapOracle`) are read only (their hint is per query).
-- Caches: the circumcenter, touch and vertex distance caches are filled in a parallel pre-pass over the deduplicated
-  cells and vertices the round reads (each entry written by exactly one task, the same value as a serial fill), or
-  computed locally and written in the serial step; never written concurrently.
-- Point location: `Delaunay3.Locate` uses one shared xorshift state for its stochastic walk. The round's conflict search
-  uses a read-only variant with its own walk state, seeded from the gate's position in the round, and starts at c. The
+- Caches: the lazily filled caches (circumcenter `centerCache` / `centerStamp`, `cell_touches_input`'s touch cache,
+  the NaN-lazy `vertexDistance`) are never written in a parallel phase, neither in the evaluation (step 2) nor in the
+  push (step 5: `push_gate` -> `facet_empty_ball` -> `circumcenter`). Each parallel phase uses non-writing variants
+  (read the cache when its stamp matches, else compute locally), and values are written to the caches in a serial or
+  one-writer pass (each entry by exactly one task, the same value as a serial fill). A Vector3d entry and its separate
+  stamp are not written atomically, so concurrent lazy fills would allow torn reads.
+- Point location: `Delaunay3.Locate` uses one shared xorshift state for its stochastic walk and writes `LastWalkSteps`;
+  `Insert` sets `lastCell`. The round's conflict search uses a read-only variant with its own walk state, seeded from the
+  gate's position in the round, starts at c and writes none of these fields. The
   cavity found as a set does not depend on the walk (section 2); its order (the search order from the cell the walk
   ends in) is a function of the round-start state, p and the seed, the same for every thread count, so the new cell
   order below is fixed too.
-- Marks: per-task marks (a small open-addressed set per evaluation), not `Delaunay3.mark`.
+- Scratch: every scratch field of `Delaunay3.Insert` has a per-task copy in the round path: `cavity`, `boundary`,
+  `boundaryVerts`, `newCells`, `edgeLinks`, `vmark` / `vmarkValue`, `mark` / `markValue` (a small open-addressed set
+  per evaluation) and the walk state `rng`.
 - Floating point: every value is computed by one thread from the same operands in the same order as the serial
   reference; there is no reduction across threads.
 
 ### 4.3 Apply: ids assigned serially, writes disjoint
-Before the parallel apply, a serial pass over the kept insertions in heap order assigns: the vertex id (append to the
+The evaluation slot of an insertion stores, per boundary facet, everything the new cell needs, all read from S_0: the
+three vertex ids (oriented towards p), the outer neighbour and the facet index in that neighbour that faces the cavity.
+The apply builds the new cells only from the slot, never from `cv` / `cn` of cavity cells or `FacetTo` on the outer
+neighbour: a new cell can be written into a cavity id whose facets are still to be read, and `FacetTo(n, c)` can find
+the wrong facet when n borders two cavity cells and one id is reused (`Delaunay3.Insert` allocates before freeing for this
+reason). Before the parallel apply, a serial pass over the kept insertions in heap order assigns: the vertex id (append to the
 vertex list) and the new cell ids: first the gate's own cavity ids in cavity order, then ids popped from the free stack,
 then fresh ids (a cavity of T cells with no interior vertex and E_i interior edges has F = 2T + 2 - 2 E_i boundary
 facets; if F < T, the unused cavity ids go onto the free stack in this pass, in cavity order); the arrays
 (`Delaunay3` cells, labels, caches) are grown here. The parallel apply of gate g writes only: its cavity cells (reused
 ids), its fresh ids, and the neighbour entry of its outer neighbours (in W(g)); writes of different gates are disjoint by
-step 3. The edge links between new cells are found per gate (a local table). Stamps: incremented once per (re)used id, as
-`new_cell` does. Cell count, `lastCell` (the last kept insertion's first new cell) and the free stack are updated in the
-serial pass. Carvings write label[c] only.
+step 3. The edge links between new cells are found per gate (a local table). Who writes the per-cell fields: an id that
+a gate (re)uses for a new cell is written only by that gate in the apply (cv, cn, alive = true, mark, stamp incremented
+once, as `new_cell` does), so the stamp-keyed caches see the change; an id freed in the round and not reused by its own
+gate (a cavity id beyond F) is freed in the serial pass (`free_cell`: alive = false, cell count, free-stack push), and if
+a later gate of the same round takes it from the free stack, only that gate writes it in the apply. Cell count and
+`lastCell` (the last kept insertion's first new cell) are set in the serial pass. Carvings write label[c] only.
 
 ### 4.4 Push
 New gates are computed in parallel from the state after the round (read only) into per-gate lists and pushed serially in
@@ -171,6 +193,10 @@ size criterion are the same).
   hash from master).
 - Result checks on success paths: closed, manifold, no self-intersections, input strictly inside, vertices on the offset
   surface.
+- Round edge cases: an insertion with F < T whose freed id another gate reuses in the same round; an outer neighbour
+  adjacent to two cavity cells; two kept cavities sharing an edge / a vertex; cospherical growth in a round (lattice
+  points); `MaxSteinerPoints` reached mid-round right after a rejected insertion; the parallel push reaching an outside
+  cell shared by two gates. The determinism case within 5 s (or `Slow` with a reason).
 - Mutation checks: drop a cell from a read set, skip the deferral, push gates before the apply, use the shared walk
   state: the determinism or serialization tests must fail.
 - Numbers: tail 20 and a normal stratum on 4 cores (16 if available), and the 800 run on the runner as the gate.
