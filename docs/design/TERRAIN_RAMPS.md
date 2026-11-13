@@ -99,3 +99,46 @@ inclined level instead of a horizontal one:
 2. Is R1 cut only, with access ramps ending at daylight, or are fill embankments at the top of an access ramp
    needed in R1?
 3. Constant grade per ramp (R1), or a grade per path segment from the start?
+
+## R1 implementation plan (accepted by the coordinator 2026-11-13; hand-over)
+
+Branch `claude/terrain-ramps-r1` from master. The PR is opened only after #752, #757 and #761 are merged, with master
+merged in (not stacked). Tier L.
+
+1. **API (additive).**
+   - `SlopeRamp { Toe; Path; StartHeight; Grade; Width; Side }`: `Path` is the XY inner edge and starts on its toe;
+     `StartHeight` defaults to the toe's height there; `Grade` is Percent or Rise (exactly checkable).
+   - `TerrainSlopeDesign.Ramps`.
+   - A new status value `RampNotOnWall` (GeometricallyInfeasible).
+   - With `Direction` Fill or Auto a ramp is `NotImplemented` in R1.
+2. **Road surface Z_R.** z = StartHeight + g · arc length along the inner edge, constant across the road: one plane per
+   straight segment and a flat wedge at each bend vertex. The outer edge is the path offset by `Width` (`TerrainOffset`
+   or a direct offset of the polyline). A self-intersecting path or outer edge is `InvalidInput`, decided with exact
+   orientation tests.
+3. **Upper wall S_up.** The R1 envelope of the outer edge as an open toe with the road's heights: the existing strips,
+   end cones and lateral limits (`EndModes`). If the grade of the outer edge reaches the slope, the existing
+   `ToeSteeperThanSlope` reports it.
+4. **Combination.** F = min(S_lo, max(Z_R, S_up)), then the terrain clamp as today.
+   - Before building a TIN min/max step, check what `SlopeTerrainOverlay` and `SlopeComposite` already give: they
+     overlay two height-field TINs with exact signs of D = A − B at the overlay vertices and build
+     max(S_fill, min(T, S_cut)) with the region, snap and certificate logic. A Z_R-against-S_up overlay and an
+     S_lo-against-result overlay may reuse them with the roles of slope and terrain swapped. Record the reuse in the PR.
+   - The crest {S_lo = Z_R} comes out of the overlay exactly, as the catch line does.
+5. **Oracles on every success path.**
+   - Each slope triangle passes `IsNotSteeper` and the support check, as today, clipped parts included.
+   - Each road triangle passes `IsNotSteeper(Grade)`.
+   - The road is at least `Width` wide, by the exact minimum distance between crest and outer edge
+     (`TerrainSafetyLines.MinLineDistance`).
+   - The composite is valid: counter-clockwise, no XY overlaps, finite.
+6. **Tests.**
+   - Design cases: a straight ramp in a square pit; a ramp around a convex corner (the bend wedges); a ramp ending at
+     daylight.
+   - Statuses: `RampNotOnWall` (the road above the wall), `ToeSteeperThanSlope`, `InvalidInput`.
+   - Invariance over `Similarity.All()` in a `LocalFrame`, 2^k bit for bit.
+   - Reuse: `Compute()` twice.
+   - The campaign extended by random ramps on the T11 scenes.
+   - No parallel path, so no determinism test. Each new test is mutation-checked.
+7. **Benchmark.** One `TerrainBenchmark` row (a pit with a ramp), with the numbers in the PR.
+8. **Reviews.** An independent review. The bounds review of the min/max step is routed by the coordinator. No new
+   error bound is expected: the signs are exact, and the road's z is rounded once per vertex and enters the budget like
+   the toe heights.
