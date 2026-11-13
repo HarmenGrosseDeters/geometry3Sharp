@@ -88,11 +88,29 @@ stryker() {
   return $rc
 }
 
+# the config of a full run: narrowed to the tests that kill the shard's mutants if a current filter file
+# ($G3_TEST_FILTERS/<config name>, default tests/mutation/test-filters; narrow_tests.py, README "Narrowed test sets")
+# exists; else, or with G3_FULL_TESTS=1, the config itself (a stale filter says so and also falls back to it)
+full_config() {
+  local flt="${G3_TEST_FILTERS:-$here/test-filters}/$(basename "$config")"
+  if [ "${G3_FULL_TESTS:-0}" != 1 ] && [ -f "$flt" ]; then
+    local msg
+    msg="$(python3 "$here/narrow_tests.py" apply --config "$config" --filter "$flt" --repo "$(cd "$here/../.." && pwd)" -o narrowed-run.json)"
+    echo "test set: $msg" >&2
+    echo "test set: $msg" >> "$summary"
+    echo narrowed-run.json
+  else
+    echo "$config"
+  fi
+}
+
 full() {
   mkdir -p StrykerOutput
   touch StrykerOutput/full-run
-  echo "dotnet stryker --config-file $config"
-  stryker --config-file "$config"
+  local run
+  run="$(full_config)"
+  echo "dotnet stryker --config-file $run"
+  stryker --config-file "$run"
 }
 
 latest_report() {
