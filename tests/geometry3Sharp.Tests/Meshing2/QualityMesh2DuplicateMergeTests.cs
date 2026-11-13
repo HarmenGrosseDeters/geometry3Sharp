@@ -91,7 +91,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> under every similarity: identical inputs still share their target and the oracle accepts; at the exact similarities
-        /// (2^k scales) the mapping is the same (at least one rounding similarity keeps the case too) </summary>
+        /// (2^k scales) the mapping and the triangles are the same </summary>
         [Fact]
         public void IssueCase_UnderEverySimilarity()
         {
@@ -106,7 +106,7 @@ namespace geometry3Sharp.Tests
                 AssertDuplicatesShareTheirTarget(input, r.Mesh.InputToVertex, s.Name);
                 var report = Oracle.Check(input, new QualityMesh2Candidate().Run(input), new OracleExpect { Milestone = Milestone.M3 });
                 Assert.True(report.Ok, s.Name + ": " + report);
-                if (s.IsExact) Assert.Equal(r0.Mesh.InputToVertex, r.Mesh.InputToVertex);
+                if (s.IsExact) { Assert.Equal(r0.Mesh.InputToVertex, r.Mesh.InputToVertex); Assert.Equal(r0.Mesh.Triangles, r.Mesh.Triangles); }
             }
         }
 
@@ -118,8 +118,37 @@ namespace geometry3Sharp.Tests
             var mesher = new QualityMesh2 { MinAngle = 0, Conforming = false, SteinerLimit = input.SteinerLimit };
             var a = mesher.Compute(ConstrainedDelaunayMesh2Candidate.Convert(input));
             var b = mesher.Compute(ConstrainedDelaunayMesh2Candidate.Convert(input));
+            Assert.True(a.Status == Triangulation2Status.Success && b.Status == Triangulation2Status.Success);
+            AssertDuplicatesShareTheirTarget(input, b.Mesh.InputToVertex, "second run");
             Assert.Equal(a.Mesh.InputToVertex, b.Mesh.InputToVertex);
-            Assert.Equal(a.Mesh.Triangles.Count, b.Mesh.Triangles.Count);
+            Assert.Equal(a.Mesh.Triangles, b.Mesh.Triangles);
+        }
+
+        /// <summary> procedural: clusters of points within a few tolerances (2^-41 of the magnitude 1) inside the unit square, each point
+        /// then given again in a shuffled order; every duplicate shares its first occurrence's target. A duplicate of a point that merged
+        /// into another, or that has another point within the tolerance found first, merged elsewhere before </summary>
+        [Fact]
+        public void Clusters_DuplicatesMapToOneVertex()
+        {
+            var rnd = new Random(863);
+            const double tol = 1.0 / (1L << 41);
+            int failsWouldBe = 0;
+            for (int it = 0; it < 200; ++it) {
+                var x = new List<double> { 0, 1, 1, 0 }; var y = new List<double> { 0, 0, 1, 1 };
+                double cx = 0.25 + 0.5 * rnd.NextDouble(), cy = 0.25 + 0.5 * rnd.NextDouble();
+                int k = 4 + rnd.Next(6);
+                var cluster = new List<int>();
+                for (int i = 0; i < k; ++i) { cluster.Add(x.Count); x.Add(cx + 3 * tol * (rnd.NextDouble() - 0.5)); y.Add(cy + 3 * tol * (rnd.NextDouble() - 0.5)); }
+                foreach (int i in cluster.OrderBy(_ => rnd.Next()).ToList()) { x.Add(x[i]); y.Add(y[i]); }
+                var input = new Mesh2Input { X = x.ToArray(), Y = y.ToArray(), SteinerLimit = 1500 };
+                foreach (var e in new[] { (0, 1), (1, 2), (2, 3), (3, 0) }) input.Segments.Add(new SegmentInput(e.Item1, e.Item2));
+                var r = Mesh(input);
+                Assert.True(r.Status == Triangulation2Status.Success, "it " + it + ": " + r.Status);
+                AssertDuplicatesShareTheirTarget(input, r.Mesh.InputToVertex, "it " + it);
+                Assert.True(r.Mesh.Triangles.Count >= 2);
+                if (r.Diagnostics.Any(d => d.Contains("within the automatic tolerance"))) failsWouldBe++;
+            }
+            Assert.True(failsWouldBe > 100, failsWouldBe + " cases with a merge");
         }
     }
 }

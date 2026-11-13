@@ -271,12 +271,11 @@ namespace g3
                 var cells = new Dictionary<long, List<int>>(PairKeys.Comparer);
                 long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xffffffff);
                 int merged = 0;
-                var first = new Dictionary<(double, double), int>();
+                var first = new Dictionary<(double, double), int>(n);
                 for (int i = 0; i < n; ++i) {
-                    // (keyed by the input coordinates, before any merge moved them: -0 and 0 are one key, as the kernel's duplicate test)
-                    var at = (x[i] == 0 ? 0.0 : x[i], y[i] == 0 ? 0.0 : y[i]);
-                    if (first.TryGetValue(at, out int twin)) { x[i] = x[twin]; y[i] = y[twin]; continue; }
-                    first.Add(at, i);
+                    // (keyed by the input coordinates, before any merge moved them; Run has turned -0 into 0 already)
+                    if (first.TryGetValue((x[i], y[i]), out int twin)) { x[i] = x[twin]; y[i] = y[twin]; continue; }
+                    first.Add((x[i], y[i]), i);
                     double sx = Scaled(x[i] - ox), sy = Scaled(y[i] - oy);
                     long cx = (long)Math.Floor(sx / cell), cy = (long)Math.Floor(sy / cell);
                     int into = -1;
