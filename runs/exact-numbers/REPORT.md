@@ -600,6 +600,45 @@ coefficients as limbs in the classification stay parked until T3a's lever 1 (#76
 again with this probe; T3a has the sketch as information. (c) D goes on as a probe only; its files are T3a's, so a
 design goes to T3a and the coordinator before any code, and a PR only if the whole-operation gain clears the noise.
 
+## 5e. Candidate D, the probe: InCircle and Orient beyond the fixed width on stack limbs (2026-11-13)
+
+The arrangement decides `Orient` and `InCircle` on points that do not fit the fixed width (4 limbs per coordinate)
+with BigInteger determinants (`arr.orient.big`, `arr.incircle.big`). Prototype (`LimbProtoD.cs`,
+`proto_d_call_sites.patch`; on the head of #772, 93879ee, so on current master with B): the same determinants with
+`FixedArith` on stack limbs, the operands copied from the points' BigIntegers per call as in B
+(`EXACT_PROTO=incircle,orient`; with `check` every sign is compared with the BigInteger stage: 0 mismatches in
+117,093 stages of 107554's union). Scratch 120 (wv + wd) + 200 limbs for InCircle (wv, wd: the widest operand of the
+three points and of the fourth), 34 w + 32 for Orient; the widest call seen has wv + wd = 12 limbs; no call fell back.
+
+4 cores, timers off, wall time with collections, 5 alternating runs, medians (range); rows `results/d`:
+
+| case | operation | base | limbs | change | GC pause | allocated | hash equal | stages on limbs per operation (InCircle / Orient) |
+|---|---|---|---|---|---|---|---|---|
+| 55928 with its rotated copy | difference | 371.0 s (360.3-375.7) | 318.8 s (302.4-330.5) | -14.1 % | 83.8 -> 64.6 s | 180.1 -> 93.8 GB | yes | 12,426,168 / 1,093,971 |
+| 107554 | union | 21.4 s (20.7-22.1) | 21.1 s (20.8-21.6) | -1.4 % | 4.4 -> 4.4 s | 9.2 -> 8.8 GB | yes | 74,773 / 42,320 |
+| 107554 | intersection | 16.7 s (16.1-17.2) | 15.9 s (15.3-17.2) | -5.0 % | 4.2 -> 4.1 s | 8.5 -> 8.1 GB | yes | 74,773 / 42,250 |
+| 107554 | difference | 16.7 s (16.3-17.5) | 16.2 s (15.6-16.9) | -3.5 % | 4.4 -> 4.1 s | 8.5 -> 8.0 GB | yes | 74,773 / 42,251 |
+| 42327 | union | 22.3 s (21.2-24.1) | 23.2 s (22.7-24.1) | +4.1 % | 3.3 -> 3.4 s | 7.6 -> 7.4 GB | yes | 28,696 / 49,428 |
+| 42327 | intersection | 21.1 s (20.7-23.3) | 22.7 s (20.9-23.3) | +7.4 % | 3.3 -> 3.2 s | 7.3 -> 7.1 GB | yes | 28,696 / 50,727 |
+| 42327 | difference | 21.1 s (20.2-23.0) | 23.0 s (20.6-23.4) | +8.8 % | 3.2 -> 3.3 s | 7.4 -> 7.2 GB | yes | 28,696 / 49,584 |
+| normal, 20 pairs | 60 operations, sum of the medians | 6.28 s (6.30-6.43) | 6.10 s (6.00-6.32) | -2.8 % | | | 60 / 60 | 0 / 518 in all |
+| normal, 13 models with a rotated copy | 39 operations | 4.17 s (4.04-4.29) | 4.32 s (4.27-4.49) | +3.5 % | | | 39 / 39 | 0 / 1126 in all |
+
+Reading:
+- 55928 (the model on which this stage is the largest exact item): -14.1 %, the ranges do not overlap; the collector's
+  pause drops by 19 s and the allocation by 86 GB (48 %). Of the 52 s gained, 19 s are the pause.
+- 107554: -1.4 to -5.0 %, ranges overlapping: at most a small gain (the stage is 2.3 % of its one-thread time).
+- 42327: the medians are 4 to 9 % HIGHER with overlapping ranges. The prototype runs 78 thousand stages per operation
+  there (0.6 % of its one-thread time), which cannot cost seconds. Repeated on 42327 alone, 3 alternating rounds
+  (`only42327_*`): 24.1 -> 24.7 s, 20.9 -> 21.2 s, 20.6 -> 21.9 s (+2.5 %, +1.4 %, +6 %), ranges overlapping. No
+  mechanism found; counted as noise of this model on this machine (its run-to-run range is 10 %), and to be checked
+  again on a built version, which must not be slower there.
+- Normal strata: the stage is not reached (0 InCircle stages, under 30 Orient stages per operation); both differences
+  are inside the run-to-run range.
+
+So D is a gain for the class of 55928 (many InCircle tests on points beyond the fixed width) and nothing measurable
+elsewhere.
+
 ## 6. Literature (papers only)
 
 Marks: [V] checked against the paper or its abstract in this study, [S] from a citing paper or a search result.
