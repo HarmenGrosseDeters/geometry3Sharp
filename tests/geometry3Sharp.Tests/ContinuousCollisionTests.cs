@@ -284,17 +284,29 @@ namespace geometry3Sharp.Tests
             Assert.True(collisions > 50, $"{collisions} collisions");
         }
 
-        // G3: at the corners of the reported box every coordinate of the exact F is within bound
+        // G3: at the vertices of the reported box (clipped to the triangle u + v <= 1 for vertex-triangle) every
+        // coordinate of the exact F is within bound
         internal static void AssertNearBox(Query q, double[] box, double bound)
         {
-            for (int k = 0; k < 8; ++k) {
-                double t = box[(k & 1)], u = box[2 + ((k >> 1) & 1)], v = box[4 + ((k >> 2) & 1)];
+            var points = new List<(double t, double u, double v)>();
+            double u0 = box[2], u1 = box[3], v0 = box[4], v1 = box[5];
+            foreach (double t in new[] { box[0], box[1] }) {
+                foreach (var (u, v) in new[] { (u0, v0), (u1, v0), (u0, v1), (u1, v1) })
+                    if (q.VF == false || u + v <= 1) points.Add((t, u, v));
+                if (q.VF && u1 + v1 > 1) {
+                    // where u + v = 1 crosses the box boundary
+                    points.Add(u1 + v0 <= 1 ? (t, u1, 1 - u1) : (t, 1 - v0, v0));
+                    points.Add(u0 + v1 <= 1 ? (t, 1 - v1, v1) : (t, u0, 1 - u0));
+                }
+            }
+            for (int k = 0; k < points.Count; ++k) {
+                var (t, u, v) = points[k];
                 for (int axis = 0; axis < 3; ++axis) {
                     ExactDyadic f = ExactF(q, axis, t, u, v);
                     // compare with the bound rounded up by a relative 2^-50 (the bound is a computed double)
                     double b = bound * (1 + 1.0 / (1L << 50));
                     Assert.True(ExactDyadic.Compare(f, ExactDyadic.Of(b)) <= 0 && ExactDyadic.Compare(f, ExactDyadic.Of(-b)) >= 0,
-                        $"corner {k} axis {axis}: |F| > {b:R}");
+                        $"point {k} axis {axis}: |F| > {b:R}");
                 }
             }
         }

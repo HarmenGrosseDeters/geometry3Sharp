@@ -44,9 +44,17 @@ namespace g3
         public double TimeLimit = 1;
         /// <summary>
         /// once a near contact is found, the search stops refining when every box it has not discarded starts at most
-        /// this much before it (so NearContactTime - TimeOfImpact &lt;= TimeTolerance unless MaxIterations stops it)
+        /// this much before it (so NearContactTime - TimeOfImpact &lt;= TimeTolerance unless MaxTighteningIterations or
+        /// MaxIterations stops it)
         /// </summary>
         public double TimeTolerance = 1e-6;
+        /// <summary>
+        /// the number of boxes evaluated after a near contact is found, to bring TimeOfImpact up to it (see
+        /// TimeTolerance); when it runs out, TimeOfImpact stays the (correct, looser) smallest start of the boxes not
+        /// discarded. Near contacts with a minimum separation whose front is not axis-aligned can need many boxes, since
+        /// a box is discarded only when one coordinate separates it.
+        /// </summary>
+        public int MaxTighteningIterations = 4096;
 
         internal bool IsValid()
         {
@@ -54,7 +62,8 @@ namespace g3
                 && (double.IsNaN(Tolerance) || (Tolerance >= 0 && Tolerance < double.PositiveInfinity))
                 && RelativeTolerance >= 0 && RelativeTolerance < double.PositiveInfinity
                 && TimeLimit >= 0 && TimeLimit <= 1
-                && TimeTolerance >= 0 && TimeTolerance <= 1;
+                && TimeTolerance >= 0 && TimeTolerance <= 1
+                && MaxTighteningIterations >= 0;
         }
     }
 
@@ -152,6 +161,14 @@ namespace g3
         // corner values of the current box: corner k has t = bit 0, u = bit 1, v = bit 2 (lower or upper end); on the
         // interval path lo / hi of the interval, on the filter path both the computed value
         readonly double[] cornerLo = new double[24], cornerHi = new double[24];
+        // vertex-triangle boxes that cross u + v = 1: the corners outside the triangle are left out of the inclusion
+        // (they only steer the split), and the two points where the box boundary crosses u + v = 1 are added
+        // (values at 4 axis + 2 kt + j); F is affine in (u, v) for fixed t and affine in t for fixed (u, v), so the
+        // image of the box's part in the triangle lies in the hull of the values at the clipped polygon's vertices at t0
+        // and t1
+        readonly double[] extraLo = new double[12], extraHi = new double[12];
+        readonly double[] extraU = new double[2], extraV = new double[2];
+        int extraCount, insideMask;
 
         /// <summary> the smallest parameter interval that is still split: its halves' ends stay exact doubles
         /// (multiples of 2^-53 in [0, 1]) </summary>
@@ -196,9 +213,10 @@ namespace g3
             // a near box; once one is found, only the boxes that start more than TimeTolerance before it are refined.
             count = 0; seq = 0;
             push(new Box { t0 = 0, t1 = 1, u0 = 0, u1 = 1, v0 = 0, v1 = 1 });
+            int nearAt = 0;
             while (count > 0) {
                 Box b = heap[0];
-                if (haveNear && b.t0 >= near.t0 - o.TimeTolerance)
+                if (haveNear && (b.t0 >= near.t0 - o.TimeTolerance || iterations - nearAt >= o.MaxTighteningIterations))
                     break;
                 if (haveNear == false && b.t0 > o.TimeLimit)
                     break;
@@ -251,12 +269,12 @@ namespace g3
                         break;
                     }
                     if (wNext <= delta) {
-                        near = next; nearWidth = wNext; haveNear = true;
+                        near = next; nearWidth = wNext; haveNear = true; nearAt = iterations;
                         break;
                     }
                     split = choose_split(ref next, double.NaN);
                     if (split < 0) {
-                        near = next; nearWidth = wNext; haveNear = true;
+                        near = next; nearWidth = wNext; haveNear = true; nearAt = iterations;
                         break;
                     }
                     halves(ref next, split, out c1, out c2);
@@ -296,6 +314,7 @@ namespace g3
             if (vf && b.u0 > 1 - b.v0)
                 return true;
             ++iterations;
+            clip(ref b);
             for (int axis = 0; axis < 3; ++axis) {
                 double threshold;
                 if (useFilter) {
@@ -306,9 +325,14 @@ namespace g3
                     threshold = ms;
                 }
                 double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
-                for (int k = 0; k < 8; ++k) {
-                    lo = Math.Min(lo, cornerLo[8 * axis + k]);
-                    hi = Math.Max(hi, cornerHi[8 * axis + k]);
+                for (int k = 0; k < 8; ++k)
+                    if ((insideMask & (1 << (k >> 1))) != 0) {
+                        lo = Math.Min(lo, cornerLo[8 * axis + k]);
+                        hi = Math.Max(hi, cornerHi[8 * axis + k]);
+                    }
+                for (int j = 0; j < 2 * extraCount; ++j) {
+                    lo = Math.Min(lo, extraLo[4 * axis + j]);
+                    hi = Math.Max(hi, extraHi[4 * axis + j]);
                 }
                 // every exact corner value lies in [lo - e, hi + e] (filter; threshold >= ms + e) or in [lo, hi]
                 // (intervals; threshold = ms); NaN bounds never discard: the comparisons are false
@@ -398,6 +422,26 @@ namespace g3
                 errorBound = Math.Max(errors[0], Math.Max(errors[1], errors[2]));
         }
 
+        // the (u, v) corners inside the domain (bit kuv = u bit | v bit << 1) and, for a vertex-triangle box that
+        // crosses u + v = 1, the two crossing points of its boundary. 1 - u and 1 - v are exact (multiples of 2^-53 in
+        // [0, 1]), so the points are exact and the inside tests too. The box's corner (u0, v0) is inside (evaluate).
+        void clip(ref Box b)
+        {
+            insideMask = 15;
+            extraCount = 0;
+            if (vf == false || b.u1 <= 1 - b.v1)
+                return;
+            bool in1 = b.u1 <= 1 - b.v0, in2 = b.v1 <= 1 - b.u0;   // (u1, v0) and (u0, v1); (u1, v1) is outside
+            insideMask = 1 | (in1 ? 2 : 0) | (in2 ? 4 : 0);
+            // where the line u + v = 1 leaves the box: through the right edge (u = u1) or the bottom edge (v = v0) ...
+            if (in1) { extraU[0] = b.u1; extraV[0] = 1 - b.u1; }
+            else { extraU[0] = 1 - b.v0; extraV[0] = b.v0; }
+            // ... and through the top edge (v = v1) or the left edge (u = u0)
+            if (in2) { extraU[1] = 1 - b.v1; extraV[1] = b.v1; }
+            else { extraU[1] = b.u0; extraV[1] = 1 - b.u0; }
+            extraCount = 2;
+        }
+
         // corner values of F on one axis in doubles, in the order of operations bound B1 was derived for:
         // d_i = end_i - start_i (prepare_filter), x_i = start_i + t * d_i, e0, e1, e2 differences of the x_i, and
         // F = (e0 - u * e1) - v * e2 (vertex-triangle) or (e0 + u * e1) - v * e2 (edge-edge)
@@ -419,6 +463,12 @@ namespace g3
                     cornerLo[8 * axis + k] = f;
                     cornerHi[8 * axis + k] = f;
                 }
+                for (int j = 0; j < extraCount; ++j) {
+                    double u = extraU[j], v = extraV[j];
+                    double f = (e0 - u * e1) - v * e2;
+                    extraLo[4 * axis + 2 * kt + j] = f;
+                    extraHi[4 * axis + 2 * kt + j] = f;
+                }
             }
         }
 
@@ -431,6 +481,7 @@ namespace g3
             vf = vertexTriangle; ms = 0;
             prepare_filter();
             var b = new Box { t0 = t0, t1 = t1, u0 = u0, u1 = u1, v0 = v0, v1 = v1 };
+            extraCount = 0;
             for (int axis = 0; axis < 3; ++axis) {
                 corners_filter(axis, ref b);
                 errorsOut[axis] = errors[axis];
@@ -460,6 +511,12 @@ namespace g3
                     int k = kt | (kuv << 1);
                     cornerLo[8 * axis + k] = f.Lo;
                     cornerHi[8 * axis + k] = f.Hi;
+                }
+                for (int j = 0; j < extraCount; ++j) {
+                    ExactInterval u = ExactInterval.Of(extraU[j]), v = ExactInterval.Of(extraV[j]);
+                    ExactInterval f = (e0 - u * e1) - v * e2;
+                    extraLo[4 * axis + 2 * kt + j] = f.Lo;
+                    extraHi[4 * axis + 2 * kt + j] = f.Hi;
                 }
             }
         }
