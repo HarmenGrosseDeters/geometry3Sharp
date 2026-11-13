@@ -3,7 +3,8 @@
 Status: study, docs only (2026-11-13). No library code. Owner decisions recorded in section 9; the dominance-trimming
 argument of option A is in [Appendix A](#appendix-a-the-enclosure-argument-for-review), revised after its review; the
 citation check is in section 3.5; the measurement that led to dropping option C is in section 4.2; the stop-rule
-measurement of option A and the next gates are in section 6.
+measurement of option A is in section 6; gates 2 and 3, the role of the oracle and the claims still to be reviewed
+(A7, the withdrawn A8, A9) are in section 6a and Appendix A.5 (2026-11-13, second round).
 
 ## 1. Question
 
@@ -83,9 +84,12 @@ be checked against the papers before the first code PR, as SOURCES.md requires.
   that the exact algorithm runs far below its worst case (secondary sources: about O(n^1.5 log n) on real meshes). An
   **approximate** variant merges adjacent windows; the abstract claims "bounded error" and the paper reports O(n log n)
   run time even for small thresholds; a later paper measured about 0.1% relative error. A *lower-bound property* of the
-  approximation prunes the exact frontier for point-to-point queries. The formal statement of the bound (per merge or
-  on the final distance, relative or absolute) is **not verified** (m): section 4 of the paper must be read before it
-  is relied on.
+  approximation prunes the exact frontier for point-to-point queries. Read 2026-11-13 (section 4): the error is an
+  accumulated per-window value xi' = max(xi0, xi1) + DeltaD, where DeltaD is the largest change of the distance function
+  over the merged window; a merge is allowed only if xi' / D(p) <= eps_rel at that point (plus a local bound); the
+  paper calls the accumulation "rather conservative". The approximate distance is proven to be a lower bound of the
+  exact one (their Appendix A). Overlapping windows are cut at the single solution of a quadratic (section 3.3);
+  pseudo-source windows go only into the region not already "illuminated" (section 3.2).
 - S.-Q. Xin, G.-J. Wang, *Improving Chen and Han's algorithm on the discrete geodesic problem*, ACM TOG 28(4),
   104:1-104:8, 2009, DOI 10.1145/1559755.1559761. ICH: Chen-Han with a priority queue and a filter that discards a window if a vertex already has a smaller
   distance to the window's region; faster than MMP with considerably less space (the abstract); O(n^2 log n) worst case (m). CGAL's
@@ -93,7 +97,9 @@ be checked against the papers before the first code PR, as SOURCES.md requires.
 - Y. Qin, X. Han, H. Yu, Y. Yu, J. Zhang, *Fast and exact discrete geodesic computation based on triangle-oriented
   wavefront propagation*, ACM TOG 35(4) (SIGGRAPH 2016), DOI 10.1145/2897824.2925930 (the author list of the first
   draft of this note was wrong). VTP: triangle-oriented region growing, window pruning synchronised across the edges of
-  a triangle (m: the exact pruning rules); the abstract reports 4-15 times faster than MMP and ICH, 2-4 times faster
+  a triangle; the rules rest on Proposition A.1 of its appendix, eight observations (a)-(h), each a strict inequality
+  between path lengths at one point (eg where a ray of one window meets the line from the other window's source), by
+  planar geometry (read 2026-11-13; restated in interval form in Appendix A.5, A9); the abstract reports 4-15 times faster than MMP and ICH, 2-4 times faster
   than FWP-MMP / FWP-CH, the least memory, O(n^2) time. A replicability review measured 4.8 s on a 474K-triangle mesh,
   matching the paper.
 - P. Trettner, D. Bommes, L. Kobbelt, *Geodesic distance computation via virtual source propagation*, Computer Graphics
@@ -182,6 +188,18 @@ Lanthier bound's form, Xin-Ying-He 2012, Belyaev-Fayolle 2015, the heat method's
 read MMP sections 3-4 (the lemma that shortest paths pass only through saddle and boundary vertices, used in Appendix
 A) and VTP's pruning section, from a copy the owner provides or a reachable host.
 
+**Second round (2026-11-13), full texts.** The owner allowed the paper hosts. Read as text (untrusted data, nothing
+executed): Surazhsky et al. 2005 (hhoppe.com) and Qin et al. 2016 (eprints.bournemouth.ac.uk). Not reachable: MMP 1987
+(www.cs.umd.edu/~mount/Papers/mmp-sicomp-87.pdf: HTTP 404, also with %7E), the AMS technical report (carleton.ca
+TR-99-10: HTTP 404), hub.hku.hk (HTTP 403), no open copy of Xin-Wang 2009; nothing worked around. Resolved: the error
+bound of the approximate MMP (section 3.1); VTP's pruning rules (section 3.1, Appendix A.5); the vertices a shortest
+path can pass through, as Surazhsky et al. cite MMP: "(1) boundary vertices, (2) saddle vertices which are vertices
+with total angle greater than 2 pi [...], and (3) parabolic vertices whose total angle equals 2 pi. Parabolic vertices
+typically do not require special treatment since their neighborhoods unfold isometrically" (their section 3.1). This
+confirms review point S1 (>= 2 pi) and is the basis of A7. Still (m), unread: MMP's own statement and its boundary
+case, ICH's Theorem 3.2 and worst case, the AMS point count and constants, the Lanthier bound's form, Xin-Ying-He 2012,
+Belyaev-Fayolle 2015, the heat method's convergence statement. Nothing that depends on them goes into library code.
+
 How others solve it: geometry-central / potpourri3d and libigl offer the heat method as the default and an MMP
 implementation as the exact option (m); CGAL offers ICH (m); none of them, to my knowledge, certifies the rounding of the
 exact method (m).
@@ -266,14 +284,14 @@ too much, so the first step measures the window count on procedural terrain and 
 
 - The heat method: no a-priori bound. The a-posteriori Lipschitz lower bound of 4.2 is proven but too weak to use;
   against the oracle of 4.1 its error becomes measurable on any mesh, not only on analytic ones. First numbers from the
-  plain-double exact probe of section 6 (`MeshGeodesicDistance` with default settings, one source in the centre or
+  plain-double exact probe of section 6, corrected 2026-11-13 (`MeshGeodesicDistance` with default settings, one source in the centre or
   near the ridge; errors in mesh units, edge length h):
 
   | mesh | vertices | h | heat - exact, mean \|.\| | max \|.\| |
   |---|---|---|---|---|
   | terrain (sum of sines, amplitude up to 8) 101 x 101 | 10201 | 1 | 0.37 | 3.42 |
   | the same terrain 201 x 201 | 40401 | 1 | 1.07 | 5.12 |
-  | ridge with 75 degree faces 161 x 161 | 25921 | 0.25 | 1.60 | 9.04 |
+  | ridge with 75 degree faces 161 x 161 | 25921 | 0.25 | 1.60 | 3.53 |
 
   This quantifies the documented "not guaranteed" gap of `TerrainSafety.AlongSurface` (raw grids, not its remeshed
   band; a benchmark on the TerrainSafety inputs follows with the oracle).
@@ -302,17 +320,22 @@ Not recommended: D (no bound, no gain over the existing heat method), E (cost), 
    peak memory and time. Stop rule: if the 10^5-vertex terrain needs more than 10 s in doubles or more than 2 GB, stop
    and fall back to option B. **Done 2026-11-13** (throwaway probe, not committed; MMP-style one-sided trimming on each
    edge side, trimming against the edge-end vertices, pseudo-sources emitted into every incident face; no VTP / ICH
-   filter, no compact storage, so pessimistic). Correct to 1e-13 on the plane, the noisy plane and the unrolled prism;
-   on small hill, saddle, sine and terrain grids never below the 3D distance nor above edge-Dijkstra; with and without
-   trimming the same up to 3.7e-10. Measured (net10 Release, this container; managed memory from the GC):
+   filter, no compact storage, so pessimistic).
+   **Corrected 2026-11-13:** the first probe classified each piece between two computed roots of the pair trimming by
+   its midpoint sign alone, with roots from an unstable quadratic formula, and was up to 1.08e-2 too high against an
+   untrimmed reference (41 x 41 terrain; the first check had covered only 21 x 21). Fixed by stable roots and by
+   removing a piece only if the signs at both of its ends and at its midpoint agree; all variants then agree with the
+   untrimmed reference to 7e-15. The numbers of the stop rule, from the corrected probe (which also merges adjacent
+   windows with the same origin and position, and tests whole pieces against the third vertex of the face beyond; net10
+   Release, this container; managed memory from the GC):
 
    | mesh | vertices | time | windows per edge | managed memory |
    |---|---|---|---|---|
-   | plane 101 x 101, centre source | 10201 | 0.45 s | 9.7 | 34 MB |
-   | terrain 317 x 317, centre / corner source | 100489 | 1.90 / 1.70 s | 4.9 | about 320 MB |
-   | rough terrain 317 x 317 (z noise +-0.3 h) | 100489 | 1.92 s | 4.8 | 314 MB |
-   | ridge with 75 degree faces 161 x 161 | 25921 | 0.73 s | 27 | 257 MB |
-   | ridge with 75 degree faces 317 x 317 | 100489 | 12.3 s | 51 | 1.49 GB (process peak 1.73 GB) |
+   | terrain 317 x 317, centre / corner source | 100489 | 3.25 / 2.97 s | 4.6 | about 250 / 280 MB |
+   | rough terrain 317 x 317 (z noise +-0.3 h) | 100489 | 3.3 s | 4.5 | 240 MB |
+
+   The plane and ridge rows of the first version of this table came from the defective probe; the gate-2 table of the
+   next change replaces them.
 
    The stop rule passes on its defined case (the 10^5 terrain); the steep ridge does not count against it
    (coordinator, 2026-11-13). Flat regions are the expensive case (many tying windows from one pseudo-source).
@@ -333,6 +356,50 @@ Not recommended: D (no bound, no gain over the existing heat method), E (cost), 
 Option C was dropped after its probe (4.2; section 9, decision 5).
 Option B is the fallback if the stop rule fires, and the better choice if many sources and huge meshes matter more
 than tightness.
+
+## 6a. Gates 2 and 3 (2026-11-13, throwaway probes, not committed)
+
+**Gate 2** (plain doubles; the 10^5 ridge at most 10 s and 2 GB). The probe of section 6 plus: merging of adjacent
+windows with the same origin and position (fragmentation on the plane from 8.6 to 1.0 windows per edge), a whole-piece
+test against the third vertex of the face beyond (the certified form of A4, not the lemma-based ICH / VTP filter).
+Exactness checked against a reference that emits from every flat vertex and neither merges nor uses the third vertex:
+
+| mesh | vertices | time | windows per edge | memory | result |
+|---|---|---|---|---|---|
+| plane 101 x 101 | 10201 | 0.15 s | 1.0 | 25 MB | exact (1e-13) |
+| terrain 317 x 317, centre / corner source | 100489 | 3.25 / 2.97 s | 4.6 | 250 / 280 MB | exact |
+| rough terrain 317 x 317 | 100489 | 3.3 s | 4.5 | 240 MB | exact |
+| ridge (75 degree faces), xy jitter 1e-3 h, 317 x 317 | 100489 | 6.6 s | 14.4 | 630 MB, peak 1.2 GB | exact (4e-9 at 161 x 161): **passes** |
+| ridge, exactly aligned with the grid, 317 x 317 | 100489 | 5.0 s | 10.0 | 530 MB | **not exact**: up to 9.75e-3 off at 161 x 161 |
+| the same with every flat vertex emitting | 100489 | 281 s | 199 | 5.9 GB | exact: **fails** the gate |
+
+Cause of the aligned row: the source lies on a grid row, so rays run exactly through rows of flat vertices on the fold
+lines; in plain doubles only emission from flat vertices (review S1) recovers them, at the cost above. The coordinator
+counted gate 2 as passed for non-degenerate data and made the aligned ridge an explicit case of gate 3.
+
+**Gate 3** (the interval prototype: outward-rounded intervals, disk positions (A.2), outer and inner intervals,
+terminal windows (M1), whole-piece certified pruning (A4), merging (A6), flat vertices emitting or not (A7)).
+Correctness: zero enclosure violations against the reference on the split square, plane, terrain, saddle (41 x 41) and
+the aligned ridge (81 x 81), in both settings; without flat-vertex emission the Lower gap on the aligned ridge is
+3.9e-12. Cost after the one optimisation step (a) (dead-window compaction per edge side, an overlap pre-filter, merging
+only nearly identical windows, otherwise subsumption; net10 Release, flat vertices not emitting):
+
+| mesh | vertices | before (a) | after (a) | windows per edge | target (information) |
+|---|---|---|---|---|---|
+| terrain 101 x 101 | 10201 | 2.1 s | 1.3 s | 4.3 | |
+| terrain 201 x 201 | 40401 | 8.0 s | 6.7 s | 4.3 | |
+| terrain 317 x 317 | 100489 | | 18.8 s | 4.4 | 10 s: missed |
+| ridge aligned 81 x 81 | 6561 | 16.2 s | 16.4 s | 37.5 | 2 s: missed |
+
+About 14 us per window on the terrains (about 5 times the double probe), spent in the certified pair and vertex tests;
+on the aligned ridge the flat regions produce ties (equal distance functions from different windows) that no certified
+test removes, so the window count and the list scans (20.7M) dominate. Upper is loose on flat regions (up to 13%
+relative on the ridge, 6% on the plane: inner intervals rarely contain a vertex certainly); Lower is tight.
+
+**Decision (coordinator, 2026-11-13):** the certified interval version is a **test oracle for meshes up to about 10^4
+vertices** (decision 2's role); the 10^5 targets move to a later public class and are no longer a gate-3 criterion; no
+structural redesign of the flat-region ties without a new decision: it is an **open item, not started**. Before any library code, A7 and the replacement of
+the grazing rule (Appendix A.5) are reviewed; A8 is withdrawn.
 
 ## 7. Test plan (repo style)
 
@@ -433,6 +500,10 @@ effect measured in stage 1; S5 re-emission or tightening on a decrease of Upper(
 positions; S7 emission into every incident face; S8 open point 3 covered; S9 2^k away from overflow / subnormals, the
 rotation test kept.
 
+Second round (2026-11-13): gate 2 passed for non-degenerate data, the aligned ridge moved to gate 3; gate 3 decided
+as (c) the oracle up to about 10^4 vertices plus (a) one optimisation step (section 6a); A7 in constructive form and A9
+(VTP's rules in interval form) for review; A8 withdrawn (Appendix A.5).
+
 Appendix A holds the claims A1-A6 and the remaining assumptions. A claim added for a borrowed filter gets its own short
 review.
 
@@ -456,7 +527,8 @@ Revised after the review of 2026-11-13 (must-fixes M1, M2 and should-fixes S1-S9
   (|u x v| > 0 for a non-degenerate triangle), so it does not contain the origin, and the set of directions of a
   convex box not containing the origin is an arc whose ends are attained at corners; within (0, pi) there is no branch
   cut. (S3: the first draft argued by monotonicity in each argument, which is false in y.)
-- Fact F (MMP 1987, (m) for the boundary case): a shortest path from S to x is a polyline that is straight inside
+- Fact F (MMP 1987 [m]: MMP itself was not read; the statement is as Surazhsky et al. 2005, section 3.1, cite it,
+  including the parabolic vertices, read 2026-11-13): a shortest path from S to x is a polyline that is straight inside
   every face and across every edge (straight in the unfolding of two adjacent faces), and passes through a vertex other
   than its ends only if the vertex is a boundary vertex or has angle sum **>= 2 pi** (S1: a flat vertex, angle sum
   exactly 2 pi, can lie on a shortest path).
@@ -466,12 +538,28 @@ Revised after the review of 2026-11-13 (must-fixes M1, M2 and should-fixes S1-S9
 A **window** w lives on one side of an edge e and carries:
 
 - an origin o(w): a source or a pseudo-source vertex, with an interval [sigma-, sigma+] for d(o);
-- the unfolded origin in **intrinsic form** (S4): intervals for its distances to the two ends of e (as in MMP and
-  Surazhsky et al., distances to the window's ends), from which its position in the frame of e is reconstructed by the
-  law of cosines on each use. A box carried through a sequence of rotated frames would grow by up to a factor sqrt 2
-  per face (the wrapping effect); the intrinsic form recomputes the position from lengths in each frame instead. The
-  growth that remains is measured in stage 1 (box width along a long strip: the 169-degree plane, a long thin terrain
-  band), next to the window count;
+- the unfolded origin as a **disk** (S4, revised 2026-11-13): a centre c (doubles, in the frame of e) and a radius r
+  with the true unfolded position s* within distance r of c. The first draft proposed an intrinsic form (intervals for
+  the distances to the two ends of e, the position rebuilt by the law of cosines); measured in the prototype it is
+  unusable: rebuilding a position from two distances amplifies the width by about 2d / L per unfolding (d the distance
+  to the source, L the edge length), eg +-1e-8 after a few steps at d = 5, then unbounded. A box carried through
+  rotated frames grows by up to sqrt 2 per face (the wrapping effect). A disk does not: a rigid motion, a reflection
+  included, maps a disk onto a disk of the same radius. Per frame change (from edge e to edge e' of the face beyond,
+  e' with ends P, Q whose positions are interval boxes in the frame of e): the new centre is computed in doubles,
+  c' = R (c - p) with p, q the midpoints of the boxes and R the rotation (and reflection, so that the old face lies on
+  y < 0) taking the direction of q - p to +x. With delta_P, delta_Q the half diagonals of the two boxes (the true
+  P*, Q* lie within delta_P, delta_Q of p, q), the direction error is at most
+  alpha = 2 asin((delta_P + delta_Q) / (2 (|PQ| - delta_P - delta_Q))) (plus the rounding of the direction, 8 ulp(|PQ|) /
+  |PQ|), which needs delta_P + delta_Q < |PQ| (else the step fails with a status); its first-order form
+  (delta_P + delta_Q) / |PQ| may be used only with a margin for delta_P + delta_Q << |PQ|. Then
+  r' = r + delta_P + (|c - p| + delta_P + r) alpha + 16 (ulp terms), every term rounded upwards: the true image of s*
+  differs from c' by at most r (the old radius, preserved by the motion), delta_P (the shifted origin), the rotation
+  error alpha acting on |s* - P*| <= |c - p| + delta_P + r, and the rounding of the computed centre. (The review wrote
+  (|c - p| + delta_P) alpha; the r alpha term is added here since r is not negligible against |c - p| in general.) (Review of #807, S3: the first form lacked the cross term alpha delta_P and used box widths; the prototype's
+  widths were conservative but its cross term was missing.) So r grows additively by about (|c| + L) 1e-15 per step,
+  not multiplicatively. Measured on long bumpy strips (250, 1000 and 4000 x 3 vertices, unit spacing): the
+  radius relative to the distance rises to 1.2e-12 and then stays there up to 4000 edge lengths (by distance, log2
+  buckets: 4e-14, 8e-14, 1.4e-13, 2.5e-13, 5e-13, 1e-12, 1.1e-12, 1.2e-12, then 1.2e-12 to the end);
 - an outer interval O(w) and an inner interval I(w) of e (parameter intervals, clipped to e; I may be empty);
 - whether e is a boundary edge on w's side (a **terminal** window, M1): terminal windows are recorded like any other
   (edge ends, Lower, Upper, the pseudo-source trigger) but never propagated.
@@ -569,6 +657,100 @@ rotated 169-degree plane checks that the enclosures overlap.
    flat vertices (S1); gamma through a vertex that is certainly convex and not on the boundary is impossible by F (S8).
 4. Termination and cost are not part of the argument (limits with a status). Whether the uncertain regions stay small
    (they should: two windows with different origins are within rounding of each other only near a bisector point) and
-   how much the intrinsic positions widen along long strips (S4) are measurements of stage 1.
+   how much the positions widen along long strips (S4) were measured in stage 1: about 1.2e-12 relative, saturating
+   (A.2).
 5. Non-manifold input and degenerate triangles are refused with a status; the mollified metric is not used (owner
    decision 4).
+
+### A.5 Second round (2026-11-13): flat vertices, ties, grazing rays, borrowed filters (for review)
+
+Found while building the gate-3 prototype. A7 and A9 are proposed claims for the independent review; A8 is withdrawn.
+The prototype implemented an earlier form (an angle-sum stand-in for flatness, the implicit closure below, a sliver
+skip and A8); it was exact on every test mesh, but that is a measurement, not the argument.
+
+- **A7 (exactly flat vertices need not be pseudo-sources), constructive form.** S1 / A5 make every vertex that is not
+  certainly convex a pseudo-source; an enclosed angle sum of exactly 2 pi is never certainly below 2 pi, so every flat
+  vertex would emit (on the aligned ridge in plain doubles: 281 s instead of 5 s). Proposed instead:
+  *Exact flatness test* (decides angle sum = 2 pi exactly, without angles; all predicates exact, on the double
+  coordinates). Let n_0, ..., n_{k-1} be p's neighbours in fan order (n_k = n_0), at an interior vertex.
+  (i) *Coplanar fan:* every neighbour lies on the plane through p and two non-collinear neighbours (`Orient3d` = 0);
+  project onto a coordinate plane on which that plane projects regularly (a plane whose `Orient2d` of p and the two
+  neighbours is non-zero). Require every consecutive sector to turn the same way, `Orient2d(p, n_i, n_{i+1}) > 0` (each
+  sector angle in (0, pi)), and count the **winding**: with the reference ray from p through n_0, count the sectors i
+  that reach or pass the ray, ie `Orient2d(p, n_i, n_0) > 0` and (`Orient2d(p, n_0, n_{i+1}) > 0`, or n_{i+1} on the
+  ray: `Orient2d(p, n_0, n_{i+1}) = 0` with n_{i+1} - p in the direction of n_0 - p), the last sector (back to n_0)
+  included. The angle sum is 2 pi times that count; require exactly 1. One sign alone does not suffice (review of
+  #807, M1): eight sectors of 90 degrees turn the same way and wrap twice (4 pi, a saddle).
+  (ii) *Straight fold:* two neighbours a = n_0 and b = n_j lie on a line through p on opposite sides (`Orient3d` and
+  `Orient2d` collinearity exact, and (a - p).(b - p) < 0, exact); each half (n_0, ..., n_j and n_j, ..., n_k) is
+  coplanar with the line ab, and within its own plane every intermediate neighbour lies strictly on one side of the
+  line ab (constant non-zero sign of `Orient2d` against the fold line) with all consecutive sectors turning the same
+  way. Then each half goes from ray pa to ray pb without crossing the fold line, ie spans exactly pi, and the total is
+  2 pi.
+  Any other vertex that is not certainly convex stays a pseudo-source (S1).
+  *Continuation window.* When a window's ray through an exactly flat vertex p is possible (p lies in the outer
+  interval's image, ie the split point or an edge end of the window's propagation is uncertain about p), unfold p's fan
+  into the plane of the current face: by flatness the unfolding is single-valued (going around either side gives the
+  same positions). The straight continuations of the rays from the disk (c, r) through p form a cone with apex p; with
+  outward rounding it can meet the sectors of several fan faces (review of #807, S1). Create, in **every** fan face
+  whose sector the outward-rounded cone meets, a window on the edge opposite p with the same origin and sigma, its disk
+  transformed into that edge's frame, outer = the outward-rounded image of the cone in that face, inner empty.
+  *Proof sketch.* A shortest path gamma through an interior vertex p with angle sum exactly 2 pi is straight in the flat
+  unfolding of p's fan (review of #807, S2; Fact F is the context, MMP [m]): the two branches of gamma at p split the
+  fan into two sides whose angles sum to 2 pi; if one side had an angle below pi, that side unfolds into a planar
+  sector of angle below pi, and two points of gamma near p, one on each branch, are joined by a chord inside that
+  sector which is strictly shorter than the path through p, contradicting gamma being shortest; so both sides are at
+  least pi, hence exactly pi, and gamma is a straight line through p in the unfolding; its piece before p is carried by a window w whose outer image contains p (A3), its unfolded origin s* lies
+  in w's disk, and its continuation beyond p is the ray from s* through p, which lies in the cone and so hits the edge
+  opposite p in F_k inside the continuation window's outer interval; the lower bound there is at most d by the same
+  triangle-inequality argument as A3. So A3's chain continues past p without emission from p. Windows that pass p on
+  either side are unchanged; the continuation window only covers the ray through p itself.
+  *Grazing rays (replaces the sliver skip).* The case where a window's end ray runs exactly along the next edge (the
+  source in line with an edge PQ, the ray passing through P and running along PQ) is the ray through the vertex P (and,
+  at the far end, Q); it is covered by the continuation window at P (and Q) when they are flat, and by emission when
+  they are pseudo-sources. The prototype's skip of such slivers is withdrawn: it cut the sweep of windows around P on
+  one side, and nothing proved that the other side's sweep reaches the exit face.
+- **A8 (tie slack, Lower - F Delta_max): withdrawn.** The prototype dropped a piece of a new window w where an
+  inner-valid window b was better by at most Delta and subtracted F Delta_max from every Lower (F faces, since a
+  shortest path crosses each face at most once). That is not sound: the drop removes w's piece at gamma's crossing
+  y_i, and b's rays leave y_i in another direction, so b's descendants need not cover gamma's continuation; the real
+  path "b to y_i, then along gamma" is carried by no window. The face count bounds the number of drops, not this loss of
+  coverage. Ties are resolved only by subsumption (b's disk contains w's, sigma_b contains sigma_w, the outer pieces
+  inside b's: then L_b <= L_w pointwise and b's propagation covers w's rays) or by merging into a pending window (A6).
+  The subsumption drop is certified: |c_w - c_b| + r_w <= r_b with the left side rounded upwards, and the containments
+  sigma_b- <= sigma_w-, sigma_w+ <= sigma_b+, b.o0 <= piece start, piece end <= b.o1 as exact comparisons of doubles.
+  In the A7 setting the prototype needed almost no tie drops (0 on every test mesh, 8 on the 317 x 317 terrain).
+  Cost of withdrawing A8, measured on the 317 x 317 terrain (net10 Release, same prototype, tie slack 0 against
+  1e-12): 1320225 instead of 1320199 windows (+26), 21.5 s instead of 20.5 s (within the run-to-run variation), and a
+  much tighter enclosure (largest relative width 4.0e-8 instead of 2.5e-5, since the F Delta_max debt is gone). Drops
+  allowed from now on: certified dominance (A4); subsumption, which needs all three of the certified disk containment
+  |c_w - c_b| + r_w <= r_b (left side rounded upwards), sigma_b containing sigma_w, and w's outer pieces lying inside
+  b's outer interval (exact comparisons); and A6 merging. An accepted A9 rule would be a **fourth** kind of drop: it is
+  lemma-based (a VTP observation), not an instance of A4, and is used only after its own review.
+- **A9 (VTP's pruning in interval form), a proof sketch, unreviewed.** Qin et al. 2016, Proposition A.1, prove eight observations (a)-(h): with
+  windows w0, w1, sources p, q and pseudo-source distances sigma0, sigma1 in one plane, w1 is redundant if a strict
+  inequality between two path lengths holds at one constructed point, eg (a): where the line pK meets the upper ray of
+  w1 at K, if sigma0 + |pK| < sigma1 + |qK|. The observations are statements about real geometry. Restated: a rule
+  may remove w1 (or the sub-window named) only if (1) every geometric precondition (that the line meets the ray, the
+  order of points along an edge, a point lying on a segment's extension) is certified for all positions in the disks
+  and all sigma in their intervals, by outward-rounded evaluation, and (2) the strict inequality holds between the upper
+  enclosure of the left side and the lower enclosure of the right side. Then it holds for the true positions, and the
+  real-valued observation applies to them. Conditions for soundness in our setting (review of #807, M2):
+  *The dominating side must be realised geometry.* Its path length is enclosed with sigma0+ and over w0's whole disk
+  (so it bounds the path from the witness s0* of A1), and every precondition about w0's rays (where a ray of w0 meets
+  an edge, a line or another ray) is certified on w0's **inner** interval I(w0), not on O(w0): only rays through I(w0)
+  are real surface paths. *The dominated side* is enclosed with sigma1- and over w1's whole disk. That is enough: the
+  windows on a chain of A3 come from the final emission of their origin, so sigma1- <= d(o1) <= sigma1+ (A5), and a
+  window of an earlier (stale) emission lies on no chain, so removing it is harmless. The removed set is w1's outer
+  interval (or the named sub-window of it), which meets A4's whole-piece requirement because the observation concludes
+  redundancy of the whole (sub-)window.
+  *Template for each observation used* (one claim each, reviewed before use): the observation's statement; its
+  geometric preconditions written as predicates over the disks, with w0's rays restricted to I(w0); the inequality as
+  (left side)+ over w0's disk with sigma0+ < (right side)- over w1's disk with sigma1-; the removed set.
+  *Observation (a), written out:* K is constructed on the upper ray of w1 (the ray from w1's source through w1's upper
+  end); preconditions: for every q in w1's disk, K lies on that ray (beyond the edge, in the face where the observation
+  is applied), and the segment from w0's source to K is a ray of w0 through a point of I(w0) for every p in w0's disk
+  (the point where it crosses w0's edge lies in I(w0), certified), so p -> K is a real path for the witness; inequality:
+  (sigma0 + |pK|)+ over w0's disk < (sigma1 + |qK|)- over w1's disk. Observations (b)-(h) each need their written
+  interval form under this rule in their own reviewed claim before use; none is used before then.
+

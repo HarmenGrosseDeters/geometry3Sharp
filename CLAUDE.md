@@ -73,6 +73,15 @@ dotnet build benchmarks/<each>/<each>.csproj -c Release
 dotnet build tools/PredicateCompiler -c Release
 ```
 
+A change to a csproj, `tools/` or `docs/design` also runs the fast Python tool tests of the `linux` job (a test-project include that
+is missing from `SHARED` in `tools/ci_scope.py` fails there):
+
+```
+python3 -m unittest discover -s tools -p 'test_ci_scope.py'
+python3 -m unittest discover -s tools -p 'test_trx_durations.py'
+python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
+```
+
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
 is marked ready for review; the CI of every push runs it on GitHub anyway.

@@ -515,7 +515,9 @@ UVs are indexed by vertex id; all used vertices need finite entries. Every bound
 bit. The input mesh and UV list are unchanged and reread on each Compute. No atlas integration is enabled.
 
 Options: `MaxIterations` (200, zero retains the initial map), `InitialEpsilon` (1) and `MinimumEpsilon`
-(1e-12, positive and <= InitialEpsilon). The epsilon schedule is equation 6 of Garanzha et al.; no alternate
+(1e-12, positive and <= InitialEpsilon) and `EnergyDecreaseTolerance` (1e-3, in [0, 1)). The run stops when no triangle is
+invalid and one iteration lowers the energy by less than that fraction (Algorithm 1, line 11), provided the
+regularized energy is within the same fraction of the unregularized one; the guard is ours, see FOLDOVER_FREE.md. The epsilon schedule is equation 6 of Garanzha et al.; no alternate
 optimizer or free-boundary mode. `Success` requires finite UVs, zero flipped/degenerate triangles and finite
 symmetric Dirichlet distortion; it does **not** mean global injectivity or optimal distortion. Use
 `UVOverlap.Compute(mesh, result.UV)` separately. The result is the final iterate when it has no more invalid
