@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -501,7 +502,7 @@ namespace gs
                 if (d.x == 0 && d.y == 0 && K.IsAt(prefilterVerts[i], apex)) continue;
                 double near = 1e-11 * (Math.Abs(q.x) + Math.Abs(q.y) + Math.Abs(apex.x) + Math.Abs(apex.y)) / theta;
                 if (d.Length < near) { relevant.AddRange(fan); return; }
-                double a = Math.Atan2(d.y, d.x);
+                double a = CoreMath.Atan2(d.y, d.x);
                 if (double.IsNaN(refAngle)) { refAngle = a; continue; }
                 double r = wrap(a - refAngle);
                 lo = Math.Min(lo, r); hi = Math.Max(hi, r);
@@ -1652,7 +1653,7 @@ namespace gs
             Vector2d p = K.Approx(a), q = K.Approx(b), r = K.Approx(c);
             Func<Vector2d, Vector2d, Vector2d, double> angle = (x, y, z) => {
                 Vector2d u = y - x, w = z - x;
-                return Math.Abs(Math.Atan2(u.x * w.y - u.y * w.x, u.Dot(w)));
+                return Math.Abs(CoreMath.Atan2(u.x * w.y - u.y * w.x, u.Dot(w)));
             };
             return Math.Min(angle(p, q, r), Math.Min(angle(q, r, p), angle(r, p, q)));
         }
