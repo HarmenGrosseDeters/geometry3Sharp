@@ -48,9 +48,10 @@ jobs:
         id: build
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq libgmp-dev build-essential
-          # Pin CMake 3.31: the runner's preinstalled CMake 4.x rejects old policies in fTetWild's fetched dependencies
-          # (CMP0169 in the libigl eigen recipe, run 43509655424); 3.31 keeps the old behaviour for all of them at once
-          python3 -m venv "$RUNNER_TEMP/cmake" && "$RUNNER_TEMP/cmake/bin/pip" install -q "cmake==3.31.*"
+          # Pin CMake 3.29: the libigl eigen recipe fetched by fTetWild calls FetchContent_Populate, an error under policy CMP0169
+          # (CMake >= 3.30) once a project sets that policy NEW through its version range, so CMAKE_POLICY_DEFAULT_CMP0169 does not
+          # help (runs 43509655424 with CMake 4.4, 43514622318 with 3.31); 3.29 predates the policy
+          python3 -m venv "$RUNNER_TEMP/cmake" && "$RUNNER_TEMP/cmake/bin/pip" install -q "cmake==3.29.*"
           export PATH="$RUNNER_TEMP/cmake/bin:$PATH"
           cmake --version
           git clone --recursive https://github.com/wildmeshing/fTetWild.git ftw
