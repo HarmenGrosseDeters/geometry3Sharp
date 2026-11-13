@@ -183,13 +183,22 @@ Meshes outside the extent window, or far from the origin, are measured on copies
 rounds coordinates below 2^(e−1022) into the subnormal range, for any e > 0 on the copy path; on the offset path this
 already happens with e ≤ 64.
 
-Each copy vertex is then within sqrt(3)·2^-1075 of the exactly scaled one, so the copies' distance may be below the meshes'
-(scaled) by δ_A + δ_B ≤ sqrt(3)·2^-1074. With `CertifiedUpper` and e > 0 (`compute`):
-- **An upper bound ≥ 2^-1020** covers δ by itself. It is the maximum of terms that each end with one rounding up of a
-  rounded result: B1's `Up(Math.Sqrt)`, `up(...)`, and `HausdorffRounding.Up`. Each such term is at least half a step
-  above its exact value, and half a step at ≥ 2^-1020 is at least 2^-1073 > sqrt(3)·2^-1074.
-- **A smaller upper bound** gets 2^-1072 added, then rounded up.
-- The plain path (e = 0) and the exact shift (Sterbenz) do not round.
+`pow2` scales in two factors, so a coordinate can round twice; the error is at most 1.25·2^-1075 per coordinate
+(review: 5·2^-1074 at n = −3 gives 2 and then 0 against an exact 0.625·2^-1074). Each copy vertex is then within
+sqrt(3)·1.25·2^-1075 of the exactly scaled one. So the copies' distance may be below the meshes' (scaled) by
+δ_A + δ_B < 2^-1072.
+
+This is covered without a guard, because every certified triangle bound u has a large margin:
+- **B1 has a floor:** B1 ≥ 2^-537. The sum's `ExactInterval` evaluation widens its `Hi` at least to `Up(0)` = 2^-1074.
+- **So does every term built from it:** u0's leaves, u1 and u2, and `TriangleUpper` (`Up(u + off)`) are each ≥ 2^-537.
+- **Each ends with one rounding up of a rounded result** (`up`, `Up(Math.Sqrt)`, `HausdorffRounding.Up`), so it lies at
+  least half a step above its exact value. Half a step at 2^-537 is about 2^-590, far above 2^-1072.
+- **The reported bound covers every triangle with that margin.** `UpperBound` = max(Upper_ab, Upper_ba, L), and each
+  `Upper` = max(Lower, stuck, heap top). It is at least each kept triangle's u (heap top, stuck). For a pruned triangle
+  it is at least `Lower` ≥ u. Either way it lies ≥ 2^-590 above that triangle's maximum, which covers δ_A + δ_B.
+
+(Side effect of the floor: an absolute `Tolerance` below about 2^-537, in the copies' frame, cannot converge for meshes
+that touch. The `CertifiedUpper` doc says so.)
 
 ## 9. Cost
 
@@ -197,11 +206,13 @@ Measured with `benchmarks/HausdorffBenchmark`: the 18 cases of #738 section 4, s
 `CertifiedUpper`, median of 7 runs after a warm-up. The table is in its README.
 
 - **Time:** **+16 to +115%**, typically about +90%.
-  - The least is +27% to +40% on the reduced mesh of 21k triangles.
-  - The most is about +100% on small inputs, where the per-triangle bounds dominate.
+  - The least is +16% (spheres 6 vs 20, symmetric), then +27% to +40% on the reduced mesh of 21k triangles.
+  - The most is +115% (cube against sphere, one-sided); small inputs, where the per-triangle bounds dominate, are about
+    +100%.
   - Run-to-run noise in the container is about ±30%.
 - **Subdivisions:** the same in every case.
-- **Upper bounds:** a few ulps higher (1.7e-9 at UTM coordinates, where an ulp is 9.3e-10).
+- **Upper bounds:** within a few ulps of the coordinates of the default ones (1.7e-9 at UTM coordinates, where an ulp is
+  9.3e-10). They are mostly higher, but lower where the default overshoots (spheres6, symmetric: 2.7e-16 lower).
 - **Lower bounds:** the same, bit for bit.
 
 The cost is the certified distances (`ExactInterval`) of the witness leaves' points and the interval evaluation of u1 and

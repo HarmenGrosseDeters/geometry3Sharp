@@ -40,7 +40,8 @@ Summary:
 - **Time:** +16 to +115%, typically about +90%.
 - **Subdivisions:** the same.
 - **Lower bounds:** the same.
-- **Upper bounds:** a few ulps higher.
+- **Upper bounds:** within a few ulps of the coordinates of the default ones (mostly higher, lower where the default
+  overshoots).
 
 In the last row the default upper bound happens to hold. On such inputs it is below the exact distance in about 40% of
 random cases (`HausdorffCertifiedUpperTests`).
