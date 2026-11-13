@@ -487,8 +487,11 @@ trx, so no test was named. The net48 test steps (both shards and the Clipper2 pa
 - a test that runs 10 minutes (the suite's limit is 5 s, 10 s with the `Slow` tag) hangs the test host: vstest kills it and
   writes a mini dump (`*_hangdump*.dmp`) next to `Sequence_<guid>.xml` (the tests that started, `Completed="True"` once finished)
   into `test-results/`, which the `if: always()` artifact step uploads (`netstandard-results`, `netstandard-b-results`);
-- on .NET Framework vstest takes the dump with ProcDump: the step `Install ProcDump` installs it (Chocolatey) and sets
-  `PROCDUMP_PATH`; if that fails, the step is `continue-on-error` and the sequence file still names the test, only the dump is missing;
+- no ProcDump is needed: a forced hang on `windows-latest` (a test that sleeps forever, net48, `--blame-hang-timeout 1m`, run 43482696511 of
+  a probe branch, 2026-11-13) gave the same result with and without ProcDump (Chocolatey, `PROCDUMP_PATH`): the log says "The test running
+  when the crash occurred: <test>", and `probe.trx`, `Sequence_<guid>.xml` (305 bytes) and `testhost.net48_<pid>_<time>_hangdump.dmp` (2 MB)
+  are in the results directory. The step exits 1, so the job fails and the summary step runs. The timeout is an inactivity time (no
+  test finished for that long), not a limit per test;
 - the step `Blame summary` (`tools/blame_summary.py`, run when a step failed or the job was cancelled) lists the tests of the
   sequence files that did not complete in the job summary: the hang is in one of them (usually the last);
 - `--blame` also names the running test when the test host crashes. The trx of a healthy run is the same as before.
@@ -885,6 +888,13 @@ not depend on the implementer's own tests. Order of priority:
     triangulation-independent comparisons and orientation-preserving transformations, without changes to
     `ExactMesh*`. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
     unions of output edges.
+    Symmetry and cost relations (S1, C1, C2 of [METAMORPHIC_RELATIONS.md](design/METAMORPHIC_RELATIONS.md)):
+    `SymmetryInvarianceTests` maps the input by one of the 48 symmetries of the cube (`Harness/Symmetry.cs`; exact, 24 are
+    reflections that are re-wound) and compares the sweep operations (`RobustnessSweepTests.Ops`), `ExactMeshBoolean` and the 2D
+    mesher with the mapped result: bit for bit unless the operation is a classified row of `Toleranced` (with its reason); six
+    symmetries in the PR tier, all 48 in the nightly job (`Category=Nightly`). `CostInvarianceTests`: the output size on a
+    transformed copy is equal under the 2^k scales and at most twice as large otherwise (#664 as a rule, the 2D mesher and
+    `ExactMeshBoolean`), and the wall time of every sweep operation at most 20 times and 50 ms more (nightly).
 11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
     the build) on a Windows runner.
 12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in

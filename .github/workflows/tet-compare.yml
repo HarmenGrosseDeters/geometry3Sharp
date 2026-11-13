@@ -52,8 +52,10 @@ jobs:
           cd ftw && git checkout -q "${{ inputs.ftetwild_ref || 'master' }}" && git submodule update --init --recursive
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "matrix=$(python3 -c "import json; print(json.dumps(list(range(max(1, min(8, int('$SHARDS')))))))")" >> "$GITHUB_OUTPUT"
-          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release > ../../cmake.log 2>&1 && make -j"$(nproc)" > ../../make.log 2>&1 \
-            || { tail -60 ../../cmake.log ../../make.log; exit 1; }
+          # CMake 4 (ubuntu-latest) refuses projects that declare a minimum below 3.5 unless this policy floor is given
+          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 > ../../cmake.log 2>&1 \
+            && make -j"$(nproc)" > ../../make.log 2>&1 \
+            || { tail -n 60 ../../cmake.log; [ -f ../../make.log ] && tail -n 60 ../../make.log; exit 1; }
           bin=$(find . -maxdepth 2 -type f -name FloatTetwild_bin | head -1)
           mkdir -p ../../ftbin && cp "$bin" ../../ftbin/ && ../../ftbin/FloatTetwild_bin --help > ../../ftbin/help.txt 2>&1 || true
           ldd ../../ftbin/FloatTetwild_bin > ../../ftbin/ldd.txt
