@@ -612,7 +612,7 @@ namespace g3
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int leading_zeros(ulong x)
+        internal static int leading_zeros(ulong x)
         {
 #if NET
             return System.Numerics.BitOperations.LeadingZeroCount(x);

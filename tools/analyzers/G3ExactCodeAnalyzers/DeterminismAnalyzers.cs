@@ -139,7 +139,7 @@ namespace G3ExactCodeAnalyzers
     public sealed class DeterminismScopeAnalyzer : DiagnosticAnalyzer
     {
         public const string ApiId = "G3D0001", RestrictedId = "G3D0002", ConditionalId = "G3D0005", CastId = "G3D0006",
-            SkipLocalsInitId = "G3D0008", UnusedId = "G3D0009";
+            DirectiveId = "G3D0007", SkipLocalsInitId = "G3D0008", UnusedId = "G3D0009";
 
         /// <summary> the diagnostic property with the doc id that a diagnostic is about (the member used, or the member that holds the construct) </summary>
         public const string IdProperty = "id", MemberProperty = "member", CountProperty = "count";
@@ -159,15 +159,17 @@ namespace G3ExactCodeAnalyzers
             "Proof scope: {0} conditional-compilation block(s) in '{1}', registered: {2} (an 'if' line in " + DeterministicApiList.FileName + " with the test that checks both branches)");
         static readonly DiagnosticDescriptor CastRule = Rule(CastId, "Unregistered conversion of a double to an integer type",
             "Proof scope: {0} conversion(s) of a double to an integer type in '{1}', registered: {2} (out of range and NaN differ between runtimes; a 'cast' line in " + DeterministicApiList.FileName + " with the guard)");
+        static readonly DiagnosticDescriptor DirectiveRule = Rule(DirectiveId, "Directive that can switch off or bypass the scope's rules",
+            "Proof scope: '{0}' is not allowed in the scope (it can switch off a rule, change what is compiled or move a location)");
         static readonly DiagnosticDescriptor SkipLocalsInitRule = Rule(SkipLocalsInitId, "Unregistered [SkipLocalsInit]",
             "Proof scope: '{0}' skips the zeroing of its locals; register it ('skiplocalsinit' line in " + DeterministicApiList.FileName + ") with the argument that every element is written before it is read");
         static readonly DiagnosticDescriptor UnusedRule = Rule(UnusedId, "Unused or malformed allow-list line",
             "Proof scope: " + DeterministicApiList.FileName + " line {0}: {1}", WellKnownDiagnosticTags.CompilationEnd);
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics =>
-            ImmutableArray.Create(ApiRule, RestrictedRule, ConditionalRule, CastRule, SkipLocalsInitRule, UnusedRule);
+            ImmutableArray.Create(ApiRule, RestrictedRule, ConditionalRule, CastRule, DirectiveRule, SkipLocalsInitRule, UnusedRule);
 
-        static readonly string[] ScopeIds = { ApiId, RestrictedId, ConditionalId, CastId, SkipLocalsInitId, UnusedId };
+        static readonly string[] ScopeIds = { ApiId, RestrictedId, ConditionalId, CastId, DirectiveId, SkipLocalsInitId, UnusedId };
 
         public override void Initialize(AnalysisContext context)
         {
@@ -186,8 +188,7 @@ namespace G3ExactCodeAnalyzers
             public SyntaxTree FirstScopeTree;
             public readonly object Lock = new object();
             public bool NetDefined;
-            public readonly ConcurrentDictionary<string, int> CastCounts = new ConcurrentDictionary<string, int>();
-            public readonly ConcurrentDictionary<string, Location> CastLocations = new ConcurrentDictionary<string, Location>();
+            public readonly ConcurrentDictionary<string, bool> Directives = new ConcurrentDictionary<string, bool>();
         }
 
         static void Start(CompilationStartAnalysisContext ctx)
@@ -208,7 +209,9 @@ namespace G3ExactCodeAnalyzers
                 OperationKind.Increment, OperationKind.Decrement, OperationKind.Lock, OperationKind.Loop, OperationKind.Using,
                 OperationKind.InterpolatedString, OperationKind.Tuple, OperationKind.Await, OperationKind.AnonymousObjectCreation,
                 OperationKind.DynamicInvocation, OperationKind.DynamicMemberReference, OperationKind.DynamicObjectCreation,
-                OperationKind.DynamicIndexerAccess, OperationKind.Range);
+                OperationKind.DynamicIndexerAccess, OperationKind.Range, OperationKind.UsingDeclaration, OperationKind.RecursivePattern,
+                OperationKind.ListPattern, OperationKind.SlicePattern, OperationKind.TypeParameterObjectCreation);
+            ctx.RegisterOperationAction(c => OnFunction(c, s), OperationKind.LocalFunction, OperationKind.AnonymousFunction);
             ctx.RegisterOperationBlockStartAction(c => OnBlockStart(c, s));
             ctx.RegisterSemanticModelAction(c => OnModel(c, s));
             ctx.RegisterSymbolAction(c => OnSymbol(c, s), SymbolKind.Method);
@@ -244,9 +247,27 @@ namespace G3ExactCodeAnalyzers
             return s.OriginalDefinition.GetDocumentationCommentId();
         }
 
+        /// <summary> outside the scope: a member of another assembly, or of this one declared only in files outside the
+        /// scope (Vector3d, MathUtil, ...: the kernel inherits whatever they compute, so they are listed like the BCL) </summary>
         static bool External(State s, ISymbol member)
         {
-            return member != null && member.ContainingAssembly != null && !SymbolEqualityComparer.Default.Equals(member.ContainingAssembly, s.Compilation.Assembly);
+            if (member == null || member.ContainingAssembly == null)
+                return false;
+            if (!SymbolEqualityComparer.Default.Equals(member.ContainingAssembly, s.Compilation.Assembly))
+                return true;
+            ISymbol d = member.OriginalDefinition;
+            if (d is IMethodSymbol m && m.ReducedFrom != null)
+                d = m.ReducedFrom;
+            ImmutableArray<SyntaxReference> refs = d.DeclaringSyntaxReferences;
+            // (implicitly declared members, eg the default constructor of a struct: where their type is declared)
+            for (ISymbol t = d.ContainingSymbol; refs.Length == 0 && t != null; t = t.ContainingSymbol)
+                refs = t.DeclaringSyntaxReferences;
+            if (refs.Length == 0)
+                return false;
+            foreach (SyntaxReference r in refs)
+                if (InScope(s, r.SyntaxTree))
+                    return false;
+            return true;
         }
 
         /// <summary> a GetHashCode implementation: an override of object.GetHashCode or the implementation of an
@@ -288,8 +309,29 @@ namespace G3ExactCodeAnalyzers
                 case IDynamicInvocationOperation _: case IDynamicMemberReferenceOperation _: case IDynamicObjectCreationOperation _:
                 case IDynamicIndexerAccessOperation _:
                     return "construct:dynamic";
+                case ITypeParameterObjectCreationOperation _: return "construct:new-type-parameter";
+                case ISlicePatternOperation _: return "construct:slice-pattern";
+                case IBinaryOperation b when b.OperatorMethod == null && (b.OperatorKind == BinaryOperatorKind.Equals || b.OperatorKind == BinaryOperatorKind.NotEquals)
+                    && b.LeftOperand.Type?.SpecialType == SpecialType.System_String && b.RightOperand.Type?.SpecialType == SpecialType.System_String:
+                    return "construct:string-equality";
+                case IBinaryOperation b when b.OperatorMethod == null && (b.LeftOperand.Type?.TypeKind == TypeKind.Delegate || b.RightOperand.Type?.TypeKind == TypeKind.Delegate):
+                    return "construct:delegate-combination";
+                case ICompoundAssignmentOperation ca when ca.OperatorMethod == null && ca.Target.Type?.TypeKind == TypeKind.Delegate:
+                    return "construct:delegate-combination";
+                case ILockOperation l when l.LockedValue?.Type?.ToDisplayString() == "System.Threading.Lock":
+                    return "construct:lock-object";
             }
+            // predefined decimal operators and conversions are calls of System.Decimal
+            if ((op is IBinaryOperation || op is IUnaryOperation || op is IConversionOperation || op is ICompoundAssignmentOperation || op is IIncrementOrDecrementOperation)
+                && (IsDecimal(op.Type) || op.Children.Any(x => IsDecimal(x.Type))))
+                return "construct:decimal";
             return null;
+        }
+
+        static bool IsDecimal(ITypeSymbol t)
+        {
+            return t != null && (t.SpecialType == SpecialType.System_Decimal || (t is INamedTypeSymbol n && n.IsGenericType
+                && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && n.TypeArguments[0].SpecialType == SpecialType.System_Decimal));
         }
 
         static void OnOperation(OperationAnalysisContext c, State s)
@@ -310,6 +352,8 @@ namespace G3ExactCodeAnalyzers
                 case IConversionOperation v: if (v.OperatorMethod != null) used.Add(v.OperatorMethod); break;
                 case ICompoundAssignmentOperation ca: if (ca.OperatorMethod != null) used.Add(ca.OperatorMethod); break;
                 case IIncrementOrDecrementOperation id: if (id.OperatorMethod != null) used.Add(id.OperatorMethod); break;
+                case ILockOperation lk when lk.LockedValue?.Type?.ToDisplayString() == "System.Threading.Lock":
+                    break;      // (a pseudo id, HiddenCall)
                 case ILockOperation _:
                     // lowered to Monitor.Enter(object, ref bool) and Monitor.Exit(object)
                     INamedTypeSymbol monitor = s.Compilation.GetTypeByMetadataName("System.Threading.Monitor");
@@ -320,14 +364,23 @@ namespace G3ExactCodeAnalyzers
                     break;
                 case IForEachLoopOperation fe:
                     if (fe.Syntax is CommonForEachStatementSyntax fs && fe.SemanticModel != null) {
+                        ForEachStatementInfo info = fe.SemanticModel.GetForEachStatementInfo(fs);
+                        // a user-defined conversion of the elements to the loop variable's type
+                        if (info.ElementConversion.MethodSymbol != null)
+                            used.Add(info.ElementConversion.MethodSymbol);
                         ITypeSymbol ct = fe.Collection is IConversionOperation conv ? conv.Operand.Type : fe.Collection.Type;
                         if (ct is IArrayTypeSymbol)
                             break;      // lowered to an index loop
-                        ForEachStatementInfo info = fe.SemanticModel.GetForEachStatementInfo(fs);
                         foreach (ISymbol m in new ISymbol[] { info.GetEnumeratorMethod, info.MoveNextMethod, info.CurrentProperty, info.DisposeMethod })
                             if (m != null) used.Add(m);
                     }
                     break;
+                case IRecursivePatternOperation rp: if (rp.DeconstructSymbol != null) used.Add(rp.DeconstructSymbol); break;
+                case IListPatternOperation lp:
+                    if (lp.LengthSymbol != null) used.Add(lp.LengthSymbol);
+                    if (lp.IndexerSymbol != null) used.Add(lp.IndexerSymbol);
+                    break;
+                case IUsingDeclarationOperation _:
                 case IUsingOperation _:
                     INamedTypeSymbol disp = s.Compilation.GetSpecialType(SpecialType.System_IDisposable);
                     foreach (ISymbol m in disp.GetMembers("Dispose")) used.Add(m);
@@ -374,11 +427,22 @@ namespace G3ExactCodeAnalyzers
             return b.ToImmutable();
         }
 
-        /// <summary> a conversion of a double (or float) to an integer type, checked or not </summary>
+        /// <summary> a conversion of a double (or float) to an integer type, checked or not, also of their nullable forms </summary>
         public static bool IsFloatToIntegerCast(IConversionOperation v)
         {
-            ITypeSymbol from = v.Operand?.Type, to = v.Type;
-            if (from == null || to == null || v.OperatorMethod != null)
+            return v.OperatorMethod == null && IsFloatToInteger(v.Operand?.Type, v.Type);
+        }
+
+        static ITypeSymbol Underlying(ITypeSymbol t)
+        {
+            return (t is INamedTypeSymbol n && n.IsGenericType && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) ? n.TypeArguments[0] : t;
+        }
+
+        public static bool IsFloatToInteger(ITypeSymbol from, ITypeSymbol to)
+        {
+            from = Underlying(from);
+            to = Underlying(to);
+            if (from == null || to == null)
                 return false;
             if (from.SpecialType != SpecialType.System_Double && from.SpecialType != SpecialType.System_Single)
                 return false;
@@ -400,24 +464,76 @@ namespace G3ExactCodeAnalyzers
             ISymbol holder = Holder(c.OwningSymbol);
             var casts = new List<IOperation>();
             c.RegisterOperationAction(oc => {
-                if (oc.Operation is IConversionOperation v && IsFloatToIntegerCast(v) && InScope(s, v.Syntax.SyntaxTree))
-                    lock (casts) casts.Add(v);
-            }, OperationKind.Conversion);
+                bool cast = oc.Operation is IConversionOperation v && IsFloatToIntegerCast(v);
+                // (foreach (int i in doubles) converts each element explicitly)
+                if (oc.Operation is IForEachLoopOperation fe && fe.Syntax is CommonForEachStatementSyntax fs && fe.SemanticModel != null) {
+                    ForEachStatementInfo info = fe.SemanticModel.GetForEachStatementInfo(fs);
+                    ILocalSymbol loopVar = fe.Locals.FirstOrDefault();
+                    cast = info.ElementConversion.MethodSymbol == null && loopVar != null && IsFloatToInteger(info.ElementType, loopVar.Type);
+                }
+                if (cast)
+                    lock (casts) casts.Add(oc.Operation);
+            }, OperationKind.Conversion, OperationKind.Loop);
             c.RegisterOperationBlockEndAction(ec => {
+                // operations the public operation tree does not model (kind None, eg collection expressions in Roslyn 4.8):
+                // what they call is not visible, so they are not allowed
+                foreach (IOperation block in ec.OperationBlocks)
+                    foreach (IOperation o in block.DescendantsAndSelf())
+                        if (o.Kind == OperationKind.None && !Modelled(o)) {
+                            string pseudo = "construct:unmodelled-" + o.Syntax.Kind();
+                            ec.ReportDiagnostic(Diagnostic.Create(ApiRule, o.Syntax.GetLocation(), Props(pseudo, holder.GetDocumentationCommentId()), pseudo));
+                        }
                 if (casts.Count == 0)
                     return;
+                // (one context per member: its blocks, with its lambdas and local functions; each accessor is a member)
                 string id = holder.GetDocumentationCommentId() ?? "";
                 DeterministicApiList.Registration r = s.List.Find("cast", id);
-                if (r == null) {
-                    foreach (IOperation v in casts)
-                        ec.ReportDiagnostic(Diagnostic.Create(CastRule, v.Syntax.GetLocation(), Props(id, id, casts.Count), casts.Count, id, 0));
+                if (r != null)
+                    s.UsedLines[r.Line] = true;
+                if (r != null && r.Count == casts.Count)
                     return;
-                }
-                // (summed over the member's blocks, eg the accessors of a property, and compared at the end)
-                s.UsedLines[r.Line] = true;
-                s.CastCounts.AddOrUpdate(id, casts.Count, (_, n) => n + casts.Count);
-                s.CastLocations.TryAdd(id, casts[0].Syntax.GetLocation());
+                foreach (IOperation v in casts)
+                    ec.ReportDiagnostic(Diagnostic.Create(CastRule, v.Syntax.GetLocation(), Props(id, id, casts.Count), casts.Count, id, r?.Count ?? 0));
             });
+        }
+
+        /// <summary> operations of kind None (Roslyn 4.8) whose meaning is known and that call nothing: stackalloc, the
+        /// element access of a pointer, a fixed-size buffer, and a fixed statement that pins an array, a fixed-size buffer
+        /// or an address (not a span or a string: GetPinnableReference, RuntimeHelpers) </summary>
+        static bool Modelled(IOperation o)
+        {
+            SemanticModel m = o.SemanticModel;
+            switch (o.Syntax) {
+                case StackAllocArrayCreationExpressionSyntax _:
+                case ImplicitStackAllocArrayCreationExpressionSyntax _:
+                    return true;
+                case ElementAccessExpressionSyntax e:
+                    return m?.GetTypeInfo(e.Expression).Type is IPointerTypeSymbol || FixedBuffer(m, e.Expression);
+                case PrefixUnaryExpressionSyntax pu when pu.IsKind(SyntaxKind.PointerIndirectionExpression):
+                    return true;
+                case IdentifierNameSyntax _:
+                case MemberAccessExpressionSyntax _:
+                    // (a variable inside a pointer or fixed-buffer construct; a member it names is reported by its own operation)
+                    ISymbol named = m?.GetSymbolInfo((ExpressionSyntax)o.Syntax).Symbol;
+                    return named is ILocalSymbol || named is IParameterSymbol || FixedBuffer(m, (ExpressionSyntax)o.Syntax);
+                case FixedStatementSyntax f:
+                    foreach (VariableDeclaratorSyntax v in f.Declaration.Variables) {
+                        ExpressionSyntax x = v.Initializer?.Value;
+                        if (x == null) return false;
+                        if (x is PrefixUnaryExpressionSyntax pu && pu.IsKind(SyntaxKind.AddressOfExpression)) continue;
+                        if (m?.GetTypeInfo(x).Type is IArrayTypeSymbol || FixedBuffer(m, x)) continue;
+                        return false;
+                    }
+                    return true;
+            }
+            return false;
+        }
+
+        static bool FixedBuffer(SemanticModel m, ExpressionSyntax x)
+        {
+            // (of a struct in this compilation: a fixed buffer has no members of its own)
+            return m?.GetSymbolInfo(x).Symbol is IFieldSymbol f && f.IsFixedSizeBuffer
+                && SymbolEqualityComparer.Default.Equals(f.ContainingAssembly, m.Compilation.Assembly);
         }
 
         // #if / #elif blocks per member (a directive belongs to the member whose declaration holds its token)
@@ -428,6 +544,13 @@ namespace G3ExactCodeAnalyzers
                 return;
             var byMember = new Dictionary<string, List<Location>>();
             foreach (SyntaxTrivia tr in tree.GetRoot(c.CancellationToken).DescendantTrivia(descendIntoTrivia: true)) {
+                string bad = Forbidden(tr);
+                if (bad != null) {
+                    // (also reported at the end, at the start of the first file of the scope: a pragma cannot reach there)
+                    s.Directives[System.IO.Path.GetFileName(tree.FilePath) + ": " + bad] = true;
+                    c.ReportDiagnostic(Diagnostic.Create(DirectiveRule, tr.GetLocation(), Props(bad, ""), bad));
+                    continue;
+                }
                 if (!tr.IsKind(SyntaxKind.IfDirectiveTrivia) && !tr.IsKind(SyntaxKind.ElifDirectiveTrivia))
                     continue;
                 SyntaxNode n = tr.Token.Parent;
@@ -455,17 +578,64 @@ namespace G3ExactCodeAnalyzers
             }
         }
 
+        /// <summary> a directive that switches off diagnostics, changes what is compiled or moves locations </summary>
+        static string Forbidden(SyntaxTrivia tr)
+        {
+            switch (tr.GetStructure()) {
+                case PragmaWarningDirectiveTriviaSyntax p:
+                    if (p.DisableOrRestoreKeyword.IsKind(SyntaxKind.RestoreKeyword))
+                        return null;
+                    if (p.ErrorCodes.Count == 0 || p.ErrorCodes.Any(e => e.ToString().Trim().StartsWith("G3", StringComparison.OrdinalIgnoreCase) || e.ToString().Trim() == "RS0030"))
+                        return p.ToString().Trim();
+                    return null;
+                case DefineDirectiveTriviaSyntax d: return d.ToString().Trim();
+                case UndefDirectiveTriviaSyntax u: return u.ToString().Trim();
+                case LineDirectiveTriviaSyntax l: return l.ToString().Trim();
+            }
+            return null;
+        }
+
+        static bool HasSkipLocalsInit(ISymbol x)
+        {
+            foreach (AttributeData a in x.GetAttributes())
+                if (a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.SkipLocalsInitAttribute")
+                    return true;
+            return false;
+        }
+
+        /// <summary> the symbols whose [SkipLocalsInit] reaches a method: itself, its property or event, its containing
+        /// types, the module (C#: the attribute on any of them applies to the method's locals) </summary>
+        static IEnumerable<ISymbol> SkipScopes(IMethodSymbol m)
+        {
+            yield return m;
+            if (m.AssociatedSymbol != null)
+                yield return m.AssociatedSymbol;
+            for (ISymbol x = m.ContainingSymbol; x != null; x = x.ContainingSymbol)
+                if (!(x is INamespaceSymbol))
+                    yield return x;
+        }
+
+        // [SkipLocalsInit] on a local function or lambda: registered under the member that holds it
+        static void OnFunction(OperationAnalysisContext c, State s)
+        {
+            IMethodSymbol f = (c.Operation as ILocalFunctionOperation)?.Symbol ?? (c.Operation as IAnonymousFunctionOperation)?.Symbol;
+            if (f == null || !HasSkipLocalsInit(f) || !InScope(s, c.Operation.Syntax.SyntaxTree))
+                return;
+            string id = Holder(c.ContainingSymbol)?.GetDocumentationCommentId() ?? "";
+            DeterministicApiList.Registration r = s.List.Find("skiplocalsinit", id);
+            if (r != null) { s.UsedLines[r.Line] = true; return; }
+            c.ReportDiagnostic(Diagnostic.Create(SkipLocalsInitRule, c.Operation.Syntax.GetLocation(), Props(id, id), id));
+        }
+
         static void OnSymbol(SymbolAnalysisContext c, State s)
         {
             var m = (IMethodSymbol)c.Symbol;
-            bool skip = false;
-            for (ISymbol x = m; x != null && !skip; x = x.ContainingSymbol)
-                foreach (AttributeData a in x.GetAttributes())
-                    if (a.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.SkipLocalsInitAttribute") { skip = true; break; }
-            if (!skip)
+            ISymbol source = SkipScopes(m).FirstOrDefault(HasSkipLocalsInit);
+            if (source == null)
                 return;
             string id = m.GetDocumentationCommentId() ?? "";
-            DeterministicApiList.Registration r = s.List.Find("skiplocalsinit", id);
+            // (a registration of the method, or of the property or type that carries the attribute)
+            DeterministicApiList.Registration r = SkipScopes(m).Select(x => s.List.Find("skiplocalsinit", x.GetDocumentationCommentId() ?? "")).FirstOrDefault(x => x != null);
             foreach (Location loc in m.Locations) {
                 if (!loc.IsInSource || !InScope(s, loc.SourceTree))
                     continue;
@@ -477,15 +647,12 @@ namespace G3ExactCodeAnalyzers
         static void OnEnd(CompilationAnalysisContext c, State s)
         {
             // the cast counts, summed over the blocks of each member
-            foreach (var kv in s.CastCounts) {
-                DeterministicApiList.Registration r = s.List.Find("cast", kv.Key);
-                if (r.Count != kv.Value)
-                    c.ReportDiagnostic(Diagnostic.Create(CastRule, s.CastLocations[kv.Key], Props(kv.Key, kv.Key, kv.Value), kv.Value, kv.Key, r.Count));
-            }
             SyntaxTree first = s.FirstScopeTree;
             if (first == null)
                 return;     // no file of the scope in this compilation
             Location at = Location.Create(first, new TextSpan(0, 0));
+            foreach (string d in s.Directives.Keys.OrderBy(x => x, StringComparer.Ordinal))
+                c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(d, ""), "-", "directive in the scope: " + d));
             foreach (string e in s.List.Errors)
                 c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props("", ""), e.Substring(0, e.IndexOf(':')), "malformed: " + e.Substring(e.IndexOf(':') + 1).Trim()));
             foreach (DeterministicApiList.Entry e in s.List.Entries.Values)

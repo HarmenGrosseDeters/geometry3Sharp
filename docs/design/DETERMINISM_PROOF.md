@@ -256,45 +256,59 @@ are errors in the eleven kernel files of section 6.1 (`.editorconfig`), and the 
 
 | rule | checks | registration |
 |---|---|---|
-| G3D0001 (R0) | every member of another assembly that the kernel calls, reads, constructs or applies: methods, properties, fields, constructors, user-defined operators and conversions (also implicit ones), attributes, `lock`, `foreach`, `using` | one line per member with the reason why its result is specified on every runtime |
-| G3D0002 (R4, R7, R13, R14) | a restricted entry is used only where allowed: `[sites]` entries (`Math.Min / Max` of doubles, `[ThreadStatic]`, `Interlocked`, `Volatile`, `Monitor`) only in registered members; `[hash]` entries, and every `GetHashCode` call (also of the kernel's own types, whose dispatch the analyzer does not follow), only inside a `GetHashCode` implementation | a `site` line per member with its justification |
+| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the eleven files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
+| G3D0002 (R4, R7, R13, R14) | a restricted entry is used only where allowed: `[sites]` entries (`Math.Min / Max` of doubles, `(double)BigInteger`, `Vector3d.ToString`, `[ThreadStatic]`, `Interlocked`, `Volatile`, `Monitor`) only in registered members; `[hash]` entries, and every `GetHashCode` call (also of the kernel's own types, whose dispatch the analyzer does not follow), only inside a `GetHashCode` override or an `IEqualityComparer<T>.GetHashCode` implementation | a `site` line per member with its justification |
 | G3D0005 (R6) | every `#if` / `#elif` block, counted per member | an `if` line with the count and the test that checks both branches |
-| G3D0006 (R5) | every conversion of a `double` to an integer type (or enum), counted per member | a `cast` line with the count and the guard |
-| G3D0008 (R15) | every `[SkipLocalsInit]` member (on the method or a containing type) | a `skiplocalsinit` line with the argument that every element is written before it is read |
-| G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
+| G3D0006 (R5) | every conversion of a `double` to an integer type or enum (also nullable, and `foreach` element conversions), counted per member | a `cast` line with the count and the guard |
+| G3D0007 | no `#pragma warning disable` of these rules (or of all), of RS0030 or G3E, no `#define`, `#undef`, `#line` in the kernel; reported again at the start of the scope's first file, where no pragma reaches | none |
+| G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line with the argument that every element is written before it is read |
+| G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
-**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 76 external members (9 of them only on the `#if NET` side), 7 restricted to registered sites (13 sites), 1 restricted to `GetHashCode` implementations; 18 conditional-compilation blocks in 18 members; 2 `double` to integer conversions in 1 member(s); 9 `[SkipLocalsInit]` members.
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 107 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 18 conditional-compilation blocks in 18 members; 2 `double` to integer conversions in 1 member(s); 9 `[SkipLocalsInit]` members.
 
 **Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the eleven kernel files computes a
 function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
-clock, the culture, a hash seed or what an earlier call left in memory, apart from the listed obligations below. With P4
-(the kernel's predicates and exact constructions are defined by their inputs mathematically, and their correctness tests
-compare with oracles), every predicate returns the sign its specification defines. What carries the claim:
+clock, the culture, a hash seed or what an earlier call left in memory, given the reasons of the listed entries and the
+obligations below. With P4 (the kernel's predicates and exact constructions are defined by their inputs mathematically,
+and their correctness tests compare with oracles), every predicate returns the sign its specification defines. The
+reasons of the 31 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
+`MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their bodies today: those files are not checked by
+the rules (nor by G3E0001-4). Extending the scope to exactly these declarations is stage 1 work. What carries the claim:
 
-- T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel uses `+ - * /`, `Math.Sqrt`, `Math.Abs`,
-  comparisons and bit reinterpretation only (G3D0001 has no libm, no FMA, no `float`, which G3E0001-4 also ban).
+- T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel's own code uses `+ - * /`, `Math.Sqrt`,
+  `Math.Abs`, comparisons and bit reinterpretation (G3D0001 lists no libm member, no FMA, no `float`, which G3E0001-4
+  also ban in these files).
 - T2 (integer and `BigInteger` arithmetic exact): the exact tests. `(double)BigInteger` is *not* correctly rounded: it
   truncates toward zero to 53 bits, on .NET 10 and .NET Framework 4.8 (x64 and 32-bit) alike, measured on 1238 values
   with ties, sticky bits beyond the top 64 bits and the overflow boundary (`probe.bigint-double`, determinism run
   43505530553, the same trace hash on all five configurations); `new BigInteger(double)` truncates exactly on both and
-  throws `OverflowException` for NaN and infinities (`probe.double-bigint`). Its values are therefore the same bits on both
-  runtimes (the filters' approximations, `ExactPoint3.ToDouble`, which `FixedArith.ToDouble` emulates); where the kernel
-  needs a correctly rounded double it rounds the exact value itself and converts at most 54 bits (`ExactDyadic`).
+  throws `OverflowException` for NaN and infinities (`probe.double-bigint`). Its values are therefore the same bits on
+  both runtimes. Its four sites are registered: none assumes round-to-nearest or a half-ulp bound (`ExactDyadic.Quotient`
+  rounds the exact value itself and converts at most 54 bits; the documented bounds of `ApproxVector3d`, 4 * 2^-52, and of
+  `ExactPoint3.ToDouble`, below 1 ulp, hold under truncation; `FixedPoint3.DoubleOf` checks the conversion by converting back).
 - T3 (the allow-listed members compute their specified result): the reason on each line of the list; a probe where the
-  specification changed between runtimes (`Math.Min / Max`: `probe.minmax-zero`).
-- T4 (default floating-point environment) and T5 (the analyzer and Roslyn): as in section 4.1; T5 by the rule tests and
-  their mutants (`DeterminismScopeAnalyzerTests`: an unlisted call, an unregistered `#if`, an unguarded cast, an
-  unregistered `[SkipLocalsInit]`, a kernel file missing from the `.editorconfig` section).
+  specification changed between runtimes (`Math.Min / Max`: `probe.minmax-zero`; the two conversions above).
+- T4 (default floating-point environment): as in section 4.1.
+- T5 (the analyzer and Roslyn): the rule tests of `DeterminismScopeAnalyzerTests`; mutants checked by hand, not by a
+  mutation shard: in a kernel file an unlisted call, an unregistered `#if`, an unguarded cast and an unregistered
+  `[SkipLocalsInit]` each fail the build, and a kernel file dropped from the `.editorconfig` section fails the build (its
+  entries become unused) and the scope test; in the analyzer, dropping user-defined conversions, the hash rule, the
+  `long` target of the cast rule or the `#if` count is caught by the library build or the rule tests.
 
 Obligations the claim names (review, not a tool check): the per-thread workspace of `AdaptivePredicates` is written
 before it is read (R14); `FixedPointStore.Add` hands out slots by `Interlocked.Increment`, a schedule-assigned id when
-`ExactMeshArrangement` adds concurrently (R13, P5): no kernel predicate reads it, its consumers are stage 2; the hash of
+`ExactMeshArrangement` adds concurrently (R13, P5): no kernel predicate reads it, its consumers are stage 2; its `lock`
+guards the growth of the chunk table only, and a slot is written by the one thread that got its index; the hash of
 `ExactPoint3` is seeded per process on .NET (R7) and reaches hash containers only, whose consumers are stages 1 and 2.
 The two branches of the generated `__dec` / `__bits` are checked against one oracle on each runtime (the net48 job), not
-against each other (the generator inlines the portable loop). Found while building it: the hand-made list of 72 members
-missed the two implicit `int` / `long` to `BigInteger` conversions and the `lock` of `FixedPointStore.Add` (76 now); no
-`Math.Min / Max` site of the kernel lets the sign of a zero reach a value (interval bounds go through `make`, which
-replaces a zero bound by -2^-1074 / +2^-1074; the other sites compare, or take `Math.Abs` values), so no kernel code changed.
+against each other (the generator inlines the portable loop); the other seven `#if NET` members are compared with their
+portable twins value by value on .NET (`KernelPortableBranchTests`), the nine `[SkipLocalsInit]` members run on a stack
+filled with patterns against a zeroed one (`SkipLocalsInitKernelTests`). Found while building it: the hand-made list of 72
+members missed the two implicit `int` / `long` to `BigInteger` conversions and the `lock` of `FixedPointStore.Add`, and
+did not count the 31 members of geometry3Sharp outside the kernel; no `Math.Min / Max` site of the kernel lets the sign
+of a zero reach a value (interval bounds go through `make`, which replaces a zero bound by -2^-1074 / +2^-1074; the other
+sites compare, or take `Math.Abs` values). The only kernel change: `trailing_zeros` and `leading_zeros` became internal,
+so that the branch test can call them.
 
 ## 6. Proposal
 

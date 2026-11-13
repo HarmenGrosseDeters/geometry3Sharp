@@ -30,19 +30,40 @@ namespace geometry3Sharp.Tests
             public override SourceText GetText(CancellationToken ct = default) { return SourceText.From(text); }
         }
 
-        static CSharpCompilation Compile(string source, bool net)
-        {
-            var refs = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
+        static readonly Lazy<List<MetadataReference>> Refs = new Lazy<List<MetadataReference>>(() =>
+            ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
                 .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList();
-            var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: net ? new[] { "NET" } : new string[0]);
-            return CSharpCompilation.Create("ScopeTest", new[] { CSharpSyntaxTree.ParseText(source, parse, "Kernel.cs") }, refs,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+                .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList());
+
+        // the files named Lib*.cs are outside the scope (their rules off, as .editorconfig does for the library)
+        sealed class ScopeOptions : SyntaxTreeOptionsProvider
+        {
+            public override GeneratedKind IsGenerated(SyntaxTree tree, CancellationToken ct) { return GeneratedKind.NotGenerated; }
+            public override bool TryGetDiagnosticValue(SyntaxTree tree, string diagnosticId, CancellationToken ct, out ReportDiagnostic severity)
+            {
+                severity = ReportDiagnostic.Suppress;
+                return Path.GetFileName(tree.FilePath).StartsWith("Lib", StringComparison.Ordinal) && diagnosticId.StartsWith("G3D", StringComparison.Ordinal);
+            }
+            public override bool TryGetGlobalDiagnosticValue(string diagnosticId, CancellationToken ct, out ReportDiagnostic severity)
+            {
+                severity = ReportDiagnostic.Default;
+                return false;
+            }
         }
 
-        static List<Diagnostic> Analyze(string source, string list, bool net = true)
+        static CSharpCompilation Compile(string source, bool net, string library = null)
         {
-            CSharpCompilation c = Compile(source, net);
+            var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: net ? new[] { "NET" } : new string[0]);
+            var trees = new List<SyntaxTree> { CSharpSyntaxTree.ParseText(source, parse, "Kernel.cs") };
+            if (library != null)
+                trees.Add(CSharpSyntaxTree.ParseText(library, parse, "Lib.cs"));
+            return CSharpCompilation.Create("ScopeTest", trees, Refs.Value,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true).WithSyntaxTreeOptionsProvider(new ScopeOptions()));
+        }
+
+        static List<Diagnostic> Analyze(string source, string list, bool net = true, string library = null)
+        {
+            CSharpCompilation c = Compile(source, net, library);
             Assert.Empty(c.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error));
             var options = new AnalyzerOptions(ImmutableArray.Create<AdditionalText>(new Text("/repo/" + DeterministicApiList.FileName, list)));
             return c.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new DeterminismScopeAnalyzer()), options)
@@ -92,6 +113,20 @@ namespace geometry3Sharp.Tests
         [InlineData("static object M(int a) { return new { a }; }", "construct:anonymous-type")]
         [InlineData("static async System.Threading.Tasks.Task M(System.Threading.Tasks.Task t) { await t; }", "construct:await")]
         [InlineData("static int[] M(int[] a) { return a[1..]; }", "construct:range")]
+        [InlineData("static bool M(string a, string b) { return a == b; }", "construct:string-equality")]
+        [InlineData("static decimal M(decimal a) { return a + 1; }", "construct:decimal")]
+        [InlineData("static double M(decimal a) { return (double)a; }", "construct:decimal")]
+        [InlineData("static Action M(Action a, Action b) { return a + b; }", "construct:delegate-combination")]
+        [InlineData("static T M<T>() where T : new() { return new T(); }", "construct:new-type-parameter")]
+        [InlineData("static void M(IDisposable d) { using var x = d; }", "M:System.IDisposable.Dispose")]
+        [InlineData("static int M(List<int> l) { return l is [1, ..] ? 1 : 0; }", "P:System.Collections.Generic.List`1.Count")]
+        [InlineData("static int M(List<int> l) { return l is [1, .. var r] ? 1 : 0; }", "construct:slice-pattern")]
+        [InlineData("static int M(KeyValuePair<int, int> p) { return p is (1, var v) ? v : 0; }", "M:System.Collections.Generic.KeyValuePair`2.Deconstruct(`0@,`1@)")]
+        [InlineData("static Func<double, double> M() { return Math.Sqrt; }", "M:System.Math.Sqrt(System.Double)")]
+        [InlineData("static void M(AppDomain d) { d.ProcessExit += null; }", "E:System.AppDomain.ProcessExit")]
+        [InlineData("static double M(BigInteger[] a) { double s = 0; foreach (double d in a) s += d; return s; }", "M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double")]
+        [InlineData("static int[] M() { int[] a = [1, 2]; return a; }", "construct:unmodelled-CollectionExpression")]
+        [InlineData("static unsafe int M(Span<int> s) { fixed (int* p = s) return p[0]; }", "construct:unmodelled-FixedStatement")]
         public void UnlistedExternalMember_IsReported(string member, string id)
         {
             var d = Analyze(Usings + "static class C { " + member + " }", "");
@@ -109,6 +144,31 @@ namespace geometry3Sharp.Tests
             }";
             var d = Analyze(source, "M:System.Math.Sqrt(System.Double) ; IEEE 754 squareRoot");
             Assert.Empty(d);
+        }
+
+        // stackalloc, pointer element access, fixed-size buffers and fixed over arrays call nothing
+        [Fact]
+        public void PointerConstructs_UseNoMember()
+        {
+            string source = Usings + @"unsafe struct B { public fixed ulong L[4]; } sealed class H { public B b; }
+                static unsafe class C { static ulong M(int[] a, H h, B b) {
+                    ulong* p = stackalloc ulong[4]; p[0] = 1; ulong s = p[0] + b.L[1];
+                    fixed (int* q = a) s += (ulong)q[0];
+                    fixed (ulong* r = h.b.L) s += r[2];
+                    int x = 3; int* y = &x; return s + (ulong)*y; } }";
+            Assert.Empty(Analyze(source, ""));
+        }
+
+        // members of this assembly declared outside the scope's files are external: the kernel inherits what they compute
+        [Fact]
+        public void OwnMembersOutsideTheScope_AreExternal()
+        {
+            const string library = "public struct V { public double X; public static V operator +(V a, V b) { a.X += b.X; return a; } public double Len => System.Math.Sqrt(X); public V(double x) { X = x; } }";
+            string source = "static class C { static double M(V a) { V b = new V(2); return (a + b).Len + a.X; } static double Own(double x) { return x; } static double N() { return Own(1); } }";
+            var d = Analyze(source, "", library: library);
+            Assert.Equal(new[] { "F:V.X", "M:V.#ctor(System.Double)", "M:V.op_Addition(V,V)", "P:V.Len" }, Ids(d, DeterminismScopeAnalyzer.ApiId).Distinct().OrderBy(x => x, StringComparer.Ordinal));
+            // the library file itself is outside the scope: its Math.Sqrt is not reported
+            Assert.All(d, x => Assert.Equal("Kernel.cs", x.Location.SourceTree.FilePath));
         }
 
         // arrays are lowered to an index loop: no enumerator member is used
@@ -140,8 +200,8 @@ namespace geometry3Sharp.Tests
         {
             string list = "M:System.Numerics.BigInteger.GetHashCode ; [hash] seeded per process";
             string ok = Usings + @"struct P { public BigInteger X; public override int GetHashCode() { int h = X.GetHashCode(); return h * 31; } }
-                sealed class K : IEqualityComparer<long> { public bool Equals(long a, long b) { return a == b; } public int GetHashCode(long k) { return (int)(k >> 3); } }";
-            Assert.Empty(Analyze(ok, list).Where(x => x.Id != DeterminismScopeAnalyzer.ApiId));
+                sealed class K : IEqualityComparer<BigInteger> { public bool Equals(BigInteger a, BigInteger b) { return a == b; } public int GetHashCode(BigInteger k) { return k.GetHashCode() * 7; } }";
+            Assert.Empty(Analyze(ok, list + "\nM:System.Numerics.BigInteger.op_Equality(System.Numerics.BigInteger,System.Numerics.BigInteger) ; x"));
             // into an order, a result or an index: reported, also the hash of the scope's own type (its dispatch is not followed)
             foreach (string bad in new[] {
                 "static int M(BigInteger x) { return x.GetHashCode() % 8; }",
@@ -149,7 +209,8 @@ namespace geometry3Sharp.Tests
                 "static int M(object o) { return o.GetHashCode(); }",
                 "static int M(P a, P b) { return a.GetHashCode().CompareTo(b.GetHashCode()); }",
                 // (a method named GetHashCode that is not an override or a comparer's implementation)
-                "static int GetHashCode(BigInteger x) { return x.GetHashCode(); }" }) {
+                "static int GetHashCode(BigInteger x) { return x.GetHashCode(); }",
+                "} class Q { public BigInteger X; public new int GetHashCode() { return X.GetHashCode(); }" }) {
                 var d = Analyze(ok + " static class C { " + bad + " }", list);
                 Assert.True(d.Any(x => x.Id == DeterminismScopeAnalyzer.RestrictedId), bad);
             }
@@ -189,6 +250,45 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void ElifBlocks_AreCounted()
+        {
+            string source = "static class C { static int A() {\n#if NET\n return 1;\n#elif DEBUG\n return 2;\n#else\n return 3;\n#endif\n} }";
+            Assert.Equal("2", Analyze(source, "").First(x => x.Id == DeterminismScopeAnalyzer.ConditionalId).Properties[DeterminismScopeAnalyzer.CountProperty]);
+            Assert.Empty(Analyze(source, "if M:C.A ; 2 ; T.A ; x"));
+        }
+
+        // ---- G3D0007: directives that switch rules off or change what is compiled ----
+
+        [Theory]
+        [InlineData("#pragma warning disable G3D0001")]
+        [InlineData("#pragma warning disable CS0162, G3D0006")]
+        [InlineData("#pragma warning disable")]
+        [InlineData("#pragma warning disable RS0030")]
+        [InlineData("#pragma warning disable G3E0003")]
+        [InlineData("#define EXTRA")]
+        [InlineData("#undef NET")]
+        [InlineData("#line 1 \"other.cs\"")]
+        public void Directive_IsReported(string directive)
+        {
+            string source = directive + "\nstatic class C { static double M(double x) { return Math.Sqrt(x); } }";
+            if (directive.StartsWith("#define") || directive.StartsWith("#undef"))
+                source = directive + "\nusing System;\nstatic class C { static double M(double x) { return Math.Sqrt(x); } }";
+            else
+                source = "using System;\n" + source;
+            var d = Analyze(source, "M:System.Math.Sqrt(System.Double) ; IEEE");
+            Assert.Single(d, x => x.Id == DeterminismScopeAnalyzer.DirectiveId);
+            // and once more at the end, at the start of the file, where no pragma of the file reaches
+            Assert.Contains(d, x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.Location.SourceSpan.Start == 0);
+        }
+
+        [Fact]
+        public void HarmlessPragmas_AreNotReported()
+        {
+            string source = "using System;\n#pragma warning disable CS0162\n#pragma warning restore G3D0001\nstatic class C { static double M(double x) { return Math.Sqrt(x); } }";
+            Assert.Empty(Analyze(source, "M:System.Math.Sqrt(System.Double) ; IEEE"));
+        }
+
         // ---- G3D0006: double -> integer conversions ----
 
         [Theory]
@@ -198,6 +298,9 @@ namespace geometry3Sharp.Tests
         [InlineData("static byte M(double x) { return (byte)x; }")]
         [InlineData("static System.DayOfWeek M(double x) { return (System.DayOfWeek)x; }")]
         [InlineData("static int P { get { double x = 2.5; return (int)x; } }")]
+        [InlineData("static int? M(double x) { return (int?)x; }")]
+        [InlineData("static int M(double? x) { return (int)x; }")]
+        [InlineData("static long M(double[] a) { long s = 0; foreach (long i in a) s += i; return s; }")]
         public void DoubleToIntegerCast_IsReported(string member)
         {
             var d = Analyze(Usings + "static class C { " + member + " }", "");
@@ -219,9 +322,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(2, Analyze(source, abs).Count(x => x.Id == DeterminismScopeAnalyzer.CastId));
             Assert.Empty(Analyze(source, abs + "cast M:C.M(System.Double,System.Double) ; 2 ; guarded"));
             var d = Analyze(source, abs + "cast M:C.M(System.Double,System.Double) ; 1 ; guarded");
-            Assert.Single(d);
-            Assert.Equal(DeterminismScopeAnalyzer.CastId, d[0].Id);
-            Assert.Equal("2", d[0].Properties[DeterminismScopeAnalyzer.CountProperty]);
+            Assert.Equal(2, d.Count);
+            Assert.All(d, x => { Assert.Equal(DeterminismScopeAnalyzer.CastId, x.Id); Assert.Equal("2", x.Properties[DeterminismScopeAnalyzer.CountProperty]); });
         }
 
         // ---- G3D0008: [SkipLocalsInit] ----
@@ -236,6 +338,17 @@ namespace geometry3Sharp.Tests
             // on the type: every member
             source = source.Replace("static unsafe class C { [SkipLocalsInit] static int M()", "[SkipLocalsInit] static unsafe class C { static int M()");
             Assert.Equal(new[] { "M:C.M", "M:C.N" }, Ids(Analyze(source, attr), DeterminismScopeAnalyzer.SkipLocalsInitId).OrderBy(x => x));
+            // a registration of the type covers its members
+            Assert.Empty(Analyze(source, attr + "skiplocalsinit T:C ; every buffer written first"));
+        }
+
+        [Theory]
+        [InlineData("[SkipLocalsInit] static unsafe int P { get { int* p = stackalloc int[2]; p[0] = 1; return p[0]; } }", "M:C.get_P")]
+        [InlineData("static unsafe int M() { return L(); [SkipLocalsInit] static int L() { int* p = stackalloc int[2]; p[0] = 1; return p[0]; } }", "M:C.M")]
+        public void SkipLocalsInit_OnPropertiesAndLocalFunctions_MustBeRegistered(string member, string id)
+        {
+            const string attr = "M:System.Runtime.CompilerServices.SkipLocalsInitAttribute.#ctor ; x\n";
+            Assert.Contains(id, Ids(Analyze(Usings + "static class C { " + member + " }", attr), DeterminismScopeAnalyzer.SkipLocalsInitId));
         }
 
         // ---- G3D0009: the list is exact ----
@@ -262,6 +375,8 @@ namespace geometry3Sharp.Tests
                 Assert.True(d.Any(x => x.Id == DeterminismScopeAnalyzer.UnusedId), extra);
                 Assert.All(d.Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId), x => Assert.Equal("Kernel.cs", x.Location.SourceTree.FilePath));
             }
+            // a site of a [NET] entry need not be used without NET
+            Assert.Empty(Analyze(source, used + "M:System.Math.Abs(System.Double) ; [NET][sites] x\nsite M:System.Math.Abs(System.Double) @ M:C.M(System.Double) ; x", net: false));
             // a [NET] entry need not be used without NET; with NET it must
             Assert.Empty(Analyze(source, used + "M:System.Math.Abs(System.Double) ; [NET] x", net: false));
             Assert.Single(Analyze(source, used + "M:System.Math.Abs(System.Double) ; [NET] x", net: true));
@@ -286,7 +401,6 @@ namespace geometry3Sharp.Tests
             foreach (DeterministicApiList.Entry e in list.Entries.Values) {
                 ISymbol s = DocumentationCommentId.GetSymbolsForDeclarationId(e.Id, c).FirstOrDefault();
                 Assert.True(s != null, "no symbol for " + e.Id);
-                Assert.NotEqual("geometry3Sharp", s.ContainingAssembly.Name);
                 Assert.True(e.Reason.Length >= 5, e.Id);
             }
             var tests = typeof(DeterminismScopeAnalyzerTests).Assembly.GetTypes()
@@ -308,7 +422,7 @@ namespace geometry3Sharp.Tests
                                           "M:System.Threading.Interlocked.Increment(System.Int32@)", "M:System.Threading.Volatile.Read(System.Int32@)" })
                 Assert.True(list.Entries[id].Sites, id);
             // nothing ambient is allowed: clock, randomness, environment, culture-dependent text, platform libm, hash seeds
-            foreach (string id in list.Entries.Keys)
+            foreach (string id in list.Entries.Keys.Where(k => !list.Entries[k].Sites))
                 foreach (string banned in new[] { "System.Random", "System.DateTime", "System.Diagnostics.Stopwatch", "System.Environment", "System.Guid",
                                                   "ToString", "Parse", "System.HashCode", "System.Math.Sin", "System.Math.Cos", "System.Math.Exp", "System.Math.Log",
                                                   "System.Math.Pow", "System.Math.Atan", "System.Math.FusedMultiplyAdd", "System.Threading.Tasks", "System.Linq" })
@@ -322,7 +436,7 @@ namespace geometry3Sharp.Tests
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
         static readonly string[] ScopeRules = { DeterminismScopeAnalyzer.ApiId, DeterminismScopeAnalyzer.RestrictedId, DeterminismScopeAnalyzer.ConditionalId,
-            DeterminismScopeAnalyzer.CastId, DeterminismScopeAnalyzer.SkipLocalsInitId, DeterminismScopeAnalyzer.UnusedId };
+            DeterminismScopeAnalyzer.CastId, DeterminismScopeAnalyzer.DirectiveId, DeterminismScopeAnalyzer.SkipLocalsInitId, DeterminismScopeAnalyzer.UnusedId };
 
         [Fact]
         public void EditorConfig_MakesTheScopeRulesErrorsInExactlyTheKernel()
@@ -360,6 +474,35 @@ namespace geometry3Sharp.Tests
                     Assert.DoesNotContain(id, m.Groups[2].Value);
         }
 
+        // nothing outside the analyzer's own configuration switches the scope's rules off: no SuppressMessage, NoWarn,
+        // global config or editorconfig section names them (a pragma in a kernel file is G3D0007)
+        [Fact]
+        public void NothingElse_SuppressesTheScopeRules()
+        {
+            string root = ExactCodeAnalyzerTests.RepoRoot();
+            var allowed = new[] { ".editorconfig", "DeterministicApis.txt", "tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs",
+                "tests/geometry3Sharp.Tests/DeterminismScopeAnalyzerTests.cs" };
+            var hits = new List<string>();
+            foreach (string f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) {
+                string rel = Path.GetRelativePath(root, f).Replace(Path.DirectorySeparatorChar, '/');
+                if (rel.StartsWith(".git/") || rel.Contains("/bin/") || rel.Contains("/obj/") || rel.StartsWith("bin/") || rel.StartsWith("obj/") || rel.StartsWith("docs/"))
+                    continue;
+                string ext = Path.GetExtension(f).ToLowerInvariant();
+                if (!(ext == ".cs" || ext == ".props" || ext == ".targets" || ext == ".csproj" || ext == ".globalconfig" || ext == ".editorconfig"
+                      || ext == ".ruleset" || ext == ".json" || Path.GetFileName(f) == ".editorconfig"))
+                    continue;
+                if (allowed.Contains(rel))
+                    continue;
+                string text = File.ReadAllText(f);
+                if (System.Text.RegularExpressions.Regex.IsMatch(text, @"SuppressMessage\([^)]*G3D|#pragma\s+warning\s+disable[^\n]*G3D|<(NoWarn|WarningsNotAsErrors|WarningsAsErrors)>[^<]*G3D|dotnet_diagnostic\.G3D|G3D\d{4}\s*="))
+                    hits.Add(rel);
+            }
+            Assert.True(hits.Count == 0, string.Join(", ", hits));
+            // the root .editorconfig names them only in the two sections of this rule set (all off, then the kernel)
+            string ec = File.ReadAllText(Path.Combine(root, ".editorconfig"));
+            Assert.Equal(14, System.Text.RegularExpressions.Regex.Matches(ec, @"dotnet_diagnostic\.G3D\d{4}\.severity").Count);
+        }
+
         /// <summary> the stage 0 ledger as the design note states it, generated from the list </summary>
         public static string Ledger(DeterministicApiList list)
         {
@@ -367,7 +510,8 @@ namespace geometry3Sharp.Tests
             var r = list.Registrations;
             int ifs = r.Where(x => x.Kind == "if").Sum(x => x.Count), casts = r.Where(x => x.Kind == "cast").Sum(x => x.Count);
             return "**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): "
-                + e.Count + " external members (" + e.Count(x => x.NetOnly) + " of them only on the `#if NET` side), "
+                + e.Count + " external members (" + e.Count(x => x.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal))
+                + " of them geometry3Sharp members declared outside the kernel, " + e.Count(x => x.NetOnly) + " only on the `#if NET` side), "
                 + e.Count(x => x.Sites) + " restricted to registered sites (" + r.Count(x => x.Kind == "site") + " sites), "
                 + e.Count(x => x.Hash) + " restricted to `GetHashCode` implementations; "
                 + ifs + " conditional-compilation blocks in " + r.Count(x => x.Kind == "if") + " members; "

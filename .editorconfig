@@ -18,6 +18,7 @@ dotnet_diagnostic.G3D0001.severity = none
 dotnet_diagnostic.G3D0002.severity = none
 dotnet_diagnostic.G3D0005.severity = none
 dotnet_diagnostic.G3D0006.severity = none
+dotnet_diagnostic.G3D0007.severity = none
 dotnet_diagnostic.G3D0008.severity = none
 dotnet_diagnostic.G3D0009.severity = none
 
@@ -48,5 +49,6 @@ dotnet_diagnostic.G3D0001.severity = error
 dotnet_diagnostic.G3D0002.severity = error
 dotnet_diagnostic.G3D0005.severity = error
 dotnet_diagnostic.G3D0006.severity = error
+dotnet_diagnostic.G3D0007.severity = error
 dotnet_diagnostic.G3D0008.severity = error
 dotnet_diagnostic.G3D0009.severity = error

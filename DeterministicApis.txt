@@ -58,7 +58,7 @@ M:System.Numerics.BigInteger.op_Implicit(System.Int64)~System.Numerics.BigIntege
 M:System.Numerics.BigInteger.#ctor(System.Byte[]) ; little-endian two's complement, documented format, exact
 M:System.Numerics.BigInteger.#ctor(System.ReadOnlySpan{System.Byte},System.Boolean,System.Boolean) ; [NET] unsigned little-endian bytes, exact (portable branch: FixedPoint3.ToBigPortable, registered #if)
 M:System.Numerics.BigInteger.#ctor(System.Double) ; truncation toward zero of the double, exact; OverflowException for NaN and infinities; measured identical on .NET 10 and .NET Framework 4.8 x64 / x86 (probe.double-bigint, determinism run 43505530553)
-M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double ; NOT correctly rounded: the magnitude truncated to 53 bits toward zero, infinite at 2^1024 and above, on .NET 10 and .NET Framework 4.8 x64 / x86 alike (probe.bigint-double: 1238 values with ties, sticky bits beyond the top 64 bits and the overflow boundary, identical bits, run 43505530553); so its bits are the same on both (filters, ApproxVector3d, ExactPoint3.ToDouble, emulated by FixedArith.ToDouble); correctly rounded values are rounded by the kernel itself, which then converts at most 54 bits (ExactDyadic)
+M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double ; [sites] NOT correctly rounded: the magnitude truncated to 53 bits toward zero, infinite at 2^1024 and above, on .NET 10 and .NET Framework 4.8 x64 / x86 alike (probe.bigint-double: 1238 values with ties, sticky bits beyond the top 64 bits and the overflow boundary, identical bits, run 43505530553); so its bits are the same on both; each site says why no bound there assumes round-to-nearest
 M:System.Numerics.BigInteger.Abs(System.Numerics.BigInteger) ; exact
 M:System.Numerics.BigInteger.CompareTo(System.Numerics.BigInteger) ; exact order of values
 M:System.Numerics.BigInteger.DivRem(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger@) ; truncated division (quotient toward zero, remainder with the sign of the dividend), exact
@@ -95,6 +95,40 @@ M:System.Collections.Generic.Dictionary`2.#ctor(System.Collections.Generic.IEqua
 M:System.Collections.Generic.Dictionary`2.TryGetValue(`0,`1@) ; lookup: the answer is a function of the keys stored (P4), not of the bucket order
 P:System.Collections.Generic.Dictionary`2.Item(`0) ; lookup and store by key, as TryGetValue
 
+// ---- geometry3Sharp members declared outside the kernel files (their bodies are outside the stage 0 check: each
+//      reason is a review of the body today; extending the scope to these declarations is stage 1 work) ----
+F:g3.JitHints.Optimize ; constant MethodImplOptions.AggressiveOptimization (a JIT hint, no effect on values, T1)
+F:g3.Vector2d.x ; a field: storage
+F:g3.Vector2d.y ; a field: storage
+M:g3.Vector2d.#ctor(System.Double,System.Double) ; stores the two values
+M:g3.Vector2d.Dot(g3.Vector2d) ; x * v.x + y * v.y, separately rounded (T1)
+M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; componentwise ==, exact
+M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; componentwise -, one rounding each (T1)
+F:g3.Vector3d.x ; a field: storage
+F:g3.Vector3d.y ; a field: storage
+F:g3.Vector3d.z ; a field: storage
+F:g3.Vector3d.Zero ; constant (0, 0, 0), all +0
+M:g3.Vector3d.#ctor(System.Double,System.Double,System.Double) ; stores the three values
+P:g3.Vector3d.Item(System.Int32) ; selects x, y or z by index
+P:g3.Vector3d.LengthSquared ; x * x + y * y + z * z, separately rounded, left to right (T1)
+M:g3.Vector3d.Cross(g3.Vector3d) ; the three 2x2 minors, separately rounded (T1)
+M:g3.Vector3d.op_Addition(g3.Vector3d,g3.Vector3d) ; componentwise +, one rounding each (T1)
+M:g3.Vector3d.op_Subtraction(g3.Vector3d,g3.Vector3d) ; componentwise -, one rounding each (T1)
+M:g3.Vector3d.op_Equality(g3.Vector3d,g3.Vector3d) ; componentwise ==, exact
+M:g3.Vector3d.ToString ; [sites] text: string.Format with F8 under the invariant culture; the formatting of doubles changed in .NET Core 3.0, so the text can differ from .NET Framework: display only
+F:g3.Triangle3d.V0 ; a field: storage
+F:g3.Triangle3d.V1 ; a field: storage
+F:g3.Triangle3d.V2 ; a field: storage
+P:g3.Triangle3d.Item(System.Int32) ; selects V0, V1 or V2 by index
+M:g3.Index3i.#ctor(System.Int32,System.Int32,System.Int32) ; stores the three values
+P:g3.Index3i.Item(System.Int32) ; selects a, b or c by index
+M:g3.MathUtil.IsFinite(System.Double) ; !IsInfinity && !IsNaN, exact
+M:g3.PredicateStats.Call(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"): compiled out of every build but the profiling one; a counter, no predicate reads it
+M:g3.PredicateStats.ExactStage(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"), as Call
+F:g3.PredicateStats.Kind.Orient2d ; enum constant (the counter's index)
+F:g3.PredicateStats.Kind.Orient3d ; enum constant
+F:g3.PredicateStats.Kind.InCircle ; enum constant
+
 // ---- threads: schedule constructs (R13), every site registered ----
 M:System.Threading.Interlocked.Increment(System.Int32@) ; [sites] the value is schedule-assigned when called concurrently: each site says what it guards
 M:System.Threading.Volatile.Read(System.Int32@) ; [sites] reads a value published by another thread: each site says what it guards
@@ -109,21 +143,26 @@ site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactRayTriangle.Seco
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactSlopeKernel.GradientBound(System.Int32) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the bound is returned
 site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactTriangleIntersection.on_segment(g3.Vector2d,g3.Vector2d,g3.Vector2d) ; compared only (-0 == +0)
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactTriangleIntersection.on_segment(g3.Vector2d,g3.Vector2d,g3.Vector2d) ; compared only (-0 == +0)
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.ExactDyadic.Quotient(g3.ExactDyadic,g3.ExactDyadic) ; converts the mantissa the kernel rounded itself (to nearest, ties to even): at most 54 bits, and 54 only as 2^53, so the conversion is exact
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.ExactPoint3.ApproxVector3d ; documented bound 4 * 2^-52 relative: under truncation X and W are each off by less than 1 ulp (2^-52 of the truncated value, same binade), the division by half an ulp: about 2.5 * 2^-52; consumers use U |a| for W = 1 (truncation error < ulp(a) <= 2^-52 |a|) and 4 U |a| otherwise
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.ExactPoint3.ToDouble(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32) ; documented "error below 1 ulp": q is the quotient truncated to 64+ significant bits, then truncated to 53: v - d < 1 + (q - d) <= ulp; a subnormal result is rounded once more by ScaleB and stays below 1 subnormal ulp
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.FixedPoint3.DoubleOf(g3.ExactPoint3,g3.Vector3d@) ; exactness is checked by converting back (new BigInteger(d) == v), whatever the rounding
+site M:g3.Vector3d.ToString @ M:g3.ExactPoint3.ToString ; display only: no kernel operation reads the text
 site M:System.ThreadStaticAttribute.#ctor @ F:g3.AdaptivePredicates.StageDCount ; a counter for tests (stage D calls on this thread); no predicate reads it
 site M:System.ThreadStaticAttribute.#ctor @ F:g3.AdaptivePredicates.Workspace.current ; the per-thread scratch arrays of the adaptive stages; every element a stage reads was written by the same call first (expansion lengths are returned with the data; review, not a tool check: R14)
 site M:System.Threading.Interlocked.Increment(System.Int32@) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; hands out the slot of an appended point: a schedule-assigned id when ExactMeshArrangement adds concurrently (R13, P5); no kernel predicate reads it, its consumers are stage 2 obligations
 site M:System.Threading.Volatile.Read(System.Int32@) @ M:g3.FixedPointStore.get_Count ; the number of slots handed out (a count, observable only as a bound of the store); no kernel predicate reads it
-site M:System.Threading.Monitor.Enter(System.Object,System.Boolean@) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; guards the growth of the chunk table only (the chunks never move; values do not depend on who grows it)
+site M:System.Threading.Monitor.Enter(System.Object,System.Boolean@) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; guards the growth of the chunk table only: whoever grows it copies the same chunk references, chunks never move, and a slot is written by the one thread that got its index, so no stored value depends on the lock order
 site M:System.Threading.Monitor.Exit(System.Object) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; as Monitor.Enter
 
 // ---- conditional compilation (G3D0005): each member's #if NET block and the test that checks both branches; the net48 jobs run the tests on the other branch ----
-if M:g3.ExactPoint3.BitLength(System.Numerics.BigInteger) ; 1 ; ExactPoint3FixedWidthTests.BitLength_MatchesPortable ; GetBitLength against BitLengthPortable, compiled and compared on .NET
-if M:g3.ExactPredicates.trailing_zeros(System.UInt64) ; 1 ; ExactOrient3dKernelTests.TrailingZerosPortable_MatchesBitOperations ; BitOperations against TrailingZerosPortable on .NET
-if M:g3.FixedArith.MulHigh(System.UInt64,System.UInt64,System.UInt64@) ; 1 ; ExactPoint3FixedWidthTests.MulHighPortable_MatchesBigInteger ; Math.BigMul's portable twin MulHighPortable against BigInteger on .NET
-if M:g3.FixedArith.leading_zeros(System.UInt64) ; 1 ; ExactPlanesFixedWidthTests.LeadingZerosPortable_Matches ; BitOperations against LeadingZerosPortable on .NET
-if M:g3.FixedArith.ToBig(g3.FixedInt) ; 1 ; ExactPoint3FixedWidthTests.RoundTrip_EveryBitLength_AndTheLimit ; the span constructor against ToBigPortable on .NET (ExactPlanesFixedWidthTests.TrianglePlanes_SameAsBigInteger checks the values on both runtimes)
-if M:g3.FixedPoint3.LoadN(System.Numerics.BigInteger,System.UInt64*,System.Int32,System.Int32@,System.Boolean@) ; 1 ; ExactPoint3FixedWidthTests.RoundTrip_EveryBitLength_AndTheLimit ; Load (TryWriteBytes) against LoadPortable (ToByteArray) limb by limb on .NET
-if M:g3.FixedPoint3.ToBig(System.UInt64*,System.Byte) ; 1 ; ExactPoint3FixedWidthTests.RoundTrip_EveryBitLength_AndTheLimit ; the span constructor against ToBigPortable on .NET
+if M:g3.ExactPoint3.BitLength(System.Numerics.BigInteger) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; GetBitLength against BitLengthPortable, value by value on .NET
+if M:g3.ExactPredicates.trailing_zeros(System.UInt64) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; BitOperations.TrailingZeroCount against TrailingZerosPortable on .NET
+if M:g3.FixedArith.MulHigh(System.UInt64,System.UInt64,System.UInt64@) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; Math.BigMul against MulHighPortable (both limbs) on .NET
+if M:g3.FixedArith.leading_zeros(System.UInt64) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; BitOperations.LeadingZeroCount against LeadingZerosPortable on .NET
+if M:g3.FixedArith.ToBig(g3.FixedInt) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; the span constructor against ToBigPortable on .NET
+if M:g3.FixedPoint3.LoadN(System.Numerics.BigInteger,System.UInt64*,System.Int32,System.Int32@,System.Boolean@) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; Load (TryWriteBytes) against LoadPortable (ToByteArray), limb by limb, on .NET
+if M:g3.FixedPoint3.ToBig(System.UInt64*,System.Byte) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; the span constructor against ToBigPortable on .NET
 if M:g3.IndirectPredicates.__dec(System.Double,System.UInt64@,System.Int32@) ; 1 ; GeneratedPredicatesIndirectTests.GeneralDoubles_MatchTheOracle ; generated inline loop (no portable twin to call on .NET): both branches checked against the same oracle, each on its runtime (net10 and the net48 job)
 if M:g3.IndirectPredicates.__bits(System.UInt64) ; 1 ; GeneratedPredicatesIndirectTests.GeneralDoubles_MatchTheOracle ; generated inline loop, as __dec
 if M:g3.FixedArith.Orient(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Int32,System.Int32) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; the branches differ only by [SkipLocalsInit]: a dirty stack gives the results of a zeroed one
