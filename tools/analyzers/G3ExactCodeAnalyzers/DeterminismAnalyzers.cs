@@ -72,24 +72,24 @@ namespace G3ExactCodeAnalyzers
                     case "site": {
                         int at = rest.IndexOf(" @ ", StringComparison.Ordinal);
                         if (at < 0 || f.Length != 2 || f[1].Length == 0) { list.Errors.Add(line + ": site <api> @ <member> ; why"); continue; }
-                        list.Registrations.Add(new Registration { Kind = kind, Api = rest.Substring(0, at).Trim(), Member = rest.Substring(at + 3).Trim(), Reason = f[1], Line = line });
+                        AddRegistration(list, new Registration { Kind = kind, Api = rest.Substring(0, at).Trim(), Member = rest.Substring(at + 3).Trim(), Reason = f[1], Line = line });
                         continue;
                     }
                     case "if": {
                         int n;
                         if (f.Length != 4 || !int.TryParse(f[1], out n) || n <= 0 || f[2].Length == 0 || f[3].Length == 0) { list.Errors.Add(line + ": if <member> ; n ; test ; why"); continue; }
-                        list.Registrations.Add(new Registration { Kind = kind, Member = rest, Count = n, Test = f[2], Reason = f[3], Line = line });
+                        AddRegistration(list, new Registration { Kind = kind, Member = rest, Count = n, Test = f[2], Reason = f[3], Line = line });
                         continue;
                     }
                     case "cast": {
                         int n;
                         if (f.Length != 3 || !int.TryParse(f[1], out n) || n <= 0 || f[2].Length == 0) { list.Errors.Add(line + ": cast <member> ; n ; why"); continue; }
-                        list.Registrations.Add(new Registration { Kind = kind, Member = rest, Count = n, Reason = f[2], Line = line });
+                        AddRegistration(list, new Registration { Kind = kind, Member = rest, Count = n, Reason = f[2], Line = line });
                         continue;
                     }
                     case "skiplocalsinit": {
                         if (f.Length != 2 || f[1].Length == 0) { list.Errors.Add(line + ": skiplocalsinit <member> ; argument"); continue; }
-                        list.Registrations.Add(new Registration { Kind = kind, Member = rest, Reason = f[1], Line = line });
+                        AddRegistration(list, new Registration { Kind = kind, Member = rest, Reason = f[1], Line = line });
                         continue;
                     }
                 }
@@ -112,6 +112,19 @@ namespace G3ExactCodeAnalyzers
                 list.Entries.Add(e.Id, e);
             }
             return list;
+        }
+
+        static bool IsDocId(string id)
+        {
+            return id != null && id.Length > 2 && id[1] == ':' && "TMFPE".IndexOf(id[0]) >= 0 && id.IndexOf(' ') < 0;
+        }
+
+        static void AddRegistration(DeterministicApiList list, Registration r)
+        {
+            if (!IsDocId(r.Member) || (r.Kind == "site" && !IsDocId(r.Api)))
+                list.Errors.Add(r.Line + ": " + r.Kind + ": not a documentation id: '" + (IsDocId(r.Member) ? r.Api : r.Member) + "'");
+            else
+                list.Registrations.Add(r);
         }
 
         public Registration Find(string kind, string member, string api = null)
@@ -173,7 +186,9 @@ namespace G3ExactCodeAnalyzers
 
         public override void Initialize(AnalysisContext context)
         {
-            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+            // (generated code too: a kernel file marked as generated, by a header, its name or generated_code, must not
+            // drop out of the scope silently)
+            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze | GeneratedCodeAnalysisFlags.ReportDiagnostics);
             context.EnableConcurrentExecution();
             context.RegisterCompilationStartAction(Start);
         }
@@ -210,7 +225,8 @@ namespace G3ExactCodeAnalyzers
                 OperationKind.InterpolatedString, OperationKind.Tuple, OperationKind.Await, OperationKind.AnonymousObjectCreation,
                 OperationKind.DynamicInvocation, OperationKind.DynamicMemberReference, OperationKind.DynamicObjectCreation,
                 OperationKind.DynamicIndexerAccess, OperationKind.Range, OperationKind.UsingDeclaration, OperationKind.RecursivePattern,
-                OperationKind.ListPattern, OperationKind.SlicePattern, OperationKind.TypeParameterObjectCreation);
+                OperationKind.ListPattern, OperationKind.SlicePattern, OperationKind.TypeParameterObjectCreation,
+                OperationKind.FunctionPointerInvocation);
             ctx.RegisterOperationAction(c => OnFunction(c, s), OperationKind.LocalFunction, OperationKind.AnonymousFunction);
             ctx.RegisterOperationBlockStartAction(c => OnBlockStart(c, s));
             ctx.RegisterSemanticModelAction(c => OnModel(c, s));
@@ -310,6 +326,9 @@ namespace G3ExactCodeAnalyzers
                 case IDynamicIndexerAccessOperation _:
                     return "construct:dynamic";
                 case ITypeParameterObjectCreationOperation _: return "construct:new-type-parameter";
+                // (the target is chosen at run time: what it computes is not visible here)
+                case IFunctionPointerInvocationOperation _: return "construct:function-pointer-call";
+                case IInvocationOperation di when di.TargetMethod.MethodKind == MethodKind.DelegateInvoke: return "construct:delegate-invocation";
                 case ISlicePatternOperation _: return "construct:slice-pattern";
                 case IBinaryOperation b when b.OperatorMethod == null && (b.OperatorKind == BinaryOperatorKind.Equals || b.OperatorKind == BinaryOperatorKind.NotEquals)
                     && b.LeftOperand.Type?.SpecialType == SpecialType.System_String && b.RightOperand.Type?.SpecialType == SpecialType.System_String:
@@ -634,8 +653,9 @@ namespace G3ExactCodeAnalyzers
             if (source == null)
                 return;
             string id = m.GetDocumentationCommentId() ?? "";
-            // (a registration of the method, or of the property or type that carries the attribute)
-            DeterministicApiList.Registration r = SkipScopes(m).Select(x => s.List.Find("skiplocalsinit", x.GetDocumentationCommentId() ?? "")).FirstOrDefault(x => x != null);
+            // (registered on the symbol that carries the attribute: a registration of a type covers the type's attribute,
+            // not a method's own one)
+            DeterministicApiList.Registration r = s.List.Find("skiplocalsinit", source.GetDocumentationCommentId() ?? "\0");
             foreach (Location loc in m.Locations) {
                 if (!loc.IsInSource || !InScope(s, loc.SourceTree))
                     continue;
