@@ -171,6 +171,13 @@ namespace gs
         /// <summary> the divisor of the median edge length for the alpha of a small input (see <see cref="SmallInputWrapTriangles"/>) </summary>
         public double SmallInputWrapEdgeDivisor = 4;
         /// <summary>
+        /// alpha wrap fallback: the raw-size budget of the wrap (MeshAlphaWrap.MaxEstimatedTriangles; 0 = off, the default): above this
+        /// estimated size the wrap's alpha and offset are coarsened before the refinement, and AlphaWrapCoarsening reports the factor.
+        /// The wrap's size, and the time of the wrap and its simplification, go with the input's surface area / alpha^2, not with its
+        /// triangle count (issue #694: 260 triangles of a flattened sphere wrapped to 211,614 triangles, about 6 s per Apply).
+        /// </summary>
+        public int WrapMaxEstimatedTriangles = 0;
+        /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
         /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
         /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
@@ -278,6 +285,11 @@ namespace gs
         public MeshAlphaWrap AlphaWrap;
         /// <summary> alpha wrap fallback: triangles of the wrap before simplification (0 if not run) </summary>
         public int AlphaWrapTriangles;
+        /// <summary>
+        /// alpha wrap fallback: the factor by which WrapMaxEstimatedTriangles coarsened the wrap's alpha and offset (1: not coarsened, or
+        /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on
+        /// </summary>
+        public double AlphaWrapCoarsening = 1;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
         /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
@@ -558,6 +570,7 @@ namespace gs
             UsedInput = false;
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
+            AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
             AlphaWrapSharpFeaturesApplied = false;
             AlphaWrapQualityImproved = false;
@@ -777,8 +790,10 @@ namespace gs
                 double smallAlpha = 0, smallOffset = 0;
                 if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
-                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF };
+                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
+                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles };
                 AlphaWrap.Compute();
+                AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
                 end_phase("wrap");
                 // (PointLimitReached: less detail, same guarantees)
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
@@ -1043,10 +1058,13 @@ namespace gs
 
         /// <summary> the retry of SimplifyWithin bounds every collapse to this fraction of maxDistance (Reducer.MaxDeviation) </summary>
         internal const double RetryDeviationFraction = 0.8;
+        /// <summary> the first retry of SimplifyWithin keeps sample points of every new triangle within this fraction of maxDistance (Reducer.SampleDeviation) </summary>
+        internal const double RetrySampleFraction = 0.5;
 
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
-            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null, bool retryWithDeviation = true)
+            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null, bool retryWithDeviation = true,
+            bool retrySampled = true)
         {
             hausdorffSubdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
@@ -1069,17 +1087,34 @@ namespace gs
                 return within ? m : null;
             // Not certified: the quadric error bounds the distance of each vertex to the planes it absorbed, not of the
             // triangles to the mesh (on the Thingi10K 800 sample 5 of 800 wraps, 1.2 to 10.7 times maxDistance, at a fold of
-            // the wrap and elsewhere; issue 747). Once more with Reducer.MaxDeviation = maxDistance, which certifies every
-            // collapse against the mesh (10 to 30 times slower, so only here), then certified again as a whole (the bound
-            // with a margin: the certification's own bound cannot prove a distance right at maxDistance)
+            // the wrap and elsewhere; issue 747). First once more with Reducer.SampleDeviation (the new triangles' centroids
+            // and edge midpoints within RetrySampleFraction of maxDistance of the mesh: a few nearest-point queries per
+            // collapse, about 1.3 times the plain reduction; it certified all 5), then certified again as a whole
+            if (retrySampled) {
+                var sampleRef = new DMeshAABBTree3(new DMesh3(mesh), true);
+                Action<Reducer> sampled = (r) => { configure(r); r.SampleDeviation = RetrySampleFraction * maxDistance; r.SampleReference = sampleRef; };
+                m = reduce(mesh, quadricDistance, slabs, maxThreads, sampled, cancelF, phases, "retry/");
+                lap(phases, "retry", timer);
+                if (cancelF())
+                    return null;
+                if (NotCleanReason(m, checkSelfIntersections) == "") {
+                    within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+                    lap(phases, "retry/certify", timer);
+                    if (within || cancelF())
+                        return within ? m : null;
+                }
+            }
+            // Still not: with Reducer.MaxDeviation, which certifies every collapse against the mesh (10 to 30 times slower,
+            // so only here), then certified again as a whole (the bound with a margin: the certification's own bound cannot
+            // prove a distance right at maxDistance)
             // (PartitionedReduction measures every slab and its last pass from the mesh given)
             Action<Reducer> bounded = (r) => { configure(r); r.MaxDeviation = RetryDeviationFraction * maxDistance; };
-            m = reduce(mesh, quadricDistance, slabs, maxThreads, bounded, cancelF, phases, "retry/");
-            lap(phases, "retry", timer);
+            m = reduce(mesh, quadricDistance, slabs, maxThreads, bounded, cancelF, phases, "retry2/");
+            lap(phases, "retry2", timer);
             if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
                 return null;
             within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
-            lap(phases, "retry/certify", timer);
+            lap(phases, "retry2/certify", timer);
             return within ? m : null;
         }
 

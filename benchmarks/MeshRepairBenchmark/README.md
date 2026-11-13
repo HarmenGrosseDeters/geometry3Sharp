@@ -1166,6 +1166,24 @@ Two earlier versions on the same 13 meshes (master `3d58441`):
   wrap can then reach the input (the wrap lies only about one offset outside it), and on 87345.stl the quadric
   underestimated the distance (2.5 offsets, rejected by the check).
 
+Retry of an uncertified simplification in two stages (#747, 2026-11-13): first with `Reducer.SampleDeviation` (the
+centroid and edge midpoints of each new triangle within half the distance of the unsimplified wrap: a sampled filter,
+not a certificate; the certification still decides), then, only if that is not certified either, with
+`Reducer.MaxDeviation` (#763). `wrappipe`, `BENCH_FIDELITY=0`, the 5 wraps of the 800 sample whose first pass is not
+certified plus 30 that are (seed 747), master `cbb96ad` vs the change: the 30 give the same output bit for bit (time
+sum x1.012); the 5 all certify in the sampled stage:
+
+| mesh | pipeline before | after | triangles before | after |
+|---|---:|---:|---:|---:|
+| 175914 | 84.8 s | 29.3 s | 114,202 | 114,276 |
+| 42179 | 49.2 s | 19.4 s | 101,804 | 101,886 |
+| 64891 | 14.2 s | 8.8 s | 65,072 | 65,072 |
+| 67121 | 26.1 s | 8.1 s | 39,172 | 39,188 |
+| 69259 | 30.3 s | 14.4 s | 49,904 | 49,970 |
+
+The same sampled guard in the first pass was discarded: median pipeline +9.2 %, simplification +24 %, every output
+changed.
+
 ## Alpha wrap quality pass (`MeshRobustRepair.AlphaWrapQualityPass`, stage 7b)
 
 The simplified wrap keeps slivers: the `Reducer` stops at needles and caps of about 1.7 degrees.
@@ -1631,3 +1649,32 @@ Output 24/24 identical (`after_hash`, raw triangles); the 269 meshes of phase 1:
 tail lever: 48367 (46 % touch) 4.0 s -> 0.57 s of touch; leaf-only face tests (1.6 s there) and all four faces at every
 node (slower on typical meshes) were measured and not taken.
 
+## Alpha Wrap 3.0 lever 2: raw-size budget (`WrapMaxEstimatedTriangles`, #694)
+
+The wrap's size, and the time of the wrap and its simplification, go with the input's surface area / alpha^2, not with its
+triangle count: the corpus case "flat" (`RegressionCorpusTests`, a closed sphere of 260 triangles flattened onto z = 0) wraps
+to 211,614 raw triangles at the default alpha (diagonal / 300). `MeshAlphaWrap.MaxEstimatedTriangles` (through
+`MeshRobustRepair.WrapMaxEstimatedTriangles`; off by default) estimates the size before the refinement as
+`EstimateDensity` (3) * input area / alpha^2 and, above the budget, scales alpha and offset by sqrt(estimate / budget)
+(`AlphaCoarsening`, `AlphaWrapCoarsening`). `BENCH_WRAP_BUDGET=n` sets it; `robust_wrap_estimate` and
+`robust_wrap_coarsening` are in the output.
+
+Density measured (relative alpha 50 to 200, raw triangles per area / alpha^2): closed solids (sphere, box, plate of 1/100
+thickness) 1.35 to 1.7; a closed surface of zero volume ("flat") 3.0 to 3.3; an open disc 6.0 to 6.6 (the wrap covers both
+sides). So the estimate is about twice the size of a closed solid and about half that of an open sheet.
+
+`BENCH_REPAIR=robust BENCH_FIDELITY=0`, the two corpus cases (written from the test harness, `Defects`), 2 runs each (equal
+outputs), 4-core container, one process at a time:
+
+| case | budget | repair time | raw wrap triangles | estimate | coarsening |
+|---|---|---:|---:|---:|---:|
+| flat | off | 10.1-10.6 s | 211,614 | 213,290 | 1 |
+| flat | 20,000 | 3.4-3.5 s | 20,654 | | 3.27 |
+| flat | 8,000 | 2.6 s | 8,642 | | 5.16 |
+| partly flipped | off | 8.6-8.8 s | 129,632 | 288,187 | 1 |
+| partly flipped | 20,000 | 3.8-4.1 s | 9,466 | | 3.80 |
+| partly flipped | 8,000 | 3.5-4.1 s | 3,994 | | 6.00 |
+
+All results closed and clean. "partly flipped" is a closed sphere with flipped triangles: its estimate is 2.2 times its
+size, as for closed solids. The coarsened wrap is a complete wrap at the larger alpha (bit for bit the wrap with that
+alpha and offset given), so it wraps over cavities and gaps up to about 2 * UsedAlpha.

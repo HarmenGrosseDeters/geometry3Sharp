@@ -114,7 +114,7 @@ Part of the [roadmap](../ROADMAP.md).
   `nightly.yml` started 09:57 UTC (green), `coverage.yml` its first scheduled run at 11:48 UTC (failed).
 - **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-12: option (b), vendor the C# 2.0.0
   sources and fix item 5; own session; in work: PR 1 #751 vendors the sources behaviour-identical, PR 2 fixes item 5
-  (`bugfix`)) AngusJohnson/Clipper2 was
+  (`bugfix`; cause: `DoSplitOp` dropped a hole touching its path; one rarer Intersection case open, FINDINGS item 5)) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
   frozen NuGet package Clipper2 2.0.0, so the known Union limitation (FINDINGS item 5, wrong area on degenerate

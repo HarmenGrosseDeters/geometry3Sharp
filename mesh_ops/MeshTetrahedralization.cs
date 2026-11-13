@@ -17,6 +17,9 @@ namespace gs
     /// the boundary is therefore the wrap surface exactly (same vertices, same triangles). With peeling (the default) it is the wrap
     /// surface after 2-2 flips of peeled boundary slivers: the same vertices (all the wrap's), still closed, 2-manifold and
     /// intersection-free, touching no input triangle (exact), moved inwards by at most the heights of the peeled slivers.
+    /// Stage 2 (Improve, the default; TetMeshImprover) then flips and smooths; with BoundarySlideFactor > 0 it also moves boundary
+    /// vertices, each by at most BoundarySlideFactor offsets from its wrap position (cumulative), every move checked exactly: all
+    /// tets stay positive, the boundary stays free of self-intersections and the input strictly inside it (TET_MESHING.md 15).
     /// Every tet is exactly positively oriented (Delaunay3). The price: a bad tet whose circumcentre lies beyond the surface, or
     /// whose cavity would reach it, stays (counted in unrefined_bad_tets); the surface's own quality bounds those tets.
     ///
@@ -53,6 +56,20 @@ namespace gs
         /// The surface stays closed, 2-manifold, intersection-free and around the input; it moves inwards by the sliver's height.
         /// </summary>
         public bool PeelBoundarySlivers = true;
+        /// <summary>
+        /// stage 2: improve the refined mesh by flips and smoothing (TetMeshImprover, Klingner and Shewchuk 2007): every tet with a
+        /// smallest dihedral angle below SliverDihedralDegrees is worked on. Flips never change the boundary triangles; with
+        /// BoundarySlideFactor > 0 (the default) boundary vertices move, see there
+        /// </summary>
+        public bool Improve = true;
+        /// <summary>
+        /// stage 2: boundary vertices may move by at most this many offsets from their place on the wrap (each move checked exactly:
+        /// no input triangle in the swept region, no boundary self-intersection, all tets positive); 0 = the boundary is fixed.
+        /// The result's boundary then lies within this band around the wrap surface, and strictly around the input.
+        /// </summary>
+        public double BoundarySlideFactor = 0.5;
+        /// <summary> stage 2: boundary moves only in the tangent plane of the vertex's boundary fan (TET_MESHING.md 15: 39 of 40 instead of 40 of 40 on the subset) </summary>
+        public bool BoundaryMovesTangentOnly = false;
         /// <summary> the floor in units of the wrap's vertex separation min(Offset, Alpha - Offset) </summary>
         public double MinFeatureFactor = 0.125;
         /// <summary> stop (status PointLimitReached, result still valid) after this many inserted points </summary>
@@ -116,6 +133,18 @@ namespace gs
             Result = r.Extract();
             Counts["unrefined_bad_tets"] = r.CountBadInside();
             foreach (var kv in r.Counts) Counts[kv.Key] = kv.Value;
+            if (Improve && SliverDihedralDegrees > 0) {
+                var imp = new TetMeshImprover(Result) { TargetDegrees = SliverDihedralDegrees, CancelF = CancelF };
+                if (BoundarySlideFactor > 0 && Mesh.TriangleCount > 0) {
+                    imp.InputTree = new DMeshAABBTree3(Mesh, true);
+                    imp.BoundarySlideLimit = BoundarySlideFactor * UsedOffset;
+                    imp.TangentOnly = BoundaryMovesTangentOnly;
+                }
+                imp.Run();
+                Result = imp.Result();
+                foreach (var kv in imp.Counts) Counts["improve_" + kv.Key] = kv.Value;
+                if (CancelF()) { Status = TetStatus.Cancelled; Result = null; return false; }
+            }
             return st == TetStatus.Success;
         }
 
@@ -207,7 +236,7 @@ namespace gs
             bool try_insert(Vector3d p, int hint, out bool surface)
             {
                 surface = false;
-                if (!(p.x == p.x && p.y == p.y && p.z == p.z)) return false;
+                if (double.IsNaN(p.x) || double.IsNaN(p.y) || double.IsNaN(p.z)) return false;
                 removed.Clear(); added.Clear();
                 if (dt.Insert(p, hint, floor, out _, removed, added) != Delaunay3.InsertResult.Inserted) return false;
                 Counts["trial_insertions"]++;

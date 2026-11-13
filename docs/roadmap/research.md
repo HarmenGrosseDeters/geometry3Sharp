@@ -127,6 +127,7 @@ Part of the [roadmap](../ROADMAP.md).
      (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
      Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
      `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
+     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833), #815 (Lidinoid), #816 (graded cell size), #814 (CLI / MCP).
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
@@ -353,6 +354,9 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
+  Later item (coordinator 2026-11-13, #802): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
+  (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
+  about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean
