@@ -156,6 +156,25 @@ namespace geometry3Sharp.Tests
             Assert.True(SlopeSpec.Degrees(44.99999999999999).S < 1 && SlopeSpec.Degrees(45.00000000000001).S > 1);
         }
 
+        // the domain of the bound and its two ends: NaN outside (0, 90), 0 where tan is below the smallest double (no positive
+        // double proven), a subnormal just above; and the cache: bounded (cleared at TanCacheSize), the values the same
+        [Fact]
+        public void Degrees_TanLowerBound_DomainAndCache()
+        {
+            foreach (double a in new[] { 0.0, -1.0, 90.0, 95.0, double.NaN, double.PositiveInfinity })
+                Assert.True(double.IsNaN(SlopeSpec.TanLowerBound(a)), $"{a}");
+            Assert.Equal(0.0, SlopeSpec.TanLowerBound(1e-323));
+            double tiny = SlopeSpec.TanLowerBound(1e-320);
+            Assert.True(tiny > 0 && tiny <= 1e-320 * Math.PI / 180 * (1 + 1e-3), $"{tiny}");
+            double t30 = SlopeSpec.TanLowerBound(30);
+            SlopeSpec.ClearTanCache();
+            for (int i = 1; i <= 10; ++i) SlopeSpec.TanLowerBound(10 + i * 1e-3);
+            Assert.Equal(10, SlopeSpec.TanCacheCount);
+            for (int i = 0; i < SlopeSpec.TanCacheSize + 5; ++i) SlopeSpec.TanLowerBound(20 + i * 1e-4);
+            Assert.InRange(SlopeSpec.TanCacheCount, 1, SlopeSpec.TanCacheSize);
+            Assert.Equal(t30, SlopeSpec.TanLowerBound(30));
+        }
+
         // the premises of the bound (TERRAIN.md section 1): pi_lo below pi (against pi truncated to 35 decimals, itself
         // below pi and above pi_lo, which is 2.2e-32 below), N = 0 mod 4, and the Taylor sums as bounds: with N = 4,
         // x - x^3 / 6 below sin x and 1 - x^2 / 2 + x^4 / 24 above cos x by far more than rounding

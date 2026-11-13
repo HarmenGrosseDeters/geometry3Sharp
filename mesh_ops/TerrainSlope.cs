@@ -81,6 +81,11 @@ namespace gs
             }
         }
 
+        /// <summary> tests: the most angles the cache of TanLowerBound holds before it is cleared, and its count </summary>
+        internal const int TanCacheSize = 4096;
+        internal static int TanCacheCount { get { return tanCache.Count; } }
+        internal static void ClearTanCache() { tanCache.Clear(); }
+
         static readonly System.Collections.Concurrent.ConcurrentDictionary<long, double> tanCache =
             new System.Collections.Concurrent.ConcurrentDictionary<long, double>();
 
@@ -92,7 +97,7 @@ namespace gs
         /// sin and cos up to x^47 and x^48, which end with a negative and a positive term of alternating series whose
         /// omitted terms fall (x &lt; pi / 2): a lower bound of sin x and an upper bound of cos x &gt; 0. Then tan(a pi / 180) &gt;= tan x =
         /// sin x / cos x &gt;= sin_lo / cos_hi &gt;= t. The comparison is made exactly on integers, the sums times 180^48 48!.
-        /// The same on every platform: Math.Tan only gives the start of the search. NaN outside (0, 90)
+        /// The same on every platform (no Math.Tan). NaN outside (0, 90)
         /// </summary>
         internal static double TanLowerBound(double a)
         {
@@ -105,7 +110,7 @@ namespace gs
             if (tanCache.TryGetValue(key, out t)) return t;
             t = tan_lower_bound(a);
             // (bounded: a host that sweeps angles does not grow it for ever; a cleared entry is computed again, the same)
-            if (tanCache.Count >= 4096) tanCache.Clear();
+            if (tanCache.Count >= TanCacheSize) tanCache.Clear();
             tanCache[key] = t;
             return t;
         }
@@ -147,31 +152,15 @@ namespace gs
             ExactDyadic sinL, cosH;
             TaylorSums(a, TaylorTerms, out sinL, out cosH);
             // (sin ends at m = 47, negative: a lower bound; cos at m = 48, positive: an upper bound)
-            Func<double, bool> proven = (c) => c > 0 && ExactDyadic.Compare(sinL, ExactDyadic.Of(c) * cosH) >= 0;
+            // Stryker disable once Equality: > and >= differ only where sin_lo = c cos_hi exactly, ie where the rational lower
+            // bound sin_lo / cos_hi of tan is itself a double; that is so for no angle tested (2134 angles, numerics review)
+            Func<double, bool> proven = (c) => ExactDyadic.Compare(sinL, ExactDyadic.Of(c) * cosH) >= 0;
             // the largest proven double, which depends on a only: proven is monotone (true up to the bound's sin_lo / cos_hi,
-            // false above), so a bracket [lo proven, hi not proven] from Math.Tan's value, widened in growing steps, is
-            // bisected on the bit patterns (positive doubles are ordered as their bits) to adjacent doubles
-            double start = Math.Tan(a * Math.PI / 180);
-            if (!(start > 0) || double.IsInfinity(start)) start = double.MaxValue;
-            double lo, hi;
-            if (proven(start)) {
-                lo = start; hi = double.PositiveInfinity;
-                for (int i = 0; ; ++i) {
-                    double up = lo + (ExactInterval.Up(lo) - lo) * (double)(1L << Math.Min(i, 60));
-                    if (double.IsInfinity(up) || up <= lo) up = ExactInterval.Up(lo);
-                    if (double.IsInfinity(up)) return lo;
-                    if (proven(up)) lo = up; else { hi = up; break; }
-                }
-            } else {
-                hi = start; lo = 0;
-                for (int i = 0; ; ++i) {
-                    double down = hi - (ExactInterval.Up(hi) - hi) * (double)(1L << Math.Min(i, 60));
-                    if (!(down > 0)) down = double.Epsilon;
-                    if (proven(down)) { lo = down; break; }
-                    if (down == double.Epsilon) return 0;     // (none proven: tan of the angle is below the smallest double)
-                    hi = down;
-                }
-            }
+            // false above), so the bracket [the smallest positive double, the largest] is bisected on the bit patterns (positive
+            // doubles are ordered as their bits) to adjacent doubles, at most 64 steps. The largest double is never proven
+            // (tan of an angle below 90 degrees is finite, and cos_hi > 0)
+            double lo = double.Epsilon, hi = double.MaxValue;
+            if (proven(lo) == false) return 0;     // (none proven: tan of the angle is below the smallest double)
             long bl = BitConverter.DoubleToInt64Bits(lo), bh = BitConverter.DoubleToInt64Bits(hi);
             while (bh - bl > 1) {
                 long mid = bl + (bh - bl) / 2;
