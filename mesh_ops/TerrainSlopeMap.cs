@@ -34,6 +34,8 @@ namespace gs
         readonly Dictionary<int, int> owner = new Dictionary<int, int>();
 
         public SlopeMap(ExactSlopeKernel kernel) { K = kernel; }
+        /// <summary> an upper bound of the gradient of every plane (the prefilter's error at an approximate corner); infinity: none known </summary>
+        public double MaxGradient = double.PositiveInfinity;
         public int FaceCount { get { return fEdge.Count; } }
 
         // ---------------------------------------------------------------- structure
@@ -436,14 +438,18 @@ namespace gs
                 var pos = prefilterPos;
                 pos.Clear(); prefilterVerts.Clear();
                 { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
-                // prefilter (conservative): F_k over the face is at least zmin + slb * dmin
-                double upper = double.MinValue;
-                foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
+                // prefilter (conservative): F_k over the face is at least zmin + slb * dmin. The corners are approximate,
+                // within e = 4e-12 (|x| + |y|) of the exact ones (Approx): the distance is taken e shorter, and the label's
+                // height at a corner is off by at most MaxGradient e (a face smaller than e, eg at an apex where many planes
+                // meet, was skipped by its approximate distance alone, differently at different scales)
+                double upper = double.MinValue, e = 0;
+                foreach (var q in pos) { upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y)); e = Math.Max(e, Math.Abs(q.x) + Math.Abs(q.y)); }
+                e *= 4e-12;
                 double dmin = poly_segment_distance(pos, A.xy, B.xy);
-                double lowerF = zmin + slb * dmin;
+                double lowerF = zmin + slb * Math.Max(0, dmin - e);
                 double size = 0;
                 foreach (var q in pos) size = Math.Max(size, q.Distance(pos[0]));
-                if (lowerF > upper + 1e-9 * (Math.Abs(upper) + Math.Abs(lowerF) + slb * (size + dmin)))
+                if (lowerF > upper + MaxGradient * e + 1e-9 * (Math.Abs(upper) + Math.Abs(lowerF) + slb * (size + dmin)))
                     continue;
                 relevant.Clear();
                 relevant.AddRange(strip);

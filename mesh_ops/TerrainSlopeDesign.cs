@@ -1143,7 +1143,8 @@ namespace gs
             // the domain, a planar map of convex faces
             var box2 = toeBox;
             box2.Expand(1.05 * dMax + 1e-6 * toeBox.MaxDim);
-            var map = new SlopeMap(kernel);
+            // (every plane is at most as steep as the steepest spec: the cones and strips are built at Sb <= S)
+            var map = new SlopeMap(kernel) { MaxGradient = sMax };
             string why;
             Index2i where;
             if (map.BuildDomain(toePts, Toes.Select(t => t.Closed).ToList(), Toes.Select(t => t.Side).ToList(), box2, out why, out where) == false) {
