@@ -16,8 +16,9 @@ name: Mutation tests
 
 on:
   pull_request:
-    # (converted_to_draft: the concurrency group below cancels a run that is under way)
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    # (converted_to_draft and closed: the concurrency group below cancels a run that is under way; on closed, which
+    # includes a merge, the selection job is skipped, so nothing new runs and no runner stays busy for a finished PR)
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - 'math/ExactPredicates.cs'
       - 'math/ExactPoint3.cs'
@@ -73,7 +74,7 @@ on:
         description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
 
-# a new push to the same PR cancels the running run
+# a new push to the same PR, a switch back to draft, and closing or merging the PR cancel the running run
 concurrency:
   group: mutation-${{ github.ref }}
   cancel-in-progress: true
@@ -89,6 +90,9 @@ jobs:
   # which configs a PR needs, and how (schedule and workflow_dispatch run all of them in full). Runs on drafts too, so
   # that the selection can be seen there; the jobs below wait for "ready for review".
   changes:
+    # a closed (or merged) PR only cancels its running run through the concurrency group; the jobs below need this one,
+    # so they are skipped too
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     outputs:
       arithmetic: ${{ steps.select.outputs.arithmetic }}
