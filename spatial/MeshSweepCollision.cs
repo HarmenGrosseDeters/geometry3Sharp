@@ -162,32 +162,61 @@ namespace g3
             }
             long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
+            // In batches of jobs (bounded memory): (1) each job's candidate pairs, in parallel over the jobs; (2) the
+            // pairs, in parallel over the pairs (so that expensive pairs that cluster in one job still spread over the
+            // cores); (3) the results recorded per job, in order.
             var outputs = new JobOutput[jobs.Count];
-            Action<int, Worker> run = (j, w) => {
-                Job job = jobs[j];
-                var o = new JobOutput();
-                if (job.Kind == JobKind.VertexTriangle) {
-                    DMesh3 vm = job.OfA ? meshA : meshB, tm = job.OfA ? meshB : meshA;
-                    Vector3d[] ve = job.OfA ? endA : endB, te = job.OfA ? endB : endA;
-                    Prepared tri = job.OfA ? triB : triA;
-                    int[] verts = job.OfA ? vertsA : vertsB;
-                    if (tri.Tree != null)
-                        for (int k = job.Start; k < job.End; ++k)
-                            vertex_against(verts[k], vm, ve, tm, te, tri, job.OfA, half, w, o);
-                } else if (job.Kind == JobKind.EdgeEdge) {
-                    if (edgB.Tree != null)
-                        for (int k = job.Start; k < job.End; ++k)
-                            edge_against(edgesA[k], edgB, half, w, o);
-                } else
-                    self_edges(selfTasks[job.Start], edgB, w, o);
-                outputs[j] = o;
-            };
-            if (parallel && jobs.Count > 1)
-                gParallel.ForRange(jobs.Count, () => new Worker(), run);
-            else {
-                var w = new Worker();
-                for (int j = 0; j < jobs.Count; ++j)
-                    run(j, w);
+            var batchPairs = new List<PairRef>[BatchJobs];
+            for (int b0 = 0; b0 < jobs.Count; b0 += BatchJobs) {
+                int nb = Math.Min(BatchJobs, jobs.Count - b0);
+                Action<int, Worker> collect = (jj, w) => {
+                    Job job = jobs[b0 + jj];
+                    var list = new List<PairRef>();
+                    if (job.Kind == JobKind.VertexTriangle) {
+                        DMesh3 vm = job.OfA ? meshA : meshB, tm = job.OfA ? meshB : meshA;
+                        Vector3d[] ve = job.OfA ? endA : endB;
+                        Prepared tri = job.OfA ? triB : triA;
+                        int[] verts = job.OfA ? vertsA : vertsB;
+                        if (tri.Tree != null)
+                            for (int k = job.Start; k < job.End; ++k)
+                                vertex_against(verts[k], vm, ve, tm, tri, job.OfA, half, w, list);
+                    } else if (job.Kind == JobKind.EdgeEdge) {
+                        if (edgB.Tree != null)
+                            for (int k = job.Start; k < job.End; ++k)
+                                edge_against(edgesA[k], edgB, half, w, list);
+                    } else
+                        self_edges(selfTasks[job.Start], edgB, w, list);
+                    batchPairs[jj] = list;
+                };
+                if (parallel && nb > 1)
+                    gParallel.ForRange(nb, () => new Worker(), collect);
+                else {
+                    var w = new Worker();
+                    for (int jj = 0; jj < nb; ++jj)
+                        collect(jj, w);
+                }
+                var offsets = new int[nb + 1];
+                for (int jj = 0; jj < nb; ++jj)
+                    offsets[jj + 1] = checked(offsets[jj] + batchPairs[jj].Count);
+                var flat = new PairRef[offsets[nb]];
+                for (int jj = 0; jj < nb; ++jj)
+                    batchPairs[jj].CopyTo(flat, offsets[jj]);
+                var results = new CcdResult[flat.Length];
+                Action<int, CcdSolver> solve = (k, solver) => { results[k] = solve_pair(flat[k], solver); };
+                if (parallel && flat.Length > 1)
+                    gParallel.ForRange(flat.Length, () => new CcdSolver(), solve);
+                else {
+                    var solver = new CcdSolver();
+                    for (int k = 0; k < flat.Length; ++k)
+                        solve(k, solver);
+                }
+                for (int jj = 0; jj < nb; ++jj) {
+                    var o = new JobOutput();
+                    for (int k = offsets[jj]; k < offsets[jj + 1]; ++k)
+                        record(o, flat[k], results[k]);
+                    outputs[b0 + jj] = o;
+                    batchPairs[jj] = null;
+                }
             }
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
             BroadPhaseSeconds = (t1 - t0) / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -295,10 +324,9 @@ namespace g3
             public bool Invalid;
         }
 
-        // per thread: the solver and a query buffer
+        // per thread: query buffers
         sealed class Worker
         {
-            public readonly CcdSolver Solver = new CcdSolver();
             public readonly List<int> Found = new List<int>();
             public readonly List<Index2i> Pairs = new List<Index2i>();
         }
@@ -357,8 +385,36 @@ namespace g3
             return p;
         }
 
-        // solve one pair and record it in the job's output
-        void record(JobOutput o, SweepContactKind kind, int first, int second, bool ofA, CcdResult r)
+        // jobs per batch: the batch's candidate pairs live at the same time
+        const int BatchJobs = 64;
+
+        // a candidate pair: the kind, the first primitive (of mesh A or B) and the second (of the other mesh, or of A for
+        // a self sweep)
+        struct PairRef
+        {
+            public SweepContactKind Kind;
+            public bool OfA;
+            public int First, Second;
+        }
+
+        CcdResult solve_pair(PairRef p, CcdSolver solver)
+        {
+            DMesh3 m1 = p.OfA ? meshA : meshB, m2 = p.OfA ? meshB : meshA;
+            Vector3d[] e1 = p.OfA ? endA : endB, e2 = p.OfA ? endB : endA;
+            if (p.Kind == SweepContactKind.VertexTriangle) {
+                Index3i t = m2.GetTriangle(p.Second);
+                solver.Set(m1.GetVertex(p.First), m2.GetVertex(t.a), m2.GetVertex(t.b), m2.GetVertex(t.c),
+                           e1[p.First], e2[t.a], e2[t.b], e2[t.c]);
+                return solver.Solve(true, Options);
+            }
+            Index2i ea = m1.GetEdgeV(p.First), eb = m2.GetEdgeV(p.Second);
+            solver.Set(m1.GetVertex(ea.a), m1.GetVertex(ea.b), m2.GetVertex(eb.a), m2.GetVertex(eb.b),
+                       e1[ea.a], e1[ea.b], e2[eb.a], e2[eb.b]);
+            return solver.Solve(false, Options);
+        }
+
+        // record a solved pair in its job's output
+        void record(JobOutput o, PairRef p, CcdResult r)
         {
             ++o.Candidates;
             if (r.Status == CcdStatus.InvalidInput)
@@ -369,11 +425,11 @@ namespace g3
             if (r.Status == CcdStatus.Collision)
                 o.MinNearContactTime = Math.Min(o.MinNearContactTime, r.NearContactTime);
             if (touch || CollectAll)
-                o.Kept.Add(new SweepContact { Kind = kind, First = first, Second = second, FirstOfMeshA = ofA, Result = r });
+                o.Kept.Add(new SweepContact { Kind = p.Kind, First = p.First, Second = p.Second, FirstOfMeshA = p.OfA, Result = r });
         }
 
-        // a vertex against the triangles of the other mesh (or of its own, without the incident ones)
-        void vertex_against(int vid, DMesh3 vm, Vector3d[] ve, DMesh3 tm, Vector3d[] te, Prepared tri, bool ofA, double half, Worker w, JobOutput o)
+        // the candidate triangles of a vertex in the other mesh (or in its own, without the incident ones), by id
+        void vertex_against(int vid, DMesh3 vm, Vector3d[] ve, DMesh3 tm, Prepared tri, bool ofA, double half, Worker w, List<PairRef> pairs)
         {
             Vector3d p = vm.GetVertex(vid);
             w.Found.Clear();
@@ -381,33 +437,29 @@ namespace g3
             w.Found.Sort();
             foreach (int k in w.Found) {
                 int tid = tri.Ids[k];
-                Index3i t = tm.GetTriangle(tid);
-                if (self && (t.a == vid || t.b == vid || t.c == vid))
-                    continue;
-                w.Solver.Set(p, tm.GetVertex(t.a), tm.GetVertex(t.b), tm.GetVertex(t.c), ve[vid], te[t.a], te[t.b], te[t.c]);
-                record(o, SweepContactKind.VertexTriangle, vid, tid, ofA, w.Solver.Solve(true, Options));
+                if (self) {
+                    Index3i t = tm.GetTriangle(tid);
+                    if (t.a == vid || t.b == vid || t.c == vid)
+                        continue;
+                }
+                pairs.Add(new PairRef { Kind = SweepContactKind.VertexTriangle, OfA = ofA, First = vid, Second = tid });
             }
         }
 
-        // an edge of A against the edges of B
-        void edge_against(int eid, Prepared edgB, double half, Worker w, JobOutput o)
+        // the candidate edges of B of an edge of A, by id
+        void edge_against(int eid, Prepared edgB, double half, Worker w, List<PairRef> pairs)
         {
             Index2i ea = meshA.GetEdgeV(eid);
             w.Found.Clear();
             edgB.Tree.Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), w.Found);
             w.Found.Sort();
-            foreach (int k in w.Found) {
-                int other = edgB.Ids[k];
-                Index2i eb = meshB.GetEdgeV(other);
-                w.Solver.Set(meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), meshB.GetVertex(eb.a), meshB.GetVertex(eb.b),
-                             endA[ea.a], endA[ea.b], endB[eb.a], endB[eb.b]);
-                record(o, SweepContactKind.EdgeEdge, eid, other, true, w.Solver.Solve(false, Options));
-            }
+            foreach (int k in w.Found)
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = eid, Second = edgB.Ids[k] });
         }
 
         // self sweep: the overlapping edge pairs of one SelfPairs task (each pair once), sorted by ids; edges that share
         // a vertex skipped
-        void self_edges(Index2i task, Prepared edg, Worker w, JobOutput o)
+        void self_edges(Index2i task, Prepared edg, Worker w, List<PairRef> pairs)
         {
             w.Pairs.Clear();
             edg.Tree.SelfPairs(task, w.Pairs);
@@ -420,9 +472,7 @@ namespace g3
                 Index2i ea = meshA.GetEdgeV(k.a), eb = meshA.GetEdgeV(k.b);
                 if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b)
                     continue;
-                w.Solver.Set(meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), meshA.GetVertex(eb.a), meshA.GetVertex(eb.b),
-                             endA[ea.a], endA[ea.b], endA[eb.a], endA[eb.b]);
-                record(o, SweepContactKind.EdgeEdge, k.a, k.b, true, w.Solver.Solve(false, Options));
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = k.a, Second = k.b });
             }
         }
     }
