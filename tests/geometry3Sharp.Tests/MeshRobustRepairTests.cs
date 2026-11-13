@@ -958,6 +958,14 @@ namespace geometry3Sharp.Tests
             try { return f(); } finally { DualContouring.SkipResolveForTests = false; }
         }
 
+        // the wrap's and the solidify's resolution for SolidifyNotClean_AlphaWrapped (issue #692): at the default diag / 300 the wrap of
+        // the 12 plates has 185k raw triangles (about 1.1 area / alpha^2: the plates' area is 1.9 diag^2), and the test took 32 s alone.
+        // At diag / 120 31k, and the solidify at 16 cells (64 before) still self-intersects: the same defect classes (solidify not
+        // clean, so wrapped; simplified to under half, 0.43; certified; cancel). At diag / 60 the simplification keeps 0.63, above half
+        const double WrapAlpha692 = 120, WrapOffset692 = 1200;
+        const int SolidifyResolution692 = 16;
+
+        // Slow: three Applies (wrap, simplify) and a Hausdorff bound on the 12 plates, about 8 s alone even reduced (issue #692)
         [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_AlphaWrapped()
@@ -965,7 +973,8 @@ namespace geometry3Sharp.Tests
             // the repair keeps the self-intersections, the exact stage is off: the solidify result still
             // self-intersects; the alpha wrap is clean and encloses the input
             Func<bool, MeshRobustRepair> run = (wrap) => {
-                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, AlphaWrapFallback = wrap };
+                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = SolidifyResolution692, AlphaWrapFallback = wrap,
+                    WrapRelativeAlpha = WrapAlpha692, WrapRelativeOffset = WrapOffset692 };
                 Assert.True(WithUnrepairedContour(() => r.Apply()));
                 return r;
             };
@@ -1000,7 +1009,8 @@ namespace geometry3Sharp.Tests
 
             // cancelled during the simplification: false, as for the other phases, and Mesh is not replaced
             DMesh3 input = ThinPlates(6);
-            var cancelled = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64 };
+            var cancelled = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = SolidifyResolution692,
+                WrapRelativeAlpha = WrapAlpha692, WrapRelativeOffset = WrapOffset692 };
             cancelled.CancelF = () => cancelled.PhaseMilliseconds.ContainsKey("wrap");
             Assert.False(WithUnrepairedContour(() => cancelled.Apply()));
             Assert.Same(input, cancelled.Mesh);
@@ -1062,7 +1072,7 @@ namespace geometry3Sharp.Tests
                 && a.TriangleIndices().All(t => a.GetTriangle(t) == b.GetTriangle(t));
         }
 
-        [Trait("Category", "Slow")]
+        // (the solidify at SolidifyResolution692 cells: the same self-intersecting contour as at 64, issue #692)
         [Fact]
         public void Solidify_StopsOnSelfIntersectingContour_FinishGivesTheFullResult()
         {
@@ -1070,7 +1080,7 @@ namespace geometry3Sharp.Tests
             // contour is the result; FinishPostProcess post-processes it as Compute() does without stopping
             // (the same mesh as an independent run, the solidify is deterministic)
             Func<bool, MeshWindingNumberSolidify> run = (stop) => {
-                var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
+                var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = SolidifyResolution692, Adaptive = true, StopIfSelfIntersecting = stop };
                 Assert.True(WithUnrepairedContour(() => s.Compute()));
                 return s;
             };
@@ -1156,7 +1166,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
-        [Trait("Category", "Slow")]
+        // (the solidify at SolidifyResolution692 cells: the same self-intersecting contour as at 64, issue #692)
         [Fact]
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
@@ -1164,7 +1174,7 @@ namespace geometry3Sharp.Tests
             // alpha), the solidify result is used as before: post-processed, the same mesh as without the wrap
             Func<bool, MeshRobustRepair> run = (wrap) => {
                 var r = new MeshRobustRepair(ThinPlates(6)) {
-                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
+                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = SolidifyResolution692,
                     AlphaWrapFallback = wrap, WrapRelativeAlpha = -1
                 };
                 Assert.True(WithUnrepairedContour(() => r.Apply()));
