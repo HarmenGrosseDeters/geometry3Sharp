@@ -355,11 +355,13 @@ code is not read.
 ## 11. Stage A2: the topology certificate, probe result (2026-11-13): shelved
 
 The certificate of [MESH_OFFSET_ENCLOSURE.md](MESH_OFFSET_ENCLOSURE.md) was probed locally on the level-set side
-(`mesh_ops/MeshOffsetTopology.cs`): every cell of `MeshOffset`'s grid is proven zero-free (on blocks of cells first),
+(`mesh_ops/MeshOffsetTopology.cs`, on the branch `wip/mesh-offset-a2-probe` only): every cell of `MeshOffset`'s grid is proven zero-free (on blocks of cells first),
 certified, or listed; the node signs the contouring used were checked against the proven ones (0 mismatches in every
 run). Inputs: a box 2 x 3 x 1.5, a sphere (radius 5, 600 triangles), both also rotated (non-axis-aligned), offset and
-inset by 0.1 of the bounding box diagonal, cell |d| / 4 (|d| / 8 where noted). Share = certified / (certified + listed),
-the cells that are not proven zero-free; time = certificate / A1.
+inset by 0.1 of the bounding box diagonal, cell |d| / 4 (|d| / 8 where noted; the table writes abs(d), as a bar would
+break its columns). Share = certified / (certified + listed),
+the cells that are not proven zero-free; time = certificate / A1. The segment rule (S1* / S2*): an edge or a face of a cell
+may be zero-free except in one closed piece, on which the direction test is made, instead of passing the test as a whole.
 
 | input | E (reviewed: directions to whole candidate triangles) | E' + segment rule (nearest-point trichotomy; S1* / S2*) | E'' + segment rule (edges: sigma cone of the two face normals, by convexity) |
 |---|---|---|---|
@@ -374,12 +376,14 @@ the cells that are not proven zero-free; time = certificate / A1.
 
 Stop rule (coordinator 2026-11-13): 90 % on the box and sphere offsets and on the smooth insets of convex inputs, 50 % on
 the rotated box inset, certificate time at most 3x A1. E'' fails on the sphere (75 %, smooth inset 34 %), the rotated box
-inset (0.8 %) and the time (25-334x). **Decision (coordinator 2026-11-13): the A2 code is shelved.** An opt-in report at 25-330x the
+inset (0.8 %) and the time (25-334x). **Decision (coordinator 2026-11-13): the A2 code is shelved.** An opt-in report at 25-334x the
 offset's cost, with no claim attached, would add API and test surface without a guarantee for the user. Refinement
-(option (b): finer cells where cells are listed, with #749 stage 2) is the route that could make it a certificate;
-it is later work. The probe code (E'' with the segment rule, `mesh_ops/MeshOffsetTopology.cs`, an internal
+(finer cells where cells are listed, with #749 stage 2; the coordinator's route, not the options B of this note or of
+#749) is the route that might make it a certificate: it can shrink the listed set, but it may not reach the stop rule
+where the rotated box inset stays at 0 % at both cell sizes and where (S2') fails at every refinement (inset creases,
+corners of three or more sheets; MESH_OFFSET_ENCLOSURE.md section 5). It is later work. The probe code (E'' with the segment rule, `mesh_ops/MeshOffsetTopology.cs`, an internal
 `MeshOffset.CertifyTopology` hook and the measurement test `MeshOffsetTopologyProbe`) is kept on the branch
-`wip/mesh-offset-a2-probe` (no PR), as the starting point for (b). The mesh side of Theorem O exists in the contouring certificate (#779): `DualContouring.RecordCertificateData`
+`wip/mesh-offset-a2-probe` (no PR), as the starting point for refinement. The mesh side of Theorem O exists in the contouring certificate (#779): `DualContouring.RecordCertificateData`
 before `Generate()` gives, on the final positions, `CertificateMeshFailures` (vertex placement, no area, left out,
 self-intersections, transitions), `CertificateMeshCells` (local refusals, (H4) and option B's facts (i)-(iii)) and
 `ContourGrid()` (the pattern and the face rule); A2 reuses it when it resumes, without changes to DualContouring.cs.
@@ -394,6 +398,9 @@ What the probe showed, for a later attempt:
   wider than the angle between the edge and L; refinement shrinks it), the insets (a cell near L sees two or more
   faces of the shrunken box or a wide cap of the sphere, as L is close to the medial axis there), and S3 cells at the
   inset's creases.
+- The cost estimates were off by more than 10x: section 5.3 put A2 at 1-2x the contouring and MESH_OFFSET_ENCLOSURE.md
+  section 8 at 1.3-2x A1; the probe measured 25-334x. Neither estimate had the segment rule (the zero-free proofs of up to
+  256 pieces per edge and 4096 per face, one distance bound each) nor the exact fallbacks of the tighter enclosures.
 - The cost is the zero-free proofs of the segment rule (up to 256 pieces per edge, 4096 per face, one distance bound
   each) and the exact fallbacks; a cheaper zero-free test (a monotone bound along the piece instead of the Lipschitz
   ball) would be the first lever.
@@ -423,6 +430,6 @@ N1 . (c2 - A), c2 the vertex of t2 off e (negative: convex, positive: reflex, ze
 **Faces and vertices.** If p is in the relative interior of a triangle t, then w = sigma |w| N_t (the same segment
 argument as (iii)). If p is a vertex v of M, then w = z - v exactly: the probe uses the set {z - v : z in X} for the
 vertices that can be nearest (E' rule: not excluded by a linear test over the corners), so **no cone claim is needed at
-vertices**, convex, reflex or saddle, on either side; this part is sound by the same argument as in E' and narrow
-(its directions spread by about diam(X) / u). So the inset side (sigma = -1) is covered as cleanly as the offset side.
+vertices**, convex, reflex or saddle, on either side; this part follows by the same argument as E' (unreviewed) and is narrow
+(its directions spread by about diam(X) / u). So the inset side (sigma = -1) is covered by the same arguments as the offset side (unreviewed).
 Not covered: non-manifold edges (excluded: the input is clean), degenerate triangles (N = 0; excluded the same way).
