@@ -1,0 +1,810 @@
+From 4614515804c057034763ed7f1b5c2a79c671f7a1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 05:21:47 +0000
+Subject: [PATCH 1/3] ExactMeshBoolean: the classification's exact sign stages
+ on stack limbs (ExactLimbSigns)
+
+The plane side A X + B Y + C Z - D W, the dot of two normals and the 4 x 4 orientation of four
+homogeneous points were BigInteger expressions: every product and sum a heap object. On the
+slow tail (open, heavily intersecting inputs, whose pieces are classified one by one) they are a
+large part of the operation and most of its allocation.
+
+ExactLimbSigns evaluates the same expressions with FixedArith on stack limbs: the operands are
+copied from their BigInteger storage per call, products and sums live in a stack arena, only
+the sign leaves. The same integers, so the same signs and the same results; no allocation.
+Operands wider than 40 limbs and netstandard2.0 keep the BigInteger expression.
+
+Call sites: interior_side, carried_crossings (two normal dots), local_side, side,
+front_crossings (two), orient3d. The filters before the stages and the control flow are
+unchanged.
+
+Tests: the kernels against BigInteger over all widths, the scratch space at the limit, no
+allocation; the operation with the filters off gives the filtered mesh and allocates far less
+(fails on the base). Mutation: the kernels join the shard mesh-fixed; the offsets of the
+mesh-boolean shards are moved back to their methods.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm
+---
+ docs/design/EXACT_LIMB_SIGNS.md               |  80 ++++++++
+ docs/roadmap/exact-boolean.md                 |   6 +
+ math/ExactLimbSigns.cs                        | 184 +++++++++++++++++
+ mesh_ops/ExactMeshBoolean.cs                  |  24 +--
+ .../ExactBooleanLimbSignsTests.cs             | 119 +++++++++++
+ .../ExactLimbSignsTests.cs                    | 190 ++++++++++++++++++
+ tests/mutation/README.md                      |   2 +-
+ tests/mutation/stryker-mesh-boolean-2.json    |   2 +-
+ tests/mutation/stryker-mesh-boolean-3.json    |   2 +-
+ tests/mutation/stryker-mesh-boolean-4.json    |   2 +-
+ tests/mutation/stryker-mesh-fixed.json        |   5 +-
+ 11 files changed, 596 insertions(+), 20 deletions(-)
+ create mode 100644 docs/design/EXACT_LIMB_SIGNS.md
+ create mode 100644 math/ExactLimbSigns.cs
+ create mode 100644 tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+ create mode 100644 tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+
+diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
+new file mode 100644
+index 0000000..04d876f
+--- /dev/null
++++ b/docs/design/EXACT_LIMB_SIGNS.md
+@@ -0,0 +1,80 @@
++# Exact sign stages on stack limbs (candidate B of the exact-number study)
++
++Status: built (2026-11-13): `math/ExactLimbSigns.cs` and its seven call sites in `ExactMeshBoolean`. Study: branch
++`runs/exact-numbers`, `REPORT.md` sections 3 (P3b) and 5b (the probe).
++
++## 1. What and why
++
++The classification of `ExactMeshBoolean` decides three kinds of signs exactly where its floating-point filters do not:
++
++| stage | expression | call sites |
++|---|---|---|
++| plane side | `A X + B Y + C Z - D W` (a triangle's plane, a homogeneous point) | `interior_side`, `local_side`, `side`, `front_crossings` (two) |
++| normal dot | `NX UX + NY UY + NZ UZ` | `carried_crossings` (two) |
++| orientation | the 4 x 4 determinant of four homogeneous points | `orient3d` (through `orient3d_exact`) |
++
++Today each is a BigInteger expression: every product and sum is a heap object. On the slow tail these stages are a
++large part of the operation and most of its allocation (42327, one thread, the collections a stage triggers included:
++side 12.6 %, orientation 4.9 % of the operation; 13 of 21 GB).
++
++`ExactLimbSigns` evaluates the same expressions with the library's `FixedArith` (sign-magnitude limbs, a stack arena):
++the operands are copied from their BigInteger storage into stack limbs per call, the products and sums live in a
++stack arena, and only the sign leaves. The integers are the same, so the signs are the same; nothing is allocated.
++
++## 2. The kernels
++
++- `load`: `BigInteger.TryWriteBytes` (two's complement, little endian) into `limbs_of(v)` limbs, sign-extended; a
++  negative value is negated in place (invert, add one) to its magnitude. `limbs_of(v)` is the byte count of the two's
++  complement rounded up to limbs, so the write always fits.
++- `PlaneSide`, `Dot`: the products and sums in the order of the expression.
++- `Det4`: the expansion along the first row with 3 x 3 minors, as `ExactMeshArrangement.Det4`.
++- Scratch space, in limbs, for operands of at most `w` limbs (`FixedArena` never frees; `Take` throws when it is
++  exhausted, so an error here is an exception, not a write outside the buffer):
++  - plane side and dot: the products take the sum of the operands' limbs, each sum at most a product and 3 limbs:
++    `4 total + 16`;
++  - `Det4`: a minor takes `33 w + 11` (six products of `2 w`, three differences of `2 w + 1`, three products of
++    `3 w + 1`, two sums of at most `3 w + 3`), the four minors `132 w + 44`, the four products with the first row
++    `4 w + 3` each, the four sums at most `4 w + 5` each: `164 w + 96`.
++  `LargestOperands_FitTheScratchSpace` runs every kernel with all operands at the limit and all bits set.
++- Operands wider than `MaxLimbs` = 40 limbs (2560 bits; `Det4` then takes 53 KB of stack) and netstandard2.0 (no
++  `TryWriteBytes` on a span) use the BigInteger expression.
++
++Exact code: integer arithmetic only, no floating point, no parallel loop (`math/Exact*.cs` in `.editorconfig`).
++
++## 3. Measured (the probe, before the build)
++
++Commit set: library c0f8aa9 with the study's instrumentation and the prototype of these kernels at the seven call
++sites; 4-core cloud container, .NET SDK 10.0.115, Release, workstation GC; 5 alternating runs, medians; wall time
++with collections, the collector's pause and the allocation separately. The PR repeats it on its own base.
++
++| stratum | operation | before | after | change | GC pause | allocated |
++|---|---|---|---|---|---|---|
++| slow tail | 42327 with its rotated copy, union | 34.5 s | 29.6 s | -14.0 % | 6.7 -> 3.5 s | 23.0 -> 10.2 GB |
++| slow tail | 42327, intersection | 26.9 s | 22.3 s | -17.1 % | 6.7 -> 3.5 s | 20.6 -> 7.8 GB |
++| slow tail | 42327, difference | 27.0 s | 22.9 s | -15.3 % | 6.6 -> 3.4 s | 20.6 -> 7.8 GB |
++| slow tail | 107554, the three operations | 26.4 / 17.1 / 17.4 s | 26.2 / 16.4 / 16.6 s | -0.8 / -4.2 / -4.7 % | 5.0 -> 4.3 s | 10.0 -> 8.5 GB |
++| normal | 20 pairs, 60 operations | 6.32 s | 6.14 s | -2.8 % (inside the run-to-run range) | 0.12 -> 0.12 s | 2.36 -> 2.36 GB |
++| normal | 13 models with a rotated copy, 39 operations | 4.14 s | 4.22 s | +2.0 % (inside the range) | 0.12 -> 0.11 s | 1.48 -> 1.48 GB |
++
++Result hashes, statuses and counts are equal in every run. About two thirds of the gain on 42327 is the collector's
++pause. On one thread the orientation stage drops from 3.4 to 1.9 s and the side stage only from 9.0 to 8.1 s: loading
++eight operands per call costs about what the BigInteger temporaries cost. The CPU gain of the side stage (2 x in the
++micro benchmark) needs the limbs stored with the points, which is candidate C on the same representation.
++
++## 4. Tests
++
++- `ExactLimbSignsTests`: the three kernels against the BigInteger expressions on operands of every width (small, at the
++  limb boundaries, up to the stack limit and beyond it), with exact zeros and values one unit off; all operands at the
++  limit with all bits set (the scratch space); a common power of two of the plane or the point keeps the sign, a
++  negative factor reverses it; no allocation inside the limit.
++- `ExactBooleanLimbSignsTests` (existing entry points only, so the tests also build against the base library): open
++  inputs (crossing grids, a sphere with holes) with the filters switched off, so that every decision takes an exact
++  stage: the result is the filtered run's mesh triangle for triangle, for the three operations, and the union
++  allocates 17 / 34 / 55 MB against 73 / 160 / 158 MB with the BigInteger expressions (bounds 40 / 80 / 100 MB).
++- The existing tests of `ExactMeshBoolean` (filtered against unfiltered results, the invariance over
++  `Similarity.All()`, reuse, parallel against serial) cover the operation, whose results do not change.
++
++## 5. Sources
++
++Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
++`ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
+diff --git a/docs/roadmap/exact-boolean.md b/docs/roadmap/exact-boolean.md
+index cbb104f..099de89 100644
+--- a/docs/roadmap/exact-boolean.md
++++ b/docs/roadmap/exact-boolean.md
+@@ -409,6 +409,12 @@ Open:
+   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
+   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
+   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
++  Candidate B is built (2026-11-13, PR pending): the classification's exact sign stages (plane side, normal dot, the
++  4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
++  ([design](../design/EXACT_LIMB_SIGNS.md)). The probe before the build (operands loaded per call, 4 cores, wall time
++  with collections, median of 5): slow tail 42327 -14 to -17 % per operation (two thirds of it the collector's pause,
++  12.8 GB less allocation), 107554 up to -5 %; normal stratum unchanged within noise; hashes equal. The CPU gain of the
++  side stage needs the limbs stored with the points: candidate C, next, on the same representation.
+ - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
+   its tail (4 cores, median of 5, alternating A/B, hashes equal):
+   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
+diff --git a/math/ExactLimbSigns.cs b/math/ExactLimbSigns.cs
+new file mode 100644
+index 0000000..a31d971
+--- /dev/null
++++ b/math/ExactLimbSigns.cs
+@@ -0,0 +1,184 @@
++// Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
++using System;
++using System.Numerics;
++using System.Runtime.CompilerServices;
++
++namespace g3
++{
++    /// <summary>
++    /// Signs of small integer expressions on BigInteger operands, evaluated on stack limbs with FixedArith instead of
++    /// BigInteger temporaries: the plane side A X + B Y + C Z - D W, the dot of two integer vectors and the 4 x 4
++    /// determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification). The operands
++    /// are copied into sign-magnitude limbs per call (no allocation), the arithmetic is the library's FixedArith, so
++    /// the value is the same integer and the sign the same as the BigInteger expression's. Operands wider than
++    /// MaxLimbs limbs, and netstandard2.0 (no BigInteger.TryWriteBytes), use the BigInteger expression.
++    /// docs/design/EXACT_LIMB_SIGNS.md
++    /// </summary>
++    internal static unsafe class ExactLimbSigns
++    {
++        /// <summary> the widest operand evaluated on the stack, in 64-bit limbs (2560 bits); wider ones use BigInteger </summary>
++        internal const int MaxLimbs = 40;
++
++#if NET
++        // the limbs v needs: its two's complement bytes (one bit more than its magnitude), rounded up
++        [MethodImpl(MethodImplOptions.AggressiveInlining)]
++        static int limbs_of(BigInteger v) { return (v.GetByteCount(false) + 7) >> 3; }
++
++        // the magnitude of v in dst (n limbs, n >= limbs_of(v)) and its sign
++        [MethodImpl(MethodImplOptions.AggressiveInlining)]
++        static FixedInt load(BigInteger v, ulong* dst, int n)
++        {
++            int sign = v.Sign;
++            if (sign == 0)
++                return new FixedInt(null, 0, false);
++            var bytes = new Span<byte>(dst, 8 * n);
++            // (two's complement, sign-extended to n limbs)
++            bytes.Fill(sign < 0 ? (byte)0xFF : (byte)0);
++            int written;
++            if (v.TryWriteBytes(bytes, out written, false, false) == false)
++                throw new InvalidOperationException("ExactLimbSigns: an operand wider than its buffer");
++            if (sign < 0) {
++                // the magnitude: invert and add one
++                ulong carry = 1;
++                for (int k = 0; k < n; ++k) {
++                    ulong t = ~dst[k] + carry;
++                    carry = (carry != 0 && t == 0) ? 1UL : 0UL;
++                    dst[k] = t;
++                }
++            }
++            int len = n;
++            while (len > 0 && dst[len - 1] == 0) len--;
++            return new FixedInt(dst, len, sign < 0);
++        }
++#endif
++
++        /// <summary> the sign of a x + b y + c z - d w </summary>
++        [MethodImpl(JitHints.Optimize)]
++#if NET
++        [SkipLocalsInit]
++#endif
++        internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w)
++        {
++#if NET
++            int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z), nw = limbs_of(w);
++            int total = na + nb + nc + nd + nx + ny + nz + nw;
++            if (total <= 8 * MaxLimbs) {
++                ulong* buf = stackalloc ulong[total];
++                // the four products take total limbs, the three sums at most a product and 3 limbs each
++                int scratch = 4 * total + 16;
++                ulong* sc = stackalloc ulong[scratch];
++                var ar = new FixedArena(sc, scratch);
++                ulong* p = buf;
++                FixedInt fa = load(a, p, na); p += na;
++                FixedInt fb = load(b, p, nb); p += nb;
++                FixedInt fc = load(c, p, nc); p += nc;
++                FixedInt fd = load(d, p, nd); p += nd;
++                FixedInt fx = load(x, p, nx); p += nx;
++                FixedInt fy = load(y, p, ny); p += ny;
++                FixedInt fz = load(z, p, nz); p += nz;
++                FixedInt fw = load(w, p, nw);
++                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
++                s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
++                return FixedArith.Sub(s, FixedArith.Mul(fd, fw, ref ar), ref ar).Sign;
++            }
++#endif
++            return (a * x + b * y + c * z - d * w).Sign;
++        }
++
++        /// <summary> the sign of a x + b y + c z </summary>
++        [MethodImpl(JitHints.Optimize)]
++#if NET
++        [SkipLocalsInit]
++#endif
++        internal static int Dot(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z)
++        {
++#if NET
++            int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
++            int total = na + nb + nc + nx + ny + nz;
++            if (total <= 6 * MaxLimbs) {
++                ulong* buf = stackalloc ulong[total];
++                int scratch = 4 * total + 16;
++                ulong* sc = stackalloc ulong[scratch];
++                var ar = new FixedArena(sc, scratch);
++                ulong* p = buf;
++                FixedInt fa = load(a, p, na); p += na;
++                FixedInt fb = load(b, p, nb); p += nb;
++                FixedInt fc = load(c, p, nc); p += nc;
++                FixedInt fx = load(x, p, nx); p += nx;
++                FixedInt fy = load(y, p, ny); p += ny;
++                FixedInt fz = load(z, p, nz);
++                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
++                return FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar).Sign;
++            }
++#endif
++            return (a * x + b * y + c * z).Sign;
++        }
++
++#if NET
++        // a (e i - f h) - b (d i - f g) + c (d h - e g), as ExactPoint3.Det3
++        static FixedInt det3(FixedInt a, FixedInt b, FixedInt c, FixedInt d, FixedInt e, FixedInt f, FixedInt g, FixedInt h, FixedInt i, ref FixedArena ar)
++        {
++            FixedInt t1 = FixedArith.Mul(a, FixedArith.Sub(FixedArith.Mul(e, i, ref ar), FixedArith.Mul(f, h, ref ar), ref ar), ref ar);
++            FixedInt t2 = FixedArith.Mul(b, FixedArith.Sub(FixedArith.Mul(d, i, ref ar), FixedArith.Mul(f, g, ref ar), ref ar), ref ar);
++            FixedInt t3 = FixedArith.Mul(c, FixedArith.Sub(FixedArith.Mul(d, h, ref ar), FixedArith.Mul(e, g, ref ar), ref ar), ref ar);
++            return FixedArith.Add(FixedArith.Sub(t1, t2, ref ar), t3, ref ar);
++        }
++#endif
++
++        /// <summary>
++        /// the sign of the 4 x 4 determinant of the rows (X, Y, Z, W) of a, b, c, d, expanded along the first row as
++        /// ExactMeshArrangement.Det4
++        /// </summary>
++        [MethodImpl(JitHints.Optimize)]
++#if NET
++        [SkipLocalsInit]
++#endif
++        internal static int Det4(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
++        {
++#if NET
++            int* n = stackalloc int[16];
++            n[0] = limbs_of(a.X); n[1] = limbs_of(a.Y); n[2] = limbs_of(a.Z); n[3] = limbs_of(a.W);
++            n[4] = limbs_of(b.X); n[5] = limbs_of(b.Y); n[6] = limbs_of(b.Z); n[7] = limbs_of(b.W);
++            n[8] = limbs_of(c.X); n[9] = limbs_of(c.Y); n[10] = limbs_of(c.Z); n[11] = limbs_of(c.W);
++            n[12] = limbs_of(d.X); n[13] = limbs_of(d.Y); n[14] = limbs_of(d.Z); n[15] = limbs_of(d.W);
++            int total = 0, widest = 0;
++            for (int k = 0; k < 16; ++k) { total += n[k]; widest = Math.Max(widest, n[k]); }
++            if (widest <= MaxLimbs) {
++                ulong* buf = stackalloc ulong[total];
++                // with entries of at most w limbs: a 3 x 3 minor takes 33 w + 11 limbs of scratch (six products of 2 w, three
++                // differences of 2 w + 1, three products of 3 w + 1, two sums of at most 3 w + 3), the four of them
++                // 132 w + 44; the four products with the first row 4 w + 3 each and the four sums at most 4 w + 5 each
++                int scratch = 164 * widest + 96;
++                ulong* sc = stackalloc ulong[scratch];
++                var ar = new FixedArena(sc, scratch);
++                FixedInt* m = stackalloc FixedInt[16];
++                ulong* p = buf;
++                m[0] = load(a.X, p, n[0]); p += n[0]; m[1] = load(a.Y, p, n[1]); p += n[1]; m[2] = load(a.Z, p, n[2]); p += n[2]; m[3] = load(a.W, p, n[3]); p += n[3];
++                m[4] = load(b.X, p, n[4]); p += n[4]; m[5] = load(b.Y, p, n[5]); p += n[5]; m[6] = load(b.Z, p, n[6]); p += n[6]; m[7] = load(b.W, p, n[7]); p += n[7];
++                m[8] = load(c.X, p, n[8]); p += n[8]; m[9] = load(c.Y, p, n[9]); p += n[9]; m[10] = load(c.Z, p, n[10]); p += n[10]; m[11] = load(c.W, p, n[11]); p += n[11];
++                m[12] = load(d.X, p, n[12]); p += n[12]; m[13] = load(d.Y, p, n[13]); p += n[13]; m[14] = load(d.Z, p, n[14]); p += n[14]; m[15] = load(d.W, p, n[15]);
++                FixedInt det = new FixedInt(null, 0, false);
++                for (int col = 0; col < 4; ++col) {
++                    int c0 = (col == 0) ? 1 : 0, c1 = (col <= 1) ? 2 : 1, c2 = (col <= 2) ? 3 : 2;
++                    FixedInt minor = det3(m[4 + c0], m[4 + c1], m[4 + c2], m[8 + c0], m[8 + c1], m[8 + c2], m[12 + c0], m[12 + c1], m[12 + c2], ref ar);
++                    FixedInt term = FixedArith.Mul(m[col], minor, ref ar);
++                    det = (col % 2 == 0) ? FixedArith.Add(det, term, ref ar) : FixedArith.Sub(det, term, ref ar);
++                }
++                return det.Sign;
++            }
++#endif
++            return Det4Big(a, b, c, d);
++        }
++
++        /// <summary> the BigInteger form of Det4 (wide operands, netstandard2.0, and the tests' reference) </summary>
++        internal static int Det4Big(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
++        {
++            BigInteger[,] m = new BigInteger[4, 4];
++            m[0, 0] = a.X; m[0, 1] = a.Y; m[0, 2] = a.Z; m[0, 3] = a.W;
++            m[1, 0] = b.X; m[1, 1] = b.Y; m[1, 2] = b.Z; m[1, 3] = b.W;
++            m[2, 0] = c.X; m[2, 1] = c.Y; m[2, 2] = c.Z; m[2, 3] = c.W;
++            m[3, 0] = d.X; m[3, 1] = d.Y; m[3, 2] = d.Z; m[3, 3] = d.W;
++            return ExactMeshArrangement.Det4(m).Sign;
++        }
++    }
++}
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 672f5e4..162a4aa 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -2219,7 +2219,7 @@ namespace g3
+                 int sk = arr.TryExactDouble(c, out xd) ? plane_side_filtered(t1.PlaneApprox, xd.x, xd.y, xd.z) : 2;
+                 if (sk == 2) {
+                     ExactPoint3 X = arr.Exact(c);
+-                    sk = (t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W).Sign;
++                    sk = ExactLimbSigns.PlaneSide(t1.P.A, t1.P.B, t1.P.C, t1.P.D, X.X, X.Y, X.Z, X.W);
+                 }
+                 pos |= sk > 0;
+                 neg |= sk < 0;
+@@ -2881,8 +2881,8 @@ namespace g3
+                 int a = local_side(U, ui, srcP, interiorSide, cp, ref d0, ref d1, ref d2, ref gp, e0, e1, e2, lp),
+                     b = local_side(U, ui, srcQ, interiorSide, cq, ref d0, ref d1, ref d2, ref gq, e0, e1, e2, lq);
+                 // (a centroid in the plane: the side its piece's front points to)
+-                int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
+-                int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
++                int ae = a != 0 ? a : ExactLimbSigns.Dot(sp.NX, sp.NY, sp.NZ, U.NX, U.NY, U.NZ);
++                int be = b != 0 ? b : ExactLimbSigns.Dot(sq.NX, sq.NY, sq.NZ, U.NX, U.NY, U.NZ);
+                 if (ae == 0 || be == 0) { degenerate = true; return; }
+                 if (ae == be) return;
+                 // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
+@@ -2982,7 +2982,7 @@ namespace g3
+             if (ui == src || interiorSide(ui, src) == 0)
+                 return 0;
+             ExactPoint3 P = c.P;
+-            return (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
++            return ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+         }
+ 
+         // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
+@@ -2991,7 +2991,7 @@ namespace g3
+         {
+             int s = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, g.x, g.y, g.z);
+             if (s == 2)
+-                s = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
++                s = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+             return s;
+         }
+ 
+@@ -3225,14 +3225,14 @@ namespace g3
+                     sides++;
+                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
+                     if (sr == 2) {
+-                        sr = (U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D).Sign;
++                        sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z, BigInteger.One);
+                         exactSides++;
+                     }
+                     if (sr == 0) { degenerate = true; return; }
+                     sides++;
+                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
+                     if (sp == 2) {
+-                        sp = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
++                        sp = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+                         exactSides++;
+                     }
+                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
+@@ -4059,16 +4059,12 @@ namespace g3
+             return Math.Sqrt(x * x + y * y + z * z) * (1 + 1e-15);
+         }
+ 
+-        // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests)
++        // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests); on stack
++        // limbs (ExactLimbSigns: the same determinant as ExactMeshArrangement.Det4 of the rows, without its temporaries)
+         [MethodImpl(JitHints.Optimize)]
+         static int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
+         {
+-            BigInteger[,] m = new BigInteger[4, 4];
+-            ExactPoint3[] pts = { a, b, c, d };
+-            for (int k = 0; k < 4; ++k) {
+-                m[k, 0] = pts[k].X; m[k, 1] = pts[k].Y; m[k, 2] = pts[k].Z; m[k, 3] = pts[k].W;
+-            }
+-            return ExactMeshArrangement.Det4(m).Sign;
++            return ExactLimbSigns.Det4(a, b, c, d);
+         }
+ 
+ 
+diff --git a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+new file mode 100644
+index 0000000..e772316
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+@@ -0,0 +1,119 @@
++using System;
++using System.Collections.Generic;
++using g3;
++using Xunit;
++
++namespace geometry3Sharp.Tests
++{
++    /// <summary>
++    /// The exact sign stages of ExactMeshBoolean's classification (plane side, normal dot, the 4 x 4 orientation) run on
++    /// stack limbs (ExactLimbSigns). Through the library's existing entry points only, so that the tests also build
++    /// against the base library: with the filters switched off every such decision takes the exact stage, the result
++    /// must be the filtered one, and the operation must allocate far less than with BigInteger temporaries.
++    /// </summary>
++    public class ExactBooleanLimbSignsTests
++    {
++        // open inputs, whose pieces are classified one by one (the Antipodal path): tilted grids through the unit cube
++        // that cross each other, and a sphere with holes
++        internal static DMesh3 Shape(string kind)
++        {
++            DMesh3 m;
++            if (kind.StartsWith("sheets")) {
++                int n = int.Parse(kind.Substring(6));
++                var r = new Random(9);
++                m = new DMesh3();
++                for (int k = 0; k < n; ++k) {
++                    Vector3d o = new Vector3d(r.NextDouble(), r.NextDouble(), r.NextDouble()), u = new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5).Normalized;
++                    Vector3d v = u.Cross(new Vector3d(r.NextDouble() - 0.5, r.NextDouble() - 0.5, r.NextDouble() - 0.5)).Normalized;
++                    const int G = 6;
++                    int[,] id = new int[G + 1, G + 1];
++                    for (int i = 0; i <= G; ++i) for (int j = 0; j <= G; ++j) id[i, j] = m.AppendVertex(o + (i / (double)G - 0.5) * 1.5 * u + (j / (double)G - 0.5) * 1.5 * v);
++                    for (int i = 0; i < G; ++i) for (int j = 0; j < G; ++j) { m.AppendTriangle(id[i, j], id[i + 1, j], id[i + 1, j + 1]); m.AppendTriangle(id[i, j], id[i + 1, j + 1], id[i, j + 1]); }
++                }
++            } else {
++                m = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 14 }.Generate().MakeDMesh();
++                foreach (int t in new List<int>(m.TriangleIndices())) if (t % 37 == 0) m.RemoveTriangle(t);
++            }
++            return m;
++        }
++
++        // the second operand: the first one, 20 degrees about (1, 1, 0) through its centre and a quarter of its box away
++        internal static DMesh3 Copy(DMesh3 a)
++        {
++            DMesh3 b = new DMesh3(a);
++            AxisAlignedBox3d bounds = a.CachedBounds;
++            MeshTransforms.Rotate(b, bounds.Center, Quaterniond.AxisAngleD(new Vector3d(1, 1, 0).Normalized, 20));
++            MeshTransforms.Translate(b, 0.25 * new Vector3d(bounds.Width, bounds.Height, bounds.Depth));
++            return b;
++        }
++
++        static long AllocatedBy(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations op, bool disableFilters, out ExactMeshBoolean result)
++        {
++            // (the parallel loops on this thread, so that the thread's allocation counter sees the whole operation and
++            // nothing of the tests that run beside this one)
++            bool serial = gParallel.SerialOnThisThread;
++            gParallel.SerialOnThisThread = true;
++            try {
++                long before = GC.GetAllocatedBytesForCurrentThread();
++                result = new ExactMeshBoolean(a, b, op) { DisableFilters = disableFilters };
++                result.Compute();
++                return GC.GetAllocatedBytesForCurrentThread() - before;
++            } finally {
++                gParallel.SerialOnThisThread = serial;
++            }
++        }
++
++        // the triangles of a mesh as sorted coordinate strings (the same mesh: the same list)
++        static List<string> Triangles(DMesh3 m)
++        {
++            var list = new List<string>();
++            foreach (int t in m.TriangleIndices()) {
++                Index3i tv = m.GetTriangle(t);
++                var c = new[] { m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c) };
++                int first = 0;
++                for (int k = 1; k < 3; ++k)
++                    if (c[k].x < c[first].x || (c[k].x == c[first].x && (c[k].y < c[first].y || (c[k].y == c[first].y && c[k].z < c[first].z)))) first = k;
++                list.Add(FormattableString.Invariant($"{c[first].x:R} {c[first].y:R} {c[first].z:R} | {c[(first + 1) % 3].x:R} {c[(first + 1) % 3].y:R} {c[(first + 1) % 3].z:R} | {c[(first + 2) % 3].x:R} {c[(first + 2) % 3].y:R} {c[(first + 2) % 3].z:R}"));
++            }
++            list.Sort(StringComparer.Ordinal);
++            return list;
++        }
++
++        // Measured (one thread, .NET 10): 17 / 34 / 55 MB with the limb stages, 73 / 160 / 158 MB with the BigInteger
++        // expressions. The bound is on the allocation of the operation, which does not depend on the machine's speed.
++        [Theory]
++        [InlineData("sheets3", 40)]
++        [InlineData("sheets4", 80)]
++        [InlineData("open", 100)]
++        public void FiltersOff_SameResult_WithoutBigIntegerSigns(string kind, int megabytes)
++        {
++            DMesh3 a = Shape(kind), b = Copy(a);
++            ExactMeshBoolean filtered, exact;
++            AllocatedBy(a, b, ExactMeshBoolean.Operations.Union, false, out filtered);
++            AllocatedBy(a, b, ExactMeshBoolean.Operations.Union, true, out exact);      // (compiles the path)
++            long bytes = AllocatedBy(a, b, ExactMeshBoolean.Operations.Union, true, out exact);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, filtered.Status);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, exact.Status);
++            Assert.True(filtered.Result.TriangleCount > 300, $"{filtered.Result.TriangleCount} triangles");
++            // every decision by the exact stages: the mesh of the filtered run, triangle for triangle
++            Assert.Equal(Triangles(filtered.Result), Triangles(exact.Result));
++            Assert.True(bytes < megabytes * 1048576L, $"{kind}: {bytes / 1048576.0:0.0} MB allocated with the filters off, bound {megabytes} MB");
++        }
++
++        // The three operations with the filters off give the filtered results (the stages decide intersections and
++        // differences as well as unions).
++        [Theory]
++        [InlineData(ExactMeshBoolean.Operations.Intersection)]
++        [InlineData(ExactMeshBoolean.Operations.Difference)]
++        public void FiltersOff_SameResult_OtherOperations(ExactMeshBoolean.Operations op)
++        {
++            DMesh3 a = Shape("sheets3"), b = Copy(a);
++            ExactMeshBoolean filtered, exact;
++            AllocatedBy(a, b, op, false, out filtered);
++            AllocatedBy(a, b, op, true, out exact);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, filtered.Status);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, exact.Status);
++            Assert.Equal(Triangles(filtered.Result), Triangles(exact.Result));
++        }
++    }
++}
+diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+new file mode 100644
+index 0000000..166a0e4
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+@@ -0,0 +1,190 @@
++using System;
++using System.Collections.Generic;
++using System.Numerics;
++using g3;
++using Xunit;
++
++namespace geometry3Sharp.Tests
++{
++    /// <summary>
++    /// ExactLimbSigns: the signs of the plane side, the dot and the 4 x 4 determinant on stack limbs equal the BigInteger
++    /// expressions, for operands of every width up to and beyond the stack limit, at the limb boundaries, with exact
++    /// zeros, and without allocation.
++    /// </summary>
++    public class ExactLimbSignsTests
++    {
++        // a value of exactly `bits` bits (0: zero) with a random sign; every eighth one at a limb boundary pattern
++        static BigInteger Rand(Random r, int bits)
++        {
++            if (bits <= 0) return BigInteger.Zero;
++            BigInteger v;
++            int kind = r.Next(8);
++            if (kind == 0) v = BigInteger.One << (bits - 1);                         // a power of two
++            else if (kind == 1) v = (BigInteger.One << bits) - 1;                    // all ones
++            else {
++                byte[] b = new byte[bits / 8 + 2];
++                r.NextBytes(b);
++                b[b.Length - 1] = 0;
++                v = new BigInteger(b) & ((BigInteger.One << bits) - 1);
++                v |= BigInteger.One << (bits - 1);
++            }
++            return r.Next(2) == 0 ? v : -v;
++        }
++
++        // widths: small, around the limb boundaries, the classification's sizes, up to the stack limit and beyond it
++        static int Width(Random r)
++        {
++            switch (r.Next(8)) {
++                case 0: return r.Next(0, 4);
++                case 1: return 64 * r.Next(1, 14) + r.Next(-2, 3);
++                case 2: return r.Next(1, 130);
++                case 3: return r.Next(130, 900);
++                case 4: return r.Next(900, 64 * ExactLimbSigns.MaxLimbs - 8);
++                case 5: return 64 * ExactLimbSigns.MaxLimbs + r.Next(-70, 70);
++                case 6: return r.Next(64 * ExactLimbSigns.MaxLimbs, 64 * ExactLimbSigns.MaxLimbs + 600);
++                default: return r.Next(1, 400);
++            }
++        }
++
++        [Fact]
++        public void PlaneSide_MatchesBigInteger()
++        {
++            var r = new Random(11);
++            int zeros = 0, wide = 0;
++            for (int i = 0; i < 30000; ++i) {
++                BigInteger a = Rand(r, Width(r)), b = Rand(r, Width(r)), c = Rand(r, Width(r)), x = Rand(r, Width(r)), y = Rand(r, Width(r)), z = Rand(r, Width(r));
++                BigInteger w = Rand(r, Width(r)), d = Rand(r, Width(r));
++                int kind = i % 4;
++                if (kind == 1) { w = BigInteger.One; d = a * x + b * y + c * z; }                       // on the plane
++                else if (kind == 2) { w = BigInteger.One; d = a * x + b * y + c * z + (r.Next(2) == 0 ? 1 : -1); }    // one unit off it
++                int expected = (a * x + b * y + c * z - d * w).Sign;
++                Assert.True(expected == ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w), $"case {i}");
++                if (expected == 0) zeros++;
++                if (ExactPoint3.BitLength(a) > 64 * ExactLimbSigns.MaxLimbs) wide++;
++            }
++            Assert.True(zeros > 5000 && wide > 1000, $"{zeros} zeros, {wide} wide");
++        }
++
++        [Fact]
++        public void Dot_MatchesBigInteger()
++        {
++            var r = new Random(12);
++            int zeros = 0;
++            for (int i = 0; i < 30000; ++i) {
++                BigInteger a = Rand(r, Width(r)), b = Rand(r, Width(r)), c = Rand(r, Width(r)), x = Rand(r, Width(r)), y = Rand(r, Width(r)), z = Rand(r, Width(r));
++                if (i % 3 == 1) { x = b; y = -a; z = BigInteger.Zero; }                 // orthogonal
++                else if (i % 3 == 2) { x = b * c; y = -2 * a * c; z = a * b + (r.Next(2) == 0 ? 0 : 1); }   // orthogonal or one unit off
++                int expected = (a * x + b * y + c * z).Sign;
++                Assert.True(expected == ExactLimbSigns.Dot(a, b, c, x, y, z), $"case {i}");
++                if (expected == 0) zeros++;
++            }
++            Assert.True(zeros > 5000, $"{zeros} zeros");
++        }
++
++        static ExactPoint3 Point(Random r)
++        {
++            BigInteger w = BigInteger.Abs(Rand(r, Math.Max(1, Width(r))));
++            return ExactPoint3.CreateUnreduced(Rand(r, Width(r)), Rand(r, Width(r)), Rand(r, Width(r)), w);
++        }
++
++        [Fact]
++        public void Det4_MatchesBigInteger()
++        {
++            var r = new Random(13);
++            int zeros = 0, nonzero = 0;
++            for (int i = 0; i < 6000; ++i) {
++                ExactPoint3 a = Point(r), b = Point(r), c = Point(r), d = Point(r);
++                if (i % 3 == 1) {
++                    // d in the plane of a, b, c: integer points (W = 1), d = a + s (b - a) + t (c - a)
++                    a = ExactPoint3.CreateUnreduced(Rand(r, Width(r)), Rand(r, Width(r)), Rand(r, Width(r)), BigInteger.One);
++                    b = ExactPoint3.CreateUnreduced(Rand(r, Width(r)), Rand(r, Width(r)), Rand(r, Width(r)), BigInteger.One);
++                    c = ExactPoint3.CreateUnreduced(Rand(r, Width(r)), Rand(r, Width(r)), Rand(r, Width(r)), BigInteger.One);
++                    BigInteger s = Rand(r, r.Next(0, 70)), t = Rand(r, r.Next(0, 70));
++                    BigInteger off = (i % 2 == 0) ? BigInteger.Zero : BigInteger.One;
++                    d = ExactPoint3.CreateUnreduced(a.X + s * (b.X - a.X) + t * (c.X - a.X), a.Y + s * (b.Y - a.Y) + t * (c.Y - a.Y), a.Z + s * (b.Z - a.Z) + t * (c.Z - a.Z) + off, BigInteger.One);
++                }
++                int expected = ExactLimbSigns.Det4Big(a, b, c, d);
++                Assert.True(expected == ExactLimbSigns.Det4(a, b, c, d), $"case {i}");
++                // two rows exchanged: the opposite sign
++                Assert.True(-expected == ExactLimbSigns.Det4(b, a, c, d), $"case {i}, rows exchanged");
++                if (expected == 0) zeros++; else nonzero++;
++            }
++            Assert.True(zeros > 500 && nonzero > 3000, $"{zeros} zeros, {nonzero} others");
++        }
++
++        // The scratch space of each kernel holds its largest case: every operand at the stack limit with all bits set
++        // (FixedArith throws when its arena is exhausted), and mixed widths.
++        [Fact]
++        public void LargestOperands_FitTheScratchSpace()
++        {
++            BigInteger big = (BigInteger.One << (64 * ExactLimbSigns.MaxLimbs - 1)) - 1;      // MaxLimbs limbs with its sign bit
++            Assert.Equal((big * big + big * big + big * big - big * -big).Sign, ExactLimbSigns.PlaneSide(big, big, big, big, big, big, big, -big));
++            Assert.Equal(1, ExactLimbSigns.Dot(big, big, big, big, big, big));
++            var p = ExactPoint3.CreateUnreduced(big, -big, big, big);
++            var q = ExactPoint3.CreateUnreduced(-big, big, big - 1, big);
++            var s = ExactPoint3.CreateUnreduced(big, big - 2, -big, big - 3);
++            var t = ExactPoint3.CreateUnreduced(big - 5, -big, -big, big);
++            Assert.Equal(ExactLimbSigns.Det4Big(p, q, s, t), ExactLimbSigns.Det4(p, q, s, t));
++            var r = new Random(14);
++            for (int i = 0; i < 300; ++i) {
++                Func<BigInteger> v = () => r.Next(3) == 0 ? (r.Next(2) == 0 ? big : -big) : Rand(r, r.Next(0, 3) * 64 + r.Next(1, 64));
++                var a = ExactPoint3.CreateUnreduced(v(), v(), v(), BigInteger.Abs(v()) + 1);
++                var b = ExactPoint3.CreateUnreduced(v(), v(), v(), BigInteger.Abs(v()) + 1);
++                var c = ExactPoint3.CreateUnreduced(v(), v(), v(), BigInteger.Abs(v()) + 1);
++                var d = ExactPoint3.CreateUnreduced(v(), v(), v(), BigInteger.Abs(v()) + 1);
++                Assert.Equal(ExactLimbSigns.Det4Big(a, b, c, d), ExactLimbSigns.Det4(a, b, c, d));
++                Assert.Equal((a.X * b.X + a.Y * b.Y + a.Z * b.Z - a.W * b.W).Sign, ExactLimbSigns.PlaneSide(a.X, a.Y, a.Z, a.W, b.X, b.Y, b.Z, b.W));
++            }
++        }
++
++        // A common factor 2^k of the plane or of the point moves every operand across the limbs and keeps the sign;
++        // a negative factor reverses it.
++        [Fact]
++        public void PowersOfTwo_KeepTheSign()
++        {
++            var r = new Random(15);
++            for (int i = 0; i < 3000; ++i) {
++                BigInteger a = Rand(r, r.Next(1, 300)), b = Rand(r, r.Next(1, 300)), c = Rand(r, r.Next(1, 300)), d = Rand(r, r.Next(1, 500));
++                BigInteger x = Rand(r, r.Next(1, 700)), y = Rand(r, r.Next(1, 700)), z = Rand(r, r.Next(1, 700)), w = BigInteger.Abs(Rand(r, r.Next(1, 700)));
++                int sign = ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w);
++                int k = r.Next(1, 200), j = r.Next(1, 200);
++                Assert.Equal(sign, ExactLimbSigns.PlaneSide(a << k, b << k, c << k, d << k, x << j, y << j, z << j, w << j));
++                Assert.Equal(-sign, ExactLimbSigns.PlaneSide(-(a << k), -(b << k), -(c << k), -(d << k), x, y, z, w));
++                var p0 = ExactPoint3.CreateUnreduced(x, y, z, w); var p1 = ExactPoint3.CreateUnreduced(a, b, c, w + 1); var p2 = ExactPoint3.CreateUnreduced(d, a, x, w + 2); var p3 = ExactPoint3.CreateUnreduced(y, d, b, w + 3);
++                int det = ExactLimbSigns.Det4(p0, p1, p2, p3);
++                Assert.Equal(det, ExactLimbSigns.Det4(ExactPoint3.CreateUnreduced(x << k, y << k, z << k, w << k), p1, p2, p3));
++            }
++        }
++
++#if NET
++        // On the stack: no allocation for operands inside the limit (the BigInteger expressions allocate every temporary).
++        [Fact]
++        public void InsideTheLimit_NoAllocation()
++        {
++            var r = new Random(16);
++            var cases = new List<BigInteger[]>();
++            for (int i = 0; i < 200; ++i) {
++                var v = new BigInteger[16];
++                for (int k = 0; k < 16; ++k) v[k] = Rand(r, r.Next(1, 900));
++                v[3] = BigInteger.Abs(v[3]) + 1; v[7] = BigInteger.Abs(v[7]) + 1; v[11] = BigInteger.Abs(v[11]) + 1; v[15] = BigInteger.Abs(v[15]) + 1;
++                cases.Add(v);
++            }
++            var pts = new List<ExactPoint3[]>();
++            foreach (var v in cases)
++                pts.Add(new[] { ExactPoint3.CreateUnreduced(v[0], v[1], v[2], v[3]), ExactPoint3.CreateUnreduced(v[4], v[5], v[6], v[7]), ExactPoint3.CreateUnreduced(v[8], v[9], v[10], v[11]), ExactPoint3.CreateUnreduced(v[12], v[13], v[14], v[15]) });
++            long sum = 0, allocated = 0;
++            for (int pass = 0; pass < 3; ++pass) {
++                long before = GC.GetAllocatedBytesForCurrentThread();
++                for (int i = 0; i < cases.Count; ++i) {
++                    var v = cases[i];
++                    sum += ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
++                    sum += ExactLimbSigns.Dot(v[0], v[1], v[2], v[4], v[5], v[6]);
++                    sum += ExactLimbSigns.Det4(pts[i][0], pts[i][1], pts[i][2], pts[i][3]);
++                }
++                allocated = GC.GetAllocatedBytesForCurrentThread() - before;
++            }
++            Assert.True(allocated == 0, $"{allocated} bytes allocated in {3 * cases.Count} calls (sum {sum})");
++        }
++#endif
++    }
++}
+diff --git a/tests/mutation/README.md b/tests/mutation/README.md
+index abe3eb1..a1741c8 100644
+--- a/tests/mutation/README.md
++++ b/tests/mutation/README.md
+@@ -215,7 +215,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
+ | `boolean-1` .. `boolean-4` | `mesh_ops/ExactMeshBoolean.cs`, split at `open_winding_per_patch`, `trace_clusters` and `front_winding` (since 12 November 2026 three parts: the 55928 tail-case stage, #633, put the open winding per patch and the carried rays before `front_winding` and nearly doubled the first part, 74.8k to 140.1k characters; it is split where that code begins, and the old `boolean-2` is `boolean-3`; the new `boolean-2` keeps the break threshold of `boolean-1` until its own full run gives a reason to change it. Since T5 PR 2, #675, four parts: the carry across input-triangle edges grew `boolean-2` from 67.8k to 100.0k characters; it is split at `trace_clusters`, 52.1k and 47.9k, the new `boolean-3` with `boolean-2`'s filter and threshold, and the old `boolean-3` is `boolean-4`) | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-3` also `ExactBooleanFilterTests` |
+ | `arrangement-1` .. `arrangement-4` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles`, `candidates` and `triangulate_touched` (since 8 November 2026 `arrangement-2` is three shards: on #403 it had 1375 mutants, its coverage pass took 71 min and the job was cancelled after 350 minutes, 272 of them testing; each part keeps the break threshold 72 until its own full runs give a reason to change it) | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
+ | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
+-| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) | `ExactPoint3FixedWidthTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
++| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
+ | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92) | `GeneratedPredicatesIndirectTests` |
+ | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
+ | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
+diff --git a/tests/mutation/stryker-mesh-boolean-2.json b/tests/mutation/stryker-mesh-boolean-2.json
+index 989b9e4..8ecab1e 100644
+--- a/tests/mutation/stryker-mesh-boolean-2.json
++++ b/tests/mutation/stryker-mesh-boolean-2.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshBoolean.cs{77783..132617}"
++      "**/mesh_ops/ExactMeshBoolean.cs{77783..132629}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanOpenInputTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests",
+     "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-boolean-3.json b/tests/mutation/stryker-mesh-boolean-3.json
+index df9dbd9..e852ba1 100644
+--- a/tests/mutation/stryker-mesh-boolean-3.json
++++ b/tests/mutation/stryker-mesh-boolean-3.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshBoolean.cs{132617..181445}"
++      "**/mesh_ops/ExactMeshBoolean.cs{132629..181497}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanOpenInputTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests",
+     "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-boolean-4.json b/tests/mutation/stryker-mesh-boolean-4.json
+index 28e6689..f6f4648 100644
+--- a/tests/mutation/stryker-mesh-boolean-4.json
++++ b/tests/mutation/stryker-mesh-boolean-4.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshBoolean.cs{181445..1000000}"
++      "**/mesh_ops/ExactMeshBoolean.cs{181497..1000000}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactMeshBooleanNaryTests|FullyQualifiedName~ExactBooleanOrientationTests|FullyQualifiedName~ExactBooleanReuseTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~ExactBooleanFilterTests|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactBooleanSurvivorTests|FullyQualifiedName~ExactBooleanOpenInputTests|FullyQualifiedName~ExactBooleanIssueCasesTests|FullyQualifiedName~ExactBooleanByDesignTests",
+     "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-fixed.json b/tests/mutation/stryker-mesh-fixed.json
+index 1efc5d7..e17ad36 100644
+--- a/tests/mutation/stryker-mesh-fixed.json
++++ b/tests/mutation/stryker-mesh-fixed.json
+@@ -6,9 +6,10 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/math/FixedPoint3.cs"
++      "**/math/FixedPoint3.cs",
++      "**/math/ExactLimbSigns.cs"
+     ],
+-    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
++    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactLimbSignsTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
+     "ignore-methods": [
+       "*PredicateStats.*"
+     ],
+-- 
+2.43.0
+

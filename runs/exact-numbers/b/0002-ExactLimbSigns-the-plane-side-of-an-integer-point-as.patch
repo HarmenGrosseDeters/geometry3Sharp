@@ -1,0 +1,172 @@
+From af87765823c1608e3ffd22defebe57f239e5d72d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 05:39:52 +0000
+Subject: [PATCH 2/3] ExactLimbSigns: the plane side of an integer point as a
+ kernel of its own
+
+The far point of a ray in front_crossings is an integer point (W = 1): its side is
+A X + B Y + C Z - D. A kernel for that form replaces the constant W at the call site, so the
+D term is covered by the kernel's test against BigInteger (cases where D decides the sign); a
+far-from-origin input joins the operation-level test.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm
+---
+ docs/design/EXACT_LIMB_SIGNS.md               |  3 +-
+ math/ExactLimbSigns.cs                        | 33 ++++++++++++++++++-
+ mesh_ops/ExactMeshBoolean.cs                  |  2 +-
+ .../ExactBooleanLimbSignsTests.cs             |  8 +++++
+ .../ExactLimbSignsTests.cs                    |  9 +++--
+ 5 files changed, 50 insertions(+), 5 deletions(-)
+
+diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
+index 04d876f..cd268df 100644
+--- a/docs/design/EXACT_LIMB_SIGNS.md
++++ b/docs/design/EXACT_LIMB_SIGNS.md
+@@ -26,7 +26,8 @@ stack arena, and only the sign leaves. The integers are the same, so the signs a
+ - `load`: `BigInteger.TryWriteBytes` (two's complement, little endian) into `limbs_of(v)` limbs, sign-extended; a
+   negative value is negated in place (invert, add one) to its magnitude. `limbs_of(v)` is the byte count of the two's
+   complement rounded up to limbs, so the write always fits.
+-- `PlaneSide`, `Dot`: the products and sums in the order of the expression.
++- `PlaneSide` (with `W`, and for an integer point, `W = 1`: the far point of a ray), `Dot`: the products and sums in
++  the order of the expression.
+ - `Det4`: the expansion along the first row with 3 x 3 minors, as `ExactMeshArrangement.Det4`.
+ - Scratch space, in limbs, for operands of at most `w` limbs (`FixedArena` never frees; `Take` throws when it is
+   exhausted, so an error here is an exception, not a write outside the buffer):
+diff --git a/math/ExactLimbSigns.cs b/math/ExactLimbSigns.cs
+index a31d971..159683e 100644
+--- a/math/ExactLimbSigns.cs
++++ b/math/ExactLimbSigns.cs
+@@ -7,7 +7,7 @@ namespace g3
+ {
+     /// <summary>
+     /// Signs of small integer expressions on BigInteger operands, evaluated on stack limbs with FixedArith instead of
+-    /// BigInteger temporaries: the plane side A X + B Y + C Z - D W, the dot of two integer vectors and the 4 x 4
++    /// BigInteger temporaries: the plane side A X + B Y + C Z - D W (and with W = 1), the dot of two integer vectors and the 4 x 4
+     /// determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification). The operands
+     /// are copied into sign-magnitude limbs per call (no allocation), the arithmetic is the library's FixedArith, so
+     /// the value is the same integer and the sign the same as the BigInteger expression's. Operands wider than
+@@ -85,6 +85,37 @@ namespace g3
+             return (a * x + b * y + c * z - d * w).Sign;
+         }
+ 
++        /// <summary> the sign of a x + b y + c z - d: the plane side of the integer point (x, y, z), W = 1 </summary>
++        [MethodImpl(JitHints.Optimize)]
++#if NET
++        [SkipLocalsInit]
++#endif
++        internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z)
++        {
++#if NET
++            int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
++            int total = na + nb + nc + nd + nx + ny + nz;
++            if (total <= 7 * MaxLimbs) {
++                ulong* buf = stackalloc ulong[total];
++                int scratch = 4 * total + 16;
++                ulong* sc = stackalloc ulong[scratch];
++                var ar = new FixedArena(sc, scratch);
++                ulong* p = buf;
++                FixedInt fa = load(a, p, na); p += na;
++                FixedInt fb = load(b, p, nb); p += nb;
++                FixedInt fc = load(c, p, nc); p += nc;
++                FixedInt fd = load(d, p, nd); p += nd;
++                FixedInt fx = load(x, p, nx); p += nx;
++                FixedInt fy = load(y, p, ny); p += ny;
++                FixedInt fz = load(z, p, nz);
++                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
++                s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
++                return FixedArith.Sub(s, fd, ref ar).Sign;
++            }
++#endif
++            return (a * x + b * y + c * z - d).Sign;
++        }
++
+         /// <summary> the sign of a x + b y + c z </summary>
+         [MethodImpl(JitHints.Optimize)]
+ #if NET
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 162a4aa..d5f0108 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -3225,7 +3225,7 @@ namespace g3
+                     sides++;
+                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
+                     if (sr == 2) {
+-                        sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z, BigInteger.One);
++                        sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z);
+                         exactSides++;
+                     }
+                     if (sr == 0) { degenerate = true; return; }
+diff --git a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+index e772316..a0f5e11 100644
+--- a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
++++ b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+@@ -18,6 +18,13 @@ namespace geometry3Sharp.Tests
+         internal static DMesh3 Shape(string kind)
+         {
+             DMesh3 m;
++            if (kind.EndsWith(" away")) {
++                // away from the origin: the planes' offsets D are large against the normals, so the side of a ray's far
++                // point depends on D (near the origin n . R alone has its sign)
++                m = Shape(kind.Substring(0, kind.Length - 5));
++                MeshTransforms.Translate(m, new Vector3d(1000, 2000, -1500));
++                return m;
++            }
+             if (kind.StartsWith("sheets")) {
+                 int n = int.Parse(kind.Substring(6));
+                 var r = new Random(9);
+@@ -85,6 +92,7 @@ namespace geometry3Sharp.Tests
+         [InlineData("sheets3", 40)]
+         [InlineData("sheets4", 80)]
+         [InlineData("open", 100)]
++        [InlineData("sheets3 away", 40)]
+         public void FiltersOff_SameResult_WithoutBigIntegerSigns(string kind, int megabytes)
+         {
+             DMesh3 a = Shape(kind), b = Copy(a);
+diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+index 166a0e4..a3cd6d1 100644
+--- a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
++++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
+         public void PlaneSide_MatchesBigInteger()
+         {
+             var r = new Random(11);
+-            int zeros = 0, wide = 0;
++            int zeros = 0, wide = 0, decidedByD = 0;
+             for (int i = 0; i < 30000; ++i) {
+                 BigInteger a = Rand(r, Width(r)), b = Rand(r, Width(r)), c = Rand(r, Width(r)), x = Rand(r, Width(r)), y = Rand(r, Width(r)), z = Rand(r, Width(r));
+                 BigInteger w = Rand(r, Width(r)), d = Rand(r, Width(r));
+@@ -59,10 +59,13 @@ namespace geometry3Sharp.Tests
+                 else if (kind == 2) { w = BigInteger.One; d = a * x + b * y + c * z + (r.Next(2) == 0 ? 1 : -1); }    // one unit off it
+                 int expected = (a * x + b * y + c * z - d * w).Sign;
+                 Assert.True(expected == ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w), $"case {i}");
++                // the integer point (W = 1): in half of these cases D decides the sign against A X + B Y + C Z
++                Assert.True((a * x + b * y + c * z - d).Sign == ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z), $"case {i}, integer point");
++                if ((a * x + b * y + c * z - d).Sign != (a * x + b * y + c * z).Sign) decidedByD++;
+                 if (expected == 0) zeros++;
+                 if (ExactPoint3.BitLength(a) > 64 * ExactLimbSigns.MaxLimbs) wide++;
+             }
+-            Assert.True(zeros > 5000 && wide > 1000, $"{zeros} zeros, {wide} wide");
++            Assert.True(zeros > 5000 && wide > 1000 && decidedByD > 5000, $"{zeros} zeros, {wide} wide, {decidedByD} decided by D");
+         }
+ 
+         [Fact]
+@@ -120,6 +123,7 @@ namespace geometry3Sharp.Tests
+             BigInteger big = (BigInteger.One << (64 * ExactLimbSigns.MaxLimbs - 1)) - 1;      // MaxLimbs limbs with its sign bit
+             Assert.Equal((big * big + big * big + big * big - big * -big).Sign, ExactLimbSigns.PlaneSide(big, big, big, big, big, big, big, -big));
+             Assert.Equal(1, ExactLimbSigns.Dot(big, big, big, big, big, big));
++            Assert.Equal(1, ExactLimbSigns.PlaneSide(big, big, big, -big, big, big, big));
+             var p = ExactPoint3.CreateUnreduced(big, -big, big, big);
+             var q = ExactPoint3.CreateUnreduced(-big, big, big - 1, big);
+             var s = ExactPoint3.CreateUnreduced(big, big - 2, -big, big - 3);
+@@ -179,6 +183,7 @@ namespace geometry3Sharp.Tests
+                     var v = cases[i];
+                     sum += ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+                     sum += ExactLimbSigns.Dot(v[0], v[1], v[2], v[4], v[5], v[6]);
++                    sum += ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+                     sum += ExactLimbSigns.Det4(pts[i][0], pts[i][1], pts[i][2], pts[i][3]);
+                 }
+                 allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+-- 
+2.43.0
+
