@@ -161,7 +161,7 @@ namespace gs
             if (ramps == null) return null;
             return ramps.Select(r => new SlopeRamp() {
                 Toe = r.Toe, Path = r.Path.Select(p => new Vector2d(p.x - o.x, p.y - o.y)).ToList(), StartHeight = r.StartHeight,
-                Grade = r.Grade, Width = r.Width, Side = r.Side
+                Grade = r.Grade, Width = r.Width, Side = r.Side, WallSlope = r.WallSlope
             }).ToList();
         }
 

@@ -24,6 +24,8 @@ namespace gs
         public double Width;
         /// <summary> the side of the path the road lies on, Left or Right of the direction of travel (given, never inferred) </summary>
         public SlopeToe.Sides Side = SlopeToe.Sides.Left;
+        /// <summary> the slope of the wall above the road (and of the road's end faces); null (default): the cut slope of the toe segment the path starts on </summary>
+        public SlopeSpec? WallSlope;
     }
 
     // Ramps (docs/design/TERRAIN_RAMPS.md, R1). Each straight path segment is a convex polygon piece of the cone envelope:
@@ -37,6 +39,8 @@ namespace gs
     {
         /// <summary> optional: ramps cut into the slope (Direction Cut only in R1; else NotImplemented) </summary>
         public List<SlopeRamp> Ramps = new List<SlopeRamp>();
+        /// <summary> the road's grade margin used (TERRAIN_RAMPS.md, "Margins"): the roads are built that much flatter than their Grade; 0 without ramps </summary>
+        public double UsedRoadMargin;
         /// <summary> (ramp, path segment) of the problems of a ramp (InvalidInput, NotImplemented, ToeSteeperThanSlope, RampNotOnWall) </summary>
         public List<Index2i> RampProblems = new List<Index2i>();
 
@@ -124,7 +128,9 @@ namespace gs
                 }
                 if (on < 0)
                     return ramp_problem(Statuses.InvalidInput, r, 0, "the path does not start on its toe");
-                SlopeSpec wall = Toes[ramp.Toe].CutStart[on];
+                SlopeSpec wall = ramp.WallSlope ?? Toes[ramp.Toe].CutStart[on];
+                if (wall.IsValid == false)
+                    return ramp_problem(Statuses.InvalidInput, r, -1, "WallSlope must be a valid slope");
                 double z0 = ramp.StartHeight;
                 if (double.IsNaN(z0)) {
                     Vector3d a = toe[on], b = toe[(on + 1) % toe.Count];
@@ -259,6 +265,7 @@ namespace gs
             foreach (RampIn ri in rampsIn) {
                 int r = ri.Index, n = ri.P.Count;
                 List<Vector2d> P = ri.P;
+                UsedRoadMargin = RoadMargin(delta, sMin);
                 double gb = ri.G - RoadMargin(delta, sMin);
                 if (!(gb > 0.5 * ri.G))
                     return ramp_problem(Statuses.InvalidInput, r, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");

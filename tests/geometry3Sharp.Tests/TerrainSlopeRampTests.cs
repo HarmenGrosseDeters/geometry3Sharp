@@ -358,6 +358,33 @@ namespace geometry3Sharp.Tests
             Assert.True(d.Volume > plain.Volume + 100, $"{d.Volume} vs {plain.Volume}");
         }
 
+        [Fact]
+        public void Ramp_StartingInsideAToeSegment_AndWithItsOwnWallSlope()
+        {
+            // the start on the toe segment (not a toe vertex): exactly on it, no undercut of the toe by the road's start
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(20, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var ramp = new SlopeRamp() {
+                Toe = 0, Path = new List<Vector2d>() { new Vector2d(-10, -20), new Vector2d(15, -23) }, Grade = SlopeSpec.Percent(10), Width = 4, Side = SlopeToe.Sides.Right
+            };
+            var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe>() { toe }, Ramps = new List<SlopeRamp>() { ramp }, HeightLimit = 10, Tolerance = 0.01 };
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertRamps(d);
+            Assert.True(d.UsedRoadMargin > 0 && d.UsedRoadMargin < 1e-5);
+            // a flatter wall above the road (1:2): the wall triangles are checked against it, and the wall stands further back
+            ramp.WallSlope = SlopeSpec.Ratio(2);
+            var w = new TerrainSlopeDesign() { Toes = new List<SlopeToe>() { toe }, Ramps = new List<SlopeRamp>() { ramp }, HeightLimit = 10, Tolerance = 0.01 };
+            Assert.True(w.Compute(), w.Status + " " + w.Message);
+            Assert.All(w.Pieces.Where(p => p.Kind == SlopePiece.Kinds.RampWall), p => Assert.Equal(SlopeSpec.Ratio(2), p.Spec));
+            DMesh3 m = w.SlopeSurface;
+            foreach (int t in m.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                Assert.True(Slope.IsNotSteeper(a, b, c, w.Pieces[m.GetTriangleGroup(t)].Spec));
+            }
+            Vector2d x = new Vector2d(2.5, -21.5) + 6 * new Vector2d(-1.5, -12.5).Normalized;
+            Assert.True(TerrainSlopeDesignTests.HeightAt(w.SlopeSurface, x) < TerrainSlopeDesignTests.HeightAt(d.SlopeSurface, x) - 0.5);
+        }
+
         // ---- statuses ----
 
         [Fact]
@@ -419,6 +446,7 @@ namespace geometry3Sharp.Tests
             expect(TerrainSlopeDesign.Statuses.InvalidInput, d => d.Ramps[0].Toe = 1);
             expect(TerrainSlopeDesign.Statuses.InvalidInput, d => d.Ramps[0].Side = SlopeToe.Sides.Outside);
             expect(TerrainSlopeDesign.Statuses.InvalidInput, d => d.Ramps[0].StartHeight = double.PositiveInfinity);
+            expect(TerrainSlopeDesign.Statuses.InvalidInput, d => d.Ramps[0].WallSlope = SlopeSpec.Ratio(0));
             expect(TerrainSlopeDesign.Statuses.InvalidInput, d => d.HeightLimit = 2);                                     // below the road's top
             // a self-intersecting path (each turn away from the road, so only the crossing is wrong)
             expect(TerrainSlopeDesign.Statuses.InvalidInput, d => d.Ramps[0].Path = Enumerable.Range(0, 9)
@@ -436,18 +464,22 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RampShare_IsInTheToleranceBudget()
         {
-            // the road built at g - delta sMax lies up to delta sMax x its length below the specified road: a Tolerance
-            // that the slope's margins alone (2.2e-5 here) leave room for, but not with the ramp's share (4.7e-5)
+            // the road built at g - delta sMin / 2 lies up to that x its length below the specified road: the numerical
+            // margins that a too small Tolerance reports grow by it (1e-6 / 2 x 25.18 x 1.01 = 1.27e-5)
+            Func<TerrainSlopeDesign, double> margins = (x) => {
+                x.Tolerance = 1e-9;
+                Assert.False(x.Compute());
+                return double.Parse(x.Message.Substring(x.Message.LastIndexOf('(') + 1).TrimEnd(')'), System.Globalization.CultureInfo.InvariantCulture);
+            };
+            var plain = Straight(); plain.Ramps.Clear();
+            double withRamp = margins(Straight()), without = margins(plain);
+            Assert.InRange(withRamp - without, 1.2e-5, 1.35e-5);
+            // a Tolerance between the two: the ramp is too long for it
             var d = Straight();
-            d.Tolerance = 4e-5;
+            d.Tolerance = 3e-5;
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
-            Assert.Contains("numerical margins", d.Message);
-            // (the margins without the ramp, as the message of a Tolerance below them says, are below 4e-5)
-            var plain = Straight(); plain.Ramps.Clear(); plain.Tolerance = 1e-9;
-            Assert.False(plain.Compute());
-            string m = plain.Message.Substring(plain.Message.LastIndexOf('(') + 1).TrimEnd(')');
-            Assert.True(double.Parse(m, System.Globalization.CultureInfo.InvariantCulture) < 3e-5, plain.Message);
+            Assert.Contains("the ramp is too long for Tolerance", d.Message);
         }
 
         [Fact]
@@ -482,6 +514,14 @@ namespace geometry3Sharp.Tests
             Assert.True(slopeOk && supportOk);
             double up = ExactInterval.Up(2);
             TerrainSlopeDesign.check_piece(pc, new Vector3d(1, 1, up), new Vector3d(5, 1, up), new Vector3d(3, 3, up), out slopeOk, out supportOk);
+            Assert.True(slopeOk);
+            Assert.False(supportOk);
+            // a wall triangle: its plane on or below every corner of the polygon (falling to the corner (0, 0), at 2 there); a
+            // slightly tilted one passes above that corner and fails
+            var wall = new TerrainSlopeDesign.InPiece() { Kind = 2, Spec = SlopeSpec.Ratio(1), Support = corners };
+            TerrainSlopeDesign.check_piece(wall, new Vector3d(-1, -1, 3), new Vector3d(-2, -1, 3.5), new Vector3d(-1, -2, 3.5), out slopeOk, out supportOk);
+            Assert.True(slopeOk && supportOk);
+            TerrainSlopeDesign.check_piece(wall, new Vector3d(-1, -1, 3), new Vector3d(-2, -1, 3.5), new Vector3d(-1, -2, 3.4), out slopeOk, out supportOk);
             Assert.True(slopeOk);
             Assert.False(supportOk);
             // a tilted one below every corner but steeper than the grade

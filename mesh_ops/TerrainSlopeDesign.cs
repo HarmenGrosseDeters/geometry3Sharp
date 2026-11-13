@@ -410,7 +410,7 @@ namespace gs
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
-            RampProblems = new List<Index2i>(); rampNominal = new List<RampNominal>(); rampsIn = new List<RampIn>();
+            RampProblems = new List<Index2i>(); UsedRoadMargin = 0; rampNominal = new List<RampNominal>(); rampsIn = new List<RampIn>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
@@ -1155,6 +1155,10 @@ namespace gs
             // that times its length, TERRAIN_RAMPS.md, "Margins")
             double rampShare = ramp_share(delta, sMin);
             double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare - rampShare;
+            if (!(facetShare > 0) && rampShare > 0 && !(facetShare + rampShare > 0))
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3})");
+            if (!(facetShare > 0) && rampShare > 0)
+                return fail(Statuses.InvalidInput, $"the ramp is too long for Tolerance {Tolerance}: its road margin takes {rampShare:G3} of it (TERRAIN_RAMPS.md, \"Margins\"); the numerical margins are {lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3}");
             if (!(facetShare > 0))
                 return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3})");
             // toe segments below the feature size at the largest margin (1e-3) cannot be realized
