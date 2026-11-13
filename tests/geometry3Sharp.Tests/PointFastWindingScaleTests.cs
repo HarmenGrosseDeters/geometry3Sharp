@@ -84,9 +84,13 @@ namespace geometry3Sharp.Tests
                 double expected = unitTree.FastWindingNumber(q), fast = tree.FastWindingNumber(tq);
                 if (s.IsExact)
                     Assert.True(BitConverter.DoubleToInt64Bits(fast) == BitConverter.DoubleToInt64Bits(expected), $"{name}, at {q}: {fast:R} vs {expected:R}");
-                else
-                    // (another tree: other expansions; the reference is the direct sum of the transformed cloud)
-                    Assert.True(Math.Abs(fast - Direct(m, area, s.Scale, tq)) < 0.1, $"{name}, at {q}: fast {fast} vs direct {Direct(m, area, s.Scale, tq)}");
+                else {
+                    // (another tree: other expansions, each within the expansion's error of the direct sum of the
+                    // transformed cloud, so within twice that of each other)
+                    double direct = Direct(m, area, s.Scale, tq);
+                    Assert.True(Math.Abs(fast - direct) < 0.1, $"{name}, at {q}: fast {fast} vs direct {direct}");
+                    Assert.True(Math.Abs(fast - expected) < 0.2, $"{name}, at {q}: fast {fast} vs {expected} untransformed");
+                }
             }
         }
 
@@ -107,6 +111,27 @@ namespace geometry3Sharp.Tests
                 Vector3d q = s * q0;
                 double fast = tree.FastWindingNumber(q), direct = Direct(m, area, s, q);
                 Assert.True(Math.Abs(fast - direct) < 0.1, $"2^{exponent}, at {q0}: fast {fast} vs direct {direct}");
+            }
+        }
+
+        [Fact]
+        public void SplitAxisSpreadOfOneUlp_FarFromTheOrigin_TreeCoversEveryPoint()
+        {
+            // points whose x is 1.5e8 or the next double (spread 3e-8, above the old absolute 1e-8): the midpoint rounds
+            // onto an end, every x is <= it, and the old scan ran past the set (an exception or a corrupt tree); now the
+            // scan is bounded and a side left empty splits half and half
+            double x0 = 1.5e8, x1 = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x0) + 1);
+            var m = new DMesh3();
+            var rnd = new Random(11);
+            for (int i = 0; i < 40; ++i)
+                m.AppendVertex(new Vector3d(i % 2 == 0 ? x0 : x1, rnd.NextDouble(), rnd.NextDouble()));
+            var tree = new PointAABBTree3(m, true);
+            tree.TestCoverage();
+            for (int k = 0; k < 50; ++k) {
+                Vector3d q = new Vector3d(x0 + rnd.NextDouble() - 0.5, rnd.NextDouble(), rnd.NextDouble());
+                int found = tree.FindNearestPoint(q);
+                double best = m.VertexIndices().Min(v => m.GetVertex(v).DistanceSquared(q));
+                Assert.Equal(best, m.GetVertex(found).DistanceSquared(q));
             }
         }
 
