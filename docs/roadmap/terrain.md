@@ -40,8 +40,9 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
   `SlopeViolation` in about 1 of 500 such designs (the outside certifies at once); (2) `Direction = Auto` on a terrain
   that tilts through the toe plane: composite not certified at a toe edge, 1 of 700. Both never return a violating
   result; both are pinned as example tests and counted in the campaign.
-- **Ramps as design geometry** (path, width, grade; access ramps into pits). Design note [TERRAIN_RAMPS.md](../design/TERRAIN_RAMPS.md) (2026-11-12): proposal, owner decision
-  pending (three questions), not built.
+- **Ramps as design geometry** (path, width, grade; access ramps into pits). Design note [TERRAIN_RAMPS.md](../design/TERRAIN_RAMPS.md) (2026-11-12). Owner 2026-11-13: yes to
+  all three (the path is the inner edge, R1 a pure cut ramp up to the daylight line, constant grade per ramp); R1 is its own
+  PR after #752, #757 and #761, not built yet.
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
