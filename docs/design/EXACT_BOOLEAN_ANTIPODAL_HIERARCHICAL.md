@@ -137,8 +137,8 @@ The margin ε:
 
 - In winding-number units, the node contributes `(S(A_0, A_k) + Ω_1)/(4π)` with the error
   `E = A_abs · 2r / ((d − r)³ · 4π) + rounding`.
-- With A_abs ≈ r², E ≈ (2/(4π)) (r/d)³ / (1 − r/d)³ · (d/r) · (r/d)² = 0.094 (r/d)² at r/d = 0.25, that is 5.9e-3
-  winding units per node. This is far above 1e-6, which is why section 2 never uses w_h for a snap. The size of E only
+- With A_abs ≈ r², E ≈ 2r³ / (4π (d − r)³) = (1/(2π)) (r/d)³ / (1 − r/d)³. At r/d = 0.25 that is 5.9e-3 winding
+  units per node, or 0.094 (r/d)² there. This is far above 1e-6, which is why section 2 never uses w_h for a snap. The size of E only
   sets the expected fallback share.
 
 **Accepting a node.** A node is accepted if both:
