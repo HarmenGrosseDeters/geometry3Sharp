@@ -957,6 +957,13 @@ namespace geometry3Sharp.Tests
             try { return f(); } finally { DualContouring.SkipResolveForTests = false; }
         }
 
+        // the wrap's and the solidify's resolution for SolidifyNotClean_AlphaWrapped (issue #692): at the default diag / 300 the wrap of
+        // the 12 plates has 185k raw triangles (about 1.1 area / alpha^2: the plates' area is 1.9 diag^2), and the test took 32 s alone.
+        // At diag / 120 31k, and the solidify at 16 cells (64 before) still self-intersects: the same defect classes (solidify not
+        // clean, so wrapped; simplified to under half, 0.43; certified; cancel). At diag / 60 the simplification keeps 0.63, above half
+        const double WrapAlpha692 = 120, WrapOffset692 = 1200;
+        const int SolidifyResolution692 = 16;
+
         [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_AlphaWrapped()
@@ -964,7 +971,8 @@ namespace geometry3Sharp.Tests
             // the repair keeps the self-intersections, the exact stage is off: the solidify result still
             // self-intersects; the alpha wrap is clean and encloses the input
             Func<bool, MeshRobustRepair> run = (wrap) => {
-                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64, AlphaWrapFallback = wrap };
+                var r = new MeshRobustRepair(ThinPlates(6)) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = SolidifyResolution692, AlphaWrapFallback = wrap,
+                    WrapRelativeAlpha = WrapAlpha692, WrapRelativeOffset = WrapOffset692 };
                 Assert.True(WithUnrepairedContour(() => r.Apply()));
                 return r;
             };
@@ -999,7 +1007,8 @@ namespace geometry3Sharp.Tests
 
             // cancelled during the simplification: false, as for the other phases, and Mesh is not replaced
             DMesh3 input = ThinPlates(6);
-            var cancelled = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64 };
+            var cancelled = new MeshRobustRepair(input) { RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = SolidifyResolution692,
+                WrapRelativeAlpha = WrapAlpha692, WrapRelativeOffset = WrapOffset692 };
             cancelled.CancelF = () => cancelled.PhaseMilliseconds.ContainsKey("wrap");
             Assert.False(WithUnrepairedContour(() => cancelled.Apply()));
             Assert.Same(input, cancelled.Mesh);
