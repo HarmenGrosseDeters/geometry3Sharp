@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using gs;
 using Xunit;
 using Ops = g3.ExactMeshBoolean.Operations;
 
