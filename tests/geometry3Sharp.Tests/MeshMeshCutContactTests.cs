@@ -230,5 +230,140 @@ namespace geometry3Sharp.Tests
             Assert.Equal(vertices, op.Result.VertexCount);
             Assert.Equal(triangles, op.Result.TriangleCount);
         }
+
+        // ---- cases that must NOT be refused ----
+
+        public static IEnumerable<object[]> AcceptedCases()
+        {
+            // a vertex on the plane of the target triangle but outside it, the cut triangle above the plane
+            yield return new object[] { "vertex on the plane, outside", Flat(), Tri(new Vector3d(9, 9, 0), new Vector3d(10, 9, 1), new Vector3d(9, 10, 1)) };
+            // coplanar triangles that are apart
+            yield return new object[] { "coplanar, apart", Flat(), Tri(new Vector3d(5, 5, 0), new Vector3d(6, 5, 0), new Vector3d(5, 6, 0)) };
+            // a triangle crossing the plane properly (all orientations nonzero) beside the target triangle, not meeting it
+            yield return new object[] { "crossing the plane beside", Flat(), Tri(new Vector3d(7, 7, -1), new Vector3d(8, 7, 1), new Vector3d(7, 8, 1)) };
+            // a triangle above the plane, apart
+            yield return new object[] { "apart above", Flat(), Tri(new Vector3d(1, 1, 3), new Vector3d(2, 1, 3), new Vector3d(1, 2, 3)) };
+            // a triangle without an area (collinear corners) far from the other mesh: not contact
+            yield return new object[] { "degenerate triangle apart", Flat(), Tri(new Vector3d(20, 0, 5), new Vector3d(21, 0, 5), new Vector3d(22, 0, 5)) };
+            yield return new object[] { "degenerate target apart", Tri(new Vector3d(0, 0, 5), new Vector3d(0, 0, 5), new Vector3d(0, 0, 5)), Flat() };
+            // degenerate triangles whose boxes overlap the target's but that do not meet it: coplanar and outside, a point outside
+            yield return new object[] { "degenerate coplanar segment outside", Flat(), Tri(new Vector3d(3, 3, 0), new Vector3d(4.5, 4.5, 0), new Vector3d(6, 6, 0)) };
+            yield return new object[] { "degenerate coplanar point outside", Flat(), Tri(new Vector3d(3, 3, 0), new Vector3d(3, 3, 0), new Vector3d(3, 3, 0)) };
+            // two segments in a vertical plane whose xy projections overlap: they do not meet
+            yield return new object[] { "degenerate segments in a vertical plane, apart", Tri(new Vector3d(0, 0, 0), new Vector3d(1, 1, 0), new Vector3d(2, 2, 0)),
+                Tri(new Vector3d(1, 1, 1), new Vector3d(2, 2, 1), new Vector3d(3, 3, 1)) };
+            // two segments on the x axis, apart (their yz projections are the same point)
+            yield return new object[] { "degenerate segments on a line, apart", Tri(new Vector3d(0, 0, 0), new Vector3d(0.5, 0, 0), new Vector3d(1, 0, 0)),
+                Tri(new Vector3d(2, 0, 0), new Vector3d(2.5, 0, 0), new Vector3d(3, 0, 0)) };
+            // one ulp above the plane inside the target triangle: no contact (the cut mesh is above, nothing is zero)
+            yield return new object[] { "one ulp above", Flat(), Tri(new Vector3d(1, 1, Math.BitIncrement(0.0)), new Vector3d(5, 5, 1), new Vector3d(6, 0.5, 1)) };
+        }
+
+        [Theory]
+        [MemberData(nameof(AcceptedCases))]
+        public void NoContact_IsNotRefused(string name, DMesh3 target, DMesh3 cut)
+        {
+            var status = Status(target, cut, out DMesh3 _);
+            Assert.True(status == MeshMeshCut.CutStatus.Ok, name + ": " + status);
+        }
+
+        public static IEnumerable<object[]> DegenerateContactCases()
+        {
+            // a triangle without an area that touches: a point on a face, a segment crossing a face, a segment on a face, two segments that cross
+            yield return new object[] { "point on a face", Flat(), Tri(new Vector3d(1, 1, 0), new Vector3d(1, 1, 0), new Vector3d(1, 1, 0)) };
+            yield return new object[] { "segment through a face", Flat(), Tri(new Vector3d(1, 1, -1), new Vector3d(1, 1, 0.5), new Vector3d(1, 1, 1)) };
+            yield return new object[] { "segment in a face", Flat(), Tri(new Vector3d(0.5, 0.5, 0), new Vector3d(1, 1, 0), new Vector3d(2, 1, 0)) };
+            yield return new object[] { "segments cross", Tri(new Vector3d(0, 0, 0), new Vector3d(1, 1, 0), new Vector3d(2, 2, 0)),
+                Tri(new Vector3d(0, 2, 0), new Vector3d(1, 1, 0), new Vector3d(2, 0, 0)) };
+            yield return new object[] { "point on a segment", Tri(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1), new Vector3d(2, 2, 2)),
+                Tri(new Vector3d(1.5, 1.5, 1.5), new Vector3d(1.5, 1.5, 1.5), new Vector3d(1.5, 1.5, 1.5)) };
+        }
+
+        [Theory]
+        [MemberData(nameof(DegenerateContactCases))]
+        public void DegenerateContact_IsRefused(string name, DMesh3 target, DMesh3 cut)
+        {
+            var status = Status(target, cut, out DMesh3 before);
+            Assert.True(status == MeshMeshCut.CutStatus.ContactDetected, name + ": " + status);
+            Assert.True(SameVertices(before, target), name);
+        }
+
+        // ---- after a refusal ----
+
+        [Fact]
+        public void AfterARefusal_RemoveContainedAndAppendSegmentsDoNothing()
+        {
+            // the target inside a larger cut cube whose faces lie on three faces of it: contact, and most of the target is inside the cut mesh
+            DMesh3 target = Cube(0, 0, 0, 1);
+            var op = new MeshMeshCut() { Target = target, CutMesh = Cube(-1, -1, -1, 2) };
+            op.Compute();
+            Assert.Equal(MeshMeshCut.CutStatus.ContactDetected, op.Status);
+            DMesh3 before = new DMesh3(target);
+            op.RemoveContained();
+            op.AppendSegments(0.01);
+            Assert.True(SameVertices(before, target));
+            Assert.Empty(op.CutVertices);
+            // a cut that happened before: the next, refused Compute() does not keep its segments
+            DMesh3 t2 = Cube(0, 0, 0, 1);
+            var op2 = new MeshMeshCut() { Target = t2, CutMesh = Cube(0.3, 0.4, 0.45, 1) };
+            op2.Compute();
+            op2.Target = Cube(0, 0, 0, 1);
+            op2.CutMesh = Cube(1, 0, 0, 1);
+            op2.Compute();
+            DMesh3 t3 = new DMesh3(op2.Target);
+            op2.AppendSegments(0.01);
+            Assert.True(SameVertices(t3, op2.Target));
+        }
+
+        // ---- ContactTest against an exact integer oracle (separating axes) on random small triangles ----
+
+        static long[] Sub(long[] a, long[] b) => new[] { a[0] - b[0], a[1] - b[1], a[2] - b[2] };
+        static long[] Cross(long[] a, long[] b) => new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        static long Dot(long[] a, long[] b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+        static bool OracleIntersect(long[][] t, long[][] u)
+        {
+            long[][] te = { Sub(t[1], t[0]), Sub(t[2], t[1]), Sub(t[0], t[2]) }, ue = { Sub(u[1], u[0]), Sub(u[2], u[1]), Sub(u[0], u[2]) };
+            long[] nt = Cross(te[0], te[1]), nu = Cross(ue[0], ue[1]);
+            var axes = new List<long[]> { nt, nu };
+            foreach (var a in te) foreach (var b in ue) axes.Add(Cross(a, b));
+            if (Cross(nt, nu).All(c => c == 0)) {       // coplanar: the in-plane edge normals
+                foreach (var a in te) axes.Add(Cross(nt, a));
+                foreach (var a in ue) axes.Add(Cross(nu, a));
+            }
+            foreach (var ax in axes) {
+                if (ax.All(c => c == 0)) continue;
+                long tmin = t.Min(v => Dot(ax, v)), tmax = t.Max(v => Dot(ax, v)), umin = u.Min(v => Dot(ax, v)), umax = u.Max(v => Dot(ax, v));
+                if (tmax < umin || umax < tmin) return false;
+            }
+            return true;
+        }
+
+        static int OracleOrient(long[][] tri, long[] p)
+        {
+            long d = Dot(Cross(Sub(tri[1], tri[0]), Sub(tri[2], tri[0])), Sub(p, tri[0]));
+            return Math.Sign(d);
+        }
+
+        [Fact]
+        public void TrianglesTouch_AgreesWithAnExactOracle_OnRandomSmallTriangles()
+        {
+            var rnd = new Random(856);
+            int touching = 0, pairs = 0, transversal = 0;
+            for (int n = 0; n < 60000; ++n) {
+                long[][] t = new long[3][], u = new long[3][];
+                for (int i = 0; i < 3; ++i) { t[i] = new long[] { rnd.Next(4), rnd.Next(4), rnd.Next(4) }; u[i] = new long[] { rnd.Next(4), rnd.Next(4), rnd.Next(4) }; }
+                if (Cross(Sub(t[1], t[0]), Sub(t[2], t[0])).All(c => c == 0) || Cross(Sub(u[1], u[0]), Sub(u[2], u[0])).All(c => c == 0))
+                    continue;       // (degenerate triangles have their own cases)
+                bool anyZero = Enumerable.Range(0, 3).Any(i => OracleOrient(t, u[i]) == 0 || OracleOrient(u, t[i]) == 0);
+                bool expected = anyZero && OracleIntersect(t, u);
+                Triangle3d tt = new Triangle3d(new Vector3d(t[0][0], t[0][1], t[0][2]), new Vector3d(t[1][0], t[1][1], t[1][2]), new Vector3d(t[2][0], t[2][1], t[2][2]));
+                Triangle3d uu = new Triangle3d(new Vector3d(u[0][0], u[0][1], u[0][2]), new Vector3d(u[1][0], u[1][1], u[1][2]), new Vector3d(u[2][0], u[2][1], u[2][2]));
+                ++pairs;
+                if (expected) ++touching; else if (!anyZero && OracleIntersect(t, u)) ++transversal;
+                Assert.True(ContactTest.TrianglesTouch(tt, uu) == expected, $"pair {n}: expected {expected}: t={string.Join(";", t.Select(v => string.Join(",", v)))} u={string.Join(";", u.Select(v => string.Join(",", v)))}");
+            }
+            Assert.True(touching > 5000 && transversal > 1000 && pairs - touching > 5000, $"the sample covers both outcomes: {touching} touching, {transversal} transversal, {pairs} pairs");
+        }
     }
 }

@@ -26,9 +26,9 @@ namespace g3
     /// other triangle's plane: a vertex on a face, an edge on a face, two edges that touch, coplanar triangles overlapping
     /// or touching, a vertex on the plane with a proper crossing). That is conservative: a pair that is also
     /// crossed properly is refused too. If there is one, Compute() leaves Target unchanged, sets Status to
-    /// ContactDetected and returns (do not call RemoveContained() then). Only pairs whose six orientations are all
+    /// ContactDetected and returns (RemoveContained() then does nothing). Only pairs whose six orientations are all
     /// nonzero (a transversal cut) are cut. The decision is made by exact predicates, so it is the same under every
-    /// scaling by a power of two (and any similarity that is exact). The cut itself is not scale invariant (VertexSnapTol
+    /// scaling by a power of two (and any similarity that is exact). A triangle without an area (collinear corners) counts as its segment or point. The cut itself is not scale invariant (VertexSnapTol
     /// is absolute). <see cref="MeshBoolean"/> sets RefuseContact to false and so keeps its behaviour on touching inputs.
     ///
     /// TODO:
@@ -84,6 +84,8 @@ namespace g3
             initialize();
             if (RefuseContact && has_contact()) {
                 Status = CutStatus.ContactDetected;
+                Segments = new IntersectSegment[0];
+                CutVertices = new List<int>();
                 return;
             }
             double cellSize = Target.CachedBounds.MaxDim / 64;
@@ -111,6 +113,8 @@ namespace g3
 
         public void RemoveContained()
         {
+            if (Status == CutStatus.ContactDetected)
+                return;     // Compute() refused: Target was not cut, so nothing is removed
             DMeshAABBTree3 spatial = new DMeshAABBTree3(CutMesh, true);
             spatial.WindingNumber(Vector3d.Zero);
             SafeListBuilder<int> removeT = new SafeListBuilder<int>();
@@ -208,11 +212,7 @@ namespace g3
                 Triangle3d a = new Triangle3d();
                 Target.GetTriVertices(tid, ref a.V0, ref a.V1, ref a.V2);
                 AxisAlignedBox3d box = new AxisAlignedBox3d(a.V0); box.Contain(a.V1); box.Contain(a.V2);
-                // the candidate boxes are padded by a relative amount (the tree's boxes are float boxes; the exact test decides)
-                double mag = Math.Max(Math.Max(Math.Abs(box.Min.x), Math.Abs(box.Max.x)), Math.Max(Math.Max(Math.Abs(box.Min.y), Math.Abs(box.Max.y)),
-                    Math.Max(Math.Abs(box.Min.z), Math.Abs(box.Max.z))));
-                double pad = 1e-5 * Math.Max(mag, box.MaxDim);
-                box = new AxisAlignedBox3d(box.Min - pad * Vector3d.One, box.Max + pad * Vector3d.One);
+                // (the tree's boxes are padded in proportion to the mesh, so boxes that only touch overlap; the exact test decides)
                 var traversal = new DMeshAABBTree3.TreeTraversal() {
                     NextBoxDF = (bb, depth) => !found && bb.Intersects(box),
                     NextTriangleF = (uid) => {
@@ -753,10 +753,22 @@ namespace g3
     /// other (ExactPredicates.Orient3d); contact if one of them is zero and the closed triangles intersect. The intersection test
     /// uses that two closed triangles intersect exactly if an edge of one meets the closed other triangle.
     /// </summary>
-    static class ContactTest
+    internal static class ContactTest
     {
         public static bool TrianglesTouch(Triangle3d t, Triangle3d u)
         {
+            // a triangle without an area (collinear corners, all six orientations against it are zero) is its segment (or point): it touches
+            // the other if that segment meets the other closed triangle, or the other's segment
+            bool tDeg = IsDegenerate(t), uDeg = IsDegenerate(u);
+            if (tDeg || uDeg) {
+                if (tDeg && uDeg) {
+                    Extremes(t, out Vector3d p, out Vector3d q);
+                    Extremes(u, out Vector3d a, out Vector3d b);
+                    return SegmentsMeet3d(p, q, a, b);
+                }
+                if (tDeg) { Extremes(t, out Vector3d p, out Vector3d q); return SegmentMeetsTriangle(p, q, u); }
+                { Extremes(u, out Vector3d a, out Vector3d b); return SegmentMeetsTriangle(a, b, t); }
+            }
             int[] s = new int[6];
             for (int i = 0; i < 3; ++i) {
                 s[i] = ExactPredicates.Orient3d(t.V0, t.V1, t.V2, u[i]);
@@ -774,6 +786,58 @@ namespace g3
                     return true;
             return false;
         }
+
+        // collinear corners: all three coordinate projections have no area
+        static bool IsDegenerate(Triangle3d t)
+        {
+            return ExactPredicates.Orient2d(Project(t.V0, 0), Project(t.V1, 0), Project(t.V2, 0)) == 0
+                && ExactPredicates.Orient2d(Project(t.V0, 1), Project(t.V1, 1), Project(t.V2, 1)) == 0
+                && ExactPredicates.Orient2d(Project(t.V0, 2), Project(t.V1, 2), Project(t.V2, 2)) == 0;
+        }
+
+        // the end points of the segment (or point) that collinear corners span: the lexicographic minimum and maximum (monotone along a line)
+        static void Extremes(Triangle3d t, out Vector3d lo, out Vector3d hi)
+        {
+            lo = t.V0; hi = t.V0;
+            for (int i = 1; i < 3; ++i) {
+                if (Less(t[i], lo)) lo = t[i];
+                if (Less(hi, t[i])) hi = t[i];
+            }
+        }
+
+        static bool Less(Vector3d a, Vector3d b) => a.x != b.x ? a.x < b.x : a.y != b.y ? a.y < b.y : a.z < b.z;
+
+        // the closed segments pq and ab (either may be a point) meet: coplanar, and they meet in all three coordinate projections (a plane projects
+        // faithfully on at least one of them)
+        static bool SegmentsMeet3d(Vector3d p, Vector3d q, Vector3d a, Vector3d b)
+        {
+            if (p != q && a != b && ExactPredicates.Orient3d(p, q, a, b) != 0)
+                return false;
+            if (p == q || a == b) {
+                // a point against a segment or a point: coplanarity is no condition, the point must be on the other
+                Vector3d pt = p == q ? p : a;
+                Vector3d s0 = p == q ? a : p, s1 = p == q ? b : q;
+                if (s0 == s1)
+                    return pt == s0;
+                return Collinear3d(pt, s0, s1) && Between(s0, s1, pt);
+            }
+            for (int axis = 0; axis < 3; ++axis)
+                if (!SegmentsMeet(Project(p, axis), Project(q, axis), Project(a, axis), Project(b, axis)))
+                    return false;
+            return true;
+        }
+
+        static bool Collinear3d(Vector3d a, Vector3d b, Vector3d c)
+        {
+            for (int axis = 0; axis < 3; ++axis)
+                if (ExactPredicates.Orient2d(Project(a, axis), Project(b, axis), Project(c, axis)) != 0)
+                    return false;
+            return true;
+        }
+
+        static bool Between(Vector3d a, Vector3d b, Vector3d r) =>
+            Math.Min(a.x, b.x) <= r.x && r.x <= Math.Max(a.x, b.x) && Math.Min(a.y, b.y) <= r.y && r.y <= Math.Max(a.y, b.y)
+            && Math.Min(a.z, b.z) <= r.z && r.z <= Math.Max(a.z, b.z);
 
         // the closed segment pq meets the closed triangle abc
         static bool SegmentMeetsTriangle(Vector3d p, Vector3d q, Triangle3d tri)
