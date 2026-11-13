@@ -29,7 +29,7 @@ class PilotTests(unittest.TestCase):
             corpus = Path(tmp) / 'corpus'
             self.assertEqual(run('write-seeds', str(corpus)).returncode, 0)
             seeds = sorted(corpus.iterdir())
-            self.assertEqual(len(seeds), 102)
+            self.assertEqual(len(seeds), 132)
             before = {p.name: p.read_bytes() for p in seeds}
             # a directory that is not empty is refused and left as it is
             self.assertNotEqual(run('write-seeds', str(corpus)).returncode, 0)
@@ -41,7 +41,7 @@ class PilotTests(unittest.TestCase):
     def test_short_and_empty_inputs_decode(self):
         with tempfile.TemporaryDirectory() as tmp:
             # empty, and short inputs whose first byte selects each operation (the rest decodes as zeros)
-            for n, data in [(0, b'')] + [(op, bytes([op, 1, 2])) for op in range(17)]:
+            for n, data in [(0, b'')] + [(op, bytes([op, 1, 2])) for op in range(22)]:
                 p = Path(tmp) / f'short{n}-{len(data)}.bin'
                 p.write_bytes(data)
                 r = run('replay', str(p))
