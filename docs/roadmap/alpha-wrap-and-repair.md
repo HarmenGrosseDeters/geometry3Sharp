@@ -327,6 +327,13 @@ better; 0.75 is 1.09-1.22x.
   `MinTriangleQuality` created at the bottom rim of cones and tapers (#621, fixed by #640; 1.16-1.22x on Thingi10K,
   accepted by the owner; [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md) section 13). Leads in
   [hotspots.md](hotspots.md#open-tasks-and-where-their-answer-may-already-be).
+  Closed as not planned (#790, decision 2026-11-13): adjacent folds under `MinTriangleQuality`. The flip tests compare a
+  changed triangle only with its own old normal, so collapses fold neighbours and the projection pushes them through (a
+  clean torus: 6 pairs). Lever measured, not merged: a dihedral fold check on collapses (reject a new fold between edge
+  neighbours) gives the torus 0 pairs and cuts Thingi10K pairs by 12 % (2079 -> 1836, RemeshQualityBenchmark, q 0.2)
+  at 1.28x the time with the option (about 11 % the check, the rest a changed path), but breaks 4 fixtures of the
+  inversion-guard tests (their tubes no longer invert) and 3 rim tests. Code on `wip/remesher-fold-check-790` (no PR).
+  Reopen only with a caller that needs it; `PreventSelfIntersections` is the guarantee (documented on the option).
 - **Reducer / Remesher upper bounds** (2026-11-02): B (the union-box query in the Remesher, 4-6 %) not built; D (the
   permission-grid accept filter) not built (owner 2026-11-02). Shared BVH queries per collapse were "being tried in
   the envelope session" (done: #275, merged 2026-11-01, shares the MaxDeviation check's tree queries within a
