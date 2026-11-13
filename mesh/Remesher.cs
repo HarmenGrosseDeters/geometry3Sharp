@@ -700,6 +700,9 @@ namespace g3 {
                 if (MinTriangleQuality > 0 && collapse_creates_feature_fold(a, b, iKeep, vNewPos, t0, t1))
                     goto abort_collapse;
 
+                if (MinTriangleQuality > 0 && collapse_creates_fold(a, b, iKeep, vNewPos, t0, t1))
+                    goto abort_collapse;
+
                 if (PreventSelfIntersections && collapse_creates_intersection(a, b, iKeep, vNewPos)) {
                     SelfIntersectionsRejected++;
                     goto abort_collapse;
@@ -1062,6 +1065,87 @@ namespace g3 {
 
         // (scratch lists of the fold checks, which run in ProcessEdge, serially)
         readonly List<int> foldRing = new List<int>(), foldNbrs = new List<int>(), foldSeen = new List<int>();
+        readonly List<Index3i> foldMapped = new List<Index3i>();
+
+        // MinTriangleQuality, issue #790. The flip test of a collapse (collapse_creates_flip_or_invalid) compares each
+        // changed triangle only with its own old normal, so it lets a triangle turn by up to 90 degrees; one that already
+        // stood at 50-80 degrees to a neighbour can then fold against it (normals more than 90 degrees apart) with no
+        // triangle flipping. Away from feature curves (where collapse_creates_feature_fold applies) nothing else caught
+        // that, and the next projection pushed such folds through each other (a clean torus got 6 intersecting pairs).
+        // So: collapsing edge [a,b] (triangles t0, t1) to vKeep at newPos is rejected if two edge-adjacent triangles of
+        // the result, at least one of them changed, face more than 90 degrees apart (faces_against) while the same two
+        // triangles did not before; a fold the mesh already has is not blocked (the passes may still repair it). Pairs
+        // with a flat triangle before or after are skipped (no orientation; collapse_creates_flat rejects new flat ones).
+        // The sign of a dot product of cross products in floating point: no absolute threshold, so 2^k scaling gives the
+        // same decisions.
+        internal bool collapse_creates_fold(int a, int b, int vKeep, Vector3d newPos, int t0, int t1)
+        {
+            foldRing.Clear();
+            mesh.GetVtxTriangles(a, foldRing, false);
+            mesh.GetVtxTriangles(b, foldRing, false);
+            foldRing.Remove(t0);
+            foldRing.Remove(t1);
+            foldMapped.Clear();
+            foreach (int tid in foldRing)
+                foldMapped.Add(map_collapsed(mesh.GetTriangle(tid), a, b, vKeep));
+            for (int i = 0; i < foldRing.Count; ++i) {
+                Index3i m = foldMapped[i];
+                for (int j = 0; j < 3; ++j) {
+                    int u = m[j], v = m[(j + 1) % 3];
+                    if (u != vKeep && v != vKeep) {
+                        // an edge of the link: across it lies the same triangle as before
+                        int eid = mesh.FindEdge(u, v);
+                        if (eid < 0)
+                            continue;
+                        Index2i et = mesh.GetEdgeT(eid);
+                        int other = (et.a == foldRing[i]) ? et.b : et.a;
+                        if (other < 0 || other == t0 || other == t1)
+                            continue;
+                        int k = foldRing.IndexOf(other);
+                        if (k >= 0 && k < i)
+                            continue;       // (both changed: tested from the first)
+                        Index3i mo = (k >= 0) ? foldMapped[k] : mesh.GetTriangle(other);
+                        if (pair_folds(foldRing[i], m, other, mo, vKeep, newPos))
+                            return true;
+                    } else {
+                        // an edge at vKeep: the other changed triangle with the reversed edge (for the edges of the
+                        // removed triangles t0, t1 one that was not adjacent before)
+                        for (int k = i + 1; k < foldRing.Count; ++k) {
+                            if (has_directed_edge(foldMapped[k], v, u) == false)
+                                continue;
+                            if (pair_folds(foldRing[i], m, foldRing[k], foldMapped[k], vKeep, newPos))
+                                return true;
+                            break;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        static bool has_directed_edge(Index3i t, int u, int v)
+        {
+            return (t.a == u && t.b == v) || (t.b == u && t.c == v) || (t.c == u && t.a == v);
+        }
+
+        // the triangles p and q (ids before the collapse; mp, mq their vertex ids after it, vKeep at newPos) face more
+        // than 90 degrees apart after the collapse and not before
+        bool pair_folds(int p, Index3i mp, int q, Index3i mq, int vKeep, Vector3d newPos)
+        {
+            Index3i op = mesh.GetTriangle(p), oq = mesh.GetTriangle(q);
+            Vector3d p0 = mesh.GetVertex(op.a), p1 = mesh.GetVertex(op.b), p2 = mesh.GetVertex(op.c);
+            Vector3d q0 = mesh.GetVertex(oq.a), q1 = mesh.GetVertex(oq.b), q2 = mesh.GetVertex(oq.c);
+            Vector3d n0 = mapped_vertex(mp.a, vKeep, newPos), n1 = mapped_vertex(mp.b, vKeep, newPos), n2 = mapped_vertex(mp.c, vKeep, newPos);
+            Vector3d m0 = mapped_vertex(mq.a, vKeep, newPos), m1 = mapped_vertex(mq.b, vKeep, newPos), m2 = mapped_vertex(mq.c, vKeep, newPos);
+            if (TriangleQuality(ref n0, ref n1, ref n2) < DegenerateFlipQuality || TriangleQuality(ref m0, ref m1, ref m2) < DegenerateFlipQuality
+                || TriangleQuality(ref p0, ref p1, ref p2) < DegenerateFlipQuality || TriangleQuality(ref q0, ref q1, ref q2) < DegenerateFlipQuality)
+                return false;
+            Vector3d nNew = (n1 - n0).Cross(n2 - n0), mNew = (m1 - m0).Cross(m2 - m0);
+            if (!(nNew.Dot(mNew) < 0))
+                return false;
+            Vector3d nOld = (p1 - p0).Cross(p2 - p0), mOld = (q1 - q0).Cross(q2 - q0);
+            return !(nOld.Dot(mOld) < 0);
+        }
 
         int feature_count(Index3i t) => (is_feature_vertex(t.a) ? 1 : 0) + (is_feature_vertex(t.b) ? 1 : 0) + (is_feature_vertex(t.c) ? 1 : 0);
 
