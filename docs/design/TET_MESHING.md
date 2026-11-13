@@ -546,3 +546,21 @@ in stage 2; (3) Li-Teng placement, no exudation; (4) steps 1-3 now, step 4 after
   p01 dihedral 5.2 .. 10.9 degrees, 33 .. 315 tets (0.8 .. 6.5 %) left bad, **all of them with at least two vertices on the
   surface** (none inside). These are fixed only by changing the surface (step 4 surface refinement, or the stage-2 flips),
   which is the remaining gap to the stage-1 target (p01 >= 10, min >= 1 degree).
+- Thingi10K subset (the 40 meshes of 10.1, fetched at run time; `TetMeshBenchmark refine <mesh> 20 600`, commit 0b732ec, one
+  thread, 4-core cloud container; rows in `benchmarks/TetMeshBenchmark/results/thingi10k-subset-stage1-2026-11-13.csv`):
+
+| Measure (40 meshes) | stage 0 (raw inside cells, 10.1) | stage 1 so far |
+|---|---|---|
+| valid (exact), boundary = wrap | 40 / 40 | **40 / 40**, all `Success` |
+| tets, median / max | 3.4k / 13.2k | 4.6k / 18.0k |
+| time wrap + refinement, median / max | 0.33 s / 13.4 s (wrap) | 0.41 s / 8.8 s; refinement median 0.13 s, 26 us per tet |
+| radius-edge above 2, median share | 25 % | 8.9 % |
+| dihedral below 10 degrees, median share | 9.3 % | **2.5 %** |
+| smallest dihedral per mesh, median | 0.22 degrees | 0.35 degrees; 5 of 40 at >= 1 degree |
+| p01 dihedral per mesh, median | (p5 6.7 degrees) | 5.2 degrees; 2 of 40 at >= 10 |
+| tets left bad (all touching the surface), median share | | 9.7 % |
+
+  So validity and time are on target, the interior is clean, and **the stage-1 dihedral target is not met on real meshes**
+  (p01 >= 10 on 2 of 40, min >= 1 on 5 of 40) because of the tets on the fixed wrap surface, whose triangles reach 1.3 degrees
+  (10.1). The next step for both S1-R and S1-F is therefore a surface refinement that keeps the conformity (a 2D Delaunay
+  refinement per surface patch with the 3D facet check and undo), before or together with step 4.
