@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests of select_shards.py, on the real configs. Run by the changes job of the mutation workflow."""
+import difflib
 import fnmatch
 import json
 import os
@@ -408,6 +409,21 @@ class SelectShards(unittest.TestCase):
         # (not when everything runs in full anyway, and --only keeps its list)
         arithmetic, mesh = select(["tests/mutation/run_stryker.sh"], CONFIGS, run_all=True, only={"planar"})
         self.assertEqual([{"shard": "planar", "mode": "full"}], mesh)
+
+    def test_the_full_run_leaves_runner_slots_for_the_pull_requests(self):
+        # owner 2026-11-13: a full run (mesh shards + the arithmetic job + the selection job) must leave at least 10 of the account's
+        # 20 concurrent jobs free; the cap is max-parallel, not a concurrency group (a group cancels all but one pending job)
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            wf = f.read()
+        jobs = wf[wf.index("\njobs:"):]
+        mesh = jobs[jobs.index("\n  exact-mesh:"):]
+        cap = int(re.search(r"\n      max-parallel: (\d+)", mesh).group(1))
+        self.assertLessEqual(cap + 2, 10)
+        self.assertNotIn("concurrency:", mesh)
+        # and changing the cap is not a reason for a full run of every shard
+        old = wf.replace("max-parallel: %d" % cap, "max-parallel: 12")
+        diff = "".join(difflib.unified_diff(old.splitlines(True), wf.splitlines(True), "a", "b"))
+        self.assertFalse(workflow_edit_forces_full(diff, old, wf))
 
     def test_the_workflow_keeps_what_the_harmless_regions_rely_on(self):
         # the trigger, the selection job and the `if` of the Stryker jobs count as harmless in select_shards.py, so what
