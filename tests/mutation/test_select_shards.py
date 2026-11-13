@@ -8,7 +8,7 @@ import subprocess
 import sys
 import unittest
 
-from select_shards import ALWAYS, TESTS, load_configs, select, workflow_edit_forces_full
+from select_shards import ALWAYS, TESTS, config_edit_moves_only_spans, load_configs, select, workflow_edit_forces_full
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -89,6 +89,33 @@ class SelectShards(unittest.TestCase):
     def test_config_change_runs_that_config_in_full(self):
         self.assertEqual(("none", {"planar": "full"}), run("tests/mutation/stryker-mesh-planar.json"))
         self.assertEqual(("full", {}), run("tests/mutation/stryker-config.json"))
+
+    def test_a_config_edit_that_only_moves_spans(self):
+        def cfg(mutate, **other):
+            return json.dumps({"stryker-config": dict({"mutate": mutate, "test-case-filter": "FullyQualifiedName~T",
+                                                       "thresholds": {"break": 70}}, **other)})
+        old = cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"])
+        self.assertTrue(config_edit_moves_only_spans(old, cfg(["**/mesh_ops/A.cs{0..130}", "**/mesh_ops/B.cs"])))
+        self.assertTrue(config_edit_moves_only_spans(old, cfg(["**/mesh_ops/A.cs{20..90}", "**/mesh_ops/B.cs{0..5}"])))
+        for new in (cfg(["**/mesh_ops/A.cs{0..100}"]), cfg(["**/mesh_ops/B.cs", "**/mesh_ops/A.cs{0..100}"]),
+                    cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/C.cs"]),
+                    cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"], thresholds={"break": 71}),
+                    cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"], **{"test-case-filter": "FullyQualifiedName~U"}),
+                    cfg(["mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"]),
+                    "{", "[]", json.dumps({"other": {}})):
+            self.assertFalse(config_edit_moves_only_spans(old, new), new)
+
+    def test_a_config_whose_spans_moved_runs_incrementally(self):
+        def moved(*changed, names=("mesh-planar",)):
+            arithmetic, mesh = select(changed, CONFIGS, moved=set(names))
+            return arithmetic, {m["shard"]: m["mode"] for m in mesh}
+        self.assertEqual(("none", {"planar": "source"}), moved())
+        self.assertEqual(("source", {}), moved(names=("config",)))
+        self.assertEqual(("none", {"planar": "full"}), moved("tests/mutation/stryker-mesh-planar.json"))
+        self.assertEqual("full", moved(".config/dotnet-tools.json")[1]["planar"])
+        self.assertEqual(("full", {s: "full" for s in ALL_MESH}),
+                         (lambda a, m: (a, {x["shard"]: x["mode"] for x in m}))(*select([], CONFIGS, run_all=True,
+                                                                                        moved={"mesh-planar"})))
 
     def test_tools_and_workflow_run_everything_in_full(self):
         for path in (".config/dotnet-tools.json", ".github/workflows/mutation.yml"):
@@ -416,27 +443,33 @@ class SelectShards(unittest.TestCase):
 
     def test_cache_keys_name_the_shard_and_the_format(self):
         # a key line is not a reason for a full run (see the table in select_shards.py), so its content is checked here:
-        # every key and restore-key names its config and BASELINE_FORMAT, never the scripts, and a restore-key ends at
-        # the hash, so that it can only match a baseline of the same config, tools and format
+        # every key and restore-key names its shard, the tools and BASELINE_FORMAT, never the scripts, and a restore-key
+        # ends at the hash. The key does not hold the config: a baseline stores its config (baseline.py store) and
+        # incremental.plan reuses it only for the same config up to the spans of `mutate`, so a moved span keeps it
         with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
             lines = f.read().splitlines()
         keys = [l.strip() for l in lines if re.match(r"^\s*(key|restore-keys):", l) and "mutation-baseline-" in l]
         self.assertEqual(6, len(keys), keys)
         for l in keys:
-            arithmetic = "mutation-baseline-arithmetic-" in l
-            self.assertRegex(l, r"^(key|restore-keys): mutation-baseline-(arithmetic|mesh-\$\{\{ matrix\.shard \}\})-\$\{\{ hashFiles\(", l)
-            config = "'tests/mutation/stryker-config.json'" if arithmetic else "format('tests/mutation/stryker-mesh-{0}.json', matrix.shard)"
-            self.assertIn(config, l)
-            if not arithmetic:
-                self.assertIn("mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(", l)
-            self.assertIn("'.config/dotnet-tools.json'", l)
-            self.assertIn("'tests/mutation/BASELINE_FORMAT'", l)
+            self.assertRegex(l, r"^(key|restore-keys): mutation-baseline-(arithmetic|mesh-\$\{\{ matrix\.shard \}\})-"
+                                r"\$\{\{ hashFiles\('\.config/dotnet-tools\.json', 'tests/mutation/BASELINE_FORMAT'\) \}\}-", l)
             self.assertNotIn("baseline.py", l)
             self.assertNotIn("incremental.py", l)
             if l.startswith("restore-keys:"):
                 self.assertTrue(l.endswith(") }}-"), l)
             else:
                 self.assertTrue(l.endswith("-${{ github.run_id }}-${{ github.run_attempt }}"), l)
+
+    def test_every_stored_baseline_holds_its_config(self):
+        # (without its config a baseline is never reused: incremental.plan; the config must be the shard's own)
+        with open(os.path.join(ROOT, ".github/workflows/mutation.yml"), encoding="utf-8") as f:
+            text = f.read()
+        stores = [l.strip() for l in text.splitlines() if "baseline.py store" in l]
+        self.assertEqual(["python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline "
+                          "tests/mutation/stryker-config.json",
+                          'python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline '
+                          '"tests/mutation/stryker-mesh-$SHARD.json"'], stores)
+        self.assertIn("          SHARD: ${{ matrix.shard }}\n", text)
 
     def test_baseline_format_is_a_positive_integer(self):
         with open(os.path.join(HERE, "BASELINE_FORMAT"), encoding="utf-8") as f:
@@ -484,6 +517,30 @@ class SelectShards(unittest.TestCase):
             out = cli(paths_head, ".github/workflows/mutation.yml\nmesh_ops/MeshRoundingRepair.cs\n").stdout
             self.assertEqual("arithmetic=none\nmesh=" + json.dumps([{"shard": r, "mode": "source"} for r in RO]) + "\n", out)
             self.assertNotEqual(0, cli("0" * 40).returncode)
+            # a config whose edit only moves a span runs incrementally; another edit of it, and a new config, in full
+            cfg_dir = os.path.join(tmp, "tests", "mutation")
+            os.makedirs(cfg_dir)
+            planar = os.path.join(cfg_dir, "stryker-mesh-planar.json")
+            with open(os.path.join(HERE, "stryker-mesh-planar.json"), encoding="utf-8") as f:
+                real = json.load(f)
+            def write_cfg(doc):
+                with open(planar, "w") as f:
+                    json.dump(doc, f)
+                git("add", "-A"); git("commit", "-q", "-m", "c")
+                return git("rev-parse", "HEAD")
+            new_cfg_head = write_cfg(real)
+            path = "tests/mutation/stryker-mesh-planar.json\n"
+            self.assertIn('"mode": "full"', cli(new_cfg_head, path).stdout)
+            base = new_cfg_head
+            shifted = json.loads(json.dumps(real))
+            entry = shifted["stryker-config"]["mutate"][0]
+            m = re.match(r"^(.*?)(\{(\d+)\.\.(\d+)\})?$", entry)
+            shifted["stryker-config"]["mutate"][0] = m.group(1) + "{0..%d}" % (int(m.group(4) or 1000) + 7)
+            shift_head = write_cfg(shifted)
+            self.assertEqual('arithmetic=none\nmesh=[{"shard": "planar", "mode": "source"}]\n', cli(shift_head, path).stdout)
+            other = json.loads(json.dumps(shifted))
+            other["stryker-config"]["thresholds"]["break"] = 1
+            self.assertIn('"mode": "full"', cli(write_cfg(other), path).stdout)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
