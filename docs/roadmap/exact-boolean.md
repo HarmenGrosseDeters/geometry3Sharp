@@ -409,7 +409,7 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
-  Candidate B is built (2026-11-13, PR pending): the classification's exact sign stages (plane side, normal dot, the
+  Candidate B is built (2026-11-13, #772): the classification's exact sign stages (plane side, normal dot, the
   4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
   ([design](../design/EXACT_LIMB_SIGNS.md)). Measured against master 683fb2c (4 cores, wall time with collections,
   median of 5): slow tail 42327 -15 to -17 % per operation (three quarters of it the collector's pause, 12.8 GB less

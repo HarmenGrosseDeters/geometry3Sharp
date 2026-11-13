@@ -29,16 +29,42 @@ stack arena, and only the sign leaves. The integers are the same, so the signs a
 - `PlaneSide` (with `W`, and for an integer point, `W = 1`: the far point of a ray), `Dot`: the products and sums in
   the order of the expression.
 - `Det4`: the expansion along the first row with 3 x 3 minors, as `ExactMeshArrangement.Det4`.
-- Scratch space, in limbs, for operands of at most `w` limbs (`FixedArena` never frees; `Take` throws when it is
-  exhausted, so an error here is an exception, not a write outside the buffer):
-  - plane side and dot: the products take the sum of the operands' limbs, each sum at most a product and 3 limbs:
-    `4 total + 16`;
-  - `Det4`: a minor takes `33 w + 11` (six products of `2 w`, three differences of `2 w + 1`, three products of
-    `3 w + 1`, two sums of at most `3 w + 3`), the four minors `132 w + 44`, the four products with the first row
-    `4 w + 3` each, the four sums at most `4 w + 5` each: `164 w + 96`.
-  `LargestOperands_FitTheScratchSpace` runs every kernel with all operands at the limit and all bits set.
-- Operands wider than `MaxLimbs` = 40 limbs (2560 bits; `Det4` then takes 53 KB of stack) and netstandard2.0 (no
-  `TryWriteBytes` on a span) use the BigInteger expression.
+- Scratch space. `FixedArena` never frees; a product takes the sum of its factors' limbs, a sum or difference at most
+  one limb more than its longer operand (and results are trimmed, so these are upper bounds). `Take` throws when the
+  arena is exhausted, so an error here is an exception, not a write outside the buffer. With `total` the sum of the
+  operands' limbs (`limbs_of`, at least their lengths):
+  - plane side: the four products take `total` limbs in all; the three sums take at most `max + 1`, `max + 2` and
+    `max + 3` limbs, where `max` is the longest product, at most `total`: the need is at most `4 total + 6`. The
+    integer-point form (three products, the last operand subtracted as it is) and the dot (three products, two sums:
+    `3 total + 3`) need less. Allocated: `4 total + 16` (`SideScratch`), 10 limbs of margin.
+  - `Det4`, with `a`, `b`, `c`, `d` the limbs of the widest entry of each row. The expansion is along the first row,
+    so a minor is built from the rows `b`, `c`, `d`: its three terms take two products of `c + d`, their difference
+    `c + d + 1` and the product with an entry of `b`, `b + c + d + 1`: `3 (4 (c + d) + b + 2)`; the two sums of the
+    terms take `b + c + d + 2` and `b + c + d + 3`: a minor needs `5 b + 14 (c + d) + 11` and has at most
+    `b + c + d + 3` limbs. The four minors: `20 b + 56 (c + d) + 44`. The four products with the first row:
+    `4 (a + b + c + d + 3)`. The three sums of the four terms (the first term is added to zero, which takes nothing):
+    `3 (a + b + c + d + 3) + 1 + 2 + 3`. In all at most `7 a + 27 b + 63 (c + d) + 71`, for rows of one width `w`
+    `160 w + 71`. Allocated: `8 a + 28 b + 64 (c + d) + 96` (`DeterminantScratch`; `164 w + 96`), a margin of
+    `a + b + c + d + 25` limbs.
+  The kernels report the limbs they took from the arena to the tests (an `out` overload), which check that number
+  against these bounds on every call they make: on the random operands, with one wide operand or row beside small
+  ones, and at the largest operands (`LargestOperands_StayInsideTheDerivedScratchNeed`: all bits set, and rows of
+  25 limbs of random bits, whose determinant takes at least 4000 of the 4071 limbs derived; the difference is the
+  limbs of sums that do not carry, since an operand of `n` limbs has its sign bit clear).
+- Stack limits. A call uses the BigInteger expression when its stack need is above a limit; so does netstandard2.0
+  (no `TryWriteBytes` on a span).
+  - plane side and dot: the sum of the operands' limbs above `MaxOperandLimbs` = 320 (eight operands of 2560 bits,
+    or one wide operand beside small ones). The stack of a call is at most 320 limbs of operands and 1296 of scratch
+    space: 13 KB.
+  - `Det4`: the operands' limbs and the scratch space together above `MaxDeterminantLimbs` = 4608: 36 KB. Rows of
+    one width are on the stack up to 25 limbs (1600 bits); a wide first row costs 12 limbs per limb, a wide second
+    row 32, a wide third or fourth row 68.
+  The kernels are leaves: they call only `FixedArith`, which does not recurse and has no stack buffers of its own, so
+  a call adds its own buffers once to the stack of its caller. The callers are the classification loops of
+  `ExactMeshBoolean` (`interior_side`, `local_side`, `side`, `front_crossings`, `carried_crossings`, `orient3d`),
+  which run on the calling thread or on thread-pool threads (1.5 MB of stack by default) and do not recurse through
+  these calls. The limits are compared in `long`, so operands of any size take the BigInteger path without an
+  overflow of the sizes.
 
 Exact code: integer arithmetic only, no floating point, no parallel loop (`math/Exact*.cs` in `.editorconfig`).
 
@@ -71,9 +97,13 @@ the same representation.
 ## 4. Tests
 
 - `ExactLimbSignsTests`: the three kernels against the BigInteger expressions on operands of every width (small, at the
-  limb boundaries, up to the stack limit and beyond it), with exact zeros and values one unit off; all operands at the
-  limit with all bits set (the scratch space); a common power of two of the plane or the point keeps the sign, a
-  negative factor reverses it; no allocation inside the limit.
+  limb boundaries, up to the stack limits and beyond them), with exact zeros and values one unit off; for every call
+  the path it took (the stack, or the BigInteger expression: counted by the sum of the limbs, which selects it) and
+  the scratch limbs it used against the derived need; the limits themselves (a sum of 320 limbs on the stack and 321
+  not, for the three forms; 4608 limbs of the determinant on the stack and 4611 not; one operand of 300 limbs in each
+  position; one wide row in each position, on both sides of the limit); all operands at the limit with all bits set;
+  a common power of two of the plane or the point keeps the sign, a negative factor reverses it; no allocation inside
+  the limit.
 - `ExactBooleanLimbSignsTests` (existing entry points only, so the tests also build against the base library): open
   inputs (crossing grids, a sphere with holes) with the filters switched off, so that every decision takes an exact
   stage: the result is the filtered run's mesh triangle for triangle, for the three operations, and the union
