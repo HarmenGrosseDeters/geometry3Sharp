@@ -12,6 +12,10 @@
 //   C3   C1 on the raw wrap, then the pipeline's simplification
 //   R    the raw wrap (before the simplification), for the guarantees
 //   D1   A with half the alpha (the same offset): an upper bound for a locally smaller alpha near creases (old option 4)
+//   KR   the sharp-feature pass (AlphaWrapFeaturePass, MeshRobustRepair.AlphaWrapSharpFeatures) on the raw wrap, then the
+//        pipeline's simplification (variant K of the sharp-feature study, runs/sharp-features)
+// Every variant also gets the class metric of the study (EdgeClass, ec_*) and the exact count of result triangles crossing the
+// input (fin_cross_input).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -85,14 +89,16 @@ class Program
         if (wrap.Result == null || wrap.Result.TriangleCount == 0 || (wrap.Status != MeshAlphaWrap.WrapStatus.Success && wrap.Status != MeshAlphaWrap.WrapStatus.PointLimitReached)) {
             w.Ms = sw.ElapsedMilliseconds; return w;
         }
-        w.Final = Simplify(w.Raw, w.Delta);
+        w.Final = Simplify(w.Raw, w.Delta, input);
         w.Ms = sw.ElapsedMilliseconds;
         return w;
     }
 
-    static DMesh3 Simplify(DMesh3 raw, double delta)
+    // the pipeline's simplification, with the wrap's input kept clear (as MeshRobustRepair.simplify_wrap since the contact fix)
+    static DMesh3 Simplify(DMesh3 raw, double delta, DMesh3 input)
     {
-        return MeshRobustRepair.SimplifyWithin(raw, 0.5 * delta, 0.5 * delta, true, never, out int subdiv, new Dictionary<string, long>()) ?? raw;
+        return MeshRobustRepair.SimplifyWithin(raw, 0.5 * delta, 0.5 * delta, true, never, out int subdiv, MeshRobustRepair.WrapSimplifyMinQuality, true,
+            MeshRobustRepair.WrapSimplifySlabs, 0, null, input) ?? raw;
     }
 
     static void Run(string variant, DMesh3 input, Wrapped a, Dictionary<string, object> r)
@@ -135,7 +141,7 @@ class Program
                 long snapMs = (long)st.Ms;
                 if (variant == "C3") {
                     var s2 = Stopwatch.StartNew();
-                    result = Simplify(snapped, delta);
+                    result = Simplify(snapped, delta, input);
                     ms = a.RawMs + snapMs + s2.ElapsedMilliseconds;
                 } else {
                     result = snapped; ms = a.Ms + snapMs;
@@ -144,6 +150,19 @@ class Program
                 r["snap_rej_normal"] = st.RejNormal; r["snap_rej_angle"] = st.RejAngle; r["snap_rej_input"] = st.RejInput; r["snap_rej_self"] = st.RejSelf;
                 double tf = 1000.0 / Stopwatch.Frequency; r["snap_t_planes"] = st.TPlanes * tf; r["snap_t_dist"] = st.TDist * tf; r["snap_t_input"] = st.TInput * tf; r["snap_t_self"] = st.TSelf * tf; r["snap_t_qef"] = st.TOther * tf;
                 r["snap_noplanes"] = st.NoPlanes; r["snap_tiny"] = st.Tiny;
+                break;
+            }
+            case "KR": {
+                var s1 = Stopwatch.StartNew();
+                var kp = new AlphaWrapFeaturePass(new DMesh3(a.Raw, true), input, alpha, delta);
+                kp.Compute();
+                long kms = s1.ElapsedMilliseconds;
+                r["k_ms"] = kms; r["k_plane_moves"] = kp.PlaneMoves; r["k_crease_snaps"] = kp.CreaseSnaps; r["k_splits"] = kp.Splits;
+                r["k_flips"] = kp.Flips; r["k_rejected"] = kp.Rejected; r["k_cross_edges"] = kp.CrossingEdges; r["k_input_creases"] = kp.InputCreases;
+                r["k_raw_not_clean"] = MeshRobustRepair.NotCleanReasons(kp.Mesh, true);
+                s1.Restart();
+                result = Simplify(new DMesh3(kp.Mesh, true), delta, input);
+                ms = a.RawMs + kms + s1.ElapsedMilliseconds;
                 break;
             }
             default: throw new ArgumentException(variant);
@@ -263,5 +282,7 @@ class Program
         }
         FidelityFields.Add(input, result, r, withInputQuality: false);
         Crease.Add(oriented, result, alpha, delta, r);
+        EdgeClass.Add(oriented, result, alpha, delta, r);
+        r["fin_cross_input"] = EdgeClass.Crossings(result, oriented, alpha);
     }
 }

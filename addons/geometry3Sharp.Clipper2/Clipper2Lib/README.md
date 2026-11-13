@@ -26,13 +26,17 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
          CSharp/Clipper2Lib/<file> > <file>
   ```
 
-  Any later change to these files (bugfixes) is listed here, with its PR.
+  Any later change to these files (bugfixes) is listed here, with its PR:
+  - FINDINGS item 5 (2026-11-12, PR 2 of the vendoring): `Clipper.Engine.cs`, `DoSplitOp` drops a split-off triangle of
+    the other area sign only if it does not lie inside the rest of the path (new `TriangleInsidePath`); before, such a
+    hole touching its path at a vertex was dropped and filled. Marked "geometry3Sharp change" in the source.
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the
   NuGet package side by side (booleans in every clip type, fill rule and PreserveCollinear setting, open paths,
   offsets in every join and end type, Minkowski sums and differences, SimplifyPaths, Area, bounds, point in polygon)
-  and requires the same output point for point, at the adapter's magnitudes (±2^20 to ±2^50) and with degenerate
+  and requires the same output point for point (since the item 5 fix: except where the package's area is off the exact
+  area and the vendored one is not, `DegenerateBooleans_DifferOnlyWhereThePackageIsWrong`), at the adapter's magnitudes (±2^20 to ±2^50) and with degenerate
   paths. The review of #751 compared the netstandard2.0 build with the package's DLL by IL: the same types, members
   and method bodies, apart from a method-group delegate cache of the newer compiler in `ConvertHorzSegsToJoins`. In the
   net10.0 build, `x.EnsureCapacity(n)` (`Clipper.Engine.cs`, `ClipperEngine.AddPathsToVertexList`) binds to

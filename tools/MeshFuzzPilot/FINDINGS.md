@@ -23,6 +23,7 @@ PR #493 and #495 where noted.
 |---|---|---|---|---|
 | 1 (fixed, #516) | partitioned-reducer | **in** | closed skewed tetrahedron, 3x subdivided (256 triangles), error (0.01 diagonal)^2, no area weights, MinTriangles 0: result 3 triangles, open; the serial Reducer gives 4, closed. Normalized corners (0,0,0), (1,.25,.1875), (0,1.25,.1875), (0,.25,1.1875) | `000000000000000403fe0cfe0000fe0000000000000000000000000000000000000000050300` |
 | 2 (resolved, #516: subnormal coordinate) | partitioned-reducer | out: subnormal | the result for the 2^40 scaled copy is not the scaled result (documented contract) | `000403fe03fe000004040483fe000000000403fe03fe0000fe0000010000` |
+| 2b (resolved, #794: the upper end of 2) | partitioned-reducer | out: magnitude | a tiny shape far from the origin (collapsed tetrahedron of 4e-307 at about 6e-4): normalized, the coordinates are 2^985 .. 2^1019 and the 2^40 copy overflows to infinity, so "not the scaled result" (48 of 48 crashes of the #624 group (d) campaign). Harness domain gap: the scale claim is judged only up to a coordinate of 2^150, as for the Reducer (`HasHugeCoordinates`); the other claims stay judged | `crash-c6704a71…` (A: 3.66e-4, -6.10e-4, z in [-4.45e-308, 3.56e-307]) |
 | 3 | robust-repair (with the six Boolean/repair operations) | out: magnitude 1e176; **hang** | `MeshRobustRepair` runs over 120 s on collinear points at y, z about 1.9e176 (20 of 32 artifacts of one run) | `030303fefe08000303` |
 | 4 | alpha-wrap | out: size disparity 1e293; **false success** | Success, an input vertex is outside the wrap (tetrahedron 1e-276 .. 3e17) | `3b5454204854542054545474a35454545454545454542c54cc54cc000000cc0000005454` |
 | 5a | union (+ six ops) | out: scale below 1e-285, pair more than 2^60 apart; **false success** | `RoundingClean` with degenerate triangles at the rounding's scale (cube 2.6e-290, tetrahedron 3.6e-307) | `fcfefff8fbff00` |
@@ -108,7 +109,37 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      there came from the inputs, where Clipper2's own output is wrong). The signed sum stays; the split was not merged. On the same data #583 changes
      none of the 64 000 results (it acts on the rarer degenerate rings the fuzzer found); 1.7% of the results of both versions differ from the sampled
      truth by more than 0.25 (Clipper2 itself or the sampling; not analysed).
-   - **Clipper2 2.0.0 itself (open, 16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
+   - **Fixed 2026-11-12 in the vendored sources (PR 2 of the owner decision 2026-11-12, option (b); `Clipper2DegenerateUnionTests`).**
+     Cause (`Clipper.Engine.cs`, `DoSplitOp`, called by `FixSelfIntersects` in the output cleanup): an output path with a hole that
+     touches it at a vertex (a vertex of one input exactly on an edge of the other) becomes self-crossing once a nearby intersection
+     point is rounded to the grid; `FixSelfIntersects` splits at the crossing and `DoSplitOp` dropped the split-off triangle because its
+     area has the other sign than the path's (its rule for a figure-eight twist), which filled the hole. Smallest case (16-gons
+     shrunk): A = (2,-2) (-2,0) (3,-4) (1,3) (-4,-4), B = (-1,2) (-4,0) (-3,-3) (-1,3), union 24.4246 instead of 23.6474 (the hole
+     (-3.09,-2.73) (-2,0) (-1.45,-0.44)). Fix: such a triangle is kept as a path of its own if it lies inside the rest of the path,
+     owned by that path (so that a PolyTree nests it as its hole; the review of the fix found that with its path's owner it came out
+     beside the path, and the adapter made it an extra filled polygon: `KeptHole_IsNestedUnderItsPath`).
+     Oracle: the exact area of the region by its definition (`ExactRegionArea`: winding numbers on rational vertical slabs, no code
+     shared with Clipper2), against the result area within the grid rounding. Measured with the raw engine, 1000 pairs each, every
+     clip type and fill rule (16 combinations): 16-gons on -4..4: 29 wrong results of the package, 1 of the fix (an Intersection
+     NonZero wrong in both, below); 8-gons on -3..3: 5 / 0; 8-gons on -64..64: 0 / 0. Every result the fix changes was wrong
+     before (no result within the rounding changed); the independent review's run (6 seeds, 8- to 16-gons on -3..3 and -4..4): 100 / 1.
+     Through the adapter (`BooleanPaths`, default grid; 1000 pairs of 16-gons on -4..4, seed 77, every combination, area and overlap
+     by 64 samples): 43 wrong before (29 unions, 7 differences, 7 xors), 0 after, no overlaps.
+   - **Open, the same cleanup:** one Intersection (NonZero) of 1000 pairs of 16-gons is wrong before and after (an output of
+     negative area -0.076 for an exact 0.590; shrunk: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3) (-2,0)
+     (0,-2)). Cause: the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`) moves a
+     vertex by 1.3 units. Upstream removed that branch after 2.0.0 (commit `4da1564`, issue #1067, 2026-02-22; BSL-1.0, not in
+     2.0.0). Measured on top of the fix: 0 wrong results in all the campaigns above, but it also changes many results that were
+     right within the rounding (eg 15 of 1000 Xor NonZero results, 1 of them wrong before); alone, without the fix, it made the
+     unions worse (52 wrong of 3000 against 22). A follow-up decision, not part of the item 5 fix: issue #756.
+   - **Open, found in the review of the fix (wrong before and after, not caused by it; issue #756):** a Union that is right on a
+     2^20 grid and wrong on the adapter's grid (scale 2^38): A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4)
+     (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4) (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1):
+     NonZero 27.971 against an exact 29.718 (the package's engine gives the same), EvenOdd and Negative off by the same 1.747; not
+     analysed. The review also reported results where the engine is right and `ClipperFrame.ToGeneralPolygons` fails to nest a
+     negative top-level path (its `Contains` has no tolerance for a vertex up to one grid unit outside its holder; eg a Difference
+     Positive of 14.45 against an exact 10.99); not pinned.
+   - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
      A = (0,0) (0.125,0) (0.125,0.125) (0,0.125) (0.5703125,0.5703125) (0.6953125,0.5703125) (0.125,0.125) (0,0.125);
@@ -185,10 +216,10 @@ Ranked (a wrong result that claims to be right first):
 3. **DualContouring.find_crossings throws on finite input** (robust-repair-soup, 2 artifacts): `DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized`,
    an `AggregateException` from the parallel loop at `DualContouring.cs:1122`. The crash input (79 bytes): `000103fe03fe0004034848484848484848484848484848484848484848484848480000ffffffff000000000000abffff00000000000002fe03fe000000000000000000000000000002fe03fe000300`; the timeout input (51 bytes, 146 s before the same throw): `000103fe15001103fe03fe0000000000000000000000000000000100000000040d061403fe0614030000000000010000000004`.
    **Update 2026-11-12:** both inputs no longer reproduce on master 1f227db (replay in [QA20_STATUS.md](../../docs/design/QA20_STATUS.md) section 5), so no issue is opened.
-4. **Clipper2 2.0.0 itself** (item 5): a Union of degenerate self-intersecting rings returns an area that neither input fills; independent of `PrecisionBits`;
+4. **Clipper2 2.0.0 itself** (item 5, **fixed 2026-11-12** in the vendored sources of `geometry3Sharp.Clipper2`, see item 5): a Union of degenerate self-intersecting rings returned an area that neither input fills; independent of `PrecisionBits`;
    not reported upstream (owner 2026-11-11): AngusJohnson/Clipper2 was archived on 2026-10-28 and its C# port is no longer
-   developed; Clipper2 continues as a C++ only library at PolyClipping/Clipper2 (maintainer Seth Hillibrand). Whether to
-   integrate the C# sources and fix it ourselves is an open roadmap item ([platform.md](../../docs/roadmap/platform.md#open)).
+   developed; Clipper2 continues as a C++ only library at PolyClipping/Clipper2 (maintainer Seth Hillibrand). The owner decided on
+   2026-11-12 to vendor the C# sources and fix it ourselves ([platform.md](../../docs/roadmap/platform.md#open)).
 5. **AABB tree queries at tiny coordinates** (tree-nearest 997 crashes: the nearest triangle is not the nearest, e.g. at squared distance 4.5e-277 where the minimum is 0, or the brute force minimum is NaN;
    tree-inside 1: "2 crossings, brute force 0" at raw scale). Smallest tree-nearest, 20 bytes: `000503fe0700fe0000000000000000ffffffff05` (a cube of edge 2.4e-35 with a vertex at 7.6e-321 and one at -3.2e-173).
    Cause found and fixed in #586: not the tree but the point-triangle distance arithmetic (`a00`, `a11` and `det` leave the accurate range for tiny or sliver triangles). The "(raw scale)" messages with squared distance 4.5e-277 against minimum 0 are a false positive of the pilot (exact equality on the normalised copy); the raw tree answer is right. The tree-inside artifact (133 bytes): `000403fe030100080000ffffffff3f03fe03fe00010000000000000002000000000000000000000000010000800000000000ffffff3f03fe03fe0001000000000000000203fe03fe0203040000005400000000000000000300000000fe03fe0203040000000000000000000000020300000a0403ff240f0000000104030500000015000000`.
