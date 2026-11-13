@@ -18,8 +18,8 @@ dotnet_diagnostic.G3E0004.severity = none
 # mesh pipeline and the exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection,
 # TriangleTriangleFilter), the polyhedral envelope, the terrain slope design (TerrainSlope*: the oracle and the
 # envelope, docs/design/TERRAIN_1A_PLAN.md), and the snap rounding grid (SnapRounding2: SnapGrid's exact tests and their double
-# filters)
-[{comp_geom/SnapRounding2.cs,math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,mesh_ops/PolyhedralEnvelope.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/TerrainSlope*.cs}]
+# filters), and the exact tests of the contouring's topology certificate (ContouringTopologyCertificate)
+[{comp_geom/SnapRounding2.cs,math/Exact*.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/*.cs,mesh_ops/ExactMesh*.cs,mesh_ops/ExactTriangulation2.cs,mesh_ops/ExactPlanarSimplify.cs,mesh_ops/PolyhedralEnvelope.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs,mesh_ops/TerrainSlope*.cs,mesh_ops/ContouringTopologyCertificate.cs}]
 dotnet_diagnostic.RS0030.severity = error
 dotnet_diagnostic.G3E0001.severity = error
 dotnet_diagnostic.G3E0002.severity = error

@@ -6,7 +6,8 @@ number of a clean closed mesh, on the leaf grid of `MeshWindingNumberSolidify` (
 
 ## Spike (commit 0): what the exact level-set tests refuse, and what they cost
 
-Measurement only. `LevelSetCertificate.cs` is the prototype of the exact tests of Theorem 3 (section 7.4): per grid
+Measurement only. The prototype (in commit 0 `LevelSetCertificate.cs`, since commit 1 the library's
+`ContouringTopologyCertificate`, with the same refusals in every run) of the exact tests of Theorem 3 (section 7.4): per grid
 cell that the level set L or the contour touches, general position, the crossing count of every edge (at most one,
 and one exactly where the contour's node signs change), the parts of L on every face (`|T| - |M| = 1`, two ends, the
 pairing of the face rule on faces with four crossings) and in the cell (`|T| - |M| + |V| = 1`). L is the input's
@@ -20,6 +21,7 @@ sign-changing edges. The mesh side (Theorem 2) is not part of the spike.
 ```
 dotnet build benchmarks/ContouringCertificate -c Release
 B="dotnet run -c Release --no-build --project benchmarks/ContouringCertificate --"
+dotnet build-server shutdown                    # (a lingering compiler server skews the timings)
 python3 benchmarks/LevyClassification/fetch_thingi.py <dir> <the 20 T1 ids below>
 $B spike spike.jsonl mesh:all <dir>/<id>.stl... -- 64,128
 python3 benchmarks/ContouringCertificate/analyze.py spike.jsonl
@@ -59,3 +61,32 @@ Rejecting pairs whose closed bounding boxes are apart (exact comparisons) cut th
 and the time only to 11.2 s: the rest is the prototype's bookkeeping (hash sets and dictionaries per cell and face,
 40 % of the time in cells that L does not meet at all). The predicates alone bound an implementation with pooled
 per-cell arrays at about 1-1.5 s, 10-15 % of the contouring; that is the target for commit 1.
+
+## Commit 1: the exact tests in the library, serial
+
+`mesh_ops/ContouringTopologyCertificate.cs` (exact-code rules: `.editorconfig`, no `float`, no FMA, no parallel
+loop). The same refused cells as the spike in every run. What took the time from 1.5 times the contouring to a third
+(a profile with `dotnet-trace` after each step; the exact predicates were never more than a tenth of it):
+
+- per-cell hash sets replaced by pooled arrays and stamp marks; the face and edge tables presized (their growth was a
+  third of the time); sorted packed bins instead of a dictionary of lists;
+- a conservative floating-point test per triangle and cell (the triangle's plane, as computed in double, separates the
+  box; Higham's dot-product bound, `may_meet_box`), so that the faces and edges see only the triangles that may meet
+  them, and large slanted triangles are binned only where their plane passes;
+- for an axis-parallel grid edge the line test is the point-in-triangle test of the projection along the axis
+  (`Orient2d`); `Orient3d` only where the line hits the triangle.
+
+Three runs (contouring and check in the same process, `spike ... -- 64,128`; check = the certificate's construction,
+the cell tests and the level-set classification; contour = the contouring phase of `MeshWindingNumberSolidify`):
+
+| set | cell | check ms | contour ms | check / contour |
+|---|---|---|---|---|
+| procedural | / 64 | 209-229 | 784-1197 | 19-29 % |
+| T1 clean | / 64 | 465-506 | 2771-2943 | 16-18 % |
+| procedural | / 128 | 648-751 | 3655-3886 | 17-21 % |
+| T1 clean | / 128 | 1689-1891 | 5410-5510 | 31-34 % |
+
+The gate (about 10-15 %, stop above 25 % at / 128) is not met by the serial path on the clean T1 meshes: what is
+left is about 4-9 us per surface cell of fixed costs (about three new faces and three new edges per cell, each with
+hash lookups and short loops). Reported to the coordinator with the options (a deterministic parallel path over
+chunks of cells, or the serial path for now).

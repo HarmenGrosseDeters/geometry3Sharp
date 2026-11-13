@@ -115,7 +115,9 @@ class Program
             }
             return s;
         }
-        public override bool Crossed(GridSegment e) { return NodeInside(e.Start) != NodeInside(e.End); }
+        // the contour's crossed edges (as DualContouring: the sign-changing edges of its cells; no other edge is crossed)
+        public HashSet<GridSegment> CrossedEdges = new HashSet<GridSegment>();
+        public override bool Crossed(GridSegment e) { return CrossedEdges.Contains(e); }
     }
 
     static void Spike(string input, int res, Dictionary<string, object> r)
@@ -127,6 +129,8 @@ class Program
 
         // the contouring as MeshWindingNumberSolidify runs it by default (adaptive), without cleanup and reduction: its phases
         var sw = Stopwatch.StartNew();
+        // (CERT_SKIP_DC=1: the certificate only, for profiling)
+        if (Environment.GetEnvironmentVariable("CERT_SKIP_DC") != "1") {
         var solid = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0 };
         solid.Compute();
         r["dc_total_ms"] = sw.ElapsedMilliseconds;
@@ -136,6 +140,7 @@ class Program
             var top = MeshTopologySummary.Compute(solid.Result);
             r["dc_sig"] = Sig(top.ComponentList.Select(c => c.Genus));
         }
+        }
 
         // the same frame and leaf grid (WindingContouring.build_octree)
         DMesh3 scaled = new DMesh3(mesh);
@@ -143,14 +148,15 @@ class Program
         if (s != 1) MeshRepairMetrics.ScaleVertices(scaled, s);
         double cell = diag / res * s;
         var wc = new WindingContouring(new DMesh3[] { scaled }, null, 1.5);
-        DMesh3 L = ExactWeld(wc.Meshes[0]);
-        string clean = Clean(L);
+        string clean = Clean(ExactWeld(wc.Meshes[0]));
+        DMesh3 L = ContouringLevelSet.CleanCopy(wc.Meshes[0]);
+        if ((L != null) != (clean == "clean")) throw new Exception("CleanCopy disagrees with the spike's check");
         r["in_clean"] = clean;
         if (clean != "clean") { r["status"] = "ok"; return; }
 
         sw.Restart();
         int comps, lcomps;
-        bool[] inL = LevelSetComponents.Classify(L, out comps, out lcomps);
+        bool[] inL = ContouringLevelSet.Classify(L, out comps, out lcomps);
         r["classify_ms"] = sw.ElapsedMilliseconds;
         if (inL == null) { r["status"] = "unclassified"; return; }
         r["components"] = comps; r["levelset_components"] = lcomps;
@@ -173,10 +179,9 @@ class Program
         // the cells: those L's triangles overlap, and those of the contouring (candidates and the cells around their
         // sign-changing edges)
         sw.Restart();
-        LevelSetCertificate.SegTri = LevelSetCertificate.SegFace = 0;
-        var cert = new LevelSetCertificate(L, inL, grid);
-        var cells = new HashSet<Vector3i>(cert.Bins);
+        var cert = new ContouringTopologyCertificate(L, inL, grid);
         long binMs = sw.ElapsedMilliseconds;
+        var cells = new HashSet<Vector3i>(cert.Bins);
         sw.Restart();
         var dcCells = new HashSet<Vector3i>(octree.SurfaceCells);
         foreach (Vector3i c in octree.SurfaceCells)
@@ -186,6 +191,7 @@ class Program
                         Vector3i n0 = c; n0[(a + 1) % 3] += du; n0[(a + 2) % 3] += dv;
                         Vector3i n1 = n0; n1[a] += 1;
                         if (grid.NodeInside(n0) == grid.NodeInside(n1)) continue;
+                        grid.CrossedEdges.Add(new GridSegment(n0, a, 1));
                         for (int q = 0; q < 4; ++q) {
                             Vector3i nc = n0; nc[(a + 1) % 3] -= (q == 0 || q == 3) ? 1 : 0; nc[(a + 2) % 3] -= (q < 2) ? 1 : 0;
                             dcCells.Add(nc);
@@ -201,21 +207,22 @@ class Program
         foreach (Vector3i c in cells) {
             bool meets;
             long t0 = Stopwatch.GetTimestamp();
-            var reason = cert.Cell(c, 1, out meets);
+            var reason = cert.Cell(c, 1, dcCells.Contains(c), out meets);
+            // (a refused cell counts as a surface cell: it is reported)
+            if (reason != ContouringCertificateReason.None) meets = true;
             long dt = Stopwatch.GetTimestamp() - t0;
             if (meets) meetTicks += dt; else emptyTicks += dt;
             tested++;
             if (meets) meetsCount++;
             string key = reason.ToString();
             counts[key] = (counts.TryGetValue(key, out int x) ? x : 0) + 1;
-            if (meets && reason != LevelSetCertificate.Reason.None) refusedMeets++;
+            if (meets && reason != ContouringCertificateReason.None) refusedMeets++;
         }
         r["cert_ms"] = sw.ElapsedMilliseconds + binMs;
         r["bin_ms"] = binMs;
         r["empty_cells_ms"] = emptyTicks * 1000 / Stopwatch.Frequency;
         r["meet_cells_ms"] = meetTicks * 1000 / Stopwatch.Frequency;
-        r["near_tris_avg"] = cert.NearTriangles / Math.Max(1.0, tested);
-        r["segtri"] = LevelSetCertificate.SegTri; r["segface"] = LevelSetCertificate.SegFace; LevelSetCertificate.SegTri = LevelSetCertificate.SegFace = 0;
+                r["segtri"] = cert.SegmentTriangleTests; r["segface"] = cert.SegmentFaceTests;
         r["sign_ms"] = signMs;
         r["cells_tested"] = tested; r["cells_meet_L"] = meetsCount; r["dc_cells"] = dcCells.Count;
         r["refused_meet_L"] = refusedMeets;
