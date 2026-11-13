@@ -2,7 +2,7 @@
 
 Status: study, docs only (2026-11-13). No library code. Owner decisions recorded in section 9; the dominance-trimming
 argument of option A is written out for an independent review in [Appendix A](#appendix-a-the-enclosure-argument-for-review);
-the citation check is in section 3.5; the measurement that stopped option C is in section 4.2.
+the citation check is in section 3.5; the measurement that led to dropping option C is in section 4.2.
 
 ## 1. Question
 
@@ -249,7 +249,7 @@ too much, so the first step measures the window count on procedural terrain and 
   measured 0.35 h / r excess its loss would be about the heat error plus 0.35 h ln(r / h), a few h at r = 50 h
   (estimate, not measured). Prior-art check (2 searches): no paper found that certifies a lower bound this way on
   triangle meshes; landmark lower bounds (triangle inequality, VMV 2015) need exact distances to the landmarks. The
-  proper lower bound is option A's Lower.
+  proper lower bound is option A's Lower. **Option C dropped** (owner, 2026-11-13; section 9).
 - **Upper bound by real paths:** the Steiner-point Dijkstra that `TerrainSafety` already has, or FlipOut's length for a
   pair. Proven, a-priori loose.
 - **(1 + epsilon) by Aleksandrov-Maheshwari-Sack:** with the paper's geometric Steiner point placement, the graph
@@ -272,7 +272,7 @@ too much, so the first step measures the window count on procedural terrain and 
 |---|---|---|---|---|---|
 | A | **Exact window propagation with a certified enclosure** (MMP after Surazhsky et al. 2005 with the VTP / Xin-Wang vertex filter, in `ExactInterval`), new class, vertex sources first | [Lower, Upper] per vertex, practically exact; an oracle for every other method; `TerrainSafety.AlongSurface` could become guaranteed | yes (enclosure argument 4.1, own, to be reviewed) | ~1500-2500 lines with tests; risk in the window bookkeeping (saddles, boundaries, degenerate windows) | L |
 | B | **(1 + epsilon) Steiner graph** (Aleksandrov-Maheshwari-Sack 2005), generalising the `TerrainSafety` Steiner Dijkstra | enclosure [D / (1+eps), D] | yes (the paper's theorem, if the placement is faithful) | ~600-900 lines; many graph nodes for small eps or small angles | M |
-| C | **Heat method plus certificates**: the Lipschitz lower bound of 4.2 as an optional output of `MeshGeodesicDistance`; the Steiner or FlipOut upper bound | a proven lower bound, a measured accuracy | lower bound yes, accuracy no | ~200-300 lines; **stopped after the probe of 4.2**: the global factor loses 10-96%; the optimal variant (largest PL subsolution) is tier M and still loses a few h | S (M) |
+| C | **Heat method plus certificates**: the Lipschitz lower bound of 4.2 as an optional output of `MeshGeodesicDistance`; the Steiner or FlipOut upper bound | a proven lower bound, a measured accuracy | lower bound yes, accuracy no | ~200-300 lines; **dropped after the probe of 4.2**: the global factor loses 10-96%; the optimal variant (largest PL subsolution) is tier M, still loses a few h, a possible later research item | S (M) |
 | D | Fast marching (Kimmel-Sethian) | a first-order field | no | ~600 lines; obtuse unfolding; dominated by the heat method we have (similar accuracy, no factorization reuse, intrinsic Delaunay already fixes obtuse cases for heat) | M |
 | E | Exact with expression trees / separation bounds | truly exact comparisons | yes | cost grows with path length; not practical (3.4) | L+ |
 
@@ -297,7 +297,7 @@ Not recommended: D (no bound, no gain over the existing heat method), E (cost), 
    guaranteed" gap. The safe side is **Lower**: a point is certainly at least SafetyDistance away along the surface if
    Lower >= SafetyDistance (the first draft said Upper; corrected).
 
-Option C was stopped after its probe (4.2); the owner decides between dropping it and its tier-M variant (section 9).
+Option C was dropped after its probe (4.2; section 9, decision 5).
 Option B is the fallback if the stop rule fires, and the better choice if many sources and huge meshes matter more
 than tightness.
 
@@ -374,14 +374,16 @@ Owner decisions on the first draft (2026-11-13, via the coordinator):
 2. A test oracle first; a public class only after the review and the measurement.
 3. The file goes under the exact-code rules.
 4. Degenerate triangles fail with a status for now.
-5. Option C now, as a small separate PR. **Reopened:** the probe of section 4.2 shows that the planned certificate
-   loses 10-96% of the distance; option C was stopped before any code and the choice went back to the owner: (a) drop
-   C, option A's Lower is the lower bound for `TerrainSafety` (recommended); (b) the largest-PL-subsolution variant,
-   tier M, a few h of loss, uses a fast-marching-style update as a repair step; (c) the global factor as a documented
-   diagnostic only.
+5. Option C: first "now, as a small separate PR"; after the probe of section 4.2 (the planned certificate loses
+   10-96% of the distance) **dropped** (owner, 2026-11-13, option (a) of three). Option A's Lower is the lower bound
+   that `TerrainSafety.AlongSurface` will use. Not planned, a possible later research item: the largest PL subsolution
+   below the heat field (option (b)), tier M; risks: still a loss of a few h by the estimate of 4.2 (not measured), no
+   prior art for the certificate on triangle meshes, and its sweep is a fast-marching-style update whose behaviour on
+   obtuse triangles (section 3.4) is the known weak point.
 6. No fast marching as a distance method.
 
-Order: C (now pending 5), the citation check and the argument section (this revision), then the measurement step of A.
+Order: the citation check and the argument section (this revision), then the measurement step of A, after the review
+of Appendix A.
 
 Open for the review of Appendix A: the claims A1-A6 and the assumptions listed there.
 
