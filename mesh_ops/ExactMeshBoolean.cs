@@ -279,15 +279,18 @@ namespace g3
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
-        // sum over the boundary segments, Martens, Trettner, Bessmeltsev 2026), the others by fast winding numbers. No
-        // limit by default (owner 2026-11-12, option A): with L2's carried threshold (T5, #675) Antipodal was faster on 7
-        // of the 10 slow open models (323 vs 595 s) and right where fast winding numbers were wrong (the reference check
-        // of #675: 117959 1818 pieces, 122796 43); its cost grows with the boundary segments times the boundary sums
-        // (docs/OPERATIONS.md). Formerly 1000 (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5.1); for tests
-        internal int AntipodalMaxBoundarySegments = int.MaxValue;
+        // sum over the boundary segments, Martens, Trettner, Bessmeltsev 2026), the others by fast winding numbers.
+        // 20000 (owner 2026-11-12, option A, with the cap of the review of #766): with L2's carried threshold (T5, #675)
+        // Antipodal was faster on 7 of the 10 slow open models (323 vs 595 s; at most 6007 segments) and right where fast
+        // winding numbers were wrong (the reference check of #675: 117959 1818 pieces, 122796 43); its cost grows with the
+        // boundary segments times the boundary sums, so a soup (every edge a boundary edge) of 75k triangles took 183 s
+        // against 2.0 s with fast winding numbers (docs/OPERATIONS.md). The hierarchical boundary sum (lever 1,
+        // docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md) may lift it. Formerly 1000; for tests
+        internal int AntipodalMaxBoundarySegments = 20000;
         // and only open meshes with fewer input triangles than this (the exact ray's cost grows with the mesh, the fast
-        // winding number's about with its logarithm). No limit by default (option A, as above); formerly 100000, from the
-        // A/B of the 21 open models before T5 (benchmarks/BooleanComparison/perf, #539); for tests
+        // winding number's about with its logarithm). No limit by default (option A, as above; the boundary cap bounds the
+        // cost of the sums); formerly 100000, from the A/B of the 21 open models before T5 (benchmarks/BooleanComparison/perf,
+        // #539); for tests
         internal int AntipodalMaxTriangles = int.MaxValue;
         // the early-out of Difference and Intersection (T3a; active zones, Rossignac and Voelcker 1989): their result lies
         // inside the first mesh (Intersection: inside every mesh), so where it is closed, triangles of the other meshes

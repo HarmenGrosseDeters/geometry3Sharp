@@ -240,10 +240,10 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void ByDefault_EveryOpenMeshGoesToAntipodal_SoupsToo()
+        public void ByDefault_OpenMeshesBelowTheCapGoToAntipodal_SoupsToo()
         {
-            // (option A: no limit on the boundary or the triangles; a soup, every edge a boundary edge, takes the Antipodal
-            // Method too, and gives the closed sphere's result where its pieces are far from its edges)
+            // (option A: no limit on the triangles, 20000 boundary segments; a soup below that, every edge a boundary edge,
+            // takes the Antipodal Method too, and gives the closed sphere's result where its pieces are far from its edges)
             DMesh3 closed = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
             // (every copy of a vertex t + 1 units in the last place off in x, so that no two triangles weld)
             var soup = new DMesh3();
@@ -256,7 +256,7 @@ namespace geometry3Sharp.Tests
             DMesh3 b = Sphere(CenterB, 0.5);
             var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { RecordOpenWinding = true };
             Assert.True(byDefault.Compute(), byDefault.Error);
-            Assert.True(byDefault.OpenBoundarySegments[0] >= 1000);
+            Assert.True(byDefault.OpenBoundarySegments[0] >= 1000 && byDefault.OpenBoundarySegments[0] < 20000);
             // (both: the soup and B, open at its cap)
             Assert.Equal(2, byDefault.Counts["antipodal_meshes"]);
             // (pieces on or next to the soup's edges are undecided, read as outside; the edges are everywhere within ulps of
@@ -269,10 +269,17 @@ namespace geometry3Sharp.Tests
             Assert.True(welded.Compute(), welded.Error);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(byDefault.Result)) <= 1e-9 * Invariance.Area(welded.Result),
                 $"{Invariance.Area(byDefault.Result)} for {Invariance.Area(welded.Result)}");
-            // (fast winding numbers, the former default for this soup: their far field misreads pieces next to the surface,
-            // 0.4 % more area here)
+            // (fast winding numbers for both, as for an input above the cap: their far field misreads pieces next to the
+            // surface, 0.4 % more area here)
             ExactMeshBoolean fwn = Run(soup, b, Ops.Intersection, Fwn);
             Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(fwn.Result)) > 1e-3 * Invariance.Area(welded.Result));
+            // (at the cap, here set to the soup's own count instead of 20000 to keep the test small, as the former default of
+            // 1000 did: the soup goes to fast winding numbers, B, below the cap, stays with Antipodal; the soup's far field
+            // is off by about 6e-8 of the area here, Antipodal's sum by 4e-10)
+            var capped = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = byDefault.OpenBoundarySegments[0] };
+            Assert.True(capped.Compute(), capped.Error);
+            Assert.Equal(1, capped.Counts["antipodal_meshes"]);
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(capped.Result)) > 1e-8 * Invariance.Area(welded.Result));
         }
 
         [Fact]
@@ -300,7 +307,7 @@ namespace geometry3Sharp.Tests
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
             // (no cap by default, owner 2026-11-12 option A; the switch stays for tests)
             Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
-            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxBoundarySegments);
+            Assert.Equal(20000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxBoundarySegments);
             ExactMeshBoolean fwn = Run(a, b, Ops.Intersection, Fwn);
             var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount };
             Assert.True(capped.Compute(), capped.Error);
