@@ -16,14 +16,10 @@ namespace geometry3Sharp.Tests
     {
         static TerrainSlopeDesign Pit(double tol, int maxFan = 512) { var d = TerrainSlopeFanDirectionsTests.Pit(tol); d.MaxFanDirections = maxFan; return d; }
 
-        // the table of #808: from 1.7 times the margins down to the smallest valid Tolerance (bits found by bisection), where
-        // theta rounded to 0 and nTheta was int.MaxValue (int.MinValue on net48); one ulp below it is below the margins
+        // the table of #808 near the margins: refused at once for the facets, with a name
         [Theory]
         [InlineData(3e-5)]
         [InlineData(1.8e-5)]
-        [InlineData(1.7600023111460758e-05)]
-        [InlineData(1.760001947437013e-05)]
-        [InlineData(1.760001947348195e-05)]
         public void Issue808_Table_RefusedAtOnce(double tol)
         {
             var d = Pit(tol);
@@ -33,13 +29,31 @@ namespace geometry3Sharp.Tests
             Assert.Contains(d.FanTolerance.ToString("R"), d.Message);
             Assert.True(d.FanTolerance > 1e-4, d.FanTolerance.ToString("R"));
             Assert.Equal(0, d.FacetAngle);
-            // (one ulp below the smallest valid Tolerance: the numerical margins, no facets named)
-            if (tol == 1.760001947348195e-05) {
-                d = Pit(1.7600019473481947e-05);
-                Assert.False(d.Compute());
-                Assert.Contains("numerical margins", d.Message);
-                Assert.Equal(0, d.FanTolerance);
+        }
+
+        // the smallest valid Tolerance (found by bisection on the bits, as in #808: 1.760001947348195e-05 there; the margins
+        // move with the library), where theta rounded to 0 and nTheta was int.MaxValue (int.MinValue on net48): refused at
+        // once for the facets, with a name; one ulp below it, the numerical margins and no name
+        [Fact]
+        public void SmallestValidTolerance_RefusedForTheFacets()
+        {
+            Func<double, TerrainSlopeDesign> run = (t) => { var d = Pit(t); d.Compute(); return d; };
+            Func<TerrainSlopeDesign, bool> belowMargins = (d) => d.Message.Contains("is below the numerical margins");
+            long lo = BitConverter.DoubleToInt64Bits(1e-5), hi = BitConverter.DoubleToInt64Bits(3e-5);
+            Assert.True(belowMargins(run(BitConverter.Int64BitsToDouble(lo))));
+            Assert.False(belowMargins(run(BitConverter.Int64BitsToDouble(hi))));
+            while (hi - lo > 1) {
+                long mid = lo + (hi - lo) / 2;
+                if (belowMargins(run(BitConverter.Int64BitsToDouble(mid)))) lo = mid; else hi = mid;
             }
+            double smallest = BitConverter.Int64BitsToDouble(hi);
+            var at = run(smallest);
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, at.Status);
+            Assert.Contains("cone facets", at.Message);
+            Assert.True(at.FanTolerance > 1e-4, at.Message);
+            Assert.Equal(0, at.FacetAngle);
+            var below = run(BitConverter.Int64BitsToDouble(lo));
+            Assert.Equal(0, below.FanTolerance);
         }
 
         [Fact]
@@ -216,6 +230,29 @@ namespace geometry3Sharp.Tests
             d.MaxFanDirections = 64;
             Assert.False(d.Compute());
             Assert.True(d.FanTolerance > 0 && MathUtil.IsFinite(d.FanTolerance), d.Message);
+        }
+
+        // a design with a ramp (#841): the budget of the facets counts the ramp's share (and the road polygons' box), so the
+        // refusal names a Tolerance that fits with the ramp, and the design certifies there with the facets at the bound, in
+        // one attempt (50: at 32 or 64 facets, multiples of 4 on this axis-parallel pit, the design needs a raised margin, also
+        // without a bound, and its facets then need one more)
+        [Fact]
+        public void Ramp_TheNameCountsTheRampsShare()
+        {
+            var d = TerrainSlopeRampTests.Straight();
+            d.MaxFanDirections = 50; d.Tolerance = 0.001;
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+            Assert.Contains("cone facets", d.Message);
+            double named = d.FanTolerance;
+            Assert.True(named > 0.001, d.Message);
+            var ok = TerrainSlopeRampTests.Straight();
+            ok.MaxFanDirections = 50; ok.Tolerance = named;
+            Assert.True(ok.Compute(), ok.Status + " " + ok.Message);
+            Assert.True(ok.UsedRampShare > 0);
+            Assert.Equal(2 * Math.PI / 50, ok.FacetAngle);
+            Assert.Equal(1, ok.Attempts);
+            TerrainSlopeRampTests.AssertRamps(ok);
         }
 
         // the refusal and the named Tolerance in every frame (rotations about z; a translated frame in its local frame): the

@@ -1313,7 +1313,7 @@ namespace gs
             // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
             int nTheta = FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
             // (the budget again, as the naming below computes it: the same expressions, so the same count)
-            if (fan_directions_at(pieces, H, delta, Tolerance) != nTheta)
+            if (fan_directions_at(pieces, toePts, H, delta, Tolerance) != nTheta)
                 throw new InvalidOperationException("the facet budget of the naming differs from the build's");
             if (nTheta < 0) {
                 // (the facets need more than MaxFanDirections directions per cone: the insertion's time grows faster than
@@ -1322,11 +1322,11 @@ namespace gs
                 // D0 and the margins grow with t: the budget is evaluated at the cap shifted by t - Tolerance, a fixed point
                 // that the search reaches from the estimate at this build's D0. A later raise of the cap, where the region
                 // reaches it, may need more: that build names its own)
-                double margins = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare;
+                double margins = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + rampShare;
                 double t = (margins + sMax * 1.1 * D0 * (1 - CoreMath.Cos(0.75 * 2 * Math.PI / MaxFanDirections))) / (Terrain != null ? 0.75 : 1);
                 bool fits = false;
                 for (int i = 0; i < 400 && MathUtil.IsFinite(t); ++i) {
-                    if (fan_directions_at(pieces, capShiftsWithTolerance ? H - Tolerance + t : H, delta, t) >= 0) { fits = true; break; }
+                    if (fan_directions_at(pieces, toePts, capShiftsWithTolerance ? H - Tolerance + t : H, delta, t) >= 0) { fits = true; break; }
                     // (the step 2^(i / 8 - 30), exact: a growth from about 1e-9 to 2^20)
                     int e = i / 8 - 30;
                     t *= 1 + (e >= 0 ? (double)(1L << e) : 1.0 / (1L << -e));
@@ -1949,12 +1949,13 @@ namespace gs
         /// budget of build (TERRAIN.md 5.1; -1: more than MaxFanDirections, or no facet share). The same expressions as build,
         /// which checks that both agree
         /// </summary>
-        int fan_directions_at(List<InPiece> pieces, double H, double delta, double t)
+        int fan_directions_at(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, double t)
         {
             double sMin = pieces.Min(p => p.S), sMax = pieces.Max(p => p.S);
             double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
             var toeBox = AxisAlignedBox2d.Empty;
-            foreach (var pc in pieces) { toeBox.Contain(pc.A.xy); toeBox.Contain(pc.B.xy); }
+            foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
+            ramp_box(ref toeBox);
             double D0 = (H - zMin) / (sMin * (1 - delta));
             double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
             double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
@@ -1965,7 +1966,10 @@ namespace gs
             double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
             double mergeShare = MergeShare(exy, sMax);
             double snapShare = Terrain != null ? t / 4 : 0;
-            double facetShare = t - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare;
+            // (the ramps' share: its parts are diagnostics of this build, the same at the build's own H and t)
+            double rampShare = ramp_share(delta, sMin, exy);
+            double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
+            double facetShare = t - withoutRamps - rampShare;
             return FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
         }
 
