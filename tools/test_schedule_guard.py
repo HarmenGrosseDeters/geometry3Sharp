@@ -184,11 +184,10 @@ class Wiring(unittest.TestCase):
             self.assertIn("workflow_dispatch:", text, name)
             self.assertRegex(text, r"force:\n\s+description:", name + ": force input")
             self.assertNotIn("run-name:", text, name + ": custom runs are marked by the guard step name, not by a run-name")
-            if name != "nightly.yml":     # it has no input but force
-                self.assertIn("' [custom]'", text, name + ": the guard step is named [custom] for a dispatch with inputs")
+            self.assertIn("' [custom]'", text, name + ": the guard step is named [custom] for a dispatch with inputs")
 
     def test_nightly_and_coverage_gate_their_jobs_on_a_guard_job(self):
-        for name, jobs in (("nightly.yml", ["nightly"]), ("coverage.yml", ["core", "gate"])):
+        for name, jobs in (("nightly.yml", ["nightly", "alkis"]), ("coverage.yml", ["core", "gate"])):
             text = self.workflow(name)
             guard = self.block(text, "guard")
             self.assertIn("actions: read", guard, name)

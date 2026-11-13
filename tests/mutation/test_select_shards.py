@@ -392,6 +392,9 @@ class SelectShards(unittest.TestCase):
         self.assertRegex(on, r"types: \[[^\]]*\bsynchronize\b")
         self.assertRegex(on, r"types: \[[^\]]*\bopened\b")
         self.assertRegex(on, r"types: \[[^\]]*\bready_for_review\b")
+        # closing or merging a PR must cancel its run (the concurrency group) and start nothing new (the changes job)
+        self.assertRegex(on, r"types: \[[^\]]*\bclosed\b")
+        self.assertRegex(on, r"types: \[[^\]]*\bconverted_to_draft\b")
         self.assertNotIn("branches:", on)                       # no branch filter: every PR is checked
         self.assertNotIn("paths-ignore", on)
         self.assertIn("schedule:", on)
@@ -401,6 +404,7 @@ class SelectShards(unittest.TestCase):
         jobs = wf[wf.index("\njobs:"):]
         changes = jobs[jobs.index("\n  changes:"):jobs.index("\n  exact-arithmetic:")]
         self.assertIn("set -o pipefail", changes)
+        self.assertRegex(changes, r"\n    if: github\.event\.action != 'closed'\n")
         self.assertIn("tests/mutation/select_shards.py", changes)
         for name, nxt in (("exact-arithmetic", "exact-mesh"), ("exact-mesh", None)):
             block = jobs[jobs.index("\n  %s:" % name):(jobs.index("\n  %s:" % nxt) if nxt else len(jobs))]

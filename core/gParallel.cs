@@ -20,6 +20,20 @@ namespace g3
         }
         public static void ForEach<T>( IEnumerable<T> source, Action<T> body )
         {
+            if (SerialOnThisThread) {
+                // (tests: one after the other on the calling thread, in the order of SerialOrderOnThisThread; the
+                // source is copied only for another order than its own)
+                if (serialOrderSeed == 0) {
+                    foreach (T v in source)
+                        body(v);
+                    return;
+                }
+                var items = new List<T>(source);
+                int[] order = serial_order(items.Count);
+                for (int k = 0; k < items.Count; ++k)
+                    body(items[(order == null) ? k : order[k]]);
+                return;
+            }
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
             for_each<T>(source, body);
 #else
@@ -29,9 +43,58 @@ namespace g3
 
 
         /// <summary>
-        /// for tests: ForRange runs its items one after the other on the calling thread (parallel == serial checks)
+        /// for tests: ForRange, ForEach (and so BlockStartEnd, Evaluate) run their items one after the other on the
+        /// calling thread (parallel == serial checks)
         /// </summary>
         [ThreadStatic] internal static bool SerialOnThisThread;
+
+        /// <summary>
+        /// for tests (the environment adversary, docs/design/DETERMINISM_PROOF.md): the order in which a loop runs its
+        /// items under SerialOnThisThread. 0: as given, -1: backwards, any other value: a permutation seeded by it (a
+        /// new one for every loop, drawn from one sequence per thread that starts when the value is set). A result that depends
+        /// on the schedule of a parallel loop (the order of shared appends, ids handed out by a counter) changes
+        /// with this order; a result that does not is the same for every value
+        /// </summary>
+        internal static int SerialOrderOnThisThread {
+            get { return serialOrderSeed; }
+            set {
+                // (setting it starts the sequence of permutations anew, so that two runs with one seed see the same orders)
+                serialOrderSeed = value;
+                // (the seed mixed once, so that the sequences of neighbouring seeds are unrelated)
+                ulong z = unchecked((ulong)value * 0x9E3779B97F4A7C15UL);
+                z = unchecked((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL);
+                z = unchecked((z ^ (z >> 27)) * 0x94D049BB133111EBUL);
+                serialOrderState = z ^ (z >> 31);
+            }
+        }
+        [ThreadStatic] static ulong serialOrderState;
+        [ThreadStatic] static int serialOrderSeed;
+
+        // the order of count items under SerialOrderOnThisThread; null: as given
+        static int[] serial_order(int count)
+        {
+            int seed = serialOrderSeed;
+            if (seed == 0 || count < 2)
+                return null;
+            var order = new int[count];
+            if (seed == -1) {
+                for (int i = 0; i < count; ++i)
+                    order[i] = count - 1 - i;
+                return order;
+            }
+            for (int i = 0; i < count; ++i)
+                order[i] = i;
+            for (int i = count - 1; i > 0; --i) {
+                // SplitMix64 (Steele, Lea, Flood 2014), Fisher-Yates
+                ulong z = unchecked(serialOrderState += 0x9E3779B97F4A7C15UL);
+                z = unchecked((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL);
+                z = unchecked((z ^ (z >> 27)) * 0x94D049BB133111EBUL);
+                z ^= z >> 31;
+                int k = (int)(z % (ulong)(i + 1));
+                int t = order[i]; order[i] = order[k]; order[k] = t;
+            }
+            return order;
+        }
 
         /// <summary>
         /// body(i, local) for every i in [0, count), in parallel over index ranges; local comes from localInit, once
@@ -42,8 +105,9 @@ namespace g3
         {
             if (SerialOnThisThread) {
                 TLocal local = localInit();
+                int[] order = serial_order(count);
                 for (int i = 0; i < count; ++i)
-                    body(i, local);
+                    body((order == null) ? i : order[i], local);
                 return;
             }
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)
@@ -62,8 +126,9 @@ namespace g3
         internal static void ForRange(int count, Action<int> body)
         {
             if (SerialOnThisThread) {
+                int[] order = serial_order(count);
                 for (int i = 0; i < count; ++i)
-                    body(i);
+                    body((order == null) ? i : order[i]);
                 return;
             }
 #if G3_USING_UNITY && (NET_2_0 || NET_2_0_SUBSET)

@@ -45,7 +45,7 @@ namespace geometry3Sharp.Tests
             return volume;
         }
 
-        [Trait("Category", "Slow")]
+        // (51-70 s per row before #693, the volume checks' fast winding numbers summed every triangle; 1-2 s now)
         [Theory]
         [InlineData(3e4)]
         [InlineData(1e5)]

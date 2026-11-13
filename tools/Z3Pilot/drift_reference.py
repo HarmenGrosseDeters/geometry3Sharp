@@ -950,6 +950,13 @@ def source_contract():
     # rule, move_bound): every drift an edit is judged by, or SmallestRejectedDrift reports, comes from proposed_drift
     if norm('if (stopped) return false; begin_edit();') not in norm(_method(text, 'bool try_move(')) or 'move_bound' in text:
         raise ValueError('try_move: a move past the limit, or a second drift computation; review drift_reference.py')
+    # the position search sizes its candidates by room_at (the bound that is left at a vertex): room_at is used there
+    # only, and every candidate goes through try_move, so the drift it is judged by comes from proposed_drift
+    search = norm(_method(text, 'bool search_corners('))
+    if (text.count('room_at(') != 2 or norm('double room = room_at(v);') not in search
+            or norm('if (try_move(v, c + s * d)) {') not in search or 'set_vertex' in search or 'improves' in search):
+        raise ValueError('search_corners: room_at decides more than the sizes, or a candidate bypasses try_move; review '
+                         'drift_reference.py')
     # every generic edit names its added triangles before commit_drift
     for edit, ids in (('bool try_flip(', 'addedIds.Add(et.a); addedIds.Add(et.b);'), ('bool try_zip(', 'addedIds.AddRange(tids);'),
                       ('bool zip_strip(', 'addedIds.AddRange(tids);'), ('bool try_remove_vertex(', 'addedIds.Add(tid);')):
