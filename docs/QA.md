@@ -26,9 +26,12 @@ done since and what is open.
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
-- Draft PRs run the library tests with `--filter "Category!=Slow"` (Linux, and both net48 shards with `&Category!=Slow`
-  added to their complementary filters). A PR that is ready for review (`ready_for_review` starts the run), every push
-  to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
+- Draft PRs run the library tests with `--filter "Category!=Slow"` on Linux only; the Windows jobs (`netstandard`,
+  `netstandard-b`: net48 / netstandard2.0 tests, the Clipper2 package on net48, the PowerShell regression) and `isolated` /
+  `time-rule` are skipped on a draft (2026-11-13, runner load; check locally with the net48 build of the CLAUDE.md list). A PR that
+  is ready for review (`ready_for_review` starts the run), every push to master and manual runs run everything.
+  `FULL_TIER` in `ci.yml` is the switch for the Slow tier. Master runs: one concurrency group per ref with cancel-in-progress, so
+  only the newest master commit runs to the end; an older commit's run shows as cancelled.
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
@@ -721,6 +724,28 @@ budget, but that class uses the `Meshing2OracleTiming` collection with `DisableP
 The scheduling regression in `RobustnessSweepRemainingTests` checks both the assignment and opt-out metadata.
 This uses xUnit's [collection-level parallelism opt-out](https://xunit.net/docs/running-tests-in-parallel), not a
 suite-wide concurrency change; it does not eliminate noise from unrelated processes or other test assemblies.
+
+### 3.3 Runtime watch (extreme cases, nightly)
+
+`.github/workflows/runtime-watch.yml` times a fixed list of known extreme cases of the Exact Boolean and the Alpha Wrap
+daily at 01:17 UTC on master (owner 2026-11-13) and on demand (a full run is about 1 h typical, about 4 h
+if every case hits its timeout; a run under way is never cancelled by the next trigger) (`tools/runtime-watch/cases.json`, run by `tools/runtime_watch.py`). Owner decision 2026-11-12: it
+watches the tail, not the median. Each case is one process per run (isolated, never two cases at once), a few repeats,
+the median counts; the machine (CPU, cores, memory, dotnet) is recorded. Procedural cases run directly; Thingi10K meshes
+are fetched at run time by the nightly job only (never committed, never fetched by a PR-tier test).
+
+Outlier rule (`rules` in the case list): a median more than 1.3x the median of the last 10 runs of the case and more than 1 s
+above it (a regression); a median over 20 s (a potential defect, platform.md time rules); a failed or timed-out case. The
+job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (none of the last 3 nights had the flag: a
+regression, a failure, a case newly over 20 s), so a known slow case is not repeated every night. Results are a workflow
+artifact; the history (`history.json`, last 60 entries per case, plus one result file per commit) is on the data branch
+`runs/runtime-watch` (never merged). A run with a case subset (`only`) does not update the history. GitHub-hosted runners
+vary, so the absolute 1 s and the 1.3x are a floor; a persistent step change enters the rolling median after about five nights.
+
+Add a case: an entry in `cases.json` (`area` boolean or alphawrap, `kind` procedural or thingi, `setup` and `run` argv lists with
+`{work}`, `{dll:Project}` and `{thingi:ID}`, `time_field` the JSON field of the run's last output line, or `wall`), then
+`python3 tools/runtime_watch.py validate tools/runtime-watch/cases.json`. The tooling's tests (`tools/test_runtime_watch.py`:
+rule, case-list parsing, runner on stub commands) run in the PR tier without network or dotnet.
 
 ## 4a. Making agent work verifiable
 

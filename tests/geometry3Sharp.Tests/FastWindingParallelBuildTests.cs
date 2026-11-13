@@ -11,6 +11,8 @@ namespace geometry3Sharp.Tests
     /// docs/design/LEVY_CLASSIFICATION.md 4.1). No floating-point sum crosses threads, so both must give what the serial
     /// build gives, bit for bit, on every run.
     /// </summary>
+    // (FastWindingParallelDepth is static: the tests that set it and restore it run one after another)
+    [Collection("FastWindingParallelDepth")]
     public class FastWindingParallelBuildTests
     {
         // a sphere of about 22000 triangles (deep enough for the parallel levels) with a cap removed: open

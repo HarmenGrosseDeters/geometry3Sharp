@@ -40,66 +40,6 @@
     "approved_in": "#594"
   },
   {
-    "file": "io/MeshIOUtil.cs",
-    "text": "return FormatDoubleByDigits(v);",
-    "after": [
-      "if (DoubleRIsShortest) return v.ToString(\"R\", Inv);",
-      "if (double.IsNaN(v) || double.IsInfinity(v)) return v.ToString(Inv);"
-    ],
-    "reason": "runs on .NET Framework only (net48): the coverage run is net10.0, where \"R\" is the shortest round-trip form",
-    "approved_in": "#594"
-  },
-  {
-    "file": "io/MeshIOUtil.cs",
-    "text": "return FormatFloatByDigits(v);",
-    "after": [
-      "if (FloatRIsShortest) return v.ToString(\"R\", Inv);",
-      "if (float.IsNaN(v) || float.IsInfinity(v)) return v.ToString(Inv);"
-    ],
-    "reason": "runs on .NET Framework only (net48): the coverage run is net10.0, where \"R\" is the shortest round-trip form",
-    "approved_in": "#594"
-  },
-  {
-    "file": "io/MeshIOUtil.cs",
-    "text": "} catch (OverflowException) {",
-    "after": [
-      "return double.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;",
-      "try {"
-    ],
-    "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#594"
-  },
-  {
-    "file": "io/MeshIOUtil.cs",
-    "text": "return false;",
-    "after": [
-      "} catch (OverflowException) {",
-      "return double.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;"
-    ],
-    "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#594"
-  },
-  {
-    "file": "io/MeshIOUtil.cs",
-    "text": "} catch (OverflowException) {",
-    "after": [
-      "return float.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;",
-      "try {"
-    ],
-    "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#594"
-  },
-  {
-    "file": "io/MeshIOUtil.cs",
-    "text": "return false;",
-    "after": [
-      "} catch (OverflowException) {",
-      "return float.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;"
-    ],
-    "reason": "OverflowException of G15/G16 of the maximum value is thrown by .NET Framework only (net48); .NET Core returns infinity",
-    "approved_in": "#594"
-  },
-  {
     "file": "mesh_ops/ExactMeshBoolean.cs",
     "text": "wm = threshold_generalized(front_generalized_winding(i, m, stack));",
     "after": [
