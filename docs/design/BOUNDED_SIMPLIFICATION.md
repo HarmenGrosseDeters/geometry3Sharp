@@ -6,7 +6,7 @@ the owner are in section 10.
 
 **Build (2026-11-13, #791):** O1 is `Reducer.MaxDeviationTwoSided` (`mesh/ReducerReverseCoverage.cs`), decided by the
 coordinator as recommended (section 10: opt-in, default off, floating-point certificate, `Reducer` only; FastCollapsePass
-follows in #792). With the check last in `CollapseEdge` it costs 1.41x the one-sided reduction at the median (max 1.65x,
+added in #792). With the check last in `CollapseEdge` it costs 1.41x the one-sided reduction at the median (max 1.65x,
 `benchmarks/ReducerBenchmark` README, "twosided"), well under the probe's 2.4-8.2x; the 12 Thingi10K cases run only
 in the benchmark, the PR tests use procedural meshes.
 

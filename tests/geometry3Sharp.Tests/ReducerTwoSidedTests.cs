@@ -251,7 +251,7 @@ namespace geometry3Sharp.Tests
                 Assert.Contains("MaxDeviationTwoSided", ex.Message);
                 Assert.Equal(stamp, m.ShapeTimestamp);
             };
-            refused(r => { }, r => r.FastCollapsePass(0.5));
+            refused(r => r.SetProjectionTarget(new MeshProjectionTarget(new DMesh3(input), null)), r => r.FastCollapsePass(0.5));
             refused(r => r.SetDeviationReference(input), r => r.ReduceToTriangleCount(4));
             refused(r => { r.ReduceToTriangleCount(100); r.SetDeviationReference(input); }, r => r.ReduceToTriangleCount(4));
             refused(r => { r.MaxDeviationTwoSided = false; r.ReduceToTriangleCount(100); r.MaxDeviationTwoSided = true; }, r => r.ReduceToTriangleCount(4));
@@ -259,6 +259,65 @@ namespace geometry3Sharp.Tests
             refused(r => { r.ReduceToTriangleCount(100); r.Mesh.SetVertex(r.Mesh.VertexIndices().First(), Vector3d.Zero); }, r => r.ReduceToTriangleCount(4));
             refused(r => r.SetProjectionTarget(new MeshProjectionTarget(new DMesh3(input), null)), r => r.ReduceToTriangleCount(4));
             Assert.Throws<ArgumentException>(() => new PartitionedReducer { Configure = r => r.MaxDeviationTwoSided = true }.Reduce(input, 1e-3));
+        }
+
+        static DMesh3 FastPass(DMesh3 input, double eps, bool twoSided, double len)
+        {
+            var m = new DMesh3(input);
+            new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = twoSided }.FastCollapsePass(len, 5);
+            return m;
+        }
+
+        /// <summary> FastCollapsePass (midpoint collapses of short edges) keeps the bound too; one-sided it cuts the spikes and the rim </summary>
+        /// (cases where the one-sided pass provably leaves the input farther than eps: 1.03 and 1.37 eps)
+        [Theory]
+        [InlineData("spiky", 16)]
+        [InlineData("terrain", 20)]
+        public void TwoSided_FastCollapsePass_InputStaysWithinTolerance(string name, int n)
+        {
+            DMesh3 input = name == "spiky" ? Spiky(n) : Terrain(n);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            DMesh3 one = FastPass(input, eps, false, 0.05 * diag), two = FastPass(input, eps, true, 0.05 * diag);
+            Assert.True(Hausdorff(input, one, 1e-3 * eps).LowerBound > eps, "the one-sided pass keeps the input within eps: the case does not exercise the option");
+            AssertTwoSided(input, two, eps, name);
+            Assert.True(two.TriangleCount < 0.5 * input.TriangleCount && two.TriangleCount <= 1.1 * one.TriangleCount + 8, $"{two.TriangleCount} (one-sided {one.TriangleCount}) of {input.TriangleCount} triangles");
+        }
+
+        /// <summary> reuse across entry points: a fast pass, then a quadric reduction on the same Reducer, both within eps of the original </summary>
+        [Fact]
+        public void TwoSided_FastCollapsePassThenReduction()
+        {
+            DMesh3 input = Terrain(14);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            var m = new DMesh3(input);
+            var r = new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = true };
+            r.FastCollapsePass(0.2 * diag, 5);
+            int afterFast = m.TriangleCount;
+            Assert.True(afterFast < input.TriangleCount);
+            AssertTwoSided(input, m, eps, "after the fast pass");
+            r.ReduceToTriangleCount(4);
+            Assert.True(m.TriangleCount < afterFast);
+            AssertTwoSided(input, m, eps, "after the reduction");
+        }
+
+        /// <summary> invariance of the fast pass: the guarantee at every similarity, 2^k scales bit for bit </summary>
+        [Fact]
+        public void TwoSided_FastCollapsePass_Invariance()
+        {
+            DMesh3 input = Terrain(16);
+            double diag = input.CachedBounds.DiagonalLength, eps = 1e-2 * diag;
+            DMesh3 baseRes = FastPass(input, eps, true, 0.05 * diag);
+            Assert.True(baseRes.TriangleCount < 0.5 * input.TriangleCount);
+            foreach (Similarity sim in Similarity.All()) {
+                DMesh3 moved = new DMesh3(input);
+                foreach (int v in moved.VertexIndices()) moved.SetVertex(v, sim.Apply(moved.GetVertex(v)));
+                DMesh3 r = FastPass(moved, sim.ApplyLength(eps), true, sim.ApplyLength(0.05 * diag));
+                AssertTwoSided(moved, r, sim.ApplyLength(eps), sim.Name);
+                if (sim.IsExact) {
+                    Assert.Equal(baseRes.TriangleCount, r.TriangleCount);
+                    foreach (int v in baseRes.VertexIndices()) Assert.Equal(sim.Apply(baseRes.GetVertex(v)), r.GetVertex(v));
+                }
+            }
         }
 
         // a subclass that edits the mesh in OnEdgeCollapse, and one with its own pass that calls CollapseEdge directly

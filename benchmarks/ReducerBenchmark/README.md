@@ -231,3 +231,36 @@ time B / A: median 1.41x, max 1.65x (target about 2x).
 - Triangles: B within 0-4 % of A, except 1436278 at 0.001 (532 -> 900), where A cut deepest.
 - The reverse check runs last in `CollapseEdge` (after flip, fold, deviation and self-intersection checks), so it is paid
   only for collapses that would otherwise be done; it refuses few of them (0-213 per run).
+
+### FastCollapsePass (#792)
+
+Since #792 the option also covers `FastCollapsePass` (midpoint collapses of short edges). The second table of the same
+run (`twosided 3`, the same cases): A is `FastCollapsePass(0.05 * diag, 5)` with `MaxDeviation`, B adds
+`MaxDeviationTwoSided`; medians of 3 alternating rounds, on the commit that adds it (master 08b61b9).
+
+| mesh | triangles | eps / diag | A: triangles, ms | B: triangles, ms | time B / A | A: h(M,S) / eps (lower) | B: h(M,S) / eps | B: h(S,M) / eps |
+|---|---|---|---|---|---|---|---|---|
+| bumpy sphere 40 | 18252 | 0.003 | 904, 4705 | 934, 6237 | 1.33x | 1.009 (1.001) | 1.010 | 1.009 |
+| bumpy sphere 40 | 18252 | 0.01 | 296, 4838 | 596, 5878 | 1.21x | 1.009 (1.001) | 1.009 | 1.007 |
+| spiky sphere 60 | 41772 | 0.003 | 990, 11818 | 1184, 14362 | 1.22x | 1.440 (1.431) | 1.010 | 1.009 |
+| spiky sphere 60 | 41772 | 0.01 | 324, 11488 | 834, 12647 | 1.10x | 6.932 (6.932) | 1.008 | 1.010 |
+| terrain 80 | 12800 | 0.003 | 1500, 1855 | 1498, 2166 | 1.17x | 1.023 (1.013) | 1.010 | 1.006 |
+| terrain 80 | 12800 | 0.01 | 572, 1792 | 762, 2302 | 1.28x | 1.020 (1.013) | 1.009 | 1.006 |
+| 1036464 | 7068 | 0.003 | 642, 1400 | 664, 3504 | 2.50x | 1.027 (1.017) | 1.009 | 1.007 |
+| 1036464 | 7068 | 0.01 | 304, 760 | 322, 1282 | 1.69x | 1.090 (1.082) | 1.009 | 1.006 |
+| 1436278 | 18610 | 0.003 | 400, 4689 | 410, 8123 | 1.73x | 1.169 (1.160) | 1.009 | 1.008 |
+| 1436278 | 18610 | 0.01 | 158, 2566 | 238, 3989 | 1.55x | 2.333 (2.330) | 1.007 | 0.960 |
+| 472201 | 5572 | 0.003 | 322, 1596 | 326, 2574 | 1.61x | 1.207 (1.198) | 1.009 | 1.002 |
+| 472201 | 5572 | 0.01 | 200, 574 | 202, 826 | 1.44x | 1.190 (1.181) | 1.004 | 0.999 |
+| 51011 | 8656 | 0.003 | 1598, 1029 | 1634, 1324 | 1.29x | 1.495 (1.485) | 1.006 | 1.008 |
+| 51011 | 8656 | 0.01 | 744, 612 | 798, 853 | 1.39x | 1.262 (1.253) | 1.003 | 1.002 |
+| 60516 | 14628 | 0.003 | 1456, 3984 | 1502, 5816 | 1.46x | 1.700 (1.690) | 1.009 | 1.009 |
+| 60516 | 14628 | 0.01 | 480, 1983 | 804, 3000 | 1.51x | 1.879 (1.870) | 1.010 | 1.008 |
+| 894833 | 7952 | 0.003 | 1402, 1101 | 1430, 1571 | 1.43x | 1.125 (1.119) | 1.009 | 1.001 |
+| 894833 | 7952 | 0.01 | 524, 567 | 542, 894 | 1.57x | 1.130 (1.126) | 1.008 | 1.002 |
+
+- Time B / A: median 1.44x, max 2.50x (1036464 at 0.003; 1.69x at 0.01).
+- The one-sided fast pass violates h(M, S) <= eps in 18 of 18 cases (lower bounds 1.001 to 6.93 eps: it cuts the spikes);
+  the two-sided one in none (upper bounds <= 1.010 eps at the 0.01 eps tolerance).
+- Triangles: B keeps more where A cut features (spiky sphere at 0.01: 324 -> 834; 1436278: 158 -> 238; bumpy sphere at
+  0.01: 296 -> 596), 0-4 % more elsewhere.

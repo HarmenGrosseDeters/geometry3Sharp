@@ -174,7 +174,7 @@ How others solve it: Ju et al. 2002 (DC), Schaefer et al. 2007 (manifold DC), Ko
 (opt-in, default off) keeps the input within `MaxDeviation` of the result as well, by per-input-triangle dependency sets
 ([BOUNDED_SIMPLIFICATION.md](../design/BOUNDED_SIMPLIFICATION.md)). `ReducerBenchmark twosided`, 18 cases: 1.41x the
 one-sided time at the median (max 1.65x); the one-sided reduction violates the reverse direction in 12 of 18 (up to
-0.28 eps), the two-sided one in none. Follow-up: `FastCollapsePass` support (#792).
+0.28 eps), the two-sided one in none. `FastCollapsePass` keeps it too since #792.
 
 **Reducer scale-safe quadrics (owner 2026-11-11: documented, on demand only):** after #614 (flip test scales the edges
 outside [1e-70, 1e70]) the `Reducer` reduces a sphere from 1e-300 to 1e307. A residual limit remains (FINDINGS item 6,
