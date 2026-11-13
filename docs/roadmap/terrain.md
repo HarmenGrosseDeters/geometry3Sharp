@@ -46,8 +46,9 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
-- **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13): proposal, owner
-  decision pending (order, attribution, ε-approximation), not built.
+- **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13). Owner 2026-11-13:
+  yes to the proposals (E1, the exterior distance, first; R2 attribution with the smaller slope on a boundary; an
+  ε-approximation within the Tolerance budget). After ramps R1, not built yet.
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
