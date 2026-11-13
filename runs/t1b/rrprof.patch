@@ -1,0 +1,120 @@
+diff --git a/mesh_ops/MeshRoundingRepair.cs b/mesh_ops/MeshRoundingRepair.cs
+index 54ba513..aa2f57a 100644
+--- a/mesh_ops/MeshRoundingRepair.cs
++++ b/mesh_ops/MeshRoundingRepair.cs
+@@ -112,6 +112,13 @@ namespace g3
+     /// Outside, Apply() returns false with OutsideRange and the mesh is not touched.
+     /// Implemented from the paper, no code taken over (docs/SOURCES.md).
+     /// </summary>
++    public static class RRProf
++    {
++        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> T = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
++        public static long Now() => System.Diagnostics.Stopwatch.GetTimestamp();
++        public static void Add(string k, long t0) { T.AddOrUpdate(k, System.Diagnostics.Stopwatch.GetTimestamp() - t0, (_, v) => v + System.Diagnostics.Stopwatch.GetTimestamp() - t0); }
++    }
++
+     public class MeshRoundingRepair
+     {
+         /// <summary> the mesh, repaired in place </summary>
+@@ -427,6 +434,8 @@ namespace g3
+         [MethodImpl(JitHints.Optimize)]
+         public bool Apply()
+         {
++            long __t0 = RRProf.Now();
++            try {
+             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+             MaxDrift = 0;
+             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
+@@ -502,6 +511,7 @@ namespace g3
+                     exactAtStart[tid] = (exactF(tv.a) && exactF(tv.b) && exactF(tv.c)) ? tv : new Index3i(-1, -1, -1);
+                 }
+             }
++            RRProf.Add("a.setup", __t0);
+             rebuild_tree();
+             lastPairs = null;
+             check = CheckOnThisThread;
+@@ -518,8 +528,11 @@ namespace g3
+                 return false;
+             }
+ 
++            long __t1 = RRProf.Now();
+             List<Index2i> pairs = intersecting_pairs();
++            RRProf.Add("b.initpairs", __t1); __t1 = RRProf.Now();
+             List<int> bad = degenerate_triangles();
++            RRProf.Add("c.initbad", __t1); __t1 = RRProf.Now();
+             InitialIntersections = pairs.Count;
+             InitialDegenerate = bad.Count;
+             evaluations = pairTests = 0;
+@@ -527,7 +540,9 @@ namespace g3
+                 InitialFalseContacts = false_contacts().Count;
+             // (the contacts the rounding made are defects of their own: they count into the budget)
+             maxEvaluations = 10000 + (long)MaxEvaluationsPerDefect * (pairs.Count + bad.Count + InitialFalseContacts);
++            RRProf.Add("d.falsecontacts0", __t1); __t1 = RRProf.Now();
+             repair_passes(ref pairs, ref bad);
++            __t1 = RRProf.Now();
+             // contacts the rounding made: separated where a tiny move of one of their vertices adds no defect (and the
+             // passes again where the moves changed the mesh)
+             if (InitialFalseContacts > 0 && EvaluationLimitReached == false && separate_false_contacts() > 0) {
+@@ -545,6 +560,7 @@ namespace g3
+                 pairs = intersecting_pairs();
+                 repair_passes(ref pairs, ref bad);
+             }
++            RRProf.Add("f.after", __t1); __t1 = RRProf.Now();
+             if (check)
+                 check_all_bounds();
+             if (RemoveTinyComponents && (bad.Count > 0 || touched.Count > 0) && remove_tiny_components(bad) > 0) {
+@@ -561,7 +577,9 @@ namespace g3
+                 RemainingDefectAt = Mesh.GetTriCentroid(at);
+             else if (RemainingFalseContacts > 0)
+                 RemainingDefectAt = Mesh.GetVertex(contactsLeft[0][0]);
++            RRProf.Add("g.final", __t1);
+             return IsClean;
++            } finally { RRProf.Add("z.apply", __t0); }
+         }
+ 
+ 
+@@ -575,6 +593,7 @@ namespace g3
+                 HashSet<int> retry = (pass > 0) ? changed : null;
+                 changed = new HashSet<int>();
+                 // smallest first: their contraction often fixes the larger neighbours too
++                long __p = RRProf.Now();
+                 bad.Sort((x, y) => area(x).CompareTo(area(y)));
+                 foreach (int t in bad) {
+                     if (Mesh.IsTriangle(t) == false || is_bad(t) == false)
+@@ -586,19 +605,24 @@ namespace g3
+                     if ((retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c)))
+                         fix_degenerate(t);
+                 }
++                RRProf.Add("e1.fixdeg", __p); __p = RRProf.Now();
+                 // (no edit adds an intersecting pair: without pairs there are none to find)
+                 if (pairs.Count > 0) {
+                     if (Collapses + Flips + Moves + Zips > edits)
+                         pairs = intersecting_pairs();
++                    RRProf.Add("e2.pairs", __p); __p = RRProf.Now();
+                     foreach (Index2i p in pairs) {
+                         if (stopped)
+                             break;
+                         if (Mesh.IsTriangle(p.a) && Mesh.IsTriangle(p.b) && intersects(p.a, p.b))
+                             fix_intersection(p.a, p.b);
+                     }
++                    RRProf.Add("e3.fixint", __p); __p = RRProf.Now();
+                     pairs = intersecting_pairs();
++                    RRProf.Add("e2.pairs", __p); __p = RRProf.Now();
+                 }
+                 bad = degenerate_triangles();
++                RRProf.Add("e4.bad", __p);
+                 if (Collapses + Flips + Moves + Zips == edits || EvaluationLimitReached)
+                     break;
+             }
+@@ -834,6 +858,11 @@ namespace g3
+ 
+         [MethodImpl(JitHints.Optimize)]
+         void rebuild_tree()
++        {
++            long __r = RRProf.Now();
++            try { rebuild_tree_(); } finally { RRProf.Add("x.rebuild_tree(incl)", __r); RRProf.T.AddOrUpdate("n.rebuild_tree", 1, (_, v) => v + 1); }
++        }
++        void rebuild_tree_()
+         {
+             var boxes = new List<AxisAlignedBox3d>();
+             treeTids = new List<int>();
