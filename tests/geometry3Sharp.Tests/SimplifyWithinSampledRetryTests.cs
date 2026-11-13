@@ -42,7 +42,9 @@ namespace geometry3Sharp.Tests
         public void SampledStage_Deterministic()
         {
             DMesh3 sphere = SimplifyWithinRetryTests.BumpySphere(16);
-            string h = AlphaWrapManifoldStepTests.Hash(Simplify(sphere, 0.01, 1e-3, true, 8, 0));
+            DMesh3 first = Simplify(sphere, 0.01, 1e-3, true, 8, 0);
+            SimplifyWithinRetryTests.AssertCertified(first, sphere, 1e-3, "sampled, 8 slabs", 0.99);
+            string h = AlphaWrapManifoldStepTests.Hash(first);
             Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(Simplify(sphere, 0.01, 1e-3, true, 8, 1)));
             Assert.Equal(h, AlphaWrapManifoldStepTests.Hash(Simplify(sphere, 0.01, 1e-3, true, 8, 0)));
         }
@@ -62,8 +64,10 @@ namespace geometry3Sharp.Tests
                 return m;
             };
             DMesh3 b = reduce(Similarity.Identity, true);
-            Assert.True(b.TriangleCount < reduce(Similarity.Identity, false).TriangleCount * 10 && b.TriangleCount > reduce(Similarity.Identity, false).TriangleCount,
-                "guarded reduces less");
+            int unguarded = reduce(Similarity.Identity, false).TriangleCount;
+            // it reduces (a guard that refuses every collapse fails here), but less than without the guard
+            Assert.True(b.TriangleCount < sphere.TriangleCount && b.TriangleCount > unguarded,
+                $"guarded reduces less: input {sphere.TriangleCount}, guarded {b.TriangleCount}, unguarded {unguarded}");
             foreach (Similarity s in Similarity.All()) {
                 DMesh3 m = reduce(s, true);
                 var tree = new DMeshAABBTree3(Invariance.Transformed(sphere, s), true);
