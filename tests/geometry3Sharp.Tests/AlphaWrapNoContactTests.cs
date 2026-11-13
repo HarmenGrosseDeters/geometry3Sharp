@@ -116,6 +116,36 @@ namespace geometry3Sharp.Tests
             Assert.True(pass.accept(ids, tris, removed));
         }
 
+        [Fact]
+        public void QualityPass_RejectsAnOperationThatJumpsOverTheInput()
+        {
+            // a move of a tetrahedron's apex from z = 1 to 0.7 past a small input triangle at z = 0.8 that no new triangle
+            // touches: the end state alone accepts it and leaves the input outside (issue 743); the swept region refuses it
+            var mesh = new DMesh3();
+            int a = mesh.AppendVertex(new Vector3d(-1, -1, 0)), b = mesh.AppendVertex(new Vector3d(1, -1, 0)), c = mesh.AppendVertex(new Vector3d(0, 1.2, 0));
+            int p = mesh.AppendVertex(new Vector3d(0, 0, 1));
+            mesh.AppendTriangle(a, c, b); mesh.AppendTriangle(a, b, p); mesh.AppendTriangle(b, c, p); mesh.AppendTriangle(c, a, p);
+            Assert.True(mesh.IsClosed());
+            var input = new DMesh3();
+            input.AppendTriangle(input.AppendVertex(new Vector3d(-0.02, -0.02, 0.8)), input.AppendVertex(new Vector3d(0.02, -0.02, 0.8)), input.AppendVertex(new Vector3d(0, 0.02, 0.8)));
+            Vector3d x = new Vector3d(0, 0, 0.7);
+            var ids = new List<Index3i>(); var tris = new List<Triangle3d>(); var removed = new HashSet<int>();
+            foreach (int t in mesh.VtxTrianglesItr(p)) {
+                Index3i tv = mesh.GetTriangle(t);
+                ids.Add(tv); removed.Add(t);
+                tris.Add(new Triangle3d(tv.a == p ? x : mesh.GetVertex(tv.a), tv.b == p ? x : mesh.GetVertex(tv.b), tv.c == p ? x : mesh.GetVertex(tv.c)));
+            }
+            DMesh3 moved = new DMesh3(mesh); moved.SetVertex(p, x);
+            Assert.True(mesh.WindingNumber(new Vector3d(0, 0, 0.8)) > 0.5 && moved.WindingNumber(new Vector3d(0, 0, 0.8)) < 0.5, "the move leaves it outside");
+            foreach (bool swept in new[] { false, true }) {
+                var pass = new AlphaWrapQualityPass(new DMesh3(mesh), mesh, 10) { CheckSelfIntersections = false, KeepClearOfSwept = swept, MaxNormalTurnDegrees = 90 };
+                pass.Prepare();
+                pass.KeepClearOf = new DMeshAABBTree3(input, true);
+                Assert.Equal(!swept, pass.accept(ids, tris, removed));
+                Assert.Equal(swept ? 1 : 0, pass.RejectedByIntersection);
+            }
+        }
+
         [Theory, Trait("Category", "Slow")]     // (Slow: may make the class's shared wrap, see above)
         [InlineData("scale 2^10")]
         [InlineData("scale 1e-3")]
