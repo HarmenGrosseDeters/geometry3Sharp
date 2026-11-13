@@ -228,6 +228,9 @@ static class Program
             if (PredicateStats.Calls(k) != 0 || PredicateStats.ExactStages(k) != 0)
                 st[PredicateStats.Names[k]] = new[] { PredicateStats.Calls(k), PredicateStats.ExactStages(k) };
         row["predicates"] = st;
+#if PROTOD
+        row["d"] = new long[] { System.Threading.Interlocked.Read(ref LimbProtoD.InCircleCalls), System.Threading.Interlocked.Read(ref LimbProtoD.InCircleFallback), System.Threading.Interlocked.Read(ref LimbProtoD.OrientCalls), System.Threading.Interlocked.Read(ref LimbProtoD.OrientFallback), System.Threading.Interlocked.Read(ref LimbProtoD.Mismatch), LimbProtoD.MaxLimbs };
+#endif
 #if PATHSTATS
         var ps = new Dictionary<string, double[]>();
         for (int k = 0; k < (int)PathStats.P.Count; ++k)

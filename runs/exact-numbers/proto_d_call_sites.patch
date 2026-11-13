@@ -1,0 +1,38 @@
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index a0efe1b..fa22bd3 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1627,6 +1627,13 @@ namespace g3
+                 if (-fdet > err) { local.Decided++; return -t.Sign; }
+             }
+             ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
++            if (LimbProtoD.OrientOn) {
++                int ls = LimbProtoD.Orient(a, b, c, i, j);
++                if (ls != 2) {
++                    if (LimbProtoD.Check && ls != ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign) System.Threading.Interlocked.Increment(ref LimbProtoD.Mismatch);
++                    return ls * t.Sign;
++                }
++            }
+             BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
+             return det.Sign * t.Sign;
+         }
+@@ -1710,6 +1717,19 @@ namespace g3
+             }
+             ExactPoint3 pd = Exact(s);
+             BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
++            if (LimbProtoD.InCircleOn) {
++                ExactPoint3 pp = Exact(p), pq = Exact(q), pr = Exact(r);
++                int lsign = LimbProtoD.InCircle(pp, pq, pr, pd, i, j);
++                if (lsign != 2) {
++                    if (LimbProtoD.Check) {
++                        incircle_row(pp, pd, i, j, out ax, out ay, out al);
++                        incircle_row(pq, pd, i, j, out bx, out by, out bl);
++                        incircle_row(pr, pd, i, j, out cx, out cy, out cl);
++                        if (lsign != ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl).Sign) System.Threading.Interlocked.Increment(ref LimbProtoD.Mismatch);
++                    }
++                    return lsign * t.Sign;
++                }
++            }
+             incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
+             incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
+             incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);

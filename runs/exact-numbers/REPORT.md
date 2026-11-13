@@ -594,6 +594,12 @@ Reading:
 - T3a's lever 1 (#767) changes how often the classification's stages run (47.8 million side calls in the three
   operations on 42327); the bound of the classification part has to be measured again after it.
 
+Decision (coordinator, 2026-11-13): (a) the construction part of C (exact point construction on limbs, a limb gcd)
+is dropped: no measurable gain on the normal stratum, 1 to 3 % on the tail. (b) The centroid and the planes'
+coefficients as limbs in the classification stay parked until T3a's lever 1 (#767) has landed and are then measured
+again with this probe; T3a has the sketch as information. (c) D goes on as a probe only; its files are T3a's, so a
+design goes to T3a and the coordinator before any code, and a PR only if the whole-operation gain clears the noise.
+
 ## 6. Literature (papers only)
 
 Marks: [V] checked against the paper or its abstract in this study, [S] from a citing paper or a search result.

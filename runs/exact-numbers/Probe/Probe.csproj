@@ -10,6 +10,7 @@
     <RootNamespace>ExactNumbers</RootNamespace>
     <G3Root Condition="'$(G3Root)' == ''">/home/user/geometry3Sharp</G3Root>
     <DefineConstants Condition="'$(PathStats)' == 'true'">$(DefineConstants);PATHSTATS</DefineConstants>
+    <DefineConstants Condition="'$(ProtoD)' == 'true'">$(DefineConstants);PROTOD</DefineConstants>
     <ServerGarbageCollector>false</ServerGarbageCollector>
   </PropertyGroup>
   <ItemGroup>
