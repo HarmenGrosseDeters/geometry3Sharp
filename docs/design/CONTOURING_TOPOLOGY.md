@@ -623,12 +623,15 @@ which the statement for face vertices and refinement transitions rests; they bec
 ### 7.7 Theorem 1b: the partial statement
 
 **Theorem 1b.** Let K' be a set of 3-cells of K, and let S and S' satisfy (E), (F), (C) on the cells of K', their
-faces and their edges, with the same pattern there. Then there is a homeomorphism of the union of K' onto itself that
+faces and their edges, with the same pattern there, and let each of them be, in every cell of K', either PL (a
+mesh; the cells of Theorem 3) or certified as in Theorem 5 (class S). Then there is a homeomorphism of the union of K' onto itself that
 maps every cell of K' and every face and edge of such a cell onto itself and S onto S' there, and it is isotopic to
 the identity through such homeomorphisms.
 
 *Proof.* The construction and the isotopy of Theorem 1 use, for each cell, only the cell, its faces and its edges;
-carry them out on the cells of K' and their faces and edges. ∎
+carry them out on the cells of K' and their faces and edges. Step 4 runs cell by cell, so K' may mix the two kinds
+of cells: it uses Alexander's theorem in a cell where the surface is PL and Brown's theorems, as in Theorem 5, in a
+class S cell; steps 2 and 3 need only arcs. (Section 7.9 uses exactly this mix.) ∎
 
 This is the exact meaning of a run with uncertified cells: with K' the certified cells, the mesh and the level set
 differ inside the union of K' by a deformation that keeps every cell in place. It says nothing inside the other
@@ -658,7 +661,8 @@ that layer). A cell is *certified* if
 - (S1) on each of its edges, with direction a: either f has no zero on the edge, or a . g has one sign for all g in
   G(edge);
 - (S2) on each of its faces: either f has no zero on the face, or for one of the two axes a of the face, a . g has
-  one sign for all g in G(face) ((S2'): the same with any direction a in the face's plane; the proofs below use only
+  one sign for all g in G(face) ((S2'): the same with any direction a in the face's plane, given as doubles with the
+  component along the face's normal exactly 0, the faces being axis-aligned; the proofs below use only
   that a is orthogonal to the face's normal; section 10 of [MESH_OFFSET_ENCLOSURE.md](MESH_OFFSET_ENCLOSURE.md)); and if the face has four crossing points, f has no zero on a segment in the face
   that separates them two and two;
 - (S3) there is a direction d with d . g > 0 for all g in G(cell), and the boundary of the cell carries one circle
@@ -739,13 +743,17 @@ are cited in docs/SOURCES.md). The interval tests (S0)-(S3) are
 the only computations; a tangency with the grid, a level set through a node, or a point where the generalized
 gradients surround 0 (a cusp, two surfaces touching) is never certified.
 
-### 7.9 Class W (broken inputs): what follows, and what is missing - not reviewed yet
+### 7.9 Class W (broken inputs): what follows, and what is missing
+
+Reviewed 2026-11-13 with 7.7 (relayed by the coordinator); findings worked in: no non-manifold vertex in a certified
+cell, the meaning of a transversal crossing, the closed cell, the mixed K' of Theorem 1b.
 
 Notation: a *defect edge* is a mesh edge that is not shared by exactly two triangles running through it in opposite
 directions; m_e is its net multiplicity (the signed number of triangles through it). w is the generalized winding
 number.
 
-**Lemma 9.1 (gradient bound).** Off the triangles, grad w(p) = (1 / 4 pi) times the sum over the defect edges of
+**Lemma 9.1 (gradient bound).** Off the triangles, grad w(p) = (1 / 4 pi) times the sum over the defect edges
+(those with m_e != 0 contribute) of
 m_e times the integral over e of (x - p) x dx / |x - p|^3 (up to the sign convention), and this extends continuously
 across the interiors of the triangles. Hence |grad w(p)| <= (1 / 4 pi) sum |m_e| min(2 / rho_e(p),
 len_e / dist_e(p)^2), with rho_e the distance of p to the line of e and dist_e the distance to the segment e.
@@ -756,16 +764,23 @@ sin(theta) / |x - p|^2; integrated over a segment it gives (cos theta_1 - cos th
 most 1 / dist^2 pointwise. The jump of w across a triangle is constant, so the gradient has no jump. ∎
 
 **Lemma 9.2 (levels in a cell).** Let c be a convex cell, a a point of c off the triangles, and G a bound of
-|grad w| on c. For every p in c off the triangles such that the segment a p crosses the triangles transversally,
+|grad w| on c. For every p in c off the triangles such that the segment a p crosses the triangles transversally
+(through interiors of triangles only: not through a mesh edge or vertex, and not inside a triangle's plane),
 w(p) = w(a) + N(a, p) + r with |r| <= G |p - a|, where N is the signed number of crossings.
 *Proof.* Along the segment w is piecewise smooth with the derivative bounded by G and a jump of +-1 at each
 crossing. ∎
 
-**What follows.** Let c contain no defect edge and no intersection of two triangles that do not share an edge, and
+**What follows.** Let c contain no defect edge, no intersection of two triangles that do not share an edge or a
+vertex, and no non-manifold vertex (the triangles around every mesh vertex in c form a single cycle: no bowtie, no
+two sheets or cones touching in one vertex while all their edges are regular), and
 let an enclosure [lo, hi] of w(a) and the bound G satisfy k - 1/2 < lo - G diam(c) and hi + G diam(c) < k + 1/2 for
-an integer k. Then by Lemma 9.2 the set w > 1/2 in c is the set k + N(a, p) >= 1, which depends on the triangles
-only: the level set in c is made of the sheets of the input across which k + N steps between 0 and 1, a PL surface,
-and Theorem 3 applies to it in c (the counts over those sheets). In a cell that meets no triangle and no defect
+an integer k. Then by Lemma 9.2 the set w > 1/2 in c is the set k + N(a, p) >= 1, on the closed cell off the triangles, its
+faces included (so a face shared with a neighbour without triangles gets the same side from both cells), and it
+depends on the triangles
+only: the level set in c is made of the sheets of the input across which k + N steps between 0 and 1. Theorem 3
+needs a 2-manifold in the cell, so the vertex condition must also hold for the selected sheets alone (a selected and
+an unselected sheet may share a vertex; then the cell is not certified). With that the selected sheets are a PL
+surface in c and Theorem 3 applies to it (the counts over those sheets). In a cell that meets no triangle and no defect
 edge, w - 1/2 is smooth and Theorem 5 applies with enclosures of grad w over the cell (a bound of the second
 derivatives is one way to get them from a value at a point). With K' the cells certified in one of the two ways, Theorem 1b gives: **the mesh and the level set
 differ inside the union of K' only by a deformation that keeps every cell in place.** That is the strongest
@@ -780,8 +795,9 @@ statement this approach can prove for a broken input.
    near the defects.
 2. Enclosures of grad w over a box (for Theorem 5 in free-space cells), for example from a bound of the second
    derivatives of w: the same computation as Lemma 9.1 one order higher, not written.
-3. **Nothing at the defects.** Around a defect edge the gradient turns through all directions in the planes across
-   it, so no graph direction exists in any cell that contains a piece of it, and (S3) fails at every size; the same
+3. **Nothing at the defects.** At a defect edge w is not locally Lipschitz (|grad w| grows like 1 / rho), so the
+   setting of Theorem 5 does not hold there; and around it the gradient turns through all directions in the planes
+   across it, so no graph direction exists in any cell that contains a piece of it, and (S3) fails at every size; the same
    holds where a harmonic sheet meets the input's triangles, as long as both are in one cell. These cells are listed
    at any resolution. So a broken input never gets "isotopic to the level set", only the statement above, and how
    much of the surface it covers is a measurement (the share of cells within a few cells of a defect edge).
