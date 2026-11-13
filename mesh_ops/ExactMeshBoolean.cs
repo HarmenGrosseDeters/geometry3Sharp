@@ -1621,7 +1621,10 @@ namespace g3
             double r = Math.Min(length / d / d / (4 * Math.PI), count / d / (2 * Math.PI));
             if (double.IsNaN(r))
                 return double.PositiveInfinity;
-            return length > 0 ? Math.Max(r, double.Epsilon) : r;
+            // (rounded up, so that it bounds the true term: the three roundings of each quotient, relative 2^-53 each in the
+            // normal range, absolute half a subnormal ulp each below it; and positive where the true term is, which an
+            // underflow to 0 would lose; review of #759)
+            return length > 0 || count > 0 ? r * (1 + 1e-15) + 4 * double.Epsilon : r;
         }
 
         // open_winding with L1: the open meshes decided for piece i's patch take the patch's value, the first piece of a
@@ -3803,6 +3806,11 @@ namespace g3
                 double tolRounding = pointError == 0 && directionError == 0 ? tol
                     : 16 * (2.3e-16 * (pm + Math.Abs(segments[k].x) + Math.Abs(segments[k].y) + Math.Abs(segments[k].z)) / la
                         + 2.3e-16 * (pm + Math.Abs(segments[k + 1].x) + Math.Abs(segments[k + 1].y) + Math.Abs(segments[k + 1].z)) / lb + 1e-15);
+                // (no error bound: a NaN point or end, or an infinite one, as on a grid whose doubles overflowed; not "on
+                // the segment", which would decide 1/2 for every ray: another ray, and undecided if none gives a value;
+                // review of #759)
+                if (double.IsNaN(tol))
+                    return 2;
                 // (the point on or next to an end of the segment)
                 if (!(tol < 0.01))
                     return 1;

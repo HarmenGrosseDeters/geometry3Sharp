@@ -57,6 +57,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void AntipodalValue_NoErrorBound_AnotherRay()
+        {
+            // (a NaN or infinite point or segment end has no error bound: status 2, another ray, not 1, "on the segment")
+            Vector3d[] loop = { new Vector3d(-1, -1, 0.25), new Vector3d(1, -1, 0.25), new Vector3d(1, -1, 0.25), new Vector3d(1, 1, 0.25),
+                new Vector3d(1, 1, 0.25), new Vector3d(-1, 1, 0.25), new Vector3d(-1, 1, 0.25), new Vector3d(-1, -1, 0.25) };
+            Vector3d x1 = new Vector3d(0, 0, -1);
+            foreach (Vector3d p in new[] { new Vector3d(double.NaN, 0, 0), new Vector3d(double.PositiveInfinity, 0, 0), new Vector3d(0, double.NegativeInfinity, 0) }) {
+                double w, b, r;
+                Assert.Equal(2, ExactMeshBoolean.antipodal_value(p, Math.Abs(p.x) + Math.Abs(p.y) + Math.Abs(p.z), x1, 0, loop, out w, out b, out r, 0, 0, 1e-6));
+            }
+            Vector3d[] bad = (Vector3d[])loop.Clone();
+            bad[3] = new Vector3d(double.PositiveInfinity, 1, 0.25);
+            double w2, b2, r2;
+            Assert.Equal(2, ExactMeshBoolean.antipodal_value(new Vector3d(0.125, 0, 0), 0.125, x1, 0, bad, out w2, out b2, out r2, 0, 0, 1e-6));
+        }
+
+        [Fact]
         public void BoxDistance_SameAtEveryPowerOfTwoScale()
         {
             // (boxes min x, y, z, max x, y, z with gaps 3, 4, 12 on the axes: distance 13 at any scale)
@@ -97,8 +114,12 @@ namespace geometry3Sharp.Tests
                         }
                     }
             // (a term that underflows stays positive, an undefined one is unbounded)
-            Assert.Equal(double.Epsilon, ExactMeshBoolean.far_term(1e-300, 1, 1e300));
-            Assert.Equal(double.Epsilon, ExactMeshBoolean.far_term(1, 1, double.PositiveInfinity));
+            Assert.Equal(4 * double.Epsilon, ExactMeshBoolean.far_term(1e-300, 1, 1e300));
+            Assert.Equal(4 * double.Epsilon, ExactMeshBoolean.far_term(1, 1, double.PositiveInfinity));
+            // (in the subnormal range rounded up by more than the roundings of the quotients: an upper bound)
+            double plain = Math.Min(1e10 / 1e160 / 1e160 / (4 * Math.PI), 1 / 1e160 / (2 * Math.PI));
+            Assert.True(plain > 0 && plain < 2.3e-308);
+            Assert.True(ExactMeshBoolean.far_term(1e10, 1, 1e160) >= plain + 3 * double.Epsilon);
             Assert.Equal(0, ExactMeshBoolean.far_term(0, 0, 1e300));
             Assert.Equal(double.PositiveInfinity, ExactMeshBoolean.far_term(double.PositiveInfinity, 1, double.PositiveInfinity));
             Assert.Equal(double.PositiveInfinity, ExactMeshBoolean.far_term(1, 1, 0));
