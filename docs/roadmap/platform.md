@@ -102,6 +102,10 @@ Part of the [roadmap](../ROADMAP.md).
   keep API compatibility with 1.0.324 (`dotnet pack` validation). Check the analyzers (BannedSymbols, G3E0001-3), the
   Stryker and coverage tooling, and the bit-identical results of the exact code and the 2^k invariance tests on the new
   runtime (JIT changes must not change results: FMA contraction stays banned there).
+- **PR mutation gate narrowed (owner 2026-11-13):** PR mutation shards no longer block a merge, except for PRs that
+  touch exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points) or add or change an error bound,
+  where the incremental run stays mandatory. Other PRs merge on green CI and review; their shards run nightly on master
+  (dispatch tasks), survivors become tasks of the area's next PR. The time rule stays a hard CI gate. Rule in CLAUDE.md.
 - **Scheduled workflows do not fire reliably** (found 2026-11-12; fix 2026-11-13: dispatch path plus guard, see
   [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); open until the dispatcher tasks exist and ran once): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
   has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
