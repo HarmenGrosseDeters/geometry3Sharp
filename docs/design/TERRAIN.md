@@ -810,8 +810,11 @@ documentation says so.
        the stored surface itself: a stored height is within e_z = 2 s_max e_xy + e_eval of its plane's exact value at the
        rounded XY (5.4), and at creases near the toe the stored mesh can be off by it; plus 8 ulps of the heights.
        (Numerics review: 8 ulps alone missed e_z, about 1e-9 m at UTM.) Only powers of two and ulps: 2^k scales it.
-       The true line bounds the true region, connected to the toe through {D ≤ 0} ⊂ {D̃ ≤ hi}. So only faces reached from
-       the computed region through faces where D̃ ≤ hi somewhere (sharing an overlay vertex) can hold it; a band ring
+       The claim is about the true catch line: the boundary of the true region, the components of {D < 0} connected to
+       the toe (level-set pieces not connected to it are not the catch line, by the region's definition). It is
+       connected to the toe through {D ≤ 0} ⊂ {D̃ ≤ hi}. So only faces reached from the computed region, or from a face on
+       the toe where D̃ ≤ hi somewhere (a true cut can start at a toe stretch within ε_T above the given terrain, cut off
+       from the computed region), through faces where D̃ ≤ hi somewhere (sharing an overlay vertex) can hold it; a band ring
        elsewhere, around a hill the cone passes under, is cut off by faces with D̃ > hi, where D > 0, and is not counted.
     3. *Per overlay face.* D̃ is linear on an overlay face f (one plane of S̃, one of T̃), and f is convex, so
        P_f = f ∩ B is a convex polygon. Its vertices are f's vertices with D̃ in the band and the points on f's edges
@@ -828,8 +831,9 @@ documentation says so.
        that segment's end. On the pit tests it is 1.5 (flat terrain) to 1.8 (gradient 0.2) times the estimate. A finer
        assignment (pieces split along the line) is a later refinement, if a use case needs it.
     5. *The bound of a segment.* U(σ) = the largest bound of the pieces assigned to σ (0 if none), plus the largest
-       move of a catch point by the composite's snap (5.5): `MinFeatureSize` in a single run, and with `Auto` and a
-       composite at least the partner snap's radius at a toe crossing, 1e-4 of the toes' size. **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
+       move of a catch point by the composite's snap (5.5): `MinFeatureSize` in a single run; with `Auto` and a
+       composite `MinFeatureSize` plus the partner snap's radius max(`MinFeatureSize`, 1e-4 of the toes' size), as the
+       partner snap moves a point already moved by its own snap (the two add, as 5.5 says). **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
        segment σ.
     6. *Pieces without a segment.* A band piece with no computed segment within its steps is a place where the
        slope and the terrain come within the band without the computed line there: a possible contact away from the

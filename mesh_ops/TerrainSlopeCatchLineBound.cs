@@ -54,7 +54,8 @@ namespace gs
                     s.Add(new Index2i(li, i));
                 }
             // the faces the true catch line can be in: it bounds the true region, connected to the toe through {D <= 0}, and
-            // D <= 0 implies D̃ <= hi; so the faces reached from the computed region through faces where D̃ <= hi somewhere
+            // D <= 0 implies D̃ <= hi; so the faces reached from the computed region, or from a low face on the toe, through
+            // faces where D̃ <= hi somewhere
             // (sharing an overlay vertex: a closed set can connect through a point). A band ring elsewhere, eg around a hill
             // the cone passes under (TERRAIN.md 5.5, "Region"), is cut off by faces with D̃ > hi, where D > 0: not the line
             var reach = reachable(o, dir, hi);
@@ -112,7 +113,7 @@ namespace gs
             hi = ExactInterval.Up(terrainUncertainty + slack);
         }
 
-        // the faces reached from the region's faces through faces where D̃ <= hi somewhere (interval lower bounds at their
+        // the faces reached from the region's faces and the low faces on the toe through faces where D̃ <= hi somewhere (interval lower bounds at their
         // vertices; a face whose planes are not decided counts as such), over shared overlay vertices
         static bool[] reachable(SlopeTerrainOverlay o, int dir, double hi)
         {
@@ -140,7 +141,16 @@ namespace gs
             }
             var reach = new bool[n];
             var queue = new Queue<int>();
-            for (int fi = 0; fi < n; ++fi) if (o.Faces[fi].Region) { reach[fi] = true; queue.Enqueue(fi); }
+            // (seeds: the region's faces, and the low faces on the toe: a true cut can start at a toe stretch within εT above
+            // the given terrain where the computed one has none, cut off from the computed region by toe clearly above it)
+            for (int fi = 0; fi < n; ++fi) {
+                var f = o.Faces[fi];
+                bool seed = f.Region;
+                if (seed == false && low[fi])
+                    foreach (var oe in f.Edges)
+                        if (SlopeTerrainOverlay.ekind(oe.Key) == 0 && o.BoundaryKind(SlopeTerrainOverlay.eedge(oe.Key)) == SlopeTerrainOverlay.KindToe) { seed = true; break; }
+                if (seed) { reach[fi] = true; queue.Enqueue(fi); }
+            }
             while (queue.Count > 0) {
                 int fi = queue.Dequeue();
                 foreach (var oe in o.Faces[fi].Edges)

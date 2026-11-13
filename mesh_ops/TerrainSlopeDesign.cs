@@ -815,8 +815,10 @@ namespace gs
                     if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
                     if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
                     // (the proven bound plus the snap's move, rounded up)
-                    // (the snap's move: MinFeatureSize, and at a toe crossing of a mixed run the partner snap's radius)
-                    double move = Math.Max(UsedMinFeatureSize, partnerSnapMove);
+                    // (the snap's move: MinFeatureSize; at a toe crossing of a mixed run the partner snap then moves a point
+                    // already moved by its own snap (SlopeComposite.snap_partner starts from catchAt) by up to its radius
+                    // max(MinFeatureSize, 1e-4 of the toes' size): the sum)
+                    double move = partnerSnapMove > 0 ? ExactInterval.Up(UsedMinFeatureSize + Math.Max(UsedMinFeatureSize, partnerSnapMove)) : UsedMinFeatureSize;
                     double pu = i < l.ProvenBand.Count ? ExactInterval.Up(l.ProvenBand[i] + move) : double.PositiveInfinity;
                     l.ProvenUncertainty.Add(pu);
                     if (required && !(pu <= RequiredCatchLineAccuracy)) {

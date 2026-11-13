@@ -233,7 +233,7 @@ namespace geometry3Sharp.Tests
         }
 
         // numerics review F3: Direction Auto with a composite moves a toe crossing's catch points by up to the partner snap's
-        // radius, 1e-4 of the toes' size: the proven bound holds it
+        // radius, 1e-4 of the toes' size, after its own snap: the proven bound holds both
         [Fact]
         public void Auto_TheBoundHoldsThePartnerSnap()
         {
@@ -244,7 +244,8 @@ namespace geometry3Sharp.Tests
             double snap = 1e-4 * toeBox.DiagonalLength;
             Assert.True(snap > d.UsedMinFeatureSize);
             Assert.NotEmpty(d.CatchLines);
-            Assert.All(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => Assert.True(u >= snap, $"{u} below the partner snap {snap}"));
+            // (the partner snap moves a point already moved by its own snap: both add)
+            Assert.All(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => Assert.True(u >= snap + d.UsedMinFeatureSize, $"{u} below the snaps {snap} + {d.UsedMinFeatureSize}"));
         }
 
         // the side of the band (review M4, M5): one slope triangle at z = 0 over one terrain triangle z = 0.1 x. Cut:
@@ -284,6 +285,24 @@ namespace geometry3Sharp.Tests
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             Assert.Empty(d.CatchLineBandWithoutLine);
             Assert.Equal(0.05, d.UsedTolerance);
+        }
+
+        // numerics re-check G1: the reach starts at the toe too. The square toe at z 0, its east side εT / 2 above the terrain
+        // (z = -εT / 2 for x >= 7.5, a grid line), the rest well above it (the terrain falls 0.5 per unit to the west): no computed cut, so no
+        // region, but the true terrain may be εT higher, and then a cut starts at the east side. That band is reported (a
+        // box at x = 8); the reach from the region alone missed it
+        [Fact]
+        public void ToeJustAboveTheTerrain_TheBandAtTheToeIsReported()
+        {
+            double eT = 0.02;
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-80, -80, 80, 80), 64, 64, (x, y) => -eT / 2 - 0.5 * Math.Max(0, 7.5 - x));
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var d = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = 0.05, HeightLimit = 80, TerrainVerticalUncertainty = eT };
+            d.Compute();
+            output.WriteLine($"{d.Status} {d.Message}: {d.CatchLines.Count} lines, {d.CatchLineBandWithoutLine.Count} boxes");
+            Assert.Contains(d.CatchLineBandWithoutLine, b => b.Max.x >= 8 - 1e-9 && b.Min.x <= 8 + 1e-9 && b.Min.y < 8 && b.Max.y > -8);
+            // (nothing reported far from that side: the west is 8 below the toe)
+            Assert.DoesNotContain(d.CatchLineBandWithoutLine, b => b.Max.x < 0);
         }
 
         [Fact]
