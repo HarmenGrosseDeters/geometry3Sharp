@@ -67,10 +67,12 @@ rep("""        void rebuild_tree()
 
         void rebuild_tree0()
         {""")
-rep("""            tree = new TriangleBoxTree(boxes);
+# (two forms of the constructor call: master 79ccaf38, and the parallel box collection of #843)
+ctor = "tree = new TriangleBoxTree(boxes);" if s.count("            tree = new TriangleBoxTree(boxes);\n            dirty.Clear();") == 1 else "tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxAt));"
+rep("""            """ + ctor + """
             dirty.Clear();""", """            long probe_tb = System.Diagnostics.Stopwatch.GetTimestamp();
             if (RoundProbe.On) RoundProbe.Sum("tree_boxes", probe_tb - probe_tt0);
-            tree = new TriangleBoxTree(boxes);
+            """ + ctor + """
             if (RoundProbe.On) RoundProbe.Sum("tree_ctor", System.Diagnostics.Stopwatch.GetTimestamp() - probe_tb);
             dirty.Clear();""")
 rep("""        void rebuild_tree0()
