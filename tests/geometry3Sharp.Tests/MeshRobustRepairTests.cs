@@ -1071,7 +1071,7 @@ namespace geometry3Sharp.Tests
                 && a.TriangleIndices().All(t => a.GetTriangle(t) == b.GetTriangle(t));
         }
 
-        [Trait("Category", "Slow")]
+        // (the solidify at SolidifyResolution692 cells: the same self-intersecting contour as at 64, issue #692)
         [Fact]
         public void Solidify_StopsOnSelfIntersectingContour_FinishGivesTheFullResult()
         {
@@ -1079,7 +1079,7 @@ namespace geometry3Sharp.Tests
             // contour is the result; FinishPostProcess post-processes it as Compute() does without stopping
             // (the same mesh as an independent run, the solidify is deterministic)
             Func<bool, MeshWindingNumberSolidify> run = (stop) => {
-                var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = 64, Adaptive = true, StopIfSelfIntersecting = stop };
+                var s = new MeshWindingNumberSolidify(ThinPlates(6)) { GridResolution = SolidifyResolution692, Adaptive = true, StopIfSelfIntersecting = stop };
                 Assert.True(WithUnrepairedContour(() => s.Compute()));
                 return s;
             };
@@ -1165,7 +1165,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(SameMesh(first, run()), $"run {i + 2} differs from the first");
         }
 
-        [Trait("Category", "Slow")]
+        // (the solidify at SolidifyResolution692 cells: the same self-intersecting contour as at 64, issue #692)
         [Fact]
         public void SolidifyNotClean_WrapFails_PostProcessedSolidifyUsed()
         {
@@ -1173,7 +1173,7 @@ namespace geometry3Sharp.Tests
             // alpha), the solidify result is used as before: post-processed, the same mesh as without the wrap
             Func<bool, MeshRobustRepair> run = (wrap) => {
                 var r = new MeshRobustRepair(ThinPlates(6)) {
-                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = 64,
+                    RepairF = (m) => new DMesh3(m), ExactResolve = false, SolidifyResolution = SolidifyResolution692,
                     AlphaWrapFallback = wrap, WrapRelativeAlpha = -1
                 };
                 Assert.True(WithUnrepairedContour(() => r.Apply()));
