@@ -1,7 +1,7 @@
 From eecff061e58a3425f3ac16b81bf2a8bd46b1eb13 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 13 Nov 2026 10:03:47 +0000
-Subject: [PATCH 1/3] WIP candidate D: Orient2 and InCircle on stack limbs,
+Subject: [PATCH 1/4] WIP candidate D: Orient2 and InCircle on stack limbs,
  call sites, tests (local, not pushed)
 
 Co-Authored-By: Claude <noreply@anthropic.com>

@@ -1,7 +1,7 @@
 From b918802011d43a17d9efee1f23f9431206770889 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 13 Nov 2026 10:09:11 +0000
-Subject: [PATCH 2/3] WIP candidate D: orient_exact / incircle_exact, shard
+Subject: [PATCH 2/4] WIP candidate D: orient_exact / incircle_exact, shard
  config, design note section (local, not pushed)
 
 Co-Authored-By: Claude <noreply@anthropic.com>

@@ -1,0 +1,27 @@
+From c3c2d57e142603cec947c53f6534fb2a8a9336d6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 15:58:01 +0000
+Subject: [PATCH 4/4] WIP candidate D: the spread of 42327 in the design note
+ names #825 (local, not pushed)
+
+---
+ docs/design/EXACT_LIMB_SIGNS.md | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
+index f9c062d..507681a 100644
+--- a/docs/design/EXACT_LIMB_SIGNS.md
++++ b/docs/design/EXACT_LIMB_SIGNS.md
+@@ -209,7 +209,8 @@ counters, the allocation and the hash are equal), in 3 of 33 processes before an
+ three operations is 14.4 s or more, with more CPU time and the same collector's pause. In the first series of 5
+ that put three such processes on the after side (+2.1 / +9.1 / +10.3 % per operation), in the series with the
+ order of the models reversed two on the before side (the sum of the six operations 129.7 -> 124.1 s). The spread
+-is in the base, is not an effect of this change, and is tracked in its own issue (@@ISSUE@@).
++is in the base and is not an effect of this change: it comes from the tiered JIT's dynamic PGO (#825: one union per
++process, 11 of 40 processes at 14.4 s or more by default, 0 of 40 with `DOTNET_TieredPGO=0`).
+ 
+ ## 6. Sources
+ 
+-- 
+2.43.0
+

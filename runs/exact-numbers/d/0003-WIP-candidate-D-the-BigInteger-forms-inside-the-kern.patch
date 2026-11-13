@@ -1,7 +1,7 @@
 From 650ab20dcd3a9feeeec5ee148e6b189f3f03c126 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 13 Nov 2026 15:41:11 +0000
-Subject: [PATCH 3/3] WIP candidate D: the BigInteger forms inside the kernels
+Subject: [PATCH 3/4] WIP candidate D: the BigInteger forms inside the kernels
  (review), reference determinants in the tests, measured section (local, not
  pushed)
 
