@@ -88,8 +88,8 @@ namespace gs
         /// a double t with 0 &lt; t &lt;= tan(a pi / 180), proven, for 0 &lt; a &lt; 90 (docs/design/TERRAIN.md section 1): the
         /// largest double t for which sin_lo(x) &gt;= t cos_hi(x) holds exactly, with x = a pi_lo / 180
         /// &lt;= a pi / 180 (pi_lo = Math.PI plus a double below pi - Math.PI, exactly), and sin_lo, cos_hi the Taylor sums of
-        /// sin and cos up to x^47 and x^48, which end with a negative and a positive term of alternating series whose terms
-        /// fall (x &lt; pi / 2): a lower bound of sin x and an upper bound of cos x &gt; 0. Then tan(a pi / 180) &gt;= tan x =
+        /// sin and cos up to x^47 and x^48, which end with a negative and a positive term of alternating series whose
+        /// omitted terms fall (x &lt; pi / 2): a lower bound of sin x and an upper bound of cos x &gt; 0. Then tan(a pi / 180) &gt;= tan x =
         /// sin x / cos x &gt;= sin_lo / cos_hi &gt;= t. The comparison is made exactly on integers, the sums times 180^48 48!.
         /// The same on every platform: Math.Tan only gives the start of the search. NaN outside (0, 90)
         /// </summary>
@@ -100,6 +100,8 @@ namespace gs
             double t;
             if (tanCache.TryGetValue(key, out t)) return t;
             t = tan_lower_bound(a);
+            // (bounded: a host that sweeps angles does not grow it for ever; a cleared entry is computed again, the same)
+            if (tanCache.Count >= 4096) tanCache.Clear();
             tanCache[key] = t;
             return t;
         }
@@ -107,12 +109,16 @@ namespace gs
         // pi - Math.PI = 1.2246467991473531772e-16; one double lower is below it
         static readonly double piTail = ExactInterval.Down(1.2246467991473532e-16);
 
-        static double tan_lower_bound(double a)
+        /// <summary>
+        /// the Taylor sums of sin x and cos x for x = a pi_lo / 180, up to the terms x^(N-1) and x^N, times 180^N N! (exact);
+        /// for N = 0 mod 4 the last sin term (m = N - 1 = 3 mod 4) is negative and the last cos term (m = N) positive, so
+        /// sinL / L &lt;= sin x and cosH / L &gt;= cos x (Leibniz: the omitted terms fall)
+        /// </summary>
+        internal static void TaylorSums(double a, int N, out ExactDyadic sinL, out ExactDyadic cosH)
         {
-            const int N = 48;
             // y = a pi_lo exactly, x = y / 180; the terms times L = 180^N N!: x^m / m! L = y^m 180^(N - m) N! / m!
-            ExactDyadic y = ExactDyadic.Of(a) * (ExactDyadic.Of(Math.PI) + ExactDyadic.Of(piTail));
-            ExactDyadic sinL = new ExactDyadic(System.Numerics.BigInteger.Zero, 0), cosH = sinL;
+            ExactDyadic y = ExactDyadic.Of(a) * PiLo();
+            sinL = new ExactDyadic(System.Numerics.BigInteger.Zero, 0); cosH = sinL;
             ExactDyadic yp = new ExactDyadic(System.Numerics.BigInteger.One, 0);
             for (int m = 0; m <= N; ++m) {
                 // 180^(N - m) N! / m!
@@ -124,6 +130,18 @@ namespace gs
                 else sinL = negative ? sinL - term : sinL + term;
                 yp = yp * y;
             }
+        }
+
+        /// <summary> N of the Taylor sums: 0 mod 4, so the sums end with a negative sin and a positive cos term </summary>
+        internal const int TaylorTerms = 48;
+
+        /// <summary> pi_lo = Math.PI + a double below pi - Math.PI, exactly (below pi) </summary>
+        internal static ExactDyadic PiLo() { return ExactDyadic.Of(Math.PI) + ExactDyadic.Of(piTail); }
+
+        static double tan_lower_bound(double a)
+        {
+            ExactDyadic sinL, cosH;
+            TaylorSums(a, TaylorTerms, out sinL, out cosH);
             // (sin ends at m = 47, negative: a lower bound; cos at m = 48, positive: an upper bound)
             Func<double, bool> proven = (c) => c > 0 && ExactDyadic.Compare(sinL, ExactDyadic.Of(c) * cosH) >= 0;
             // the largest proven double, which depends on a only: proven is monotone (true up to the bound's sin_lo / cos_hi,
@@ -146,7 +164,7 @@ namespace gs
                     double down = hi - (ExactInterval.Up(hi) - hi) * (double)(1L << Math.Min(i, 60));
                     if (!(down > 0)) down = double.Epsilon;
                     if (proven(down)) { lo = down; break; }
-                    if (down == double.Epsilon) return double.Epsilon;
+                    if (down == double.Epsilon) return 0;     // (none proven: tan of the angle is below the smallest double)
                     hi = down;
                 }
             }

@@ -68,14 +68,15 @@ oracle.
   - Percent: exact check (nx² + ny²)·10⁴ ≤ p²·nz².
   - Angle: tan α is transcendental, so there is no exact rational check. The check runs against a proven lower bound
     S ≤ tan α (2026-11-12; before, against `Math.Tan`'s double, which is not a guarantee: it is above tan α for
-    10°, 50°, 75°, 85° and 89°, by up to 8 ulps, so a triangle at that double was accepted although steeper than the
+    10°, 50°, 75°, 85° and 89°, by up to 64 ulps (89°), so a triangle at that double was accepted although steeper than the
     angle). The check is conservative, not exact: a slope between S and tan α is rejected (a few ulps), none above it
     is accepted. `ExactlyCheckable` stays false for angles. The bound (`SlopeSpec.TanLowerBound`):
     - x = a·π_lo / 180 with π_lo = `Math.PI` + a double below π − `Math.PI` (their exact sum, 3e-32 below π), so
       x ≤ α in radians, and tan x ≤ tan α (tan rises on (0, π/2));
     - sin_lo, cos_hi: the Taylor sums of sin and cos up to x⁴⁷ and x⁴⁸. For x < π/2 the terms x^m / m! fall
-      (x² < (m + 1)(m + 2)), so each series is alternating with falling terms: a partial sum that ends with a
-      negative term is below the limit, one that ends with a positive term is above it (Leibniz). The last sin term
+      after the last term kept (x² < (m + 1)(m + 2) for m ≥ 47), so the omitted tail of each alternating series falls:
+      a partial sum that ends with a negative term is below the limit, one that ends with a positive term is above it
+      (Leibniz). The last sin term
       (m = 47) is negative and the last cos term (m = 48) positive, so sin_lo ≤ sin x and cos_hi ≥ cos x > 0;
     - a candidate t > 0 is proven if sin_lo ≥ t · cos_hi: then tan x = sin x / cos x ≥ sin_lo / cos_hi ≥ t. The test is
       exact: both sums times 180⁴⁸ · 48! are dyadic (x^m / m! · 180⁴⁸ 48! = y^m · 180^(48−m) · 48! / m!, y = a·π_lo);

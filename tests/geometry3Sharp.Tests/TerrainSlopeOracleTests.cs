@@ -143,7 +143,38 @@ namespace geometry3Sharp.Tests
             Assert.Equal(s, SlopeSpec.Degrees(angle).S);
         }
 
-        // Math.Tan's double is above the tangent of these angles (glibc; by up to 8 ulps at 89 deg, as Math.PI is below
+        // 45 deg, the one angle in range whose tangent is a double (1): x = 45 pi_lo / 180 is below pi / 4, so tan x &lt; 1 and
+        // the largest proven double is the one below 1. (S = 1 would mean pi_lo is not below pi: the proof's premise)
+        [Fact]
+        public void Degrees_45_IsJustBelowOne()
+        {
+            Assert.Equal(0.9999999999999999, SlopeSpec.Degrees(45).S);
+        }
+
+        // the premises of the bound (TERRAIN.md section 1): pi_lo below pi (against pi truncated to 35 decimals, itself
+        // below pi and above pi_lo, which is 2.2e-32 below), N = 0 mod 4, and the Taylor sums as bounds: with N = 4,
+        // x - x^3 / 6 below sin x and 1 - x^2 / 2 + x^4 / 24 above cos x by far more than rounding
+        [Fact]
+        public void Degrees_TheBoundsPremises()
+        {
+            var pi35 = new ExactDyadic(System.Numerics.BigInteger.Parse("314159265358979323846264338327950288"), 0);
+            var ten35 = new ExactDyadic(System.Numerics.BigInteger.Pow(10, 35), 0);
+            Assert.True(ExactDyadic.Compare(SlopeSpec.PiLo() * ten35, pi35) < 0);
+            Assert.Equal(0, SlopeSpec.TaylorTerms % 4);
+            foreach (double a in new[] { 1.0, 30.0, 60.0, 89.0 }) {
+                ExactDyadic sinL, cosH;
+                SlopeSpec.TaylorSums(a, 4, out sinL, out cosH);
+                // (L = 180^4 4!)
+                var L = new ExactDyadic(System.Numerics.BigInteger.Pow(180, 4) * 24, 0);
+                double x = a * Math.PI / 180;
+                double s = ExactDyadic.Quotient(sinL, L), c = ExactDyadic.Quotient(cosH, L);
+                double gs = Math.Pow(x, 5) / 120, gc = Math.Pow(x, 6) / 720;
+                Assert.True(s < Math.Sin(x) - 0.5 * gs, $"{a}: {s} {Math.Sin(x)}");
+                Assert.True(c > Math.Cos(x) + 0.5 * gc, $"{a}: {c} {Math.Cos(x)}");
+            }
+        }
+
+        // Math.Tan's double is above the tangent of these angles (glibc; by 64 ulps at 89 deg, as Math.PI is below
         // pi), so the check against it accepted a triangle at that slope although steeper than the angle; against the
         // proven bound it is rejected, and the triangle at the largest double below the tangent is accepted
         [Theory]
