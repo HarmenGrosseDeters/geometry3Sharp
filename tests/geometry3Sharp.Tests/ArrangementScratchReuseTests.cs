@@ -130,6 +130,32 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void TreeRebuild_TheOldTree_ThrowsOnEveryUse()
+        {
+            // its arrays belong to the rebuilt tree: a query on it must not answer as an empty tree (missed candidates)
+            var rand = new Random(8);
+            var old = new TriangleBoxTree(RandomBoxes(rand, 300, 0.05));
+            var boxes = RandomBoxes(rand, 200, 0.05);
+            var tree = old.Rebuild(boxes);
+            var q = boxes[0];
+            Assert.Throws<InvalidOperationException>(() => old.Query(q, new List<int>()));
+            Assert.Throws<InvalidOperationException>(() => old.Query(q, (k) => { }));
+            Assert.Throws<InvalidOperationException>(() => old.Any(q));
+            Assert.Throws<InvalidOperationException>(() => old.QuerySegment(q.Min, q.Max, 0, (k) => { }));
+            Assert.Throws<InvalidOperationException>(() => old.SelfPairTasks(4));
+            Assert.Throws<InvalidOperationException>(() => old.SelfPairs(new Index2i(0, 0), new List<Index2i>()));
+            Assert.Throws<InvalidOperationException>(() => old.SelfPairs(new Index2i(0, 0), (i, j) => true));
+            Assert.Throws<InvalidOperationException>(() => old.Rebuild(boxes));
+            Assert.Throws<InvalidOperationException>(() => old.SameAs(tree));
+            Assert.Throws<InvalidOperationException>(() => old.Depth());
+            Assert.Throws<InvalidOperationException>(() => old.VisitedNodes(q));
+            Assert.Throws<InvalidOperationException>(() => old.NodeCapacity);
+            // the rebuilt tree works, and is the fresh one
+            Assert.True(tree.SameAs(new TriangleBoxTree(boxes)));
+            Assert.Contains(0, ListQuery(tree, q));
+        }
+
         // boxes on a grid with coincident corners and faces, and a rotated one through them: many coincident
         // constructions (merge_cluster's hashed groups) and segments crossing in the triangles (BoxGrid2)
         static List<DMesh3> CoincidentBoxes(int seed)

@@ -2930,6 +2930,7 @@ namespace g3
         /// </summary>
         public TriangleBoxTree Rebuild(List<AxisAlignedBox3d> boxes)
         {
+            check_live();
             return new TriangleBoxTree(boxes, this);
         }
 
@@ -2975,6 +2976,7 @@ namespace g3
                 reuse.order = null; reuse.leafBox = null; reuse.nodeBox = null;
                 reuse.nodeStart = reuse.nodeSize = reuse.nodeLeft = reuse.nodeRight = null;
                 reuse.nodeCount = 0; reuse.boxCount = 0;
+                reuse.released = true;
             }
             if (n >= ParallelBuildFrom && median == false)
                 gParallel.ForRange(blocks(n), (b) => {
@@ -2991,6 +2993,16 @@ namespace g3
         }
 
         static int capacity(int n) { return 4 * (n / LeafSize) + 3; }
+
+        // after Rebuild gave this tree's arrays to the new one: every use of this tree throws (it would otherwise answer
+        // as an empty tree, and a query that silently finds nothing would drop candidates)
+        bool released;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        void check_live()
+        {
+            if (released)
+                throw new InvalidOperationException("TriangleBoxTree: used after Rebuild (its arrays belong to the rebuilt tree)");
+        }
 
         // from this many boxes on the tree is built (Morton order, codes, sort, nodes) in parallel over fixed blocks and
         // subtrees, to the same tree as the serial build (tests set it)
@@ -3091,6 +3103,7 @@ namespace g3
         // tests: the same nodes, order and leaf boxes
         internal bool SameAs(TriangleBoxTree o)
         {
+            check_live();
             if (nodeCount != o.nodeCount || boxCount != o.boxCount)
                 return false;
             for (int i = 0; i < nodeCount; ++i) {
@@ -3182,9 +3195,10 @@ namespace g3
 
         // tests: the nodes, their capacity, and the depth of the tree (the root at depth 1)
         internal int NodeCount { get { return nodeCount; } }
-        internal int NodeCapacity { get { return nodeStart.Length; } }
+        internal int NodeCapacity { get { check_live(); return nodeStart.Length; } }
         internal int Depth()
         {
+            check_live();
             int depth = 0;
             var stack = new Stack<(int node, int depth)>();
             if (nodeCount > 0)
@@ -3203,6 +3217,7 @@ namespace g3
         // tests: the nodes a query visits (the traversal of Query, counted; not on the hot path)
         internal long VisitedNodes(AxisAlignedBox3d query)
         {
+            check_live();
             if (nodeCount == 0)
                 return 0;
             double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
@@ -3225,6 +3240,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void QuerySegment(Vector3d p, Vector3d q, double pad, Action<int> f)
         {
+            check_live();
             if (nodeCount == 0)
                 return;
             // (one stack per thread, reused: the queries of ExactMeshBoolean's tracing are many and short; a callback that
@@ -3498,6 +3514,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public List<Index2i> SelfPairTasks(int minTasks)
         {
+            check_live();
             var tasks = new List<Index2i>();
             if (nodeCount == 0)
                 return tasks;
@@ -3575,6 +3592,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void SelfPairs<TVisitor>(Index2i t, ref TVisitor visitor) where TVisitor : struct, IPairVisitor
         {
+            check_live();
             var stack = new List<Index2i> { t };
             while (stack.Count > 0) {
                 Index2i top = stack[stack.Count - 1];
@@ -3618,6 +3636,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public bool Any(AxisAlignedBox3d query)
         {
+            check_live();
             if (nodeCount == 0)
                 return false;
             double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
@@ -3644,6 +3663,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void Query(AxisAlignedBox3d query, Action<int> f)
         {
+            check_live();
             // (the boxes are collected first, then f is called: f may query this or another tree; the lists are reused
             // per thread and nesting depth, so a query allocates nothing once its list has grown)
             List<int>[] pool = queryLists ?? (queryLists = new List<int>[8]);
@@ -3673,6 +3693,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void Query(AxisAlignedBox3d query, List<int> result)
         {
+            check_live();
             if (nodeCount == 0)
                 return;
             double x0 = query.Min.x, y0 = query.Min.y, z0 = query.Min.z, x1 = query.Max.x, y1 = query.Max.y, z1 = query.Max.z;
