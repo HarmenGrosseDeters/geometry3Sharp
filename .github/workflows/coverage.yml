@@ -25,9 +25,6 @@ on:
         type: boolean
         default: false
 
-# (a dispatch with a `ref` is a custom run: the schedule guard never skips it, and it does not count as the day's run)
-run-name: ${{ github.event_name == 'pull_request' && github.event.pull_request.title || (inputs.ref != '' && 'Coverage [custom]' || 'Coverage') }}
-
 permissions:
   contents: read
   actions: read
@@ -56,14 +53,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: tools
-      - id: guard
+      - name: Schedule guard${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' && ' [custom]' || '' }}
+        id: guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           FORCE: ${{ inputs.force }}
           CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' }}
-        run: python3 tools/schedule_guard.py --workflow coverage.yml --event "$EVENT" --run-id "$RUN_ID" --custom "$CUSTOM" --force "$FORCE"
+        run: python3 tools/schedule_guard.py --workflow coverage.yml --event "$EVENT" --run-id "$RUN_ID" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --custom "$CUSTOM" --force "$FORCE"
 
   core:
     needs: guard
@@ -134,7 +134,7 @@ jobs:
           # manual run of another ref on master must not move the base), else 24 h of master
           git fetch -q origin master
           BASE=""
-          for id in $(gh run list --workflow coverage.yml --branch master --limit 20 --json databaseId --jq '.[].databaseId'); do
+          for id in $(gh run list --workflow coverage.yml --branch master --limit 60 --json databaseId --jq '.[].databaseId'); do
             rm -rf previous
             if gh run download "$id" -n gate-result -D previous 2>/dev/null; then
               BASE=$(python3 -c "import json;print(json.load(open('previous/changed-line-coverage.json'))['head'])")

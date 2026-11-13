@@ -441,18 +441,33 @@ every daily workflow has two starters and runs once a day:
 | `mutation.yml` | 01:20 daily full run; Monday 03:25 weekly run | `shards=all` | `23 3 * * 1` |
 
 The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
-`gh workflow run <file> --ref master -f shards=all`). The first job of each workflow, `guard` (`tools/schedule_guard.py`, tests
+`gh workflow run <file> --ref master -f shards=all`). The first job of `nightly.yml` and `coverage.yml`, `guard` (in `mutation.yml` a step of the `changes` job; `tools/schedule_guard.py`, tests
 in `tools/test_schedule_guard.py`, run by `ci.yml`), skips the whole workflow when an earlier plain daily run of the same workflow
 is queued or running today (UTC date), or already succeeded. Rules:
 
-- Only `schedule` and a plain `workflow_dispatch` can be skipped. Pull requests never are.
+- Only `schedule` and a plain `workflow_dispatch` on the default branch can be skipped. Pull requests and runs on other branches never are,
+  and such runs do not count for the day either.
 - A dispatch with other inputs is a **custom run**, never skipped and never counted as the day's run: `mutation.yml` with `shards`
-  other than `all`, `coverage.yml` with a `ref`. The workflow marks it `[custom]` in its `run-name` (the runs API does not list inputs).
+  other than `all`, `coverage.yml` with a `ref`. The guard step is then named `Schedule guard [custom]`, which the guard reads
+  from the jobs API (the runs API does not list inputs).
 - `force: true` (input of all three) runs although the day is taken.
-- "Earlier" is the smaller run id, so when the dispatch and the late cron are created together exactly one of them runs.
-  A failed or cancelled run does not count, the next starter runs again. The guard is not keyed on the master SHA: master moves
-  during the day, and a late cron must not run the day a second time on a newer commit.
+- A run counts as the day's run only if its work ran: it is queued or running, or it succeeded **and** a job other than
+  `guard` / `changes` concluded success. A run that the guard skipped is green too, but its work jobs are skipped, so it blocks
+  no retry. A failed or cancelled run does not count: the next starter runs again.
+- "Today" is the UTC date of the run's own creation. "Earlier" is the smaller run id, so when the dispatch and the late cron are
+  created together exactly one of them runs. Only runs of the default branch are looked at, one request per event, so 100 PR
+  runs cannot push the earlier daily run out of the page. The guard is not keyed on the master SHA: master moves during the day,
+  and a late cron must not run the day a second time on a newer commit.
 - It fails open: when the runs API cannot be read, the run goes ahead.
+- Known gap, retry by hand: when the only running starter is cancelled or fails after the other one was skipped, nothing
+  retries by itself. Dispatch the workflow again (`force` is not needed: the failed or cancelled run does not count).
+- In `mutation.yml` the guard is a step of the `changes` job, not a job of its own (`select_shards.py` takes a new job or top key
+  of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs: a late cron
+  waits for the dispatched full run and is then skipped by the guard instead of cancelling hours of work.
+- `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
+- Master CI runs: `ci.yml` has one concurrency group per ref with cancel-in-progress, so only the newest master commit runs to the
+  end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
+  the commits since the last green (or finished) run.
 
 ### 2.7 A small regression corpus as a CI smoke benchmark
 

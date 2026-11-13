@@ -250,7 +250,8 @@ jobs:
             filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain)
     # (2026-11-09: the terrain tests moved to shard a; the mesher tests got cheaper (sparse tag check), shard a was at 14 min and
     # shard b at 32. Summed net10.0 durations of the full run: a 2050 s, b 2113 s.)
-    # (the draft tier adds &Category!=Slow to the shard's filter: the shards stay complementary. A PR that changes only
+    # (the filter's &Category!=Slow part is dead on a draft since the Windows jobs run only in the full tier; it stays for a manual run
+    # of a branch, and keeps the shards complementary. A PR that changes only
     # tools, benchmarks or docs the tests do not read skips the library tests; the job still starts, as the check names
     # are fixed, and runs the PowerShell regression of shard a when benchmarks/MeshRepairBenchmark changed.)
     steps:
