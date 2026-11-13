@@ -515,7 +515,7 @@ namespace g3
             return a.Min.x <= b.Max.x && a.Max.x >= b.Min.x && a.Min.y <= b.Max.y && a.Max.y >= b.Min.y && a.Min.z <= b.Max.z && a.Max.z >= b.Min.z;
         }
 
-        /// <summary> does one of the triangles intersect or touch a triangle of the tree's mesh (exact predicates)? Only reads the tree. </summary>
+        /// <summary> does one of the triangles intersect or touch a triangle of the tree's mesh, degenerate ones included (exact predicates)? Only reads the tree. </summary>
         internal static bool TrianglesTouch(DMeshAABBTree3 tree, IList<Triangle3d> tris)
         {
             AxisAlignedBox3d union = AxisAlignedBox3d.Empty;
@@ -533,7 +533,9 @@ namespace g3
                     Index3i ot = obstacle.GetTriangle(tid);
                     Triangle3d O = new Triangle3d(obstacle.GetVertex(ot.a), obstacle.GetVertex(ot.b), obstacle.GetVertex(ot.c));
                     var ob = new AxisAlignedBox3d(O.V0); ob.Contain(O.V1); ob.Contain(O.V2);
-                    if (BoxesTouch(ob, union) == false || ExactTriangleIntersection.IsDegenerate(ref O)) return;
+                    // (degenerate obstacle triangles too: ExactTriangleIntersection takes a collinear one as its segment, a
+                    // point one as its point; the wrap's input may have them, and the wrap must keep them enclosed)
+                    if (BoxesTouch(ob, union) == false) return;
                     for (int i = 0; i < tris.Count; ++i) {
                         Triangle3d A = tris[i];
                         if (ExactTriangleIntersection.Intersects(ref A, ref O)) { hit = true; return; }
