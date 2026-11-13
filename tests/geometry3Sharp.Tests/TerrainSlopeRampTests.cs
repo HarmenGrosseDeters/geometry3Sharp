@@ -247,7 +247,10 @@ namespace geometry3Sharp.Tests
                         foreach (double w in new[] { 1e-3, 0.37, 0.71, 0.999 }) {
                             Vector2d x = Vector2d.Lerp(r.Path[i], r.Path[i + 1], (double)a / samples) + w * r.Width * n;
                             int t = Containing(m, x);
-                            Assert.True(t >= 0 && d.Pieces[m.GetTriangleGroup(t)].Kind == SlopePiece.Kinds.Road, $"ramp {d.Ramps.IndexOf(r)} segment {i}: not road at {x}");
+                            SlopePiece tp = t >= 0 ? d.Pieces[m.GetTriangleGroup(t)] : null;
+                            // (the road of this segment: another segment's road there would be at another height)
+                            Assert.True(tp != null && tp.Kind == SlopePiece.Kinds.Road && tp.Ramp == d.Ramps.IndexOf(r) && tp.Segment == i && tp.Bend == false,
+                                        $"ramp {d.Ramps.IndexOf(r)} segment {i}: not its road at {x}");
                         }
                 }
             }
@@ -385,6 +388,71 @@ namespace geometry3Sharp.Tests
             Assert.True(TerrainSlopeDesignTests.HeightAt(w.SlopeSurface, x) < TerrainSlopeDesignTests.HeightAt(d.SlopeSurface, x) - 0.5);
         }
 
+        // regressions of the independent review: a collinear path point is no bend (decided exactly); a wide road with a
+        // large margin stays within Tolerance (the outer edge's widening is in the budget)
+        [Theory]
+        [InlineData(-6.875, -20.5, 8.75, -23)]
+        [InlineData(-9, -20.28125, -6, -21.125)]
+        public void Ramp_WithACollinearPathPoint_IsStraight(double mx, double my, double ex, double ey)
+        {
+            var d = Straight(10, 4, new Vector2d(ex, ey));
+            d.Ramps[0].Path.Insert(1, new Vector2d(mx, my));
+            Assert.Equal(0, ExactPredicates.Orient2d(d.Ramps[0].Path[0], d.Ramps[0].Path[1], d.Ramps[0].Path[2]));
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertRamps(d);
+            Assert.DoesNotContain(d.Pieces, p => p.Bend);
+        }
+
+        [Fact]
+        public void WideRoad_LargeMargin_StaysWithinTolerance()
+        {
+            var d = Straight(5, 30, new Vector2d(5, -25));
+            d.HeightLimit = 16; d.SlopeMargin = 0.01; d.Tolerance = 0.355;
+            bool ok = d.Compute();
+            if (ok) AssertRamps(d, 6);
+            else Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+            // with room for the widening in the budget: certified and within Tolerance
+            d.Tolerance = 1.5;
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            AssertRamps(d, 6);
+        }
+
+        [Fact]
+        public void RampCurlingIntoItsOwnExtension_IsNotOnTheWall()
+        {
+            // bends away from the road that curl a later, higher segment into an earlier one's inward reach: the earlier
+            // road plane is the lower one there, so the later road is cut away; the width oracle counts only a segment's
+            // own road and reports it
+            var s0 = new Vector2d(-10, -20);
+            Func<double, Vector2d> dir = (deg) => new Vector2d(Math.Cos(deg * Math.PI / 180), Math.Sin(deg * Math.PI / 180));
+            Vector2d p1 = s0 + 24 * dir(-45), p2 = p1 + 4 * dir(35), p3 = p2 + 8 * dir(115);
+            var d = Straight(5, 3);
+            d.Ramps[0].Path = new List<Vector2d>() { s0, p1, p2, p3 };
+            d.HeightLimit = 16;
+            Assert.False(d.Compute());
+            Assert.True(d.Status == TerrainSlopeDesign.Statuses.RampNotOnWall || d.Status == TerrainSlopeDesign.Statuses.NotImplemented, d.Status + " " + d.Message);
+        }
+
+        [Fact]
+        public void WidthOracle_CountsOnlyTheSegmentsOwnRoad()
+        {
+            // a nominal road polygon of segment 1 (Width 1, from 5e-7 to 1 + 1.5e-6 off the path along x) under two road
+            // triangles: of segment 1 it is covered; of segment 0 (eg an earlier, lower segment reaching inwards) it is not
+            var d = new TerrainSlopeDesign() { Ramps = new List<SlopeRamp>() { new SlopeRamp() { Width = 1 } } };
+            Vector2d a = new Vector2d(1, 5e-7), b = new Vector2d(9, 5e-7);
+            d.rampNominal = new List<TerrainSlopeDesign.RampNominal>() { new TerrainSlopeDesign.RampNominal() {
+                Ramp = 0, Seg = 1, A = a, B = b, Poly = new[] { a, b, new Vector2d(9, 1 + 1.5e-6), new Vector2d(1, 1 + 1.5e-6) },
+                Box = new AxisAlignedBox2d(1, 5e-7, 9, 1 + 1.5e-6) } };
+            var m = new DMesh3(false, false, false, true);
+            int v0 = m.AppendVertex(new Vector3d(0, -1, 0)), v1 = m.AppendVertex(new Vector3d(10, -1, 0)), v2 = m.AppendVertex(new Vector3d(10, 2, 0)), v3 = m.AppendVertex(new Vector3d(0, 2, 0));
+            m.AppendTriangle(v0, v1, v2, 0); m.AppendTriangle(v0, v2, v3, 0);
+            Func<int, bool, TerrainSlopeDesign.InPiece> road = (seg, bend) => new TerrainSlopeDesign.InPiece() {
+                Kind = 1, Ramp = 0, Bend = bend, Unit = new TerrainSlopeDesign.RampUnit() { Seg = seg, Bend = bend } };
+            Assert.Equal(TerrainSlopeDesign.Statuses.Success, d.ramp_coverage(m, new List<TerrainSlopeDesign.InPiece>() { road(1, false) }));
+            Assert.Equal(TerrainSlopeDesign.Statuses.RampNotOnWall, d.ramp_coverage(m, new List<TerrainSlopeDesign.InPiece>() { road(0, false) }));
+            Assert.Equal(TerrainSlopeDesign.Statuses.RampNotOnWall, d.ramp_coverage(m, new List<TerrainSlopeDesign.InPiece>() { road(1, true) }));
+        }
+
         // ---- statuses ----
 
         [Fact]
@@ -464,8 +532,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void RampShare_IsInTheToleranceBudget()
         {
-            // the road built at g - delta sMin / 2 lies up to that x its length below the specified road: the numerical
-            // margins that a too small Tolerance reports grow by it (1e-6 / 2 x 25.18 x 1.01 = 1.27e-5)
+            // the road built at g - delta sMin / 2 lies up to that x its length below the specified road, and the wall above
+            // the outer edge at Width (1 + 2 delta) up to sMax 2 delta Width: the numerical margins that a too small
+            // Tolerance reports grow by both (1e-6 / 2 x 25.18 x 1.01 + 2e-6 x 4 x 1.01 = 2.08e-5)
             Func<TerrainSlopeDesign, double> margins = (x) => {
                 x.Tolerance = 1e-9;
                 Assert.False(x.Compute());
@@ -473,7 +542,7 @@ namespace geometry3Sharp.Tests
             };
             var plain = Straight(); plain.Ramps.Clear();
             double withRamp = margins(Straight()), without = margins(plain);
-            Assert.InRange(withRamp - without, 1.2e-5, 1.35e-5);
+            Assert.InRange(withRamp - without, 2.0e-5, 2.15e-5);
             // a Tolerance between the two: the ramp is too long for it
             var d = Straight();
             d.Tolerance = 3e-5;

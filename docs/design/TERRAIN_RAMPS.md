@@ -169,8 +169,10 @@ So the ramp's pieces go into the same envelope as the toe's:
 
 ### Bends (R1)
 
+- The turn at a path vertex is decided exactly (`Orient2d` of the three path points): a collinear point is no bend.
 - A bend away from the road (towards the pit: a convex wall) gets a flat kite at the vertex height between the two
-  segments' polygons, out to the miter point.
+  segments' polygons, out to the miter point; a bend so slight that a kite edge is below the smallest realizable
+  feature is `InvalidInput` (remove the nearly collinear point).
 - The end face of a segment (rising at s from its end line) must not cut into the next segment's road (rising at g):
   for any point of the next strip this holds when s cos(turn) >= g; 0.9 covers the facets of the cone. Sharper turns
   are `NotImplemented` (a switchback is R2).
@@ -183,9 +185,15 @@ So the ramp's pieces go into the same envelope as the toe's:
 - The road is built at the grade g − RoadMargin, RoadMargin = δ sMin / 2: a road vertex is off its plane by the rounding
   of its height and of its XY times g (< sMin), so a triangle with altitudes of at least MinFeatureSize is steeper than
   its plane by at most about δ sMin / 4. The exact check decides; a failure raises δ like any slope failure.
-- New budget term (**bound review**): the road lies below its specified heights by at most RoadMargin x the path's
-  length, `ramp_share` = Up(Up(Up(RoadMargin) x Up(L (1 + 1e-12))) x 1.01), subtracted from the facet share and part
-  of the snap certificate's budget.
+- New budget term (**bound review**), `ramp_share`, subtracted from the facet share and part of the snap certificate's
+  budget, the sum (rounded up) of
+  - the road below its specified heights by at most RoadMargin x the path's length:
+    Up(Up(Up(RoadMargin) x Up(L (1 + 1e-12))) x 1.01);
+  - the wall above the outer edge, built at Width (1 + 2δ), standing 2δ Width further back than the specified one, so
+    at most sMax 2δ Width lower: Up(Up(Up(2δ W) x sMax) x 1.01) (found by the independent review: without it a wide
+    road with a large margin was certified up to 2 x Tolerance below its specified wall).
+  When the slope's margins leave room but the ramp's share does not: `InvalidInput`, "the ramp is too long for
+  Tolerance". `UsedRoadMargin` reports the margin used.
 - The outer edge is built at Width (1 + 2δ); the width oracle's nominal polygons run from Width δ / 2 to Width
   (1 + 3δ / 2) and end Width δ inside each segment, so no rounding of a boundary they share with the road decides it.
 - The road's z at the path's vertices: z_{i+1} = z_i + g_b L_i in doubles (rounded once per vertex); the polygon
@@ -198,9 +206,12 @@ So the ramp's pieces go into the same envelope as the toe's:
 - Wall triangles: `IsNotSteeper(wall slope)` and their plane on or below every corner of the polygon (exact): then
   they lie below the polygon's slope cone.
 - Width oracle (instead of `MinLineDistance`, the same intent, stronger): every nominal polygon, at least Width wide
-  (checked exactly), is road: no triangle of another kind overlaps its interior (exact separating-axis test), and the
-  road triangles cover its area (to 1e-7, relative to the polygon; a hole can only be where nothing is built). Else
-  `RampNotOnWall` with `RampProblems` (ramp, path segment). This also finds a hanging road.
+  (checked exactly), is the road of its own segment (or bend): no other triangle, not even another segment's road (a
+  lower segment reaching inwards under a later one), overlaps its interior (exact separating-axis test), and that road
+  covers its area (to 1e-7, relative to the polygon; a hole can only be where nothing is built). Else `RampNotOnWall`
+  with `RampProblems` (ramp, path segment). This also finds a hanging road. Not checked: strips of Width δ along the
+  path's start and end and on both sides of each vertex (the nominals end Width δ inside each segment and kite, so that
+  no rounding of a boundary they share with a neighbour decides the oracle).
 - The wall's slope is the cut slope of the toe segment the path starts on (the API has no field for it).
 - Tests (independent of the construction): the surface between a brute-force reference from below (roads reaching far
   inwards, Tolerance) and above (the specified roads and their cones, the toe's cone envelope), every triangle not

@@ -1151,9 +1151,10 @@ namespace gs
             // (on a terrain, Tolerance / 4 is reserved for the move of the composite's catch points, which its certificate
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
-            // (a ramp's road is built at the grade g - delta sMin / 2: it lies below its specified heights by at most
-            // that times its length, TERRAIN_RAMPS.md, "Margins")
-            double rampShare = ramp_share(delta, sMin);
+            // (a ramp's road is built at the grade g - delta sMin / 2 and its outer edge at Width (1 + 2 delta): the road and
+            // the wall above it lie below the specified ones by at most that times its length and sMax 2 delta Width,
+            // TERRAIN_RAMPS.md, "Margins")
+            double rampShare = ramp_share(delta, sMin, sMax);
             double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare - rampShare;
             if (!(facetShare > 0) && rampShare > 0 && !(facetShare + rampShare > 0))
                 return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3})");

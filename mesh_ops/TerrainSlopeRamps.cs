@@ -151,8 +151,9 @@ namespace gs
                 // road, rising at g; 0.9 covers the facets of the cone); a bend towards the road (a concave wall) needs a road
                 // that is not constant across, R2
                 for (int k = 1; k + 1 < n; ++k) {
-                    double cross = u[k - 1].x * u[k].y - u[k - 1].y * u[k].x;
-                    if (cross * sigma > 0)
+                    // (exact: a collinear vertex is no bend)
+                    int turn = ExactPredicates.Orient2d(P[k - 1], P[k], P[k + 1]);
+                    if (turn * sigma > 0)
                         return ramp_problem(Statuses.NotImplemented, r, k, "a bend towards the road's side (a concave wall) is not in R1");
                     if (!(0.9 * wall.S * u[k - 1].Dot(u[k]) >= ramp.Grade.S))
                         return ramp_problem(Statuses.NotImplemented, r, k, "the turn is too sharp for the grade (s cos(turn) < g / 0.9; a switchback is not in R1)");
@@ -197,18 +198,11 @@ namespace gs
                 };
                 for (int i = 0; i + 1 < n; ++i) {
                     add(i, false, new Vector3d(P[i].x, P[i].y, z[i]), new Vector3d(P[i + 1].x, P[i + 1].y, z[i + 1]));
-                    if (i + 2 < n && turns_away(u[i], u[i + 1], sigma))
+                    if (i + 2 < n && ExactPredicates.Orient2d(P[i], P[i + 1], P[i + 2]) * sigma < 0)
                         add(i + 1, true, new Vector3d(P[i + 1].x, P[i + 1].y, z[i + 1]), new Vector3d(P[i + 1].x, P[i + 1].y, z[i + 1]));
                 }
             }
             return Statuses.Success;
-        }
-
-        // the path turns away from the road's side (a gap between the segments' polygons on the road's side)
-        static bool turns_away(Vector2d u0, Vector2d u1, double sigma)
-        {
-            double cross = u0.x * u1.y - u0.y * u1.x;
-            return cross * sigma < 0;
         }
 
         // the miter offset at a vertex: the point at distance w from both offset lines (normals n0, n1, unit)
@@ -224,13 +218,18 @@ namespace gs
         internal static double RoadMargin(double delta, double sMin) { return 0.5 * delta * sMin; }
 
         // the ramps' share of the tolerance budget: the road at the grade g - RoadMargin lies below its specified heights
-        // by at most RoadMargin times the path's length (rounded up)
-        double ramp_share(double delta, double sMin)
+        // by at most RoadMargin times the path's length, and the wall above the outer edge at Width (1 + 2 delta) by at most
+        // sMax 2 delta Width (rounded up)
+        double ramp_share(double delta, double sMin, double sMax)
         {
-            double m = 0;
+            double m = 0, w = 0;
             if (rampsIn == null || Ramps == null || Ramps.Count == 0) return 0;
-            foreach (RampIn ri in rampsIn) m = Math.Max(m, ri.Length);
-            return ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(RoadMargin(delta, sMin)) * ExactInterval.Up(m * (1 + 1e-12))) * 1.01);
+            foreach (RampIn ri in rampsIn) { m = Math.Max(m, ri.Length); w = Math.Max(w, ri.R.Width); }
+            double grade = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(RoadMargin(delta, sMin)) * ExactInterval.Up(m * (1 + 1e-12))) * 1.01);
+            // (and the outer edge at Width (1 + 2 delta): the wall above it stands 2 delta Width further back, at most
+            // sMax x that lower than the wall of the specified road)
+            double widen = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(2 * delta * w) * sMax) * 1.01);
+            return ExactInterval.Up(grade + widen);
         }
 
         // the box of the toes grown by the ramps' road polygons (with room for the margins): the domain and the
@@ -302,7 +301,7 @@ namespace gs
                         var p1 = new Vector3d(P[i + 1].x, P[i + 1].y, z[i + 1]);
                         var p2 = new Vector3d(c2[3].x, c2[3].y, z[i]);
                         if (Slope.IsNotSteeper(p0, p1, p2, ri.R.Grade) == false)
-                            return ramp_problem(Statuses.InvalidInput, r, i, "the road plane is steeper than the grade (the margin does not cover the rounding)");
+                            return ramp_problem(Statuses.Failed, r, i, "the road plane is steeper than the grade (the margin does not cover the rounding)");
                         unit.RoadPlane = kernel.AddPlane(p0, p1, p2);
                         c3 = c2.Select(c => new Vector3d(c.x, c.y, height_down(kernel, unit.RoadPlane, p0, p1, p2, c.x, c.y))).ToArray();
                         roadPts = new[] { p0, p1, p2 };
@@ -314,11 +313,15 @@ namespace gs
                         Vector2d n0 = side_normal(u[i - 1], ri.Sigma), n1 = side_normal(u[i], ri.Sigma);
                         Vector2d v = P[i];
                         c2 = new[] { v, v + Wb * n0, v + miter(n0, n1, Wb), v + Wb * n1 };
+                        if (c2[1].Distance(c2[2]) < minFeatureMax || c2[2].Distance(c2[3]) < minFeatureMax)
+                            return ramp_problem(Statuses.InvalidInput, r, i, $"the bend is too slight for its kite (an edge below the smallest feature that can be realized, {minFeatureMax:G3}): remove the nearly collinear path point");
                         unit.RoadPlane = kernel.AddHorizontalPlane(z[i]);
                         c3 = c2.Select(c => new Vector3d(c.x, c.y, z[i])).ToArray();
                         roadPts = new[] { c3[0], c3[1], c3[2] };
                         pc.A = pc.A1 = pc.B = pc.B1 = new Vector3d(v.x, v.y, z[i]);
-                        Vector2d vi = v + miter(n0, n1, Wi), q1 = v + Wn * n0, mq = v + miter(n0, n1, Wn), q2 = v + Wn * n1;
+                        // (its corners on the segments' end and start lines moved Width delta into the kite, along the outer
+                        // edges' lines: the segments' roads beyond those lines are another road)
+                        Vector2d vi = v + miter(n0, n1, Wi), q1 = v + Wn * n0 + We * u[i - 1], mq = v + miter(n0, n1, Wn), q2 = v + Wn * n1 - We * u[i];
                         add_nominal(new RampNominal() { Ramp = r, Seg = i, Bend = true, A = vi, Q1 = q1, M = mq, Q2 = q2, Poly = new[] { vi, q1, mq, q2 } });
                     }
                     // counter-clockwise
@@ -443,7 +446,7 @@ namespace gs
         // triangles cover its area (in doubles, to 1e-7: a hole can only be where nothing is built, outside the slope's
         // domain or above its height limit, which is no sliver). Else the crest comes closer
         // than Width to the outer edge, or the road hangs: RampNotOnWall
-        Statuses ramp_coverage(DMesh3 mesh, List<InPiece> pieces)
+        internal Statuses ramp_coverage(DMesh3 mesh, List<InPiece> pieces)
         {
             var tris = new List<int>();
             var boxes = new List<AxisAlignedBox2d>();
@@ -470,7 +473,10 @@ namespace gs
                     Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
                     mesh.GetTriVertices(tris[k], ref a, ref b, ref c);
                     var txy = new[] { a.xy, b.xy, c.xy };
-                    if (pieces[mesh.GetTriangleGroup(tris[k])].Kind == 1)
+                    InPiece tp = pieces[mesh.GetTriangleGroup(tris[k])];
+                    // (only the road of this nominal's own segment or bend: another one's road there, eg a lower segment's
+                    // reaching inwards under a later one, is not this road at its height)
+                    if (tp.Kind == 1 && tp.Ramp == nm.Ramp && tp.Unit.Seg == nm.Seg && tp.Unit.Bend == nm.Bend)
                         covered += Math.Abs(polygon_area(clip_convex(txy.Select(p => p - o).ToArray(), local).ToArray()));
                     else if (interiors_overlap(nm.Poly, txy)) {
                         intruded = true;
