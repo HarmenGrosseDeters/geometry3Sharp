@@ -98,16 +98,16 @@ and 223 boxes per query on average (186 µs and 365 boxes before the PR, same ma
 
 ## Parallel broad phase (2026-11-13, CCD.md 10.9)
 
-Raw: `results-sweep-ab-fused-2026-11-13.csv` (master vs the fused-jobs variant, two rounds); the built variant (batches)
-vs master, two alternating rounds in one job, parallel, 4 cores:
+Raw: `results-sweep-ab-2026-11-13.csv` (master at 2ccb989c vs this branch, two alternating rounds in one job, parallel,
+4 cores; `results-sweep-ab-fused-2026-11-13.csv`: the rejected fused-jobs variant against master before #845):
 
 | scene | triangles | candidate pairs | master | batches |
 |---|---|---|---|---|
-| armadillo-rollers | 24 242 | 7 099 982 | 3.52-3.55 s | 2.76-2.87 s |
-| cloth-ball | 92 230 | 6 852 873 | 8.84-9.07 s | 7.85-8.08 s |
-| cloth-funnel | 18 484 | 41 089 | 0.56-0.60 s | 0.49-0.50 s |
-| n-body-simulation | 146 480 | 31 763 261 | 10.99-11.34 s | 8.07-8.08 s |
-| rod-twist | 79 864 | 2 489 604 | 2.12-2.19 s | 1.79-1.93 s |
-| puffer-ball | 1 064 216 | 249 805 425 | out of memory | 40.9 s (serial 121 s) |
+| armadillo-rollers | 24 242 | 7 099 982 | 2.94-2.99 s | 2.32-2.40 s |
+| cloth-ball | 92 230 | 6 852 873 | 6.85-7.17 s | 6.00-6.24 s |
+| cloth-funnel | 18 484 | 41 089 | 0.088-0.099 s | 0.061-0.063 s |
+| n-body-simulation | 146 480 | 31 763 261 | 9.77-9.94 s | 7.13-7.40 s |
+| rod-twist | 79 864 | 2 489 604 | 2.37-2.39 s | 1.95-1.99 s |
+| puffer-ball | 1 064 216 | 249 805 425 | out of memory | 40.0 s (serial 112 s) |
 
 Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master.

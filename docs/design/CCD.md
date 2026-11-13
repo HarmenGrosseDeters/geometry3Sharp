@@ -571,20 +571,23 @@ the box lists in parallel blocks, and batches of about 2M candidate pairs: the j
 jobs and batches depend only on the input, the merge is in job order and the contacts are sorted: parallel equals serial.
 Memory: a batch and the kept pairs.
 
-Measured, parallel, master vs this (two alternating rounds in one job, mean):
+Measured, parallel, two alternating rounds in one job (mean); master at 2ccb989c (with 10.8), raw
+`benchmarks/CcdBenchmark/results-sweep-ab-2026-11-13.csv`:
 
-| scene | master | fused jobs (rejected) | batches (built) |
+| scene | master | batches (built) | |
 |---|---|---|---|
-| armadillo-rollers | 3.54 s | 2.26 s | 2.81 s |
-| cloth-ball | 8.96 s | 7.98 s | 7.97 s |
-| cloth-funnel | 0.58 s | 0.80 s | 0.50 s |
-| n-body-simulation | 11.16 s | 6.17 s | 8.07 s |
-| rod-twist | 2.15 s | 1.62 s | 1.86 s |
-| puffer-ball | out of memory | 26.7 s | 40.9 s (121 s serial) |
+| armadillo-rollers | 2.96 s | 2.36 s | 1.26x |
+| cloth-ball | 7.01 s | 6.12 s | 1.15x |
+| cloth-funnel | 0.094 s | 0.062 s | 1.51x |
+| n-body-simulation | 9.86 s | 7.27 s | 1.36x |
+| rod-twist | 2.38 s | 1.97 s | 1.21x |
+| puffer-ball | out of memory | 40.0 s (112 s serial) | |
 
-The fused variant (each job queries and solves its own pairs) was faster on the large scenes but slower than master on
-cloth-funnel, where expensive pairs cluster in a few jobs and then run one after the other; solving each batch in parallel
-over the pairs spreads them, at the cost of the barriers. The puffer-ball sweep (40.9 s parallel, 121 s serial; linear in
+Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master. A
+fused variant (each job queries and solves its own pairs; measured against master before 10.8, raw
+`results-sweep-ab-fused-2026-11-13.csv`) was 1.55x / 1.73x faster than that master on armadillo-rollers / n-body but
+1.5x slower on cloth-funnel, where expensive pairs cluster in a few jobs and then run one after the other; solving each
+batch in parallel over the pairs spreads them, at the cost of the barriers (never slower is worth more). The puffer-ball sweep (40.9 s parallel, 121 s serial; linear in
 its 250M candidates) is above the 20 s of CLAUDE.md: issue #866, with the diagnosis and options.
 
 Code review of #857, fixed in the same PR: a batch ends at the job (in job order) that reaches `BatchPairs`, not after a
