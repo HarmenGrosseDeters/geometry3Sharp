@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(400)] [InlineData(2000)] [InlineData(8000)]
+        [InlineData(400)] [InlineData(2001)] [InlineData(8000)]
         public void SymmetricUpper_NotLooserThanTheOneSidedRunsWithHalfTheBudget(int budget)
         {
             DMesh3 a = Bumpy(5, 12), b = Bumpy(6, 8);
@@ -60,6 +60,22 @@ namespace geometry3Sharp.Tests
                     Assert.True(h.LowerBound / s.Scale <= h0.UpperBound + eps && h0.LowerBound <= h.UpperBound / s.Scale + eps, s.Name);
                 }
             }
+        }
+
+        /// <summary> Compute twice on one instance: the split budget starts again from 0, the same result bit for bit </summary>
+        [Fact]
+        public void SplitBudget_Reuse()
+        {
+            DMesh3 a = Bumpy(5, 12), b = Bumpy(6, 8);
+            var h = new MeshHausdorffDistance(a, b) { Tolerance = 1e-9, MaxSubdivisions = 400 };
+            Assert.True(h.Compute());
+            double lo = h.LowerBound, hi = h.UpperBound; int n = h.Subdivisions;
+            Assert.False(h.Converged);
+            Assert.True(lo > 0 && lo <= hi && !double.IsInfinity(hi));
+            Assert.True(h.Compute());
+            Assert.Equal(lo, h.LowerBound);
+            Assert.Equal(hi, h.UpperBound);
+            Assert.Equal(n, h.Subdivisions);
         }
 
         /// <summary> a converging run is unchanged: the first direction needs less than half of the budget </summary>

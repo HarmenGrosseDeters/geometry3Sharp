@@ -44,8 +44,9 @@ namespace gs
         /// <summary> tolerance relative to the diagonal of the combined bounding box, used if Tolerance is 0 </summary>
         public double RelativeTolerance = 1e-4;
         /// <summary> stop (Converged = false) after this many triangle subdivisions (checked per batch of 256: up to 255 more per direction).
-        /// For the symmetric distance the first direction may use half of it, the second the rest (at least half: what the first left
-        /// unused is passed on), so that a first direction which does not converge leaves the second one its share (#740) </summary>
+        /// For the symmetric distance the first direction may use half of it (rounded up), the second the rest: what the first left
+        /// unused is passed on, so the second gets at least half less the first one's last batch (up to 255), and a first direction
+        /// which does not converge leaves the second one its share (#740) </summary>
         public int MaxSubdivisions = 20000000;
 
         /// <summary>
