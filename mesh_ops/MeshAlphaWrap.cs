@@ -670,6 +670,8 @@ namespace gs
             public double Key; public int C, I, Stamp, N;
             public int Kind, Which;
             public double NewKey;
+            public Vector3d P;
+            public uint Seed;
             public bool Fallback;
             public long TicksIntersection, TicksTouch, TicksEval;
             public readonly Delaunay3.InsertPlan Plan = new Delaunay3.InsertPlan();
@@ -682,7 +684,7 @@ namespace gs
             public void Reset(double key, int c, int i, int stamp, int n)
             {
                 Key = key; C = c; I = i; Stamp = stamp; N = n;
-                Kind = GateDrop; Which = 0; NewKey = 0; Fallback = false;
+                Kind = GateDrop; Which = 0; NewKey = 0; P = Vector3d.Zero; Fallback = false;
                 TicksIntersection = TicksTouch = TicksEval = 0;
                 Centers.Clear(); Touches.Clear(); Distances.Clear(); Pushes.Clear();
             }
@@ -716,7 +718,11 @@ namespace gs
             int threads = MaxThreads > 0 ? MaxThreads : Environment.ProcessorCount;
             team = threads > 1 ? new WorkerTeam(threads) : null;
             if (evaluateBody == null) {
-                evaluateBody = k => evaluate_gate(roundGates[k], unchecked(2463534242u ^ (uint)(k + 1) * 2654435761u));
+                evaluateBody = k => {
+                    RoundGate g = roundGates[k];
+                    g.Seed = unchecked(2463534242u ^ (uint)(k + 1) * 2654435761u);
+                    evaluate_gate(g, g.Seed);
+                };
                 applyBody = k => apply_gate(roundKept[k]);
                 pushBody = k => compute_pushes(roundKept[k]);
             }
@@ -833,24 +839,17 @@ namespace gs
                 // 4. assign ids (serial, heap order), apply (parallel, disjoint)
                 long t2 = Stopwatch.GetTimestamp();
                 bool anyWrite = false;
-                foreach (RoundGate g in roundKept) {
-                    if (g.Kind == GateInsert) {
-                        dt.AssignInsertIds(g.Plan);
-                        labelsManifold = false;
-                        steiner++;
-                        insertions++;
-                        vertexDistance.Add(offset);
-                        if (g.Which == 1) rule1++; else rule2++;
-                        anyWrite = true;
-                    } else if (g.Kind == GateCarve) {
-                        labelsManifold = false;
-                        carved++;
-                        anyWrite = true;
+                if (ValidateRounds) {
+                    anyWrite = replay_round();
+                } else {
+                    foreach (RoundGate g in roundKept)
+                        anyWrite |= assign_gate(g);
+                    if (anyWrite) {
+                        ensure_labels();
+                        round_for(roundKept.Count, applyBody);
                     }
                 }
                 if (anyWrite) {
-                    ensure_labels();
-                    round_for(roundKept.Count, applyBody);
                     foreach (RoundGate g in roundKept) {
                         if (g.Kind == GateInsert) {
                             changedSinceTrial?.AddRange(g.Plan.NewIds);
@@ -888,6 +887,87 @@ namespace gs
             return status;
         }
 
+        // the serial part of a kept gate's commit (ids, counters); true if it writes
+        bool assign_gate(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                dt.AssignInsertIds(g.Plan);
+                labelsManifold = false;
+                steiner++;
+                insertions++;
+                vertexDistance.Add(offset);
+                if (g.Which == 1) rule1++; else rule2++;
+                return true;
+            }
+            if (g.Kind == GateCarve) {
+                labelsManifold = false;
+                carved++;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// (tests) checks the note's lemma in every round: the kept gates are committed one after the other, and before each,
+        /// its evaluation is repeated against the state after the gates kept before it (its stale test, decision, key, point
+        /// and plan must be those of the evaluation against the state at the start of the round). The result is the same as
+        /// without the check (the ids are assigned in the same order). Counts round_checked, round_checked_shared_outside
+        /// (carvings whose outside cell an earlier kept carving of the round had), round_check_mismatches.
+        /// </summary>
+        internal bool ValidateRounds = false;
+        readonly RoundGate replayGate = new RoundGate();
+        readonly HashSet<(int, int, int, int, int)> replayCells = new HashSet<(int, int, int, int, int)>();
+
+        bool replay_round()
+        {
+            bool anyWrite = false;
+            long checkedGates = 0, shared = 0, mismatches = 0;
+            var outsideOfKept = new HashSet<int>();
+            for (int j = 0; j < roundKept.Count; ++j) {
+                RoundGate g = roundKept[j];
+                if (j > 0) {
+                    checkedGates++;
+                    if (g.Kind == GateCarve && outsideOfKept.Contains(g.N)) shared++;
+                    if (!replay_matches(g)) mismatches++;
+                }
+                if (g.Kind == GateCarve && g.N >= 0) outsideOfKept.Add(g.N);
+                if (assign_gate(g)) {
+                    anyWrite = true;
+                    ensure_labels();
+                    apply_gate(g);
+                }
+            }
+            add_count("round_checked", checkedGates);
+            add_count("round_checked_shared_outside", shared);
+            add_count("round_check_mismatches", mismatches);
+            return anyWrite;
+        }
+
+        // the gate evaluated again against the current state: the same as its evaluation at the start of the round?
+        bool replay_matches(RoundGate g)
+        {
+            int c = g.C, i = g.I;
+            if (!dt.IsCell(c) || dt.CellStamp(c) != g.Stamp || label[c] != Inside || dt.Neighbour(c, i) != g.N || label_of(g.N) != Outside)
+                return false;
+            RoundGate r = replayGate;
+            r.Reset(g.Key, c, i, g.Stamp, g.N);
+            evaluate(r, g.Seed);
+            if (r.Kind != g.Kind || r.Which != g.Which || r.Fallback != g.Fallback)
+                return false;
+            if (g.Kind == GateRequeue && BitConverter.DoubleToInt64Bits(r.NewKey) != BitConverter.DoubleToInt64Bits(g.NewKey))
+                return false;
+            if (g.Kind != GateInsert)
+                return true;
+            if (r.P != g.P || r.Plan.Result != g.Plan.Result || r.Plan.Cells.Count != g.Plan.Cells.Count)
+                return false;
+            // (the cavity as a set of new cells: its order follows the walk, which may pass other cells now)
+            replayCells.Clear();
+            foreach (var x in g.Plan.Cells) replayCells.Add((x.A, x.B, x.C, x.Outer, x.OuterFacet));
+            foreach (var x in r.Plan.Cells)
+                if (!replayCells.Contains((x.A, x.B, x.C, x.Outer, x.OuterFacet))) return false;
+            return true;
+        }
+
         // the serial loop's evaluation of a gate, against the current state, writing nothing shared
         void evaluate_gate(RoundGate g, uint walkSeed)
         {
@@ -921,6 +1001,7 @@ namespace gs
                 g.Kind = GateCarve;
                 return;
             }
+            g.P = p;
             dt.PlanInsert(p, c, roundMinSeparation, g.Plan, walkSeed);
         }
 

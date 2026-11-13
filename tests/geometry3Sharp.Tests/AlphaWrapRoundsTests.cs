@@ -48,6 +48,26 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the note's lemma, checked in every round (ValidateRounds): each kept gate, evaluated again against the state after the
+        // gates kept before it in the round, gives its evaluation against the state at the start of the round; among them
+        // carvings that share their outside cell with an earlier kept carving (W = {c} is a subset of R = {c, n}). The result
+        // is that of the run without the check
+        [Fact]
+        public void Rounds_EachKeptGateAsInTheSerialOrder()
+        {
+            DMesh3 input = Input();
+            var check = new MeshAlphaWrap(input) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = 4, ValidateRounds = true };
+            Assert.True(check.Compute(), check.Error);
+            Assert.Equal(0, check.Counts["round_check_mismatches"]);
+            Assert.True(check.Counts["round_checked"] > 1000, $"{check.Counts["round_checked"]} gates checked");
+            Assert.True(check.Counts["round_checked_shared_outside"] > 0);
+            var plain = new MeshAlphaWrap(input) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = 4 };
+            Assert.True(plain.Compute(), plain.Error);
+            foreach (string k in new[] { "round_checked", "round_checked_shared_outside", "round_check_mismatches" })
+                check.Counts.Remove(k);
+            Assert.Equal(Fingerprint(plain), Fingerprint(check));
+        }
+
         // RoundWindow = 0 is the serial loop: master's result before the rounds, pinned (soup 17 of
         // AlphaWrapManifoldStepTests.ManifoldStep_BitIdenticalToBefore), and the rounds give another wrap of the same size
         [Fact]

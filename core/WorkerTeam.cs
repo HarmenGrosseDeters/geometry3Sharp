@@ -48,6 +48,16 @@ namespace g3
 
         public int Threads { get; }
 
+        /// <summary> (tests) worker threads still running </summary>
+        internal int AliveWorkers
+        {
+            get {
+                int n = 0;
+                foreach (Thread t in workers) if (t.IsAlive) n++;
+                return n;
+            }
+        }
+
         public void For(int n, Action<int> body)
         {
             if (disposed) throw new ObjectDisposedException(nameof(WorkerTeam));
