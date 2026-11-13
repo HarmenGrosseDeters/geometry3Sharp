@@ -453,6 +453,57 @@ namespace gs
             }
         }
 
+        /// <summary>
+        /// A convex polygon piece (a ramp's road part, docs/design/TERRAIN_RAMPS.md): F = max(the road plane, the walls'
+        /// strip planes, the corner fans), which is the road plane on the polygon and its slope cone outside. The faces
+        /// where F is lower than their label get its planes, as InsertPiece does; the road plane is owned by roadOwner,
+        /// the wall planes by wallOwner. zmin, slb: F &gt;= zmin + slb * distance to the polygon (its box bounds the
+        /// distance from below, the prefilter); reach: no effect beyond it.
+        /// </summary>
+        public void InsertPolygonPiece(int roadOwner, int wallOwner, int roadPlane, List<int> walls, List<Vector2d> apexes,
+                                       List<List<int>> fans, List<List<double>> angles, AxisAlignedBox2d polyBox, double zmin,
+                                       double slb, AxisAlignedBox2d reach, double theta)
+        {
+            ordered = null;
+            owner[roadPlane] = roadOwner;
+            foreach (int p in walls) owner[p] = wallOwner;
+            foreach (var l in fans) foreach (int p in l) owner[p] = wallOwner;
+            var hits = hitBuffer;
+            hits.Clear();
+            qt.QueryRectangle(reach, hits);
+            if (faceStamp.Length < fEdge.Count) Array.Resize(ref faceStamp, 2 * fEdge.Count);
+            ++stampNow;
+            var faces = faceBuffer;
+            faces.Clear();
+            foreach (int id in hits) {
+                int f = qtFace[id];
+                if (f >= 0 && fAlive[f] && fDomain[f] && faceStamp[f] != stampNow) { faceStamp[f] = stampNow; faces.Add(f); }
+            }
+            faces.Sort();
+            var relevant = new List<int>();
+            foreach (int f in faces) {
+                int label = fLabel[f];
+                AxisAlignedBox2d bb = fBox[f];
+                double upperB = double.MinValue;
+                for (int i = 0; i < 4; ++i) { Vector2d q = bb.GetCorner(i); upperB = Math.Max(upperB, K.ApproxHeight(label, q.x, q.y)); }
+                // (the distance of the boxes is at most the distance of the face to the polygon)
+                double dx = Math.Max(Math.Max(polyBox.Min.x - bb.Max.x, bb.Min.x - polyBox.Max.x), 0);
+                double dy = Math.Max(Math.Max(polyBox.Min.y - bb.Max.y, bb.Min.y - polyBox.Max.y), 0);
+                double dminB = Math.Sqrt(dx * dx + dy * dy);
+                double lowerB = zmin + slb * dminB;
+                if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
+                    continue;
+                var pos = prefilterPos;
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
+                relevant.Clear();
+                relevant.Add(roadPlane);
+                relevant.AddRange(walls);
+                for (int i = 0; i < apexes.Count; ++i) add_sector(relevant, fans[i], angles[i], apexes[i], pos, theta);
+                insert_into(f, label, relevant);
+            }
+        }
+
         readonly List<int> hitBuffer = new List<int>(), faceBuffer = new List<int>();
         int[] faceStamp = new int[0];
         int stampNow;

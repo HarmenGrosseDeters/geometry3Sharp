@@ -63,11 +63,13 @@ namespace gs
             }
             // (this instance computes on translated toes and the terrain translated in place; both are put back)
             List<SlopeToe> toes = Toes;
+            List<SlopeRamp> ramps = Ramps;
             DMesh3 terrain = Terrain;
             bool moved = false, ok;
             double pre = 0;
             try {
                 Toes = translated(toes, o);
+                Ramps = translated(ramps, o);
                 // (allocation-free, so it does not stop half way)
                 translate(terrain, -o);
                 moved = true;
@@ -78,6 +80,7 @@ namespace gs
             } finally {
                 sw.Restart();
                 Toes = toes;
+                Ramps = ramps;
                 // (exact: x - o was checked exact, so (x - o) + o is x)
                 if (moved) translate(terrain, o);
             }
@@ -108,10 +111,19 @@ namespace gs
                     Vector3d p = Terrain.GetVertex(v);
                     if (MathUtil.IsFinite(p.x) == false || MathUtil.IsFinite(p.y) == false) return -1;
                 }
+            if (Ramps != null)
+                foreach (SlopeRamp r in Ramps) {
+                    if (r == null || r.Path == null) return -1;
+                    foreach (Vector2d p in r.Path) if (MathUtil.IsFinite(p.x) == false || MathUtil.IsFinite(p.y) == false) return -1;
+                }
             o = box.Center;
             foreach (SlopeToe t in Toes)
                 foreach (Vector3d p in t.Points)
                     if (exact_difference(p.x, o.x) == false || exact_difference(p.y, o.y) == false) return 0;
+            if (Ramps != null)
+                foreach (SlopeRamp r in Ramps)
+                    foreach (Vector2d p in r.Path)
+                        if (exact_difference(p.x, o.x) == false || exact_difference(p.y, o.y) == false) return 0;
             if (Terrain != null)
                 foreach (int v in Terrain.VertexIndices()) {
                     Vector3d p = Terrain.GetVertex(v);
@@ -140,6 +152,16 @@ namespace gs
             return toes.Select(t => new SlopeToe() {
                 Points = t.Points.Select(p => new Vector3d(p.x - o.x, p.y - o.y, p.z)).ToList(), Closed = t.Closed, Side = t.Side,
                 CutStart = t.CutStart, CutEnd = t.CutEnd, FillStart = t.FillStart, FillEnd = t.FillEnd
+            }).ToList();
+        }
+
+        // copies of the ramps with their paths translated by -o
+        static List<SlopeRamp> translated(List<SlopeRamp> ramps, Vector2d o)
+        {
+            if (ramps == null) return null;
+            return ramps.Select(r => new SlopeRamp() {
+                Toe = r.Toe, Path = r.Path.Select(p => new Vector2d(p.x - o.x, p.y - o.y)).ToList(), StartHeight = r.StartHeight,
+                Grade = r.Grade, Width = r.Width, Side = r.Side
             }).ToList();
         }
 
