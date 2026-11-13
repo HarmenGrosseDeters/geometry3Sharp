@@ -91,7 +91,9 @@ library's existing entry points only, so that they also build against the base l
   operation's allocation, 43 MB against 1.9 GB on master (a bound on allocation, not on time, so it does not depend on
   the machine; measured on the calling thread with the parallel loops serial, so tests running beside it do not count).
 
-Hand mutants, each applied to the generator (kernels regenerated) or to a call site, all 17 killed by the tests above:
+Hand mutants, each applied to the generator (kernels regenerated) or to a call site, all 17 killed by the tests above
+(rerun on the final generator; two of them, one limb less and the exponent base not subtracted, fail a test and then
+end the test host, because they write outside the accumulators):
 a monomial dropped; a monomial's sign flipped; one limb less; the shift's carried bits off by one; the top limb of the
 shift dropped; the exponent base not subtracted; the carry of an addition dropped; the carry beyond the monomial
 dropped; the mantissa signs ignored; the hidden bit not set; the subnormal exponent; a product limb's carry dropped;
@@ -102,7 +104,19 @@ test was added for them.)
 No reuse or determinism test: the kernels are static functions without state or a parallel path.
 
 Mutation: `math/Generated/DoublePredicates.cs` joins the shard `mesh-generated`; the predicates shard
-(`stryker-config.json`) runs the new tests for the three changed call sites.
+(`stryker-config.json`) runs the new tests for the three changed call sites. Local Stryker run over the new file alone
+(2026-11-13): 464 mutants, 398 killed, 66 timeouts (a mutant that writes outside an accumulator ends the test host),
+none survived. A first run scored 91.2 % (442 killed, 46 timeouts, 47 survived of 535): one survivor was the exception
+text (now asserted), the other 46 change no result. The generator now writes those operations as statements of their
+own and marks them with the reason (`tests/mutation/README.md`): 61 marked mutants, 38 that change no result (`>>`
+against `>>>` on unsigned operands, comparisons at an equality that cannot occur, `|=` against `^=` on a clear bit, a
+carry only tested against 0, more limbs than needed, the early return for a zero factor) and 23 real ones of the same
+mutator on the same statements (19 shift directions, 2 `|=` to `&=`, 2 comparison directions), which the first run
+killed. The early return for a zero factor is marked as memory safety, not as equivalent: without it a zero is added
+at an offset that can lie outside the accumulator.
+
+The per-call numbers above were measured before that restructuring; 7 alternating runs of the benchmark with the kernels
+before and after it differ by -3 % to +6 % per row, inside the run-to-run range of the machine (about 10 %).
 
 ### Review notes (exact code)
 
