@@ -888,6 +888,13 @@ not depend on the implementer's own tests. Order of priority:
     triangulation-independent comparisons and orientation-preserving transformations, without changes to
     `ExactMesh*`. Other modules: terrain: never steeper, cut + fill consistent; 2D meshing: input segments are
     unions of output edges.
+    Symmetry and cost relations (S1, C1, C2 of [METAMORPHIC_RELATIONS.md](design/METAMORPHIC_RELATIONS.md)):
+    `SymmetryInvarianceTests` maps the input by one of the 48 symmetries of the cube (`Harness/Symmetry.cs`; exact, 24 are
+    reflections that are re-wound) and compares the sweep operations (`RobustnessSweepTests.Ops`), `ExactMeshBoolean` and the 2D
+    mesher with the mapped result: bit for bit unless the operation is a classified row of `Toleranced` (with its reason); six
+    symmetries in the PR tier, all 48 in the nightly job (`Category=Nightly`). `CostInvarianceTests`: the output size on a
+    transformed copy is equal under the 2^k scales and at most twice as large otherwise (#664 as a rule, the 2D mesher and
+    `ExactMeshBoolean`), and the wall time of every sweep operation at most 20 times and 50 ms more (nightly).
 11. **Cross-platform determinism**: the bit-identity hashes weekly on Windows and arm64, and the net48 tests (not only
     the build) on a Windows runner.
 12. **Tool-checked error bounds**: new floating-point filter bounds also derived with FPTaylor (MIT) and compared in
