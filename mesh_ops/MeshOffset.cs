@@ -38,9 +38,10 @@ namespace gs
     /// MeshRobustRepair, or wrap them with MeshAlphaWrap). Open meshes (NotClosed) and inside-out ones (negative volume,
     /// InsideOut) are refused; self-intersections are not checked here.
     ///
-    /// Not promised: triangle quality. The result can contain degenerate (zero-area) triangles (measured: 1 of 32 benchmark cases,
-    /// the chamfer inset at a cell of |Distance| / 8; issue #800); they do not affect the guarantees above, but
-    /// MeshRobustRepair.NotCleanReason reports them.
+    /// Not promised: triangle quality. Degenerate (zero-area) triangles were measured in 1 of 32 benchmark cases (the chamfer inset
+    /// at a cell of |Distance| / 8: three dual contouring vertices on a crease line in one triangle) until DualContouring's quad
+    /// split avoided them (#800; 0 of 32 since); a quad whose both splits are degenerate can still give one. They do not affect
+    /// the guarantees above, but MeshRobustRepair.NotCleanReason reports them.
     ///
     /// Features of the offset surface narrower than about a cell (RelativeCellSize * |Distance|) can be lost or merged, as in any
     /// grid contouring; an inset deeper than half the thickness of a part removes it (Status Empty if nothing is left).

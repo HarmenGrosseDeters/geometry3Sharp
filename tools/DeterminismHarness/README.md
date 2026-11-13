@@ -46,4 +46,5 @@ types (`probe.hash-values`; a function of the key within one runtime, not promis
 (`probe.hash-enumeration`), the order of equal keys after the unstable sorts (`probe.sort-ties`, `probe.sort-ties-large`).
 `probe.hash-seeded` (`BigInteger`, `ValueTuple`, `string`) **differs between any two runs on .NET**, on one machine too:
 these hash codes are seeded per process. It is listed by every comparison of two .NET runs; that is its result.
-`probe.slope-degrees` and `terrain.slope-design*` cover the platform libm calls in `TerrainSlope*`.
+`probe.slope-degrees` and `terrain.slope-design*` cover the terrain slope design, which called the platform libm until
+#836 (issue 802) and must now be identical on every platform.

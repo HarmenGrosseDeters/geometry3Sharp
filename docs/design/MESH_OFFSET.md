@@ -1,7 +1,7 @@
 # Robust mesh offsetting with guarantees (study)
 
 Status: **study; decided 2026-11-13** (coordinator, under the owner's autonomy mandate; section 9): option A.
-**Stage A1 implemented** (`gs.MeshOffset`, section 10); A2 waits for the reviewed enclosure proof. The study's
+**Stage A1 implemented** (`gs.MeshOffset`, section 10); **A2 shelved** after the probe (section 11), pending refinement. The study's
 throwaway probe was run locally (public API only, not committed; section 5); its numbers are quoted with the command.
 
 ## 1. Question
@@ -343,12 +343,93 @@ code is not read.
   tolerance is half a cell; every one of the 32 benchmark cases reaches it.
 - **Proven in A1**: (G1), (G2) (checked: `Status.Failed` otherwise), (G3) (exact), (G4) one side, (G6).
   **Measured**: the other side of (G4) and (G5) (the procedural oracles: Steiner volumes, components of a hollow part and
-  across a gap). **Not promised**: triangle quality; degenerate (zero-area) triangles can occur (1 of 32 benchmark
-  cases, issue #800).
+  across a gap). **Not promised**: triangle quality; degenerate (zero-area) triangles were measured in 1 of 32 benchmark
+  cases until DualContouring's quad split avoided them (#800; 0 of 32 since), and a quad with two degenerate splits can still give one.
 - **Numbers** (4 threads, 32 cases per method, procedural): band certified at half a cell 32 / 32 against 15 / 32 for
-  SDF + MC (its insets fail by chamfered creases, up to 0.37 |d|); clean 31 / 32 against 25 / 32; triangles 0.95-1.07x;
+  SDF + MC (its insets fail by chamfered creases, up to 0.37 |d|); clean 31 / 32 (32 / 32 after #800) against 25 / 32; triangles 0.95-1.07x;
   time 0.6-4.7x of SDF + MC, median 1.6x (the estimate of 5.3 was 1-3x for the contouring plus below 10 % for the
   certificate; the certificate takes about half of MeshOffset's time at the default tolerance, eg 736 of 1455 ms on the sphere at |d| / 4).
 - **Mutants** (manual, all killed by `MeshOffsetTests`): r without the far corners, r dropped, a lower distance bound 1.2x
   too large, an upper bound 0.8x too small, no sign flood, a wrong edge side, no sign in the certificate.
 
+## 11. Stage A2: the topology certificate, probe result (2026-11-13): shelved
+
+The certificate of [MESH_OFFSET_ENCLOSURE.md](MESH_OFFSET_ENCLOSURE.md) was probed locally on the level-set side
+(`mesh_ops/MeshOffsetTopology.cs`, on the branch `wip/mesh-offset-a2-probe` only): every cell of `MeshOffset`'s grid is proven zero-free (on blocks of cells first),
+certified, or listed; the node signs the contouring used were checked against the proven ones (0 mismatches in every
+run). Inputs: a box 2 x 3 x 1.5, a sphere (radius 5, 600 triangles), both also rotated (non-axis-aligned), offset and
+inset by 0.1 of the bounding box diagonal, cell |d| / 4 (|d| / 8 where noted; the table writes abs(d), as a bar would
+break its columns). Share = certified / (certified + listed),
+the cells that are not proven zero-free; time = certificate / A1. The segment rule (S1* / S2*): an edge or a face of a cell
+may be zero-free except in one closed piece, on which the direction test is made, instead of passing the test as a whole.
+
+| input | E (reviewed: directions to whole candidate triangles) | E' + segment rule (nearest-point trichotomy; S1* / S2*) | E'' + segment rule (edges: sigma cone of the two face normals, by convexity) |
+|---|---|---|---|
+| box offset | 73.8 % | 90.3 % (27x) | 90.3 % (25x) |
+| box inset | 8.9 % | 54.4 % (59x) | 64.0 % (124x) |
+| sphere offset | 21.4 % | 38.4 % (104x); 49.2 % at abs(d) / 8 | 75.3 % (334x) |
+| sphere inset | 11.3 % | 21.3 % (84x) | 34.2 % (231x) |
+| rotated box offset | 27.8 % | 62.0 % (50x); 68 % at abs(d) / 8 | 94.4 % (63x) |
+| rotated box inset | 0 % | 0 % (14x); 0 % at abs(d) / 8 | 0.8 % (31x) |
+| rotated sphere offset | - | 38.2 % (86x) | 80.1 % (149x) |
+| rotated sphere inset | - | 19.1 % (42x) | 30.7 % (140x) |
+
+Stop rule (coordinator 2026-11-13): 90 % on the box and sphere offsets and on the smooth insets of convex inputs, 50 % on
+the rotated box inset, certificate time at most 3x A1. E'' fails on the sphere (75 %, smooth inset 34 %), the rotated box
+inset (0.8 %) and the time (25-334x). **Decision (coordinator 2026-11-13): the A2 code is shelved.** An opt-in report at 25-334x the
+offset's cost, with no claim attached, would add API and test surface without a guarantee for the user. Refinement
+(finer cells where cells are listed, with #749 stage 2; the coordinator's route, not the options B of this note or of
+#749) is the route that might make it a certificate: it can shrink the listed set, but it may not reach the stop rule
+where the rotated box inset stays at 0 % at both cell sizes and where (S2') fails at every refinement (inset creases,
+corners of three or more sheets; MESH_OFFSET_ENCLOSURE.md section 5). It is later work. The probe code (E'' with the segment rule, `mesh_ops/MeshOffsetTopology.cs`, an internal
+`MeshOffset.CertifyTopology` hook and the measurement test `MeshOffsetTopologyProbe`) is kept on the branch
+`wip/mesh-offset-a2-probe` (no PR), as the starting point for refinement. The mesh side of Theorem O exists in the contouring certificate (#779): `DualContouring.RecordCertificateData`
+before `Generate()` gives, on the final positions, `CertificateMeshFailures` (vertex placement, no area, left out,
+self-intersections, transitions), `CertificateMeshCells` (local refusals, (H4) and option B's facts (i)-(iii)) and
+`ContourGrid()` (the pattern and the face rule); A2 reuses it when it resumes, without changes to DualContouring.cs.
+
+What the probe showed, for a later attempt:
+- The reviewed enclosure E is sound but loose by the size of the candidate triangles: a large triangle makes its
+  direction set nearly a hemisphere. E' (the nearest point of a triangle is interior, on an edge, or a vertex, each
+  with its own direction set, dropped where a linear test on the corners excludes it) and E'' (at an edge, the
+  direction lies in sigma times the cone of the two face normals; empty where the edge is convex from the point's side;
+  proof: the polar of the two half-planes in the plane orthogonal to the edge, appendix A) tighten it; neither is reviewed.
+- What remains listed: cells whose edges or faces are nearly tangent to L (the direction set over the cell is still
+  wider than the angle between the edge and L; refinement shrinks it), the insets (a cell near L sees two or more
+  faces of the shrunken box or a wide cap of the sphere, as L is close to the medial axis there), and S3 cells at the
+  inset's creases.
+- The cost estimates were off by more than 10x: section 5.3 put A2 at 1-2x the contouring and MESH_OFFSET_ENCLOSURE.md
+  section 8 at 1.3-2x A1; the probe measured 25-334x. Neither estimate had the segment rule (the zero-free proofs of up to
+  256 pieces per edge and 4096 per face, one distance bound each) nor the exact fallbacks of the tighter enclosures.
+- The cost is the zero-free proofs of the segment rule (up to 256 pieces per edge, 4096 per face, one distance bound
+  each) and the exact fallbacks; a cheaper zero-free test (a monotone bound along the piece instead of the Lipschitz
+  ball) would be the first lever.
+- Prior art, recalled and not checked [m]: Varadhan and Manocha (2004 / 2006, section 3) certify the topology of a
+  contoured union of convex Minkowski pieces with per-cell tests on an adaptive grid; as recalled, their tests act on the
+  convex pieces themselves, not on a tessellation, which would avoid the loose edge and vertex parts found here. Not
+  checked against the paper (it was needed only for an addendum, which the stop rule ruled out).
+
+### Appendix A. The normal-cone claim at edges (E''), unreviewed
+
+**Edges (both sides).** Let p be in the relative interior of a mesh edge e shared by exactly two triangles t1, t2 (M
+closed and manifold), with outward unit normals N1, N2, and let p be the nearest point of M to z, z not on M, with
+sigma = +1 if z is outside S and -1 inside. Then p is also the nearest point of t1 and of t2 to z (they are subsets of
+M that contain p), so w = z - p lies in the normal cone of t1 at p and in that of t2. Both cones lie in the plane P
+orthogonal to e (p is interior to e, so the direction of e is tangent to both triangles). In P, each triangle is a
+ray r_i from p (into t_i), and the normal cone of t_i at p is the closed half-plane {w : w . r_i <= 0}. So w lies in the
+polar of cone{r1, r2}. The rays split P into the solid's sector (angle beta) and the outside sector (360 - beta).
+(i) beta < 180 (a convex edge): cone{r1, r2} is the solid's sector, its polar is cone{N1, N2}, which points into the
+outside sector, so z is outside: sigma = +1 and w in cone{N1, N2}; an inside z never has its nearest point on e.
+(ii) beta > 180 (a reflex edge): cone{r1, r2} is the outside sector, its polar is cone{-N1, -N2} in the solid's sector:
+sigma = -1 and w in cone{-N1, -N2}; an outside z never has its nearest point on e. (iii) beta = 180 (t1, t2 coplanar,
+N1 = N2 = N): the polar of the line is the normal line, and w = sigma |w| N, since the open segment from p to z misses
+M, so z is on the side of S that p + eps sigma N is on. In all three cases w is in sigma * cone{N1, N2} (empty when the
+edge is convex from z's side, ie (i) with sigma = -1 or (ii) with sigma = +1). The convexity is the exact sign of
+N1 . (c2 - A), c2 the vertex of t2 off e (negative: convex, positive: reflex, zero: coplanar).
+
+**Faces and vertices.** If p is in the relative interior of a triangle t, then w = sigma |w| N_t (the same segment
+argument as (iii)). If p is a vertex v of M, then w = z - v exactly: the probe uses the set {z - v : z in X} for the
+vertices that can be nearest (E' rule: not excluded by a linear test over the corners), so **no cone claim is needed at
+vertices**, convex, reflex or saddle, on either side; this part follows by the same argument as E' (unreviewed) and is narrow
+(its directions spread by about diam(X) / u). So the inset side (sigma = -1) is covered by the same arguments as the offset side (unreviewed).
+Not covered: non-manifold edges (excluded: the input is clean), degenerate triangles (N = 0; excluded the same way).
