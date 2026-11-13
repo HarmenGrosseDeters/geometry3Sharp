@@ -233,6 +233,12 @@ in the tool project.
   closed manifold for any input but rounds off features. Its bottleneck, the exact union of many convex bodies, is our
   exact Boolean kernel; the EMBER early-out ideas would apply. Before building: a patent check (authors partly at
   Tencent LightSpeed Studios) and a comparison with Zint 2023. Not scheduled (budget; owner 2026-11-05)
+  Study 2026-11-13 ([design/MESH_OFFSET.md](../design/MESH_OFFSET.md)): Euclidean offset / inset with guarantees;
+  recommends certified contouring of the distance field (class S of the #749 certificate plus a Lipschitz band
+  certificate), the alpha wrap as the fallback for broken inputs, the exact polytope Minkowski sum as a test oracle
+  only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
+  A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
+  the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
