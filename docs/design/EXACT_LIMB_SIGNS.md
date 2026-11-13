@@ -91,8 +91,7 @@ reach these stages: 280.5 -> 288.0 s, allocation 243.4 -> 242.6 GB, single runs)
 after do not overlap; about three quarters of its gain is the collector's pause (12.8 GB less allocation), and on
 107554 nearly all of it. On one thread (the probe) the orientation stage drops from 3.4 to 1.9 s and the side stage
 only from 9.0 to 8.1 s: loading eight operands per call costs about what the BigInteger temporaries cost. The CPU
-gain of the side stage (2 x in the micro benchmark) needs the limbs stored with the points, which is candidate C on
-the same representation.
+gain of the side stage (2 x in the micro benchmark) needs the limbs stored with the points (candidate C, below).
 
 The table is the first version of the kernels (af87765). The limits and the determinant's scratch space of section 2
 came with the review; against af87765 on the slow tail (5 alternating runs, the same conditions, `results/b3`) the
@@ -103,6 +102,15 @@ megabyte (no call of these models moved to the BigInteger path) and the hashes a
 on the prototype and not built: slow tail -5.2 to +3.6 % per operation with overlapping ranges (4 cores, wall time
 with collections, median of 5), normal strata unchanged, one thread 0.8 to 4.2 % slower; allocation -0.3 GB per
 operation. The conversion back costs what the temporaries cost (`results/c`).
+
+What points kept as limbs could remove at most (candidate C, part 2; one thread, timers on, a region's time with the
+collections it triggers; study `REPORT.md` section 5d, `results/c3`): the exact point construction of the
+arrangement is 2.4 % / 4.9 % of the normal stratum's time (20 pairs / 13 models with a rotated copy), half of it
+arithmetic and 40 % the gcd reduction, and 5.7 % / 1.7 % on 107554 / 42327; the centroid is 6.0 % / 7.5 % of the
+tail's time and 10.9 % / 23.2 % of its allocation; the loads of the stages of this note about 1.7 % / 7.1 %. On the
+normal stratum the bound itself is at the run-to-run range, so the construction on limbs is not built. On the tail
+three quarters of the bound are the classification (the centroid and the planes' coefficients kept as limbs); that
+is parked until lever 1 (#767) has landed, which changes how often these stages run.
 
 ## 4. Tests
 
