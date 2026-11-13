@@ -15,6 +15,7 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Length >= 1 && args[0] == "synthetic") { Synthetic(); return 0; }
+        if (args.Length >= 2 && args[0] == "sweep") return Sweep(args[1], args.Length >= 3 ? double.Parse(args[2], CultureInfo.InvariantCulture) : 0);
         if (args.Length >= 2 && args[0] == "sample") return Sample(args[1], args.Length >= 3 ? double.Parse(args[2], CultureInfo.InvariantCulture) : 0);
         Console.Error.WriteLine("usage: synthetic | sample <dir> [minSeparation]");
         return 2;
@@ -146,6 +147,32 @@ static class Program
             }
         }
         if (ms == 0 && fnTotal > 0) { Console.Error.WriteLine($"{fnTotal} false negatives"); return 1; }
+        return 0;
+    }
+
+    // ---- sweep: the self sweep of each scene's two frames (frames/*.ply of the sample; same topology), the time of the
+    // broad and the narrow phase, serial and parallel
+    static int Sweep(string dir, double ms)
+    {
+        Console.WriteLine("scene,vertices,triangles,mode,candidate_pairs,broad_ms,narrow_ms,total_ms,broad_share,status,earliest_toi");
+        foreach (string scene in Directory.GetDirectories(dir).OrderBy(d => d, StringComparer.Ordinal)) {
+            string frames = Path.Combine(scene, "frames");
+            if (Directory.Exists(frames) == false) continue;
+            var plys = Directory.GetFiles(frames, "*.ply").OrderBy(f => f, StringComparer.Ordinal).ToArray();
+            if (plys.Length < 2) continue;
+            DMesh3 m0 = StandardMeshReader.ReadMesh(plys[0]), m1 = StandardMeshReader.ReadMesh(plys[1]);
+            if (m0 == null || m1 == null || m0.MaxVertexID != m1.MaxVertexID) { Console.Error.WriteLine($"{scene}: cannot read or different topology"); continue; }
+            var end = new Vector3d[m0.MaxVertexID];
+            foreach (int vid in m1.VertexIndices()) end[vid] = m1.GetVertex(vid);
+            foreach (bool parallel in new[] { false, true }) {
+                var s = new MeshSweepCollision(m0, end) { Parallel = parallel, Options = new CcdOptions { MinSeparation = ms } };
+                s.Compute();      // warm-up
+                var sw = Stopwatch.StartNew();
+                s.Compute();
+                double total = sw.Elapsed.TotalMilliseconds;
+                Console.WriteLine(FormattableString.Invariant($"{Path.GetFileName(scene)},{m0.VertexCount},{m0.TriangleCount},{(parallel ? "parallel" : "serial")},{s.CandidatePairs},{s.BroadPhaseSeconds * 1000:F1},{s.NarrowPhaseSeconds * 1000:F1},{total:F1},{s.BroadPhaseSeconds * 1000 / total:F2},{s.Status},{s.EarliestTimeOfImpact:R}"));
+            }
+        }
         return 0;
     }
 
