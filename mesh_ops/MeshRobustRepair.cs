@@ -970,7 +970,8 @@ namespace gs
         /// mesh reduced (quadric error up to quadricDistance^2, no collapse that creates a self-intersection), or null
         /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
         /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
-        /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing.
+        /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing on most. A
+        /// reduction that is not certified is done once more with MaxDeviation (issue #747; 5 of the 800 sample wraps).
         /// </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
         {
@@ -1012,13 +1013,15 @@ namespace gs
                 WrapSimplifyMinQuality, true, slabs, maxThreads);
         }
 
+        /// <summary> the retry of SimplifyWithin bounds every collapse to this fraction of maxDistance (Reducer.MaxDeviation) </summary>
+        internal const double RetryDeviationFraction = 0.8;
+
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
-            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null)
+            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null, bool retryWithDeviation = true)
         {
             hausdorffSubdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
-            DMesh3 m = new DMesh3(mesh);
             // (the wrap's input, read only: no collapse creates a triangle that touches it)
             DMeshAABBTree3 clearTree = keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null;
             Action<Reducer> configure = (r) => {
@@ -1027,14 +1030,44 @@ namespace gs
                 r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
                 r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
+            DMesh3 m = reduce(mesh, quadricDistance, slabs, maxThreads, configure, cancelF, phases, "");
+            lap(phases, "reduce", timer);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            lap(phases, "check", timer);
+            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "certify", timer);
+            if (within || !retryWithDeviation || cancelF())
+                return within ? m : null;
+            // Not certified: the quadric error bounds the distance of each vertex to the planes it absorbed, not of the
+            // triangles to the mesh (on the Thingi10K 800 sample 5 of 800 wraps, 1.2 to 10.7 times maxDistance, at a fold of
+            // the wrap and elsewhere; issue 747). Once more with Reducer.MaxDeviation = maxDistance, which certifies every
+            // collapse against the mesh (10 to 30 times slower, so only here), then certified again as a whole (the bound
+            // with a margin: the certification's own bound cannot prove a distance right at maxDistance)
+            // (PartitionedReduction measures every slab and its last pass from the mesh given)
+            Action<Reducer> bounded = (r) => { configure(r); r.MaxDeviation = RetryDeviationFraction * maxDistance; };
+            m = reduce(mesh, quadricDistance, slabs, maxThreads, bounded, cancelF, phases, "retry/");
+            lap(phases, "retry", timer);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "retry/certify", timer);
+            return within ? m : null;
+        }
+
+        // a copy of mesh reduced to the quadric error quadricDistance^2 (PartitionedReduction on slabs, or one Reducer)
+        static DMesh3 reduce(DMesh3 mesh, double quadricDistance, int slabs, int maxThreads, Action<Reducer> configure, Func<bool> cancelF,
+            Dictionary<string, long> phases, string prefix)
+        {
+            DMesh3 m = new DMesh3(mesh);
             if (slabs > 0) {
                 var partitioned = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF };
                 m = partitioned.Reduce(m, quadricDistance * quadricDistance);
                 // (benchmarks: the parts of the reduction; the rounds run the slabs in parallel, setup and the last pass are serial)
                 if (phases != null) {
-                    phases["reduce/setup"] = partitioned.SetupMs;
-                    phases["reduce/rounds"] = partitioned.RegionMs;
-                    phases["reduce/last"] = partitioned.LastMs;
+                    phases[prefix + "reduce/setup"] = partitioned.SetupMs;
+                    phases[prefix + "reduce/rounds"] = partitioned.RegionMs;
+                    phases[prefix + "reduce/last"] = partitioned.LastMs;
                 }
             } else {
                 Reducer reducer = new Reducer(m);
@@ -1042,13 +1075,7 @@ namespace gs
                 reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
                 m = new DMesh3(m, true);
             }
-            lap(phases, "reduce", timer);
-            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
-                return null;
-            lap(phases, "check", timer);
-            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
-            lap(phases, "certify", timer);
-            return within ? m : null;
+            return m;
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees

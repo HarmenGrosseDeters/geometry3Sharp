@@ -1034,8 +1034,7 @@ namespace geometry3Sharp.Tests
             hd.Compute();
             Assert.True(hd.UpperBound <= 0.01, $"hausdorff {hd.UpperBound}");
             Assert.True(SameMesh(copy, sphere));        // the input is not changed
-            // the same reduction, but not certified within a much smaller distance: rejected
-            Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 1e-3, true, () => false));
+            // (not certified within a much smaller distance: rejected without the retry of issue #747, SimplifyWithinRetryApiTests)
             Assert.Null(MeshRobustRepair.SimplifyWithin(sphere, 0.01, 0.01, true, () => true));     // cancelled
         }
 
