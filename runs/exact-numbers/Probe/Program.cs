@@ -235,7 +235,7 @@ static class Program
                 ps[PathStats.Names[k]] = new[] { PathStats.Calls(k), Math.Round(PathStats.Ms(k), 1), Math.Round(PathStats.Bytes(k) / 1048576.0, 2) };
         row["paths"] = ps;      // calls, ms summed over threads (includes the timer overhead: calls * pair_ns), MB allocated inside
         row["pair_ns"] = Math.Round(PathStats.PairOverheadNs(), 1);
-        row["limb_mismatch"] = System.Threading.Interlocked.Read(ref LimbProto.Mismatch);
+        row["limb_mismatch"] = System.Threading.Interlocked.Read(ref LimbProto.Mismatch) + System.Threading.Interlocked.Read(ref LimbProto.CentroidMismatch);
         if (PathStats.HistOn) {
             var hs = new Dictionary<string, long[]>();
             for (int c = 0; c < PathStats.HistClasses; ++c) {

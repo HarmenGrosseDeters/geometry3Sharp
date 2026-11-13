@@ -467,10 +467,10 @@ index 8412296..5884136 100644
          // ---- the predicates of ExactMeshArrangement on fixed-width points (each the same determinant as its
 diff --git a/math/LimbProto.cs b/math/LimbProto.cs
 new file mode 100644
-index 0000000..316d32d
+index 0000000..5a8b4dc
 --- /dev/null
 +++ b/math/LimbProto.cs
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,185 @@
 +// LOCAL PROTOTYPE (exact-number study, candidate B probe; not library code): the classification's BigInteger sign stages
 +// (plane side, normal dot, orient3d of four homogeneous points) on stack limbs with FixedArith, the operands loaded from
 +// their BigInteger storage per call. The same integers, so the same signs. EXACT_PROTO contains "limbs".
@@ -570,6 +570,52 @@ index 0000000..316d32d
 +            FixedInt t2 = FixedArith.Mul(b, FixedArith.Sub(FixedArith.Mul(d, i, ref ar), FixedArith.Mul(f, g, ref ar), ref ar), ref ar);
 +            FixedInt t3 = FixedArith.Mul(c, FixedArith.Sub(FixedArith.Mul(d, h, ref ar), FixedArith.Mul(e, g, ref ar), ref ar), ref ar);
 +            return FixedArith.Add(FixedArith.Sub(t1, t2, ref ar), t3, ref ar);
++        }
++
++        internal static readonly bool Centroids = (Environment.GetEnvironmentVariable("EXACT_PROTO") ?? "").Contains("centroid");
++        internal static long CentroidMismatch;
++
++        static BigInteger big(FixedInt v)
++        {
++            if (v.Len == 0) return BigInteger.Zero;
++            var r = new BigInteger(new ReadOnlySpan<byte>(v.P, 8 * v.Len), true, false);
++            return v.Neg ? -r : r;
++        }
++
++        /// <summary>
++        /// PROBE of candidate C: the unreduced centroid of three homogeneous points (ExactMeshBoolean.centroid_point with
++        /// canonical = false) with its arithmetic on stack limbs; only the four results become BigInteger. false: too wide
++        /// </summary>
++        [SkipLocalsInit]
++        internal static bool Centroid(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, out ExactPoint3 result)
++        {
++            result = default(ExactPoint3);
++            int* cp = stackalloc int[12];
++            cp[0] = cap(a.X); cp[1] = cap(a.Y); cp[2] = cap(a.Z); cp[3] = cap(a.W);
++            cp[4] = cap(b.X); cp[5] = cap(b.Y); cp[6] = cap(b.Z); cp[7] = cap(b.W);
++            cp[8] = cap(c.X); cp[9] = cap(c.Y); cp[10] = cap(c.Z); cp[11] = cap(c.W);
++            int total = 0, widest = 0;
++            for (int k = 0; k < 12; ++k) { total += cp[k]; if (cp[k] > widest) widest = cp[k]; }
++            if (widest > MaxCap) return false;
++            ulong* buf = stackalloc ulong[total + 1];
++            // three products of two W (2 w each), nine products of 3 w, six sums of at most 3 w + 2, and 3 a.W wbc (3 w + 1 twice)
++            int scratch = 60 * widest + 64;
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            FixedInt* m = stackalloc FixedInt[12];
++            ulong* p = buf;
++            m[0] = load(a.X, p, cp[0]); p += cp[0]; m[1] = load(a.Y, p, cp[1]); p += cp[1]; m[2] = load(a.Z, p, cp[2]); p += cp[2]; m[3] = load(a.W, p, cp[3]); p += cp[3];
++            m[4] = load(b.X, p, cp[4]); p += cp[4]; m[5] = load(b.Y, p, cp[5]); p += cp[5]; m[6] = load(b.Z, p, cp[6]); p += cp[6]; m[7] = load(b.W, p, cp[7]); p += cp[7];
++            m[8] = load(c.X, p, cp[8]); p += cp[8]; m[9] = load(c.Y, p, cp[9]); p += cp[9]; m[10] = load(c.Z, p, cp[10]); p += cp[10]; m[11] = load(c.W, p, cp[11]);
++            FixedInt wbc = FixedArith.Mul(m[7], m[11], ref ar), wac = FixedArith.Mul(m[3], m[11], ref ar), wab = FixedArith.Mul(m[3], m[7], ref ar);
++            ulong three = 3;
++            FixedInt f3 = new FixedInt(&three, 1, false);
++            FixedInt x = FixedArith.Add(FixedArith.Add(FixedArith.Mul(m[0], wbc, ref ar), FixedArith.Mul(m[4], wac, ref ar), ref ar), FixedArith.Mul(m[8], wab, ref ar), ref ar);
++            FixedInt y = FixedArith.Add(FixedArith.Add(FixedArith.Mul(m[1], wbc, ref ar), FixedArith.Mul(m[5], wac, ref ar), ref ar), FixedArith.Mul(m[9], wab, ref ar), ref ar);
++            FixedInt z = FixedArith.Add(FixedArith.Add(FixedArith.Mul(m[2], wbc, ref ar), FixedArith.Mul(m[6], wac, ref ar), ref ar), FixedArith.Mul(m[10], wab, ref ar), ref ar);
++            FixedInt w = FixedArith.Mul(FixedArith.Mul(f3, m[3], ref ar), wbc, ref ar);
++            result = ExactPoint3.CreateUnreduced(big(x), big(y), big(z), big(w));
++            return true;
 +        }
 +
 +        /// <summary> sign of the 4x4 determinant of the rows (X, Y, Z, W) of a, b, c, d, as ExactMeshArrangement.Det4; 2: too wide </summary>
@@ -995,7 +1041,7 @@ index 941d751..a876b09 100644
          {
              return p.A * q.B == q.A * p.B && p.A * q.C == q.A * p.C && p.B * q.C == q.B * p.C
 diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
-index 2e35f5b..5814332 100644
+index 2e35f5b..652b1be 100644
 --- a/mesh_ops/ExactMeshBoolean.cs
 +++ b/mesh_ops/ExactMeshBoolean.cs
 @@ -2218,7 +2218,7 @@ namespace g3
@@ -1036,7 +1082,7 @@ index 2e35f5b..5814332 100644
              return s;
          }
  
-@@ -3102,6 +3102,14 @@ namespace g3
+@@ -3102,8 +3102,27 @@ namespace g3
          // the ray of front_crossings needs only its value
          [MethodImpl(JitHints.Optimize)]
          ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot, bool canonical)
@@ -1050,8 +1096,21 @@ index 2e35f5b..5814332 100644
 +        ExactPoint3 centroid_point_impl(ExactMeshArrangement.OutputTriangle ot, bool canonical)
          {
              ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
++            if (canonical == false && LimbProto.Centroids) {
++                ExactPoint3 lp;
++                if (LimbProto.Centroid(a, b, c, out lp)) {
++                    if (LimbProto.Check) {
++                        BigInteger w0 = b.W * c.W, w1 = a.W * c.W, w2 = a.W * b.W;
++                        ExactPoint3 rp = ExactPoint3.CreateUnreduced(a.X * w0 + b.X * w1 + c.X * w2, a.Y * w0 + b.Y * w1 + c.Y * w2, a.Z * w0 + b.Z * w1 + c.Z * w2, 3 * a.W * w0);
++                        if (rp.X != lp.X || rp.Y != lp.Y || rp.Z != lp.Z || rp.W != lp.W) System.Threading.Interlocked.Increment(ref LimbProto.CentroidMismatch);
++                    }
++                    return lp;
++                }
++            }
              BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
-@@ -3224,14 +3232,14 @@ namespace g3
+             if (canonical == false)
+                 return ExactPoint3.CreateUnreduced(
+@@ -3224,14 +3243,14 @@ namespace g3
                      sides++;
                      int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
                      if (sr == 2) {
@@ -1068,7 +1127,7 @@ index 2e35f5b..5814332 100644
                          exactSides++;
                      }
                      // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
-@@ -3939,7 +3947,12 @@ namespace g3
+@@ -3939,7 +3958,12 @@ namespace g3
          static int orient3d_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
          {
              PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
@@ -1082,7 +1141,7 @@ index 2e35f5b..5814332 100644
          }
  
          /// <summary>
-@@ -4067,7 +4080,13 @@ namespace g3
+@@ -4067,7 +4091,13 @@ namespace g3
              for (int k = 0; k < 4; ++k) {
                  m[k, 0] = pts[k].X; m[k, 1] = pts[k].Y; m[k, 2] = pts[k].Z; m[k, 3] = pts[k].W;
              }
@@ -1097,7 +1156,7 @@ index 2e35f5b..5814332 100644
          }
  
  
-@@ -4459,6 +4478,15 @@ namespace g3
+@@ -4459,6 +4489,15 @@ namespace g3
          // triangle with the next one around the edge on its back (solid) side, which runs the other way
          [MethodImpl(JitHints.Optimize)]
          List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)
