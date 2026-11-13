@@ -147,7 +147,7 @@ namespace gs
                 points = new List<Vector3d>(Points.Count);
                 bounds = AxisAlignedBox3d.Empty;
                 foreach (Vector3d p in Points) {
-                    if (double.IsNaN(p.x + p.y + p.z) || double.IsInfinity(p.x + p.y + p.z)) continue;
+                    if (!p.IsFinite) continue;   // (each component: their sum overflows for finite large values)
                     points.Add(p);
                     bounds.Contain(p);
                 }
