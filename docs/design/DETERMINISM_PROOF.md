@@ -248,6 +248,54 @@ instead of by parallel repeats, and not more often. The four others (`ExactMeshA
 `ExactMeshBoolean.cs` 4363) survive every determinism test and the harness: redundant on the inputs, or not reached by
 them. They belong to the stage 2 ledger.
 
+### 5.2 Stage 0: the exact kernel as a closed world (#859)
+
+Option A, stage 0, is built: the analyzers G3D0001-9 (`tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs`)
+are errors in the eleven kernel files of section 6.1 (`.editorconfig`), and the allow list with its registrations is
+`DeterministicApis.txt` at the repository root.
+
+| rule | checks | registration |
+|---|---|---|
+| G3D0001 (R0) | every member of another assembly that the kernel calls, reads, constructs or applies: methods, properties, fields, constructors, user-defined operators and conversions (also implicit ones), attributes, `lock`, `foreach`, `using` | one line per member with the reason why its result is specified on every runtime |
+| G3D0002 (R4, R7, R13, R14) | a restricted entry is used only where allowed: `[sites]` entries (`Math.Min / Max` of doubles, `[ThreadStatic]`, `Interlocked`, `Volatile`, `Monitor`) only in registered members; `[hash]` entries, and every `GetHashCode` call (also of the kernel's own types, whose dispatch the analyzer does not follow), only inside a `GetHashCode` implementation | a `site` line per member with its justification |
+| G3D0005 (R6) | every `#if` / `#elif` block, counted per member | an `if` line with the count and the test that checks both branches |
+| G3D0006 (R5) | every conversion of a `double` to an integer type (or enum), counted per member | a `cast` line with the count and the guard |
+| G3D0008 (R15) | every `[SkipLocalsInit]` member (on the method or a containing type) | a `skiplocalsinit` line with the argument that every element is written before it is read |
+| G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
+
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 76 external members (9 of them only on the `#if NET` side), 7 restricted to registered sites (13 sites), 1 restricted to `GetHashCode` implementations; 18 conditional-compilation blocks in 18 members; 2 `double` to integer conversions in 1 member(s); 9 `[SkipLocalsInit]` members.
+
+**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the eleven kernel files computes a
+function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
+clock, the culture, a hash seed or what an earlier call left in memory, apart from the listed obligations below. With P4
+(the kernel's predicates and exact constructions are defined by their inputs mathematically, and their correctness tests
+compare with oracles), every predicate returns the sign its specification defines. What carries the claim:
+
+- T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel uses `+ - * /`, `Math.Sqrt`, `Math.Abs`,
+  comparisons and bit reinterpretation only (G3D0001 has no libm, no FMA, no `float`, which G3E0001-4 also ban).
+- T2 (integer and `BigInteger` arithmetic exact): the exact tests. `(double)BigInteger` is *not* correctly rounded: it
+  truncates toward zero to 53 bits, on .NET 10 and .NET Framework 4.8 (x64 and 32-bit) alike, measured on 1238 values
+  with ties, sticky bits beyond the top 64 bits and the overflow boundary (`probe.bigint-double`, determinism run
+  43505530553, the same trace hash on all five configurations); `new BigInteger(double)` truncates exactly on both and
+  throws `OverflowException` for NaN and infinities (`probe.double-bigint`). Its values are therefore the same bits on both
+  runtimes (the filters' approximations, `ExactPoint3.ToDouble`, which `FixedArith.ToDouble` emulates); where the kernel
+  needs a correctly rounded double it rounds the exact value itself and converts at most 54 bits (`ExactDyadic`).
+- T3 (the allow-listed members compute their specified result): the reason on each line of the list; a probe where the
+  specification changed between runtimes (`Math.Min / Max`: `probe.minmax-zero`).
+- T4 (default floating-point environment) and T5 (the analyzer and Roslyn): as in section 4.1; T5 by the rule tests and
+  their mutants (`DeterminismScopeAnalyzerTests`: an unlisted call, an unregistered `#if`, an unguarded cast, an
+  unregistered `[SkipLocalsInit]`, a kernel file missing from the `.editorconfig` section).
+
+Obligations the claim names (review, not a tool check): the per-thread workspace of `AdaptivePredicates` is written
+before it is read (R14); `FixedPointStore.Add` hands out slots by `Interlocked.Increment`, a schedule-assigned id when
+`ExactMeshArrangement` adds concurrently (R13, P5): no kernel predicate reads it, its consumers are stage 2; the hash of
+`ExactPoint3` is seeded per process on .NET (R7) and reaches hash containers only, whose consumers are stages 1 and 2.
+The two branches of the generated `__dec` / `__bits` are checked against one oracle on each runtime (the net48 job), not
+against each other (the generator inlines the portable loop). Found while building it: the hand-made list of 72 members
+missed the two implicit `int` / `long` to `BigInteger` conversions and the `lock` of `FixedPointStore.Add` (76 now); no
+`Math.Min / Max` site of the kernel lets the sign of a zero reach a value (interval bounds go through `make`, which
+replaces a zero bound by -2^-1074 / +2^-1074; the other sites compare, or take `Math.Abs` values), so no kernel code changed.
+
 ## 6. Proposal
 
 ### 6.1 Which operations first
