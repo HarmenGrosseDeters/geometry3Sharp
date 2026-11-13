@@ -121,27 +121,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(202)]
-        [InlineData(203)]
-        [InlineData(204)]
-        public void NearTheUpperRange_ErrorNoLargerThanAtUnitScale(int exponent)
+        [InlineData(4.5)]
+        [InlineData(5.0)]
+        [InlineData(6.0)]
+        public void AboveTheUpperRange_ExactSumNotAWrongExpansion(double distance)
         {
-            // near the top of the range a box is either expanded with the unit-scale bits or summed exactly, so the error
-            // against the exact sum can only shrink; with the gate at d^5 <= MaxValue, 4 pi d^5 overflowed for distances
-            // in (2^204.07, 2^204.8] and the second-order term was silently wrong (numerics review of #744)
-            double s = BitConverter.Int64BitsToDouble((long)(1023 + exponent) << 52);
+            // a unit sphere scaled by 2^202, queries on a shell at distance * 2^202 from its centre: every box is about
+            // 2^204.1 .. 2^204.6 away, where 4 pi d^5 overflows. The gate (d^5 <= 2^1019) leaves the expansion out there and
+            // the value is the exact sum; with d^5 <= MaxValue the second-order term lost its d (x) d part (finite, 18 %
+            // off: about 5e-4 here; numerics review of #744). At unit scale the same queries use the expansion
+            double s = BitConverter.Int64BitsToDouble((long)(1023 + 202) << 52);
             DMesh3 unit = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 20 }.Generate().MakeDMesh();
             DMesh3 m = new DMesh3(unit);
             MeshTransforms.Scale(m, s);
             var unitTree = new DMeshAABBTree3(unit, true);
             var tree = new DMeshAABBTree3(m, true);
             var rnd = new Random(4);
-            for (int i = 0; i < 1000; ++i) {
-                Vector3d q = new Vector3d(6 * rnd.NextDouble() - 3, 6 * rnd.NextDouble() - 3, 6 * rnd.NextDouble() - 3);
-                double errUnit = Math.Abs(unitTree.FastWindingNumber(q) - unitTree.WindingNumber(q));
-                double err = Math.Abs(tree.FastWindingNumber(s * q) - tree.WindingNumber(s * q));
-                Assert.True(err <= errUnit + 1e-12, $"2^{exponent}, query {i}: error {err} vs {errUnit} at unit scale");
+            double expandedAtUnit = 0;
+            for (int i = 0; i < 300; ++i) {
+                Vector3d dir = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5).Normalized;
+                Vector3d q = distance * dir;
+                double fast = tree.FastWindingNumber(s * q), reference = tree.WindingNumber(s * q);
+                Assert.True(Math.Abs(fast - reference) < 1e-9, $"distance {distance}, query {i}: fast {fast:R} vs exact {reference:R}");
+                expandedAtUnit = Math.Max(expandedAtUnit, Math.Abs(unitTree.FastWindingNumber(q) - unitTree.WindingNumber(q)));
             }
+            // (the control: at unit scale the expansion is used and differs from the exact sum)
+            Assert.True(expandedAtUnit > 1e-9, $"distance {distance}: unit scale {expandedAtUnit}");
         }
 
         [Fact]
