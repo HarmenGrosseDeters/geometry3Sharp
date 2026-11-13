@@ -338,7 +338,7 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"measured move {move:R}");
             Assert.True(move > 1.0 && move >= 1.18 && move < 1.19, $"{move}");
             // (the design's move for the bound: at least P's whole move |P - v1| = 1.1853, not MinFeatureSize)
-            Assert.True(TerrainSlopeDesign.CatchLineMove(comp, 1.0) >= Math.Sqrt(1.05 * 1.05 + 0.55 * 0.55));
+            Assert.True(TerrainSlopeDesign.CatchLineMove(comp) >= Math.Sqrt(1.05 * 1.05 + 0.55 * 0.55));
         }
 
         [Fact]

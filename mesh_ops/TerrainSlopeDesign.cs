@@ -626,7 +626,7 @@ namespace gs
             {
                 double budget = Math.Max(c.SnapBudget, f.SnapBudget);
                 double dev = comp.SnapDeviation();
-                CatchMove = CatchLineMove(comp, UsedMinFeatureSize);
+                CatchMove = CatchLineMove(comp);
                 SnapBudget = budget; SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 if (!(ExactInterval.Up(budget + dev) <= Tolerance))
                     return fail(Statuses.SlopeViolation, cert_message(comp, dev, budget));
@@ -1500,7 +1500,7 @@ namespace gs
                 // of the deviation that the catch points' moves made, within Tolerance; else a larger margin δ, whose
                 // smaller MinFeatureSize moves them less
                 double dev = comp.SnapDeviation();
-                CatchMove = CatchLineMove(comp, UsedMinFeatureSize);
+                CatchMove = CatchLineMove(comp);
                 SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 phase("certificate");
                 if (!(ExactInterval.Up(SnapBudget + dev) <= Tolerance)) {
@@ -1656,7 +1656,7 @@ namespace gs
         /// snap and the merge can add up to almost 2 MinFeatureSize (not bounded by MinFeatureSize, the bound before the
         /// numerics review)
         /// </summary>
-        internal static double CatchLineMove(SlopeComposite comp, double minFeature) { return comp.MaxCatchMove(); }
+        internal static double CatchLineMove(SlopeComposite comp) { return comp.MaxCatchMove(); }
         /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
         internal int SkippedTerrainCopies;
         /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>
