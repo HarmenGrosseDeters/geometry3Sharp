@@ -105,7 +105,8 @@ namespace g3
         /// (internal, with KeepClearOf) true (default): a collapse is also skipped if the region between the old and the new
         /// surface meets KeepClearOf (TetrahedraMeet over the tetrahedra (old triangle, new position) of both one-rings), so
         /// a collapse cannot jump over a part of it that its new triangles do not touch. False: the end state only (before
-        /// the fix of issue 743).
+        /// the fix of issue 743). The guarantee is an induction: it assumes the mesh starts clear of KeepClearOf (the raw
+        /// alpha wrap does: it never touches its input) and enclosing it; every accepted collapse then keeps both.
         /// </summary>
         internal bool KeepClearOfSwept = true;
         /// <summary>
