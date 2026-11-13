@@ -1,6 +1,6 @@
 # Continuous collision detection: licence, prior art, API, bound plan (ROADMAP Phase 5 priority 2, stage 1)
 
-Status: stage 1 (2026-11-13), for the owner's decision. No library code changed. Tier L
+Status: stage 1 (2026-11-13), approved by the owner the same day (section 9). No library code changed. Tier L
 ([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)): the floating-point bound of section 6 gets an independent review at the
 Opus level before the stage-2 code merges (owner 2026-11-08). Roadmap item: [research.md](../roadmap/research.md#open),
 priority item 2.
@@ -377,11 +377,11 @@ Non-goals: rigid or curved trajectories (Ferguson et al. 2021, *Intersection-fre
 inclusion function), collision response, an exact true-positive certificate, the GPU / SIMD batch of Scalable CCD,
 point-edge / point-point queries as separate APIs (they are limit cases of the two queries).
 
-## 9. Open items for the owner
+## 9. Decisions (owner, 2026-11-13)
 
-1. Approve the method, the API of section 4 and the stage-2 plan (or change them).
-2. Option (a) or (b) of 6.4 for the bound (leaning: a).
-3. The licence of the Wang et al. benchmark data on the NYU archive could not be checked from the container; until it
-   is confirmed, the benchmark uses only the Apache-2.0 sample.
-4. Whether to build Tight-Inclusion (MIT) on a runner as a black-box timing and agreement reference (optional; no code
-   read or ported).
+1. Method, the API of section 4 and the stage-2 plan of section 8: go.
+2. The bound B1 is derived by hand (option a of 6.4), with the bound review of 6.3, which the coordinator routes when
+   the stage-2 PR is ready.
+3. Until the licence of the Wang et al. data on the NYU archive is confirmed, only the Apache-2.0 sample of the ToI
+   dataset is fetched, at run time, by the benchmark only (never committed; PR-tier tests never fetch).
+4. Tight-Inclusion as a black-box reference on a runner: later, not now (runner backlog).
