@@ -100,6 +100,12 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(ContouringCertificateStatus.NotSupported, dense.TopologyCertificateStatus);
                 Assert.False(dense.TopologyCertified);
             }
+            // two tetrahedra touching at one vertex (a non-manifold vertex: the part in a cell there is no 2-manifold)
+            DMesh3 bowtie = Union(Tetrahedron(new Vector3d(0.013, 0.021, 0.017), new Vector3d(1, 0.1, 0.2), new Vector3d(0.2, 1, 0.1), new Vector3d(0.1, 0.2, 1)),
+                Tetrahedron(new Vector3d(0.013, 0.021, 0.017), new Vector3d(-1, -0.2, -0.1), new Vector3d(-0.1, -1, -0.2), new Vector3d(-0.2, -0.1, -1)));
+            MeshWindingNumberSolidify bt = Solidify(bowtie, 32);
+            Assert.Equal(ContouringCertificateStatus.InputNotClean, bt.TopologyCertificateStatus);
+            Assert.False(bt.TopologyCertified || bt.ContourTopologyCertified);
             // an open input: its level set is not the input's surface
             var open = new DMesh3(box); open.RemoveTriangle(0, false, false);
             MeshWindingNumberSolidify o = Solidify(open, 32);

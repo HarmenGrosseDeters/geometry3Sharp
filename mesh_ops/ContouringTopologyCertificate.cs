@@ -386,10 +386,16 @@ namespace g3
         // False only if the triangle (a, b, c) certainly misses the closed box [lo, hi]: the closed bounding boxes are
         // apart (exact comparisons), or the box lies strictly on one side of the triangle's plane along n, the normal
         // as computed in double (any vector separates if the projections are apart; n's own rounding does not matter).
-        // The projections n . x are computed in double: |fl(n . x) - n . x| <= gamma_3 sum_k |n_k x_k| + 3 eta
-        // (Higham, Accuracy and Stability of Numerical Algorithms, 2002, 3.1; gamma_3 = 3u / (1 - 3u) < 4u, u = 2^-53,
-        // eta = 2^-1074 for products that underflow). The test widens every projection by 4u M + 4 eta, M the largest
-        // sum_k |n_k x_k| of the points projected, so a separation it finds is one of the exact projections.
+        // The projections n . x = t1 + t2 + t3 (t_k = n_k x_k) are summed in double, left to right, and compared after
+        // adding / subtracting err; M is the largest single |t_k| of the points projected, so 3M bounds every sum
+        // (Higham, Accuracy and Stability of Numerical Algorithms, 2002, 3.1; u = 2^-53, eta = 2^-1074):
+        //   - each projection: the three products u (|t1| + |t2| + |t3|) + 3 eta, the two additions u |s2| + u |s3|,
+        //     together at most 8 u M + 3 eta;
+        //   - a comparison A + err < B - err (A a box extreme, B a triangle extreme, or the other way): the rounding of
+        //     the two operands, u (|A| + |B|) <= 6 u M (plus O(u^2 M));
+        //   so the exact projections are apart if the computed ones are by more than 22 u M + 6 eta + O(u^2 M), which
+        //   2 err = 24 u M + 8 eta (err itself rounded: at least 24 u M (1 - 2u) + 8 eta) exceeds.
+        // A projection that overflows (products finite, their sum not) keeps the triangle, as does a normal that does.
         internal static bool may_meet_box(Vector3d a, Vector3d b, Vector3d c, Vector3d lo, Vector3d hi)
         {
             for (int k = 0; k < 3; ++k)
@@ -407,6 +413,9 @@ namespace g3
                 M = Math.Max(M, Math.Max(Math.Abs(l), Math.Abs(h)));
                 M = Math.Max(M, Math.Max(Math.Abs(n[k] * a[k]), Math.Max(Math.Abs(n[k] * b[k]), Math.Abs(n[k] * c[k]))));
             }
+            // (an infinite or NaN projection: no separation is known)
+            if (!(Math.Abs(tmin) <= double.MaxValue && Math.Abs(tmax) <= double.MaxValue && Math.Abs(bmin) <= double.MaxValue && Math.Abs(bmax) <= double.MaxValue))
+                return true;
             double err = 4 * Epsilon * 3 * M + 4 * double.Epsilon;
             if (!(err <= double.MaxValue)) return true;
             return !(bmax + err < tmin - err || bmin - err > tmax + err);

@@ -102,6 +102,16 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
+        // the tetrahedron (a, b, c, d), outward if (b - a, c - a, d - a) is right-handed
+        internal static DMesh3 Tetrahedron(Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+        {
+            var m = new DMesh3();
+            int ia = m.AppendVertex(a), ib = m.AppendVertex(b), ic = m.AppendVertex(c), id = m.AppendVertex(d);
+            if (ExactPredicates.Orient3d(a, b, c, d) > 0) { int t = ib; ib = ic; ic = t; }
+            m.AppendTriangle(ia, ib, ic); m.AppendTriangle(ia, id, ib); m.AppendTriangle(ib, id, ic); m.AppendTriangle(ic, id, ia);
+            return m;
+        }
+
         internal static DMesh3 Reversed(DMesh3 m) { var c = new DMesh3(m); c.ReverseOrientation(false); return c; }
 
         static readonly Matrix3d Tilt = Matrix3d.AxisAngleD(Vector3d.AxisZ, 23) * Matrix3d.AxisAngleD(Vector3d.AxisX, 11);
@@ -534,6 +544,47 @@ namespace geometry3Sharp.Tests
             Assert.True(ContouringTopologyCertificate.may_meet_box(new Vector3d(1, 1, 1), new Vector3d(3, 1, 1.5), new Vector3d(1, 3, 1.5), lo, hi));
         }
 
+        [Fact]
+        public void MayMeetBox_TouchingAtExtremeScales_IsKept()
+        {
+            // exactly touching triangles (at a box corner, along a face), scaled to about 2^500 (the projections overflow
+            // while the products do not: an infinite projection must keep the triangle) and to the subnormal range (the
+            // normal underflows to 0); a separated triangle is still dropped where the projections are finite
+            foreach (double sc in new[] { 1.0, Math.Pow(2, 340), Math.Pow(2, 500), Math.Pow(2, -500), Math.Pow(2, -1040) }) {
+                Vector3d lo = Vector3d.Zero, hi = sc * Vector3d.One;
+                Func<double, double, double, Vector3d> P = (x, y, z) => sc * new Vector3d(x, y, z);
+                // a corner
+                Assert.True(ContouringTopologyCertificate.may_meet_box(P(1, 1, 1), P(3, 1, 1.5), P(1, 3, 1.5), lo, hi), "corner at " + sc);
+                Assert.True(ContouringTopologyCertificate.may_meet_box(P(1, 1, 1), P(3, 2, 1), P(2, 3, 1), lo, hi), "corner in the top plane at " + sc);
+                // the top face, from above, tilted: touching along the edge x = 0.5, z = 1
+                Assert.True(ContouringTopologyCertificate.may_meet_box(P(0.5, -1, 1), P(0.5, 3, 1), P(2, 1, 3), lo, hi), "face at " + sc);
+            }
+            foreach (double sc in new[] { 1.0, Math.Pow(2, 340), Math.Pow(2, -500) }) {
+                Vector3d lo = Vector3d.Zero, hi = sc * Vector3d.One;
+                Assert.False(ContouringTopologyCertificate.may_meet_box(sc * new Vector3d(-1, -1, 1.5), sc * new Vector3d(3, -1, 1.5), sc * new Vector3d(-1, 3, 3.6), lo, hi), "separated at " + sc);
+            }
+            // the scales where every product n_k x_k is finite but a three-term projection overflows (the review's case M1):
+            // the touching triangle is kept there too
+            int overflowing = 0;
+            for (double e = 330; e <= 345; e += 0.125) {
+                double sc = Math.Pow(2, e);
+                Vector3d lo = Vector3d.Zero, hi = sc * Vector3d.One;
+                // (in the plane x + y + z = 3, which meets the box only at its corner: a normal of three equal parts, so
+                // three equal products add up to an overflow)
+                Vector3d a = sc * new Vector3d(1, 1, 1), b = sc * new Vector3d(2, 1, 0), c = sc * new Vector3d(1, 0, 2);
+                Vector3d n = (b - a).Cross(c - a);
+                bool productsFinite = true, sumInfinite = false;
+                foreach (Vector3d x in new[] { a, b, c, lo, hi }) {
+                    double t1 = n.x * x.x, t2 = n.y * x.y, t3 = n.z * x.z;
+                    productsFinite &= !double.IsInfinity(t1) && !double.IsInfinity(t2) && !double.IsInfinity(t3);
+                    sumInfinite |= double.IsInfinity(t1 + t2 + t3);
+                }
+                if (productsFinite && sumInfinite) overflowing++;
+                Assert.True(ContouringTopologyCertificate.may_meet_box(a, b, c, lo, hi), "corner at 2^" + e);
+            }
+            Assert.True(overflowing > 0, "no scale reaches a finite product with an infinite projection");
+        }
+
         // ---- the level set ----
 
         [Fact]
@@ -607,6 +658,13 @@ namespace geometry3Sharp.Tests
             DMesh3 welded = ContouringLevelSet.CleanCopy(soup);
             Assert.NotNull(welded);
             Assert.Equal(8, welded.VertexCount);
+            // a vertex where two parts touch (a bowtie: every edge regular, the vertex not), welded or shared
+            DMesh3 tetA = Tetrahedron(Vector3d.Zero, new Vector3d(1, 0.1, 0.2), new Vector3d(0.2, 1, 0.1), new Vector3d(0.1, 0.2, 1));
+            DMesh3 tetB = Tetrahedron(Vector3d.Zero, new Vector3d(-1, -0.2, -0.1), new Vector3d(-0.1, -1, -0.2), new Vector3d(-0.2, -0.1, -1));
+            DMesh3 touching = Union(tetA, tetB);
+            Assert.Equal(8, touching.VertexCount);
+            Assert.NotNull(ContouringLevelSet.CleanCopy(tetA));
+            Assert.Null(ContouringLevelSet.CleanCopy(touching));
             // a triangle of no area (a vertex moved onto the line of the other two of a triangle): rejected
             var flat = new DMesh3(box);
             Index3i t0 = flat.GetTriangle(0);
