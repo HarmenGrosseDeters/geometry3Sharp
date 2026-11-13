@@ -56,6 +56,10 @@ namespace gs
         /// MeshWindingNumberSolidify.ComputeTopologyCertificate); off by default, no effect on the contour
         /// </summary>
         public bool ComputeTopologyCertificate;
+        /// <summary> (tests) the cell tests of the certificate in parallel (the same result as serial, bit for bit) </summary>
+        internal bool CertificateParallel = true;
+        /// <summary> (tests) the fewest cells per chunk of the parallel path </summary>
+        internal int CertificateMinChunk = 2048;
         /// <summary> the certificate of the last contour (ComputeTopologyCertificate) </summary>
         public ContouringCertificateStatus CertificateStatus = ContouringCertificateStatus.NotComputed;
         /// <summary> the cells of the last contour that the certificate does not certify, sorted (empty: certified) </summary>
@@ -201,25 +205,31 @@ namespace gs
             CertificateStatus = ContouringCertificateStatus.NotSupported;
             if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
                 return;
+            var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
             DMesh3 L = ContouringLevelSet.CleanCopy(Meshes[0]);
+            add_phase("certificate.clean", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
             CertificateStatus = ContouringCertificateStatus.InputNotClean;
             if (L == null)
                 return;
             int components, levelSetComponents;
             bool[] inL = ContouringLevelSet.Classify(L, out components, out levelSetComponents);
+            add_phase("certificate.levelset", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
             CertificateStatus = ContouringCertificateStatus.LevelSetUndecided;
             if (inL == null)
                 return;
             CertificateGrid grid = dc.ContourGrid();
             var cert = new ContouringTopologyCertificate(L, inL, grid);
+            add_phase("certificate.bins", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
             int B = grid.BinSize;
-            // the cells: the contour's, and those L's triangles may meet (a refined bin: its fine cells)
+            // the cells: the contour's, and those L's triangles may meet (a refined bin: its fine cells). (The order only
+            // decides the chunks of the parallel path; the uncertified cells are sorted at the end.)
             var contourCells = new HashSet<(Vector3i, int)>();
             var cells = new List<KeyValuePair<Vector3i, int>>();
             foreach (var kv in dc.ContourCells()) {
                 contourCells.Add((kv.Key, kv.Value));
                 cells.Add(kv);
             }
+            int nContour = cells.Count;
             var meshSide = new HashSet<(Vector3i, int)>();
             foreach (var kv in dc.CertificateMeshCells) meshSide.Add((kv.Key, kv.Value));
             foreach (Vector3i bin in cert.Bins) {
@@ -231,18 +241,26 @@ namespace gs
                 } else if (!contourCells.Contains((B * bin, B)))
                     cells.Add(new KeyValuePair<Vector3i, int>(B * bin, B));
             }
-            cells.Sort((a, b) => a.Key.z != b.Key.z ? a.Key.z.CompareTo(b.Key.z) : a.Key.y != b.Key.y ? a.Key.y.CompareTo(b.Key.y)
-                : a.Key.x != b.Key.x ? a.Key.x.CompareTo(b.Key.x) : a.Value.CompareTo(b.Value));
-            foreach (var kv in cells) {
-                var key = (kv.Key, kv.Value);
-                bool contour = contourCells.Contains(key), meets;
-                ContouringCertificateReason reason = cert.Cell(kv.Key, kv.Value, contour, out meets);
-                if (reason == ContouringCertificateReason.None && contour && (dc.CertificateMeshFails || meshSide.Contains(key)))
-                    reason = ContouringCertificateReason.MeshSide;
-                if (reason == ContouringCertificateReason.None)
-                    continue;
+            var isContour = new bool[cells.Count];
+            for (int i = 0; i < nContour; ++i) isContour[i] = true;
+            add_phase("certificate.setup", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            ContouringCertificateReason[] reasons = cert.Cells(cells, isContour, CertificateParallel, CertificateMinChunk);
+            add_phase("certificate.cells", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            var refused = new List<int>();
+            for (int i = 0; i < cells.Count; ++i) {
+                if (reasons[i] == ContouringCertificateReason.None && isContour[i]
+                    && (dc.CertificateMeshFails || meshSide.Contains((cells[i].Key, cells[i].Value))))
+                    reasons[i] = ContouringCertificateReason.MeshSide;
+                if (reasons[i] != ContouringCertificateReason.None) refused.Add(i);
+            }
+            refused.Sort((ia, ib) => {
+                Vector3i a = cells[ia].Key, b = cells[ib].Key;
+                return a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x != b.x ? a.x.CompareTo(b.x) : cells[ia].Value.CompareTo(cells[ib].Value);
+            });
+            foreach (int i in refused) {
+                var kv = cells[i];
                 UncertifiedCells.Add(new ContouringUncertifiedCell() {
-                    Box = new AxisAlignedBox3d(grid.Node(kv.Key), grid.Node(kv.Key + kv.Value * Vector3i.One)), Reason = reason
+                    Box = new AxisAlignedBox3d(grid.Node(kv.Key), grid.Node(kv.Key + kv.Value * Vector3i.One)), Reason = reasons[i]
                 });
             }
             CertificateStatus = UncertifiedCells.Count == 0 ? ContouringCertificateStatus.Certified : ContouringCertificateStatus.CellsUncertified;

@@ -113,7 +113,7 @@ namespace geometry3Sharp.Tests
             public Vector3d Origin; public double H;
             public DMesh3 Mesh; public DMeshAABBTree3 Tree; public AxisAlignedBox3d Root;
             public HashSet<Vector3i> Flipped = new HashSet<Vector3i>();
-            readonly Dictionary<Vector3i, bool> signs = new Dictionary<Vector3i, bool>();
+            readonly System.Collections.Concurrent.ConcurrentDictionary<Vector3i, bool> signs = new System.Collections.Concurrent.ConcurrentDictionary<Vector3i, bool>();
             public override double Coord(int axis, int i) { return Origin[axis] + H * i; }
             public override int BinSize { get { return 1; } }
             public override void CellFaces(Vector3i min, int size, List<GridFace> faces)
@@ -640,6 +640,40 @@ namespace geometry3Sharp.Tests
                 if (s.IsExact) {
                     Assert.Equal(baseT, rt);
                     Assert.Equal(baseS, Certify(ss, Grid(ss, o, s.ApplyLength(0.1))));
+                }
+            }
+        }
+
+        [Fact]
+        public void Cells_ParallelEqualsSerial_Repeated()
+        {
+            // the parallel path (chunks of 16 cells here: many borders between chunks) gives the serial reasons, bit for
+            // bit, in repeated runs; on scenes with refusals of every kind
+            double h = 0.1;
+            Vector3d c = new Vector3d(O.x + 10.5 * h + 0.003, O.y + 10.5 * h - 0.002, 0.004);
+            var scenes = new[] {
+                Torus(new Vector3d(0.01, 0.02, 0.03), 0.6, 0.25, 48, 24, Tilt),
+                Union(Box(new Vector3d(0.004, 0.006, O.z + 10.5 * h), new Vector3d(0.5, 0.4, 0.015), Matrix3d.AxisAngleD(Vector3d.AxisZ, 7)),
+                      Box(c + new Vector3d(0, 0, 0.5), new Vector3d(0.02, 0.02, 0.12), Matrix3d.AxisAngleD(Vector3d.AxisZ, 13))),
+                Box(new Vector3d(O.x + 10.5 * h + 0.0013, O.y + 10.5 * h - 0.0011, O.z + 10 * h + 0.0017), new Vector3d(0.15, 0.02, 0.03), Matrix3d.AxisAngleD(Vector3d.AxisZ, 45.3)),
+            };
+            foreach (DMesh3 m in scenes) {
+                ContouringTopologyCertificate cert;
+                var serial = Certify(m, Grid(m, O, h), out cert);
+                Assert.NotEmpty(Refused(serial));
+                var cells = serial.Keys.Select(k => new KeyValuePair<Vector3i, int>(k, 1)).ToList();
+                var flags = cells.Select(k => true).ToList();
+                for (int rep = 0; rep < 3; ++rep) {
+                    DMesh3 clean = ContouringLevelSet.CleanCopy(m);
+                    int comps, lcomps;
+                    var p = new ContouringTopologyCertificate(clean, ContouringLevelSet.Classify(clean, out comps, out lcomps), Grid(m, O, h));
+                    ContouringCertificateReason[] par = p.Cells(cells, flags, true, 16);
+                    var q = new ContouringTopologyCertificate(clean, ContouringLevelSet.Classify(clean, out comps, out lcomps), Grid(m, O, h));
+                    ContouringCertificateReason[] ser = q.Cells(cells, flags, false);
+                    for (int i = 0; i < cells.Count; ++i) {
+                        Assert.Equal(ser[i], par[i]);
+                        Assert.Equal(serial[cells[i].Key], ser[i]);
+                    }
                 }
             }
         }

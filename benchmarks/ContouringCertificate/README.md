@@ -127,3 +127,26 @@ this PR, 4 cores, 2026-11-13, one run:
   (1790-2005 ms for 265040 cells). The second run, on the final code, gave the same results in all 78 runs.
   The cleanup and the reduction come on top of the contouring by default, so against a default `Compute` the share is
   lower.
+
+## Commit 4: the parallel path (`ContouringTopologyCertificate.Cells`)
+
+The cells in contiguous chunks (4 per core), each tested by a worker with its own marks and tables over the shared,
+read-only L, bins and grid; faces and edges on the borders between chunks are tested twice. A face's or an edge's
+record, and so a cell's reason, is a function of its geometry alone, so the result equals the serial loop bit for bit
+(tests: parallel against serial in repeated runs, chunks of 16 and 64 cells; the lever-6 runs below give the serial
+runs' statuses and cells in all 52 runs). One entry in `core/ExactCodeAllowList.cs`. Also: the uncertified cells are
+sorted at the end instead of all cells, and the serial tables are allocated on first use.
+
+Two runs on 4 cores (`solid ... -- 64,128`; certificate = the clean copy and its self-intersection check, the
+level-set classification, the bins, the cell lists, the cell tests and the mesh side):
+
+| set | cell | certificate ms | contour ms | certificate / contour | of it: clean, bins, cell tests |
+|---|---|---|---|---|---|
+| procedural | / 64 | 198-220 | 768-791 | 26-28 % | 8-10, 26-34, 144-157 |
+| T1 clean | / 64 | 628-677 | 2715-2792 | 23-24 % | 63-70, 145-163, 310-404 |
+| procedural | / 128 | 413-429 | 3414-3559 | 12 % | 4-6, 58-71, 278-281 |
+| T1 clean | / 128 | 871-1002 | 5292-5454 | 16-19 % | 58-64, 210-239, 476-653 |
+
+Against the serial path (commit 3) at / 128: the clean T1 meshes from 33-34 % to 16-19 %, the solids from 17-21 % to
+12 %. The target (15 % at most) is met on the solids, not quite on the clean T1 meshes; at / 64 the contouring is short
+and the fixed costs (the bins, the clean copy) weigh more. Chunks of 2 or 1 per core were not faster (three runs each).

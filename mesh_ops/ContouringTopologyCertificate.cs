@@ -197,9 +197,10 @@ namespace g3
                     lo[k] = first_bin(k, triBox[6 * t + k], B);
                     hi[k] = last_bin(k, triBox[6 * t + 3 + k], B);
                 }
-                // (a triangle over several bins: only the bins its plane may meet, may_meet_box; large slanted faces of CAD
+                // (a triangle over many bins: only the bins its plane may meet, may_meet_box; large slanted faces of CAD
                 // solids span many bins with their boxes)
-                bool one = lo == hi;
+                // (for a triangle over a few bins the test costs more than the empty cells it saves)
+                bool one = (long)(hi.x - lo.x + 1) * (hi.y - lo.y + 1) * (hi.z - lo.z + 1) <= 8;
                 for (int z = lo.z; z <= hi.z; ++z)
                     for (int y = lo.y; y <= hi.y; ++y)
                         for (int x = lo.x; x <= hi.x; ++x) {
@@ -222,11 +223,67 @@ namespace g3
             for (int i = 0; i < keys.Length; ++i)
                 if (i == 0 || keys[i] != keys[i - 1]) { binKeys[nb] = keys[i]; binStart[nb++] = i; }
             binStart[nb] = keys.Length;
-            // (about three new faces and edges per cell; presized: the growth of these tables cost a third of the time)
-            int cap = (int)Math.Min(1 << 26, 4L * binKeys.Length * B * B + 64);
+            expectedCells = (int)Math.Min(1 << 24, (long)binKeys.Length * B * B);
+        }
+        int expectedCells;
+
+        // the tables of faces and edges, on first use (the parallel path's workers have their own): about three new faces
+        // and edges per cell; presized, the growth of these tables cost a third of the time
+        void ensure_tables()
+        {
+            if (edgeRecords != null) return;
+            int cap = (int)Math.Min(1 << 26, 4L * expectedCells + 64);
             edgeRecords = new Dictionary<GridSegment, EdgeRecord>(cap);
             faceRecords = new Dictionary<GridFace, FaceRecord>(cap);
             faceT = new List<int>(2 * cap); faceM = new List<int>(cap);
+        }
+
+        // a worker of the parallel path (Cells): the same L, grid and bins, read only; its own marks and tables
+        ContouringTopologyCertificate(ContouringTopologyCertificate shared, int expectedCells)
+        {
+            grid = shared.grid; P = shared.P;
+            triV = shared.triV; triE = shared.triE; edgeV = shared.edgeV; edgeT = shared.edgeT;
+            vtxTriStart = shared.vtxTriStart; vtxTris = shared.vtxTris; vtxEdgeStart = shared.vtxEdgeStart; vtxEdges = shared.vtxEdges;
+            triBox = shared.triBox; binKeys = shared.binKeys; binStart = shared.binStart; binTris = shared.binTris;
+            triMark = new int[shared.triMark.Length]; triLocal = new int[shared.triLocal.Length];
+            edgeMark = new int[shared.edgeMark.Length]; vtxMark = new int[shared.vtxMark.Length];
+            this.expectedCells = expectedCells;
+        }
+
+        /// <summary>
+        /// The test of each cell (min node, size; contourCell as in Cell), in order. Parallel: the cells in contiguous
+        /// chunks, each tested by a worker with its own tables (the faces and edges on the borders between chunks are
+        /// tested twice). The same reasons as the serial loop, bit for bit: a face's or an edge's record, and so a cell's
+        /// reason, is a function of its geometry alone (the triangles of L that meet it, from any superset; the first
+        /// reason by a fixed priority), not of which cell tested it first. The grid's methods must be thread-safe (read
+        /// only) for the parallel path.
+        /// </summary>
+        /// <param name="minChunk"> the fewest cells per chunk (tests: small, to get many chunks from a small input) </param>
+        public ContouringCertificateReason[] Cells(IList<KeyValuePair<Vector3i, int>> cells, IList<bool> contourCell, bool parallel, int minChunk = 2048)
+        {
+            var result = new ContouringCertificateReason[cells.Count];
+            int nChunks = parallel ? Math.Min(4 * Environment.ProcessorCount, cells.Count / Math.Max(1, minChunk)) : 1;
+            if (nChunks <= 1) {
+                for (int i = 0; i < cells.Count; ++i) {
+                    bool meets;
+                    result[i] = Cell(cells[i].Key, cells[i].Value, contourCell[i], out meets);
+                }
+                return result;
+            }
+            var workers = new ContouringTopologyCertificate[nChunks];
+            int n = cells.Count;
+            gParallel.ForEach(Interval1i.Range(nChunks), (k) => {
+                int i0 = (int)((long)n * k / nChunks), i1 = (int)((long)n * (k + 1) / nChunks);
+                var w = new ContouringTopologyCertificate(this, i1 - i0);
+                for (int i = i0; i < i1; ++i) {
+                    bool meets;
+                    result[i] = w.Cell(cells[i].Key, cells[i].Value, contourCell[i], out meets);
+                }
+                workers[k] = w;
+            });
+            // (integer counters, summed in chunk order)
+            foreach (var w in workers) { SegmentTriangleTests += w.SegmentTriangleTests; SegmentFaceTests += w.SegmentFaceTests; }
+            return result;
         }
 
         /// <summary> the bins (in bin units, bin m spans nodes BinSize m .. BinSize (m + 1)) that triangles of L overlap </summary>
@@ -402,7 +459,7 @@ namespace g3
         // ---- edges ----
 
         struct EdgeRecord { public bool Degenerate, Crossed; public int Count, Triangle; }
-        readonly Dictionary<GridSegment, EdgeRecord> edgeRecords;
+        Dictionary<GridSegment, EdgeRecord> edgeRecords;
 
         EdgeRecord edge(GridSegment e, List<int> tris)
         {
@@ -429,9 +486,9 @@ namespace g3
         // ---- faces ----
 
         struct FaceRecord { public ContouringCertificateReason Fail; public int TStart, TCount, MStart, MCount; }
-        readonly Dictionary<GridFace, FaceRecord> faceRecords;
+        Dictionary<GridFace, FaceRecord> faceRecords;
         // T(f) and M(f) of all faces, by range
-        readonly List<int> faceT, faceM;
+        List<int> faceT, faceM;
         readonly List<GridSegment> faceEdges = new List<GridSegment>();
         readonly List<int> endEdge = new List<int>(), endTri = new List<int>();
 
@@ -564,6 +621,7 @@ namespace g3
         public ContouringCertificateReason Cell(Vector3i min, int size, bool contourCell, out bool meets)
         {
             meets = false;
+            ensure_tables();
             int B = grid.BinSize;
             Vector3i bin = new Vector3i(fdiv(min.x, B), fdiv(min.y, B), fdiv(min.z, B));
             int bi = Array.BinarySearch(binKeys, bin_key(bin.x, bin.y, bin.z));

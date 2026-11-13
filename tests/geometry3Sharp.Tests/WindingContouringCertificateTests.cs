@@ -295,6 +295,34 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Parallel_EqualsSerial_Repeated()
+        {
+            // the certificate's cell tests in parallel and serial: the same status and cells, bit for bit, in repeated runs
+            // (chunks of 64 cells: many borders; a thin torus with refusals, and the slabs with a refined two-level grid)
+            DMesh3 thin = Torus(new Vector3d(0.01, 0.02, 0.03), 0.6, 0.02, 96, 8, Tilt);
+            DMesh3 slabs = Union(PolyCube(4, 4, 1, (x, y, z) => true, 0.25, P0), PolyCube(4, 4, 1, (x, y, z) => true, 0.25, P0 + new Vector3d(0.0031, 0.0047, 0.2617)));
+            foreach (DMesh3 m in new[] { thin, slabs }) {
+                MeshWindingNumberSolidify reference = null;
+                for (int rep = 0; rep < 3; ++rep)
+                    foreach (bool parallel in new[] { false, true }) {
+                        var s = new MeshWindingNumberSolidify(m) {
+                            Adaptive = true, GridResolution = 64, ComputeTopologyCertificate = true, CleanupResult = false, ReduceTolerance = 0,
+                            CertificateParallel = parallel, CertificateMinChunk = 64
+                        };
+                        Assert.True(s.Compute());
+                        if (reference == null) { reference = s; continue; }
+                        Assert.Equal(reference.TopologyCertificateStatus, s.TopologyCertificateStatus);
+                        Assert.Equal(reference.UncertifiedCells.Count, s.UncertifiedCells.Count);
+                        for (int i = 0; i < s.UncertifiedCells.Count; ++i) {
+                            Assert.Equal(reference.UncertifiedCells[i].Reason, s.UncertifiedCells[i].Reason);
+                            Assert.Equal(reference.UncertifiedCells[i].Box.Min, s.UncertifiedCells[i].Box.Min);
+                            Assert.Equal(reference.UncertifiedCells[i].Box.Max, s.UncertifiedCells[i].Box.Max);
+                        }
+                    }
+            }
+        }
+
+        [Fact]
         public void Certificate_DoesNotChangeTheResult()
         {
             DMesh3 thin = Torus(new Vector3d(0.01, 0.02, 0.03), 0.6, 0.05, 96, 12, Tilt);

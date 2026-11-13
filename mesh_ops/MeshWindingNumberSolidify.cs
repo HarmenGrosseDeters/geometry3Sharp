@@ -112,6 +112,10 @@ namespace gs
         /// result. Off by default; it does not change the contour or the result.
         /// </summary>
         public bool ComputeTopologyCertificate = false;
+        /// <summary> (tests) the certificate's cell tests in parallel (the same result as serial, bit for bit) </summary>
+        internal bool CertificateParallel = true;
+        /// <summary> (tests) the fewest cells per chunk of the certificate's parallel path </summary>
+        internal int CertificateMinChunk = 2048;
 
         // outputs
         /// <summary> the solid surface computed by Compute() (a new, compacted mesh); null before </summary>
@@ -206,7 +210,8 @@ namespace gs
                 Adaptive = Adaptive, FastWindingBeta = FastWindingBeta, MaxRefineLevels = MaxRefineLevels,
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
-                CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate
+                CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate,
+                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk
             };
             bool ok = inner.compute_unit();
             Result = inner.Result;
@@ -273,7 +278,8 @@ namespace gs
             if (Adaptive && Method == Methods.DualContouring) {
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement,
-                    ComputeTopologyCertificate = ComputeTopologyCertificate
+                    ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
+                    CertificateMinChunk = CertificateMinChunk
                 };
                 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
                 WindingEvaluations = wc.WindingEvaluations;

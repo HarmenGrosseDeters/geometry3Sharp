@@ -109,6 +109,7 @@ class Program
             r[p + "ms"] = sw.ElapsedMilliseconds;
             if (!cert) { r["contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c) ? c : -1; continue; }
             r["certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm) ? cm : -1;
+            foreach (var kv in s.PhaseMilliseconds) if (kv.Key.StartsWith("contour.certificate.")) r[kv.Key.Substring(8)] = kv.Value;
             r["status"] = s.TopologyCertificateStatus.ToString();
             r["certified"] = s.TopologyCertified;
             r["uncertified_cells"] = s.UncertifiedCells.Count;
