@@ -235,7 +235,7 @@ namespace gs
             bool try_insert(Vector3d p, int hint, out bool surface)
             {
                 surface = false;
-                if (!(p.x == p.x && p.y == p.y && p.z == p.z)) return false;
+                if (double.IsNaN(p.x) || double.IsNaN(p.y) || double.IsNaN(p.z)) return false;
                 removed.Clear(); added.Clear();
                 if (dt.Insert(p, hint, floor, out _, removed, added) != Delaunay3.InsertResult.Inserted) return false;
                 Counts["trial_insertions"]++;
