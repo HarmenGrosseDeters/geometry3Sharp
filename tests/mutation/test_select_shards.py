@@ -399,7 +399,8 @@ class SelectShards(unittest.TestCase):
         self.assertNotIn("paths-ignore", on)
         self.assertIn("schedule:", on)
         self.assertIn("workflow_dispatch:", on)
-        self.assertIn("cancel-in-progress: true", wf)
+        # (a scheduled or dispatched run is never cancelled by another one: the late cron would cancel the dispatched full run)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", wf)
         jobs = wf[wf.index("\njobs:"):]
         changes = jobs[jobs.index("\n  changes:"):jobs.index("\n  exact-arithmetic:")]
         self.assertIn("set -o pipefail", changes)

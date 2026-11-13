@@ -407,11 +407,11 @@ public documentation only. The user's company code was not looked at.
 
 ## 2D polygon booleans and offsets (`addons/geometry3Sharp.Clipper2`: `Clipper2Polygons`, `ClipperFrame`)
 
-An optional package that calls a library; no code taken over.
+An optional package on top of Clipper2, whose C# 2.0.0 sources it carries (vendored, internal; since 2026-11-12, row below). The licence notices ship in the package as `THIRD-PARTY-NOTICES.txt`.
 
 | Part | Source |
 |---|---|
-| Booleans, fill rules, open-path clipping, offsets (join and end types, miter limit, arc tolerance), Minkowski sums, path simplification | **Clipper2 2.0.0** by Angus Johnson, Boost Software License 1.0 (https://github.com/AngusJohnson/Clipper2; the `License.txt` in the NuGet package `Clipper2` is BSL-1.0, checked 2026-11-01). A package dependency of `geometry3Sharp.Clipper2`, not of `geometry3Sharp`. Only its public API is used. Not taken from the DAP fork's `Clipper2Wrapper.cs` ([audit](design/DAP_BUGFIX_AUDIT.md#features-not-adopted-each-needs-its-own-provenance-decision)), which was not read for this |
+| Booleans, fill rules, open-path clipping, offsets (join and end types, miter limit, arc tolerance), Minkowski sums, path simplification | **Clipper2 2.0.0** by Angus Johnson, Boost Software License 1.0 (https://github.com/AngusJohnson/Clipper2; the `License.txt` in the NuGet package `Clipper2` is BSL-1.0, checked 2026-11-01). Vendored since 2026-11-12 (owner decision 2026-11-12, option (b) of [platform.md](roadmap/platform.md#open)): the C# sources of `CSharp/Clipper2Lib` at tag `Clipper2_2.0.1`, commit `21ebba05db8894f0c7217ad35ea518080f324946` (the library files are the same as in the release commit `fbc392c` "Release ver. 2.0.0"; the csproj version is 2.0.0; there is no C# tag 2.0.0), BSL-1.0 checked in that tag (`CSharp/NuGet/License.txt`, `LICENSE`), copied to `addons/geometry3Sharp.Clipper2/Clipper2Lib/` with the licence file and the source headers; changes there are listed in its README (namespace `g3.Clipper2.Vendored`, top-level types internal). `HashCode.cs` carries its own MIT (.NET Foundation) and BSD-2 (xxHash, Yann Collet) notices. The NuGet package `Clipper2` 2.0.0 stays a dependency of `geometry3Sharp.Clipper2` (not of `geometry3Sharp`) for the types of its public API only. Not taken from the DAP fork's `Clipper2Wrapper.cs` ([audit](design/DAP_BUGFIX_AUDIT.md#features-not-adopted-each-needs-its-own-provenance-decision)), which was not read for this |
 | The integer grid (`ClipperFrame`: origin at the bounds center, power-of-two scale fitted to the extent plus the offset margin) | own construction, after the integer grid of `ExactMeshArrangement` |
 | Filled Minkowski sum from the boundary sweep: A ⊕ B = (∂A ⊕ ∂B) ∪ (a + B) ∪ (A + b) for connected A, B | standard (eg M. de Berg et al., *Computational Geometry*, 3rd ed. 2008, ch. 13); own reasoning for the union with one copy each |
 
@@ -648,11 +648,19 @@ not read). `MeshBatchQueries` (merged in #448) runs the existing single queries 
 | Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
 | Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
 
-## Tetrahedral meshing (design only, `docs/design/TET_MESHING.md`; no code yet)
+## Tetrahedral meshing (`MeshTetrahedralization`, `Delaunay3.RefinementSupport`, `docs/design/TET_MESHING.md`)
 
 Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.
+fTetWild is run as a black box only (`.github/workflows/tet-compare.yml`; README build steps and `--help`, no source read).
 
-| Topic | Source |
+| Implemented (stage 1) | Source |
+|---|---|
+| Circumcentre insertion for tets above a radius-edge bound and a size bound, refinement order by a queue | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 (DelTetPLC) |
+| The floor (no point closer than a fixed distance, so the vertices are a packing and the refinement terminates) | the separation argument of L. P. Chew 1993 and J. Ruppert 1995 (as in the alpha wrap's own refinement, above) |
+| Sliver-avoiding point choice: a point near the circumcentre whose new tets have no sliver | X.-Y. Li, S.-H. Teng, *Generating well-shaped Delaunay meshes in 3D*, SODA 2001 (fixed candidate directions here instead of random points) |
+| The fixed surface (insertions whose cavity reaches the surface undone, on exact labels), peeling of boundary slivers (a 2-2 surface flip) with the exact input test | the library's own; the input test uses `ExactTriangleIntersection` (Devillers and Guigue 2002, above) |
+
+| Read for the design |  |
 |---|---|
 | Delaunay refinement of tetrahedra (radius-edge bound, encroachment) | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 |
 | Constrained Delaunay tetrahedralization, existence and recovery | J. R. Shewchuk, *A condition guaranteeing the existence of higher-dimensional constrained Delaunay triangulations*, SoCG 1998; *Updating and constructing constrained Delaunay and constrained regular triangulations by flips*, SoCG 2003; H. Si, K. Gärtner, *Meshing piecewise linear complexes by constrained Delaunay tetrahedralizations*, IMR 2005; H. Si, *TetGen*, ACM TOMS 41(2), 2015; M. Diazzi, D. Panozzo, A. Vaxman, M. Attene, *Constrained Delaunay tetrahedrization: a robust and practical approach*, ACM TOG 2023 (abstract read) |
@@ -749,6 +757,18 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 | Item | Source and license |
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
+
+## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
+
+Implemented from the paper; no code of the reference implementation was read or ported (its MIT licence would allow it).
+
+| Part | Source |
+|---|---|
+| Inclusion-based root finding over (t, u, v): the corner hull of a multilinear F, bisection, minimum separation, the earliest-time search | B. Wang, Z. Ferguson, T. Schneider, X. Jiang, M. Attene, D. Panozzo, *A Large-scale Benchmark and an Inclusion-based Algorithm for Continuous Collision Detection*, ACM TOG 40(5), art. 188, 2021, [doi:10.1145/3460775](https://doi.org/10.1145/3460775) (reference code Tight-Inclusion, MIT, not read) |
+| Interval root finding as the fallback path | J. Snyder, *Interval analysis for computer graphics*, SIGGRAPH 1992; S. Redon, A. Kheddar, S. Coquillart, *Fast continuous collision detection between rigid bodies*, Eurographics 2002 |
+| Separating directions (triangle normal, edge cross product) | the classical separating-axis directions of CCD culling (eg R. Bridson, R. Fedkiw, J. Anderson, *Robust treatment of collisions, contact and friction for cloth animation*, SIGGRAPH 2002); the test itself is own (any direction, dot products in `ExactInterval`) |
+| The filter bound B1, the clipping of vertex-triangle boxes to the triangle, the dive-then-tighten search and its time-of-impact argument | own (docs/design/CCD.md sections 6 and 10) |
+| Benchmark data | the sample of the ToI dataset of D. Belgrod, Z. Ferguson et al., *Time of Impact Dataset for Continuous Collision Detection and a Scalable Conservative Algorithm*, arXiv:2112.06300; [Sample-Scalable-CCD-Data](https://github.com/Continuous-Collision-Detection/Sample-Scalable-CCD-Data), Apache-2.0, fetched at run time by `benchmarks/CcdBenchmark/fetch_sample.sh` (pinned commit, SHA-256 per file), never committed |
 
 ## Mesh offset (`MeshOffset`, stage A1 implemented; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
 
