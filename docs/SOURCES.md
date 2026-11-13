@@ -563,6 +563,12 @@ and uses bounded slab batches rather than buffering the entire volume.
 |---|---|
 | Correctly rounded decimal-to-double / float conversion for the text readers where the platform parser is wrong (`ExactDecimal`, .NET Framework: 1 ulp errors for long digit strings, "-0" read as +0): the value as an integer times a power of ten, quotient of two big integers scaled by a power of two, remainder decides the rounding (ties to even); Clinger's exact fast path for at most 15 digits and |exponent| <= 22. Own implementation, nothing ported; the fast_float / Eisel-Lemire algorithm (Lemire, *Number Parsing at a Gigabyte per Second*, 2021) was considered and not used | W. D. Clinger, *How to Read Floating Point Numbers Accurately*, PLDI 1990; D. M. Gay, *Correctly rounded binary-decimal and decimal-binary conversions*, AT&T Bell Labs Numerical Analysis Manuscript 90-10, 1990 |
 
+## Shortest text of a double / float (`ShortestDecimal`, `MeshIOUtil.FormatDouble` / `FormatFloat`; docs/design/DETERMINISM.md C3)
+
+| Method | Source |
+|---|---|
+| Shortest decimal string that reads back to the same double or float, the same on every framework (net10 and .NET Framework): Ryu, the shortest digits inside the rounding interval by 128-bit multiplication with truncated powers of 5, exact tie and bound rules; the tables of the powers of 5 are computed with `BigInteger` from their definition at first use. Own implementation from the paper, nothing ported (the reference implementation, github.com/ulfjack/ryu, is Apache-2.0 / Boost-1.0; its code was not copied). Oracle in the tests: the exact decimal parser `ExactDecimal` plus a check that the two neighbours with one digit fewer do not read back (the Steele-White / Dragon4 criterion); layout of the text as .NET Core 3.0+ `"R"`. Considered and not used: Grisu / Errol (fallback needed), Dragon4 with big integers (slower by an order of magnitude) | U. Adams, *Ryu: fast float-to-string conversion*, PLDI 2018; G. L. Steele Jr., J. L. White, *How to print floating-point numbers accurately*, PLDI 1990 (also R. G. Burger, R. K. Dybvig, *Printing floating-point numbers quickly and accurately*, PLDI 1996) |
+
 ## Cross-field research
 
 The [research report](research/CROSS_FIELD_GEOMETRY.md) records opened sources, reading depth and license checks
