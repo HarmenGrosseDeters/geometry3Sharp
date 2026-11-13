@@ -97,6 +97,20 @@ namespace g3
             return planes.Count - 1;
         }
 
+        /// <summary>
+        /// an upper bound of the plane's gradient sqrt(Nx^2 + Ny^2) / Nz, from the enclosures of its normal (rounded up,
+        /// with 1e-9 to spare); infinity if Nz's enclosure reaches 0
+        /// </summary>
+        public double GradientBound(int plane)
+        {
+            Plane pl = planes[plane];
+            double nx = Math.Max(Math.Abs(pl.Nx.Lo), Math.Abs(pl.Nx.Hi)), ny = Math.Max(Math.Abs(pl.Ny.Lo), Math.Abs(pl.Ny.Hi));
+            // (also Nz.Lo == 0, where a horizontal plane's 0 / 0 would be NaN)
+            if (!(pl.Nz.Lo > 0)) return double.PositiveInfinity;
+            // (never NaN: the numerator is at least 0 and Nz.Lo > 0; an overflow is +infinity, the right answer)
+            return Math.Sqrt(nx * nx + ny * ny) / pl.Nz.Lo * (1 + 1e-9);
+        }
+
         /// <summary> the horizontal plane z = h </summary>
         public int AddHorizontalPlane(double h)
         {

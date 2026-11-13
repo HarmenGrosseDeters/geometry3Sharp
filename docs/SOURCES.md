@@ -184,6 +184,7 @@ Implemented from the papers, no code taken over. CGAL's implementation (`Alpha_w
 | Point location by a stochastic walk | O. Devillers, S. Pion, M. Teillaud, *Walking in a triangulation*, IJFCS 2002 |
 | InSphere determinant and its floating-point error bound (filter; the uncertain cases are evaluated in integer arithmetic) | J. R. Shewchuk 1997 (see above) |
 | Closest point on a triangle (Voronoi regions), separating axis test of tetrahedron and triangle | C. Ericson, *Real-Time Collision Detection*, 2005 |
+| Sharp-feature pass on the raw wrap (`AlphaWrapFeaturePass`, Alpha Wrap 3.0 lever 6): vertices onto the offset surface's planes, feature samples where neighbouring planes disagree (the plane pair's intersection line), edges split and flipped along the feature; the miter line of an offset crease, edge + offset (n1 + n2) / (1 + n1 . n2); every operation checked exactly (no self-intersection, no contact with the input, no input in the swept tetrahedra) | L. Kobbelt, M. Botsch, U. Schwanecke, H.-P. Seidel, *Feature sensitive surface extraction from volume data*, SIGGRAPH 2001 (feature samples from normal disagreement, edge flips along features), moved from grid cells to the wrap's triangles; the sharp-feature study (runs/sharp-features, variant K) |
 | Oracle pruning (Alpha Wrap 3.0 L1): a face plane of the tetrahedron against a BVH node box by its lowest / highest corner along the normal; segment against node boxes by slabs with the reciprocals of the direction computed once per query | N. Greene, *Detecting intersection of a rectangular solid and a convex polyhedron*, Graphics Gems IV, 1994; A. Williams, S. Barrus, R. K. Morley, P. Shirley, *An efficient and robust ray-box intersection algorithm*, J. Graphics Tools 10(1), 2005 |
 
 Choices described in the code: traversability by the paper's Phi(f), the smallest empty ball through the facet's
@@ -325,6 +326,7 @@ The sources named in the code:
 | Part | Source |
 |---|---|
 | Hausdorff distance with guaranteed bounds (branch and bound over triangles, cascading upper bounds; `TriangleDeviationBounds`, also used by `Reducer.MaxDeviation` and, per triangle, by `MeshDeviation.ComputeTriangleBounds`) | L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024 |
+| Certified lower bound and rounding of subdivision points (`MeshHausdorffDistance`, `CertifiedPointMeshDistance`; `docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md`): the error of a floating-point sum by TwoSum, exact differences by Sterbenz's lemma, an exact point-triangle squared distance in integers | D. E. Knuth, *The Art of Computer Programming*, Vol. 2, section 4.2.2 (TwoSum); P. H. Sterbenz, *Floating-Point Computation*, Prentice-Hall 1974 (the subtraction lemma); the point-triangle distance by the region classification of D. Eberly, *Distance Between Point and Triangle in 3D* (Geometric Tools, the library's `DistPoint3Triangle3` follows it), here in exact integers |
 | Patch bound (`TriangleDeviationBounds.PatchBound`, opt-in through `MeshHausdorffDistance.PatchBound`, used by `MeshRobustRepair`'s simplification of the alpha wrap): the target triangles under a triangle, seen along its normal, bound the distance by the largest height over the covered part, if their projections cover the triangle (coverage shown by the boundary edges of a consistently oriented, positively projecting patch) | own construction, an extra bound in the cascade of Sacht and Jacobson (above); the coverage argument is the boundary of a union of oriented triangles (a planar map) |
 | Two-sided deviation bound of the reduction (`Reducer.MaxDeviationTwoSided`, `ReducerReverseCoverage`): per input triangle the output triangles it is certified against, re-certified when a collapse changes one of them; the certificate against a candidate list uses the cascading bounds (corner maximum for one convex distance, covering radius, subdivision); `docs/design/BOUNDED_SIMPLIFICATION.md` | own construction (the induction argument is in the class documentation); the maintained correspondence between original and reduced mesh: R. Klein, G. Liebich, W. Straßer, *Mesh reduction with error control*, IEEE Visualization 1996 [from the abstract]; the bounds: L. Sacht, A. Jacobson, *Cascading upper bounds for triangle soup Pompeiu-Hausdorff distance*, SGP 2024. No code read |
 | Regularized optimal collapse point (`Reducer.QuadricRegularization`) | P. Trettner, L. Kobbelt, *Fast and Robust QEF Minimization using Probabilistic Quadrics*, Computer Graphics Forum (Eurographics) 2020 |
@@ -363,6 +365,7 @@ Implemented from the papers and definitions (no code ported):
 | One vertex per surface patch of a cell (manifold dual contouring) | S. Schaefer, T. Ju, J. Warren, *Manifold Dual Contouring*, IEEE TVCG 2007 |
 | Refinement at ambiguous faces | R. Zint, R. Grosso, P. Guertler, *Resolving non-manifoldness on meshes from dual marching cubes*, 2022 |
 | Envelope triangulation of `DualContouring` (forced diagonals, edge vertices, the check of the uncovered triangles only), the measurement hook (`DualContouring.CollectDiagnostics`, `benchmarks/DualContouringIntersections`) and the options of `docs/design/DC_INTERSECTION_FREE.md` | C. C. L. Wang, *Intersection-free dual contouring on uniform grids: an approach based on convex/concave analysis*, technical report, The Chinese University of Hong Kong (read in full); T. Ju, T. Udeshi, *Intersection-free contouring on an octree grid*, Pacific Graphics 2006 (through Wang's summary); J. Manson, S. Schaefer, *Isosurfaces over simplicial partitions of multiresolution grids*, CGF 2010 [abstract]. No code read |
+| Topology certificate of the contouring (`ContouringTopologyCertificate`, `ContouringLevelSet`, `benchmarks/ContouringCertificate`; the proof in `docs/design/CONTOURING_TOPOLOGY.md`, section 7) | J. W. Alexander, *On the subdivision of 3-space by a polyhedron*, Proc. Natl. Acad. Sci. 10, 1924 (a PL 2-sphere in the 3-sphere bounds a ball on each side; with the cone extension and the Alexander trick, Theorem 1); the Jordan-Schoenflies theorem in the plane (any topology text, eg E. E. Moise, *Geometric Topology in Dimensions 2 and 3*, Springer 1977). The Euler characteristic by counting (Theorem 3) is inclusion and exclusion over convex pieces. The filter of `may_meet_box`: the dot-product error bound of N. J. Higham, *Accuracy and Stability of Numerical Algorithms*, SIAM 2002, section 3.1. Prior art, background only (no premise of the proof): J. M. Snyder, *Interval analysis for computer graphics*, SIGGRAPH 1992; S. Plantinga, G. Vegter, *Isotopic approximation of implicit curves and surfaces*, SGP 2004; G. Varadhan, S. Krishnan, T. V. N. Sriram, D. Manocha, *Topology preserving surface extraction using adaptive subdivision*, SGP 2004 (the table of the design note, section 1). No code read |
 | Fast winding numbers of the input (inside test of the solids) | G. Barill, N. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG (SIGGRAPH) 2018 (existing `FastWindingNumber`) |
 
 ## Terrain (`TerrainDualContouring`, `TerrainGreedyTIN`, `ClothSimulationFilter`, `TerrainOffset`, `TerrainSafetyLines`, `TerrainBreakLines`, `TerrainVolumeDifference`)
@@ -402,16 +405,19 @@ public documentation only. The user's company code was not looked at.
 | The composite's region checked as soon as it is made (TERRAIN.md 5.4 step 4, #356): a failed build skips the copy of the rest of the terrain, every decision unchanged | the filter, verify, fall-back pattern of adaptive predicates: J. R. Shewchuk, *Adaptive precision floating-point arithmetic and fast robust geometric predicates*, DCG 18, 1997; T. Bartels, V. Fisikopoulos, M. Weiser, *Fast floating-point filters for robust predicates*, arXiv 2208.00497, 2022 |
 | The composite's terrain triangles next to a replaced one split at its points inside their shared edge (TERRAIN.md §11, no T-junctions) | conforming triangulations: hanging nodes removed by splitting the neighbour, as in red-green refinement (R. E. Bank, A. H. Sherman, A. Weiser, *Refinement algorithms and data structures for regular local mesh refinement*, Scientific Computing, IMACS 1983); the split by the library's exact CDT (`ExactTriangulation2`) |
 | The certificate of the composite catch points' move (TERRAIN.md 5.5): the bound of a piecewise linear deviation at the vertices of the refinement, crossings as exact rational points, an interval filter before the exact evaluation | a-posteriori certification with a floating-point filter and an exact stage, as in adaptive predicates (J. R. Shewchuk, *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates*, DCG 18, 1997); the extremes of a convex piecewise-linear function at the vertices of its cells (linear programming); a move below the resolution with a documented bound, as in snap rounding (J. D. Hobby, *Practical segment intersection with finite precision output*, CGTA 13, 1999) |
+| The proven catch-line bound (TERRAIN.md 5.5, `CatchLine.ProvenUncertainty`): the true line in the band of the certified vertical error, per overlay face a convex band piece enclosed in interval boxes, the distance to a segment bounded at the box corners (convexity) | J. M. Snyder, *Interval analysis for computer graphics*, SIGGRAPH 1992 (enclosing level sets by interval evaluation); R. E. Moore, *Interval Analysis*, 1966 (outward rounding) |
 | The `g3cli slope` command: toe lines read as GeoJSON, catch lines and target-height lines written as GeoJSON | H. Butler et al., *The GeoJSON Format*, RFC 7946, IETF 2016 (read with System.Text.Json; coordinates taken as given, projected, the `crs` member of the older 2008 GeoJSON specification passed through, not interpreted) |
 | Volume per cell (compared) | D. Powell, T. Abel, *An exact general remeshing scheme applied to physically conservative voxelization*, J. Comput. Phys. 297, 2015. Code r3d: current files under a LANL / DOE notice (copy and use only), the 2015 code BSD-3 with an enhancements clause; not ported |
 
 ## 2D polygon booleans and offsets (`addons/geometry3Sharp.Clipper2`: `Clipper2Polygons`, `ClipperFrame`)
 
-An optional package that calls a library; no code taken over.
+An optional package on top of Clipper2, whose C# 2.0.0 sources it carries (vendored, internal; since 2026-11-12, row below). The licence notices ship in the package as `THIRD-PARTY-NOTICES.txt`.
 
 | Part | Source |
 |---|---|
-| Booleans, fill rules, open-path clipping, offsets (join and end types, miter limit, arc tolerance), Minkowski sums, path simplification | **Clipper2 2.0.0** by Angus Johnson, Boost Software License 1.0 (https://github.com/AngusJohnson/Clipper2; the `License.txt` in the NuGet package `Clipper2` is BSL-1.0, checked 2026-11-01). A package dependency of `geometry3Sharp.Clipper2`, not of `geometry3Sharp`. Only its public API is used. Not taken from the DAP fork's `Clipper2Wrapper.cs` ([audit](design/DAP_BUGFIX_AUDIT.md#features-not-adopted-each-needs-its-own-provenance-decision)), which was not read for this |
+| Booleans, fill rules, open-path clipping, offsets (join and end types, miter limit, arc tolerance), Minkowski sums, path simplification | **Clipper2 2.0.0** by Angus Johnson, Boost Software License 1.0 (https://github.com/AngusJohnson/Clipper2; the `License.txt` in the NuGet package `Clipper2` is BSL-1.0, checked 2026-11-01). Vendored since 2026-11-12 (owner decision 2026-11-12, option (b) of [platform.md](roadmap/platform.md#open)): the C# sources of `CSharp/Clipper2Lib` at tag `Clipper2_2.0.1`, commit `21ebba05db8894f0c7217ad35ea518080f324946` (the library files are the same as in the release commit `fbc392c` "Release ver. 2.0.0"; the csproj version is 2.0.0; there is no C# tag 2.0.0), BSL-1.0 checked in that tag (`CSharp/NuGet/License.txt`, `LICENSE`), copied to `addons/geometry3Sharp.Clipper2/Clipper2Lib/` with the licence file and the source headers; changes there are listed in its README (namespace `g3.Clipper2.Vendored`, top-level types internal). `HashCode.cs` carries its own MIT (.NET Foundation) and BSD-2 (xxHash, Yann Collet) notices. The NuGet package `Clipper2` 2.0.0 stays a dependency of `geometry3Sharp.Clipper2` (not of `geometry3Sharp`) for the types of its public API only. Not taken from the DAP fork's `Clipper2Wrapper.cs` ([audit](design/DAP_BUGFIX_AUDIT.md#features-not-adopted-each-needs-its-own-provenance-decision)), which was not read for this |
+| Fix of FINDINGS item 5 in the vendored `DoSplitOp` (a split-off triangle of the other sign is kept if it lies inside the rest of its path) | own analysis of the 2.0.0 code (FINDINGS item 5); the inside test is Clipper2's own `Path1InsidePath2`. Upstream's later change of the same function's caller (`4da1564`, issue #1067) was measured, not adopted |
+| Exact area oracle of the Clipper2 tests (`ExactRegionArea`: winding numbers of the rings, vertical slabs at every vertex and crossing x, trapezoids in BigInteger rationals) | the slab (trapezoidal) decomposition of a planar arrangement: F. P. Preparata, M. I. Shamos, *Computational Geometry: An Introduction*, Springer 1985, chapter 2 (point location by the slab method); winding-number fill rules as in the row on the domain below |
 | The integer grid (`ClipperFrame`: origin at the bounds center, power-of-two scale fitted to the extent plus the offset margin) | own construction, after the integer grid of `ExactMeshArrangement` |
 | Filled Minkowski sum from the boundary sweep: A ⊕ B = (∂A ⊕ ∂B) ∪ (a + B) ∪ (A + b) for connected A, B | standard (eg M. de Berg et al., *Computational Geometry*, 3rd ed. 2008, ch. 13); own reasoning for the union with one copy each |
 
@@ -658,6 +664,8 @@ fTetWild is run as a black box only (`.github/workflows/tet-compare.yml`; README
 | Circumcentre insertion for tets above a radius-edge bound and a size bound, refinement order by a queue | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 (DelTetPLC) |
 | The floor (no point closer than a fixed distance, so the vertices are a packing and the refinement terminates) | the separation argument of L. P. Chew 1993 and J. Ruppert 1995 (as in the alpha wrap's own refinement, above) |
 | Sliver-avoiding point choice: a point near the circumcentre whose new tets have no sliver | X.-Y. Li, S.-H. Teng, *Generating well-shaped Delaunay meshes in 3D*, SODA 2001 (fixed candidate directions here instead of random points) |
+| Stage 2 (`TetMeshImprover`): hill climbing on the smallest dihedral angle by edge removal (best ring triangulation by dynamic programming, the 3-2 flip as m = 3), face removal (2-3 flip) and vertex smoothing | B. M. Klingner, J. R. Shewchuk, *Aggressive tetrahedral mesh improvement*, IMR 2007 (paper only; Stellar not read); the ring triangulation by dynamic programming as in J. R. Shewchuk, *Two discrete optimization algorithms for the topological improvement of tetrahedral meshes* (unpublished manuscript, 2002) |
+| Boundary vertex moves with exact checks (swept region against the input, moved boundary triangles against the boundary) | the library's own, as the sharp-feature pass's sweep test (`AlphaWrapFeaturePass`, #736) |
 | The fixed surface (insertions whose cavity reaches the surface undone, on exact labels), peeling of boundary slivers (a 2-2 surface flip) with the exact input test | the library's own; the input test uses `ExactTriangleIntersection` (Devillers and Guigue 2002, above) |
 
 | Read for the design |  |
@@ -698,7 +706,6 @@ Own implementation of the informal format (one point per line, optional normals)
 column rule (values 4-6 are normals when there are six or more; further columns are ignored) is our decision, documented at
 the reader. The PLY point cloud path is the existing `PLYReader` / `PLYWriter`.
 
-
 ## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
 
 Implemented from the papers below; no code of any of them was read.
@@ -711,7 +718,6 @@ Implemented from the papers below; no code of any of them was read.
 | Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
 | k-nearest neighbours | a k-d tree with median splits and bounded-distance pruning; textbook method (J. L. Bentley, Multidimensional binary search trees used for associative searching, CACM 1975, from memory), own code |
 
-
 ## Point cloud surface (`PointCloudSurface`, step C1 of the design note)
 
 | Part | Source |
@@ -721,7 +727,6 @@ Implemented from the papers below; no code of any of them was read.
 | Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
 | Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
 | Marching cubes | the library's `MarchingCubes` |
-
 
 ## Correctly rounded sin, cos, atan2, exp, log (`math/CoreMath`, internal; C1 of `docs/design/DETERMINISM.md`)
 
@@ -758,6 +763,22 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
 
+## TPMS lattices (`TpmsLattice`)
+
+Implemented from the published formulas and papers; no code taken from any library. Design:
+[design/TPMS_LATTICE.md](design/TPMS_LATTICE.md).
+
+| Part | Source |
+|---|---|
+| Gyroid | A. H. Schoen, *Infinite periodic minimal surfaces without self-intersections*, NASA Technical Note D-5541, 1970 |
+| Schwarz P and D | H. A. Schwarz, *Gesammelte Mathematische Abhandlungen* (vol. 1), 1890 |
+| Lidinoid (discovery) and its nodal approximation | S. Lidin, S. Larsson, *Bonnet transformation of infinite periodic minimal surfaces with hexagonal symmetry*, J. Chem. Soc., Faraday Trans. 86 (1990) 769-775; the trigonometric form used (below) was cross-checked against other published forms by the reviewer: the same terms with the constant +0.15 appear in patent literature; implementations that omit the two factors 0.5 use +0.3, which is the same zero set. The Al-Ketan, Abu Al-Rub paper and the Lidin & Larsson volume / pages were not opened (bibliographic data from memory) |
+| Neovius surface | E. R. Neovius, *Bestimmung zweier speciellen periodischen Minimalflaechen*, 1883 |
+| Nodal (trigonometric) approximations of P, G, D and I-WP | P. J. F. Gandy, S. Bardhan, A. L. Mackay, J. Klinowski, *Nodal surface approximations to the P, G, D and I-WP triply periodic minimal surfaces*, Chem. Phys. Lett. 336 (2001) 187-195; the Neovius form as in O. Al-Ketan, R. K. Abu Al-Rub below |
+| Sheet and skeletal ("solid network") lattices, level set offset, grading by a position dependent level | O. Al-Ketan, R. K. Abu Al-Rub, *Multifunctional mechanical metamaterials based on triply periodic minimal surface lattices*, Adv. Eng. Mater. 21 (2019) 1900524 |
+| Marching cubes | W. E. Lorensen, H. E. Cline, *Marching cubes: a high resolution 3D surface construction algorithm*, SIGGRAPH 1987 |
+| Enclosure of the exact solid by the contoured one (level pad, 1-Lipschitz field) | A. Jacobson, *A Sharp Conservative Offset for Marching Cubes*, arXiv:2609.13430 (see [design/CONSERVATIVE_MC_AUDIT.md](design/CONSERVATIVE_MC_AUDIT.md)) |
+
 ## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
 
 Implemented from the paper; no code of the reference implementation was read or ported (its MIT licence would allow it).
@@ -770,7 +791,7 @@ Implemented from the paper; no code of the reference implementation was read or 
 | The filter bound B1, the clipping of vertex-triangle boxes to the triangle, the dive-then-tighten search and its time-of-impact argument | own (docs/design/CCD.md sections 6 and 10) |
 | Benchmark data | the sample of the ToI dataset of D. Belgrod, Z. Ferguson et al., *Time of Impact Dataset for Continuous Collision Detection and a Scalable Conservative Algorithm*, arXiv:2112.06300; [Sample-Scalable-CCD-Data](https://github.com/Continuous-Collision-Detection/Sample-Scalable-CCD-Data), Apache-2.0, fetched at run time by `benchmarks/CcdBenchmark/fetch_sample.sh` (pinned commit, SHA-256 per file), never committed |
 
-## Mesh offset (`MeshOffset`, planned; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
+## Mesh offset (`MeshOffset`, stage A1 implemented; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
 
 Papers only; no code of these works was read (owner / coordinator rule 2026-11-13). Marks as in the design note:
 details recalled from memory there are checked before the implementation cites them.
@@ -785,3 +806,4 @@ details recalled from memory there are checked before the implementation cites t
 | Volumetric offsets with feature-sensitive extraction (prior art) | D. Pavić, L. Kobbelt, *High-Resolution Volumetric Computation of Offset Surfaces with Feature Preservation*, Computer Graphics Forum 27(2) (Eurographics 2008) |
 | Generalized gradient of a locally Lipschitz function (the distance-field enclosure of stage A2) | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983, chapter 2 |
 | Exact polytope Minkowski sums (the test oracle's idea; CGAL is GPL and not read) | P. Hachenberger, *Exact Minkowski sums of polyhedra and exact and efficient decomposition of polyhedra into convex pieces*, Algorithmica 55, 2009, doi:10.1007/s00453-008-9219-6 |
+| Band certificate (`MeshOffset.CertifyBand`): the 1-Lipschitz bound of the signed distance over a triangle, the distance enclosed by interval arithmetic (an explicit point of the nearest triangle above, the support bound w . (c - x) / \|w\| below), splits by dyadic barycentric coordinates | own construction (design note section 10); the interval rule of `ExactInterval` (one ulp per operation); dual contouring as in its own entry (Ju et al. 2002, Schaefer et al. 2007) |

@@ -116,8 +116,18 @@ Part of the [roadmap](../ROADMAP.md).
      partial statement is provable (inside the certified cells the result differs from the level set by a
      deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
      yet; no cell at a defect edge can be certified.
+     Stage 1 (draft #779, 2026-11-13): `MeshWindingNumberSolidify.ComputeTopologyCertificate` (adaptive DC, clean
+     inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
+     general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
+     4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
+     serial 33-34 %).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
+     Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
+     (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
+     Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
+     `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
+     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833), #815 (Lidinoid), #816 (graded cell size), #814 (CLI / MCP).
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
@@ -250,12 +260,26 @@ in the tool project.
   only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
   A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
   the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
+  A1 done 2026-11-13 (#799, `gs.MeshOffset`, design note section 10); degenerate triangles fixed in DualContouring's
+  quad split (#800). A2 (topology certificate) shelved 2026-11-13 after the probe (design note section 11: certified
+  share and cost short of the stop rule); it resumes only with refinement (finer cells where cells are listed, with
+  #749 stage 2), starting from `wip/mesh-offset-a2-probe`.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
-- Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
+- Sparse SDF grids (OpenVDB-like): a CPU structure for large distance-field and contouring grids (callers: MeshOffset,
+  alpha wrap, TPMS, contouring; the gain is memory first). Layout from the papers, not from code: Museth 2013 *VDB:
+  High-Resolution Sparse Volumes with Dynamic Topology* (shallow fixed-depth tree, bit-masked nodes) and Museth 2021
+  *NanoVDB: A GPU-Friendly and Portable VDB Data Structure* (pointer-free, one contiguous block, index offsets instead of
+  pointers). Licence of OpenVDB / NanoVDB code to check before anyone reads it. Existing building blocks: `DSparseGrid3`,
+  `BiGrid3`, the sparse mode of `DualContouring`, the exact Boolean's octree. When: once a caller needs it, after an
+  upper-bound measurement (memory and time of the dense grid in that caller). Not for us (owner question 2026-11-13):
+  GPU kernels (netstandard2.0 without a GPU dependency; bit-for-bit determinism), the jump flooding algorithm
+  (approximate distances, no certified bound), neural SDFs (Instant-NGP, Neuralangelo, NeuS: training-dependent, no
+  guarantee).
+- SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
 - Batch ray / point queries against a mesh or BVH (owner idea 2026-11-02): a separate batch API (eg `IntersectBatch(ReadOnlySpan<Ray3d>, ...)`, `IsInsideBatch(points)`), existing API unchanged. Only the floating-point filter of the exact ray-triangle test (Q2/Q3) runs SIMD (`Vector256` / `Vector512`) over the triangles of a BVH leaf or a ray packet; the rare cases inside the bound stay scalar on `Orient3d` + SoS, so results stay exact. No FMA and no cross-lane reduction, so SIMD equals the scalar path bit for bit (tested); netstandard2.0 keeps the scalar path. Prior art: Embree (Apache 2.0; Woop et al. 2013 watertight test over SIMD packets). When: after the Q2/Q3 prefilter, once a real caller needs throughput; upper bound first (the filter's share of the query time). Note the `Orient3d` SIMD spike above gave about 2 %; the difference here is a batch of independent tests per call. Also here: a coarser per-triangle bound (max-norms instead of permanents; new derivation and review) and per-ray reuse of the ray's second point, the two levers left after Q2/Q3 (single-triangle `Intersects` 2.5-4× base with the shared `Orient3d` filter; tree queries +5-30 %, repair total +0.9 %)
 - AI bridges as a separate package (ONNX Runtime): project 2D segmentation masks (SAM, DINO) from several views onto face selections, texture reprojection via ExpMap
 
@@ -331,6 +355,9 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
+  Later item (coordinator 2026-11-13, #802): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
+  (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
+  about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean

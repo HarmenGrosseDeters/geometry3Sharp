@@ -80,6 +80,8 @@
     <!-- the exact ray crossings and the partitioned reduction as oracles (tools/MeshFuzzPilot) -->
     <InternalsVisibleTo Include="MeshFuzzPilot" />
     <InternalsVisibleTo Include="CoreMathBenchmark" />
+    <!-- the topology certificate of the contouring (benchmarks/ContouringCertificate) -->
+    <InternalsVisibleTo Include="ContouringCertificate" />
     <!-- the interval path of the CCD solver (benchmarks/CcdBenchmark) -->
     <InternalsVisibleTo Include="CcdBenchmark" />
   </ItemGroup>
