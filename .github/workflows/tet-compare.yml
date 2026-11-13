@@ -47,13 +47,18 @@ jobs:
       - name: Build fTetWild (README steps; black box, no source read)
         id: build
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libgmp-dev cmake build-essential
+          sudo apt-get update -qq && sudo apt-get install -y -qq libgmp-dev build-essential
+          # Pin CMake 3.31: the runner's preinstalled CMake 4.x rejects old policies in fTetWild's fetched dependencies
+          # (CMP0169 in the libigl eigen recipe, run 43509655424); 3.31 keeps the old behaviour for all of them at once
+          python3 -m venv "$RUNNER_TEMP/cmake" && "$RUNNER_TEMP/cmake/bin/pip" install -q "cmake==3.31.*"
+          export PATH="$RUNNER_TEMP/cmake/bin:$PATH"
+          cmake --version
           git clone --recursive https://github.com/wildmeshing/fTetWild.git ftw
           cd ftw && git checkout -q "${{ inputs.ftetwild_ref || 'master' }}" && git submodule update --init --recursive
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "matrix=$(python3 -c "import json; print(json.dumps(list(range(max(1, min(8, int('$SHARDS')))))))")" >> "$GITHUB_OUTPUT"
-          # CMake 4 (ubuntu-latest) refuses projects that declare a minimum below 3.5 unless this policy floor is given
-          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 > ../../cmake.log 2>&1 \
+          # Policy floor and CMP0169=OLD: fallbacks should a CMake 4 still be picked up (it refuses minimums below 3.5)
+          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_POLICY_DEFAULT_CMP0169=OLD > ../../cmake.log 2>&1 \
             && make -j"$(nproc)" > ../../make.log 2>&1 \
             || { tail -n 60 ../../cmake.log; [ -f ../../make.log ] && tail -n 60 ../../make.log; exit 1; }
           bin=$(find . -maxdepth 2 -type f -name FloatTetwild_bin | head -1)
