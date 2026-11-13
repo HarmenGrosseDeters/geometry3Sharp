@@ -18,6 +18,12 @@ Part of the [roadmap](../ROADMAP.md).
   field up to 0.9 pi) does not win clearly (G1 3 of 21 cells, G2/G3 fail near the cut locus); no API. AffineLocal is
   clearly better only in the mid field (12-24 edge lengths); reopen only with a brief naming such a workload and its own
   pre-registered gate. Details in [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md).
+- **Exact geodesic distance (option A of [design/GEODESICS.md](../design/GEODESICS.md))**: a certified [Lower, Upper]
+  enclosure of the polyhedral distance by window propagation in interval arithmetic. Role (coordinator, 2026-11-13): a
+  **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Gates 2 and 3
+  measured on throwaway probes (exact on every test mesh; the 10^5 terrain 18.8 s and the aligned ridge 81 x 81 16 s in
+  the interval version); before library code the claims A7 and A9 are reviewed (A8 withdrawn). Option C (a Lipschitz
+  lower bound for the heat field) dropped.
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
