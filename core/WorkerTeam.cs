@@ -66,7 +66,10 @@ namespace g3
                 return;
             }
             var loop = new Loop() { Body = body, Count = n, Chunk = Math.Max(1, n / (8 * Threads)) };
-            Volatile.Write(ref current, loop);
+            // (a full fence between publishing the loop and reading the sleepers: with a volatile store and load the two could
+            // be reordered, and a worker that registered as a sleeper after reading the old loop would miss the pulse. The
+            // worker's side is ordered by its Interlocked.Increment before it reads the loop again)
+            Interlocked.Exchange(ref current, loop);
             if (Volatile.Read(ref sleepers) > 0)
                 lock (gate) Monitor.PulseAll(gate);
             run(loop);

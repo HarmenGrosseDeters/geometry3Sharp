@@ -548,6 +548,9 @@ namespace g3
                 }
             }
             var boundary = plan.Boundary;
+            // (the star-shape growth of Insert, kept for parity with it: in an exact Delaunay triangulation it never adds a
+            // cell, as a point in the plane of a boundary facet lies inside both circumspheres of the facet's cells or inside
+            // neither, both meeting that plane in the facet's circumcircle; docs/design/ALPHA_WRAP_ROUNDS.md section 6)
             while (true) {
                 boundary.Clear();
                 bool grown = false, outside = false;

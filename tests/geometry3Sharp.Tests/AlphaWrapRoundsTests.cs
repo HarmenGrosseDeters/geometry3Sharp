@@ -42,7 +42,7 @@ namespace geometry3Sharp.Tests
             Assert.True(w1.Counts["round_parallel"] > 100, $"{w1.Counts["round_parallel"]} of {w1.Counts["rounds"]} rounds large enough for the threads");
             Assert.True(w1.Counts["round_shared_outside"] > 0, "no two kept carvings of a round with the same outside cell");
             string reference = Fingerprint(w1);
-            foreach (int threads in new[] { 2, 4, 8 }) {
+            foreach (int threads in new[] { 2, 4, 8, 4 }) {
                 var w = new MeshAlphaWrap(input) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = threads };
                 Assert.True(w.Compute(), w.Error);
                 Assert.Equal(reference, Fingerprint(w));

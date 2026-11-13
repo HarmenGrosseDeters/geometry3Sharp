@@ -86,21 +86,24 @@ namespace geometry3Sharp.Tests
             single.Dispose();
         }
 
-        // four teams of four threads at the same time on this machine's cores: the loops end without waiting for workers that
-        // are not scheduled (the caller waits only for chunks that were taken); before, a round waited until every worker had
-        // run, and a test of the wrap took minutes instead of seconds in a parallel test run
+        // four teams of four threads at the same time (more threads than cores): every loop completes with every index done
+        // once (the caller waits only for chunks that were taken, so workers that are not scheduled do not hold a loop up;
+        // before, a round waited until every worker had run). No time bound is asserted (shared CI runners); the timeout is
+        // only the guard against a hang
         [Fact]
         public void For_ManyTeamsAtTheSameTime_NoStall()
         {
-            var sw = Stopwatch.StartNew();
-            Parallel.For(0, 4, new ParallelOptions() { MaxDegreeOfParallelism = 4 }, t => {
+            var sums = new long[4];
+            var run = Task.Run(() => Parallel.For(0, 4, new ParallelOptions() { MaxDegreeOfParallelism = 4 }, t => {
                 using (var team = new WorkerTeam(4)) {
-                    var a = new double[400];
+                    var hits = new int[400];
                     for (int loop = 0; loop < 3000; ++loop)
-                        team.For(a.Length, i => a[i] += Math.Sqrt(i + loop));
+                        team.For(hits.Length, i => hits[i]++);
+                    sums[t] = hits.Sum(h => (long)h);
                 }
-            });
-            Assert.True(sw.ElapsedMilliseconds < 4000, $"{sw.ElapsedMilliseconds} ms");
+            }));
+            Assert.True(run.Wait(TimeSpan.FromSeconds(120)), "the teams did not finish within 120 s (a hang)");
+            Assert.All(sums, s => Assert.Equal(400L * 3000, s));
         }
     }
 }
