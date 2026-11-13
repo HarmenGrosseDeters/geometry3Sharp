@@ -1,6 +1,7 @@
 # Certified surface remeshing by restricted Delaunay refinement (study)
 
-Status: **study only, nothing built; waits for the owner's decision** (section 12). Docs only. The probe of section 9
+Status: **study; decided (coordinator under the owner's mandate, 2026-11-13): RDR, staged as in section 11; stage 0
+(the proofs, section 14) written, waiting for its fresh-session review.** Nothing built. Docs only. The probe of section 9
 was a throwaway program in the session's scratch directory (not committed; numbers and setup there). Written
 2026-11-13; revised the same day on the owner's focus note (via the coordinator): restricted Delaunay refinement on
 surfaces is the main subject, the guard of the existing `Remesher` a side section (section 10).
@@ -30,12 +31,16 @@ Short answer:
   subcomplex of the exact `Delaunay3` triangulation; TBP gives the manifold); homeomorphic to the input when no region
   is uncertified; Hausdorff both ways at most r_max, proved by the refinement rules; radius-edge ratio at most rho
   (min angle at least arcsin(1 / (2 rho)), 30 degrees at rho = 1) on every facet except listed ones near h_min or at
-  protected features. **Isotopy is not covered** by a published theorem for PL inputs without lfs; it is a stage-0
-  proof attempt (section 5.3), not a promise.
+  protected features. **Isotopy**: no published theorem for PL inputs without lfs; stage 0 proves (section 14.3) that
+  under the checked TBP the input is ambient isotopic to an explicit intermediate surface S2 (the "dual quad" surface on
+  the samples and the surface Delaunay ball centres), and reduces isotopy of the output D to the emptiness of explicit
+  tetrahedra between S2 and D (a sufficient, checkable condition). Isotopy is claimed only where that check passes and
+  only after review.
 - **Predicates** (section 6): one new family covers the restricted-Delaunay test, the surface Delaunay balls and the TBP
   checks: signs of linear forms (bisector planes, the input triangle's planes and edge lines) at the intersection point
   of two bisector planes with a triangle's plane, a three-plane point of degree 5 / 4 whose tests have degree 6, lower
-  than the TPI orient3d (degree 9) the predicate compiler already handles. `Delaunay3`, `ExactPredicates`, the
+  than the TPI orient3d (degree 9) the predicate compiler already handles; every test the certificate needs has
+  degree at most 6 (section 14.4). `Delaunay3`, `ExactPredicates`, the
   predicate compiler with `FixedArith`, Simulation of Simplicity (`ExactRayTriangle`) and the alpha wrap's refinement
   skeleton cover the rest. Stage 2's weighted points need a regular triangulation (power test): new.
 - **Recommendation**: build it, in stages (section 11): stage 0 the proofs (docs), stage 1 a float-predicate spike as
@@ -162,8 +167,8 @@ scaled with the input in the invariance test. Square roots only in reported valu
 - **No self-intersections, consistent embedding**: D is a subcomplex of the exact Delaunay triangulation of the double
   points P, so two output triangles meet only in a common edge or vertex. No rounding after the fact (the vertices are
   the inserted doubles), unlike the boolean's rounding.
-- **Closed 2-manifold, homeomorphic to S**: by T1 when no element is uncertified (TBP checked exactly for every
-  restricted element). Orientation from S (the side of the dual edge's crossing).
+- **Closed 2-manifold, homeomorphic to S**: Theorem A (section 14.2, the argument of T1 written out for this setting)
+  when no element is uncertified (TBP checked exactly for every restricted element). Orientation from S (the side of the dual edge's crossing).
 - **Partial statement** when elements are uncertified: the analogue of the contouring note's Theorem 1b (homeomorphic
   outside the listed Voronoi cells); to be proved in stage 0. With uncertified elements D may be non-manifold there;
   the result then reports `TopologyCertified = false` and the cells.
@@ -177,17 +182,16 @@ scaled with the input in the invariance test. Square roots only in reported valu
   from p (R2), and p is a vertex of D (a sample whose region is a disk under the TBP is a vertex of a restricted
   facet). So the two-sided Hausdorff distance is at most r_max. `MeshHausdorffDistance` re-checks it in the tests.
 
-### 5.3 Isotopy (open for PL inputs)
+### 5.3 Isotopy (for PL inputs: section 14.3)
 
 T3 proves isotopy for smooth S through the normal projection (needs the reach). For a PL S no published theorem was
-found (terms: "restricted Delaunay isotopic polyhedral surface", "isotopy topological ball property"). Routes for the
-stage-0 proof attempt, in order: (a) the grid lemma of CONTOURING_TOPOLOGY.md Theorem 1 holds for any complex of
-convex cells, so S and D are isotopic if both are compatible with the Voronoi complex with the same pattern; S is
-compatible by the TBP, D in general is not (a restricted facet meets its own dual edge only if its circumcentre is inside
-it): it needs an intermediate surface or a refined complex; (b) T11 with the union of the surface Delaunay balls as
-the thickening; (c) the elementary-move argument of section 10. Until one is proved and reviewed, the stated guarantee
-is homeomorphism, and nesting and linking are checked only as far as `MeshTopologySummary` and the exact nesting
-tests go.
+found (terms: "restricted Delaunay isotopic polyhedral surface", "isotopy topological ball property"). Stage 0 proves
+(Theorem B, 14.3) that under the checked TBP the input S is ambient isotopic to the dual quad surface S2 (vertices: the
+samples and the surface Delaunay ball centres), using the grid lemma of CONTOURING_TOPOLOGY.md Theorem 1 on the
+Voronoi complex. From S2 to the output D: (a) explicit moves across tetrahedra, a sufficient condition checked per
+tetrahedron (recommended; cost measured in 1a); (b) Chazal-Cohen-Steiner with a certified weak-feature-size bound (a
+separate study); (c) the Remesher move guard, the same mechanism, not an RDR route. Isotopy of D is claimed only
+where (a) passes, and only after review; otherwise the guarantee is homeomorphism (Theorem A).
 
 The post-hoc grid certificate (comparing the crossing patterns of S and D on a box grid) was probed and is not
 practical (section 9).
@@ -216,7 +220,7 @@ a and b: n = 2 (b - a) (degree 1), offset |b|^2 - |a|^2 (degree 2). The plane of
 | Need | Formulation | Degree (homogeneous, estimate) | Covered by |
 |---|---|---|---|
 | Delaunay3 insertion, location, conflict | `Orient3d`, `InSphere` on doubles | 3, 4 | `Delaunay3` (exists) |
-| restricted facet: the dual Voronoi edge of abc meets t | the point x = (bisector(a, b)) ∩ (bisector(a, c)) ∩ plane(t), a three-plane point (TPI-like, numerators degree 5, denominator degree 4); x on the dual edge iff x is closer to a than to d and than to e (d, e the apexes of the two cells): the sign of bisector(a, d) at x, degree 6; x in t: orient2d of x with two vertices of t in t's dominant projection, degree 6 | 6 | **new**: a "bisector TPI" point kind in `tools/PredicateCompiler` (planes given by coefficients instead of three points); filter and bounds from the generator; fallback `FixedArith` / `BigInteger` |
+| restricted facet: the dual Voronoi edge of abc meets t | the point x = (bisector(a, b)) ∩ (bisector(a, c)) ∩ plane(t), a three-plane point (TPI-like, numerators degree 5, denominator degree 4); x on the dual edge iff x is closer to a than to d and than to e (d, e the apexes of the two cells): the sign of bisector(a, d) at x, degree 6; x in t: orient2d of x with two vertices of t in t's dominant projection, degree 6 | 6 | **new**: `ipredicate`s in `tools/PredicateCompiler/indirect.spec` (straight-line formulas on the input points, as `Orient3dLPI` / `Orient3dTPI`; no generator extension needed, section 14.4); filter and bound from the generator, checked by `GeneratedPredicatesTests`; fallback `FixedArith` / `BigInteger` |
 | surface Delaunay ball centre and radius (for insertion and the queue) | x in floating point (Cramer's rule), squared radius | construction | float; the decision whether to insert is exact (the queue key may be approximate without breaking proofs, the rules R1-R3 are decided exactly) |
 | TBP (E'): a Voronoi edge meets S at most once | count the triangles t for which the test above holds; a Voronoi edge that hits a mesh edge or vertex is a degeneracy (SoS) | 6 | new family + candidate search |
 | TBP (F'): a Voronoi facet (dual of Delaunay edge ab: the polygon on bisector(a, b) bounded by Voronoi edges) meets S in one arc | Theorem 3's counting on a convex polygon: mesh edges crossing the polygon (endpoint signs against bisector(a, b): degree 2 on doubles; the crossing LPI point inside the polygon: bisector signs at an LPI point, degree about 3-4) and triangles crossed by the polygon's edges (row above); per part \|T\| - \|M\| = 1 | 2-6 | new family; the counting code of the contouring certificate |
@@ -320,28 +324,264 @@ caller needs it.
 
 ## 12. Risks
 
-- **T1 with rounded samples**: if the theorem needs samples on S, rounding breaks the premise; repair needs a
-  perturbation argument (stage 0). Fallback: exact final checks (closed, manifold, no self-intersections, genus) and
-  report homeomorphism only as "checked".
+- **T1 with rounded samples**: resolved by stage 0: the homeomorphism proof of section 14.2 does not use samples on S
+  (only the TBP pattern and general position), so rounding the inserted points does not break it.
 - **Faceted real meshes are mostly creases**: on 30 degree creases, 35-94 % of the vertices of the Remesher's worst
   meshes were feature vertices (REDUCER_REMESHER_20.md section 13); stage 1 alone may cover few real inputs, so stage 2
   carries the practical value. The wedge threshold of 1a decides how much.
 - **Predicate degree and cost**: degree 6-8 with `BigInteger` fallbacks in degenerate CAD positions; the generator
   bounds them, but the slow tail may be large (as the boolean's rounding was). Stop rules of 1a / 1b.
 - **TBP checks are the expensive part** (T8 exists because of it); if too slow, the Dey-Levine variant (paper only).
-- **Isotopy stays open**: the owner should expect homeomorphism plus the band, not isotopy, unless stage 0 succeeds.
+- **Isotopy is conditional**: proved for the intermediate surface S2; for the output D only where the explicit move
+  check of section 14.3 passes, whose exact tests have high degree (rational fallback); its pass rate and cost are a
+  stage-1a measurement.
 - **No output-size control by count**: the output size follows r_max, rho and the surface; a triangle-count target is
   not a guarantee of this method.
 - **Small input angles at features** (stage 2): no angle bound there in T6 (M); exemptions as in `QualityMesh2`.
 
-## 13. Decisions for the owner
+## 13. Decisions (coordinator under the owner's mandate, 2026-11-13)
 
-1. RDR as the main route, staged as in section 11 (stage 0 proofs and review first, stage 1a spike with its stop
-   rules before any library code)? Leaning: yes.
-2. The stated guarantee: homeomorphism + two-sided band r_max + radius-edge bound with listed exemptions, and isotopy
-   only if stage 0's proof succeeds? Leaning: yes.
-3. Inputs: clean closed meshes only (broken inputs go through `MeshRobustRepair` first)? Leaning: yes.
-4. Side path (section 10): build the band guard and `RemeshCertificate` for the existing `Remesher` now (tier S),
-   the isotopy guard later or not? Leaning: certificate now only if a caller needs it; otherwise after stage 1a.
-5. Order against the running work (Exact Boolean 3.0, Alpha Wrap 3.0, contouring certificate stages 1-2): stage 0 now
-   (docs); stage 1 after contouring certificate stage 1, whose counting kernel it reuses. Leaning: yes.
+1. RDR staged as in section 11, with the stop rules of stage 1a; stage 1a is a float spike in a benchmark project, not
+   library code.
+2. The guarantee is homeomorphism + two-sided band + radius-edge bound with listed exemptions; isotopy is claimed only
+   once proved and reviewed (section 14.3: where route (a)'s check passes).
+3. Clean closed inputs only, for now; other inputs are refused with a status, no repair inside.
+4. The Remesher side path (section 10) comes after RDR stage 1a; the torus self-intersection finding is #790.
+5. Stage 0 now (section 14); the coordinator routes the fresh-session review. Stage 1 waits for contouring-certificate
+   stage 1. New predicates go through the PredicateCompiler with a checked error bound; the exact-code rules apply.
+   Papers only (no CGAL).
+
+## 14. Stage 0: the proofs
+
+Everything here is about a clean closed PL surface S (a compact 2-manifold, possibly with several components, embedded,
+triangles of positive area) strictly inside an axis-aligned box B, and a finite set P of sites strictly inside B
+together with the 8 corners of a larger box B' (the corners of `Delaunay3`'s box), so that every Voronoi cell of a
+site of P is bounded. K is the Voronoi complex of P clipped to B': its 3-cells V(p) (convex polytopes), 2-cells
+(*facets* F_pq = V(p) ∩ V(q), dual to Delaunay edges pq), 1-cells (*Voronoi edges* e_pqr, dual to Delaunay triangles
+pqr) and 0-cells (Voronoi vertices, dual to tetrahedra). Tools from CONTOURING_TOPOLOGY.md section 7: Theorem 1 (the
+grid lemma) and its Remark 1 (any complex of convex cells whose boundaries are unions of lower cells), and the
+counting lemma of section 7.4 (stated there for any compact convex X). Status of every statement: written in this
+study, **not reviewed yet**.
+
+### 14.1 The conditions
+
+**(G) General position**, for the elements that S meets or touches:
+
+1. every Voronoi vertex near S is in exactly 4 cells and every Voronoi edge in exactly 3 (no 5 cospherical sites whose
+   empty sphere's centre is near S): a zero of `InSphere` between a cell and a neighbour's apex is a violation;
+2. S contains no Voronoi vertex (P6 of 14.4 is not 0 for the triangles near it);
+3. no Voronoi edge meets S in a mesh edge or vertex, and none lies in the plane of a triangle it meets (the
+   three-plane point of P1 / P2 exists, d != 0, and P2 is not 0);
+4. no mesh vertex lies on a Voronoi facet (P3 is not 0), and no mesh edge lies in the plane of a facet it meets (P3
+   is not 0 at both ends of it).
+
+A violated element is uncertified (stage 1b may replace this by Simulation of Simplicity on the input's doubles; the
+statements below then hold for the perturbed configuration).
+
+**(TBP) The topological ball property, as checked**:
+
+- (E') every Voronoi edge meets S in at most one point;
+- (F') every facet meets S in nothing or in one arc;
+- (C') every cell V(p), p a site, meets S in nothing or in one closed disk;
+- (R0) S meets no cell of a corner of B'.
+
+**Lemma 1 (the checks are exact counts).** Under (G), (E') holds for e exactly if at most one triangle of S meets e
+(P1 and P2); (F') holds for F exactly if the triangles meeting F and the mesh edges crossing F form one part with
+|T| - |M| = 1; (C') holds for V(p) exactly if the triangles, mesh edges and mesh vertices meeting it form one part
+with |T| - |M| + |V| = 1. Every membership in these counts is decided by P1-P5 of 14.4.
+
+*Proof.* Under (G), S meets a facet in a compact 1-manifold with boundary on the facet's edges and a cell in a compact
+2-manifold with boundary on its boundary (the argument of CONTOURING_TOPOLOGY.md 7.4, which uses only convexity of
+the cell and its faces). The counting lemma there gives the Euler characteristic of each part from the counts. A
+connected compact 1-manifold with boundary is an arc (characteristic 1) or a circle (0); a connected compact surface
+with boundary inside an orientable surface S has characteristic 2 - 2g - b, which is 1 only for the disk; a part
+without boundary would be a closed component of S inside one cell, characteristic 2 or less but even, so not 1.
+Requiring one part makes the ball unique. Membership: a mesh vertex v is in V(p) iff no Delaunay neighbour q of p is
+closer to v (P3; the cell is the intersection of the half-spaces of p's Delaunay neighbours); a mesh edge crosses F_pq
+iff its ends are on opposite sides of bisector(p, q) (P3) and the crossing point is closer to p than to every other
+Delaunay neighbour of edge pq (P4); a Voronoi edge e_pqr meets triangle t iff the three-plane point x of bisector(p, q),
+bisector(p, r) and plane(t) is closer to p than to the apexes of the two tetrahedra at pqr (P1) and inside t (P2). A
+triangle meets a convex X exactly if one of its vertices is in X, one of its edges crosses a facet of X, or an edge of
+X crosses it (two convex sets; under (G) the intersection polygon has its vertices at such points). ∎
+
+### 14.2 Theorem A: homeomorphism
+
+**Theorem A.** Under (G) and (TBP), let D be the set of Delaunay triangles pqr whose dual Voronoi edge meets S. Then D
+is a closed 2-manifold triangle mesh, homeomorphic to S, and two triangles of D meet only in a common edge or vertex.
+**Samples need not lie on S.**
+
+*Proof.* (1) The sets S ∩ e (points), S ∩ F (arcs) and S ∩ V(p) (disks) are the cells of a decomposition Σ of S. The
+end points of an arc S ∩ F lie on edges of F (Lemma 1's manifold boundary), so they are points S ∩ e; the boundary
+circle of a disk S ∩ V(p) lies on the boundary of V(p), hence is a union of arcs and points of Σ. The cells are closed
+balls whose boundaries are unions of cells: Σ is a regular cell decomposition of S.
+(2) Every point x = S ∩ e is an end of exactly 3 arcs and lies in exactly 3 disks: e is in 3 facets and 3 cells by
+(G1); S crosses e transversally inside one triangle (G3), so near x it meets each of the 3 facets in a curve ending at
+x, which is part of that facet's one arc (F'), and each of the 3 cells. Every arc lies in exactly 2 disks (a facet is
+in 2 cells).
+(3) The dual of Σ: one vertex per disk, one edge per arc joining the two disks it lies in, one triangle per point x
+(degree 3 by (2)). For a regular cell decomposition of a closed surface the dual complex is again a cell decomposition
+of the same surface (both are refined by the barycentric subdivision of Σ; standard, eg Munkres, *Elements of
+Algebraic Topology*, 1984, section 64, M). Here every dual 2-cell is a triangle with three distinct vertices.
+(4) The dual is D: the disk of p is dual to the site p, the arc in F_pq to the Delaunay edge pq, the point on e_pqr to
+the Delaunay triangle pqr, with the same incidences. The map is injective: (C') gives one disk per cell, (F') one arc
+per facet, (E') one point per Voronoi edge. A bigon (two triangles with two common edges) would need two Voronoi edges
+both on F_pq and F_pr; these facets meet only on the Voronoi line of p, q, r, which carries one Voronoi edge. So the
+dual is a simplicial complex and equals D as an abstract complex.
+(5) D is a subcomplex of the Delaunay tetrahedralization of P (exact `Delaunay3`), so its geometric realization is
+embedded: two triangles meet in a common face. Hence D is homeomorphic to the dual of Σ, which is homeomorphic to S;
+closed and 2-manifold follow. Nowhere is a sample assumed to lie on S. ∎
+
+Remark. This is the argument behind T1 written for this setting; it replaces the open question of section 3 (rounded
+samples): rounding the inserted points changes P, and the checks are made on the rounded P.
+
+### 14.3 Theorem B: isotopy to an intermediate surface, and the three routes to the output
+
+For every Voronoi edge e that meets S let x_e = S ∩ e (a point of S, the centre of the surface Delaunay ball of the
+dual triangle). For every Delaunay edge pq of D, its facet F_pq meets S in one arc with end points x_e, x_e' (e, e' the
+Voronoi edges dual to the two triangles of D at pq). Define the **dual quad surface**
+S2 = union over the edges pq of D of the triangles (p, x_e, x_e') and (q, x_e, x_e').
+
+**Theorem B.** Under (G) and (TBP), S2 is a PL surface and S is ambient isotopic to S2, by an isotopy that maps every
+cell of K onto itself.
+
+*Proof.* S is compatible with K in the sense of CONTOURING_TOPOLOGY.md 7.1 ((E), (F), (C) are (E'), (F'), (C') plus
+(G); the outer layer, the corner cells, meets nothing by (R0)). S2 is compatible with the same pattern: the segment
+[x_e, x_e'] lies in the convex facet F_pq and meets its boundary only in its ends (they lie on two different edges of F,
+in their interiors by (G2)); p and q lie strictly on the two sides of the bisector plane, so S2 meets F_pq exactly in
+that segment and meets e exactly in x_e. In V(p), S2 is the cone from p over the closed polygon gamma_p made of these
+segments; gamma_p is simple (one segment per facet by (F'), consecutive ones share an x_e, and each x_e appears once),
+it lies on the boundary of the convex V(p), and p is in the interior of V(p), so the cone is an embedded disk with
+interior in the interior of V(p) (radial projection from p is injective on the boundary). So S2 meets every cell, facet
+and edge as S does, with the same crossed edges and, on every facet, the same pairing of ends (one arc, the same two
+ends). Theorem 1 (with Remark 1) gives a homeomorphism of B' that maps every cell to itself and S onto S2, isotopic to
+the identity; in particular S2 is a surface. ∎
+
+Partial statement. With uncertified cells, Theorem 1b of the contouring note gives the same on the union of the
+certified cells (their facets and edges), and nothing inside the others.
+
+**From S2 to D, three routes:**
+
+(a) **Explicit moves (recommended).** S2 becomes D by two rounds of moves across tetrahedra: for every edge pq of D,
+replace (p, x_e, x_e') and (q, x_e, x_e') by (p, q, x_e) and (p, q, x_e'), a move across the tetrahedron
+T_pq = (p, q, x_e, x_e'); afterwards every triangle pqr of D carries a tent (p, q, x), (q, r, x), (r, p, x) with x =
+x_e for its dual edge; replace it by pqr, a move across T_pqr = (p, q, r, x). A move across a non-degenerate
+tetrahedron that meets the rest of the current surface only in the shared boundary edges is an ambient isotopy (the
+elementary move of PL topology, Rourke-Sanderson 1972, M). So **if every T_pq and T_pqr is non-degenerate and empty in
+that sense, in the stated order, D is ambient isotopic to S.** This is a sufficient condition, checked per
+tetrahedron; it is not implied by the TBP (a T_pq is not inside V(p) ∪ V(q) in general). Its exact tests involve the
+implicit points x_e (degree 5 / 4) as tetrahedron and triangle corners: orient3d with up to three implicit points
+(degree about 19) is far beyond the generator's fixed-width stages, so the check runs with a float filter and an exact
+rational fallback (`BigInteger`, every point is rational in the input doubles); its pass rate and cost are measured in
+stage 1a. Where it fails, D is reported as homeomorphic only; S2 (with exact implicit vertices) remains isotopic but
+is not a double-coordinate mesh.
+
+(b) **Chazal-Cohen-Steiner (T11).** D lies in the r_max offset of S (section 5.2), is homeomorphic to S (Theorem A),
+and separates the two sides of the offset if the winding number of D at one point of each boundary component of the
+offset is right (one exact parity test per component: the winding number is constant on a connected component that D
+does not meet). The missing premise is that the r_max offset of S is a topological thickening, which holds below the
+weak feature size (T12, M); a certified bound wfs(S) > r_max needs a search for critical points of the distance to S in
+the band (points that lie in the convex hull of their nearest points; near a crease they do not occur, so wfs > 0 for
+PL S). No published method for a certified wfs bound of a mesh was found; this route is a separate study (tier L).
+
+(c) **The elementary-move guard of section 10** is the same mechanism as (a) applied to the Remesher's operations; for
+RDR it is not a separate route, since D is built by insertions, not by moves from S. It is listed for completeness:
+its lemmas (flip, vertex move, collapse) are the side path's stage 0, not RDR's.
+
+### 14.4 The predicates and their degrees
+
+All in coordinates relative to a sample a (translation invariant, as the existing `ipredicate`s): b' = b - a, etc.
+Bisector(a, b): 2 b'·y = |b'|^2 (y = x - a). Plane of t: n_t·y = h_t with n_t = (t1 - t0) x (t2 - t0) (degree 2) and
+h_t = n_t·(t0 - a) (degree 3). Degrees are total degrees in the input coordinates; a homogeneous implicit point is
+(N, d) with x = a + N / d, and a sign on it is sign(poly) · sign(d) (the generator's convention).
+
+| Name | Formula | Degree |
+|---|---|---|
+| BTPI(a, b, c; t) | three-plane point of bisector(a, b), bisector(a, c), plane(t): d = det(2b', 2c', n_t) (1 + 1 + 2 = 4); N = \|b'\|^2 (2c' x n_t) + \|c'\|^2 (n_t x 2b') + h_t (2b' x 2c') (2 + 3, 2 + 3, 3 + 2 = 5) | N 5, d 4 |
+| P1 SideOfBisector(BTPI, e) | sign of 2 e'·N - \|e'\|^2 d, times sign(d): is x closer to a than to e | 6 |
+| P2 Orient2dBTPI(t_i, t_j) | orient2d of x, t_i, t_j in the projection that drops the largest component of n_t (chosen by exact comparisons of the n_t components, degree 2): (N_u - d t'_iu)(t'_jv - t'_iv) - (N_v - d t'_iv)(t'_ju - t'_iu), times sign(d) | 6 |
+| P3 SideOfBisector(v; a, b) | sign of \|v - a\|^2 - \|v - b\|^2 = -(2 b'·v' - \|b'\|^2) on doubles | 2 |
+| P4 SideOfBisectorLPI(q0, q1; a, b; c) | the crossing y of mesh edge q0 q1 with bisector(a, b): l_k = 2 b'·q'_k - \|b'\|^2 (degree 2), N = q'_0 l_1 - q'_1 l_0 (3), d = l_1 - l_0 (2); sign of 2 c'·N - \|c'\|^2 d, times sign(d) | 4 |
+| P6 Orient3dCircumcentre(a, b, c, e; t) | circumcentre of tetrahedron abce: N = \|b'\|^2 (c' x e') + \|c'\|^2 (e' x b') + \|e'\|^2 (b' x c') (4), d = 2 det(b', c', e') (3); sign of n_t·N - h_t d, times sign(d) (for (G2)) | 6 |
+| sign(d) of BTPI, LPI, circumcentre | the denominators | 4, 2, 3 |
+
+**Claim (degree bound).** Every exact decision of the restricted bookkeeping, the TBP checks of Lemma 1 and (G) is one
+of P1-P6, the existing `Orient3d` / `InSphere` of `Delaunay3`, or a comparison of input coordinates, so the maximum
+degree is 6. *Proof*: by the expansion above (each entry is a sum of products whose degrees add as listed; the
+largest is a degree-1 or degree-2 factor times a degree-5 or degree-4 one). ∎ For comparison, `Orient3dTPI` in
+`indirect.spec` has degree 9. The decisions that may be conservative instead of exact (R2's band test, R3's radius-edge
+test, the queue key) use floating-point values with a relative error bound and never decide a combinatorial
+structure: refining more than needed keeps every proof (the band and angle statements become "at most r_max (1 +
+eps)", eps the stated bound), and termination is by Theorem C regardless.
+
+All six are straight-line formulas on input points, so they fit `indirect.spec` as `ipredicate`s like `Orient3dLPI`
+and `Orient3dTPI`; the generator derives the filter bound, the expansion lengths and the `FixedArith` widths, and
+`GeneratedPredicatesTests` checks the bound table. P1's spec, as a draft for stage 1b (not committed to the spec file):
+
+```
+ipredicate SideOfBisectorBTPI(a, b, c, t0, t1, t2, e) inputs xyz
+    bx = b.x - a.x ... (b', c', e', t0 - a, t1 - t0, t2 - t0 as differences)
+    n_t = cross(t1 - t0, t2 - t0); h = dot(n_t, t0 - a)
+    d = det(2 b', 2 c', n_t)
+    N = |b'|^2 cross(2 c', n_t) + |c'|^2 cross(n_t, 2 b') + h cross(2 b', 2 c')
+    sign 2 dot(e', N) - |e'|^2 d, d
+```
+
+### 14.5 Theorem C: termination and size
+
+Rules as in section 4, with: an insertion is refused when the squared distance computed by `Delaunay3.Insert` to the
+nearest vertex is at most h_min^2 (floating point; its relative error is at most a few units of 2^-53, so the true
+separation of accepted points is at least h = h_min (1 - 2^-50), say); a refused element is marked uncertified with the
+stamps of its cells and is not queued again until one of them changes; R0 inserts, for a corner cell that S meets, the
+point of S in that cell farthest from the corner.
+
+**Theorem C.** With the initial sample an h-separated set of input vertices and a box margin of at least h between B
+and B', the refinement stops after at most N - |P_0| insertions, where
+
+N <= sum over triangles t of S of [2 r A_t + (pi / 2) r^2 L_t + (4 pi / 3) r^3] / ((pi / 6) h^3),   r = h / 2 + eps_0,
+
+A_t, L_t the area and perimeter of t, eps_0 the largest distance of an inserted (rounded) point from S (half an ulp of
+the coordinates times sqrt 3). The leading term is 6 area(S) / (pi h^2).
+
+*Proof.* Every inserted point x lies in the Voronoi cell of its nearest site p before insertion (it is a surface
+Delaunay ball centre, a point of S ∩ F or of S ∩ V(p), chosen in the violating element of its sample), so its
+distance to the nearest site is |x - p|; for a corner cell, every point of it is closer to the corner than to any
+sample and at least the margin from the corner, so at least h from every sample. Accepted points are therefore pairwise
+at least h apart (the initial ones by construction). The balls of radius h / 2 around the points of P (without the
+corners) are disjoint and lie in the (h / 2 + eps_0)-offset of S. That offset is contained in the union of the offsets
+of the triangles, whose volumes are given by Steiner's formula for a planar convex set in R^3:
+vol = 2 r A + (pi / 2) r^2 L + (4 pi / 3) r^3. Comparing volumes bounds |P| by N. Between two insertions the
+bookkeeping visits finitely many elements, each either queued once per change of its cells or marked; with |P| bounded,
+the number of changes is bounded, so the loop ends. ∎
+
+Where S is smooth on the scale r_max (lfs large against it) the insertion radius argument of T3 / T4 bounds the size
+by O(area / r_max^2) instead, and no element reaches h_min; how many do on real meshes is stage 1a's measurement.
+The wedge threshold of section 3 needs only scale invariance: a wedge is mapped onto itself by scaling about a point of
+its crease, and the Voronoi complex scales with the sites, so a configuration that violates the TBP is violated at
+every scale; whether refinement reaches one is not decided by this argument (measured in 1a).
+
+### 14.6 Theorems D, E: band and angles (the statements of sections 5.2 and 5.4)
+
+**Theorem D (band).** If the refinement ends with no uncertified element and R2 holds for every surface Delaunay ball
+and every restricted Voronoi region, then every point of D is within r_max of S and every point of S within r_max of
+D. *Proof*: section 5.2; the farthest point of a restricted region S ∩ V(p) from p is a vertex of one of the convex
+polygons t ∩ V(p) (the squared distance is convex), which are mesh vertices in V(p), crossings of mesh edges with
+facets (P4's point) or crossings of Voronoi edges with triangles (BTPI points): finitely many, tested by R2 (with the
+conservative float test, "r_max (1 + eps)"). Each restricted facet has exactly one surface Delaunay ball by (E'). ∎
+
+**Theorem E (angles).** Every facet of D not marked exempt has circumradius / shortest edge <= rho, so its smallest
+angle is at least arcsin(1 / (2 rho)). *Proof*: R3 refines a facet whose ratio exceeds rho by inserting its surface
+Delaunay ball centre, unless refused by h_min (then marked exempt); at the end no unmarked facet exceeds rho; for a
+triangle, R / l_min <= rho gives sin(alpha_min) = l_min / (2 R) >= 1 / (2 rho). ∎
+
+### 14.7 What the review should check
+
+1. Lemma 1: that "one part with characteristic 1" is equivalent to (F') / (C') under (G), including parts that touch
+   the boundary of the cell only in one point (excluded by (G)?).
+2. Theorem A step (3): the dual-complex statement for regular decompositions of closed surfaces, and whether Σ is
+   regular in the sense needed when a disk's boundary passes through a cell's vertex region (excluded by (G2)).
+3. Theorem B: the compatibility of S2 (the simple polygon gamma_p and the injective radial projection), and the use
+   of Theorem 1 for clipped Voronoi cells (Remark 1).
+4. Route (a): the order of the moves and the precise emptiness condition of an elementary move.
+5. Theorem C: that every inserted point is in the Voronoi cell of the site it is measured against (rule by rule), and
+   the Steiner bound.
+6. The degree table of 14.4 against the formulas.
