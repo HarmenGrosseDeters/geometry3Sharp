@@ -120,7 +120,10 @@ namespace geometry3Sharp.Tests
             // points whose x is 1.5e8 or the next double (spread 3e-8, above the old absolute 1e-8): the midpoint rounds
             // onto an end, every x is <= it, and the old scan ran past the set (an exception or a corrupt tree); now the
             // scan is bounded and a side left empty splits half and half
-            double x0 = 1.5e8, x1 = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x0) + 1);
+            // (x0 with an odd last mantissa bit: x0 + x1 is then a tie that rounds to even upwards, so the midpoint is x1)
+            long bits = BitConverter.DoubleToInt64Bits(1.5e8) | 1;
+            double x0 = BitConverter.Int64BitsToDouble(bits), x1 = BitConverter.Int64BitsToDouble(bits + 1);
+            Assert.Equal(x1, 0.5 * (x0 + x1));
             var m = new DMesh3();
             var rnd = new Random(11);
             for (int i = 0; i < 40; ++i)
