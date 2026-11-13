@@ -585,9 +585,8 @@ namespace geometry3Sharp.Tests
             int ca = cutter.AppendVertex(s.Apply(a)), cb = cutter.AppendVertex(s.Apply(b)), cc = cutter.AppendVertex(s.Apply(c));
             if (flipCutter) cutter.AppendTriangle(ca, cc, cb); else cutter.AppendTriangle(ca, cb, cc);
 
-            // (the cutter's plane x = y holds grid vertices, which MeshMeshCut now counts as contact and refuses by default, issue 856; this guard is about
-            // the handling of vertices on the cut, so it runs with the refusal off, the behaviour of MeshBoolean)
-            var cut = new MeshMeshCut() { Target = target, CutMesh = cutter, RefuseContact = false };
+            // (the cutter's plane x = y holds grid vertices: a target vertex on the cut plane is not contact, issue 856, so the default refusal does not apply)
+            var cut = new MeshMeshCut() { Target = target, CutMesh = cutter };
             cut.Compute();
             Assert.Equal(0, cut.FailedSegmentInsertions);
             Assert.True(target.CheckValidity(false, FailMode.ReturnOnly));

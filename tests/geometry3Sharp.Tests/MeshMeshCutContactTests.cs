@@ -88,12 +88,9 @@ namespace geometry3Sharp.Tests
             // a vertex on the plane outside the triangle while another edge pierces the triangle properly
             yield return new object[] { "vertex on the plane, proper crossing", Tri(new Vector3d(0, 0, 0), new Vector3d(4, 0, 0), new Vector3d(0, 4, 0)),
                 Tri(new Vector3d(1, 1, 1), new Vector3d(1, 1, -1), new Vector3d(10, 10, 0)) };
-            // exactly one of the six orientations is zero: a vertex at index i of the one triangle touches the plane (inside the other triangle), the others
-            // are strictly on one side; for the cut triangle (indices 0..2) and for the target triangle (indices 3..5)
-            for (int i = 0; i < 3; ++i) {
+            // exactly one of the three cut orientations is zero: a vertex at index i of the cut triangle touches the plane of the target triangle (inside it)
+            for (int i = 0; i < 3; ++i)
                 yield return new object[] { "one zero orientation, cut vertex " + i, Flat(), Pointed(i) };
-                yield return new object[] { "one zero orientation, target vertex " + i, Pointed(i), Flat() };
-            }
             // two cubes that share a face plane region (the box of one is against the face of the other)
             yield return new object[] { "shared face", Cube(0, 0, 0, 1), Cube(1, 0, 0, 1) };
             // the cut mesh inside with faces on the faces of the target
@@ -255,6 +252,10 @@ namespace geometry3Sharp.Tests
             // two segments on the x axis, apart (their yz projections are the same point)
             yield return new object[] { "degenerate segments on a line, apart", Tri(new Vector3d(0, 0, 0), new Vector3d(0.5, 0, 0), new Vector3d(1, 0, 0)),
                 Tri(new Vector3d(2, 0, 0), new Vector3d(2.5, 0, 0), new Vector3d(3, 0, 0)) };
+            // a vertex of the target triangle on the plane of the cut triangle (inside it), the rest of the target on one side: not contact (the class of the
+            // issue-138 guard, a grid cut by a plane through its vertices; master cuts it correctly)
+            for (int i = 0; i < 3; ++i)
+                yield return new object[] { "target vertex on the cut plane " + i, Pointed(i), Flat() };
             // one ulp above the plane inside the target triangle: no contact (the cut mesh is above, nothing is zero)
             yield return new object[] { "one ulp above", Flat(), Tri(new Vector3d(1, 1, BitConverter.Int64BitsToDouble(1)), new Vector3d(5, 5, 1), new Vector3d(6, 0.5, 1)) };
         }
@@ -355,7 +356,7 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < 3; ++i) { t[i] = new long[] { rnd.Next(4), rnd.Next(4), rnd.Next(4) }; u[i] = new long[] { rnd.Next(4), rnd.Next(4), rnd.Next(4) }; }
                 if (Cross(Sub(t[1], t[0]), Sub(t[2], t[0])).All(c => c == 0) || Cross(Sub(u[1], u[0]), Sub(u[2], u[0])).All(c => c == 0))
                     continue;       // (degenerate triangles have their own cases)
-                bool anyZero = Enumerable.Range(0, 3).Any(i => OracleOrient(t, u[i]) == 0 || OracleOrient(u, t[i]) == 0);
+                bool anyZero = Enumerable.Range(0, 3).Any(i => OracleOrient(t, u[i]) == 0);
                 bool expected = anyZero && OracleIntersect(t, u);
                 Triangle3d tt = new Triangle3d(new Vector3d(t[0][0], t[0][1], t[0][2]), new Vector3d(t[1][0], t[1][1], t[1][2]), new Vector3d(t[2][0], t[2][1], t[2][2]));
                 Triangle3d uu = new Triangle3d(new Vector3d(u[0][0], u[0][1], u[0][2]), new Vector3d(u[1][0], u[1][1], u[1][2]), new Vector3d(u[2][0], u[2][1], u[2][2]));

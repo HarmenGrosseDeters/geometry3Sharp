@@ -20,16 +20,16 @@ namespace g3
     /// VertexSnapTol is an absolute 1e-5: scale it to the model (millimetre models and UTM coordinates fail with the
     /// default, docs/ROBUSTNESS_SWEEP.md R6).
     ///
-    /// Contact is out of scope: a cut that is not transversal is refused. With RefuseContact (the default), Compute()
-    /// first looks, with exact predicates, for a pair of triangles (one of Target, one of CutMesh) whose closed
-    /// triangles intersect although at least one of their six vertex-against-plane orientations is zero (a vertex on the
-    /// other triangle's plane: a vertex on a face, an edge on a face, two edges that touch, coplanar triangles overlapping
-    /// or touching, a vertex on the plane with a proper crossing). That is conservative: a pair that is also
-    /// crossed properly is refused too. If there is one, Compute() leaves Target unchanged, sets Status to
-    /// ContactDetected and returns (RemoveContained() then does nothing). Only pairs whose six orientations are all
-    /// nonzero (a transversal cut) are cut. The decision is made by exact predicates, so it is the same under every
-    /// scaling by a power of two (and any similarity that is exact). A triangle without an area (collinear corners) counts as its segment or point. The cut itself is not scale invariant (VertexSnapTol
-    /// is absolute). <see cref="MeshBoolean"/> sets RefuseContact to false and so keeps its behaviour on touching inputs.
+    /// Contact is out of scope: a cut that touches is refused. With RefuseContact (the default), Compute() first looks, with exact
+    /// predicates, for a pair of triangles (one of Target, one of CutMesh) whose closed triangles intersect although a vertex of the
+    /// CutMesh triangle lies on the plane of the Target triangle (a cut vertex on a face, an edge of the cut on a face, two edges that
+    /// touch, coplanar triangles overlapping or touching, a cut vertex on the plane with a proper crossing). That is conservative: a pair
+    /// that is also crossed properly is refused too. A vertex of a Target triangle on the plane of a CutMesh triangle (a grid cut by a plane
+    /// through its vertices) is not contact: that class is cut correctly. If there is a contact, Compute() leaves Target unchanged, sets
+    /// Status to ContactDetected and returns (RemoveContained() then does nothing). The decision is made by exact predicates, so it is
+    /// the same under every scaling by a power of two (and any similarity that is exact). A triangle without an area (collinear corners)
+    /// counts as its segment or point. The cut itself is not scale invariant (VertexSnapTol is absolute).
+    /// <see cref="MeshBoolean"/> sets RefuseContact to false and so keeps its behaviour on touching inputs.
     ///
     /// TODO:
     ///    - track descendant triangles of each input face
@@ -774,8 +774,10 @@ namespace g3
                 s[i] = ExactPredicates.Orient3d(t.V0, t.V1, t.V2, u[i]);
                 s[3 + i] = ExactPredicates.Orient3d(u.V0, u.V1, u.V2, t[i]);
             }
-            if (s[0] != 0 && s[1] != 0 && s[2] != 0 && s[3] != 0 && s[4] != 0 && s[5] != 0)
-                return false;       // a transversal cut or disjoint
+            // contact: a vertex of the cut triangle on the plane of the target triangle (s[0..2]). A vertex of the target triangle on the plane of the cut
+            // triangle (s[3..5], e.g. a grid cut by a plane through its vertices) is no contact: master cuts that class correctly (measured, issue 856)
+            if (s[0] != 0 && s[1] != 0 && s[2] != 0)
+                return false;       // a transversal cut or disjoint (or only target vertices on the cut plane)
             // separated by a plane (all on one strict side)? then they do not meet
             if ((s[0] > 0 && s[1] > 0 && s[2] > 0) || (s[0] < 0 && s[1] < 0 && s[2] < 0))
                 return false;
