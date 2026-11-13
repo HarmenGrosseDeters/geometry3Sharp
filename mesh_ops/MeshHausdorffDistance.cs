@@ -61,7 +61,8 @@ namespace gs
         /// evaluated with outward rounding (ExactInterval), so UpperBound is never below the exact distance. Without it UpperBound is
         /// certified only up to the floating-point evaluation of the distance queries (see Compute), which can put it below the exact
         /// distance where a point of one mesh lies very near the other (a distance d much below the size E of the nearest triangle).
-        /// Takes about twice the time (+16 to +115%, benchmarks/HausdorffBenchmark); the internal patch bound is not used then. Every
+        /// Takes about twice the time (+16 to +115%, typically +90%, benchmarks/HausdorffBenchmark); on those inputs the subdivisions
+        /// and LowerBound were unchanged and UpperBound within a few ulps of the coordinates. The internal patch bound is not used. Every
         /// certified distance is at least about 2^-537 (the outward rounding), so an absolute Tolerance below that cannot converge for
         /// meshes that touch.
         /// Off by default (the results are then as before, bit for bit). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
