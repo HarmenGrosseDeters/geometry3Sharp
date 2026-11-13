@@ -6,14 +6,18 @@ using g3;
 namespace gs
 {
     /// <summary>
-    /// Tet mesh improvement (docs/design/TET_MESHING.md, stage 2), after J. Klingner and J. R. Shewchuk, "Aggressive tetrahedral mesh
+    /// Tet mesh improvement (docs/design/TET_MESHING.md, stage 2), after B. M. Klingner and J. R. Shewchuk, "Aggressive tetrahedral mesh
     /// improvement", IMR 2007 (paper only): hill climbing on the smallest dihedral angle with
     ///   - edge removal (the m tets around an interior edge replaced by the 2 (m - 2) tets of the best triangulation of the ring,
     ///     found by dynamic programming over the ring polygon; m = 3 is the 3-2 flip),
     ///   - face removal (the 2-3 flip of an interior facet),
-    ///   - smoothing of interior vertices (moves towards a better position of the worst tet of the star).
+    ///   - smoothing of interior vertices (moves towards a better position of the worst tet of the star),
+    ///   - with InputTree and BoundarySlideLimit set, moves of boundary vertices, capped cumulatively at BoundarySlideLimit from
+    ///     their first position and kept only if the swept region touches no input triangle and the moved boundary triangles
+    ///     cut no other boundary triangle (both exact).
     /// An operation is kept only if every new tet is exactly positively oriented (ExactPredicates.Orient3d) and the smallest
-    /// dihedral angle of the tets it replaces strictly improves. The boundary facets are never changed by these operations.
+    /// dihedral angle of the tets it replaces strictly improves. Edge and face removal never change the boundary facets; boundary
+    /// moves change only their positions.
     /// Serial and deterministic; scale-free steps, so scaling by 2^k gives the scaled result bit for bit.
     /// </summary>
     internal sealed class TetMeshImprover
@@ -64,29 +68,51 @@ namespace gs
         readonly List<Vector3d> orig;
         readonly List<Index3i> bfaces;                    // boundary triangles (outward), fixed topology
         readonly List<List<int>> vfaces;
-        // a uniform grid of the boundary triangles' boxes, for the exact self-intersection test of boundary moves
+        // a uniform grid of the boundary triangles, for the exact self-intersection test of boundary moves. Static: each triangle
+        // is registered once with the box of its ORIGINAL corners grown by BoundarySlideLimit, which contains the triangle at
+        // every later time (no corner ever gets farther than the limit from its original position), so the grid is never stale.
+        // Triangles that would span more than MaxCellsPerFace cells go to a list that every query checks.
         double cell;
+        /// <summary> (tests) the grid's cell size (0 = automatic) and the cell count above which a face goes to the always-checked list </summary>
+        internal double GridCell = 0;
+        internal int MaxCellsPerFace = 64;
         readonly Dictionary<(long, long, long), List<int>> grid = new Dictionary<(long, long, long), List<int>>();
+        readonly List<int> bigFaces = new List<int>();
 
         void build_grid()
         {
             var lens = new List<double>();
-            foreach (Index3i f in bfaces) lens.Add(pos[f.a].Distance(pos[f.b]));
+            foreach (Index3i f in bfaces) lens.Add(orig[f.a].Distance(orig[f.b]));
             lens.Sort();
-            cell = lens.Count > 0 ? 2 * lens[lens.Count / 2] : 1;
+            cell = GridCell > 0 ? GridCell : (lens.Count > 0 ? 2 * lens[lens.Count / 2] : 0) + 2 * BoundarySlideLimit;
             if (!(cell > 0)) cell = 1;
-            for (int f = 0; f < bfaces.Count; ++f) grid_add(f);
+            for (int f = 0; f < bfaces.Count; ++f) {
+                AxisAlignedBox3d b = reach_box(f);
+                if (cell_count(b) > MaxCellsPerFace) { bigFaces.Add(f); continue; }
+                foreach (var k in cells(b)) { if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>(); l.Add(f); }
+            }
         }
 
-        AxisAlignedBox3d face_box(int f) { Index3i t = bfaces[f]; var b = new AxisAlignedBox3d(pos[t.a]); b.Contain(pos[t.b]); b.Contain(pos[t.c]); return b; }
+        // the box that contains face f at any time: its original corners' box grown by the slide limit
+        AxisAlignedBox3d reach_box(int f)
+        {
+            Index3i t = bfaces[f];
+            var b = new AxisAlignedBox3d(orig[t.a]); b.Contain(orig[t.b]); b.Contain(orig[t.c]);
+            b.Expand(BoundarySlideLimit);
+            return b;
+        }
+        long cell_count(AxisAlignedBox3d b)
+        {
+            long nx = (long)Math.Floor(b.Max.x / cell) - (long)Math.Floor(b.Min.x / cell) + 1, ny = (long)Math.Floor(b.Max.y / cell) - (long)Math.Floor(b.Min.y / cell) + 1,
+                nz = (long)Math.Floor(b.Max.z / cell) - (long)Math.Floor(b.Min.z / cell) + 1;
+            return nx * ny * nz;
+        }
         IEnumerable<(long, long, long)> cells(AxisAlignedBox3d b)
         {
             long x0 = (long)Math.Floor(b.Min.x / cell), x1 = (long)Math.Floor(b.Max.x / cell), y0 = (long)Math.Floor(b.Min.y / cell),
                 y1 = (long)Math.Floor(b.Max.y / cell), z0 = (long)Math.Floor(b.Min.z / cell), z1 = (long)Math.Floor(b.Max.z / cell);
             for (long x = x0; x <= x1; ++x) for (long y = y0; y <= y1; ++y) for (long z = z0; z <= z1; ++z) yield return (x, y, z);
         }
-        void grid_add(int f) { foreach (var k in cells(face_box(f))) { if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>(); l.Add(f); } }
-        void grid_remove(int f) { foreach (var k in cells(face_box(f))) if (grid.TryGetValue(k, out var l)) l.Remove(f); }
 
         static (int, int, int) key(int a, int b, int c)
         {
@@ -189,8 +215,8 @@ namespace gs
             Vector3d n = Vector3d.Zero;
             foreach (int f in vfaces[v]) { Index3i t = bfaces[f]; n += (pos[t.b] - pos[t.a]).Cross(pos[t.c] - pos[t.a]); }
             double nl = n.Length;
-            if (!(nl > 0)) return false;
-            n /= nl;
+            if (TangentOnly && !(nl > 0)) return false;
+            if (nl > 0) n /= nl;
             double h = 0; int ne = 0;
             foreach (int id in star) { Index4i t = tets[id]; for (int i = 0; i < 4; ++i) if (t[i] != v) { h += p0.Distance(pos[t[i]]); ne++; } }
             h /= ne;
@@ -216,10 +242,6 @@ namespace gs
                 double q = 180;
                 foreach (int id in star) { q = Math.Min(q, quality(id)); if (q <= old) break; }
                 if (q > old && boundary_move_ok(v, p0, p)) {
-                    pos[v] = p0;
-                    foreach (int f in vfaces[v]) grid_remove(f);
-                    pos[v] = p;
-                    foreach (int f in vfaces[v]) grid_add(f);
                     Counts["boundary_moves"]++;
                     return true;
                 }
@@ -227,6 +249,17 @@ namespace gs
             }
             return false;
         }
+
+        /// <summary> (tests) the largest distance of a vertex from its first position </summary>
+        internal double MaxDisplacement()
+        {
+            double m = 0;
+            for (int v = 0; v < pos.Count; ++v) if (boundaryVertex[v]) m = Math.Max(m, pos[v].Distance(orig[v]));
+            return m;
+        }
+
+        /// <summary> (tests) moves vertex v to p without any check (to build up displaced states for BoundaryMoveAllowed) </summary>
+        internal void SetPosition(int v, Vector3d p) { pos[v] = p; }
 
         /// <summary> (tests) would moving boundary vertex v to p pass the exact checks (input and self-intersection)? </summary>
         internal bool BoundaryMoveAllowed(int v, Vector3d p)
@@ -254,15 +287,17 @@ namespace gs
                 Index3i ia = bfaces[f];
                 var A = new Triangle3d(pos[ia.a], pos[ia.b], pos[ia.c]);
                 var box = new AxisAlignedBox3d(A.V0); box.Contain(A.V1); box.Contain(A.V2);
+                // every face that can meet A is registered in a cell of A's box (its reach box contains it), or is a big face;
+                // this includes the other faces of v's fan
                 var seen = new HashSet<int>();
-                foreach (var k in cells(box)) {
-                    if (!grid.TryGetValue(k, out var l)) continue;
-                    foreach (int o in l) {
-                        if (o == f || !seen.Add(o)) continue;
-                        Index3i ib = bfaces[o];
-                        var B = new Triangle3d(pos[ib.a], pos[ib.b], pos[ib.c]);
-                        if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) { Counts["boundary_refused_self"]++; return false; }
-                    }
+                foreach (int o in bigFaces) seen.Add(o);
+                foreach (var k in cells(box))
+                    if (grid.TryGetValue(k, out var l)) foreach (int o in l) seen.Add(o);
+                foreach (int o in seen) {
+                    if (o == f) continue;
+                    Index3i ib = bfaces[o];
+                    var B = new Triangle3d(pos[ib.a], pos[ib.b], pos[ib.c]);
+                    if (ExactTriangleIntersection.IntersectsBeyondShared(ia, ref A, ib, ref B)) { Counts["boundary_refused_self"]++; return false; }
                 }
             }
             return true;
@@ -306,7 +341,6 @@ namespace gs
                 cur = found;
             }
             if (next != c) return false;                // not closed
-            // the ring's tets: replace ringTets by the walk order is not needed (all are removed)
             return true;
         }
 

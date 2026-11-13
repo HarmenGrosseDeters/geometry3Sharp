@@ -58,7 +58,8 @@ namespace gs
         public bool PeelBoundarySlivers = true;
         /// <summary>
         /// stage 2: improve the refined mesh by flips and smoothing (TetMeshImprover, Klingner and Shewchuk 2007): every tet with a
-        /// smallest dihedral angle below SliverDihedralDegrees is worked on; the boundary is not changed
+        /// smallest dihedral angle below SliverDihedralDegrees is worked on. Flips never change the boundary triangles; with
+        /// BoundarySlideFactor > 0 (the default) boundary vertices move, see there
         /// </summary>
         public bool Improve = true;
         /// <summary>

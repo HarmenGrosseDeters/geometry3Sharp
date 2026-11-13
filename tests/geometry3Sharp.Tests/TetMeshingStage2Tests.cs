@@ -116,6 +116,7 @@ namespace geometry3Sharp.Tests
             var tangent = new MeshTetrahedralization(Input("torus thin")) { BoundaryMovesTangentOnly = true };
             Assert.True(tangent.Compute());
             Invariants(tangent);
+            Assert.NotEqual(tm.Result.Vertices, tangent.Result.Vertices);   // the switch changes the moves
         }
 
         [Fact]
@@ -161,6 +162,8 @@ namespace geometry3Sharp.Tests
             var a = new MeshTetrahedralization(input) { RelativeAlpha = 12, RelativeOffset = 200 }; Assert.True(a.Compute());
             var b = new MeshTetrahedralization(Invariance.Transformed(input, s)) { RelativeAlpha = 12, RelativeOffset = 200 }; Assert.True(b.Compute());
             Invariants(b);
+            Assert.True(a.Counts["improve_edge_removals"] > 0 && a.Counts["improve_boundary_moves"] > 0,
+                a.Counts["improve_edge_removals"] + " / " + a.Counts["improve_smooth_moves"] + " / " + a.Counts["improve_boundary_moves"]);   // stage 2 does work here
             if (s.IsExact) {
                 Assert.Equal(a.Result.Tets, b.Result.Tets);
                 for (int i = 0; i < a.Result.Vertices.Count; ++i) Assert.Equal(s.Scale * a.Result.Vertices[i], b.Result.Vertices[i]);
@@ -246,6 +249,105 @@ namespace geometry3Sharp.Tests
             near.AppendTriangle(0, 1, 2);
             var imp2 = new TetMeshImprover(m) { InputTree = new DMeshAABBTree3(near, true), BoundarySlideLimit = 10 };
             Assert.False(imp2.BoundaryMoveAllowed(0, new Vector3d(0.6, 0.1, 0.1)));
+        }
+
+        [Fact]
+        public void EdgeRemoval_RingOfFour_FindsTheBetterTriangulation()
+        {
+            // four tets around an interior edge (a, b) whose worst tet has 12.0 degrees; the best triangulation of the ring gives
+            // four tets of 42.6 degrees (found by a search over random rings; the DP over m = 4 with its split and recursion)
+            var v = new List<Vector3d> { new Vector3d(0.2, 0.3, 0.96), new Vector3d(0.29, 0.27, -0.73),
+                new Vector3d(0.62, 0, 0.06), new Vector3d(0, -0.76, -0.07), new Vector3d(-0.66, 0, -0.03), new Vector3d(0, 0.7, -0.02) };
+            var t = new List<Index4i>();
+            for (int k = 0; k < 4; ++k) t.Add(new Index4i(0, 1, 2 + k, 2 + (k + 1) % 4));
+            TetMesh3 m = FromTets(v, t);
+            Assert.Null(TetMeshQuality.NotValidReason(m));
+            double before = TetMeshQuality.Measure(m).MinDihedral.Worst;
+            Assert.InRange(before, 11.9, 12.1);
+            var imp = new TetMeshImprover(m) { TargetDegrees = 40 };
+            imp.Run();
+            TetMesh3 r = imp.Result();
+            Assert.Null(TetMeshQuality.NotValidReason(r));
+            Assert.True(imp.Counts["edge_removals"] >= 1);
+            Assert.True(TetMeshQuality.Measure(r).MinDihedral.Worst > 40, TetMeshQuality.Measure(r).MinDihedral.Worst.ToString());
+            Assert.True(new HashSet<(Vector3d, Vector3d, Vector3d)>(m.BoundaryTriangles.Select(f => Key(m.Vertices, f))).SetEquals(r.BoundaryTriangles.Select(f => Key(r.Vertices, f))));
+        }
+
+        // a boundary triangle by its corner positions, independent of the vertex numbering
+        static (Vector3d, Vector3d, Vector3d) Key(List<Vector3d> vs, Index3i f)
+        {
+            var p = new[] { vs[f.a], vs[f.b], vs[f.c] }.OrderBy(x => x.x).ThenBy(x => x.y).ThenBy(x => x.z).ToArray();
+            return (p[0], p[1], p[2]);
+        }
+
+        [Fact]
+        public void EdgeRemoval_NeverOnAnOpenRing()
+        {
+            // three of the four tets of the case above: (a, b) is a boundary edge with an open ring; removing it would change the
+            // boundary, so it is never removed, whatever it would gain
+            var v = new List<Vector3d> { new Vector3d(0.2, 0.3, 0.96), new Vector3d(0.29, 0.27, -0.73),
+                new Vector3d(0.62, 0, 0.06), new Vector3d(0, -0.76, -0.07), new Vector3d(-0.66, 0, -0.03), new Vector3d(0, 0.7, -0.02) };
+            var t = new List<Index4i>();
+            for (int k = 0; k < 3; ++k) t.Add(new Index4i(0, 1, 2 + k, 2 + (k + 1) % 4));
+            TetMesh3 m = FromTets(v, t);
+            Assert.Null(TetMeshQuality.NotValidReason(m));
+            var imp = new TetMeshImprover(m) { TargetDegrees = 80 };
+            imp.Run();
+            TetMesh3 r = imp.Result();
+            Assert.Null(TetMeshQuality.NotValidReason(r));
+            Assert.Equal(0, imp.Counts["edge_removals"]);
+            Assert.True(new HashSet<(Vector3d, Vector3d, Vector3d)>(m.BoundaryTriangles.Select(f => Key(m.Vertices, f))).SetEquals(r.BoundaryTriangles.Select(f => Key(r.Vertices, f))));
+        }
+
+        [Fact]
+        public void BoundaryMoveAllowed_AgreesWithABruteForceSelfIntersectionTest()
+        {
+            // random moves of boundary vertices of a refined sphere (input far away): the improver's grid-based exact test must
+            // say "allowed" exactly when the moved boundary has no self-intersection (brute force over all boundary pairs)
+            var tm = new MeshTetrahedralization(Sphere(1, 6)) { Improve = false, RelativeAlpha = 6, RelativeOffset = 60 };
+            Assert.True(tm.Compute());
+            TetMesh3 t = tm.Result;
+            var far = new DMesh3(); far.AppendVertex(new Vector3d(50, 50, 50)); far.AppendVertex(new Vector3d(51, 50, 50)); far.AppendVertex(new Vector3d(50, 51, 50));
+            far.AppendTriangle(0, 1, 2);
+            double edge = t.BoundaryTriangles.Average(f => t.Vertices[f.a].Distance(t.Vertices[f.b]));
+            double limit = 1.5 * edge;
+            // small grid cells, no always-checked list: the grid alone must find every pair (a stale box would miss some)
+            var imp = new TetMeshImprover(t) { InputTree = new DMeshAABBTree3(far, true), BoundarySlideLimit = limit, GridCell = 0.25 * edge, MaxCellsPerFace = int.MaxValue };
+            var bverts = t.BoundaryTriangles.SelectMany(f => new[] { f.a, f.b, f.c }).Distinct().OrderBy(x => x).ToList();
+            var cur = new List<Vector3d>(t.Vertices);
+            var rnd = new Random(41);
+            int refused = 0, allowed = 0;
+            for (int k = 0; k < 1500; ++k) {
+                // a move within the cap of the vertex's FIRST position; allowed moves are kept, so later checks run on a boundary
+                // whose vertices are displaced (where a grid built on old positions would be stale)
+                int v = bverts[rnd.Next(bverts.Count)];
+                Vector3d d = new Vector3d(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                Vector3d p = t.Vertices[v] + (limit * rnd.NextDouble() / d.Length) * d;
+                var moved = new TetMesh3();
+                moved.Vertices.AddRange(cur); moved.Vertices[v] = p; moved.BoundaryTriangles.AddRange(t.BoundaryTriangles);
+                bool self = MeshRepairMetrics.HasSelfIntersections(moved.ToSurfaceMesh());
+                Assert.Equal(!self, imp.BoundaryMoveAllowed(v, p));
+                if (self) refused++;
+                else { allowed++; cur[v] = p; imp.SetPosition(v, p); }
+            }
+            Assert.True(refused > 50 && allowed > 100, refused + " / " + allowed);
+        }
+
+        [Fact]
+        public void BoundaryDisplacement_NeverExceedsTheCap_FromTheFirstPosition()
+        {
+            // the improver itself, many passes, a small cap: no boundary vertex ever gets farther than the cap from its first
+            // position (a per-move cap would let repeated moves add up)
+            var tm = new MeshTetrahedralization(Input("torus thin")) { Improve = false };
+            Assert.True(tm.Compute());
+            double cap = 0.05 * tm.UsedOffset;
+            var imp = new TetMeshImprover(tm.Result) { InputTree = new DMeshAABBTree3(tm.Mesh, true), BoundarySlideLimit = cap, MaxPasses = 30 };
+            imp.Run();
+            Assert.True(imp.Counts["boundary_moves"] > 50 && imp.Counts["passes"] >= 3, imp.Counts["boundary_moves"] + " / " + imp.Counts["passes"]);
+            double d = imp.MaxDisplacement();
+            Assert.True(d <= cap * (1 + 1e-12), d / cap + " caps");
+            Assert.True(d > 0.75 * cap, d / cap + " caps");                 // the budget is used
+            Assert.Null(TetMeshQuality.NotValidReason(imp.Result()));
         }
 
         [Fact]
