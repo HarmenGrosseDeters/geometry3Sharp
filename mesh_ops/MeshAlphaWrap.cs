@@ -117,7 +117,13 @@ namespace gs
         /// way (PointLimitReached, the box corners can be on the result), the coarsened wrap is a complete wrap with all the guarantees, at
         /// the larger alpha: cavities and gaps up to about 2 * UsedAlpha are wrapped over. The wrap's time and its simplification's go with
         /// its size, not with the input's triangle count (issue #694: a closed sphere of 260 triangles flattened onto a plane gave 211,614
-        /// triangles at diagonal / 300). The budget is on the estimate, not a bound on the result: see EstimateDensity for its error.
+        /// triangles at diagonal / 300). The budget is on the estimate, not a bound on the result. Measured (EstimateDensity): the estimate
+        /// is about twice the size of a closed solid, about the size of a closed surface of zero volume, and about half the size of an open
+        /// sheet, so the result is about half the budget, the budget, or twice the budget. The area counts every input triangle, also
+        /// duplicated faces, nested shells and interior walls that the wrap does not follow: their estimate is higher still, and the wrap
+        /// coarser than the budget needs. Input points and segments have no area: an input of only points or segments is not coarsened.
+        /// A budget far below the input's detail gives an alpha up to the size of the input (MaxEstimatedTriangles = 1: about the
+        /// bounding box diagonal), a wrap of a few triangles around it; there is no lower bound.
         /// </summary>
         public int MaxEstimatedTriangles = 0;
         /// <summary>
@@ -457,10 +463,13 @@ namespace gs
             double area = 0;
             for (int i = 0; i + 2 < tris.Count; i += 3)
                 area += 0.5 * (tris[i + 1] - tris[i]).Cross(tris[i + 2] - tris[i]).Length;
-            EstimatedTriangles = alpha > 0 ? EstimateDensity * area / (alpha * alpha) : 0;
-            if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles && !double.IsInfinity(EstimatedTriangles)) {
-                AlphaCoarsening = Math.Sqrt(EstimatedTriangles / MaxEstimatedTriangles);
-                alpha *= AlphaCoarsening;
+            // (divided twice: alpha^2 underflows below about 1e-162, and an infinite estimate must still be coarsened)
+            EstimatedTriangles = alpha > 0 ? EstimateDensity * area / alpha / alpha : 0;
+            if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
+                // the alpha whose estimate is the budget, sqrt(density * area / budget): it does not depend on the requested alpha
+                double coarse = Math.Sqrt(EstimateDensity * area / MaxEstimatedTriangles);
+                AlphaCoarsening = coarse / alpha;
+                alpha = coarse;
                 offset *= AlphaCoarsening;
             }
             UsedAlpha = alpha; UsedOffset = offset;

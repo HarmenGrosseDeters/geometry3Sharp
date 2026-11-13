@@ -47,6 +47,20 @@ namespace geometry3Sharp.Tests
             Assert.InRange(off.Result.TriangleCount / expected, 0.8, 1.3);
         }
 
+        // the default (budget off) is bit for bit the wrap of master df429d6f, before the budget (hash computed there with the same
+        // settings and the old API)
+        [Fact]
+        public void Default_Off_BitIdenticalToMaster()
+        {
+            var w = new MeshAlphaWrap(Flat()) { RelativeAlpha = 50, RelativeOffset = 500 };
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(0, w.MaxEstimatedTriangles);
+            Assert.Equal(1.0, w.AlphaCoarsening);
+            Assert.Equal(6420, w.Result.TriangleCount);
+            Assert.Equal("01DA0B9EE68DD6CC", AlphaWrapManifoldStepTests.Hash(w.Result));
+            Assert.Equal(0, new MeshRobustRepair(Flat()).WrapMaxEstimatedTriangles);
+        }
+
         // above the budget: alpha and offset coarsened by the same factor, sqrt(estimate / budget); the result is the complete wrap at
         // that alpha (bit for bit the wrap with UsedAlpha and UsedOffset given), clean, of about the budget's size
         [Fact]
@@ -58,9 +72,9 @@ namespace geometry3Sharp.Tests
             MeshAlphaWrap w = Wrap(flat, 100, budget);
             double factor = Math.Sqrt(w.EstimatedTriangles / budget);
             Assert.True(factor > 1.5, $"factor {factor}");
-            Assert.Equal(factor, w.AlphaCoarsening);
-            Assert.Equal(diag / 100 * factor, w.UsedAlpha);
-            Assert.Equal(diag / 1000 * factor, w.UsedOffset);
+            Assert.True(Math.Abs(w.AlphaCoarsening - factor) <= 1e-12 * factor, $"{w.AlphaCoarsening} vs {factor}");
+            Assert.Equal(w.AlphaCoarsening, w.UsedAlpha / (diag / 100));
+            Assert.Equal(diag / 1000 * w.AlphaCoarsening, w.UsedOffset);
             Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
             Assert.InRange(w.Result.TriangleCount, budget / 2, budget * 2);
@@ -68,6 +82,24 @@ namespace geometry3Sharp.Tests
             Assert.True(given.Compute(), given.Error);
             Assert.Equal(1.0, given.AlphaCoarsening);
             Assert.Equal(AlphaWrapManifoldStepTests.Hash(given.Result), AlphaWrapManifoldStepTests.Hash(w.Result));
+        }
+
+        // an alpha whose square underflows (unit input, alpha 1e-170): the estimate is infinite, and the budget still applies (before the
+        // fix the coarsening was skipped and the wrap ran until MaxSteinerPoints)
+        [Fact]
+        public void Budget_TinyAlpha_InfiniteEstimate_Coarsened()
+        {
+            DMesh3 flat = Flat();
+            const int budget = 2000;
+            var w = new MeshAlphaWrap(flat) { Alpha = 1e-170, Offset = 1e-171, MaxEstimatedTriangles = budget, MaxSteinerPoints = 100000 };
+            Assert.True(w.Compute(), w.Error);
+            Assert.True(double.IsPositiveInfinity(w.EstimatedTriangles), $"estimate {w.EstimatedTriangles}");
+            double expected = Math.Sqrt(MeshAlphaWrap.EstimateDensity * Invariance.Area(flat) / budget);
+            Assert.True(Math.Abs(w.UsedAlpha - expected) <= 1e-12 * expected, $"{w.UsedAlpha} vs {expected}");
+            Assert.True(Math.Abs(w.UsedOffset - 0.1 * expected) <= 1e-12 * expected, $"{w.UsedOffset}");
+            Assert.Equal(MeshAlphaWrap.WrapStatus.Success, w.Status);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            Assert.InRange(w.Result.TriangleCount, budget / 2, budget * 2);
         }
 
         // reuse: Compute() twice on one instance gives the same result; the outputs are recomputed (budget off again: not coarsened;
