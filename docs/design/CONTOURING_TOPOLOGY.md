@@ -658,7 +658,8 @@ that layer). A cell is *certified* if
 - (S1) on each of its edges, with direction a: either f has no zero on the edge, or a . g has one sign for all g in
   G(edge);
 - (S2) on each of its faces: either f has no zero on the face, or for one of the two axes a of the face, a . g has
-  one sign for all g in G(face); and if the face has four crossing points, f has no zero on a segment in the face
+  one sign for all g in G(face) ((S2'): the same with any direction a in the face's plane; the proofs below use only
+  that a is orthogonal to the face's normal; section 10 of [MESH_OFFSET_ENCLOSURE.md](MESH_OFFSET_ENCLOSURE.md)); and if the face has four crossing points, f has no zero on a segment in the face
   that separates them two and two;
 - (S3) there is a direction d with d . g > 0 for all g in G(cell), and the boundary of the cell carries one circle
   of L, or f has no zero on surfaces in the cell that separate the circles from each other.
@@ -685,8 +686,8 @@ contains the generalized gradients at p; it carries over to a neighbourhood beca
 upper semicontinuous (Clarke 1983): for z close to p, every generalized gradient at z lies in any given
 neighbourhood of the set of those at p. That set is compact with |a . g| >= delta > 0 on it, so there is a ball B
 around p with a . g of the same sign and |a . g| >= delta / 2 for all generalized gradients at all points of B.
-If p is in the interior of a face with outward normal n, let a be the axis of (S2) and s that sign; take
-u = -s a - eps n and u' = s a - eps n. Then u . n < 0 and u . g = -|a . g| - eps n . g < 0 on B for eps small, since
+If p is in the interior of a face with outward normal n, let a be the direction of (S2) (an axis, or any
+direction with a . n = 0, (S2')) and s that sign; take u = -s a - eps n and u' = s a - eps n (a . n = 0). Then u . n < 0 and u . g = -|a . g| - eps n . g < 0 on B for eps small, since
 the gradients are bounded; likewise u'. If p is on an edge with direction a and the outward normals n_1, n_2 of the
 two faces of c at it, (S1) gives the sign s of a . g, and u = -s a - eps (n_1 + n_2), u' = s a - eps (n_1 + n_2) do
 it. A direction pointing strictly into a convex set at a boundary point makes its boundary a Lipschitz graph near
@@ -696,10 +697,10 @@ Lipschitz graph; the same with u' for {f >= 0}.
 
 On the graph of max(phi, psi), the part from L is where phi >= psi and the part from the boundary of c where
 psi >= phi; they meet along L on the boundary of c. Near p that set is one arc through p. In a face: by (S2) a
-graph over the other axis. At an edge point: by (S1) and the semicontinuity above, f is strictly monotone along a
+graph over the line of the face orthogonal to a. At an edge point: by (S1) and the semicontinuity above, f is strictly monotone along a
 in each of the two faces near p and changes sign on the edge at p, so in each face L is a graph over the other axis
 of that face, starting at p: one arc into each face. And phi - psi changes sign across this arc, because f changes
-sign across it on the boundary of c (along the monotone axis of (S2) in a face, along the edge by (S1) at an edge
+sign across it on the boundary of c (along a in a face, along the edge by (S1) at an edge
 point): on one side the boundary of c is in f < 0, where psi > phi, on the other in f > 0. So the arc cuts the
 graph, a disk near p, into the part from L and the part from the boundary of c, and by (J) L in c is near p a closed
 half disk. ∎
@@ -709,8 +710,8 @@ and Theorem 1 (and 1b) hold with L in the place of a PL surface: L is ambient is
 compatible with the same pattern.
 
 *Proof.* (E): by (S1) f is strictly monotone on an edge with a zero (Lemma 5.1 in one dimension), so the zero is
-unique and f changes sign. (F): by (S2) and Lemma 5.1 in the plane of the face, L in the face is a graph over an
-axis, a 1-manifold without closed curves whose ends are on the boundary by Lemma 5.2, so a set of arcs. (C): by
+unique and f changes sign. (F): by (S2) and Lemma 5.1 in the plane of the face (Lebourg along a), L in the face is a graph over the line
+of the face orthogonal to a, a 1-manifold without closed curves whose ends are on the boundary by Lemma 5.2, so a set of arcs. (C): by
 Lemmas 5.1 and 5.2, L in the cell is a compact surface with boundary on the cell's boundary and every line parallel
 to d meets it once at most, so Theorem 4 applies with (S3): its parts are disks.
 
