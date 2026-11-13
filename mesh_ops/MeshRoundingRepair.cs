@@ -2628,7 +2628,8 @@ namespace g3
 
         // the vertices whose search found no move in this round: each is searched once per round (a corner of several
         // defects, eg of the pairs of one triangle, would fail again on the same mesh; after a move of the search the
-        // next round searches them again)
+        // next round searches them again, so the set is not cleared at a move: clearing it there would be as valid
+        // and give another result)
         readonly HashSet<int> searchFailed = new HashSet<int>();
 
         // after the passes: for each defect that is left (the degenerate triangles by id, then the intersecting pairs in

@@ -1201,6 +1201,8 @@ the D1 cohort: Thingi10K 837999 intersection and difference, 838003, 958469 and 
 | axis-aligned, J = 8, rounds, largest size first | 11 | 4 |
 | **axis-aligned, J = 8, rounds, smallest size first (built)** | **10** | **4** |
 
+- The table is from the prototype; the code as built (each vertex searched once per round) gives the same 10 of 35
+  and 4 of 5 (`SnapRoundingExperiment run <case> safe` on the 35, the cohort run below).
 - The random probe of #721 reached 13 (J = 8) and 17 (J = 24) of 35 by drawing from the same set for 20 s; a single
   enumeration finds fewer.
 - A frame of the defect (its longest edge, the corner's offset from it, their normal) was no better than the axes at
