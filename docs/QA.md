@@ -478,6 +478,21 @@ is queued or running today (UTC date), or already succeeded. Rules:
   end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
   the commits since the last green (or finished) run.
 
+### 2.13 Hang diagnosis of the Windows net48 shards (#824)
+
+`netstandard-b` (net48 shard b) hung twice on 2026-11-13 (#761, #820) until the 60-minute job timeout, without output and without a
+trx, so no test was named. The net48 test steps (both shards and the Clipper2 package run) now run `dotnet test --blame
+--blame-hang --blame-hang-timeout 10m --blame-hang-dump-type mini`:
+
+- a test that runs 10 minutes (the suite's limit is 5 s, 10 s with the `Slow` tag) hangs the test host: vstest kills it and
+  writes a mini dump (`*_hangdump*.dmp`) next to `Sequence_<guid>.xml` (the tests that started, `Completed="True"` once finished)
+  into `test-results/`, which the `if: always()` artifact step uploads (`netstandard-results`, `netstandard-b-results`);
+- on .NET Framework vstest takes the dump with ProcDump: the step `Install ProcDump` installs it (Chocolatey) and sets
+  `PROCDUMP_PATH`; if that fails, the step is `continue-on-error` and the sequence file still names the test, only the dump is missing;
+- the step `Blame summary` (`tools/blame_summary.py`, run when a step failed or the job was cancelled) lists the tests of the
+  sequence files that did not complete in the job summary: the hang is in one of them (usually the last);
+- `--blame` also names the running test when the test host crashes. The trx of a healthy run is the same as before.
+
 ### 2.7 A small regression corpus as a CI smoke benchmark
 
 The Thingi10K benchmarks cannot run in CI, because of the license and the run time.
