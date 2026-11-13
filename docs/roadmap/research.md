@@ -105,6 +105,10 @@ Part of the [roadmap](../ROADMAP.md).
      exact topology certificate for clean closed meshes and refinement driven by it (its own session, tier L). Options B
      (interval implicits / TPMS) and C (broken inputs): attempt the proof first (docs only, in the #749 note); build
      them only once the proof is complete and independently reviewed. B and C run alongside and do not delay A.
+     Stage 1 (draft #779, 2026-11-13): `MeshWindingNumberSolidify.ComputeTopologyCertificate` (adaptive DC, clean
+     inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
+     general position, and every wrong contour of the lever-6 set; serial cost 31-34 % of the contouring at / 128 on
+     clean T1 (gate 10-15 %, parallel path pending the coordinator's decision).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point

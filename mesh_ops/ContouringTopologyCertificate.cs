@@ -26,6 +26,25 @@ namespace g3
         MeshSide = 6,
     }
 
+    /// <summary> the outcome of the contouring's topology certificate (see MeshWindingNumberSolidify.ComputeTopologyCertificate) </summary>
+    public enum ContouringCertificateStatus
+    {
+        /// <summary> not asked for (ComputeTopologyCertificate off), or the contouring failed </summary>
+        NotComputed = 0,
+        /// <summary> every cell certified: the contour is ambient isotopic to the level set </summary>
+        Certified = 1,
+        /// <summary> some cells are not certified (UncertifiedCells) </summary>
+        CellsUncertified = 2,
+        /// <summary> the contour is certified, but the result was cleaned up or reduced after it, which the proof does not cover </summary>
+        PostProcessing = 3,
+        /// <summary> not for this method (the dense grid, marching cubes), several inputs, or an iso value outside (0, 1) </summary>
+        NotSupported = 4,
+        /// <summary> the input is not clean (closed, manifold, consistently oriented, no self-intersections): its level set is not known exactly </summary>
+        InputNotClean = 5,
+        /// <summary> a component of the input could not be decided (no line through its vertex pierced it; not expected) </summary>
+        LevelSetUndecided = 6,
+    }
+
     /// <summary> a grid cell the contouring's topology certificate does not certify </summary>
     public struct ContouringUncertifiedCell
     {

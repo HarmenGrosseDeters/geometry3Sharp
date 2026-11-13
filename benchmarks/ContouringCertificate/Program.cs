@@ -20,6 +20,7 @@ class Program
     static int Main(string[] args)
     {
         if (args.Length == 1 && args[0] == "predicates") { PredicateTiming.Run(); return 0; }
+        if (args.Length >= 3 && args[0] == "solid") return SolidMain(args);
         if (args.Length < 3 || args[0] != "spike") { Console.Error.WriteLine("usage: ContouringCertificate spike <out.jsonl> <input>... [-- res,...]"); return 2; }
         string outFile = args[1];
         var inputs = new List<string>();
@@ -48,6 +49,73 @@ class Program
             }
         }
         return 0;
+    }
+
+    // the wired certificate: MeshWindingNumberSolidify (adaptive, default refinement, cleanup and reduction off) with
+    // ComputeTopologyCertificate, against the exact truth of clean inputs (the level set's components and their genus).
+    //   solid <out.jsonl> <input>... [-- res,...]
+    static int SolidMain(string[] args)
+    {
+        string outFile = args[1];
+        var inputs = new List<string>();
+        int[] resolutions = { 64, 128 };
+        for (int i = 2; i < args.Length; ++i) {
+            if (args[i] == "--") { resolutions = args[i + 1].Split(',').Select(int.Parse).ToArray(); break; }
+            if (args[i] == "mesh:all") inputs.AddRange(Procedural.Names.Select(n => "mesh:" + n));
+            else inputs.Add(args[i]);
+        }
+        var done = new HashSet<string>();
+        if (File.Exists(outFile))
+            foreach (string line in File.ReadLines(outFile))
+                using (var doc = JsonDocument.Parse(line))
+                    done.Add(doc.RootElement.GetProperty("input").GetString() + "|" + doc.RootElement.GetProperty("res").GetInt32());
+        Solid("mesh:box", 16, new Dictionary<string, object>());   // warm-up
+        foreach (string input in inputs) {
+            string name = input.StartsWith("mesh:") ? input : Path.GetFileName(input);
+            foreach (int res in resolutions) {
+                if (done.Contains(name + "|" + res)) continue;
+                var r = new Dictionary<string, object>();
+                r["input"] = name; r["res"] = res;
+                try { Solid(input, res, r); } catch (Exception e) { r["status"] = "exception"; r["error"] = e.GetType().Name + ": " + e.Message; }
+                string json = JsonSerializer.Serialize(r);
+                File.AppendAllText(outFile, json + "\n");
+                Console.WriteLine(json);
+            }
+        }
+        return 0;
+    }
+
+    static void Solid(string input, int res, Dictionary<string, object> r)
+    {
+        DMesh3 mesh = input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
+        r["in_tris"] = mesh.TriangleCount;
+        double diag = mesh.CachedBounds.DiagonalLength;
+        DMesh3 L = ContouringLevelSet.CleanCopy(mesh);
+        r["in_clean"] = L != null;
+        if (L != null) {
+            int comps, lcomps;
+            bool[] inL = ContouringLevelSet.Classify(L, out comps, out lcomps);
+            var cc = new MeshConnectedComponents(L); cc.FindConnectedT();
+            var genera = new List<double>();
+            foreach (var comp in cc.Components)
+                if (inL[comp.Indices[0]]) genera.Add(MeshTopologySummary.Compute(new DSubmesh3(L, comp.Indices).SubMesh).Genus);
+            r["truth_sig"] = Sig(genera);
+        }
+        foreach (bool cert in new[] { false, true }) {
+            var sw = Stopwatch.StartNew();
+            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert };
+            s.Compute();
+            string p = cert ? "on_" : "off_";
+            r[p + "ms"] = sw.ElapsedMilliseconds;
+            if (!cert) { r["contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c) ? c : -1; continue; }
+            r["certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm) ? cm : -1;
+            r["status"] = s.TopologyCertificateStatus.ToString();
+            r["certified"] = s.TopologyCertified;
+            r["uncertified_cells"] = s.UncertifiedCells.Count;
+            foreach (var g in s.UncertifiedCells.GroupBy(x => x.Reason)) r["n_" + g.Key] = g.Count();
+            r["refined_cells"] = s.RefinedCells; r["refine_factor"] = s.RefineFactor;
+            if (s.Result != null) r["result_sig"] = Sig(MeshTopologySummary.Compute(s.Result).ComponentList.Select(c => c.Genus));
+        }
     }
 
     // vertices with identical coordinates merged (exact: the geometry and the winding number do not change)

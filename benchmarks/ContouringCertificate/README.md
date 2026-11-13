@@ -90,3 +90,40 @@ The gate (about 10-15 %, stop above 25 % at / 128) is not met by the serial path
 left is about 4-9 us per surface cell of fixed costs (about three new faces and three new edges per cell, each with
 hash lookups and short loops). Reported to the coordinator with the options (a deterministic parallel path over
 chunks of cells, or the serial path for now).
+
+## Commits 2-3: the mesh side and the wiring (`MeshWindingNumberSolidify.ComputeTopologyCertificate`)
+
+```
+$B solid solid.jsonl mesh:all <dir>/<id>.stl... -- 64,128,256
+```
+
+`solid`: `MeshWindingNumberSolidify` as by default (adaptive, local refinement for hidden gaps), cleanup and reduction
+off, once without and once with `ComputeTopologyCertificate`; the truth of a clean input is the topology of its
+level-set components (`ContouringLevelSet`), the result's that of `Result` (`MeshTopologySummary`). Master 58644af plus
+this PR, 4 cores, 2026-11-13, one run:
+
+| set | cell | runs | certified | uncertified cells (by reason) | wrong results | wrong and certified | certificate ms | contour ms |
+|---|---|---|---|---|---|---|---|---|
+| procedural | / 64 | 6 | 5 | 44 (edge 44) | 0 | 0 | 233 | 752 |
+| T1 clean | / 64 | 14 | 2 | 1269 (edge 1194, pairing 58, face 17) | 2 | **0** | 1099 | 3292 |
+| procedural | / 128 | 6 | 6 | 0 | 0 | 0 | 667 | 4016 |
+| T1 clean | / 128 | 14 | 4 | 2322 (edge 2294, pairing 13, face 13, cell 2) | 3 | **0** | 2005 | 6106 |
+| procedural | / 256 | 6 | 6 | 0 | 0 | 0 | 2823 | 12846 |
+| T1 clean | / 256 | 14 | 2 | 4731 (edge 4667, pairing 44, face 18, cell 2) | 2 | **0** | 7793 | 28057 |
+
+- **Never certified on a wrong result** (0 of 78 runs). The seven wrong clean runs of the design note's section 2.2 are
+  exactly the wrong runs here, and all seven are reported (96773 at / 64 with 58 cells, 116871 at / 64, / 128, / 256
+  with 483, 1071, 2302, 472011 at / 128 and / 256 with 90 and 138, 79961 at / 128 with 118).
+- Certified share: of the runs, the CAD solids 17 of 18 (vnotch at / 64: 44 cells where grid edges cross it twice), the
+  clean T1 meshes 8 of 42; of the surface cells, 99.1 % at / 128 on the clean T1 meshes (the spike's count of surface
+  cells). The refused cells are mostly grid edges a surface crosses twice (thin features, and grid lines nearly tangent
+  to a curved surface): what the refinement of stage 2 is for. Without the certificate nothing is certified (before).
+- The mesh side refused no cell in any run (no face vertex failed, no transition without face vertices, every vertex
+  strictly inside its cell, face or edge); 96773 at / 64 ran on a two-level grid (refine factor 4).
+- The six inputs that are not clean report `InputNotClean` (open, a non-manifold weld, a triangle of no area).
+- Cost with the wiring (`contour.certificate`: the clean copy with its exact self-intersection check of the input,
+  the level-set classification, the cell tests, the mesh side), over two runs: 17-34 % of the contouring on the solids,
+  28-41 % on the clean T1 meshes (/ 128: 33-34 %); cell cost about 7 us per surface cell of the T1 meshes at / 128
+  (1790-2005 ms for 265040 cells). The second run, on the final code, gave the same results in all 78 runs.
+  The cleanup and the reduction come on top of the contouring by default, so against a default `Compute` the share is
+  lower.
