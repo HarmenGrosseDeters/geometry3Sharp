@@ -72,6 +72,13 @@ on:
       shards:
         description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
+      force:
+        description: 'Run although a daily run of today already ran or is running (the schedule guard)'
+        type: boolean
+        default: false
+
+# (a dispatch of other shards than `all` is a custom run: the schedule guard never skips it, and it does not count as the day's run)
+run-name: ${{ github.event_name == 'pull_request' && github.event.pull_request.title || (github.event_name == 'workflow_dispatch' && inputs.shards != 'all' && inputs.shards != '' && 'Mutation tests [custom]' || 'Mutation tests') }}
 
 # a new push to the same PR cancels the running run
 concurrency:
@@ -86,9 +93,34 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # Runs once a day although two things start it (docs/QA.md, "Scheduled runs"): the external dispatcher at a fixed time and the
+  # cron line as the fallback. Skips when an earlier plain daily run of today is under way or green (tools/schedule_guard.py).
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          FORCE: ${{ inputs.force }}
+          CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.shards != 'all' && inputs.shards != '' }}
+        run: python3 tools/schedule_guard.py --workflow mutation.yml --event "$EVENT" --run-id "$RUN_ID" --custom "$CUSTOM" --force "$FORCE"
+
   # which configs a PR needs, and how (schedule and workflow_dispatch run all of them in full). Runs on drafts too, so
   # that the selection can be seen there; the jobs below wait for "ready for review".
   changes:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     outputs:
       arithmetic: ${{ steps.select.outputs.arithmetic }}

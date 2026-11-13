@@ -362,8 +362,8 @@ the module outside the range, or "not guaranteed".
 - coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage in its own workflow, `.github/workflows/coverage.yml`,
   **not on pull requests**: coverlet makes the suites about 3x slower (a first version in the PR jobs took 59 min for
   the core fast tier alone, and eight parallel shards were limited by the runner quota), so the gate runs cyclically
-  (owner decision 2026-11-10): every night on master (`schedule`; on 2026-11-12 the schedule had not fired yet, see
-  [platform.md](roadmap/platform.md#open)) and on demand (`workflow_dispatch`, optional `ref`
+  (owner decision 2026-11-10): every night on master (dispatched at 03:45 UTC, the `schedule` cron is the fallback, see
+  section 2.12) and on demand (`workflow_dispatch`, optional `ref`
   input: a branch is then checked against the last evaluated master run) and once on a pull request that changes the workflow or the gate (that run reports but never fails: its findings belong to other pull requests). The existing Microsoft.NET.Test.Sdk 17.8.0
   supplies the integration; Windows/net48 runs do not collect coverage.
 - The `core` jobs run the core suite in four shards by test class (`tools/coverage/shard_filter.py`), **including the
@@ -425,6 +425,34 @@ the module outside the range, or "not guaranteed".
   Exit codes: 0 covered/no changed executable lines, 1 uncovered lines, 2 incomplete or invalid evidence. Use a fresh
   results directory: a stale report left in it would mask a gap. Coverage demonstrates execution, not assertion quality;
   mutation gates remain.
+
+### 2.12 Scheduled runs: dispatch path and guard (2026-11-13)
+
+GitHub's `schedule` event is unreliable here. Diagnosis from the Actions run lists (2026-11-11/12): the runs are **created** late,
+not queued late (`created_at` = `run_started_at`; the runner wait was 3 s to 47 min): `nightly.yml` (cron 02:23 UTC) created
+09:36 and 09:57 (+7 h 13 / +7 h 34), `coverage.yml` (03:41) created 11:48 (+8 h 07) and none at all for 2026-11-11,
+`mutation.yml` (Monday 03:23) created 11:25 and 11:48 (+8 h). Runner priorities or other cron times do not help against that. So
+every daily workflow has two starters and runs once a day:
+
+| Workflow | Dispatch (UTC, by the coordinator's scheduled tasks) | Inputs | Cron line (fallback, GitHub runs it late) |
+|---|---|---|---|
+| `nightly.yml` | 02:30 | none | `23 2 * * *` |
+| `coverage.yml` | 03:45 (after the nightly) | none (a `ref` makes it a custom run) | `41 3 * * *` |
+| `mutation.yml` | 01:20 daily full run; Monday 03:25 weekly run | `shards=all` | `23 3 * * 1` |
+
+The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
+`gh workflow run <file> --ref master -f shards=all`). The first job of each workflow, `guard` (`tools/schedule_guard.py`, tests
+in `tools/test_schedule_guard.py`, run by `ci.yml`), skips the whole workflow when an earlier plain daily run of the same workflow
+is queued or running today (UTC date), or already succeeded. Rules:
+
+- Only `schedule` and a plain `workflow_dispatch` can be skipped. Pull requests never are.
+- A dispatch with other inputs is a **custom run**, never skipped and never counted as the day's run: `mutation.yml` with `shards`
+  other than `all`, `coverage.yml` with a `ref`. The workflow marks it `[custom]` in its `run-name` (the runs API does not list inputs).
+- `force: true` (input of all three) runs although the day is taken.
+- "Earlier" is the smaller run id, so when the dispatch and the late cron are created together exactly one of them runs.
+  A failed or cancelled run does not count, the next starter runs again. The guard is not keyed on the master SHA: master moves
+  during the day, and a late cron must not run the day a second time on a newer commit.
+- It fails open: when the runs API cannot be read, the run goes ahead.
 
 ### 2.7 A small regression corpus as a CI smoke benchmark
 

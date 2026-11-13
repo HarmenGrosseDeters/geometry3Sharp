@@ -20,6 +20,13 @@ on:
         description: 'Branch or SHA to check (default: the selected ref)'
         required: false
         default: ''
+      force:
+        description: 'Run although a daily run of today already ran or is running (the schedule guard)'
+        type: boolean
+        default: false
+
+# (a dispatch with a `ref` is a custom run: the schedule guard never skips it, and it does not count as the day's run)
+run-name: ${{ github.event_name == 'pull_request' && github.event.pull_request.title || (inputs.ref != '' && 'Coverage [custom]' || 'Coverage') }}
 
 permissions:
   contents: read
@@ -35,7 +42,32 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # Runs once a day although two things start it (docs/QA.md, "Scheduled runs"): the external dispatcher at a fixed time and the
+  # cron line as the fallback. Skips when an earlier plain daily run of today is under way or green (tools/schedule_guard.py).
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          FORCE: ${{ inputs.force }}
+          CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' }}
+        run: python3 tools/schedule_guard.py --workflow coverage.yml --event "$EVENT" --run-id "$RUN_ID" --custom "$CUSTOM" --force "$FORCE"
+
   core:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -68,8 +100,8 @@ jobs:
           path: test-results/core/
 
   gate:
-    needs: core
-    if: always()
+    needs: [guard, core]
+    if: always() && needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
