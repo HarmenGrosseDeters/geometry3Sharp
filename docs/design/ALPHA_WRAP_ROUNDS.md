@@ -6,6 +6,13 @@ Status: reviewed 2026-11-13 (independent review via the coordinator; its three a
 runs/alpha-wrap-3-fable). Paper references are to Portaneri et al. 2022 as summarized in
 [ALPHA_WRAP_PAPER_NOTES.md](ALPHA_WRAP_PAPER_NOTES.md) section 2.
 
+Prior art: the scheme is a deterministic reservation (Blelloch, Fineman, Gibbons, Shun, *Internally deterministic
+parallel algorithms can be fast*, PPoPP 2012: the items of a round reserve the data they touch in priority order, the
+winners commit, the others retry; Delaunay refinement is one of their examples), with the cavity independence of
+parallel Delaunay refinement (Chernikov, Chrisochoides, *Three-dimensional Delaunay refinement for multi-core
+processors*, ICS 2008). Here the reservation is the serial selection by read and write sets, and the commit is split
+into a serial id assignment and a parallel write, so that the cell ids too are independent of the thread count.
+
 ## 1. What changes
 
 Today `MeshAlphaWrap.refine_and_carve_loop` pops one gate (facet i of an inside cell c towards an outside cell n) at a
