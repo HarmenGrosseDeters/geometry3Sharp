@@ -1,6 +1,6 @@
 # Continuous collision detection: licence, prior art, API, bound plan (ROADMAP Phase 5 priority 2, stage 1)
 
-Status: stage 1 (2026-11-13), approved by the owner the same day (section 9). No library code changed. Tier L
+Status: stage 1 (2026-11-13), approved by the owner the same day (section 9); stage 2 built in #793 (section 10). Tier L
 ([AGENT_WORKFLOW.md](../AGENT_WORKFLOW.md)): the floating-point bound of section 6 gets an independent review at the
 Opus level before the stage-2 code merges (owner 2026-11-08). Roadmap item: [research.md](../roadmap/research.md#open),
 priority item 2.
@@ -385,3 +385,174 @@ point-edge / point-point queries as separate APIs (they are limit cases of the t
 3. Until the licence of the Wang et al. data on the NYU archive is confirmed, only the Apache-2.0 sample of the ToI
    dataset is fetched, at run time, by the benchmark only (never committed; PR-tier tests never fetch).
 4. Tight-Inclusion as a black-box reference on a runner: later, not now (runner backlog).
+
+## 10. As built (stage 2, 2026-11-13)
+
+Files: `intersection/ContinuousCollision.cs` (`CcdStatus`, `CcdOptions`, `CcdResult`, `ContinuousCollision`, the internal
+`CcdSolver`; on the exact-code list of `.editorconfig`: no FMA, no `float`, no parallel loops), `spatial/MeshSweepCollision.cs`
+(`MeshSweepStatus`, `SweepContactKind`, `SweepContact`, `MeshSweepCollision`), tests `ContinuousCollisionTests`,
+`MeshSweepCollisionTests`, benchmark `benchmarks/CcdBenchmark`.
+
+### 10.1 Differences from sections 4 and 5
+
+- **Search order: dive, then tighten.** The pure start-time order of 5.1 is a breadth-first search over (u, v) at each start
+  time: it explodes when the contact set has extent (a minimum separation, parallel edges, a degenerate triangle; 10^6 boxes
+  in the first tests). As built: boxes are taken by start time; the first box that is not discarded starts a dive
+  (depth-first, earlier half first) for a *near box* (image width <= delta); then only the boxes that start more than
+  `TimeTolerance` before it are refined, those that reach past that time split in t. G2 rests on the partition, not on the
+  order: discarded boxes, the queue and the near box always partition the domain, so `TimeOfImpact` = the smallest start of
+  the queue's boxes and the near box is a lower bound of the first contact in every case (also when a budget stops early).
+- **New fields:** `CcdOptions.TimeTolerance` (1e-6), `CcdOptions.MaxTighteningIterations` (1024: boxes after the near box;
+  the earliest sweep time on the benchmark is the same as with 4096 at 0.7x the time), `CcdResult.NearContactTime` (the near
+  box's start: its corner (t0, u0, v0) lies in the domain, so the primitives are within
+  `sqrt(3) (ms + 2 e + ToleranceReached)` at that time, G3). `Collision` now means "a near contact at NearContactTime";
+  `IterationLimit` means no near box was found within `MaxIterations`.
+- **Vertex-triangle boxes are clipped to the triangle:** corners outside u + v <= 1 are left out of the inclusion and the two
+  points where u + v = 1 crosses the box boundary are added (exact: 1 - u, 1 - v are multiples of 2^-53). F is affine in
+  (u, v) for fixed t and affine in t for fixed (u, v), so F(box ∩ triangle) lies in the hull of F at the clipped polygon's
+  vertices at t0 and t1. Without it the extrapolated corners made a contact on the hypotenuse look earlier (a box-face
+  approach with a minimum separation: 10^5 boxes without reaching the tolerance; 197 with it).
+- **Separating directions:** a box no axis separates is also tested along the triangle normal (b - a) x (c - a) or the
+  edges' cross product (b - a) x (d - c) at t0 and t1. For any n, n . y <= ms |n|_1 on the cube [-ms, ms]^3, and n . F is
+  linear, so n . F > ms |n|_1 at every hull vertex (or < -ms |n|_1 at every one) separates. n needs no accuracy; the dot
+  products are evaluated in `ExactInterval` over the corner values' enclosures ([F - e, F + e] on the filter path), so no
+  new error bound. Near-contact queries need 2.3x fewer boxes.
+- **No shared bound across the sweep's threads** (4, notes): with the dive, a pair's result under a bound depends on the
+  bound's value at the time, so the reported times would depend on the schedule. Each pair is solved independently;
+  `EarliestTimeOfImpact` is the min of the pairs' times, `Contacts` (CollectAll false) the pairs with
+  `TimeOfImpact <= EarliestNearContactTime`. Also new: `EarliestNearContactTime`, `SetEndPositions`.
+- The zero values of the status enums prove nothing: `CcdStatus.InvalidInput` is first (a `default(CcdResult)`), and
+  `MeshSweepStatus.NotComputed` is new (a sweep before `Compute`). `SetEndPositions(endA)` keeps B's end positions.
+- Review fixes (code review of #793): an iteration limit whose remaining boxes all start after `TimeLimit` returns
+  `NoCollision` (it had returned `IterationLimit` with a time after `TimeLimit`, which the sweep took as a proof up to
+  that time); the broad phase's half separation is rounded up (`0.5 ms` underflows for `ms = 2^-1074`); a constant image
+  has width 0 (so `Tolerance = 0` is met).
+
+### 10.2 Bound B1 as derived (for the review)
+
+Per axis, `u = 2^-53`, `M` the largest magnitude of the axis' 8 input coordinates, `|t|, |u_p|, |v_p| <= 1` exact, every
+operation `fl(a op b) = (a op b)(1 + d) + eta_op`, `|d| <= u`, `eta = 0` for `+ -` (exact when subnormal) and `|eta| <= 2^-1075`
+for `*`. Exact values with a star.
+
+| step | operation | magnitude of the exact value | error bound (after the step) |
+|---|---|---|---|
+| 1 | `d = fl(x1 - x0)` | `abs(D*) <= 2M` | `2Mu` |
+| 2 | `m = fl(t d)` | `abs(t D*) <= 2M` | `2Mu + 2M(1 + u)u + eta` |
+| 3 | `X = fl(x0 + m)` | `abs(X*) <= M` (a convex combination) | `6Mu + 2 eta` |
+| 4 | `e_k = fl(X_i - X_j)` | `abs(E*) <= 2M` | `15Mu + 5 eta` |
+| 5 | `w = fl(u_p e_k)` | `<= 2M` | `18Mu + 7 eta` |
+| 6 | `s = fl(e0 -/+ w1)` | partial sum `<= 4M` (each term `<= 2M`) | `38Mu + 13 eta` |
+| 7 | `F = fl(s - w2)` | `abs(F*) <= 6M` | `62Mu + 21 eta` |
+
+Each bound adds the propagated errors of the operands and `u` times the computed magnitude (exact magnitude plus the
+operands' errors), rounded up to whole multiples of `Mu` and `eta` (the second-order terms are below `Mu` for `u = 2^-53`).
+Used: `e = Up(M 2^-47 + 16 2^-1074)` (`64 M u`; `16 * 2^-1074 = 32 * 2^-1075 >= 21 eta`), threshold `Up(ms + e)`. Inputs with
+`M > 2^500` take the interval path; above `2^1000` they are `InvalidInput` (10.7, S2). The crossing points of 10.1 use the same order
+of operations with u_p, v_p in [0, 1]. Observed worst error / e on the adversarial test set: above 1/16 (a constant 16
+times smaller fails the test; 4 times smaller passes).
+
+### 10.3 What goes to the bound review (6.3, updated)
+
+1. B1 as in 10.2, against `corners_filter` operation by operation (also the crossing points).
+2. The clipping of 10.1 (exactness of 1 - u, 1 - v and of the inside tests; the hull argument).
+3. The separating-direction test (any n; interval dot products over [F - e, F + e]; the threshold `ms |n|_1` rounded up).
+4. G2 under the dive-then-tighten order, the budgets and `TimeLimit` (a dive child that starts after it goes back to the
+   queue), and G3 at `NearContactTime`.
+5. The broad phase: boxes widened by ms / 2 with outward rounding on both sides (so a pair closer than ms in every
+   coordinate overlaps), closed overlap tests.
+
+### 10.4 Tests and mutants
+
+38 tests (`ContinuousCollisionTests`, `MeshSweepCollisionTests`, about 4 s together). Hand mutants killed: the domain test
+dropped, the queue without the start-time key, no tightening, the time of impact from the near box only, half the width,
+no threshold e in the discard test, eta = 0, the constant 4 instead of 64, M from 7 of the 8 points or from the start
+positions only, no range switch, the interval path always, no clipping (the tightness test), each wrong crossing point,
+the inside corners dropped, the separating test without ms |n|_1, without e, without the crossing points, without the
+separating test. Survivors, equivalent: `lo >= ms` for `lo > ms` (ExactInterval widens exact results by an ulp, so a
+corner never gives exactly lo = ms; the filter adds e > 0), `>=` in the domain test (a contact on u + v = 1 also lies in
+the neighbouring box with u0 + v0 < 1), the constant 16 instead of 64 (a safety margin, see 10.2), outside corners kept in
+the separating test (more points only make it more conservative).
+
+### 10.5 Benchmark (benchmarks/CcdBenchmark/README.md)
+
+ToI sample (Apache-2.0, fetched at run time): 271 852 queries, 0 false negatives, 2 false positives, 132 µs per query on
+average (filter path; almost all queries collide), the interval path 3-4x slower with the same verdicts. Synthetic: random
+broad-phase candidates 0.8-2.3 µs, near-contact queries 28-66 µs. Sphere sweeps of 11 532 triangles each: 0.24 s on 4
+cores (minimum separation 0), 2.1 s (0.01).
+
+### 10.6 Known limits
+
+- Separation is tested along the axes and two directions per box; contact fronts with a minimum separation that none of
+  them follows (around edges and vertices) still need many boxes. The tightening budget then stops with a correct, looser
+  `TimeOfImpact` (`NearContactTime - TimeOfImpact` shows by how much; on the sphere sweeps up to 0.02 for single pairs,
+  the sweep's earliest time within 1e-4 of its near time).
+- The bound is absolute (`M`): at UTM coordinates of a millimetre scene the time of impact moves by up to e / speed
+  (the invariance test allows 256 rounding units).
+- One degenerate edge-edge query of the sample (cloth-funnel) took 0.27 s (775 689 boxes); fixed in 10.8.
+- Performance left for later (code review of #793): the broad phase runs serially; with `CollectAll = false` every
+  candidate pair still runs its tightening, also those the reduction drops (a first pass without tightening, then
+  tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the result and save time).
+
+### 10.7 Bound review (2026-11-13)
+
+Independent review of the head e97d285: no must-fix. B1 is sound; the reviewer's own derivation gives `44 Mu + 4 2^-1074`,
+below the table's `62 Mu + 21 2^-1075`; the used `e = Up(M 2^-47 + 16 2^-1074)` covers both. The clipping, the separating
+directions, G2 on every return path and determinism are sound. Should-fix items, fixed in #793:
+- S1: the sweep's half separation was inexact for a subnormal `ms` (`0.5 * 5 2^-1074` ties to `2 2^-1074`): rounded up
+  (also found by the code review); regression test with a vertex exactly `ms = 5 2^-1074` from a triangle.
+- S2: coordinates near `2^1023` overflowed (every box survived, `ToleranceReached` infinite; an infinite extent made the
+  first box near): coordinates above `InputRange = 2^1000` in magnitude are `InvalidInput` (query and sweep).
+- S3: `NoCollision` under `TimeLimit < 1` reported `TimeOfImpact = +infinity`, which claimed more than `[0, TimeLimit]`:
+  it is `TimeLimit` now, and the sweep's `EarliestTimeOfImpact` is at most `TimeLimit`.
+- Nits: the per-operation table above; the status docs name the L-infinity statement and its Euclidean consequence.
+
+### 10.8 Nearly parallel edges (follow-up, 2026-11-13)
+
+Diagnosis: the slowest query of the ToI sample (cloth-funnel 227ee, query 178, a true miss) has two nearly parallel,
+nearly coincident edges whose offset crosses zero in x and z at slightly different times (a miss by about 1e-8). Then
+`F = w(t) + u e_a - v e_b` with `e_a ≈ e_b`: the image of a (u, v) box is a thin strip along the edges' direction, the
+cross product of the edges vanishes (no separating normal), and the split rule split u and v (along which F changes by
+the edge length) instead of t (along which only the small offset changes). Upper bound: a box is separable along the
+direction across the strip once its t-width is below about distance / |w'|, ie after some 15-20 t-splits; the search
+needed 775 689 boxes.
+
+Fix, for edge-edge with nearly parallel edges (sine of the angle below 0.01): (1) two more separating directions,
+the value of F near the box's centre with its part along edge a, resp. edge b, removed (any direction is valid, the test
+is the interval test of 10.1); (2) the split rule measures the change of F along the first of them and splits that
+parameter, as long as the image's spread along it exceeds both the tolerance and the minimum separation (below that a
+split along it cannot separate any more). Both only steer which boxes are discarded first; no new bound. Without the
+restriction to nearly parallel edges, the extra direction moved the near box of tie contacts (a distance of exactly the
+minimum separation) later and loosened the time of impact; without the spread condition, parallel edges with a
+minimum separation hit the iteration limit (a sphere sweep pair: 10^6 boxes, 1 889 with it).
+
+Code review of #845, fixed in the same PR:
+- the parallel test and the directions use vectors scaled by a power of two to a largest component in [1, 2) (exact): the
+  raw products over- or underflowed at extreme 2^k scales (the decisions differed at 2^262, 2^-270) and the direction
+  turned NaN above about 1e154; test `ParallelEdgePath_ExtremeScales` (identical results from 2^-280 to 2^400, bounded
+  boxes at 2^520 and 2^900);
+- no cliff at the threshold: edges that are not nearly parallel are split along their cross product (under the same
+  spread condition) on every other level of the search; a sine of 0.011 needs 1 692 boxes (was 6 840; 116 at 0.009);
+  test `ParallelEdgePath_NoCliffAtTheThreshold`. The variants on all 221 651 edge-edge queries of the ToI sample:
+
+  | split along the cross product | boxes, mean | boxes, max | time |
+  |---|---|---|---|
+  | never (before) | 363 | 13 459 | 42 s |
+  | on every level | 154 | 89 315 | 22 s |
+  | on every other level (chosen) | 190 | 20 849 | 24 s |
+  | only while the image along it is at least 1/8 of its largest width | 296 | 8 354 | 38 s |
+
+  On every level, a rod-twist miss (sine 0.15, the lines coplanar while the segments miss) kept splitting t where the
+  segments' ends decide; alternating halves the mean and keeps the worst case at 20 ms. The alternation is a
+  performance choice no test pins (a procedural version of that query did not reproduce it; the sample is not
+  committed);
+- the default tolerance is at least the evaluation error `M 2^-47`: below it the computed corner widths are met only by
+  chance (the parallel pattern in UTM coordinates hit the iteration limit, also before this change);
+- tests for the vertex-triangle guard (`ParallelEdgePath_LeavesVertexTriangleAlone`), the interval path (a variant of
+  the new test) and the invariance set (both parallel patterns; a frame's verdict on the 1.7e-7 miss is only fixed where
+  its resolution resolves it); the edge vectors are computed by one helper (`edges_at`).
+Equivalent survivors: the direction of edge b instead of edge a for the split (the edges are nearly parallel); the
+alternation (performance only, above).
+
+Result: cloth-funnel 227ee needs at most 1 495 boxes per query (was 775 689), all 263 queries in under 0.1 s (was 0.62 s);
+sample totals in the benchmark README. Test: `NearlyParallelEdges_DecideQuickly` (the pattern built procedurally: 425 317
+boxes on the old code, under 20 000 required).

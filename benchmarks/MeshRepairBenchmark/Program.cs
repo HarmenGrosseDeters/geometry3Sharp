@@ -229,6 +229,9 @@ class Program
                 string wa = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_ALPHA"), wo = Environment.GetEnvironmentVariable("BENCH_ROBUST_WRAP_OFFSET");
                 if (wa != null) robust.WrapRelativeAlpha = double.Parse(wa, System.Globalization.CultureInfo.InvariantCulture);
                 if (wo != null) robust.WrapRelativeOffset = double.Parse(wo, System.Globalization.CultureInfo.InvariantCulture);
+                // BENCH_WRAP_BUDGET: WrapMaxEstimatedTriangles (the wrap's raw-size budget, issue #694; off by default)
+                string wb = Environment.GetEnvironmentVariable("BENCH_WRAP_BUDGET");
+                if (wb != null) robust.WrapMaxEstimatedTriangles = int.Parse(wb, System.Globalization.CultureInfo.InvariantCulture);
                 robust.SafeRounding = Environment.GetEnvironmentVariable("BENCH_SAFE_ROUNDING") != "0";
                 robust.CheckLostComponents = Environment.GetEnvironmentVariable("BENCH_LOST_COMPONENTS") == "1";
                 robust.RejectTopologyChange = Environment.GetEnvironmentVariable("BENCH_REJECT_TOPOLOGY") == "1";
@@ -255,6 +258,8 @@ class Program
                 r["robust_solidify_reason"] = robust.SolidifyReason;
                 r["robust_used_wrap"] = robust.UsedAlphaWrap;
                 r["robust_wrap_tris"] = robust.AlphaWrapTriangles;
+                r["robust_wrap_coarsening"] = robust.AlphaWrapCoarsening;
+                r["robust_wrap_estimate"] = robust.AlphaWrap?.EstimatedTriangles ?? 0;
                 r["robust_wrap_quality_improved"] = robust.AlphaWrapQualityImproved;
                 // (the exact resolve once more relative to the largest component, after the others failed, and the
                 // largest share of a component below the degenerate area of all triangles that triggered it)
@@ -579,6 +584,15 @@ class Program
             r["pipe_ms"] = sw.ElapsedMilliseconds;
             r["pipe_phases"] = phases;
             return raw ?? new DMesh3();
+        }
+        // BENCH_WRAP_FEATURES=1: the sharp-feature pass on the raw wrap (MeshRobustRepair.AlphaWrapSharpFeatures) before the simplification
+        if (Environment.GetEnvironmentVariable("BENCH_WRAP_FEATURES") == "1") {
+            long tf = sw.ElapsedMilliseconds;
+            var fp = new AlphaWrapFeaturePass(new DMesh3(raw, true), input, wrap.UsedAlpha, wrap.UsedOffset);
+            fp.Compute();
+            phases["wrap.features"] = sw.ElapsedMilliseconds - tf;
+            r["features"] = $"{fp.PlaneMoves}/{fp.CreaseSnaps}/{fp.Splits}/{fp.Flips}/{fp.Rejected}";
+            raw = new DMesh3(fp.Mesh, true);
         }
         DMesh3 result = raw;
         if (Environment.GetEnvironmentVariable("BENCH_WRAP_SIMPLIFY") != "0") {

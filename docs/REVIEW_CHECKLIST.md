@@ -62,6 +62,9 @@ and for each yes, check that a test covers it. A test must fail on the old code 
 - Distances overflowing to infinity: preserve actual nearest ordering before the stable-id tie break; an
   infinite approximation is not proof that two finite-input geometries are equally far away.
 - Casts of NaN or infinity to `int` / `long` (undefined result).
+- `Normalized` returns the zero vector below `MathUtil.Epsilon` and when the squared length overflows: a unit vector
+  built from a small or huge vector silently vanishes at extreme scales (ContourLoft review: the normalized cost lost its
+  separation at 2^-30). Scale by a power of two first.
 - A tolerance applied to the result of `UnitCross` / `Normalized` (`Vector3d.Normalize` uses `MathUtil.Epsilon`):
   every cross product longer than 2.2e-16 becomes a unit vector, so a test like `n.Dot(n) < ZeroTolerance` only
   means "exactly zero" and the tolerance is dead code (`IntrTriangle3Triangle3` parallel test, #253 review). Compare
@@ -115,6 +118,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   vertex left stale domain tags). Test the path where the operation adds nothing new, with the full check from scratch
   after every step (`CheckTagsForTests`).
 
+- An operation that swaps or reverses its inputs internally (the shorter contour as the start contour, a reversed winding):
+  is every reported index, id and orientation mapped back to the caller's roles? Test each output field with the roles
+  swapped (ContourLoft review: the start offset was an index into the other contour when the first one was shorter).
+
 ## 8. Untrusted input (#86, #88, #90, #91)
 
 - Readers and the CLI / MCP server: path traversal (`../` in URIs), sizes from the file (allocation before
@@ -152,6 +159,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   workers, and retained heap deltas are neither total allocations nor peak memory. Compare equivalent preprocessing.
 - A type that stores a derived form rounds its input: `Segment3d` keeps a center, a direction and an extent, so `P0` is not
   what went in. An index built on it missed its own vertices. Test with non-dyadic inputs through the public constructor.
+- A correct fallback can hide a broken fast path: a search that falls back to the full region when its bounded region is
+  empty gives right answers with the wrong complexity, so mutants of the region rule survive. Count the fallbacks and the work
+  (including resets and clears, not only visited nodes) and bound them in a test (ContourLoft: a per-row reset of the whole
+  state array made the search O(m n^2)).
 - Correct results can hide linear cost: a spatial index that keeps all items at its root answers every query right. Count
   the visited items on thin strips, far outliers and sorted inserts, rather than timing them.
 - Source rollback can leave incremental-build binaries stale. Force a rebuild and verify binary identities before

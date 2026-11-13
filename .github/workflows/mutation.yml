@@ -11,13 +11,15 @@ name: Mutation tests
 # lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
 # shard fails when the combined score drops below the break threshold of its config; without a cached baseline it runs
 # in full. A shard whose config
-# or tools changed runs in full. A shard of which only tests changed runs with --since and only reports. Every full run
+# or tools changed runs in full, except a config edit that only moves the spans of `mutate`: that shard runs
+# incrementally too. A shard of which only tests changed runs with --since and only reports. Every full run
 # stores its report as the baseline. The reports list the surviving mutants.
 
 on:
   pull_request:
-    # (converted_to_draft: the concurrency group below cancels a run that is under way)
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    # (converted_to_draft and closed: the concurrency group below cancels a run that is under way; on closed, which
+    # includes a merge, the selection job is skipped, so nothing new runs and no runner stays busy for a finished PR)
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
     paths:
       - 'math/ExactPredicates.cs'
       - 'math/ExactPoint3.cs'
@@ -72,11 +74,17 @@ on:
       shards:
         description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
+      force:
+        description: 'Run although a daily run of today already ran or is running (the schedule guard)'
+        type: boolean
+        default: false
 
-# a new push to the same PR cancels the running run
+# a new push to the same PR, a switch back to draft, and closing or merging the PR cancel the running run; a scheduled or
+# dispatched run is never cancelled by another (the late cron would otherwise cancel the full run that the dispatcher started,
+# hours of work: it waits and the schedule guard skips it)
 concurrency:
   group: mutation-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -89,7 +97,13 @@ jobs:
   # which configs a PR needs, and how (schedule and workflow_dispatch run all of them in full). Runs on drafts too, so
   # that the selection can be seen there; the jobs below wait for "ready for review".
   changes:
+    # a closed (or merged) PR only cancels its running run through the concurrency group; the jobs below need this one,
+    # so they are skipped too
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read          # the schedule guard reads the earlier runs of today
     outputs:
       arithmetic: ${{ steps.select.outputs.arithmetic }}
       mesh: ${{ steps.select.outputs.mesh }}
@@ -104,16 +118,37 @@ jobs:
           python3 test_baseline.py
           python3 test_incremental.py
           python3 test_suggest_split.py
+          python3 test_narrow_tests.py
+      # Runs once a day although two things start it (docs/QA.md 2.12): the external dispatcher at a fixed time and the cron
+      # line as the fallback (tools/schedule_guard.py). A step of this job, not a job of its own: select_shards.py takes a new
+      # job or top key of this workflow as a reason to run every shard in full.
+      - if: github.event_name != 'pull_request'
+        name: Schedule guard${{ github.event_name == 'workflow_dispatch' && inputs.shards != 'all' && inputs.shards != '' && ' [custom]' || '' }}
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'master' }}
+          FORCE: ${{ inputs.force }}
+          CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.shards != 'all' && inputs.shards != '' }}
+        run: python3 tools/schedule_guard.py --workflow mutation.yml --event "$EVENT" --run-id "$RUN_ID" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --custom "$CUSTOM" --force "$FORCE"
       - id: select
         env:
           EVENT: ${{ github.event_name }}
+          GUARD: ${{ steps.guard.outputs.run }}
           SHARDS: ${{ github.event.inputs.shards }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # a failed git diff must fail this step: empty input would select nothing and skip the runs in green
           set -o pipefail
-          if [ "$EVENT" != "pull_request" ]; then
+          if [ "$GUARD" = false ]; then
+            # skipped by the schedule guard: nothing to run (the Stryker jobs wait for a non-empty selection)
+            echo 'arithmetic=none' | tee -a "$GITHUB_OUTPUT"
+            echo 'mesh=[]' | tee -a "$GITHUB_OUTPUT"
+          elif [ "$EVENT" != "pull_request" ]; then
             python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
             git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"
@@ -139,8 +174,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
+          key: mutation-baseline-arithmetic-${{ hashFiles('.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-arithmetic-${{ hashFiles('.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
       - name: Stryker
         working-directory: tests/mutation
         env:
@@ -173,7 +208,7 @@ jobs:
         if: always() && (needs.changes.outputs.arithmetic == 'full' || needs.changes.outputs.arithmetic == 'source')
         run: |
           if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
-            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline tests/mutation/stryker-config.json
           else
             echo "stored=false" | tee -a "$GITHUB_OUTPUT"
           fi
@@ -184,7 +219,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-arithmetic-${{ hashFiles('tests/mutation/stryker-config.json', '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mutation-baseline-arithmetic-${{ hashFiles('.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   exact-mesh:
     needs: changes
@@ -193,11 +228,13 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      # at most 12 shards at a time (was 4: the 15 mesh shards of a full run then took 4 waves, about 12 hours of wall
-      # time, with the longest shards queued behind others). The account runs at most 20 jobs at once; a full run is
-      # 12 mesh shards + the arithmetic job + the selection job = 14, which leaves 6 for the CI of the PRs. Scheduling
-      # only: it changes no shard's result (select_shards.py: not a reason for full runs)
-      max-parallel: 12
+      # at most 6 shards at a time (owner 2026-11-13: short PR jobs must not wait for slots; it was 12, and 4 before: the 15 mesh
+      # shards of a full run then took 4 waves, about 12 hours of wall time). The account runs at most 20 jobs at once; a full
+      # run is 6 mesh shards + the arithmetic job + the selection job = 8, which leaves 12 for the CI of the PRs. The 25 mesh
+      # shards of about 4 hours each need about 17 hours wall time then, so the daily full run just fits one day (the schedule
+      # guard skips a starter while the run is under way). Not a concurrency group: it keeps one pending job and cancels the
+      # others. Scheduling only: it changes no shard's result (select_shards.py: not a reason for full runs)
+      max-parallel: 6
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.mesh) }}
     steps:
@@ -215,8 +252,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles('.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles('.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-
       - name: Stryker
         working-directory: tests/mutation
         # a mutant can turn a loop into one that allocates without end: a heap limit per process makes that an
@@ -258,15 +295,16 @@ jobs:
         if: always() && (matrix.mode == 'full' || matrix.mode == 'source')
         run: |
           if [ "$MODE" = full ] || [ -f tests/mutation/StrykerOutput/full-run ]; then
-            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline
+            python3 tests/mutation/baseline.py store tests/mutation/StrykerOutput tests/mutation/baseline "tests/mutation/stryker-mesh-$SHARD.json"
           else
             echo "stored=false" | tee -a "$GITHUB_OUTPUT"
           fi
         env:
           MODE: ${{ matrix.mode }}
+          SHARD: ${{ matrix.shard }}
       - name: Store the baseline
         if: always() && steps.store.outputs.stored == 'true'
         uses: actions/cache/save@v4
         with:
           path: tests/mutation/baseline
-          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles(format('tests/mutation/stryker-mesh-{0}.json', matrix.shard), '.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: mutation-baseline-mesh-${{ matrix.shard }}-${{ hashFiles('.config/dotnet-tools.json', 'tests/mutation/BASELINE_FORMAT') }}-${{ github.run_id }}-${{ github.run_attempt }}

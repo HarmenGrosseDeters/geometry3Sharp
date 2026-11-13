@@ -220,8 +220,10 @@ namespace geometry3Sharp.Tests
                 string id = Regex.Replace(e.Groups[3].Value, "~[^~]*$", "");    // without the return type
                 ISymbol s = DocumentationCommentId.GetSymbolsForDeclarationId(id, c).FirstOrDefault();
                 Assert.True(s != null, "no member for " + e.Groups[3].Value);
-                // (TriangleBoxTree: the box tree of ExactMeshArrangement.cs, an exact file)
-                Assert.True(s.ContainingType.Name.StartsWith("ExactMesh") || s.ContainingType.Name == "TriangleBoxTree", s.ContainingType.Name);
+                // (TriangleBoxTree: the box tree of ExactMeshArrangement.cs, an exact file; ContouringTopologyCertificate: the
+                // exact tests of the contouring's topology certificate, an exact file)
+                Assert.True(s.ContainingType.Name.StartsWith("ExactMesh") || s.ContainingType.Name == "TriangleBoxTree"
+                    || s.ContainingType.Name == "ContouringTopologyCertificate", s.ContainingType.Name);
             }
         }
 
@@ -263,20 +265,24 @@ namespace geometry3Sharp.Tests
                     Assert.True(Severity(set, root, f, id) == ReportDiagnostic.Suppress, f + " " + id);
         }
 
-        // the libm rule G3E0004 is an error in the geodesic family and in the CoreMath port, and off everywhere else
+        // the libm rule G3E0004 is an error in the geodesic family, in the terrain slope design (issue 802) and in the
+        // CoreMath port, and off everywhere else
         [Fact]
-        public void EditorConfig_MakesTheLibmRuleAnErrorInTheGeodesicFamilyOnly()
+        public void EditorConfig_MakesTheLibmRuleAnErrorInTheGeodesicFamilyAndTheTerrainSlopeDesignOnly()
         {
             string root = RepoRoot();
             Assert.NotNull(root);
             AnalyzerConfigSet set = EditorConfig(root);
             foreach (string f in new[] { "mesh_ops/IntrinsicTriangulation.cs", "mesh_ops/IntrinsicTriangulationRefinement.cs", "mesh_ops/IntrinsicCommonSubdivision.cs",
                                          "mesh_ops/VectorHeatMethod.cs", "mesh_ops/MeshGeodesicDistance.cs", "mesh_ops/MeshGeodesicPath.cs", "mesh_ops/MeshGeodesicBezier.cs",
-                                         "solvers/SparseCholesky.cs", "math/CoreMath/CoreMathSin.cs", "math/CoreMath/CoreMathExp.cs" }) {
+                                         "solvers/SparseCholesky.cs", "math/CoreMath/CoreMathSin.cs", "math/CoreMath/CoreMathExp.cs", "math/CoreMath/CoreMathComposed.cs",
+                                         "mesh_ops/TerrainSlope.cs", "mesh_ops/TerrainSlopeDesign.cs", "mesh_ops/TerrainSlopeMap.cs", "mesh_ops/TerrainSlopeComposite.cs",
+                                         "mesh_ops/TerrainSlopeOverlay.cs", "mesh_ops/TerrainSlopeLocalFrame.cs", "mesh_ops/TerrainSlopeCatchLineBound.cs" }) {
                 Assert.True(File.Exists(Path.Combine(root, f)), f);
                 Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Error, f);
             }
-            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs" })
+            // (TerrainSafety is not part of the slope design: its Math.Cos of a user angle stays)
+            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs", "mesh_ops/TerrainSafety.cs" })
                 Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Suppress, f);
         }
 

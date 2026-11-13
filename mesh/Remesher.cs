@@ -74,7 +74,12 @@ namespace g3 {
         ///  - a collapse that would create a flat triangle (eg two vertices of a straight feature curve joined over
         ///    a third one on it) is rejected. Other collapses are not restricted: blocking poor but not flat results
         ///    (eg with MinCollapseTriangleQuality) keeps short edges that the splits around them multiply.
-        /// Not guarded: the projection of a new vertex after a split. Together, on 20 Thingi10K meshes remeshed with
+        /// Not guarded: the projection of a new vertex after a split; and folds between neighbours. The flip tests compare
+        /// each changed triangle only with its own old normal (a turn of up to 90 degrees passes), not with its unchanged
+        /// neighbours, so a collapse can fold two adjacent triangles (normals more than 90 degrees apart) without
+        /// flipping either, and a later projection can push the fold through: self-intersections can occur even on
+        /// smooth, well-resolved inputs (a clean torus, issue #790). This option makes no promise of an
+        /// intersection-free result; PreventSelfIntersections does. Together, on 20 Thingi10K meshes remeshed with
         /// creases kept, 28% of the poor (q &lt; 0.1) and 13% of the flat (q &lt; 1e-3) triangles and 16% of the
         /// self-intersecting pairs remain (benchmarks/RemeshQualityBenchmark). RemesherPro queues the edges of a
         /// vertex whose move was rejected. With a target edge length far above the wall thickness the result is

@@ -12,6 +12,34 @@ import ci_scope as c  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+class CiWorkflow(unittest.TestCase):
+    """Runner load (2026-11-13): the conditions of ci.yml that keep master and draft PRs cheap."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as f:
+            cls.text = f.read()
+
+    def job(self, name):
+        return re.search(r"\n  %s:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)" % name, self.text, re.S).group(1)
+
+    def test_master_runs_share_one_group_that_cancels(self):
+        # a group per SHA let every merge run to the end (20 runs piled up)
+        block = re.search(r"\nconcurrency:\n(.*?)\n\n", self.text, re.S).group(1)
+        self.assertNotIn("github.sha", block)
+        self.assertIn("github.event.pull_request.number || github.ref", block)
+        self.assertIn("cancel-in-progress: true", block)
+
+    def test_windows_jobs_skip_drafts_like_isolated(self):
+        condition = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
+        self.assertIn(condition, self.job("isolated").split("steps:")[0])
+        header = self.job("netstandard").split("steps:")[0]
+        self.assertIn("runs-on: windows-latest", header)
+        self.assertRegex(header, r"\n    if: " + re.escape(condition) + r"\n")
+        # its two shards (netstandard, netstandard-b) are the matrix of that one job
+        self.assertIn("name: netstandard-b", header)
+
+
 class Scope(unittest.TestCase):
     def test_library_and_tests_run_everything(self):
         for p in ("math/Vector2d.cs", "tests/geometry3Sharp.Tests/FooTests.cs", ".github/workflows/ci.yml",

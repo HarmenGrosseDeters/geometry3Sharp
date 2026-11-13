@@ -74,3 +74,23 @@ torus,Success,125.203,10321,5458,18.5589,9.1361,4.5373,9357,0.0245915,2.06019,17
 torus thin,Success,81.1958,7779,3714,12.41,4.71516,2.36347,5197,0.0312119,2.76652,179.901,2530,856,100,511,yes
 two spheres (soup),Success,85.3176,7271,4756,21.5346,13.5657,7.47241,6992,0.00601521,1.2399,179.984,6483,4096,239,4025,yes
 ```
+
+## Comparison with fTetWild (black box), modes `ours` / `eval`
+
+`.github/workflows/tet-compare.yml` (on demand) builds fTetWild on the GitHub-hosted runner from its README steps (MPL-2.0:
+binary only, no source read, outputs deleted after the evaluation) and runs `compare/run_shard.sh` on the 40 Thingi10K ids of
+`compare/thingi-subset-ids.txt` (every 250th id of the dataset, fetched at run time, never committed), in 4 shards by default (inputs `shards`, `ft_threads`), one mesher at
+a time per runner: `ours` (alpha wrap 20 / 600 + inside cells, serial, timed in process) and fTetWild with its defaults at 4 threads
+(1 thread optional). `eval <tet file> <input mesh>` checks a `.mesh` (MEDIT) or MSH 2.x ASCII file with our own exact code
+(`TetFiles.Evaluate`): orientation by `Orient3d` (a file that is negative throughout is taken as the other convention; minority
+and zero tets count as inverted, nothing is re-oriented silently), matched facets and a closed manifold boundary
+(`TetMeshQuality.NotValidReason`), the boundary free of self-intersections (exact), quality (`TetMeshQuality.Measure`) and the
+vertex-sampled surface deviation both ways relative to the input's diagonal. `compare/summarize.py` makes the table; the CSVs and
+`SUMMARY.md` go to the data branch `runs/tet-meshing` (`compare/<date>-run<id>/`).
+
+## Stage 1 and 2 (`refine`)
+
+`refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]` runs `MeshTetrahedralization` (stage 1
+refinement, peeling, and stage 2 improvement with its defaults) and prints the `eval` row plus status, times and counts.
+Subset numbers (one thread, 4-core cloud container): `results/thingi10k-subset-stage1*.csv` and `results/thingi10k-subset-stage2-*.csv`;
+summary in `docs/design/TET_MESHING.md` sections 14.8, 14.9 and 15 (stage 2: p01 >= 10 and min >= 1 degree on 40 of 40).
