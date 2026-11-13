@@ -314,13 +314,17 @@ namespace geometry3Sharp.Tests
         [InlineData(false, false)]
         [InlineData(false, true)]
         [InlineData(true, false)]
+        [InlineData(true, true)]
         public void Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces(bool pro, bool parallel)
         {
-            // The worst case of the recipe: an exact 1-Lipschitz field (a point distance) whose solid, a ball far smaller than a
-            // cube, sits where all eight nodes of a cube are as far from it as possible (the cube centre, distance sqrt(3) h / 2),
-            // or at a face centre (h sqrt(2) / 2) or an edge midpoint (h / 2) of the grid. The recipe's level sqrt(3) h / 2 + 2^-26
-            // must still make the mesh contain the solid; a pad of half that size (sqrt(3) h / 4) leaves every node high and an
-            // empty mesh, so it fails here geometrically (the mutant check of the pad's size).
+            // The worst case of the recipe: an exact 1-Lipschitz field (a point distance) whose solid, a single point (radius 0), sits
+            // where all eight nodes of a cube are as far from it as possible: the cube centre, node distance exactly sqrt(3) h / 2. The
+            // recipe's level sqrt(3) h / 2 + 2^-26 must still make the mesh contain the solid. A pad of half that size (sqrt(3) h / 4)
+            // leaves every node high and an empty mesh, so it fails here. (The 2^-26 term is the floating point margin on top of
+            // sqrt(3) h / 2: it keeps the nodes strictly below the level whatever the rounding of the node distance; with this
+            // grid the rounding happens to fall on the safe side, so dropping it alone is not caught here, the value is pinned in
+            // the TpmsLattice pad test instead.) The face centre and edge midpoint have closer nodes
+            // and are weaker checks (they test the enclosure geometry, not the worst case); they are kept for the cases of the table.
             const double h = 1.0 / 16;
             double sigma = Math.Sqrt(3) * h / 2 + Math.Pow(2, -26);
             var centers = new[] {
