@@ -409,8 +409,12 @@ the identity).
 4. Cells: let c be a 3-cell. h is defined on its boundary sphere and maps the circles of S there onto the circles of
    S' (step 3). Each circle g bounds exactly one disk D of S in c, and h(g) exactly one disk D' of S'; define h on D
    as a homeomorphism onto D' extending h on g (cone). By (A), m disjoint properly embedded disks cut c into m + 1
-   balls (cut along one: two balls, each remaining disk in one of them; induct), each of which meets the boundary
-   sphere in one connected region, and the disks on the boundary of a ball are those whose circles bound that region.
+   balls (cut along one: two balls, each remaining disk in one of them; induct). A ball B of the cut, bounded by
+   the disks D_1 .. D_j, meets the boundary sphere of c in the boundary of B minus j open disks, a sphere with j
+   holes, which is connected; and that set contains no further circle of S in its interior, because the disk of such
+   a circle starts in it, is disjoint from D_1 .. D_j and so would lie in B, which is a piece of the cut. So each
+   ball meets the boundary sphere in exactly one region of the sphere minus the circles (m + 1 balls, m + 1 regions),
+   and the disks on the boundary of a ball are those whose circles bound that region.
    The same holds for S', and h maps regions of the sphere to regions. So h maps the boundary sphere of each ball of
    c minus S onto the boundary sphere of a ball of c minus S'; extend by a cone.
 
@@ -424,9 +428,10 @@ is the identity on all faces and the Alexander trick finishes in each cell. Ever
 
 Remarks. (1) Only that cells are balls with boundaries made of lower cells is used, so the two-level grid is
 covered. (2) The surfaces must be PL (or tame): (A) is false for wild spheres. Input meshes and the output are PL.
-For a smooth or piecewise smooth level set (class S) the proof assumes that it is PL after a homeomorphism that maps
-cells to themselves; for the parts certified by a graph direction this is elementary (shear along the direction),
-and it is the one place where class S needs an argument beyond this section.
+For a level set that is not PL (class S) Theorem 1 needs either a PL approximation by a homeomorphism that maps
+cells to themselves, or the topological versions of its two tools. A shear along a graph direction, as this note's
+first version of the remark proposed, does not do it: it moves points across faces (review of #749). Section 7.8
+gives the second route (Theorem 5: locally flat spheres and Brown's theorems); it is not reviewed yet.
 
 ### 7.3 Theorem 2: the dual contouring mesh is compatible
 
@@ -601,9 +606,10 @@ What this needs that `Orient2d`, `Orient3d` and comparisons do not already give:
    signed count of ray crossings by `Orient3d` (a ray in general position, or the antipodal method's exact form).
    The fast winding number is not used by the certificate at all.
 4. **Three implementation facts of option B** ((i)-(iii) in section 7.3), to be asserted in tests.
-5. **For class S only:** interval enclosures of the function and its gradient (a new interface on `ExactInterval`),
-   and the open argument of section 7.2, remark 2 (Theorem 1 for level sets that are not PL).
-6. **Nothing for class W** is proved here.
+5. **For class S only:** interval enclosures of the function and of all its generalized gradients over a box (a new
+   interface on `ExactInterval`), and Theorem 5 (section 7.8, not reviewed yet).
+6. **For class W:** section 7.9 says what follows from Theorems 1b, 3 and 5 and what is missing (rigorous enclosures
+   of the winding number and its derivatives; nothing at defect edges).
 
 What the certificate does not give: a bound on the distance between D and L (the existing deviation measures do
 that); a statement about cells that are refused (the pattern may still agree there); termination of the refinement
@@ -614,3 +620,138 @@ are worked in (the region argument of step 4, the alternation argument of Theore
 tested with its faces, the counts over L's triangles only, the node-sign caveat of 4.1, the withdrawn shear argument
 for class S). Still premises, not proved: the three implementation facts of option B (section 7.3 (i)-(iii)), on
 which the statement for face vertices and refinement transitions rests; they become assertions in stage 1's tests.
+### 7.7 Theorem 1b: the partial statement
+
+**Theorem 1b.** Let K' be a set of 3-cells of K, and let S and S' satisfy (E), (F), (C) on the cells of K', their
+faces and their edges, with the same pattern there. Then there is a homeomorphism of the union of K' onto itself that
+maps every cell of K' and every face and edge of such a cell onto itself and S onto S' there, and it is isotopic to
+the identity through such homeomorphisms.
+
+*Proof.* The construction and the isotopy of Theorem 1 use, for each cell, only the cell, its faces and its edges;
+carry them out on the cells of K' and their faces and edges. ∎
+
+This is the exact meaning of a run with uncertified cells: with K' the certified cells, the mesh and the level set
+differ inside the union of K' by a deformation that keeps every cell in place. It says nothing inside the other
+cells, and so nothing about the topology of the whole (a handle can hide in one uncertified cell). Only the pattern
+on K' enters, that is the crossing counts of the level set and the sign changes of the mesh on the edges of K' and
+the pairings on its faces, which the test compares directly; whether a node's sign is its true side does not enter
+(so the node-sign caveat of section 4.1 does not affect this statement).
+
+### 7.8 Theorem 5: level sets that are not piecewise linear (class S) - not reviewed yet
+
+Setting. f is locally Lipschitz on the box (a C1 function, or `min` / `max` of such), and for a set X, G(X) denotes a
+compact convex set that contains every generalized gradient of f (Clarke) at every point of X: for a C1 function the
+gradients, for `min(f, g)` the hull of the gradients of both wherever both can be active. The interval interface
+must return an enclosure of G(X); this is a requirement on it. L is the zero set. A cell is *certified* if
+
+- (S0) f has no zero at its nodes (the enclosure of f at each node excludes 0);
+- (S1) on each of its edges, with direction a: either f has no zero on the edge, or a . g has one sign for all g in
+  G(edge);
+- (S2) on each of its faces: either f has no zero on the face, or for one of the two axes a of the face, a . g has
+  one sign for all g in G(face); and if the face has four crossing points, f has no zero on a segment in the face
+  that separates them two and two;
+- (S3) there is a direction d with d . g > 0 for all g in G(cell), and the boundary of the cell carries one circle
+  of L, or f has no zero on surfaces in the cell that separate the circles from each other.
+
+Every cell that is not certified must have no zero of f at all (the enclosure of f over it excludes 0), or be listed.
+
+**Lemma 5.1 (graphs).** If u . g >= delta > 0 for all g in G(U), U open and convex, then f is strictly increasing
+along u in U at rate at least delta, and L in U is the graph of a Lipschitz function over the plane normal to u (on
+the set of lines parallel to u that meet it). In particular L is there a surface, locally flat (the map
+(x, t) -> (x, t - phi(x)) straightens it locally), with f < 0 on one side and f > 0 on the other.
+*Proof.* Lebourg's mean value theorem: f(q) - f(p) = g . (q - p) for some generalized gradient g at a point of the
+segment. So f(p + t u) - f(p) >= delta t, each line meets L at most once, and for two points p, q of L,
+0 = g . (q - p) bounds the component of q - p along u by (sup |g| / delta) times the component across. ∎
+
+**Lemma 5.2 (at the cell boundary).** Let c be a certified cell and p a point of L on its boundary. Then there are
+directions u and u' pointing strictly into c at p with u . g < 0 and u' . g > 0 for all g in G near p. Consequently
+c with {f <= 0}, and c with {f >= 0}, are near p the regions on one side of a Lipschitz graph: their boundaries are
+locally flat at p, and L in c is near p a closed half disk whose edge is L on the boundary of c.
+*Proof.* By (S0) p is not a node. If p is in the interior of a face with outward normal n, let a be the axis of
+(S2) and s the sign of a . g; take u = -s a - eps n and u' = s a - eps n. Then u . n < 0 and
+u . g = -|a . g| - eps n . g < 0 for eps small, since G is compact and |a . g| is bounded below; likewise u'. If p is
+on an edge with direction a and the outward normals n_1, n_2 of the two faces of c at it, (S1) gives the sign s of
+a . g, and u = -s a - eps (n_1 + n_2), u' = s a - eps (n_1 + n_2) do it. A direction pointing strictly into a convex
+set at a boundary point makes its boundary a Lipschitz graph near that point, and by Lemma 5.1 the same direction
+makes L one; the region on the inner side of both graphs is the region on one side of their minimum, again a
+Lipschitz graph. On that graph, L and the boundary of c meet along L on the boundary of c, which near p is one arc
+through p (in a face by (S2): a graph over the other axis; on an edge: one arc into each face), so by (J) L in c is
+a half disk. ∎
+
+**Theorem 5.** Let every cell that L meets be certified. Then L is a closed surface, it satisfies (E), (F), (C),
+and Theorem 1 (and 1b) hold with L in the place of a PL surface: L is ambient isotopic to every PL surface that is
+compatible with the same pattern.
+
+*Proof.* (E): by (S1) f is strictly monotone on an edge with a zero (Lemma 5.1 in one dimension), so the zero is
+unique and f changes sign. (F): by (S2) and Lemma 5.1 in the plane of the face, L in the face is a graph over an
+axis, a 1-manifold without closed curves whose ends are on the boundary by Lemma 5.2, so a set of arcs. (C): by
+Lemmas 5.1 and 5.2, L in the cell is a compact surface with boundary on the cell's boundary and every line parallel
+to d meets it once at most, so Theorem 4 applies with (S3): its parts are disks.
+
+Theorem 1 used PL in two places. (J) holds for arbitrary arcs in the plane (Schoenflies), so step 3 stands. In step
+4, (A) is replaced as follows. Let D_1 .. D_m be the disks of L in c. Each closed region of c minus the disks has as
+boundary a 2-sphere made of disks D_j and a part of the boundary of c (the same induction as in the PL case, with
+the Jordan-Brouwer separation theorem for the sphere made of D_j and one of the two disks its circle cuts from the
+boundary of c). That sphere is locally flat at every point: inside a D_j by Lemma 5.1, on the boundary of c away
+from L because c is convex, on a circle of L by Lemma 5.2. A locally flat sphere in the 3-sphere is bicollared
+(M. Brown, *Locally flat imbeddings of topological manifolds*, 1962), and the closures of the two complementary
+domains of a bicollared sphere are balls (M. Brown, *A proof of the generalized Schoenflies theorem*, 1960). So the
+regions are balls, and the cone extension and the Alexander trick, which are topological, finish as before. The
+same lemmas show that L is a surface near every point, so it is a closed surface. ∎
+
+What this needs: the enclosure property of G (for `min` / `max` and other non-smooth operators, all pieces that can
+be active on the box); the two theorems of Brown as cited (not re-read in this study: the statements are the
+standard ones and the proof depends on them exactly as written); Lebourg's mean value theorem for locally Lipschitz
+functions (Clarke, *Optimization and Nonsmooth Analysis*, 1983, cited from memory). The interval tests (S0)-(S3) are
+the only computations; a tangency with the grid, a level set through a node, or a point where the generalized
+gradients surround 0 (a cusp, two surfaces touching) is never certified.
+
+### 7.9 Class W (broken inputs): what follows, and what is missing - not reviewed yet
+
+Notation: a *defect edge* is a mesh edge that is not shared by exactly two triangles running through it in opposite
+directions; m_e is its net multiplicity (the signed number of triangles through it). w is the generalized winding
+number.
+
+**Lemma 9.1 (gradient bound).** Off the triangles, grad w(p) = (1 / 4 pi) times the sum over the defect edges of
+m_e times the integral over e of (x - p) x dx / |x - p|^3 (up to the sign convention), and this extends continuously
+across the interiors of the triangles. Hence |grad w(p)| <= (1 / 4 pi) sum |m_e| min(2 / rho_e(p),
+len_e / dist_e(p)^2), with rho_e the distance of p to the line of e and dist_e the distance to the segment e.
+*Proof.* The solid angle of an oriented triangle has the gradient given by the line integral over its boundary (the
+Biot-Savart form; Martens, Trettner, Bessmeltsev 2026, supplement; classical). Summing over the triangles, the
+contributions of an edge shared by two triangles in opposite directions cancel. The integrand has norm
+sin(theta) / |x - p|^2; integrated over a segment it gives (cos theta_1 - cos theta_2) / rho <= 2 / rho, and it is at
+most 1 / dist^2 pointwise. The jump of w across a triangle is constant, so the gradient has no jump. ∎
+
+**Lemma 9.2 (levels in a cell).** Let c be a convex cell, a a point of c off the triangles, and G a bound of
+|grad w| on c. For every p in c off the triangles such that the segment a p crosses the triangles transversally,
+w(p) = w(a) + N(a, p) + r with |r| <= G |p - a|, where N is the signed number of crossings.
+*Proof.* Along the segment w is piecewise smooth with the derivative bounded by G and a jump of +-1 at each
+crossing. ∎
+
+**What follows.** Let c contain no defect edge and no intersection of two triangles that do not share an edge, and
+let an enclosure [lo, hi] of w(a) and the bound G satisfy k - 1/2 < lo - G diam(c) and hi + G diam(c) < k + 1/2 for
+an integer k. Then by Lemma 9.2 the set w > 1/2 in c is the set k + N(a, p) >= 1, which depends on the triangles
+only: the level set in c is made of the sheets of the input across which k + N steps between 0 and 1, a PL surface,
+and Theorem 3 applies to it in c (the counts over those sheets). In a cell that meets no triangle and no defect
+edge, w - 1/2 is smooth and Theorem 5 applies with enclosures of grad w from Lemma 9.1 and a bound of its second
+derivatives. With K' the cells certified in one of the two ways, Theorem 1b gives: **the mesh and the level set
+differ inside the union of K' only by a deformation that keeps every cell in place.** That is the strongest
+statement this approach can prove for a broken input.
+
+**What is missing.**
+
+1. A rigorous enclosure of w at a point. The formula uses atan2; `ExactInterval` has +, -, * only. Needed: an
+   interval atan2 (or the antipodal method's ray count plus an enclosure of its boundary line integral), and an
+   interval square root for Lemma 9.1's sum. Far from the input a crude bound suffices (|w| is at most the input's
+   area over 4 pi dist^2), but propagating it inward with Lemma 9.2 loses G times the path length, which exceeds 1/2
+   near the defects.
+2. A bound of the second derivatives of w (for Theorem 5 in free-space cells): the same computation as Lemma 9.1
+   one order higher, not written.
+3. **Nothing at the defects.** Around a defect edge the gradient turns through all directions in the planes across
+   it, so no graph direction exists in any cell that contains a piece of it, and (S3) fails at every size; the same
+   holds where a harmonic sheet meets the input's triangles, as long as both are in one cell. These cells are listed
+   at any resolution. So a broken input never gets "isotopic to the level set", only the statement above, and how
+   much of the surface it covers is a measurement (the share of cells within a few cells of a defect edge).
+
+Conclusion for option C: the partial statement is provable with Theorems 1b, 3, 5 and Lemmas 9.1, 9.2 once items 1
+and 2 exist; item 3 is a limit of the approach, not a gap in the proof.
