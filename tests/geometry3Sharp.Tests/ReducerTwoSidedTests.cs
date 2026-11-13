@@ -85,10 +85,10 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> the one-sided reduction cuts the spikes and pulls away from the terrain's rim; the two-sided one does not </summary>
-        /// (the cases are ones where the one-sided reduction provably leaves the input farther than eps: 1.05-1.18 eps)
+        /// (the cases are ones where the one-sided reduction provably leaves the input farther than eps: 1.015-1.18 eps)
         [Theory]
         [InlineData("spiky", 16, 1e-2)]
-        [InlineData("spiky", 20, 3e-3)]
+        [InlineData("spiky", 16, 3e-3)]
         [InlineData("terrain", 14, 1e-2)]
         [InlineData("terrain", 20, 1e-3)]
         public void TwoSided_InputStaysWithinTolerance(string name, int n, double rel)
@@ -255,11 +255,61 @@ namespace geometry3Sharp.Tests
             };
             refused(r => { }, r => r.FastCollapsePass(0.5));
             refused(r => r.SetDeviationReference(input), r => r.ReduceToTriangleCount(4));
+            refused(r => { r.ReduceToTriangleCount(100); r.SetDeviationReference(input); }, r => r.ReduceToTriangleCount(4));
             refused(r => { r.MaxDeviationTwoSided = false; r.ReduceToTriangleCount(100); r.MaxDeviationTwoSided = true; }, r => r.ReduceToTriangleCount(4));
             refused(r => { r.ReduceToTriangleCount(100); r.MaxDeviation = 2 * eps; }, r => r.ReduceToTriangleCount(4));
             refused(r => { r.ReduceToTriangleCount(100); r.Mesh.SetVertex(r.Mesh.VertexIndices().First(), Vector3d.Zero); }, r => r.ReduceToTriangleCount(4));
             refused(r => r.SetProjectionTarget(new MeshProjectionTarget(new DMesh3(input), null)), r => r.ReduceToTriangleCount(4));
             Assert.Throws<ArgumentException>(() => new PartitionedReducer { Configure = r => r.MaxDeviationTwoSided = true }.Reduce(input, 1e-3));
+        }
+
+        // a subclass that edits the mesh in OnEdgeCollapse, and one with its own pass that calls CollapseEdge directly
+        sealed class EditingReducer : Reducer
+        {
+            int n;
+            public EditingReducer(DMesh3 m) : base(m) { }
+            protected override void OnEdgeCollapse(int edgeID, int va, int vb, DMesh3.EdgeCollapseInfo info)
+            {
+                if (++n == 5) mesh.SetVertex(va, mesh.GetVertex(va));
+            }
+        }
+
+        sealed class OwnPassReducer : Reducer
+        {
+            public OwnPassReducer(DMesh3 m) : base(m) { }
+            public void CollapseFirstEdge() { CollapseEdge(mesh.EdgeIndices().First(), Vector3d.Zero, out int _); }
+        }
+
+        /// <summary> edits the coverage cannot see are refused when they happen, not silently passed </summary>
+        [Fact]
+        public void TwoSided_RefusesEditsBySubclasses()
+        {
+            DMesh3 input = Terrain(10);
+            double eps = 3e-3 * input.CachedBounds.DiagonalLength;
+            var e = new EditingReducer(new DMesh3(input)) { MaxDeviation = eps, MaxDeviationTwoSided = true };
+            var ex = Assert.Throws<InvalidOperationException>(() => e.ReduceToTriangleCount(4));
+            Assert.Contains("OnEdgeCollapse", ex.Message);
+            var o = new OwnPassReducer(new DMesh3(input)) { MaxDeviation = eps, MaxDeviationTwoSided = true };
+            ex = Assert.Throws<InvalidOperationException>(() => o.CollapseFirstEdge());
+            Assert.Contains("MaxDeviationTwoSided", ex.Message);
+        }
+
+        /// <summary> a non-finite vertex elsewhere does not stop the option: the finite part reduces, both directions within eps </summary>
+        [Fact]
+        public void TwoSided_InputWithANonFiniteTriangle()
+        {
+            DMesh3 input = Terrain(14);
+            DMesh3 finite = new DMesh3(input);
+            double eps = 1e-2 * input.CachedBounds.DiagonalLength;
+            int a = input.AppendVertex(new Vector3d(5, 5, 0)), b = input.AppendVertex(new Vector3d(6, 5, 0)), c = input.AppendVertex(new Vector3d(5, double.NaN, 0));
+            int bad = input.AppendTriangle(a, b, c);
+            var m = new DMesh3(input);
+            var r = new Reducer(m) { MaxDeviation = eps, MaxDeviationTwoSided = true };
+            r.ReduceToTriangleCount(4);
+            Assert.True(m.IsTriangle(bad));
+            m.RemoveTriangle(bad, true, false);
+            Assert.True(m.TriangleCount < 0.5 * finite.TriangleCount, $"{m.TriangleCount}");
+            AssertTwoSided(finite, m, eps, "finite part");
         }
     }
 }

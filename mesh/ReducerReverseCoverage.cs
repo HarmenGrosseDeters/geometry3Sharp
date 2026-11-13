@@ -32,7 +32,6 @@ namespace g3
     {
         readonly DMesh3 input;
         internal readonly double Eps;
-        readonly int maxDepth;
         readonly Vector3d[] inputCorners;          // 3 per input triangle id
         readonly int[][] deps;                     // per input triangle id: the output triangle ids of D(T), sorted
         readonly HashSet<int>[] dependents;        // per output triangle id: the input triangles whose D(T) holds it
@@ -55,7 +54,7 @@ namespace g3
         /// reference: a copy of mesh with the same triangle ids and positions (the deviation reference taken from the
         /// mesh at its first reduction). False if they differ: the start D(T) = {T} needs them equal.
         /// </summary>
-        internal static bool TryCreate(DMesh3 reference, DMesh3 mesh, double eps, int maxDepth, out ReducerReverseCoverage coverage)
+        internal static bool TryCreate(DMesh3 reference, DMesh3 mesh, double eps, out ReducerReverseCoverage coverage)
         {
             coverage = null;
             if (!(eps > 0) || reference.MaxTriangleID != mesh.MaxTriangleID || reference.TriangleCount != mesh.TriangleCount)
@@ -66,18 +65,17 @@ namespace g3
                     return false;
                 mesh.GetTriVertices(t, ref a, ref b, ref c);
                 reference.GetTriVertices(t, ref x, ref y, ref z);
-                if (a != x || b != y || c != z)
+                if (!same(a, x) || !same(b, y) || !same(c, z))     // (bitwise: a NaN corner equals its copy)
                     return false;
             }
-            coverage = new ReducerReverseCoverage(reference, mesh, eps, maxDepth);
+            coverage = new ReducerReverseCoverage(reference, mesh, eps);
             return true;
         }
 
-        ReducerReverseCoverage(DMesh3 reference, DMesh3 mesh, double eps, int maxDepth)
+        ReducerReverseCoverage(DMesh3 reference, DMesh3 mesh, double eps)
         {
             input = reference;
             Eps = eps;
-            this.maxDepth = maxDepth;
             int n = reference.MaxTriangleID;
             inputCorners = new Vector3d[3 * n];
             deps = new int[n][];
@@ -99,11 +97,11 @@ namespace g3
         /// would every input triangle stay within Eps of the mesh after collapsing edge (a, b) with the triangles t0, t1
         /// (t1 may be InvalidID) to newPos? Changes nothing but the pending state that Commit() applies.
         /// </summary>
-        internal bool Check(DMesh3 mesh, int a, int b, int t0, int t1, Vector3d newPos)
+        internal bool Check(DMesh3 mesh, int a, int b, int t0, int t1, Vector3d newPos, int maxDepth)
         {
             pendA = pendB = -1;
             if (mesh.ShapeTimestamp != Stamp)
-                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: the mesh was changed outside the reduction's collapses");
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: the mesh was changed during the reduction outside its collapses (eg by a subclass in OnEdgeCollapse)");
             ring.Clear(); ringSet.Clear(); newIds.Clear(); newTris.Clear(); affected.Clear();
             foreach (int v in new int[] { a, b })
                 foreach (int t in mesh.VtxTrianglesItr(v))
@@ -188,6 +186,13 @@ namespace g3
             pendA = pendB = -1;
             Committed++;
             Stamp = mesh.ShapeTimestamp;
+        }
+
+        static bool same(Vector3d p, Vector3d q)
+        {
+            return BitConverter.DoubleToInt64Bits(p.x) == BitConverter.DoubleToInt64Bits(q.x)
+                && BitConverter.DoubleToInt64Bits(p.y) == BitConverter.DoubleToInt64Bits(q.y)
+                && BitConverter.DoubleToInt64Bits(p.z) == BitConverter.DoubleToInt64Bits(q.z);
         }
 
         static Vector3d corner(DMesh3 mesh, int v, int a, int b, Vector3d newPos)

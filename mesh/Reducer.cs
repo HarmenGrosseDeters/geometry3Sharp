@@ -96,7 +96,8 @@ namespace g3
         /// Throws InvalidOperationException where the bound cannot be kept: in FastCollapsePass, with a ProjectionTarget
         /// projected after the reduction (ProjectionMode AfterRefinement), with a reference from SetDeviationReference or
         /// from an earlier reduction without this option, after MaxDeviation changed, or after the mesh was changed outside
-        /// the Reducer between two reductions. Repeated ReduceTo... calls on one Reducer keep the bound to the original.
+        /// the Reducer between two reductions (also by a subclass in OnEdgeCollapse, or by a reduction with the option off).
+        /// Repeated ReduceTo... calls on one Reducer keep the bound to the original.
         /// </summary>
         public bool MaxDeviationTwoSided = false;
 
@@ -460,6 +461,7 @@ namespace g3
         {
             deviationTarget = new DMeshAABBTree3(new DMesh3(reference), true);
             deviationBounds = new TriangleDeviationBounds(deviationTarget.Mesh);
+            reverseCoverage = null;     // (the reverse direction refers to the mesh at its start: MaxDeviationTwoSided then refuses)
         }
 
         // current triangles by grid cell, for PreventSelfIntersections
@@ -885,7 +887,7 @@ namespace g3
             if (MaxDeviation > 0 && deviationTarget == null) {
                 SetDeviationReference(mesh);
                 if (MaxDeviationTwoSided)
-                    ReducerReverseCoverage.TryCreate(deviationTarget.Mesh, mesh, MaxDeviation, MaxDeviationDepth, out reverseCoverage);
+                    ReducerReverseCoverage.TryCreate(deviationTarget.Mesh, mesh, MaxDeviation, out reverseCoverage);
             }
             ensure_two_sided_coverage();
         }
@@ -906,7 +908,7 @@ namespace g3
             if (reverseCoverage.Eps != MaxDeviation)
                 throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: MaxDeviation changed since the first two-sided reduction");
             if (reverseCoverage.Stamp != mesh.ShapeTimestamp)
-                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: the mesh was changed outside the Reducer since the last two-sided reduction");
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: the mesh was changed since the last two-sided reduction (outside the Reducer, or by a reduction with the option off)");
         }
 
         int nearest_within_deviation(Vector3d p, TriangleDeviationBounds.QueryCache cache)
@@ -1493,6 +1495,9 @@ namespace g3
 		protected virtual ProcessResult CollapseEdge(int edgeID, Vector3d vNewPos, out int collapseToV) 
 		{
 			collapseToV = DMesh3.InvalidID;
+            // (fail closed: a pass of a subclass that skipped ensure_deviation_reference would collapse without the check)
+            if (two_sided_active && reverseCoverage == null)
+                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided: a collapse without the reverse coverage (a pass that skipped ensure_deviation_reference)");
             RuntimeDebugCheck(edgeID);
 
             EdgeConstraint constraint =
@@ -1613,8 +1618,8 @@ namespace g3
                 goto skip_to_end;
             }
             // (last: the most expensive check)
-            bool twoSided = two_sided_active && reverseCoverage != null;
-            if (twoSided && reverseCoverage.Check(mesh, a, b, t0, t1, vNewPos) == false) {
+            bool twoSided = two_sided_active;
+            if (twoSided && reverseCoverage.Check(mesh, a, b, t0, t1, vNewPos, MaxDeviationDepth) == false) {
                 retVal = ProcessResult.Ignored_ExceedsDeviation;
                 goto skip_to_end;
             }
