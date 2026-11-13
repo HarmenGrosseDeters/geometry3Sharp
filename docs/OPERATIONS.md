@@ -212,6 +212,14 @@ if (op.Compute() == false)
   `l2_traced`, `l2_carried`, `l2_direct`, `l2_exact_centroids`, `l2_cross_steps`, `l2_cross_fallbacks`,
   `l2_cross_candidates` and `l2_clusters` show how (docs/design/EXACT_BOOLEAN_T5_CROSS_CARRY.md). The triangulation's exact predicates show in
   `l3_local_decided` and `l3_construction_zeros`.
+- Every open input is classified by the Antipodal Method (an exact ray and a sum over the mesh's boundary segments),
+  whatever its size; fast winding numbers, whose far-field approximation could misclassify pieces next to the surface,
+  are no longer used for open inputs. The classification time grows with the number of boundary segments times the
+  number of boundary sums (`Counts["l2_direct"]` plus the per-piece references): a mesh with a long boundary, or a
+  soup whose every edge is a boundary edge, costs more than with fast winding numbers. On the 10 slowest open models of Thingi10K (union with
+  their copies, 4 cores) the switch to Antipodal for all of them took 700 -> 446 s in all: the 1087141 family about
+  95 -> 45 s each, 122796 11.2 -> 17.8 s (its classification 7.3 -> 14.4 s). Pieces whose
+  centroid lies on or next to a boundary segment are undecided (`Counts["antipodal_undecided"]`) and read as outside.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
   (docs/design/EXACT_BOOLEAN_TAIL_55928.md).

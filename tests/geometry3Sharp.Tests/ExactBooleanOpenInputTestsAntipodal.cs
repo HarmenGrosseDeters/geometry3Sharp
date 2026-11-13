@@ -240,6 +240,42 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ByDefault_EveryOpenMeshGoesToAntipodal_SoupsToo()
+        {
+            // (option A: no limit on the boundary or the triangles; a soup, every edge a boundary edge, takes the Antipodal
+            // Method too, and gives the closed sphere's result where its pieces are far from its edges)
+            DMesh3 closed = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            // (every copy of a vertex t + 1 units in the last place off in x, so that no two triangles weld)
+            var soup = new DMesh3();
+            foreach (int t in closed.TriangleIndices()) {
+                Index3i f = closed.GetTriangle(t);
+                Func<Vector3d, Vector3d> off = (v) => new Vector3d(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(v.x) + t + 1), v.y, v.z);
+                soup.AppendTriangle(soup.AppendVertex(off(closed.GetVertex(f.a))), soup.AppendVertex(off(closed.GetVertex(f.b))),
+                    soup.AppendVertex(off(closed.GetVertex(f.c))));
+            }
+            DMesh3 b = Sphere(CenterB, 0.5);
+            var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { RecordOpenWinding = true };
+            Assert.True(byDefault.Compute(), byDefault.Error);
+            Assert.True(byDefault.OpenBoundarySegments[0] >= 1000);
+            // (both: the soup and B, open at its cap)
+            Assert.Equal(2, byDefault.Counts["antipodal_meshes"]);
+            // (pieces on or next to the soup's edges are undecided, read as outside; the edges are everywhere within ulps of
+            // another triangle's, so these are the slivers along them)
+            Assert.True(byDefault.Result.TriangleCount > 0);
+            Assert.True(Invariance.AllFinite(byDefault.Result));
+            // (the welded sphere is closed: exact winding numbers; the soup's Antipodal values give the same surface up to the
+            // ulp gaps between its triangles)
+            var welded = new ExactMeshBoolean(new DMesh3(closed), new DMesh3(b), Ops.Intersection);
+            Assert.True(welded.Compute(), welded.Error);
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(byDefault.Result)) <= 1e-9 * Invariance.Area(welded.Result),
+                $"{Invariance.Area(byDefault.Result)} for {Invariance.Area(welded.Result)}");
+            // (fast winding numbers, the former default for this soup: their far field misreads pieces next to the surface,
+            // 0.4 % more area here)
+            ExactMeshBoolean fwn = Run(soup, b, Ops.Intersection, Fwn);
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(fwn.Result)) > 1e-3 * Invariance.Area(welded.Result));
+        }
+
+        [Fact]
         public void Switch_ThresholdIsStrict()
         {
             // a mesh with exactly as many boundary segments as the limit goes to fast winding numbers, one fewer to Antipodal
@@ -262,7 +298,9 @@ namespace geometry3Sharp.Tests
             // boundary: the same result, bit for bit, as fast winding numbers everywhere; one triangle fewer than the cap
             // goes to Antipodal
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
-            Assert.Equal(100000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
+            // (no cap by default, owner 2026-11-12 option A; the switch stays for tests)
+            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
+            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxBoundarySegments);
             ExactMeshBoolean fwn = Run(a, b, Ops.Intersection, Fwn);
             var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount };
             Assert.True(capped.Compute(), capped.Error);

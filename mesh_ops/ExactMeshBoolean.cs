@@ -279,14 +279,16 @@ namespace g3
         // for tests: use generalized winding numbers also for closed meshes
         internal bool ForceGeneralizedWinding = false;
         // open meshes with fewer boundary segments than this are classified by the Antipodal Method (an exact ray and a
-        // sum over the boundary segments, Martens, Trettner, Bessmeltsev 2026), the others by fast winding numbers
-        // (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5.1: the threshold where both cost about the same); for tests
-        internal int AntipodalMaxBoundarySegments = 1000;
-        // and only open meshes with fewer input triangles than this: the exact ray's cost grows with the mesh (the segment
-        // query through it), the fast winding number's about with its logarithm; on the A/B of the 21 open models
-        // (benchmarks/BooleanComparison/perf, #539) the Antipodal Method won up to 68k triangles per mesh (0.22-0.77 of
-        // the classification time) and lost from 112k (1.05-1.42) and at 1.56M (1.30); for tests
-        internal int AntipodalMaxTriangles = 100000;
+        // sum over the boundary segments, Martens, Trettner, Bessmeltsev 2026), the others by fast winding numbers. No
+        // limit by default (owner 2026-11-12, option A): with L2's carried threshold (T5, #675) Antipodal was faster on 7
+        // of the 10 slow open models (323 vs 595 s) and right where fast winding numbers were wrong (the reference check
+        // of #675: 117959 1818 pieces, 122796 43); its cost grows with the boundary segments times the boundary sums
+        // (docs/OPERATIONS.md). Formerly 1000 (docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5.1); for tests
+        internal int AntipodalMaxBoundarySegments = int.MaxValue;
+        // and only open meshes with fewer input triangles than this (the exact ray's cost grows with the mesh, the fast
+        // winding number's about with its logarithm). No limit by default (option A, as above); formerly 100000, from the
+        // A/B of the 21 open models before T5 (benchmarks/BooleanComparison/perf, #539); for tests
+        internal int AntipodalMaxTriangles = int.MaxValue;
         // the early-out of Difference and Intersection (T3a; active zones, Rossignac and Voelcker 1989): their result lies
         // inside the first mesh (Intersection: inside every mesh), so where it is closed, triangles of the other meshes
         // wholly outside it are culled from the arrangement (ExactMeshArrangement.CullOutsideOf; the same exact solid);
@@ -1768,7 +1770,7 @@ namespace g3
                     blockSize[output[blocks[b]].Source] = blocks[b + 1] - blocks[b];
                 Action<int, int> shareFrame = (p, q) => {
                     int sq = output[q].Source;
-                    if (frames.ContainsKey(sq) || blockSize[sq] > 4)
+                    if (frames.ContainsKey(sq) || blockSize[sq] > TraceCrossMaxPieces)
                         return;
                     LocalFrame fp = frameOf(p);
                     var tq = arr.Triangles[sq];
@@ -3568,7 +3570,7 @@ namespace g3
         /// half-integer (in front of a flat part of an open sheet the value is exactly k + 1/2: the tie of the threshold is
         /// then decided by its rule, not by the rounding of the sum, so the same with every ray). A true value within the
         /// bound of k + 1/2 but not equal to it is read as k + 1/2 too (the threshold gives k): the one place where the
-        /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at the switch's 1000), more for a
+        /// result is not exact; the bound is about 1e-13 per boundary segment (1e-10 at 1000 segments), more for a
         /// centroid next to a segment, at most 1e-6 in all (a ray with a larger bound, or with an ill-conditioned term, is
         /// replaced; on or next to a segment the centroid is undecided anyway). The bound depends on the ray: an exact tie is snapped with every
         /// ray, a value within the bound of a tie but not on it can be snapped with one ray and not with another (one Seed
