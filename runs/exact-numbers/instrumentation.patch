@@ -465,12 +465,157 @@ index 8412296..5884136 100644
          }
  
          // ---- the predicates of ExactMeshArrangement on fixed-width points (each the same determinant as its
+diff --git a/math/LimbProto.cs b/math/LimbProto.cs
+new file mode 100644
+index 0000000..316d32d
+--- /dev/null
++++ b/math/LimbProto.cs
+@@ -0,0 +1,139 @@
++// LOCAL PROTOTYPE (exact-number study, candidate B probe; not library code): the classification's BigInteger sign stages
++// (plane side, normal dot, orient3d of four homogeneous points) on stack limbs with FixedArith, the operands loaded from
++// their BigInteger storage per call. The same integers, so the same signs. EXACT_PROTO contains "limbs".
++using System;
++using System.Numerics;
++using System.Runtime.CompilerServices;
++
++namespace g3
++{
++    internal static unsafe class LimbProto
++    {
++        internal static readonly bool On = (Environment.GetEnvironmentVariable("EXACT_PROTO") ?? "").Contains("limbs");
++        internal static readonly bool Check = (Environment.GetEnvironmentVariable("EXACT_PROTO") ?? "").Contains("check");
++        internal static long Mismatch;
++#if NET
++        const int MaxCap = 96;
++
++        static int cap(BigInteger v) { return (v.GetByteCount(false) + 7) >> 3; }
++
++        // the magnitude of v in dst (c limbs, c >= cap(v)) and its sign
++        [MethodImpl(MethodImplOptions.AggressiveInlining)]
++        static FixedInt load(BigInteger v, ulong* dst, int c)
++        {
++            int sign = v.Sign;
++            if (sign == 0) return new FixedInt(null, 0, false);
++            var s = new Span<byte>(dst, 8 * c);
++            s.Fill(sign < 0 ? (byte)0xFF : (byte)0);
++            int n;
++            v.TryWriteBytes(s, out n, false, false);
++            if (sign < 0) {
++                ulong carry = 1;
++                for (int k = 0; k < c; ++k) {
++                    ulong t = ~dst[k] + carry;
++                    carry = (carry != 0 && t == 0) ? 1UL : 0UL;
++                    dst[k] = t;
++                }
++            }
++            int len = c;
++            while (len > 0 && dst[len - 1] == 0) len--;
++            return new FixedInt(dst, len, sign < 0);
++        }
++
++        /// <summary> sign of a x + b y + c z - d w </summary>
++        [SkipLocalsInit]
++        internal static int Side(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w)
++        {
++            int ca = cap(a), cb = cap(b), cc = cap(c), cd = cap(d), cx = cap(x), cy = cap(y), cz = cap(z), cw = cap(w);
++            int total = ca + cb + cc + cd + cx + cy + cz + cw;
++            if (total > 8 * MaxCap) return (a * x + b * y + c * z - d * w).Sign;
++            ulong* buf = stackalloc ulong[total + 1];
++            int scratch = 4 * total + 32;
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            ulong* p = buf;
++            FixedInt fa = load(a, p, ca); p += ca;
++            FixedInt fb = load(b, p, cb); p += cb;
++            FixedInt fc = load(c, p, cc); p += cc;
++            FixedInt fd = load(d, p, cd); p += cd;
++            FixedInt fx = load(x, p, cx); p += cx;
++            FixedInt fy = load(y, p, cy); p += cy;
++            FixedInt fz = load(z, p, cz); p += cz;
++            FixedInt fw = load(w, p, cw);
++            FixedInt r = FixedArith.Sub(FixedArith.Add(FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar),
++                FixedArith.Mul(fc, fz, ref ar), ref ar), FixedArith.Mul(fd, fw, ref ar), ref ar);
++            int sign = r.Sign;
++            if (Check && sign != (a * x + b * y + c * z - d * w).Sign) System.Threading.Interlocked.Increment(ref Mismatch);
++            return sign;
++        }
++
++        /// <summary> sign of a x + b y + c z </summary>
++        [SkipLocalsInit]
++        internal static int Dot(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z)
++        {
++            int ca = cap(a), cb = cap(b), cc = cap(c), cx = cap(x), cy = cap(y), cz = cap(z);
++            int total = ca + cb + cc + cx + cy + cz;
++            if (total > 6 * MaxCap) return (a * x + b * y + c * z).Sign;
++            ulong* buf = stackalloc ulong[total + 1];
++            int scratch = 4 * total + 32;
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            ulong* p = buf;
++            FixedInt fa = load(a, p, ca); p += ca;
++            FixedInt fb = load(b, p, cb); p += cb;
++            FixedInt fc = load(c, p, cc); p += cc;
++            FixedInt fx = load(x, p, cx); p += cx;
++            FixedInt fy = load(y, p, cy); p += cy;
++            FixedInt fz = load(z, p, cz);
++            FixedInt r = FixedArith.Add(FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar), FixedArith.Mul(fc, fz, ref ar), ref ar);
++            int sign = r.Sign;
++            if (Check && sign != (a * x + b * y + c * z).Sign) System.Threading.Interlocked.Increment(ref Mismatch);
++            return sign;
++        }
++
++        static FixedInt det3(FixedInt a, FixedInt b, FixedInt c, FixedInt d, FixedInt e, FixedInt f, FixedInt g, FixedInt h, FixedInt i, ref FixedArena ar)
++        {
++            FixedInt t1 = FixedArith.Mul(a, FixedArith.Sub(FixedArith.Mul(e, i, ref ar), FixedArith.Mul(f, h, ref ar), ref ar), ref ar);
++            FixedInt t2 = FixedArith.Mul(b, FixedArith.Sub(FixedArith.Mul(d, i, ref ar), FixedArith.Mul(f, g, ref ar), ref ar), ref ar);
++            FixedInt t3 = FixedArith.Mul(c, FixedArith.Sub(FixedArith.Mul(d, h, ref ar), FixedArith.Mul(e, g, ref ar), ref ar), ref ar);
++            return FixedArith.Add(FixedArith.Sub(t1, t2, ref ar), t3, ref ar);
++        }
++
++        /// <summary> sign of the 4x4 determinant of the rows (X, Y, Z, W) of a, b, c, d, as ExactMeshArrangement.Det4; 2: too wide </summary>
++        [SkipLocalsInit]
++        internal static int Det4(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
++        {
++            int* cp = stackalloc int[16];
++            int total = 0, widest = 0;
++            cp[0] = cap(a.X); cp[1] = cap(a.Y); cp[2] = cap(a.Z); cp[3] = cap(a.W);
++            cp[4] = cap(b.X); cp[5] = cap(b.Y); cp[6] = cap(b.Z); cp[7] = cap(b.W);
++            cp[8] = cap(c.X); cp[9] = cap(c.Y); cp[10] = cap(c.Z); cp[11] = cap(c.W);
++            cp[12] = cap(d.X); cp[13] = cap(d.Y); cp[14] = cap(d.Z); cp[15] = cap(d.W);
++            for (int k = 0; k < 16; ++k) { total += cp[k]; if (cp[k] > widest) widest = cp[k]; }
++            if (widest > MaxCap) return 2;
++            ulong* buf = stackalloc ulong[total + 1];
++            int scratch = 160 * widest + 128;
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            FixedInt* m = stackalloc FixedInt[16];
++            ulong* p = buf;
++            m[0] = load(a.X, p, cp[0]); p += cp[0]; m[1] = load(a.Y, p, cp[1]); p += cp[1]; m[2] = load(a.Z, p, cp[2]); p += cp[2]; m[3] = load(a.W, p, cp[3]); p += cp[3];
++            m[4] = load(b.X, p, cp[4]); p += cp[4]; m[5] = load(b.Y, p, cp[5]); p += cp[5]; m[6] = load(b.Z, p, cp[6]); p += cp[6]; m[7] = load(b.W, p, cp[7]); p += cp[7];
++            m[8] = load(c.X, p, cp[8]); p += cp[8]; m[9] = load(c.Y, p, cp[9]); p += cp[9]; m[10] = load(c.Z, p, cp[10]); p += cp[10]; m[11] = load(c.W, p, cp[11]); p += cp[11];
++            m[12] = load(d.X, p, cp[12]); p += cp[12]; m[13] = load(d.Y, p, cp[13]); p += cp[13]; m[14] = load(d.Z, p, cp[14]); p += cp[14]; m[15] = load(d.W, p, cp[15]);
++            FixedInt det = new FixedInt(null, 0, false);
++            for (int col = 0; col < 4; ++col) {
++                int c0 = (col == 0) ? 1 : 0, c1 = (col <= 1) ? 2 : 1, c2 = (col <= 2) ? 3 : 2;
++                FixedInt minor = det3(m[4 + c0], m[4 + c1], m[4 + c2], m[8 + c0], m[8 + c1], m[8 + c2], m[12 + c0], m[12 + c1], m[12 + c2], ref ar);
++                FixedInt term = FixedArith.Mul(m[col], minor, ref ar);
++                det = (col % 2 == 0) ? FixedArith.Add(det, term, ref ar) : FixedArith.Sub(det, term, ref ar);
++            }
++            return det.Sign;
++        }
++#else
++        internal static int Side(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w) { return (a * x + b * y + c * z - d * w).Sign; }
++        internal static int Dot(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z) { return (a * x + b * y + c * z).Sign; }
++        internal static int Det4(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d) { return 2; }
++#endif
++    }
++}
 diff --git a/math/PathStats.cs b/math/PathStats.cs
 new file mode 100644
-index 0000000..2f11db4
+index 0000000..b2707df
 --- /dev/null
 +++ b/math/PathStats.cs
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,101 @@
 +// LOCAL INSTRUMENTATION of the exact-number study (runs/exact-numbers); not library code.
 +using System;
 +using System.Diagnostics;
@@ -493,12 +638,12 @@ index 0000000..2f11db4
 +            "arr.orient.fixed", "arr.orient.big", "arr.incircle.fixed", "arr.incircle.big", "arr.along.fixed", "arr.along.big", "arr.compare.fixed", "arr.compare.big",
 +            "arr.exact_point.big", "arr.planes", "arr.local_get.big", "bool.side.big", "bool.orient3d.big", "bool.centroid.big", "bool.pair_around_edge.big", "arr.same_plane.big", "arr.edge_planes.big", "calib", "pt.fixed", "pt.box" };
 +        static readonly long[] c = new long[16 * (int)P.Count];
-+        internal static bool On = true;
++        internal static bool On = Environment.GetEnvironmentVariable("EXACT_TIMERS") != "0";
 +
 +        [ThreadStatic] static int depth;
 +        [ThreadStatic] static long bytes0;
 +        // exclusive regions: only the outermost region of a thread is timed (a nested one returns 0 and records nothing)
-+        internal static long T() { if (depth++ > 0) return 0; bytes0 = GC.GetAllocatedBytesForCurrentThread(); return Stopwatch.GetTimestamp(); }
++        internal static long T() { if (On == false) return 0; if (depth++ > 0) return 0; bytes0 = GC.GetAllocatedBytesForCurrentThread(); return Stopwatch.GetTimestamp(); }
 +        internal static void AddValue(P p, long v) { Interlocked.Increment(ref c[16 * (int)p]); Interlocked.Add(ref c[16 * (int)p + 2], v); }
 +        internal static long Bytes(int p) { return Interlocked.Read(ref c[16 * p + 2]); }
 +        internal static int TS(long t0, System.Numerics.BigInteger v) { Add(P.BoolSideBig, t0); return v.Sign; }
@@ -524,8 +669,10 @@ index 0000000..2f11db4
 +            if (HistOn) Hist(0, B(v), scaleBits);
 +            return v.Sign;
 +        }
++        internal static int TSI(long t0, int sign) { Add(P.BoolSideBig, t0); return sign; }
 +        internal static void Add(P p, long t0)
 +        {
++            if (On == false) return;
 +            --depth;
 +            if (t0 == 0) return;
 +            long dt = Stopwatch.GetTimestamp() - t0;
@@ -848,7 +995,7 @@ index 941d751..a876b09 100644
          {
              return p.A * q.B == q.A * p.B && p.A * q.C == q.A * p.C && p.B * q.C == q.B * p.C
 diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
-index 2e35f5b..bd9cb0f 100644
+index 2e35f5b..5814332 100644
 --- a/mesh_ops/ExactMeshBoolean.cs
 +++ b/mesh_ops/ExactMeshBoolean.cs
 @@ -2218,7 +2218,7 @@ namespace g3
@@ -856,7 +1003,7 @@ index 2e35f5b..bd9cb0f 100644
                  if (sk == 2) {
                      ExactPoint3 X = arr.Exact(c);
 -                    sk = (t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W).Sign;
-+                    sk = PathStats.TS(PathStats.T(), t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(t1.P.A) + PathStats.B(X.X), PathStats.B(t1.P.B) + PathStats.B(X.Y)), PathStats.B(t1.P.C) + PathStats.B(X.Z)), PathStats.B(t1.P.D) + PathStats.B(X.W)) : 0);
++                    sk = LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Side(t1.P.A, t1.P.B, t1.P.C, t1.P.D, X.X, X.Y, X.Z, X.W)) : PathStats.TS(PathStats.T(), t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(t1.P.A) + PathStats.B(X.X), PathStats.B(t1.P.B) + PathStats.B(X.Y)), PathStats.B(t1.P.C) + PathStats.B(X.Z)), PathStats.B(t1.P.D) + PathStats.B(X.W)) : 0);
                  }
                  pos |= sk > 0;
                  neg |= sk < 0;
@@ -866,8 +1013,8 @@ index 2e35f5b..bd9cb0f 100644
                  // (a centroid in the plane: the side its piece's front points to)
 -                int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
 -                int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
-+                int ae = a != 0 ? a : PathStats.TS(PathStats.T(), sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ, PathStats.HistOn ? Math.Max(Math.Max(PathStats.B(sp.NX) + PathStats.B(U.NX), PathStats.B(sp.NY) + PathStats.B(U.NY)), PathStats.B(sp.NZ) + PathStats.B(U.NZ)) : 0);
-+                int be = b != 0 ? b : PathStats.TS(PathStats.T(), sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ, PathStats.HistOn ? Math.Max(Math.Max(PathStats.B(sq.NX) + PathStats.B(U.NX), PathStats.B(sq.NY) + PathStats.B(U.NY)), PathStats.B(sq.NZ) + PathStats.B(U.NZ)) : 0);
++                int ae = a != 0 ? a : LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Dot(sp.NX, sp.NY, sp.NZ, U.NX, U.NY, U.NZ)) : PathStats.TS(PathStats.T(), sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ, PathStats.HistOn ? Math.Max(Math.Max(PathStats.B(sp.NX) + PathStats.B(U.NX), PathStats.B(sp.NY) + PathStats.B(U.NY)), PathStats.B(sp.NZ) + PathStats.B(U.NZ)) : 0);
++                int be = b != 0 ? b : LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Dot(sq.NX, sq.NY, sq.NZ, U.NX, U.NY, U.NZ)) : PathStats.TS(PathStats.T(), sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ, PathStats.HistOn ? Math.Max(Math.Max(PathStats.B(sq.NX) + PathStats.B(U.NX), PathStats.B(sq.NY) + PathStats.B(U.NY)), PathStats.B(sq.NZ) + PathStats.B(U.NZ)) : 0);
                  if (ae == 0 || be == 0) { degenerate = true; return; }
                  if (ae == be) return;
                  // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
@@ -876,7 +1023,7 @@ index 2e35f5b..bd9cb0f 100644
                  return 0;
              ExactPoint3 P = c.P;
 -            return (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
-+            return PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(P.X), PathStats.B(U.P.B) + PathStats.B(P.Y)), PathStats.B(U.P.C) + PathStats.B(P.Z)), PathStats.B(U.P.D) + PathStats.B(P.W)) : 0);
++            return LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Side(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W)) : PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(P.X), PathStats.B(U.P.B) + PathStats.B(P.Y)), PathStats.B(U.P.C) + PathStats.B(P.Z)), PathStats.B(U.P.D) + PathStats.B(P.W)) : 0);
          }
  
          // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
@@ -885,7 +1032,7 @@ index 2e35f5b..bd9cb0f 100644
              int s = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, g.x, g.y, g.z);
              if (s == 2)
 -                s = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
-+                s = PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(P.X), PathStats.B(U.P.B) + PathStats.B(P.Y)), PathStats.B(U.P.C) + PathStats.B(P.Z)), PathStats.B(U.P.D) + PathStats.B(P.W)) : 0);
++                s = LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Side(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W)) : PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(P.X), PathStats.B(U.P.B) + PathStats.B(P.Y)), PathStats.B(U.P.C) + PathStats.B(P.Z)), PathStats.B(U.P.D) + PathStats.B(P.W)) : 0);
              return s;
          }
  
@@ -909,7 +1056,7 @@ index 2e35f5b..bd9cb0f 100644
                      int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
                      if (sr == 2) {
 -                        sr = (U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D).Sign;
-+                        sr = PathStats.TS(PathStats.T(), U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(Rp.X), PathStats.B(U.P.B) + PathStats.B(Rp.Y)), PathStats.B(U.P.C) + PathStats.B(Rp.Z)), PathStats.B(U.P.D)) : 0);
++                        sr = LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Side(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z, System.Numerics.BigInteger.One)) : PathStats.TS(PathStats.T(), U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(Rp.X), PathStats.B(U.P.B) + PathStats.B(Rp.Y)), PathStats.B(U.P.C) + PathStats.B(Rp.Z)), PathStats.B(U.P.D)) : 0);
                          exactSides++;
                      }
                      if (sr == 0) { degenerate = true; return; }
@@ -917,23 +1064,25 @@ index 2e35f5b..bd9cb0f 100644
                      int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
                      if (sp == 2) {
 -                        sp = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
-+                        sp = PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(P.X), PathStats.B(U.P.B) + PathStats.B(P.Y)), PathStats.B(U.P.C) + PathStats.B(P.Z)), PathStats.B(U.P.D) + PathStats.B(P.W)) : 0);
++                        sp = LimbProto.On ? PathStats.TSI(PathStats.T(), LimbProto.Side(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W)) : PathStats.TS(PathStats.T(), U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W, PathStats.HistOn ? Math.Max(Math.Max(Math.Max(PathStats.B(U.P.A) + PathStats.B(P.X), PathStats.B(U.P.B) + PathStats.B(P.Y)), PathStats.B(U.P.C) + PathStats.B(P.Z)), PathStats.B(U.P.D) + PathStats.B(P.W)) : 0);
                          exactSides++;
                      }
                      // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
-@@ -3939,7 +3947,10 @@ namespace g3
+@@ -3939,7 +3947,12 @@ namespace g3
          static int orient3d_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
          {
              PredicateStats.ExactStage(PredicateStats.Kind.WindingOrient3d);
 -            return orient3d(a, b, c, d);
 +            long to = PathStats.T();
-+            int ro = orient3d(a, b, c, d);
++            int ro = LimbProto.On ? LimbProto.Det4(a, b, c, d) : 2;
++            if (ro == 2) ro = orient3d(a, b, c, d);
++            else if (LimbProto.Check && ro != orient3d(a, b, c, d)) System.Threading.Interlocked.Increment(ref LimbProto.Mismatch);
 +            PathStats.Add(PathStats.P.BoolOrient3dBig, to);
 +            return ro;
          }
  
          /// <summary>
-@@ -4067,7 +4078,13 @@ namespace g3
+@@ -4067,7 +4080,13 @@ namespace g3
              for (int k = 0; k < 4; ++k) {
                  m[k, 0] = pts[k].X; m[k, 1] = pts[k].Y; m[k, 2] = pts[k].Z; m[k, 3] = pts[k].W;
              }
@@ -948,7 +1097,7 @@ index 2e35f5b..bd9cb0f 100644
          }
  
  
-@@ -4459,6 +4476,15 @@ namespace g3
+@@ -4459,6 +4478,15 @@ namespace g3
          // triangle with the next one around the edge on its back (solid) side, which runs the other way
          [MethodImpl(JitHints.Optimize)]
          List<KeyValuePair<int, int>> pair_around_edge(List<Index3i> tris, List<int> list, int u, int v)

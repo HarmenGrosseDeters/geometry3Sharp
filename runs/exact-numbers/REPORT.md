@@ -360,6 +360,67 @@ GC on the normal stratum: 3.2 % / 3.5 % of single-thread wall time (the boolean 
 stratum, 1.4 % in the median operation); 3.8 % / 8.6 % of the allocated bytes come from the BigInteger paths, so
 C and C' also remove most of that small share.
 
+## 5b. Candidate B, the probe before building it (2026-11-13)
+
+Owner decision: after PR 1 the candidates B, C, D, each after a small probe that confirms a whole-operation gain above
+noise (median of 5, normal stratum and tail separately). Commit set: library c0f8aa9 with the study's instrumentation
+(`instrumentation.patch`, which now holds `math/LimbProto.cs`), probe `Probe/`, 4-core cloud container, .NET SDK
+10.0.115, Release, workstation GC. Every share below names its stratum and says whether collections are included.
+
+**What was probed.** The classification's BigInteger sign stages of `ExactMeshBoolean` on stack limbs with the
+library's `FixedArith` (`EXACT_PROTO=limbs`): the plane side `A X + B Y + C Z - D W` (five call sites), the dot of two
+normals (two) and the 4 x 4 orientation of four homogeneous points (`orient3d_exact`). The operands stay BigInteger
+and are loaded into stack limbs per call (`TryWriteBytes`, the two's complement negated in place): the weaker of the
+two variants of section 3 (P3b), so the result is a lower bound of B with limbs stored at the points. The centroid
+construction (`centroid_point`, a result that is kept) is not in it; that is candidate C.
+
+**Signs.** With `EXACT_PROTO=limbs,check` every limb result is compared with the BigInteger expression: 0 mismatches
+on 107554 (three operations: 2.4 million side calls, 215 thousand orientations each). The result hash, the status
+and the counts are equal in every run below.
+
+**Upper bound first** (stratum: slow tail, one thread, collections triggered by a path's own allocations included;
+rows of section 2): on 42327 the three stages are 12.6 % (side), 4.9 % (orientation) and 7.2 % (centroid) of the
+operation, and 15.2 of 21 GB of its allocation; on 107554 2.5 %, 2.1 % and 6 %. With the micro factors of section 3
+(side 627 -> 446 ns loaded, 317 ns stored; orientation 9.3 -> 3.5 us) the CPU part of B is at most about 7 % (loaded)
+to 10 % (stored) on 42327 and 2.5 % on 107554.
+
+**Measured** (5 alternating runs each, timers off):
+
+## tail models (4 cores, timers off): per operation, median of the runs; ms is wall time with collections
+| case | op | runs | base ms (range) | limbs ms (range) | change | GC pause ms base -> limbs | allocated GB base -> limbs | hash equal |
+|---|---|---|---|---|---|---|---|---|
+| copy_107554 | 0 | 5/5 | 26417 (25798-26657) | 26214 (24076-26657) | -0.8 % | 5341 -> 4773 | 12.00 -> 10.49 | True |
+| copy_107554 | 1 | 5/5 | 17089 (16466-17431) | 16372 (15638-16846) | -4.2 % | 4986 -> 4286 | 10.03 -> 8.51 | True |
+| copy_107554 | 2 | 5/5 | 17386 (17213-18206) | 16572 (16100-17145) | -4.7 % | 5159 -> 4366 | 10.00 -> 8.49 | True |
+| copy_42327 | 0 | 5/5 | 34476 (33528-34762) | 29638 (28603-30393) | -14.0 % | 6656 -> 3543 | 22.99 -> 10.17 | True |
+| copy_42327 | 1 | 5/5 | 26908 (25654-27059) | 22319 (21699-25640) | -17.1 % | 6685 -> 3484 | 20.59 -> 7.77 | True |
+| copy_42327 | 2 | 5/5 | 27001 (25557-28006) | 22857 (21794-23706) | -15.3 % | 6606 -> 3415 | 20.63 -> 7.81 | True |
+
+## normal strata (4 cores, timers off): the sum of the per-operation medians
+| stratum | operations | base s (range of the run totals) | limbs s (range) | change | GC pause s | allocated GB | hashes equal |
+|---|---|---|---|---|---|---|---|
+| 20 pairs | 60 | 6.32 (6.12-6.84) | 6.14 (5.95-6.51) | -2.8 % | 0.12 -> 0.12 | 2.36 -> 2.36 | 60 / 60 |
+| 13 models with a rotated copy | 39 | 4.14 (4.00-4.37) | 4.22 (4.13-4.38) | +2.0 % | 0.12 -> 0.11 | 1.48 -> 1.48 | 39 / 39 |
+
+One thread, timers on (stratum: slow tail; a path's time includes the collections its allocations trigger), base row
+of section 2 against the prototype: 42327 -7.1 / -8.9 / -11.4 % of the operation, the orientation stage 3.4 -> 1.9 s,
+the side stage 9.0 -> 8.1 s (loading eight operands per call costs about what the BigInteger temporaries cost; only
+the stored form of C makes it faster, 2 x in the micro benchmark), allocation 20.6 -> 7.8 GB; 107554 -1.3 / -11.7 /
+-6.7 % (one run each, so the spread of single runs applies), the orientation stage 0.8 -> 0.45 s, the side stage
+unchanged.
+
+**Reading.**
+- Slow tail, 4 cores, collections included: -14 to -17 % on 42327 (the ranges of base and prototype do not overlap in
+  two of three operations and touch in the third), -4 to -5 % on two of the three operations of 107554 and nothing on
+  the first. About two thirds of the gain on 42327 and all of it on 107554 is the pause of the collector (6.6 -> 3.5 s
+  and 5.0 -> 4.3 s per operation): the stages allocate 12.8 GB less. Without the pauses 42327 gains about 8 %.
+- Normal stratum, 4 cores, collections included: -2.8 % and +2.0 %, inside the run-to-run range (the totals overlap),
+  allocation unchanged. The stages are hardly reached there. No gain, no cost.
+- So B is confirmed for the slow tail and neutral for normal operations. In the loaded form it is mostly an
+  allocation and collector gain; the CPU gain of the side stage needs the limbs stored with the points, which is the
+  representation of candidate C. That argues for building B and C on one point representation: B's kernels first
+  (they work on loaded operands and already give the tail gain), C's stored limbs under them next.
+
 ## 6. Literature (papers only)
 
 Marks: [V] checked against the paper or its abstract in this study, [S] from a citing paper or a search result.
