@@ -658,10 +658,10 @@ index 0000000..5a8b4dc
 +}
 diff --git a/math/PathStats.cs b/math/PathStats.cs
 new file mode 100644
-index 0000000..90167ff
+index 0000000..1505554
 --- /dev/null
 +++ b/math/PathStats.cs
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,112 @@
 +// LOCAL INSTRUMENTATION of the exact-number study (runs/exact-numbers); not library code.
 +using System;
 +using System.Diagnostics;
@@ -677,14 +677,14 @@ index 0000000..90167ff
 +            O2Adaptive, O2BigInt, O3Int, O3Adaptive, O3BigInt, IcAdaptive, IcBigInt, InSphereCall, InSphereBigInt,
 +            ArrOrientFixed, ArrOrientBig, ArrInCircleFixed, ArrInCircleBig, ArrAlongFixed, ArrAlongBig, ArrCompareFixed, ArrCompareBig,
 +            ArrExactPoint, ArrPlanes, ArrLocalGet, BoolSideBig, BoolOrient3dBig, BoolCentroid, BoolPairAroundEdge, ArrSamePlane, ArrEdgePlanes, Slot23, PtFixed, PtBox,
-+            ArrPtInput, ArrPtEdge, ArrPtSegments, ArrPtPlanes, ArrPtReduce, ArrPtPublish,
++            ArrPtInput, ArrPtEdge, ArrPtSegments, ArrPtPlanes, ArrPtReduce, ArrPtPublish, ArrToExactOutside, ArrToExactInside,
 +            Count
 +        }
 +        internal static readonly string[] Names = new string[(int)P.Count] {
 +            "o2.adaptive", "o2.bigint", "o3.int", "o3.adaptive", "o3.bigint", "ic.adaptive", "ic.bigint", "insphere.call", "insphere.bigint",
 +            "arr.orient.fixed", "arr.orient.big", "arr.incircle.fixed", "arr.incircle.big", "arr.along.fixed", "arr.along.big", "arr.compare.fixed", "arr.compare.big",
 +            "arr.exact_point.big", "arr.planes", "arr.local_get.big", "bool.side.big", "bool.orient3d.big", "bool.centroid.big", "bool.pair_around_edge.big", "arr.same_plane.big", "arr.edge_planes.big", "calib", "pt.fixed", "pt.box",
-+            "arr.pt.input", "arr.pt.edge", "arr.pt.segments", "arr.pt.planes", "arr.pt.reduce", "arr.pt.publish" };
++            "arr.pt.input", "arr.pt.edge", "arr.pt.segments", "arr.pt.planes", "arr.pt.reduce", "arr.pt.publish", "arr.to_exact.outside", "arr.to_exact.inside" };
 +        static readonly long[] c = new long[16 * (int)P.Count];
 +        internal static bool On = Environment.GetEnvironmentVariable("EXACT_TIMERS") != "0";
 +
@@ -736,6 +736,7 @@ index 0000000..90167ff
 +            Interlocked.Add(ref c[16 * (int)p + 1], Stopwatch.GetTimestamp() - t0);
 +            Interlocked.Add(ref c[16 * (int)p + 2], GC.GetAllocatedBytesForCurrentThread() - b0);
 +        }
++        internal static bool InRegion { get { return depth > 0; } }
 +        internal static void Count1(P p) { Interlocked.Increment(ref c[16 * (int)p]); }
 +        internal static long Calls(int p) { return Interlocked.Read(ref c[16 * p]); }
 +        internal static double Ms(int p) { return Interlocked.Read(ref c[16 * p + 1]) * 1000.0 / Stopwatch.Frequency; }
@@ -847,7 +848,7 @@ index 0000000..65ef9f5
 +
 +}
 diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
-index 941d751..1bd824d 100644
+index 941d751..fd78370 100644
 --- a/mesh_ops/ExactMeshArrangement.cs
 +++ b/mesh_ops/ExactMeshArrangement.cs
 @@ -132,7 +132,15 @@ namespace g3
@@ -890,7 +891,21 @@ index 941d751..1bd824d 100644
              }
              System.Threading.Volatile.Write(ref exactRef.Ref(id), r);
              return r;
-@@ -569,7 +582,31 @@ namespace g3
+@@ -557,6 +570,13 @@ namespace g3
+         public ExactPoint3 Exact(int id)
+         {
+             int r = exact_ref(id);
++            if (r > 0 && PathStats.On) {
++                // (study: the conversion of a stored fixed-width point to BigIntegers, outside and inside the timed regions)
++                long b0, t0 = PathStats.Mark(out b0);
++                ExactPoint3 x = fixedPoints[r - 1].ToExact();
++                PathStats.AddSub(PathStats.InRegion ? PathStats.P.ArrToExactInside : PathStats.P.ArrToExactOutside, t0, b0);
++                return x;
++            }
+             return (r > 0) ? fixedPoints[r - 1].ToExact() : exactPoints[id].P;
+         }
+ 
+@@ -569,7 +589,31 @@ namespace g3
                  return r;
              PredicateStats.Call(PredicateStats.Kind.ArrExactPoint);
              PointKey key = keys[id];
@@ -923,7 +938,7 @@ index 941d751..1bd824d 100644
          }
  
          // the exact point of id as an integer point with double coordinates, if it is one
-@@ -951,8 +988,25 @@ namespace g3
+@@ -951,8 +995,25 @@ namespace g3
              }
              PredicateStats.ExactStage(PredicateStats.Kind.ArrCompare);
              int ra = exact_ref(a), rb = exact_ref(b);
@@ -951,7 +966,7 @@ index 941d751..1bd824d 100644
              ExactPoint3 pa = Exact(a), pb = Exact(b);
              BigInteger fa = (AlphaInt[0] * pa.X + AlphaInt[1] * pa.Y + AlphaInt[2] * pa.Z) * pb.W;
              BigInteger fb = (AlphaInt[0] * pb.X + AlphaInt[1] * pb.Y + AlphaInt[2] * pb.Z) * pa.W;
-@@ -1531,8 +1585,10 @@ namespace g3
+@@ -1531,8 +1592,10 @@ namespace g3
                          throw new InvalidOperationException("ExactMeshArrangement: the first corner of a triangle is not a grid point");
                  }
                  if (index.TryGetValue(p, out k) == false) {
@@ -962,7 +977,7 @@ index 941d751..1bd824d 100644
                      double m = Math.Max(Math.Abs(lx), Math.Abs(ly));
                      // (an infinite or NaN value, or a nonzero one near the subnormal range, where the relative bound
                      // does not hold: not usable)
-@@ -1604,8 +1660,13 @@ namespace g3
+@@ -1604,8 +1667,13 @@ namespace g3
                  // integer points with double coordinates: the same determinant (W = 1), by the adaptive predicate
                  return ExactPredicates.Orient2d(new Vector2d(da[i], da[j]), new Vector2d(db[i], db[j]), new Vector2d(dc[i], dc[j])) * t.Sign;
              }
@@ -978,7 +993,7 @@ index 941d751..1bd824d 100644
              // (in the triangulation, before the BigInteger stage: points collinear by their constructions, the points on a
              // segment or on an edge of the triangle, give 0 without arithmetic; then the local filter, which the stages
              // above beat: they cost less than the conversion)
-@@ -1620,8 +1681,12 @@ namespace g3
+@@ -1620,8 +1688,12 @@ namespace g3
                  if (fdet > err) { local.Decided++; return t.Sign; }
                  if (-fdet > err) { local.Decided++; return -t.Sign; }
              }
@@ -991,7 +1006,7 @@ index 941d751..1bd824d 100644
              return det.Sign * t.Sign;
          }
  
-@@ -1687,8 +1752,13 @@ namespace g3
+@@ -1687,8 +1759,13 @@ namespace g3
              // one with rows (x/w, y/w, |.|^2, 1) (w^2 > 0), which equals the 3x3 determinant with rows (dx, dy,
              // dx^2 + dy^2) of the differences to d (column operations, then subtracting row d). Each row is multiplied
              // by (w w_d)^2 > 0 to make it integer: (A s, B s, A^2 + B^2) with A = x w_d - x_d w, B likewise, s = w w_d.
@@ -1007,7 +1022,7 @@ index 941d751..1bd824d 100644
              // (the local filter only before the BigInteger stage, as in Orient)
              Vector3d lp, lq, lr, ls;
              if (local != null && DisableFilters == false && local.Get(p, out lp) && local.Get(q, out lq) && local.Get(r, out lr) && local.Get(s, out ls)) {
-@@ -1697,12 +1767,16 @@ namespace g3
+@@ -1697,12 +1774,16 @@ namespace g3
                  if (fdet > bound) { local.Decided++; return t.Sign; }
                  if (-fdet > bound) { local.Decided++; return -t.Sign; }
              }
@@ -1024,7 +1039,7 @@ index 941d751..1bd824d 100644
              // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
              // may mirror the triangle, which flips the orientation of a, b, c and the sign
              return det.Sign * t.Sign;
-@@ -1780,13 +1854,19 @@ namespace g3
+@@ -1780,13 +1861,19 @@ namespace g3
              int r1 = exact_ref(p1), r2 = exact_ref(p2);
              if (r1 > 0 && r2 > 0) {
                  int c;
@@ -1046,7 +1061,7 @@ index 941d751..1bd824d 100644
          }
  
          // compare_along on fixed-width points, false if a component of the direction has more than 8 limbs
-@@ -1953,7 +2033,7 @@ namespace g3
+@@ -1953,7 +2040,7 @@ namespace g3
                      buckets[bucketKey] = reps = new List<int>(1);
                  int same = -1;
                  foreach (int r in reps)
@@ -1055,7 +1070,7 @@ index 941d751..1bd824d 100644
                  if (same >= 0)
                      rep[ti] = same;
                  else if (reps.Count < MaxPlaneCandidates)
-@@ -2022,6 +2102,14 @@ namespace g3
+@@ -2022,6 +2109,14 @@ namespace g3
          }
  
          // the planes are the same point set: (A, B, C, D) proportional (all 2x2 minors zero)
