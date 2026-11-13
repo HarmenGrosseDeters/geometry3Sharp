@@ -580,7 +580,7 @@ Measured, parallel, master vs this (two alternating rounds in one job, mean):
 | cloth-funnel | 0.58 s | 0.80 s | 0.50 s |
 | n-body-simulation | 11.16 s | 6.17 s | 8.07 s |
 | rod-twist | 2.15 s | 1.62 s | 1.86 s |
-| puffer-ball | out of memory | 26.7 s | (see the README) |
+| puffer-ball | out of memory | 26.7 s | 40.9 s (121 s serial) |
 
 The fused variant (each job queries and solves its own pairs) was faster on the large scenes but slower than master on
 cloth-funnel, where expensive pairs cluster in a few jobs and then run one after the other; solving each batch in parallel

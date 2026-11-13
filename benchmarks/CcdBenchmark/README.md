@@ -108,5 +108,6 @@ vs master, two alternating rounds in one job, parallel, 4 cores:
 | cloth-funnel | 18 484 | 41 089 | 0.56-0.60 s | 0.49-0.50 s |
 | n-body-simulation | 146 480 | 31 763 261 | 10.99-11.34 s | 8.07-8.08 s |
 | rod-twist | 79 864 | 2 489 604 | 2.12-2.19 s | 1.79-1.93 s |
+| puffer-ball | 1 064 216 | 249 805 425 | out of memory | 40.9 s (serial 121 s) |
 
 Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master.
