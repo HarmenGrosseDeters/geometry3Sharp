@@ -75,3 +75,18 @@ branch alternating in one job gave equal times within 5 %, eg VF near 73.9-82.4 
 
 All other files: the same box counts as before (puffer-ball 20ee and rod-twist 3036ee slightly fewer: max 18479 -> 9164 and
 27908 -> 12856), the same verdicts: 271 852 queries, 0 false negatives, 2 false positives.
+
+After the review of #845 (`results-sample-2026-11-13c.csv`, same evening machine): edge-edge pairs that are not nearly
+parallel are also split along their cross product, on every other level (CCD.md 10.8, with the variants measured).
+
+| file | µs / query | µs max | boxes mean | boxes max |
+|---|---|---|---|---|
+| armadillo-rollers 326ee | 109 (204 before the PR) | 19111 | 209 (408) | 3370 (6425) |
+| cloth-ball 92ee | 104 (191) | 5919 | 193 (378) | 3305 (13459) |
+| cloth-funnel 227ee | 58 (2365 in the morning run) | 971 | 114 (6073) | 1495 (775689) |
+| n-body-simulation 18ee | 78 (146) | 1512 | 153 (291) | 1856 (3209) |
+| puffer-ball 20ee | 97 (183) | 3404 | 188 (352) | 3296 (9164) |
+| rod-twist 3036ee | 225 (363) | 13594 | 405 (678) | 20849 (12856) |
+
+Vertex-triangle rows unchanged (the same box counts). All 271 852 queries: 0 false negatives, 2 false positives, 116 µs
+and 223 boxes per query on average (186 µs and 365 boxes before the PR, same machine).
