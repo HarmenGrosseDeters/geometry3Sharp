@@ -15,7 +15,8 @@ serial (study, section 2a: queries, Delaunay and bookkeeping a third each).
 
 (B) processes the queue in **rounds**. A round:
 
-1. **Pop** (serial): up to W gates from the heap, in heap order (W a fixed constant, section 5). Gates that are stale by
+1. **Pop** (serial): up to W gates from the heap, in heap order (W = min(RoundWindow, max(1, queue size /
+   RoundQueueDivisor)): a function of the state, section 5). Gates that are stale by
    the existing stamp / label test are dropped as today (they count towards W). The first non-stale gate is admitted
    unconditionally; after it, the heap top is peeked and popped only if its key is at least `RoundKeyBand` times the first
    gate's key (section 3; a NaN key never passes the comparison, so it only enters a round as its first gate).
@@ -27,10 +28,12 @@ serial (study, section 2a: queries, Delaunay and bookkeeping a third each).
 3. **Select** (serial, cheap): walk the round in heap order and keep a gate if none of the cells in its **read set**
    R(g) is in the write set of a gate kept before it in this round; otherwise the gate is **deferred** (pushed back with
    its key and stamp, evaluated again in a later round). The sets:
-   - carve: R = W = {c, n} (the label of c changes; n is read for Phi(f) and the dual edge);
+   - carve: R = {c, n}, W = {c} (the label of c changes; n, an outside cell, is only read, for Phi(f) and the dual
+     edge, so two carvings of a round can share it: in the build this was 2/3 of the deferrals with W = {c, n});
    - insertion: R = W = {c, n} + the cavity + the cavity's outer neighbours (their adjacency changes);
    - a gate that writes nothing (Phi(f) no longer above alpha: dropped; changed Phi(f): re-queued; rule 2 found no
      point, or `Insert` would reject the point: the facet stays): R as for its kind, W empty.
+   In every case W(g) is a subset of R(g), so the write sets of the kept gates are pairwise disjoint as well.
    The first gate of a round that survives the stale test is always kept (nothing is marked yet). A carve gate whose n
    lies in an earlier kept gate's cavity is deferred through n in R. The labels of new cells are Inside and read nothing.
 4. **Apply** (parallel over the kept gates, writes disjoint by step 3): insertions with the cell and vertex ids assigned
@@ -153,7 +156,10 @@ a gate (re)uses for a new cell is written only by that gate in the apply (cv, cn
 once, as `new_cell` does), so the stamp-keyed caches see the change; an id freed in the round and not reused by its own
 gate (a cavity id beyond F) is freed in the serial pass (`free_cell`: alive = false, cell count, free-stack push), and if
 a later gate of the same round takes it from the free stack, only that gate writes it in the apply. Cell count and
-`lastCell` (the last kept insertion's first new cell) are set in the serial pass. Carvings write label[c] only.
+`lastCell` (the last kept insertion's first new cell) are set in the serial pass. Carvings write label[c] only. A later kept gate
+may write a cell that an earlier kept gate only read (a carving of c where c was the outside cell n of no kept gate, as
+n is outside; or a cell read by a gate that writes nothing): in heap order that read came first, and no apply reads the
+state (insertions build from their plans, carvings write a label), so the parallel apply is unaffected.
 
 ### 4.4 Push
 New gates are computed in parallel from the state after the round (read only) into per-gate lists and pushed serially in
