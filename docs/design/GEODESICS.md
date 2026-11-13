@@ -1,8 +1,9 @@
 # Geodesic distances with accuracy bounds (study)
 
 Status: study, docs only (2026-11-13). No library code. Owner decisions recorded in section 9; the dominance-trimming
-argument of option A is written out for an independent review in [Appendix A](#appendix-a-the-enclosure-argument-for-review);
-the citation check is in section 3.5; the measurement that led to dropping option C is in section 4.2.
+argument of option A is in [Appendix A](#appendix-a-the-enclosure-argument-for-review), revised after its review; the
+citation check is in section 3.5; the measurement that led to dropping option C is in section 4.2; the stop-rule
+measurement of option A and the next gates are in section 6.
 
 ## 1. Question
 
@@ -198,8 +199,11 @@ correctly rounded and so enclosed the same way; no `System.Math` function and no
 The argument is written out, self-contained, in [Appendix A](#appendix-a-the-enclosure-argument-for-review). In short:
 each window keeps an **outer** interval (lower side) and an **inner** interval (upper side, certainly realised by a
 real path). Upper is sound because inner intervals are realised. Lower is sound because every pruning test has the
-form "this window's lower bound exceeds an upper bound of a real path", which can never hold at a point of a true
-shortest path, so the window chain carrying a shortest path is never cut. The lower side needs no visibility at all,
+form "this window's lower bound exceeds an upper bound of a real path", certified by an interval evaluation over the
+whole removed piece (an end-point or bisector test is not enough), which can never hold at a point of a true shortest
+path, so the window chain carrying a shortest path is never cut. Windows on boundary edges are kept as terminal
+windows that record their edge ends. The ICH / VTP vertex filters are lemma-based, not of this form; they enter the
+certified version only with their lemma proved in interval form (Appendix A, A4). The lower side needs no visibility at all,
 only the triangle inequality in the unfolding. The width of [Lower, Upper] is measured, not bounded a priori; a
 `MaxWidth` check reports a vertex whose enclosure is wider than a tolerance relative to its distance.
 
@@ -261,7 +265,18 @@ too much, so the first step measures the window count on procedural terrain and 
 ### 4.3 What stays measured only
 
 - The heat method: no a-priori bound. The a-posteriori Lipschitz lower bound of 4.2 is proven but too weak to use;
-  against the oracle of 4.1 its error becomes measurable on any mesh, not only on analytic ones.
+  against the oracle of 4.1 its error becomes measurable on any mesh, not only on analytic ones. First numbers from the
+  plain-double exact probe of section 6 (`MeshGeodesicDistance` with default settings, one source in the centre or
+  near the ridge; errors in mesh units, edge length h):
+
+  | mesh | vertices | h | heat - exact, mean \|.\| | max \|.\| |
+  |---|---|---|---|---|
+  | terrain (sum of sines, amplitude up to 8) 101 x 101 | 10201 | 1 | 0.37 | 3.42 |
+  | the same terrain 201 x 201 | 40401 | 1 | 1.07 | 5.12 |
+  | ridge with 75 degree faces 161 x 161 | 25921 | 0.25 | 1.60 | 9.04 |
+
+  This quantifies the documented "not guaranteed" gap of `TerrainSafety.AlongSurface` (raw grids, not its remeshed
+  band; a benchmark on the TerrainSafety inputs follows with the oracle).
 - Fast marching: a first-order monotone scheme; convergence is proven, a bound for a given mesh is not (m).
 - The approximate MMP of Surazhsky et al.: "bounded error" per its abstract; the form of the bound is to be checked in
   the paper (section 3.5).
@@ -283,10 +298,28 @@ Not recommended: D (no bound, no gain over the existing heat method), E (cost), 
 
 **Option A**, staged in one feature PR (clean commits), after the owner approves this note:
 
-1. **Probe and stop rule first** (part of the PR's first commit, not a separate PR): a plain-double window propagation
-   on procedural meshes (169-degree plane, ring sphere, bumpy terrain 10^4 and 10^5 vertices), measuring windows per
-   edge, peak memory and time. Stop rule: if the 10^5-vertex terrain needs more than 10 s in doubles or more than 2 GB,
-   stop and fall back to option B (report numbers to the coordinator).
+1. **Probe and stop rule first**: a plain-double window propagation on procedural meshes, measuring windows per edge,
+   peak memory and time. Stop rule: if the 10^5-vertex terrain needs more than 10 s in doubles or more than 2 GB, stop
+   and fall back to option B. **Done 2026-11-13** (throwaway probe, not committed; MMP-style one-sided trimming on each
+   edge side, trimming against the edge-end vertices, pseudo-sources emitted into every incident face; no VTP / ICH
+   filter, no compact storage, so pessimistic). Correct to 1e-13 on the plane, the noisy plane and the unrolled prism;
+   on small hill, saddle, sine and terrain grids never below the 3D distance nor above edge-Dijkstra; with and without
+   trimming the same up to 3.7e-10. Measured (net10 Release, this container; managed memory from the GC):
+
+   | mesh | vertices | time | windows per edge | managed memory |
+   |---|---|---|---|---|
+   | plane 101 x 101, centre source | 10201 | 0.45 s | 9.7 | 34 MB |
+   | terrain 317 x 317, centre / corner source | 100489 | 1.90 / 1.70 s | 4.9 | about 320 MB |
+   | rough terrain 317 x 317 (z noise +-0.3 h) | 100489 | 1.92 s | 4.8 | 314 MB |
+   | ridge with 75 degree faces 161 x 161 | 25921 | 0.73 s | 27 | 257 MB |
+   | ridge with 75 degree faces 317 x 317 | 100489 | 12.3 s | 51 | 1.49 GB (process peak 1.73 GB) |
+
+   The stop rule passes on its defined case (the 10^5 terrain); the steep ridge does not count against it
+   (coordinator, 2026-11-13). Flat regions are the expensive case (many tying windows from one pseudo-source).
+   Gates before any library code: **gate 2**, with the VTP filter and compact window storage still in plain doubles,
+   the 10^5 ridge at most 10 s and 2 GB (the plane 101 x 101 reported too); **gate 3**, in the interval version, the
+   10^5 terrain at most 10 s and the ridge at most 20 s. The interval version uses only filters proven in interval form
+   (A4).
 2. The interval version with the enclosure (4.1), `Status` (`Ok`, `NonManifoldInput`, `DegenerateTriangles`,
    `EnclosureTooWide`, `WindowLimit`), `MaxWindows`, vertex sources; results `Lower`, `Upper` (and `Distance` as their
    midpoint for convenience). Serial only; no parallel loop. Exact-code rules (no FMA, no `float`) apply if the file is
@@ -313,7 +346,12 @@ than tightness.
   polyhedral distance, including cut loci (the half-way line behind the source).
 - **Cone** (developable apart from the apex) and the **regular tetrahedron / cube** (closed-form unfoldings for pairs of
   vertices; the cube corner distances are known): saddle-free vertices with angle defect, paths over edges.
-- **Sphere** (inscribed convex mesh, vertices on the sphere): the nearest-point projection onto the convex polyhedron is
+- **Unit square split by its diagonal** from (0, 0) to (1, 1), source (0, 0) (review M1): every vertex must get a
+  finite Lower and the Euclidean distance; it fails without terminal windows on boundary edges.
+- **Sphere** (inscribed **convex** mesh, vertices on the sphere; the triangulation must be the convex hull of the
+  points: the library's cube-grid sphere generator has reflex edges, 4332 of them at 40 edge vertices, and there the
+  exact distance exceeds the arc by up to 2.3e-6 in the probe, legitimately): the nearest-point projection onto the
+  convex polyhedron is
   1-Lipschitz and maps the great-circle arc onto a surface path between the same vertices, so
   `chord <= d_poly <= arc` (own argument): a proven bracket on a curved surface without an exact closed form. The
   enclosure must lie in it; the heat method too (it does not, by about 2% plus h/2, which the test measures, not asserts).
@@ -343,7 +381,10 @@ than tightness.
   not made a pseudo-source (the L-domain), the tie order changed (the reuse and determinism tests); per claim of
   Appendix A: a pruning comparison made non-strict or against an outer-only window (A4), the child's inner interval
   computed from the box midpoint instead of for every s in the box (A1), no re-emission after Lower(p) decreases (A5),
-  a merged window keeping the union of the inner intervals (A6). A mutant that only costs time (eg a pseudo-source at
+  a merged window keeping the union of the inner intervals (A6), merging by origin alone without overlapping positions
+  (A6, S6), no terminal windows on boundary edges (the split square, M1), an end-point instead of a whole-piece test in
+  a pruning rule (A4, M2), a threshold of 2 pi + eps instead of sum+ < 2 * Math.PI in the pseudo-source test (A5, S1:
+  a flat vertex on the path). A mutant that only costs time (eg a pseudo-source at
   every vertex) is equivalent and is listed as such.
 - **Test time**: meshes of at most a few thousand vertices; each test well under 1 s; the 10^5 measurements stay in the
   benchmark.
@@ -382,15 +423,24 @@ Owner decisions on the first draft (2026-11-13, via the coordinator):
    obtuse triangles (section 3.4) is the known weak point.
 6. No fast marching as a distance method.
 
-Order: the citation check and the argument section (this revision), then the measurement step of A, after the review
-of Appendix A.
+Order: the citation check and the argument section, then the measurement step of A (done, section 6), then gate 2.
 
-Open for the review of Appendix A: the claims A1-A6 and the assumptions listed there.
+Review of Appendix A (2026-11-13, routed by the coordinator): the structure is sound (Upper realised; Lower survives
+one-sided pruning and needs no visibility). Worked in: M1 terminal windows on boundary edges; M2 pruning certified over
+whole sub-intervals, ICH / VTP filters excluded from the certified version until their lemma is proved; S1 >= 2 pi and
+the threshold 2 * Math.PI; S2 degenerate projections; S3 the atan2 argument; S4 intrinsic positions, the wrapping
+effect measured in stage 1; S5 re-emission or tightening on a decrease of Upper(p); S6 merging needs overlapping
+positions; S7 emission into every incident face; S8 open point 3 covered; S9 2^k away from overflow / subnormals, the
+rotation test kept.
+
+Appendix A holds the claims A1-A6 and the remaining assumptions. A claim added for a borrowed filter gets its own short
+review.
 
 ## Appendix A: the enclosure argument (for review)
 
 Self-contained statement of why option A's [Lower, Upper] contains the polyhedral distance. The reviewer needs only
 this appendix; the algorithm details beyond what is stated here are free choices that do not affect soundness.
+Revised after the review of 2026-11-13 (must-fixes M1, M2 and should-fixes S1-S9, marked in the text).
 
 ### A.1 Setting
 
@@ -401,90 +451,124 @@ this appendix; the algorithm details beyond what is stated here are free choices
   paths), the quantity to enclose at the vertices.
 - Interval arithmetic: every computed quantity q is an interval [q-, q+] that contains the real value computed by the
   same formula from the true inputs (inclusion property of `ExactInterval`: + - * / sqrt rounded to nearest and widened
-  by one ulp; corner angles from `CoreMath.Atan2`, correctly rounded, evaluated at the corners of the argument box and
-  widened by one ulp; atan2(y, x) with y > 0 is monotone in each argument on a box, so the corners give its range).
+  by one ulp). Corner angles: atan2(|u x v|, u . v) with `CoreMath.Atan2` (correctly rounded) widened by one ulp,
+  evaluated at the corners of the argument box. This is valid because the box lies in the open upper half plane
+  (|u x v| > 0 for a non-degenerate triangle), so it does not contain the origin, and the set of directions of a
+  convex box not containing the origin is an arc whose ends are attained at corners; within (0, pi) there is no branch
+  cut. (S3: the first draft argued by monotonicity in each argument, which is false in y.)
 - Fact F (MMP 1987, (m) for the boundary case): a shortest path from S to x is a polyline that is straight inside
   every face and across every edge (straight in the unfolding of two adjacent faces), and passes through a vertex other
-  than its ends only if the vertex is a saddle (angle sum > 2 pi) or a boundary vertex.
+  than its ends only if the vertex is a boundary vertex or has angle sum **>= 2 pi** (S1: a flat vertex, angle sum
+  exactly 2 pi, can lie on a shortest path).
 
 ### A.2 Data
 
-A **window** w lives on one side of an edge e (it propagates into the face F on that side) and carries:
+A **window** w lives on one side of an edge e and carries:
 
 - an origin o(w): a source or a pseudo-source vertex, with an interval [sigma-, sigma+] for d(o);
-- the position s(w) of o unfolded into the plane of F, as an interval box (computed from the edge length intervals
-  along the window's history of faces);
-- an outer interval O(w) and an inner interval I(w) of e (parameter intervals; I may be empty).
+- the unfolded origin in **intrinsic form** (S4): intervals for its distances to the two ends of e (as in MMP and
+  Surazhsky et al., distances to the window's ends), from which its position in the frame of e is reconstructed by the
+  law of cosines on each use. A box carried through a sequence of rotated frames would grow by up to a factor sqrt 2
+  per face (the wrapping effect); the intrinsic form recomputes the position from lengths in each frame instead. The
+  growth that remains is measured in stage 1 (box width along a long strip: the 169-degree plane, a long thin terrain
+  band), next to the window count;
+- an outer interval O(w) and an inner interval I(w) of e (parameter intervals, clipped to e; I may be empty);
+- whether e is a boundary edge on w's side (a **terminal** window, M1): terminal windows are recorded like any other
+  (edge ends, Lower, Upper, the pseudo-source trigger) but never propagated.
 
-Lower and upper values of w at a point x of e: L_w(x) = (|x - s| + sigma)- and U_w(x) = (|x - s| + sigma)+, evaluated
-in interval arithmetic over the box s and the point x.
+Lower and upper values of w on a set J of e: L_w(J) = (|x - s| + sigma)- and U_w(J) = (|x - s| + sigma)+, evaluated
+in interval arithmetic over x in J and the reconstructed position s.
 
-Lower(v) = the minimum of L_w(v) over all windows whose outer interval contains the vertex v (as an edge end) and over
-v itself if v is in S (value 0); Upper(v) = the minimum of U_w(v) over windows whose inner interval contains v, and of
-Upper(u) + l_uv+ over the neighbours u (an edge path is a real path), iterated to a fixed point (Dijkstra on these
-values), so Upper is finite on every component with a source.
+Lower(v) = the minimum of L_w({v}) over all windows (terminal ones included) whose outer interval contains the vertex v
+as an edge end, and 0 if v is in S. Upper(v) = the minimum of U_w({v}) over windows whose inner interval contains v,
+and of Upper(u) + l_uv+ over the neighbours u (an edge path is a real path), iterated to a fixed point (Dijkstra on
+these values), so Upper is finite on every component with a source.
 
 ### A.3 Claims
 
-- **A1 (realised inner intervals).** For every window w there are a real point s* in the box s(w) and a real path P*
-  from S to o(w) of length at most sigma+ such that for every x in I(w) the segment from s* to x lies in the unfolded
-  strip of w's history. Then P* followed by that segment is a surface path to x of length at most U_w(x).
-  *Initialisation:* a source o in face F: s* = o, sigma = [0, 0], I = the whole opposite edge (a face is convex).
-  *Propagation* across the face F' beyond e: the child's inner interval on an edge e' of F' is computed as the set of
-  points that lie on a ray from s through I(w) **for every s in the box** (endpoints: Hi of the projection of I's lower
-  end, Lo of the projection of I's upper end; the projection is monotone along an edge). In particular they lie on such
-  a ray from s*, so the segment from s* stays in the strip extended by F'. The child keeps s* and P*.
+- **A1 (realised inner intervals).** For every window w there are a real point s* in the reconstructed position set of
+  w and a real path P* from S to o(w) of length at most sigma+ such that for every x in I(w) the segment from s* to x
+  lies in the unfolded strip of w's history. Then P* followed by that segment is a surface path to x of length at most
+  U_w({x}).
+  *Initialisation:* a source o in face F: s* = o, sigma = [0, 0], a window on the opposite edge with I = the whole edge
+  (a face is convex); terminal if that edge is a boundary edge (M1: eg the unit square split by its diagonal from
+  (0, 0) to (1, 1), source (0, 0): the opposite edges of both faces are boundary edges, and without terminal windows
+  Lower would be +inf at (1, 0) and (0, 1)).
+  *Propagation* across the face F' beyond e into its two other edges: the child's inner interval on an edge e' of F'
+  is the set of points that lie on a ray from s through I(w) **for every s in the position set**, computed with
+  outward rounding and clipped to e'. The child keeps s* and P*.
+  *Degenerate projections (S2):* when the position set is not certainly strictly on the far side of e's line, or a
+  denominator of the projection contains 0, the child's inner interval is empty (and its outer interval is the whole
+  reachable edge, A3). When it is uncertain on which side of the opposite vertex of F' a ray passes (the split of w
+  between the two edges), the inner intervals are kept only where the side is certain.
   *Pseudo-sources:* a pseudo-source at vertex p gets sigma+ = Upper(p) at its creation, which by A2 is at least the
-  length of a real path P* to p; its windows start at s* = p.
+  length of a real path P* to p; its windows start at s* = p. Upper(p) may still be +inf then; when it decreases, p is
+  re-emitted or its windows' sigma+ tightened (S5; this affects the width only, not soundness).
   *Inner intervals may be shrunk by any rule* (heuristic trimming included): a subset of a realised set is realised.
 - **A2 (Upper).** Upper(v) >= d(v). From A1 and from edge paths being real paths.
 - **A3 (outer coverage of a shortest path).** Let gamma be a shortest path from S to a vertex v, crossing edges at
   y_1, ..., y_k between its pseudo-source vertices p_0 (a source), ..., p_m. Claim: for every crossing y_i after p_j
-  there is a window w with o(w) = p_j, y_i in O(w) and L_w(y_i) <= d(y_i); and at each p_j, Lower(p_j) <= d(p_j).
-  *Lower side needs no visibility:* for the window of gamma's segment, s(w) contains the true unfolding of p_j along
-  gamma's faces, gamma's piece from p_j to y_i is the straight segment in that unfolding (F), so its length is
-  |y_i - s*| and d(y_i) = d(p_j) + |y_i - s*| >= sigma- + |y_i - s*| >= L_w(y_i), given sigma- <= d(p_j).
-  *Propagation:* the child's outer interval on e' contains every point on a ray from any s in the box through any point
-  of O(w) (interval evaluation of the projection: Lo of the projection of O's lower end, Hi of the upper end). gamma
-  continues straight from s* through y_i to y_{i+1}, so y_{i+1} is in the child's outer interval. At the last crossing
-  before p_{j+1} (or v), the edge end p_{j+1} is reached: O(w) contains it (outer intervals are closed and include
-  edge ends they reach), so Lower(p_{j+1}) <= L_w(p_{j+1}) <= d(p_{j+1}).
-- **A4 (safe pruning).** Every rule that removes a part of an outer interval, or a whole window, must be of the form:
-  *remove x from O(w) only if there is a real path to x of length less than L_w(x), certified*, ie
-  U_{w2}(x) < L_w(x) for a window w2 with x in I(w2) (MMP trimming, made one-sided), or Upper(u) + |u - x|+ < L_w(x)
-  for a vertex u of the face containing x (the vertex filters of ICH and VTP), with strict inequalities between
-  computed bounds. Such a rule never removes gamma's crossing y_i from gamma's window: there d(y_i) >= L_w(y_i) and every
-  real path has length >= d(y_i), so the condition cannot hold. Hence A3's chain survives every pruning.
-- **A5 (pseudo-source test and re-emission).** A vertex is made a pseudo-source unless its angle sum is certainly below
-  2 pi and it is not on the boundary (an uncertain test makes it a pseudo-source: extra pseudo-sources cost time only,
-  missing ones would break A3 at a vertex of gamma). Its windows use sigma- = Lower(p) at emission. If Lower(p) later
-  decreases, p is emitted again with the new value (label correcting), so the final sigma- of the windows of the chain
-  is <= d(p). The queue order (by window minimum lower value, ties by creation id) affects only cost and determinism,
-  not soundness. A limit on re-emissions and windows ends with a status, never with a wrong bound.
-- **A6 (merging duplicates).** Two windows on the same edge side with the same origin and overlapping outer intervals
-  (they arise when two face sequences unfold the same pseudo-source to the same place, eg on a plane) may be merged
-  into one with the hull of their boxes and sigma intervals, outer = the union, inner = the inner interval of one of
-  them. A3: the merged L is at most both, and its outer propagation covers both rays. A1: the kept inner interval keeps
-  its witness s*, which lies in the hull, and the child's inner interval is computed for every s in the hull, so it is
-  realised from s*. Without merging, such duplicates are never certainly dominated (equal functions) and would double at
-  every step.
+  there is a window w with o(w) = p_j, y_i in O(w) and L_w({y_i}) <= d(y_i); and at each p_j, Lower(p_j) <= d(p_j).
+  *Lower side needs no visibility:* for the window of gamma's segment, the position set of w contains the true
+  unfolding s* of p_j along gamma's faces; gamma's piece from p_j to y_i is the straight segment in that unfolding
+  (F), so its length is |y_i - s*| and d(y_i) = d(p_j) + |y_i - s*| >= sigma- + |y_i - s*| >= L_w({y_i}), given
+  sigma- <= d(p_j).
+  *Propagation:* the child's outer interval on e' contains every point on a ray from any s in the position set through
+  any point of O(w) (outward-rounded interval evaluation of the projection, clipped to e'; the whole reachable edge or
+  both edges in the degenerate cases of S2). gamma continues straight from s* through y_i to y_{i+1}, so y_{i+1} is in
+  the child's outer interval. At the last crossing before p_{j+1} (or v), the edge end p_{j+1} is reached: O(w)
+  contains it (outer intervals are closed and include edge ends they reach), so Lower(p_{j+1}) <= L_w({p_{j+1}}) <=
+  d(p_{j+1}). If the edge beyond is a boundary edge, the child is a terminal window and still records its edge ends
+  (M1; also the case where p_{j+1} has only boundary edges besides e).
+- **A4 (safe pruning, M2).** Any rule that removes a sub-interval J from O(w), or a whole window (J = O(w)), must
+  certify over all of J, by an interval evaluation over J:
+  inf_J L_w > sup_J B, where B(x) is a certified upper bound of the length of a real path to x, ie either U_{w2}(J) for
+  a window w2 with J inside I(w2) (MMP trimming, made one-sided), or Upper(u) + |u - x| for a vertex u of a face
+  containing J (evaluated as Upper(u) + sup_{x in J} |u - x|, the segment from u to x lying in that face). The
+  inequality is strict between computed bounds. A pointwise test at the ends of J or at a computed bisector point is
+  **not** enough: |x - s| - |x - s2| is not monotone on J. In MMP trimming the computed bisector is only a guide: each
+  side of it is removed from the dominated window only as far as the interval test over that piece succeeds (split the
+  piece if needed); an uncertain band around the bisector stays in both outer intervals.
+  Such a rule never removes gamma's crossing y_i from gamma's window: there L_w({y_i}) <= d(y_i) and every real path to
+  y_i has length >= d(y_i), so inf_J L_w <= L_w({y_i}) <= d(y_i) <= sup_J B for any J containing y_i, and the
+  condition fails. Hence A3's chain survives every pruning.
+  The vertex filters of ICH and VTP are **not** of this form: they drop a whole window on a test at its ends, justified
+  by a lemma of the respective paper. They may be used in the plain-double measurement probe, but in the certified
+  version only after the lemma is proved in interval form as its own claim and reviewed (coordinator, 2026-11-13).
+- **A5 (pseudo-source test and re-emission).** A vertex is made a pseudo-source unless it is not on the boundary and
+  its angle sum is certainly below 2 pi, ie sum+ < 2 * Math.PI (S1: Math.PI is the double below pi, so 2 * Math.PI,
+  an exact doubling, is below 2 pi, and sum+ < 2 * Math.PI implies sum < 2 pi; a flat or uncertain vertex becomes a
+  pseudo-source). Extra pseudo-sources cost time only; missing ones would break A3 at a vertex of gamma. A
+  pseudo-source emits into **every** incident face, including those behind a saddle (S7; the exact algorithms emit only
+  into the shadow region; a certified shadow test is a later optimisation with its own claim). Its windows use sigma- =
+  Lower(p) at emission. If Lower(p) later decreases, p is emitted again with the new value (label correcting), so the
+  final sigma- of the windows of the chain is <= d(p). The queue order (by window minimum lower value, ties by creation
+  id) affects only cost and determinism, not soundness. A limit on re-emissions and windows ends with a status, never
+  with a wrong bound.
+- **A6 (merging duplicates).** Two windows on the same edge side with the same origin, overlapping outer intervals
+  **and** overlapping position sets and sigma intervals (S6: the same origin alone is not enough, since a saddle loop
+  can unfold the same vertex to two different places) arise when two face sequences unfold the same pseudo-source to
+  the same place, eg on a plane. They may be merged into one with the hull of their position sets and sigma intervals,
+  outer = the union, inner = the inner interval of one of them. A3: the merged L is at most both, and its outer
+  propagation covers both rays. A1: the kept inner interval keeps its witness s*, which lies in the hull, and the
+  child's inner interval is computed for every s in the hull, so it is realised from s*. Without merging, such
+  duplicates are never certainly dominated (equal functions) and would double at every step.
 
 **Conclusion.** Lower(v) <= d(v) (A3, A4, A5) and d(v) <= Upper(v) (A1, A2), for every vertex v of a component with a
-source; both bounds are bit-identical under 2^k scalings (every step scales exactly) and deterministic (serial, total
-order).
+source. Both bounds are deterministic (serial, total order) and, away from overflow and the subnormal range,
+bit-identical up to the factor 2^k under 2^k scalings (every operation, the one-ulp widening and the correctly rounded
+atan2 of scaled arguments included, scales exactly) (S9). Rotations are not bit-identical: the separate test on the
+rotated 169-degree plane checks that the enclosures overlap.
 
 ### A.4 Assumptions and open points for the reviewer
 
 1. Fact F for boundary vertices and the exact statement of MMP's lemma (to be read in MMP 1987; section 3.5).
 2. A3 needs the window of gamma's segment to be created at all: the initialisation from each source into every
-   incident face and the emission of every pseudo-source into every incident face (including the faces "behind" a
-   saddle, where the exact algorithm emits windows only in the shadow region; emitting everywhere is safe and costs
-   time, restricting to the shadow needs a certified shadow test).
-3. Points on edge ends: windows whose outer interval reaches an edge end must record it for that vertex; a window that
-   ends exactly at a vertex must also be seen by the edges on the other side only through the pseudo-source mechanism
-   (gamma through a non-pseudo-source vertex is impossible by F).
+   incident face and the emission of every pseudo-source into every incident face (A5, S7).
+3. Points on edge ends and boundary edges are covered by the terminal windows (M1) and by the pseudo-source rule for
+   flat vertices (S1); gamma through a vertex that is certainly convex and not on the boundary is impossible by F (S8).
 4. Termination and cost are not part of the argument (limits with a status). Whether the uncertain regions stay small
-   (they should: two windows with different origins are within rounding of each other only near a bisector point) is a
-   measurement of the first step.
+   (they should: two windows with different origins are within rounding of each other only near a bisector point) and
+   how much the intrinsic positions widen along long strips (S4) are measurements of stage 1.
 5. Non-manifold input and degenerate triangles are refused with a status; the mollified metric is not used (owner
    decision 4).
