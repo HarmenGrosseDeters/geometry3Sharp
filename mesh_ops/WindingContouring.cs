@@ -51,6 +51,20 @@ namespace gs
         /// </summary>
         public bool SelfIntersectionFree;
 
+        /// <summary>
+        /// compute the topology certificate of each contour (ContouringTopologyCertificate; a single clean input, see
+        /// MeshWindingNumberSolidify.ComputeTopologyCertificate); off by default, no effect on the contour
+        /// </summary>
+        public bool ComputeTopologyCertificate;
+        /// <summary> (tests) the cell tests of the certificate in parallel (the same result as serial, bit for bit) </summary>
+        internal bool CertificateParallel = true;
+        /// <summary> (tests) the fewest cells per chunk of the parallel path </summary>
+        internal int CertificateMinChunk = 2048;
+        /// <summary> the certificate of the last contour (ComputeTopologyCertificate) </summary>
+        public ContouringCertificateStatus CertificateStatus = ContouringCertificateStatus.NotComputed;
+        /// <summary> the cells of the last contour that the certificate does not certify, sorted (empty: certified) </summary>
+        public List<ContouringUncertifiedCell> UncertifiedCells = new List<ContouringUncertifiedCell>();
+
 
         /// <summary>
         /// Prepares the inputs: copies them (compacted), flips inside-out ones and inside-out closed
@@ -154,6 +168,7 @@ namespace gs
             // tolerances relative to the grid edge (coarse or fine)
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) =>
                 Hermite(EdgeLength(a, b), a, b, p, out point, out normal);
+            dc.RecordCertificateData = ComputeTopologyCertificate;
             dc.HiddenGapF = (a, b) => HiddenGap(EdgeLength(a, b), a, b);
             dc.HiddenWallF = (a, b) => HiddenWall(EdgeLength(a, b), a, b);
             return dc;
@@ -169,8 +184,86 @@ namespace gs
             if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
+            if (ComputeTopologyCertificate) {
+                var timer = System.Diagnostics.Stopwatch.StartNew();
+                certify(dc);
+                add_phase("certificate", timer.ElapsedMilliseconds);
+            }
             SelfIntersectionFree = FinishHoles(dc.Mesh, NonManifoldTriangles, dc.SelfIntersectionFree, out HoleFillIntersections);
             return dc.Mesh;
+        }
+
+        // The topology certificate of the contour of dc (docs/design/CONTOURING_TOPOLOGY.md, section 7): the level set L of
+        // the input's exact winding number at 1/2 (a clean input only: its components across which it steps 0 -> 1),
+        // the exact tests of Theorem 3 on every cell L or the contour touches (ContouringTopologyCertificate), and the
+        // mesh side of Theorem 2 (DualContouring.CertificateMeshCells / CertificateMeshFails). The contour is isotopic to
+        // L if no cell is uncertified (Theorem 1); otherwise, on the certified cells, they differ by a deformation that
+        // keeps every cell, face and edge in place (Theorem 1b).
+        void certify(DualContouring dc)
+        {
+            UncertifiedCells = new List<ContouringUncertifiedCell>();
+            CertificateStatus = ContouringCertificateStatus.NotSupported;
+            if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
+                return;
+            var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
+            DMesh3 L = ContouringLevelSet.CleanCopy(Meshes[0]);
+            add_phase("certificate.clean", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            CertificateStatus = ContouringCertificateStatus.InputNotClean;
+            if (L == null)
+                return;
+            int components, levelSetComponents;
+            bool[] inL = ContouringLevelSet.Classify(L, out components, out levelSetComponents);
+            add_phase("certificate.levelset", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            CertificateStatus = ContouringCertificateStatus.LevelSetUndecided;
+            if (inL == null)
+                return;
+            CertificateGrid grid = dc.ContourGrid();
+            var cert = new ContouringTopologyCertificate(L, inL, grid);
+            add_phase("certificate.bins", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            int B = grid.BinSize;
+            // the cells: the contour's, and those L's triangles may meet (a refined bin: its fine cells). (The order only
+            // decides the chunks of the parallel path; the uncertified cells are sorted at the end.)
+            var contourCells = new HashSet<(Vector3i, int)>();
+            var cells = new List<KeyValuePair<Vector3i, int>>();
+            foreach (var kv in dc.ContourCells()) {
+                contourCells.Add((kv.Key, kv.Value));
+                cells.Add(kv);
+            }
+            int nContour = cells.Count;
+            var meshSide = new HashSet<(Vector3i, int)>();
+            foreach (var kv in dc.CertificateMeshCells) meshSide.Add((kv.Key, kv.Value));
+            foreach (Vector3i bin in cert.Bins) {
+                if (B > 1 && dc.IsRefinedCell(bin)) {
+                    for (int z = 0; z < B; ++z) for (int y = 0; y < B; ++y) for (int x = 0; x < B; ++x) {
+                        Vector3i c = B * bin + new Vector3i(x, y, z);
+                        if (!contourCells.Contains((c, 1))) cells.Add(new KeyValuePair<Vector3i, int>(c, 1));
+                    }
+                } else if (!contourCells.Contains((B * bin, B)))
+                    cells.Add(new KeyValuePair<Vector3i, int>(B * bin, B));
+            }
+            var isContour = new bool[cells.Count];
+            for (int i = 0; i < nContour; ++i) isContour[i] = true;
+            add_phase("certificate.setup", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            ContouringCertificateReason[] reasons = cert.Cells(cells, isContour, CertificateParallel, CertificateMinChunk);
+            add_phase("certificate.cells", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
+            var refused = new List<int>();
+            for (int i = 0; i < cells.Count; ++i) {
+                if (reasons[i] == ContouringCertificateReason.None && isContour[i]
+                    && (dc.CertificateMeshFails || meshSide.Contains((cells[i].Key, cells[i].Value))))
+                    reasons[i] = ContouringCertificateReason.MeshSide;
+                if (reasons[i] != ContouringCertificateReason.None) refused.Add(i);
+            }
+            refused.Sort((ia, ib) => {
+                Vector3i a = cells[ia].Key, b = cells[ib].Key;
+                return a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x != b.x ? a.x.CompareTo(b.x) : cells[ia].Value.CompareTo(cells[ib].Value);
+            });
+            foreach (int i in refused) {
+                var kv = cells[i];
+                UncertifiedCells.Add(new ContouringUncertifiedCell() {
+                    Box = new AxisAlignedBox3d(grid.Node(kv.Key), grid.Node(kv.Key + kv.Value * Vector3i.One)), Reason = reasons[i]
+                });
+            }
+            CertificateStatus = UncertifiedCells.Count == 0 ? ContouringCertificateStatus.Certified : ContouringCertificateStatus.CellsUncertified;
         }
 
         // FixableEdges, MinFixableFound and HiddenSamples from the hidden edges of the last crossing search;

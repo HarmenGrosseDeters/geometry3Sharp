@@ -73,12 +73,29 @@ dotnet build benchmarks/<each>/<each>.csproj -c Release
 dotnet build tools/PredicateCompiler -c Release
 ```
 
+A change to a csproj, `tools/` or `docs/design` also runs the fast Python tool tests of the `linux` job (a test-project include that
+is missing from `SHARED` in `tools/ci_scope.py` fails there):
+
+```
+python3 -m unittest discover -s tools -p 'test_ci_scope.py'
+python3 -m unittest discover -s tools -p 'test_trx_durations.py'
+python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
+```
+
+A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
+the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workflow checks it (run from `tests/mutation`):
+
+```
+python3 test_select_shards.py && python3 test_baseline.py && python3 test_incremental.py && python3 test_suggest_split.py
+```
+
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
 is marked ready for review; the CI of every push runs it on GitHub anyway.
 
-CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the library tests without the tests tagged
-`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length), a PR that is ready for review and master run
+CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the Linux library tests without the tests tagged
+`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length) and skips the Windows / net48 jobs (so build the net48 test
+project locally before the push), a PR that is ready for review and master run
 all of them; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
 (`tools/ci_scope.py`). Locally: `dotnet test ... --filter "Category!=Slow"` for the quick set.
 
@@ -92,9 +109,11 @@ Before a PR is marked ready or merged, review its diff (`/code-review`, or an ag
 the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md)
 (the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
-`mesh_ops/ExactMesh*` always get this review, including a check of every new error bound; on PRs that touch
-the mutated files, the incremental mutation run (`tests/mutation`: the changed lines against the master baseline) must
-stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
+`mesh_ops/ExactMesh*` always get this review, including a check of every new error bound. Mutation runs gate a merge
+only for PRs that touch exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points) or add or
+change an error bound: there the incremental mutation run (`tests/mutation`: the changed lines against the master
+baseline) must stay above its threshold before the merge. All other PRs merge on green CI and review; their shards run
+nightly on master, and survivors become tasks of the area's next PR (owner 2026-11-13). A PR that would need full shard runs (no master baseline for a shard, a
 changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
 (workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
 a revert only for a real defect (owner 2026-11-09). During Exact Boolean 3.0 (owner 2026-11-11): no full shard runs on

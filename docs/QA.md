@@ -26,9 +26,12 @@ done since and what is open.
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
-- Draft PRs run the library tests with `--filter "Category!=Slow"` (Linux, and both net48 shards with `&Category!=Slow`
-  added to their complementary filters). A PR that is ready for review (`ready_for_review` starts the run), every push
-  to master and manual runs run all tests. `FULL_TIER` in `ci.yml` is the switch.
+- Draft PRs run the library tests with `--filter "Category!=Slow"` on Linux only; the Windows jobs (`netstandard`,
+  `netstandard-b`: net48 / netstandard2.0 tests, the Clipper2 package on net48, the PowerShell regression) and `isolated` /
+  `time-rule` are skipped on a draft (2026-11-13, runner load; check locally with the net48 build of the CLAUDE.md list). A PR that
+  is ready for review (`ready_for_review` starts the run), every push to master and manual runs run everything.
+  `FULL_TIER` in `ci.yml` is the switch for the Slow tier. Master runs: one concurrency group per ref with cancel-in-progress, so
+  only the newest master commit runs to the end; an older commit's run shows as cancelled.
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
@@ -362,8 +365,8 @@ the module outside the range, or "not guaranteed".
 - coverlet.collector (MIT, pinned 6.0.4) collects Cobertura coverage in its own workflow, `.github/workflows/coverage.yml`,
   **not on pull requests**: coverlet makes the suites about 3x slower (a first version in the PR jobs took 59 min for
   the core fast tier alone, and eight parallel shards were limited by the runner quota), so the gate runs cyclically
-  (owner decision 2026-11-10): every night on master (`schedule`; on 2026-11-12 the schedule had not fired yet, see
-  [platform.md](roadmap/platform.md#open)) and on demand (`workflow_dispatch`, optional `ref`
+  (owner decision 2026-11-10): every night on master (dispatched at 03:45 UTC, the `schedule` cron is the fallback, see
+  section 2.12) and on demand (`workflow_dispatch`, optional `ref`
   input: a branch is then checked against the last evaluated master run) and once on a pull request that changes the workflow or the gate (that run reports but never fails: its findings belong to other pull requests). The existing Microsoft.NET.Test.Sdk 17.8.0
   supplies the integration; Windows/net48 runs do not collect coverage.
 - The `core` jobs run the core suite in four shards by test class (`tools/coverage/shard_filter.py`), **including the
@@ -425,6 +428,70 @@ the module outside the range, or "not guaranteed".
   Exit codes: 0 covered/no changed executable lines, 1 uncovered lines, 2 incomplete or invalid evidence. Use a fresh
   results directory: a stale report left in it would mask a gap. Coverage demonstrates execution, not assertion quality;
   mutation gates remain.
+
+### 2.12 Scheduled runs: dispatch path and guard (2026-11-13)
+
+GitHub's `schedule` event is unreliable here. Diagnosis from the Actions run lists (2026-11-11/12): the runs are **created** late,
+not queued late (`created_at` = `run_started_at`; the runner wait was 3 s to 47 min): `nightly.yml` (cron 02:23 UTC) created
+09:36 and 09:57 (+7 h 13 / +7 h 34), `coverage.yml` (03:41) created 11:48 (+8 h 07) and none at all for 2026-11-11,
+`mutation.yml` (Monday 03:23) created 11:25 and 11:48 (+8 h). Runner priorities or other cron times do not help against that. So
+every daily workflow has two starters and runs once a day:
+
+| Workflow | Dispatch (UTC, by the coordinator's scheduled tasks) | Inputs | Cron line (fallback, GitHub runs it late) |
+|---|---|---|---|
+| `nightly.yml` | 02:30 | none | `23 2 * * *` |
+| `coverage.yml` | 03:45 (after the nightly) | none (a `ref` makes it a custom run) | `41 3 * * *` |
+| `mutation.yml` | 01:20 daily full run; Monday 03:25 weekly run | `shards=all` | `23 3 * * 1` |
+
+The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
+`gh workflow run <file> --ref master -f shards=all`). The first job of `nightly.yml` and `coverage.yml`, `guard` (in `mutation.yml` a step of the `changes` job; `tools/schedule_guard.py`, tests
+in `tools/test_schedule_guard.py`, run by `ci.yml`), skips the whole workflow when an earlier plain daily run of the same workflow
+is queued or running today (UTC date), or already succeeded. Rules:
+
+- Only `schedule` and a plain `workflow_dispatch` on the default branch can be skipped. Pull requests and runs on other branches never are,
+  and such runs do not count for the day either.
+- A dispatch with other inputs is a **custom run**, never skipped and never counted as the day's run: `mutation.yml` with `shards`
+  other than `all`, `coverage.yml` with a `ref`. The guard step is then named `Schedule guard [custom]`, which the guard reads
+  from the jobs API (the runs API does not list inputs).
+- `force: true` (input of all three) runs although the day is taken.
+- A run counts as the day's run only if its work ran: it is queued or running, or it succeeded **and** a job other than
+  `guard` / `changes` concluded success. A run that the guard skipped is green too, but its work jobs are skipped, so it blocks
+  no retry. A failed or cancelled run does not count: the next starter runs again.
+- "Today" is the UTC date of the run's own creation. "Earlier" is the smaller run id, so when the dispatch and the late cron are
+  created together exactly one of them runs. Only runs of the default branch are looked at, one request per event, so 100 PR
+  runs cannot push the earlier daily run out of the page. The guard is not keyed on the master SHA: master moves during the day,
+  and a late cron must not run the day a second time on a newer commit.
+- A live earlier run counts only once its guard step is listed in the jobs API: a queued run has no steps, so a custom run
+  (`shards=...`, `ref=...`) cannot be told from a plain one yet. Such a run does not cause a skip: a double run of the day is
+  acceptable, a lost day is not.
+- A `schedule` payload has no `repository`, so `github.event.repository.default_branch` is empty there; the workflows fall back to
+  `master`, and the guard treats an empty default branch as unknown and never gives a schedule run a branch verdict (a schedule
+  runs on the default branch only).
+- It fails open: when the API cannot be read or answers anything unexpected (any exception), the run goes ahead.
+- Known gap, retry by hand: when the only running starter is cancelled or fails after the other one was skipped, nothing
+  retries by itself. Dispatch the workflow again (`force` is not needed: the failed or cancelled run does not count).
+- In `mutation.yml` the guard is a step of the `changes` job, not a job of its own (`select_shards.py` takes a new job or top key
+  of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs: a late cron
+  waits for the dispatched full run and is then skipped by the guard instead of cancelling hours of work.
+- `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
+- Master CI runs: `ci.yml` has one concurrency group per ref with cancel-in-progress, so only the newest master commit runs to the
+  end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
+  the commits since the last green (or finished) run.
+
+### 2.13 Hang diagnosis of the Windows net48 shards (#824)
+
+`netstandard-b` (net48 shard b) hung twice on 2026-11-13 (#761, #820) until the 60-minute job timeout, without output and without a
+trx, so no test was named. The net48 test steps (both shards and the Clipper2 package run) now run `dotnet test --blame
+--blame-hang --blame-hang-timeout 10m --blame-hang-dump-type mini`:
+
+- a test that runs 10 minutes (the suite's limit is 5 s, 10 s with the `Slow` tag) hangs the test host: vstest kills it and
+  writes a mini dump (`*_hangdump*.dmp`) next to `Sequence_<guid>.xml` (the tests that started, `Completed="True"` once finished)
+  into `test-results/`, which the `if: always()` artifact step uploads (`netstandard-results`, `netstandard-b-results`);
+- on .NET Framework vstest takes the dump with ProcDump: the step `Install ProcDump` installs it (Chocolatey) and sets
+  `PROCDUMP_PATH`; if that fails, the step is `continue-on-error` and the sequence file still names the test, only the dump is missing;
+- the step `Blame summary` (`tools/blame_summary.py`, run when a step failed or the job was cancelled) lists the tests of the
+  sequence files that did not complete in the job summary: the hang is in one of them (usually the last);
+- `--blame` also names the running test when the test host crashes. The trx of a healthy run is the same as before.
 
 ### 2.7 A small regression corpus as a CI smoke benchmark
 
@@ -721,6 +788,28 @@ budget, but that class uses the `Meshing2OracleTiming` collection with `DisableP
 The scheduling regression in `RobustnessSweepRemainingTests` checks both the assignment and opt-out metadata.
 This uses xUnit's [collection-level parallelism opt-out](https://xunit.net/docs/running-tests-in-parallel), not a
 suite-wide concurrency change; it does not eliminate noise from unrelated processes or other test assemblies.
+
+### 3.3 Runtime watch (extreme cases, nightly)
+
+`.github/workflows/runtime-watch.yml` times a fixed list of known extreme cases of the Exact Boolean and the Alpha Wrap
+daily at 01:17 UTC on master (owner 2026-11-13) and on demand (a full run is about 1 h typical, about 4 h
+if every case hits its timeout; a run under way is never cancelled by the next trigger) (`tools/runtime-watch/cases.json`, run by `tools/runtime_watch.py`). Owner decision 2026-11-12: it
+watches the tail, not the median. Each case is one process per run (isolated, never two cases at once), a few repeats,
+the median counts; the machine (CPU, cores, memory, dotnet) is recorded. Procedural cases run directly; Thingi10K meshes
+are fetched at run time by the nightly job only (never committed, never fetched by a PR-tier test).
+
+Outlier rule (`rules` in the case list): a median more than 1.3x the median of the last 10 runs of the case and more than 1 s
+above it (a regression); a median over 20 s (a potential defect, platform.md time rules); a failed or timed-out case. The
+job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (none of the last 3 nights had the flag: a
+regression, a failure, a case newly over 20 s), so a known slow case is not repeated every night. Results are a workflow
+artifact; the history (`history.json`, last 60 entries per case, plus one result file per commit) is on the data branch
+`runs/runtime-watch` (never merged). A run with a case subset (`only`) does not update the history. GitHub-hosted runners
+vary, so the absolute 1 s and the 1.3x are a floor; a persistent step change enters the rolling median after about five nights.
+
+Add a case: an entry in `cases.json` (`area` boolean or alphawrap, `kind` procedural or thingi, `setup` and `run` argv lists with
+`{work}`, `{dll:Project}` and `{thingi:ID}`, `time_field` the JSON field of the run's last output line, or `wall`), then
+`python3 tools/runtime_watch.py validate tools/runtime-watch/cases.json`. The tooling's tests (`tools/test_runtime_watch.py`:
+rule, case-list parsing, runner on stub commands) run in the PR tier without network or dotnet.
 
 ## 4a. Making agent work verifiable
 
