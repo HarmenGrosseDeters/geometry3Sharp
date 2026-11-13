@@ -4,7 +4,6 @@ Status: **owner decision 2026-11-13: yes to the proposals** (below): E1, the ext
 smaller slope on a sector boundary; an ε-approximation within the Tolerance budget for S1. Ordered after ramps R1;
 nothing is built yet. `TerrainSlopeDesign.Modes.SectorPolygons` and `Modes.ExteriorDistance` exist in the API sketch
 (TERRAIN.md 6) and are rejected today (`NotImplemented`).
-`Modes.ExteriorDistance` exist in the API sketch (TERRAIN.md 6) and are rejected today (`NotImplemented`).
 
 ## Goal
 
