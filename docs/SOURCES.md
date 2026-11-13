@@ -738,3 +738,15 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 | Item | Source and license |
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
+
+## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
+
+Implemented from the paper; no code of the reference implementation was read or ported (its MIT licence would allow it).
+
+| Part | Source |
+|---|---|
+| Inclusion-based root finding over (t, u, v): the corner hull of a multilinear F, bisection, minimum separation, the earliest-time search | B. Wang, Z. Ferguson, T. Schneider, X. Jiang, M. Attene, D. Panozzo, *A Large-scale Benchmark and an Inclusion-based Algorithm for Continuous Collision Detection*, ACM TOG 40(5), art. 188, 2021, [doi:10.1145/3460775](https://doi.org/10.1145/3460775) (reference code Tight-Inclusion, MIT, not read) |
+| Interval root finding as the fallback path | J. Snyder, *Interval analysis for computer graphics*, SIGGRAPH 1992; S. Redon, A. Kheddar, S. Coquillart, *Fast continuous collision detection between rigid bodies*, Eurographics 2002 |
+| Separating directions (triangle normal, edge cross product) | the classical separating-axis directions of CCD culling (eg R. Bridson, R. Fedkiw, J. Anderson, *Robust treatment of collisions, contact and friction for cloth animation*, SIGGRAPH 2002); the test itself is own (any direction, dot products in `ExactInterval`) |
+| The filter bound B1, the clipping of vertex-triangle boxes to the triangle, the dive-then-tighten search and its time-of-impact argument | own (docs/design/CCD.md sections 6 and 10) |
+| Benchmark data | the sample of the ToI dataset of D. Belgrod, Z. Ferguson et al., *Time of Impact Dataset for Continuous Collision Detection and a Scalable Conservative Algorithm*, arXiv:2112.06300; [Sample-Scalable-CCD-Data](https://github.com/Continuous-Collision-Detection/Sample-Scalable-CCD-Data), Apache-2.0, fetched at run time by `benchmarks/CcdBenchmark/fetch_sample.sh` (pinned commit, SHA-256 per file), never committed |
