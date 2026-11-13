@@ -100,7 +100,7 @@ Status on 2026-11-12 (evening, Berlin).
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
   machine: no kill data (Windows runner failure), so kills only in CI. Process since 2026-11-11 (owner): no full shards
-  on PRs, full shard runs nightly on master. Next: smaller test sets per shard from the exclusive kills. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
+  on PRs, full shard runs nightly on master. Smaller test sets per shard from the recorded killers: tool and guard in PR #777 (`tests/mutation/narrow_tests.py`); the guaranteed saving is large only on 3 of 18 measurable shards because Stryker records no killer for timeouts (`--timeouts one`, owner-approved, saves 50-100 % on 14 shards; Sunday run unfiltered). Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
   the shard's `mutate` filter only skips them (579 tested in boolean-1), so the coverage capture pays for every placed
   mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); the fix (only the shard's files are
   mutated) is in #615 (CI-speed session, open), with the 3.0 process (no full shards on PRs, scheduled full runs).

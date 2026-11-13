@@ -130,6 +130,23 @@ Part of the [roadmap](../ROADMAP.md).
   line; seed master baselines for the new / never-seeded shards by workflow_dispatch right after #403. Later, with
   per-mutant data: two-tier tests / dropping test classes without exclusive kills; timeout ratio 1.1 / 5 s only after
   an A/B with identical survivor sets; larger runners are the owner's cost call.
+- **Smaller test sets per mutation shard (owner go 2026-11-13, measured; PR #777):** from the stored Stryker reports
+  (`killedBy`, `coveredBy`; newest full report per shard, 2026-11-09 to 12) and the test durations of the master full run
+  of 2026-11-13 (trx, contended run, so a proxy). **Stryker records no killer for a Timeout mutant** (`killedBy` is empty for
+  all 1216 in these reports; only `coveredBy`), and timeouts are 20-60 % of the mutants of the rounding / envelope shards.
+  So there are two covers (capture / mutant-run saving; mutant run = sum of the covering tests, timeouts x 1.5):
+  `--timeouts all` (default, cannot lose a timeout: every covering test of a timed-out mutant stays): arithmetic 2 of 148
+  tests, 84 / 66 %; terrain-arith 16 of 46, 86 / 40 %; terrain-kernel 15 of 29, 85 / 85 %; envelope-4 26 / 1 %; every other
+  measured shard (envelope-1..3, fixed, rounding-1..8) 0-10 % (rounding-8 60 / 0 %), i.e. no filter. `--timeouts one`
+  (one covering test per timed-out mutant; usually still hangs, not guaranteed): envelope-1 9 of 21, 92 / 93 %; -2 86 / 85 %;
+  -3 59 / 52 %; -4 50 / 8 %; fixed 20 of 49, 35 / 35 %; rounding-1..8 3 to 19 of 156 (193), 80-99 / 76-100 %; terrain-arith
+  4 of 46, 100 / 100 %. No full report with tested mutants exists on master for arrangement-1..4, boolean-1/2, planar and
+  terrain-overlay (cancelled or empty runs; boolean was re-split by #615). Built: `tests/mutation/narrow_tests.py` (`make`
+  from a report, `apply` with the staleness guard), wired into `full()` of `run_stryker.sh`; a stale filter (changed config,
+  mutated file, test file, or a new test file naming the filter's classes) falls back to the full filter. Owner
+  2026-11-13: `--timeouts one` is the default; the scheduled run of every Sunday (UTC) is unfiltered and checks it. Open: making the filter
+  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (follow-up PR, once full master reports exist for
+  arrangement / boolean / planar / overlay).
 - **`Vector2d` / `Vector3d.IsFinite` (owner 2026-11-12):** corrected to a component-wise check (today it tests the sum
   of the components, which overflows to infinity for large finite components); the fix is in work (branch
   `fix/vector-isfinite-components`).
