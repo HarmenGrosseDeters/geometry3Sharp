@@ -274,8 +274,8 @@ namespace g3
 
         // the number of self edge-pair tasks (SelfPairTasks) and the query primitives per job: fixed, so that the jobs do
         // not depend on the machine (tests set smaller values to get many jobs on small meshes)
-        internal int SelfTasks = 64;
-        internal int BlockSize = 1024;
+        internal int SelfTasks = 4096;
+        internal int BlockSize = 128;
 
         enum JobKind { VertexTriangle, EdgeEdge, SelfEdges }
 

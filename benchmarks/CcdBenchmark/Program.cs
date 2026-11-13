@@ -155,7 +155,9 @@ static class Program
     static int Sweep(string dir, double ms)
     {
         Console.WriteLine("scene,vertices,triangles,mode,candidate_pairs,broad_ms,narrow_ms,total_ms,broad_share,status,earliest_toi");
+        string only = Environment.GetEnvironmentVariable("G3_SWEEP_SCENES");
         foreach (string scene in Directory.GetDirectories(dir).OrderBy(d => d, StringComparer.Ordinal)) {
+            if (only != null && only.Split(',').Contains(Path.GetFileName(scene)) == false) continue;
             string frames = Path.Combine(scene, "frames");
             if (Directory.Exists(frames) == false) continue;
             var plys = Directory.GetFiles(frames, "*.ply").OrderBy(f => f, StringComparer.Ordinal).ToArray();
@@ -166,6 +168,9 @@ static class Program
             foreach (int vid in m1.VertexIndices()) end[vid] = m1.GetVertex(vid);
             foreach (bool parallel in new[] { false, true }) {
                 var s = new MeshSweepCollision(m0, end) { Parallel = parallel, Options = new CcdOptions { MinSeparation = ms } };
+                // (experiments: G3_SWEEP_BLOCK, G3_SWEEP_TASKS override the job sizes)
+                if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_BLOCK"), out int blk)) s.BlockSize = blk;
+                if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_TASKS"), out int tsk)) s.SelfTasks = tsk;
                 s.Compute();      // warm-up
                 var sw = Stopwatch.StartNew();
                 s.Compute();

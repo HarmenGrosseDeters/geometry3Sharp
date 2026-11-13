@@ -224,7 +224,7 @@ namespace geometry3Sharp.Tests
             foreach (bool all in new[] { true }) {
                 var single = run(false, false, all, 1 << 30, 1);
                 Assert.NotEmpty(single.Item1);
-                foreach (var (block, tasks) in new[] { (7, 9), (1024, 64) }) {
+                foreach (var (block, tasks) in new[] { (7, 9), (128, 4096) }) {
                     var serial = run(false, false, all, block, tasks);
                     Assert.Equal(single.Item1, serial.Item1);
                     Assert.Equal(single.Item2, serial.Item2);
