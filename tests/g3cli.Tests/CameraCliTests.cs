@@ -243,6 +243,35 @@ namespace g3cli.Tests
             Assert.False(File.Exists(o2));
             var (e5, r5) = Run("query3d", m.Cube, "--camera", Front, "--output", m.Path_("same.csv"), "--depth-output", m.Path_("same.csv"), "--compact");
             AssertError(e5, r5, "invalid_arguments");
+            // the depth image must not overwrite a list file read by the same command
+            string pts = m.Path_("pts.csv");
+            File.WriteAllText(pts, "0,0,0\n");
+            var (e6, r6) = Run("query3d", m.Cube, "--camera", Front, "--points", "@" + pts, "--nearest", "--depth-output", pts, "--compact");
+            AssertError(e6, r6, "invalid_arguments");
+            Assert.Equal("0,0,0\n", File.ReadAllText(pts));
+        }
+
+        [Fact]
+        public void CameraBasis_HasNoNegativeZero()
+        {
+            var (exit, r) = Run("query3d", m.Cube, "--camera", "-5,0,0;0,0,0;90;4;4", "--compact");
+            Assert.Equal(0, exit);
+            foreach (string name in new[] { "position", "forward", "right", "up" })
+                foreach (var c in r["camera"][name].AsArray())
+                    Assert.False(double.IsNegative(D(c)) && D(c) == 0, name + " has -0");
+        }
+
+        [Fact]
+        public void Pgm_LinesAreAtMost70Characters()
+        {
+            string pgm = m.Path_("wide.pgm");
+            var (exit, _) = Run("query3d", m.Cube, "--camera", "-5,0,0;0,0,0;90;64;2", "--depth-output", pgm, "--compact");
+            Assert.Equal(0, exit);
+            var lines = File.ReadAllLines(pgm);
+            Assert.All(lines, l => Assert.True(l.Length <= 70, l.Length + ": " + l));
+            Assert.True(lines.Length > 6);                                       // the 64 values per row are wrapped
+            var values = lines.Skip(4).SelectMany(l => l.Split(' ')).Select(int.Parse).ToArray();
+            Assert.Equal(128, values.Length);
         }
 
         [Fact]

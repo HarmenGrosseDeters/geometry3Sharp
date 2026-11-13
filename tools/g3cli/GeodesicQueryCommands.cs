@@ -439,6 +439,9 @@ namespace g3cli
                         throw new CommandException(ResultCodes.WriteError, $"cannot write '{args.String("depth_output")}': directory does not exist");
                     if (args.Has("output") && SamePath(args.String("output"), args.String("depth_output")))
                         throw new CommandException(ResultCodes.InvalidArguments, "'depth_output' and 'output' are the same file");
+                    foreach (string list in new[] { "rays", "points" })
+                        if (args.Has(list) && args.String(list).StartsWith("@") && SamePath(args.String(list).Substring(1), args.String("depth_output")))
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'depth_output' is the '{list}' file");
                 }
                 if (args.Bool("any_hit") && args.Has("rays") == false && !hasCamera)
                     throw new CommandException(ResultCodes.InvalidArguments, "'any_hit' needs 'rays' or a camera");
@@ -659,12 +662,15 @@ namespace g3cli
                 }
             }
             info = new JsonObject() {
-                ["position"] = MeshReport.Vec(position), ["target"] = new JsonArray(target[0], target[1], target[2]), ["fov"] = fov,
-                ["width"] = width, ["height"] = height, ["pixels"] = rays.Length, ["forward"] = MeshReport.Vec(forward), ["right"] = MeshReport.Vec(right),
-                ["up"] = MeshReport.Vec(trueUp), ["up_replaced"] = upChanged,
+                ["position"] = MeshReport.Vec(NoNegZero(position)), ["target"] = new JsonArray(target[0], target[1], target[2]), ["fov"] = fov,
+                ["width"] = width, ["height"] = height, ["pixels"] = rays.Length, ["forward"] = MeshReport.Vec(NoNegZero(forward)), ["right"] = MeshReport.Vec(NoNegZero(right)),
+                ["up"] = MeshReport.Vec(NoNegZero(trueUp)), ["up_replaced"] = upChanged,
             };
             return rays;
         }
+
+        /// <summary> -0 would print as "-0"; adding +0 turns it into +0 </summary>
+        static Vector3d NoNegZero(Vector3d v) => new Vector3d(v.x + 0.0, v.y + 0.0, v.z + 0.0);
 
         /// <summary> the distance image as a 16-bit ASCII PGM (nearer is brighter between the nearest and the farthest hit, a miss is 0) or as CSV </summary>
         static JsonObject WriteDepthImage(string path, string format, int width, int height, double?[] distance)
@@ -688,7 +694,16 @@ namespace g3cli
                             else if (!d.HasValue) row[i] = "0";
                             else row[i] = (tMax > tMin ? 1 + Math.Round(65534 * (tMax - d.Value) / (tMax - tMin)) : 65535).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
                         }
-                        w.Write(string.Join(format == "csv" ? "," : " ", row) + "\n");
+                        if (format == "csv") { w.Write(string.Join(",", row) + "\n"); continue; }
+                        // PGM: lines of at most 70 characters
+                        int lineLength = 0;
+                        foreach (string token in row) {
+                            if (lineLength > 0 && lineLength + 1 + token.Length > 70) { w.Write("\n"); lineLength = 0; }
+                            if (lineLength > 0) { w.Write(" "); lineLength++; }
+                            w.Write(token);
+                            lineLength += token.Length;
+                        }
+                        w.Write("\n");
                     }
                 }
                 File.Move(temp, path, true);
