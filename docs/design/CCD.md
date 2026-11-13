@@ -531,15 +531,28 @@ Code review of #845, fixed in the same PR:
   turned NaN above about 1e154; test `ParallelEdgePath_ExtremeScales` (identical results from 2^-280 to 2^400, bounded
   boxes at 2^520 and 2^900);
 - no cliff at the threshold: edges that are not nearly parallel are split along their cross product (under the same
-  spread condition), so a sine of 0.011 needs 1 069 boxes (was 6 840; 116 at 0.009); a generic crossing 116 (was 166);
-  test `ParallelEdgePath_NoCliffAtTheThreshold`;
+  spread condition) on every other level of the search; a sine of 0.011 needs 1 692 boxes (was 6 840; 116 at 0.009);
+  test `ParallelEdgePath_NoCliffAtTheThreshold`. The variants on all 221 651 edge-edge queries of the ToI sample:
+
+  | split along the cross product | boxes, mean | boxes, max | time |
+  |---|---|---|---|
+  | never (before) | 363 | 13 459 | 42 s |
+  | on every level | 154 | 89 315 | 22 s |
+  | on every other level (chosen) | 190 | 20 849 | 24 s |
+  | only while the image along it is at least 1/8 of its largest width | 296 | 8 354 | 38 s |
+
+  On every level, a rod-twist miss (sine 0.15, the lines coplanar while the segments miss) kept splitting t where the
+  segments' ends decide; alternating halves the mean and keeps the worst case at 20 ms. The alternation is a
+  performance choice no test pins (a procedural version of that query did not reproduce it; the sample is not
+  committed);
 - the default tolerance is at least the evaluation error `M 2^-47`: below it the computed corner widths are met only by
   chance (the parallel pattern in UTM coordinates hit the iteration limit, also before this change);
 - tests for the vertex-triangle guard (`ParallelEdgePath_LeavesVertexTriangleAlone`), the interval path (a variant of
   the new test) and the invariance set (both parallel patterns; a frame's verdict on the 1.7e-7 miss is only fixed where
   its resolution resolves it); the edge vectors are computed by one helper (`edges_at`).
-Equivalent survivors: the direction of edge b instead of edge a for the split (the edges are nearly parallel).
+Equivalent survivors: the direction of edge b instead of edge a for the split (the edges are nearly parallel); the
+alternation (performance only, above).
 
-Result: cloth-funnel 227ee needs at most 1 495 boxes per query (was 775 689), all 263 queries in 0.07 s (was 0.62 s);
+Result: cloth-funnel 227ee needs at most 1 495 boxes per query (was 775 689), all 263 queries in under 0.1 s (was 0.62 s);
 sample totals in the benchmark README. Test: `NearlyParallelEdges_DecideQuickly` (the pattern built procedurally: 425 317
 boxes on the old code, under 20 000 required).

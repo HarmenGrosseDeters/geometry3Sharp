@@ -391,6 +391,7 @@ namespace g3
             // strip is narrower than the distance, and choose_split splits along it. Only for nearly parallel edges:
             // elsewhere such extra directions changed the search for the worse (a later near box, a looser time).
             splitDirValid = false;
+            splitDirAlternate = false;
             if (vf || ParallelEdgeDirections == false)
                 return false;
             double tm = 0.5 * (b.t0 + b.t1);
@@ -401,8 +402,10 @@ namespace g3
             if (pow2_normalize(ref ax, ref ay, ref az) == false || pow2_normalize(ref bx, ref by, ref bz) == false)
                 return false;
             if (nearly_parallel(ax, ay, az, bx, by, bz) == false) {
-                // the cross product separates eventually; split along it
+                // the cross product separates eventually; split along it on every other level (alone it can keep
+                // splitting t where the segments' ends decide, a miss of the sample took 89 315 boxes)
                 set_split_direction(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx);
+                splitDirAlternate = true;
                 return false;
             }
             double cx = 0, cy = 0, cz = 0;
@@ -426,7 +429,7 @@ namespace g3
         }
 
         // the direction choose_split measures along (only steers the order of the search)
-        bool splitDirValid;
+        bool splitDirValid, splitDirAlternate;
         double sdx, sdy, sdz;
 
         // the edge directions (b - a, d - c) make an angle with a sine below 0.01; both scaled by pow2_normalize (only
@@ -754,7 +757,7 @@ namespace g3
             // Only while the image's spread along that direction exceeds the tolerance and the minimum separation (n is
             // scaled to |n|_1 = 1, so the band of the cube along n is [-ms, ms]): below that a split along the direction
             // cannot separate the box any more, and the widths that decide a near box must shrink instead.
-            if (splitDirValid && projected_spread() > Math.Max(delta, ms)) {
+            if (splitDirValid && (splitDirAlternate == false || (b.depth & 1) == 0) && projected_spread() > Math.Max(delta, ms)) {
                 int bestDir = -1;
                 double bestDirValue = 0;
                 for (int p = 0; p < 3; ++p) {
