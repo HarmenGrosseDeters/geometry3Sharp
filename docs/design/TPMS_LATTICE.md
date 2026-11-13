@@ -143,7 +143,7 @@ solid and the result is closed.
   (`VolumeFractionAt`, the motivating case) makes `F` not 1-Lipschitz, so the crossing distance there is smaller; the guard still removes
   the exact-corner crossings, and the result is certified separately (`NotCleanReason`, exact self-intersection check). For `Enclosure` the sample error is one-sided and below
   `2 Snap` in field units: the level pad pays `2 Snap` (the audit's `e` term) on top of `sqrt(3) h / 2`. On the constant lattices of the tests (2 periods, 14 cubes per period, fraction 0.3; not a guarantee for other
-  fractions, resolutions or box offsets) 13 of 15 type / style cases are bit for bit unchanged; Neovius skeletal changes by less than 5 % of a cube and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
+  fractions, resolutions or box offsets) 15 of 18 type / style cases are bit for bit unchanged; Neovius skeletal and Lidinoid skeletal high change by less than 12 % of a cube (measured: 5 % and 9 %; where `f` is nearly flat a snapped node moves the surface by the guard band over the local gradient) and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
   retries are rare and remain for what the guard cannot see.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).
