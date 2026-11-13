@@ -786,7 +786,7 @@ Implemented from the paper; no code of the reference implementation was read or 
 | The filter bound B1, the clipping of vertex-triangle boxes to the triangle, the dive-then-tighten search and its time-of-impact argument | own (docs/design/CCD.md sections 6 and 10) |
 | Benchmark data | the sample of the ToI dataset of D. Belgrod, Z. Ferguson et al., *Time of Impact Dataset for Continuous Collision Detection and a Scalable Conservative Algorithm*, arXiv:2112.06300; [Sample-Scalable-CCD-Data](https://github.com/Continuous-Collision-Detection/Sample-Scalable-CCD-Data), Apache-2.0, fetched at run time by `benchmarks/CcdBenchmark/fetch_sample.sh` (pinned commit, SHA-256 per file), never committed |
 
-## Mesh offset (`MeshOffset`, planned; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
+## Mesh offset (`MeshOffset`, stage A1 implemented; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
 
 Papers only; no code of these works was read (owner / coordinator rule 2026-11-13). Marks as in the design note:
 details recalled from memory there are checked before the implementation cites them.
@@ -801,3 +801,4 @@ details recalled from memory there are checked before the implementation cites t
 | Volumetric offsets with feature-sensitive extraction (prior art) | D. Pavić, L. Kobbelt, *High-Resolution Volumetric Computation of Offset Surfaces with Feature Preservation*, Computer Graphics Forum 27(2) (Eurographics 2008) |
 | Generalized gradient of a locally Lipschitz function (the distance-field enclosure of stage A2) | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983, chapter 2 |
 | Exact polytope Minkowski sums (the test oracle's idea; CGAL is GPL and not read) | P. Hachenberger, *Exact Minkowski sums of polyhedra and exact and efficient decomposition of polyhedra into convex pieces*, Algorithmica 55, 2009, doi:10.1007/s00453-008-9219-6 |
+| Band certificate (`MeshOffset.CertifyBand`): the 1-Lipschitz bound of the signed distance over a triangle, the distance enclosed by interval arithmetic (an explicit point of the nearest triangle above, the support bound w . (c - x) / \|w\| below), splits by dyadic barycentric coordinates | own construction (design note section 10); the interval rule of `ExactInterval` (one ulp per operation); dual contouring as in its own entry (Ju et al. 2002, Schaefer et al. 2007) |
