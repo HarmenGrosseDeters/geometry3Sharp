@@ -28,12 +28,12 @@ namespace geometry3Sharp.Tests
             r.MinCollapseTriangleQuality = 0.05; r.CollapseQualityAgainstWorst = false;
         }
 
-        // (old: the gates and no quality refinement of before #408, the wraps the bounds of PinnedVertices_CarryTheirQuadric
-        // were measured on)
+        // (old: the gates and no quality refinement of before #408 and the serial carving, the wraps the bounds of
+        // PinnedVertices_CarryTheirQuadric were measured on)
         static MeshAlphaWrap Wrap(int seed, double relAlpha, bool old = false)
         {
             var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = relAlpha, RelativeOffset = 10 * relAlpha };
-            if (old) { w.TraverseByEmptyBall = false; w.RefineMinAngleDegrees = 0; }
+            if (old) { w.TraverseByEmptyBall = false; w.RefineMinAngleDegrees = 0; w.RoundWindow = 0; }
             Assert.True(w.Compute(), w.Error);
             return w;
         }

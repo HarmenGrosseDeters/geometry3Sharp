@@ -39,6 +39,7 @@ namespace geometry3Sharp.Tests
             Assert.True(w1.Counts["rounds"] > 0);
             Assert.True(w1.Counts["round_kept"] > 50 * w1.Counts["rounds"] / 10, $"{w1.Counts["round_kept"]} kept in {w1.Counts["rounds"]} rounds");
             Assert.True(w1.Counts["round_deferred"] > 0);
+            Assert.True(w1.Counts["round_parallel"] > 100, $"{w1.Counts["round_parallel"]} of {w1.Counts["rounds"]} rounds large enough for the threads");
             Assert.True(w1.Counts["round_shared_outside"] > 0, "no two kept carvings of a round with the same outside cell");
             string reference = Fingerprint(w1);
             foreach (int threads in new[] { 2, 4, 8 }) {
@@ -90,10 +91,10 @@ namespace geometry3Sharp.Tests
         // the round-based carving pinned on the inputs of AlphaWrapManifoldStepTests.Pinned (several pinch rounds): a change of
         // the rounds' result shows here (hashes of this PR's first version; the serial carving keeps its pins there)
         [Theory]
-        [InlineData(42, 60.0, 600.0, "1440DFD70A780C4E")]
-        [InlineData(173, 20.0, 200.0, "C86486C02C2F7E20")]
+        [InlineData(42, 60.0, 600.0, "FBFBB30F2A5DA1E5")]
+        [InlineData(173, 20.0, 200.0, "8BFF8FB98FFFB003")]
         [InlineData(3, 20.0, 200.0, "86AF3AB6DE837E60")]
-        [InlineData(17, 20.0, 200.0, "53686D484FA5D330")]
+        [InlineData(17, 20.0, 200.0, "6CCA15C5329C9E76")]
         [InlineData(1, 40.0, 400.0, "7766673AF63F80D2")]
         public void Rounds_Pinned(int seed, double relAlpha, double relOffset, string hash)
         {

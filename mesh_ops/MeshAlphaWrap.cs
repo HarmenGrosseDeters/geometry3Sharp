@@ -738,7 +738,7 @@ namespace gs
         {
             WrapStatus status = WrapStatus.Success;
             roundMinSeparation = 1e-9 * alpha;
-            long rounds = 0, kept = 0, deferred = 0, sharedOutside = 0, limitMidRound = 0;
+            long rounds = 0, largeRounds = 0, kept = 0, deferred = 0, sharedOutside = 0, limitMidRound = 0;
             while (gates.Count > 0 && status == WrapStatus.Success) {
                 if (cancelled())
                     return WrapStatus.Cancelled;
@@ -780,6 +780,7 @@ namespace gs
                     continue;
                 }
                 rounds++;
+                if (roundGates.Count >= MinParallelRound) largeRounds++;
                 // 2. evaluate (read only)
                 long te = Stopwatch.GetTimestamp();
                 round_for(roundGates.Count, evaluateBody);
@@ -880,6 +881,8 @@ namespace gs
             // (diagnostics: rounds, kept and deferred gates, kept carvings sharing their outside cell with an earlier one of
             // their round, point limits reached in the middle of a round after a rejected insertion of that round)
             add_count("rounds", rounds);
+            // (rounds large enough for the parallel phases, whatever the thread count)
+            add_count("round_parallel", largeRounds);
             add_count("round_kept", kept);
             add_count("round_deferred", deferred);
             if (sharedOutside > 0) add_count("round_shared_outside", sharedOutside);
@@ -1039,13 +1042,12 @@ namespace gs
                 g.Pushes.Add((r, c, i));
         }
 
-        // the cache values a parallel phase computed (the values a serial fill writes), for cells whose stamp still matches
+        // the cache values a parallel phase computed (the values a serial fill writes), each with the stamp of the cell it was
+        // computed for (an entry whose cell has changed since is not used, as any other)
         void write_back_caches(RoundGate g)
         {
-            foreach (var (c, st, x) in g.Centers)
-                if (dt.CellStamp(c) == st) { centerCache[c] = x; centerStamp[c] = st; }
-            foreach (var (c, st, x) in g.Touches)
-                if (dt.CellStamp(c) == st) { touchCache[c] = (sbyte)(x ? 1 : 0); touchStamp[c] = st; }
+            foreach (var (c, st, x) in g.Centers) { centerCache[c] = x; centerStamp[c] = st; }
+            foreach (var (c, st, x) in g.Touches) { touchCache[c] = (sbyte)(x ? 1 : 0); touchStamp[c] = st; }
             foreach (var (v, d) in g.Distances)
                 vertexDistance[v] = d;
             g.Centers.Clear(); g.Touches.Clear(); g.Distances.Clear();
