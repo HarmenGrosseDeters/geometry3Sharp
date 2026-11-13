@@ -28,10 +28,11 @@ namespace g3
     /// </summary>
     internal sealed class ExactMeshGeodesicDistance
     {
-        public enum Result { Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, PositionTooWide }
+        public enum Result { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, PositionTooWide }
 
         public readonly DMesh3 Mesh;
-        /// <summary> limit on the windows created; reaching it ends Compute with WindowLimit (never with a wrong bound). The default
+        /// <summary> limit on the windows created; passing it ends Compute with WindowLimit (never with a wrong bound). The count
+        /// is checked between propagation steps, so Windows can end somewhat above the limit (by the windows of one step). The default
         /// keeps one Compute below about 20 s (a flat plane of 101 x 101 vertices reaches it; a terrain of that size needs
         /// about 130000 windows, 4 s) </summary>
         public int MaxWindows = 300_000;
@@ -55,7 +56,7 @@ namespace g3
             public bool Done;
         }
 
-        struct P2 { public ExactInterval X, Y; public P2(ExactInterval x, ExactInterval y) { X = x; Y = y; } }
+        internal struct P2 { public ExactInterval X, Y; public P2(ExactInterval x, ExactInterval y) { X = x; Y = y; } }
 
         // a binary min-heap with a total order: the key, then the insertion number (deterministic ties)
         sealed class Heap
@@ -95,6 +96,7 @@ namespace g3
         double[] lo, up, emitted;
         byte[] kind;                // 0 convex (geodesics do not pass), 1 pseudo-source
         bool failed;
+        double scale;               // a length scale of the mesh (its largest coordinate extent): scales exactly with 2^k
         Result failure;
 
         // ------------------------------------------------------------------ interval helpers
@@ -167,9 +169,10 @@ namespace g3
         // by two spacings on each side. CoreMath.Atan2 is the CORE-MATH port, documented as correctly rounded (error at most
         // half a spacing; docs/SOURCES.md, "Correctly rounded sin, cos, atan2, exp, log"); the widening by two spacings
         // leaves a margin of 1.5 spacings beyond that bound.
-        ExactInterval CornerAngle(int p, int a, int b)
+        ExactInterval CornerAngle(int p, int a, int b) => CornerAngle(Mesh.GetVertex(p), Mesh.GetVertex(a), Mesh.GetVertex(b));
+
+        internal static ExactInterval CornerAngle(Vector3d P, Vector3d A, Vector3d B)
         {
-            Vector3d P = Mesh.GetVertex(p), A = Mesh.GetVertex(a), B = Mesh.GetVertex(b);
             ExactInterval ux = I(A.x) - I(P.x), uy = I(A.y) - I(P.y), uz = I(A.z) - I(P.z);
             ExactInterval wx = I(B.x) - I(P.x), wy = I(B.y) - I(P.y), wz = I(B.z) - I(P.z);
             ExactInterval cx = uy * wz - uz * wy, cy = uz * wx - ux * wz, cz = ux * wy - uy * wx;
@@ -185,7 +188,8 @@ namespace g3
 
         void Classify()
         {
-            foreach (int v in Mesh.VertexIndices()) kind[v] = (byte)VertexKind(v);
+            // a vertex without triangles carries no surface: no path passes through it (it stays unreachable, NaN)
+            foreach (int v in Mesh.VertexIndices()) kind[v] = Mesh.GetVtxTriangleCount(v) == 0 ? (byte)0 : (byte)VertexKind(v);
         }
 
         /// <summary> 0: certainly convex, so no shortest path passes through it (Fact F, and the local argument of A.5 for a
@@ -207,10 +211,10 @@ namespace g3
         public Result Compute(IEnumerable<int> sources)
         {
             int n = Mesh.MaxVertexID;
+            // NaN until a successful run copies its bounds in, so a failure (or an exception) never leaves values that look valid
             Lower = new double[n]; Upper = new double[n];
+            for (int v = 0; v < n; ++v) { Lower[v] = double.NaN; Upper[v] = double.NaN; }
             Status = run(sources);
-            if (Status != Result.Ok)
-                for (int v = 0; v < n; ++v) { Lower[v] = double.NaN; Upper[v] = double.NaN; }
             return Status;
         }
 
@@ -232,6 +236,8 @@ namespace g3
                 ExactInterval area2 = Sq(uy * wz - uz * wy) + Sq(uz * wx - ux * wz) + Sq(ux * wy - uy * wx);
                 if (!(area2.Lo > 0)) return Result.DegenerateTriangles;
             }
+            AxisAlignedBox3d bounds = Mesh.CachedBounds;
+            scale = Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z));
             Classify();
             foreach (int s in src) { lo[s] = 0; up[s] = 0; queue.Enqueue(-(long)s - 1, 0); kind[s] = 1; }
             while (queue.Count > 0) {
@@ -252,10 +258,8 @@ namespace g3
                 if (key > up[v]) continue;
                 foreach (int u in Mesh.VtxVerticesItr(v)) { double c = (I(up[v]) + Len(v, u)).Hi; if (c < up[u]) { up[u] = c; pq.Enqueue(u, c); } }
             }
-            for (int v = 0; v < n; ++v) {
-                bool ok = Mesh.IsVertex(v) && lo[v] < double.PositiveInfinity && up[v] < double.PositiveInfinity;
-                Lower[v] = ok ? lo[v] : double.NaN; Upper[v] = ok ? up[v] : double.NaN;
-            }
+            for (int v = 0; v < n; ++v)
+                if (Mesh.IsVertex(v) && lo[v] < double.PositiveInfinity && up[v] < double.PositiveInfinity) { Lower[v] = lo[v]; Upper[v] = up[v]; }
             return Result.Ok;
         }
 
@@ -277,9 +281,18 @@ namespace g3
                 if (f2 < 0) continue;               // the opposite edge is a boundary edge: its ends are neighbours of v (recorded above)
                 Index2i ev = Mesh.GetEdgeV(e); ExactInterval L = Len(ev.a, ev.b);
                 P2 V = Place(ev.a, ev.b, v, L);
-                double r0 = RoundUpSum(Math.Sqrt(HalfWidth(V.X) * HalfWidth(V.X) + HalfWidth(V.Y) * HalfWidth(V.Y)) * 1.0000001, 4 * (Ulp(V.X.Hi) + Ulp(V.Y.Hi)));
-                Add(new Window { E = e, F = f2, Origin = v, SigLo = sl, SigHi = up[v], Cx = Mid(V.X), Cy = -Mid(V.Y), R = r0, O0 = 0, O1 = L.Hi, I0 = 0, I1 = L.Lo });
+                double r0 = DiskOfBox(V, out double vx, out double vy);
+                Add(new Window { E = e, F = f2, Origin = v, SigLo = sl, SigHi = up[v], Cx = vx, Cy = -vy, R = r0, O0 = 0, O1 = L.Hi, I0 = 0, I1 = L.Lo });
             }
+        }
+
+        /// <summary> a disk (centre, returned radius) containing the box: the centre is the box's computed midpoint, the radius
+        /// the sum of the half widths (at least the half diagonal, and no underflow of squares) plus the midpoint's rounding </summary>
+        internal static double DiskOfBox(P2 box, out double cx, out double cy)
+        {
+            cx = Mid(box.X); cy = Mid(box.Y);
+            double hx = HalfWidth(box.X), hy = HalfWidth(box.Y);
+            return ExactInterval.Up(ExactInterval.Up(hx + hy) + 2 * (Ulp(cx) + Ulp(cy)));
         }
 
         // ------------------------------------------------------------------ pruning (A4), subsumption, merging (A6)
@@ -349,7 +362,7 @@ namespace g3
             var segs = new List<(double l, double r)> { (w.O0, w.O1) };
             int z = Third(w.F, ev.a, ev.b); P2 Z = Place(ev.a, ev.b, z, L);
             TrimByVertex(w, s, I(0), I(0), ev.a, segs); TrimByVertex(w, s, L, I(0), ev.b, segs); TrimByVertex(w, s, Z.X, Z.Y, z, segs);
-            segs.RemoveAll(t => !(t.r - t.l > tol)); if (segs.Count == 0) return;
+            segs.RemoveAll(t => !(t.r > t.l)); if (segs.Count == 0) return;      // only empty pieces: a short piece is no certified drop
             int side = Side(w.E, w.F);
             if (!bySide.TryGetValue(side, out var list)) { list = new List<int>(); bySide[side] = list; }
             int dead = 0; foreach (int oi in list) if (!(windows[oi].O1 > windows[oi].O0)) ++dead;
@@ -368,8 +381,9 @@ namespace g3
                     }
                     // merging (A6): both pending, nearly the same position and sigma, outer intervals touching
                     double mr = Math.Max(b.R, w.R), nr = RoundUpSum(dc, w.R) * (1 + 1e-15);
-                    bool near = !b.Done && nr <= 2 * mr && Math.Max(b.R, nr) <= 1e-11 * (1 + Math.Abs(b.Cx) + Math.Abs(b.Cy))
-                        && Math.Abs(b.SigHi - w.SigHi) <= 1e-12 * (1 + Math.Abs(b.SigHi)) && Math.Abs(b.SigLo - w.SigLo) <= 1e-12 * (1 + Math.Abs(b.SigHi));
+                    // relative to the mesh's length scale (no absolute constants: 2^k scalings give the same decisions)
+                    bool near = !b.Done && nr <= 2 * mr && Math.Max(b.R, nr) <= 1e-11 * (scale + Math.Abs(b.Cx) + Math.Abs(b.Cy))
+                        && Math.Abs(b.SigHi - w.SigHi) <= 1e-12 * (scale + Math.Abs(b.SigHi)) && Math.Abs(b.SigLo - w.SigLo) <= 1e-12 * (scale + Math.Abs(b.SigHi));
                     if (near) {
                         var keep = new List<(double l, double r)>(); bool merged = false;
                         foreach (var sg in segs) {
@@ -390,7 +404,7 @@ namespace g3
                 if (b.I1 > b.I0) {
                     var rem = new List<(double l, double r)>();
                     foreach (var sg in segs) { double l = Math.Max(sg.l, b.I0), r = Math.Min(sg.r, b.I1); if (r > l) Dominated(w, s, b, sb, l, r, 6, rem); }
-                    if (rem.Count > 0) { segs = Minus(segs, rem); segs.RemoveAll(t => !(t.r - t.l > tol)); if (segs.Count == 0) return; }
+                    if (rem.Count > 0) { segs = Minus(segs, rem); segs.RemoveAll(t => !(t.r > t.l)); if (segs.Count == 0) return; }
                 }
                 // b certainly worse than w where w is inner-valid: cut b's ends only
                 if (w.I1 > w.I0) {
@@ -456,28 +470,53 @@ namespace g3
 
         // the window w's disk carried into the frame of the edge (pa, pb) whose ends are at the boxes PA, PB in w's frame;
         // the face the new window propagates into lies on y > 0 there (Appendix A.2, with the review's S3 error term)
-        bool Transform(Window w, P2 PA, P2 PB, out double cx, out double cy, out double r)
+        static bool Transform(Window w, P2 PA, P2 PB, out double cx, out double cy, out double r) => TransformDisk(w.Cx, w.Cy, w.R, PA, PB, out cx, out cy, out r);
+
+        /// <summary> the disk (wcx, wcy, wr) of a frame carried into the frame of the edge from PA to PB (boxes in the old frame):
+        /// PA at the origin, PB on +x, the old origin side on y &lt;= 0. Returns false if the boxes are too wide for the bound. </summary>
+        internal static bool TransformDisk(double wcx, double wcy, double wr, P2 PA, P2 PB, out double cx, out double cy, out double r)
         {
+            // dP, dQ: the distance of the true ends from the computed midpoints (half widths summed: at least the half
+            // diagonal, and no underflow of their squares), plus the midpoints' rounding
             double px = Mid(PA.X), py = Mid(PA.Y), qx = Mid(PB.X), qy = Mid(PB.Y);
-            double dP = Math.Sqrt(HalfWidth(PA.X) * HalfWidth(PA.X) + HalfWidth(PA.Y) * HalfWidth(PA.Y)) * (1 + 1e-15) + Ulp(px) + Ulp(py);
-            double dQ = Math.Sqrt(HalfWidth(PB.X) * HalfWidth(PB.X) + HalfWidth(PB.Y) * HalfWidth(PB.Y)) * (1 + 1e-15) + Ulp(qx) + Ulp(qy);
-            double wx = qx - px, wy = qy - py, len = Math.Sqrt(wx * wx + wy * wy);
+            double dP = (HalfWidth(PA.X) + HalfWidth(PA.Y)) * (1 + 1e-15) + 2 * (Ulp(px) + Ulp(py));
+            double dQ = (HalfWidth(PB.X) + HalfWidth(PB.Y)) * (1 + 1e-15) + 2 * (Ulp(qx) + Ulp(qy));
+            double wx = qx - px, wy = qy - py, len = Hypot(wx, wy);
             cx = cy = r = 0;
             double lenLo = len * (1 - 4e-16) - dP - dQ;
             if (!(lenLo > 0)) return false;
             double dx = wx / len, dy = wy / len;
-            double ux = w.Cx - px, uy = w.Cy - py;
+            double ux = wcx - px, uy = wcy - py;
             cx = ux * dx + uy * dy; cy = -ux * dy + uy * dx;
             if (cy > 0) cy = -cy;              // reflection when the orientation flips (an isometry)
             // 2 asin(z) <= 2 z / sqrt(1 - z^2) for 0 <= z < 1 (asin z <= tan(asin z)): no libm, so the bits are the same on every platform
             double z = (dP + dQ) / (2 * lenLo);
             if (!(z < 0.5)) return false;
             double alpha = 2 * z / Math.Sqrt(1 - z * z) * (1 + 1e-14) + 8 * Ulp(len) / len;
-            double cn = Math.Sqrt(ux * ux + uy * uy);
-            double rot = (cn + dP + w.R) * alpha;
-            double rounding = 16 * (Ulp(cn) + Ulp(cx) + Ulp(cy) + Ulp(px) + Ulp(py) + Ulp(w.Cx) + Ulp(w.Cy));
-            r = (w.R + dP + rot + rounding) * (1 + 1e-15);
+            double cn = Hypot(ux, uy);
+            double rot = (cn + dP + wr) * alpha;
+            double rounding = 16 * (Ulp(cn) + Ulp(cx) + Ulp(cy) + Ulp(px) + Ulp(py) + Ulp(wcx) + Ulp(wcy));
+            r = (wr + dP + rot + rounding) * (1 + 1e-15);
             return true;
+        }
+
+        static readonly double TwoP600 = BitConverter.Int64BitsToDouble((long)(1023 + 600) << 52), TwoM600 = BitConverter.Int64BitsToDouble((long)(1023 - 600) << 52);
+
+        /// <summary> sqrt(x^2 + y^2) without underflow or overflow of the squares: the arguments are scaled by powers of two
+        /// (exact) so that the larger lies in [1, 2), then the result is scaled back (exact unless it is subnormal, where
+        /// the error is at most half the smallest spacing). Relative error below 3 units of 2^-53 otherwise, as for the
+        /// plain formula without underflow; reviewed: the plain formula lost the length of edges near 1e-154 </summary>
+        internal static double Hypot(double x, double y)
+        {
+            double ax = Math.Abs(x), ay = Math.Abs(y), m = Math.Max(ax, ay);
+            if (!(m > 0) || double.IsInfinity(m)) return m;
+            double pre = 1;
+            if (m < 1e-300) pre = TwoP600; else if (m > 1e300) pre = TwoM600;
+            ax *= pre; ay *= pre; m *= pre;
+            int e = (int)((BitConverter.DoubleToInt64Bits(m) >> 52) & 0x7FF);
+            double sc = BitConverter.Int64BitsToDouble((long)(2046 - e) << 52);      // 2^(1023 - unbiased): m * sc in [1, 2)
+            ax *= sc; ay *= sc;
+            return Math.Sqrt(ax * ax + ay * ay) / sc / pre;
         }
 
         void Child(Window w, P2 s, int p, int q, P2 P, P2 Q, double t0, double t1, double ti0, double ti1)

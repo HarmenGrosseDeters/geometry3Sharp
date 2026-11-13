@@ -57,16 +57,28 @@ namespace geometry3Sharp.Tests
             return g;
         }
 
-        // Lower <= exact <= Upper with a tolerance for the exact value's own rounding, and the enclosure narrow
-        static void AssertEncloses(DMesh3 m, ExactMeshGeodesicDistance g, Func<int, double> exact, double maxRelWidth)
+        // Lower <= exact <= Upper against an enclosure of the exact value (no slack), and the enclosure narrow
+        static void AssertEncloses(DMesh3 m, ExactMeshGeodesicDistance g, Func<int, ExactInterval> exact, double maxRelWidth)
         {
             foreach (int v in m.VertexIndices()) {
-                double d = exact(v), slack = 1e-12 * (1 + d);
-                Assert.True(g.Lower[v] <= d + slack, $"vertex {v}: Lower {g.Lower[v]:R} above exact {d:R}");
-                Assert.True(g.Upper[v] >= d - slack, $"vertex {v}: Upper {g.Upper[v]:R} below exact {d:R}");
-                Assert.True(g.Upper[v] - g.Lower[v] <= maxRelWidth * (1 + d), $"vertex {v}: width {g.Upper[v] - g.Lower[v]:E2}");
+                ExactInterval d = exact(v);
+                Assert.True(g.Lower[v] <= d.Hi, $"vertex {v}: Lower {g.Lower[v]:R} above exact [{d.Lo:R}, {d.Hi:R}]");
+                Assert.True(g.Upper[v] >= d.Lo, $"vertex {v}: Upper {g.Upper[v]:R} below exact [{d.Lo:R}, {d.Hi:R}]");
+                Assert.True(g.Upper[v] - g.Lower[v] <= maxRelWidth * (1 + d.Hi), $"vertex {v}: width {g.Upper[v] - g.Lower[v]:E2}");
             }
         }
+
+        // a closed form evaluated in double for a surface built with sin, cos or tan: the built mesh is that surface only
+        // up to the rounding of its coordinates (a relative 1e-15 of the size), so the closed form gets a slack of 1e-12 of
+        // the distance plus 1e-12 of the mesh size (1000 times that rounding) on both sides
+        static void AssertEncloses(DMesh3 m, ExactMeshGeodesicDistance g, Func<int, double> closedForm, double size, double maxRelWidth)
+            => AssertEncloses(m, g, v => { double d = closedForm(v), slack = 1e-12 * (d + size); return new ExactInterval(d - slack, d + slack); }, maxRelWidth);
+
+        static ExactInterval I(double x) => ExactInterval.Of(x);
+
+        // the exact Euclidean distance of two stored points, enclosed
+        static ExactInterval Dist(Vector3d a, Vector3d b)
+            => ExactInterval.Sqrt(ExactInterval.Square(I(a.x) - I(b.x)) + ExactInterval.Square(I(a.y) - I(b.y)) + ExactInterval.Square(I(a.z) - I(b.z)));
 
         static double[] EdgeDijkstra(DMesh3 m, int s)
         {
@@ -88,7 +100,7 @@ namespace geometry3Sharp.Tests
             DMesh3 m = Grid(10, 21, (x, y) => 0);
             int src = 10 * 21 + 10;
             var g = Run(m, src);
-            AssertEncloses(m, g, v => m.GetVertex(v).Distance(m.GetVertex(src)), 0.08);
+            AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 0.08);
             // the lower bound is tight: each emission of a pseudo-source lowers sigma by 1e-9 relative (A5), and on a plane
             // every vertex is a flat pseudo-source, so the margins add up along a chain of a few emissions
             foreach (int v in m.VertexIndices()) { double d = m.GetVertex(v).Distance(m.GetVertex(src)); Assert.True(d - g.Lower[v] <= 1e-7 * (1 + d)); }
@@ -108,7 +120,7 @@ namespace geometry3Sharp.Tests
                 }
             int src = 6 * nx + 5;
             var g = Run(m, src);
-            AssertEncloses(m, g, v => m.GetVertex(v).Distance(m.GetVertex(src)), 0.1);
+            AssertEncloses(m, g, v => Dist(m.GetVertex(v), m.GetVertex(src)), 0.1);
         }
 
         [Fact]
@@ -119,7 +131,7 @@ namespace geometry3Sharp.Tests
             m.AppendVertex(new Vector3d(0, 0, 0)); m.AppendVertex(new Vector3d(1, 0, 0)); m.AppendVertex(new Vector3d(1, 1, 0)); m.AppendVertex(new Vector3d(0, 1, 0));
             m.AppendTriangle(0, 1, 2); m.AppendTriangle(0, 2, 3);
             var g = Run(m, 0);
-            AssertEncloses(m, g, v => m.GetVertex(v).Length, 1e-12);
+            AssertEncloses(m, g, v => Dist(m.GetVertex(v), Vector3d.Zero), 1e-12);
         }
 
         [Fact]
@@ -137,7 +149,7 @@ namespace geometry3Sharp.Tests
                 int i = v % n, j = v / n; double dz = H * (j - 6) / (rows - 1), best = double.MaxValue;
                 for (int k = -1; k <= 1; ++k) { double ux = (i + k * n) * chord; best = Math.Min(best, Math.Sqrt(ux * ux + dz * dz)); }
                 return best;
-            }, 0.08);
+            }, 2 * H, 0.08);
         }
 
         [Fact]
@@ -149,7 +161,7 @@ namespace geometry3Sharp.Tests
             int src = (n / 2) * n + 3;
             var g = Run(m, src);
             Vector3d s = m.GetVertex(src);
-            AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = RidgeArc(p.x) - RidgeArc(s.x), dy = p.y - s.y; return Math.Sqrt(du * du + dy * dy); }, 0.2);
+            AssertEncloses(m, g, v => { Vector3d p = m.GetVertex(v); double du = RidgeArc(p.x) - RidgeArc(s.x), dy = p.y - s.y; return Math.Sqrt(du * du + dy * dy); }, 2 * half, 0.2);
         }
 
         [Fact]
@@ -166,9 +178,12 @@ namespace geometry3Sharp.Tests
                 Vector3d p = m.GetVertex(v);
                 // s = (7, 1) lies below y = 4: the segment to p enters the removed quadrant x > 4, y > 4 iff it crosses y = 4 at x > 4
                 bool behind = p.y > 4 && s.x + (p.x - s.x) * (4 - s.y) / (p.y - s.y) > 4;
-                return behind ? s.Distance(corner) + corner.Distance(p) : s.Distance(p);
+                return behind ? Dist(s, corner) + Dist(corner, p) : Dist(s, p);
             }, 0.1);
         }
+
+        // the measured width of the sphere's enclosures, with a margin (a regression bound)
+        const double SphereWidth = 1e-11;      // measured 3.5e-13
 
         [Fact]
         public void ConvexSphere_LiesBetweenChordAndArc()
@@ -192,7 +207,7 @@ namespace geometry3Sharp.Tests
                 double chord = s.Distance(p), arc = Math.Acos(Math.Max(-1, Math.Min(1, s.Dot(p))));
                 Assert.True(g.Lower[v] <= arc + 1e-12, $"vertex {v}: Lower above the arc");
                 Assert.True(g.Upper[v] >= chord - 1e-12, $"vertex {v}: Upper below the chord");
-                Assert.True(g.Lower[v] >= chord - 1e-12 || g.Upper[v] >= chord, $"vertex {v}");
+                Assert.True(g.Upper[v] - g.Lower[v] <= SphereWidth * (1 + arc), $"vertex {v}: width {g.Upper[v] - g.Lower[v]:E2}");
             }
         }
 
@@ -307,6 +322,8 @@ namespace geometry3Sharp.Tests
             g.Compute(new[] { 5 });
             g.Compute(new[] { 60 });
             Assert.Equal(lo1, g.Lower); Assert.Equal(up1, g.Upper);
+            var fresh = Run(m, 60);
+            Assert.Equal(fresh.Lower, g.Lower); Assert.Equal(fresh.Upper, g.Upper); Assert.Equal(fresh.Windows, g.Windows);
         }
 
         [Fact]
@@ -349,6 +366,203 @@ namespace geometry3Sharp.Tests
             bt.AppendVertex(Vector3d.Zero); bt.AppendVertex(new Vector3d(1, 0, 0)); bt.AppendVertex(new Vector3d(0, 1, 0)); bt.AppendVertex(new Vector3d(-1, 0, 0)); bt.AppendVertex(new Vector3d(0, -1, 0));
             bt.AppendTriangle(0, 1, 2); bt.AppendTriangle(0, 3, 4);
             Assert.Equal(ExactMeshGeodesicDistance.Result.NonManifoldInput, new ExactMeshGeodesicDistance(bt).Compute(new[] { 1 }));
+        }
+
+        [Fact]
+        public void UnreferencedVertex_IsUnreachable_AndTheRestIsComputed()
+        {
+            // review: a vertex without triangles made the classification throw
+            DMesh3 m = Grid(2, 5, (x, y) => 0);
+            int lone = m.AppendVertex(new Vector3d(7, 7, 0));
+            var g = new ExactMeshGeodesicDistance(m);
+            Assert.Equal(ExactMeshGeodesicDistance.Result.NotComputed, g.Status);
+            Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, g.Compute(new[] { 12 }));
+            Assert.True(double.IsNaN(g.Lower[lone]) && double.IsNaN(g.Upper[lone]));
+            foreach (int v in m.VertexIndices()) {
+                if (v == lone) continue;
+                ExactInterval d = Dist(m.GetVertex(v), m.GetVertex(12));
+                Assert.True(g.Lower[v] <= d.Hi && g.Upper[v] >= d.Lo && g.Upper[v] - g.Lower[v] <= 0.08 * (1 + d.Hi), $"vertex {v}");
+            }
+            Assert.Equal(0, g.Lower[12]);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void Plane_UnderSimilarities_Merges_AndExactScalesGiveTheSameBits(string name)
+        {
+            // review: the merge thresholds once had absolute terms (1 + |c|), so a 2^k scaling changed which windows merged
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 m0 = Grid(4, 9, (x, y) => 0);
+            int src = 4 * 9 + 4;
+            var g0 = Run(m0, src);
+            var g = Run(Invariance.Transformed(m0, sim), src);
+            Assert.True(g0.Merges > 0 && g.Merges > 0, "the plane exercises the merging (A6)");
+            foreach (int v in m0.VertexIndices()) {
+                if (sim.IsExact) {
+                    Assert.Equal(g0.Lower[v] * sim.Scale, g.Lower[v]);
+                    Assert.Equal(g0.Upper[v] * sim.Scale, g.Upper[v]);
+                } else {
+                    double res = sim.Resolution(8) * 1e3;
+                    Assert.True(g.Lower[v] / sim.Scale <= g0.Upper[v] + res && g0.Lower[v] <= g.Upper[v] / sim.Scale + res, $"{name}: vertex {v}");
+                }
+            }
+            if (sim.IsExact) { Assert.Equal(g0.Windows, g.Windows); Assert.Equal(g0.Merges, g.Merges); }
+        }
+
+        [Theory]
+        [InlineData(-40)]
+        [InlineData(40)]
+        public void Plane_FarPowerOfTwoScales_GiveTheSameBits(int k)
+        {
+            // the scales of Similarity.All stay within 2^10; absolute terms in a threshold (review: 1 + |c| in A6) show far
+            // from 1. The scaled mesh is exact (powers of two), so every decision and every bit must scale with it
+            DMesh3 m0 = Grid(4, 9, (x, y) => 0);
+            double f = k > 0 ? (double)(1L << 40) : 1.0 / (1L << 40);
+            var m = new DMesh3(m0); foreach (int v in m.VertexIndices()) m.SetVertex(v, m0.GetVertex(v) * f);
+            var g0 = Run(m0, 40); var g = Run(m, 40);
+            Assert.True(g0.Merges > 0);
+            Assert.Equal(g0.Merges, g.Merges); Assert.Equal(g0.Windows, g.Windows);
+            foreach (int v in m0.VertexIndices()) { Assert.Equal(g0.Lower[v] * f, g.Lower[v]); Assert.Equal(g0.Upper[v] * f, g.Upper[v]); }
+        }
+
+        // ------------------------------------------------------------------ the bounds of the steps, against exact references
+
+        static ExactDyadic D(double x) => ExactDyadic.Of(x);
+
+        // |(px, py) - (cx, cy)|^2 <= r^2, exactly
+        static bool InDisk(double px, double py, double cx, double cy, double r)
+        {
+            ExactDyadic dx = D(px) - D(cx), dy = D(py) - D(cy);
+            return ExactDyadic.Compare(dx * dx + dy * dy, D(r) * D(r)) <= 0;
+        }
+
+        static IEnumerable<ExactMeshGeodesicDistance.P2> AdversarialBoxes(Random rnd, double scale)
+        {
+            // narrow, wide, very unequal in x and y, a point, and the half widths far below the coordinates
+            double[] widths = { 0, 1e-16, 1e-9, 1e-4, 3e-3 };
+            for (int k = 0; k < 40; ++k) {
+                double x = (rnd.NextDouble() * 2 - 1) * scale, y = (rnd.NextDouble() * 2 - 1) * scale;
+                double hx = widths[rnd.Next(widths.Length)] * scale, hy = widths[rnd.Next(widths.Length)] * scale;
+                yield return new ExactMeshGeodesicDistance.P2(new ExactInterval(x - hx, x + hx), new ExactInterval(y - hy, y + hy));
+            }
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(1e-150)]      // squares of the half widths underflow (review: hx*hx + hy*hy lost them)
+        [InlineData(1e-300)]      // the half widths are subnormal
+        [InlineData(1e150)]
+        public void DiskOfBox_ContainsEveryCorner(double scale)
+        {
+            var rnd = new Random(11);
+            foreach (var box in AdversarialBoxes(rnd, scale)) {
+                double r = ExactMeshGeodesicDistance.DiskOfBox(box, out double cx, out double cy);
+                foreach (double x in new[] { box.X.Lo, box.X.Hi })
+                    foreach (double y in new[] { box.Y.Lo, box.Y.Hi })
+                        Assert.True(InDisk(x, y, cx, cy, r), $"corner ({x:R}, {y:R}) outside the disk ({cx:R}, {cy:R}, {r:R})");
+            }
+        }
+
+        // the image of c under the rigid map that takes P to the origin and Q onto the +x axis, compared with the disk
+        // (cx, cy, r) exactly: with u = c - P, d = Q - P, A = u . d, B = d x u, N = |d|^2, the image is (A, B) / sqrt(N),
+        // and |image - C|^2 <= r^2 is A^2 + B^2 + N (|C|^2 - r^2) <= 2 sqrt(N) (A cx + B cy), decided without roots
+        static bool ImageInDisk(double cxw, double cyw, double Px, double Py, double Qx, double Qy, double cx, double cy, double r, bool reflect)
+        {
+            ExactDyadic ux = D(cxw) - D(Px), uy = D(cyw) - D(Py), dx = D(Qx) - D(Px), dy = D(Qy) - D(Py);
+            ExactDyadic A = ux * dx + uy * dy, B = dx * uy - dy * ux, N = dx * dx + dy * dy;
+            if (reflect) B = -B;
+            ExactDyadic K = A * A + B * B + N * (D(cx) * D(cx) + D(cy) * D(cy) - D(r) * D(r));
+            ExactDyadic M = A * D(cx) + B * D(cy);
+            ExactDyadic four = D(4);
+            if (M.Sign >= 0) return K.Sign <= 0 || ExactDyadic.Compare(K * K, four * N * M * M) <= 0;
+            return K.Sign <= 0 && ExactDyadic.Compare(K * K, four * N * M * M) >= 0;
+        }
+
+        [Theory]
+        [InlineData(1.0)]
+        [InlineData(1e-150)]
+        [InlineData(1e-154)]      // the squares of the coordinates are subnormal, those of the half widths underflow
+        [InlineData(1e-300)]
+        [InlineData(1e150)]
+        [InlineData(1e300)]       // the squares overflow
+        public void TransformDisk_ContainsTheImageOfEveryPoint_ForEveryEdgeInTheBoxes(double scale)
+        {
+            var rnd = new Random(12);
+            var boxes = AdversarialBoxes(rnd, scale).ToArray();
+            int checkedCases = 0;
+            for (int k = 0; k + 2 < boxes.Length; k += 3) {
+                var PA = boxes[k]; var PB = boxes[k + 1]; var C = boxes[k + 2];
+                double wr = rnd.Next(3) == 0 ? 0 : (rnd.NextDouble() * 1e-3 + 1e-12) * scale;
+                double wcx = 0.5 * C.X.Lo + 0.5 * C.X.Hi, wcy = 0.5 * C.Y.Lo + 0.5 * C.Y.Hi;
+                if (!ExactMeshGeodesicDistance.TransformDisk(wcx, wcy, wr, PA, PB, out double cx, out double cy, out double r)) continue;
+                Assert.True(cy <= 0);
+                // true edge ends: the corners and the centres of the boxes; points: the disk's centre and points on a smaller circle
+                var ends = new List<(double, double)>();
+                foreach (var b in new[] { PA, PB }) {
+                    var pts = new List<(double, double)> { (0.5 * b.X.Lo + 0.5 * b.X.Hi, 0.5 * b.Y.Lo + 0.5 * b.Y.Hi) };
+                    foreach (double x in new[] { b.X.Lo, b.X.Hi }) foreach (double y in new[] { b.Y.Lo, b.Y.Hi }) pts.Add((x, y));
+                    ends.Add(pts[rnd.Next(pts.Count)]); ends.Add(pts[0]); ends.Add(pts[1 + rnd.Next(4)]);
+                }
+                for (int t = 0; t < 8; ++t) {
+                    double a = rnd.NextDouble() * 2 * Math.PI, rr = wr * 0.999;
+                    double px = t == 0 ? wcx : wcx + rr * Math.Cos(a), py = t == 0 ? wcy : wcy + rr * Math.Sin(a);
+                    if (!InDisk(px, py, wcx, wcy, wr)) continue;
+                    for (int i = 0; i < 3; ++i) {
+                        var (Px, Py) = ends[i]; var (Qx, Qy) = ends[3 + i];
+                        Assert.True(ImageInDisk(px, py, Px, Py, Qx, Qy, cx, cy, r, false) || ImageInDisk(px, py, Px, Py, Qx, Qy, cx, cy, r, true),
+                            $"scale {scale}: the image of ({px:R}, {py:R}) leaves the disk ({cx:R}, {cy:R}, {r:R})");
+                        ++checkedCases;
+                    }
+                }
+            }
+            Assert.True(checkedCases > 50, $"scale {scale}: only {checkedCases} cases");
+        }
+
+        [Fact]
+        public void Hypot_IsAccurate_AtEveryScale()
+        {
+            var rnd = new Random(13);
+            foreach (double scale in new[] { 1.0, 1e-154, 1e-300, 1e-320, 1e300, double.MaxValue / 4 })
+                for (int k = 0; k < 200; ++k) {
+                    double x = (rnd.NextDouble() * 2 - 1) * scale, y = (rnd.NextDouble() * 2 - 1) * scale * (k % 3 == 0 ? 1e-9 : 1);
+                    double h = ExactMeshGeodesicDistance.Hypot(x, y);
+                    // exactly: (h (1 - 4e-16))^2 <= x^2 + y^2 <= (h (1 + 4e-16))^2, or within half the smallest spacing
+                    ExactDyadic s2 = D(x) * D(x) + D(y) * D(y), tol = D(double.Epsilon);
+                    ExactDyadic lo = D(h) - D(h) * D(4e-16) - tol, hi = D(h) + D(h) * D(4e-16) + tol;
+                    Assert.True((lo.Sign <= 0 || ExactDyadic.Compare(lo * lo, s2) <= 0) && ExactDyadic.Compare(hi * hi, s2) >= 0, $"hypot({x:R}, {y:R}) = {h:R}");
+                }
+            Assert.Equal(0, ExactMeshGeodesicDistance.Hypot(0, 0));
+            Assert.Equal(5, ExactMeshGeodesicDistance.Hypot(-3, 4));
+        }
+
+        [Fact]
+        public void CornerAngle_EnclosesKnownAngles_AndTheHardAtan2Cases()
+        {
+            Vector3d O = Vector3d.Zero, X = new Vector3d(1, 0, 0);
+            void Contains(ExactInterval a, double below, double above, string what)
+            {
+                Assert.True(a.Lo <= below && a.Hi >= above, $"{what}: [{a.Lo:R}, {a.Hi:R}]");
+                Assert.True(a.Hi - a.Lo <= 64 * (ExactInterval.Up(Math.Max(Math.Abs(a.Hi), double.Epsilon)) - Math.Abs(a.Hi)) + 1e-300, $"{what}: tight, [{a.Lo:R}, {a.Hi:R}], {(a.Hi - a.Lo) / (ExactInterval.Up(Math.Abs(a.Hi)) - Math.Abs(a.Hi))} spacings");
+            }
+            // Math.PI is below pi: pi/4 and pi/2 lie in (Math.PI/4, Up(Math.PI/4)) and the same for pi/2 (exact scalings)
+            Contains(ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(0, 1, 0)), Math.PI / 2, ExactInterval.Up(Math.PI / 2), "pi/2");
+            Contains(ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(1, 1, 0)), Math.PI / 4, ExactInterval.Up(Math.PI / 4), "pi/4");
+            // 3 pi/4 lies within a spacing of the rounded 0.75 Math.PI
+            double t = 0.75 * Math.PI;
+            Contains(ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(-1, 1, 0)), ExactInterval.Down(t), ExactInterval.Up(t), "3pi/4");
+            // skew in 3D: the angle between (1, 1, 0) and (0, 1, 1) is pi/3
+            Contains(ExactMeshGeodesicDistance.CornerAngle(O, new Vector3d(1, 1, 0), new Vector3d(0, 1, 1)), ExactInterval.Down(Math.PI / 3), ExactInterval.Up(Math.PI / 3), "pi/3");
+            // nearly straight: pi - 1e-17 lies above Math.PI (which is pi - 1.2e-16)
+            Contains(ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(-1, 1e-17, 0)), Math.PI, ExactInterval.Up(Math.PI), "pi - 1e-17");
+            // a tiny angle: atan(1e-150) lies just below 1e-150
+            Contains(ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(1, 1e-150, 0)), ExactInterval.Down(1e-150), 1e-150, "1e-150");
+            // smaller, the square of the cross product underflows: no certain lower end above 0, so the enclosure may be the
+            // whole [0, 2 pi], but it must still contain the angle
+            ExactInterval tiny = ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(1, 1e-200, 0));
+            Assert.True(tiny.Lo <= ExactInterval.Down(1e-200) && tiny.Hi >= 1e-200);
+            // a corner whose sides overlap (zero cross product): no angle is certain, the whole [0, 2 pi]
+            ExactInterval z = ExactMeshGeodesicDistance.CornerAngle(O, X, new Vector3d(2, 0, 0));
+            Assert.True(z.Lo <= 0 && z.Hi >= 2 * Math.PI);
         }
     }
 }

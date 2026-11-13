@@ -410,8 +410,15 @@ A1-A6, subsumption and the terminal windows (M1); flat vertices are pseudo-sourc
 overflow edges). Corner angles for the pseudo-source test use `CoreMath.Atan2` (documented as correctly rounded, at most
 half a spacing; widened by two spacings). The direction error of A.2 uses the bound 2 asin z <= 2 z / sqrt(1 - z^2)
 instead of `Math.Asin`, so no libm function enters and the bits are the same on every platform
-(`tools/DeterminismHarness` case `geodesic.exact`). On a window limit or a too-wide position the result arrays are
-NaN.
+(`tools/DeterminismHarness` case `geodesic.exact`); the file is on the G3E0004 list of `.editorconfig`, so a platform
+libm call fails the build. The result arrays are NaN until a successful run (`Status` is `NotComputed` meanwhile), so
+a window limit, a too-wide position or an exception never leaves values that look valid; a vertex without triangles
+stays NaN. Review hardenings (2026-11-13): pruning drops only empty pieces (a short piece is no certified drop); the
+merge thresholds of A6 are relative to the mesh's length scale, so 2^k scalings merge the same windows (a test asserts
+merges on a plane over `Similarity.All()`); the disk of a box uses the sum of the half widths (their squares can
+underflow). The steps' bounds have direct tests against exact references (`ExactDyadic`): the disk of a box, the frame
+change of a disk with adversarially wide boxes at the scales 1, 1e-150 and 1e150, and the corner angles at known and
+hard atan2 arguments. `MaxWindows` is checked between propagation steps, so `Windows` can end slightly above it.
 
 **Why A7 is not shipped (an open item: A7 with duplicate control).** The constructive continuation windows of A7 are
 sound (reviewed), but on exactly flat regions they duplicate the ordinary windows: the ordinary windows already carry

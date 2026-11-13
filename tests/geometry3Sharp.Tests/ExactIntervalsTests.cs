@@ -133,6 +133,57 @@ namespace geometry3Sharp.Tests
             Assert.True(r2.Hi >= 2 && r2.Hi <= ExactInterval.Up(2));
         }
 
+        // a random interval: wide, negative, mixed sign, a point, or with an infinite end
+        static ExactInterval RandInterval(Random rnd)
+        {
+            double a = Rand(rnd), b = Rand(rnd);
+            switch (rnd.Next(6)) {
+                case 0: return new ExactInterval(double.NegativeInfinity, Math.Max(a, b));
+                case 1: return new ExactInterval(Math.Min(a, b), double.PositiveInfinity);
+                case 2: return new ExactInterval(-Math.Abs(a), Math.Abs(b));                 // mixed sign
+                case 3: return new ExactInterval(-Math.Max(Math.Abs(a), Math.Abs(b)), -Math.Min(Math.Abs(a), Math.Abs(b)));   // negative
+                case 4: return ExactInterval.Of(a);
+                default: return new ExactInterval(Math.Min(a, b), Math.Max(a, b));
+            }
+        }
+
+        // members of iv for a brute force: both (finite) ends, 0 if inside, and points spread over it; an infinite end is
+        // represented by +-MaxValue and its neighbours
+        static double[] Members(ExactInterval iv, Random rnd)
+        {
+            double lo = double.IsNegativeInfinity(iv.Lo) ? -double.MaxValue : iv.Lo, hi = double.IsPositiveInfinity(iv.Hi) ? double.MaxValue : iv.Hi;
+            var m = new System.Collections.Generic.List<double> { lo, hi, ExactInterval.Up(lo), ExactInterval.Down(hi) };
+            if (lo <= 0 && hi >= 0) { m.Add(0); m.Add(double.Epsilon); m.Add(-double.Epsilon); }
+            for (int k = 0; k < 6; ++k) { double t = rnd.NextDouble(); m.Add(lo * t + hi * (1 - t)); m.Add(0.5 * lo + 0.5 * hi); }
+            return m.FindAll(x => x >= lo && x <= hi && !double.IsNaN(x)).ToArray();
+        }
+
+        [Fact]
+        public void Interval_Division_AndSqrt_OfWideMixedNegativeAndInfiniteIntervals_EncloseEveryMember()
+        {
+            var rnd = new Random(3);
+            for (int i = 0; i < 3000; ++i) {
+                ExactInterval A = RandInterval(rnd), B = RandInterval(rnd);
+                ExactInterval q = A / B, r = ExactInterval.Sqrt(A);
+                Assert.True(q.Lo <= q.Hi && r.Lo <= r.Hi);
+                foreach (double y in Members(B, rnd)) {
+                    if (y == 0) continue;
+                    foreach (double x in Members(A, rnd))
+                        Assert.True(EnclosesQuotient(q, x, y), $"[{A.Lo:R}, {A.Hi:R}] / [{B.Lo:R}, {B.Hi:R}] -> [{q.Lo:R}, {q.Hi:R}] misses {x:R} / {y:R}");
+                }
+                foreach (double x in Members(A, rnd))
+                    if (x >= 0) Assert.True(EnclosesRoot(r, x), $"sqrt [{A.Lo:R}, {A.Hi:R}] -> [{r.Lo:R}, {r.Hi:R}] misses sqrt {x:R}");
+            }
+            // infinite ends stay infinite
+            Assert.True(double.IsPositiveInfinity((new ExactInterval(1, double.PositiveInfinity) / new ExactInterval(2, 3)).Hi));
+            Assert.True(double.IsNegativeInfinity((new ExactInterval(double.NegativeInfinity, -1) / new ExactInterval(2, 3)).Lo));
+            Assert.True(double.IsNegativeInfinity((new ExactInterval(1, double.PositiveInfinity) / new ExactInterval(-3, -2)).Lo));
+            Assert.True(double.IsPositiveInfinity(ExactInterval.Sqrt(new ExactInterval(-5, double.PositiveInfinity)).Hi));
+            // infinity / infinity is NaN at a corner: the whole line, never a NaN end
+            ExactInterval n = new ExactInterval(1, double.PositiveInfinity) / new ExactInterval(1, double.PositiveInfinity);
+            Assert.True(double.IsNegativeInfinity(n.Lo) && double.IsPositiveInfinity(n.Hi));
+        }
+
         [Fact]
         public void Dyadic_RoundTripsDoubles()
         {
