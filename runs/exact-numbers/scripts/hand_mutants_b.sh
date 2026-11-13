@@ -22,7 +22,7 @@ assert len(parts) > nth + 1, "mutant does not apply: " + old
 open(p, "w").write(old.join(parts[:nth + 1]) + new + old.join(parts[nth + 1:]))
 PY
     if [ $? -ne 0 ]; then echo "NOT APPLIED $name"; return; fi
-    out=$(dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter "$FILTER" 2>&1 | grep -E "Passed!|Failed!| error |\[FAIL\]|Test Run Aborted" | head -3 | cut -c1-160 | tr '\n' ' ')
+    out=$(dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --filter "$FILTER" 2>&1 | grep -E "Passed!|Failed!| error |\[FAIL\]|Test Run Aborted" | grep -oE "Passed!.*|Failed!.*| error .*|[A-Za-z0-9_.]+\([^\[]{0,40}|\[FAIL\]|Test Run Aborted" | head -6 | cut -c1-120 | tr '\n' ' ')
     case "$out" in *"Failed!"*|*" error "*|*"[FAIL]"*|*"Test Run Aborted"*) echo "killed   $name: $out";; *) echo "SURVIVED $name: $out";; esac
     git checkout -q -- $K $F $B
 }

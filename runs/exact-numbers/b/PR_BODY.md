@@ -108,7 +108,29 @@ thread 0.8 to 4.2 % slower; the conversion back costs what the temporaries cost 
   `Similarity.All()`, reuse, parallel against serial) cover the operation, whose results do not change. No new
   invariance, reuse or determinism test: the kernels are static functions on integers without state or a parallel
   path.
-@@MUTANTS@@
+- Hand mutants (41), each applied and the tests run, all killed (script and output: branch `runs/exact-numbers`,
+  `b/hand_mutants_b.sh`, `b/hand_mutants_b.txt`):
+  - the arithmetic (11, by `ExactLimbSignsTests`): the `D W` term added instead of subtracted; a product replaced;
+    the `D` term of the integer-point side dropped; the third product of the dot dropped; a negative operand not
+    negated; the sign lost; one limb too few; no sign extension; a minor's sign; no alternating sign in the
+    determinant; a wrong column of a minor;
+  - the scratch space (9): the sides' `3 total` and `total` only; the determinant's first row (4 instead of 8 limbs
+    per limb), second row (20 instead of 28), other rows (56 instead of 64), the fourth row not counted, no constant,
+    a row's widest entry taken from two of its four entries (first row, fourth row). Each ends in `FixedArena`'s
+    exception or in the tests' check of the scratch use, none in a write outside a buffer;
+  - the limits (12): for each of the three forms of the sides and the dot the last sum excluded (`<`) and one limb
+    more; the plane side always BigInteger; its limit on the widest operand instead of the sum (the old reading of
+    the comment); the determinant's last sum excluded, three limbs more, the operands not counted, always BigInteger;
+  - the high-water mark (5): each of the four kernels reporting 0 limbs used, and `FixedArena.Remaining` returning 0;
+  - the call sites (4): the sign of `local_side` / `side` reversed and two points of `orient3d` exchanged (by
+    `ExactBooleanLimbSignsTests`); the sign of `interior_side` reversed (`ExactBooleanOpenInputTests`) and the
+    operands of a dot in `carried_crossings` exchanged (`ExactMeshBooleanTestsTraced`).
+  - A first version passed the far point's `W = 1` as a constant at the call site in `front_crossings`; replacing it
+    by 0 survived the whole boolean test set (a far point is 4000 box extents away, so `D` almost never decides its
+    side). The side of an integer point is now a kernel of its own, whose test has cases where `D` decides.
+- net48: the netstandard2.0 library keeps the BigInteger expressions, so the allocation bound of
+  `ExactBooleanLimbSignsTests` is asserted on .NET only (it failed in the job `netstandard-b` on af87765 with 71 / 154 /
+  155 / 62 MB; the results were equal); the path assertions of `ExactLimbSignsTests` expect the BigInteger path there.
 - Mutation: `math/ExactLimbSigns.cs` joins the shard `mesh-fixed` with `ExactLimbSignsTests`; the offsets of the shards
   `mesh-boolean-1..4` follow the merged file (`MutationConfigTests`).
 
@@ -127,7 +149,16 @@ thread 0.8 to 4.2 % slower; the conversion back costs what the temporaries cost 
 
 ### Local checks
 
-@@LOCALCI@@
+The full list of CLAUDE.md on e30fa68 (the review's changes with master 9cd2fd8 merged in), 4-core cloud container,
+every step with exit code 0: library tests net10.0 11555 passed, 0 failed, 2 skipped (29 m 4 s, with the hand mutants
+running beside them); g3cli tests 538 passed; `dotnet pack` with the API validation against 1.0.324 and the package
+smoke test; the net48 build of the library tests; Clipper2 tests 72 passed, its pack, smoke test and net48 build; the
+31 benchmark projects and `tools/PredicateCompiler` build. The head 93879ee adds only the `#if NET` around the
+allocation bound of one test and the design note: on it the two test classes (14 tests, net10.0) pass and the net48
+test project builds. The net48 tests themselves run only on GitHub (no .NET Framework here).
+
+Master is merged in once (the conflict above); it is merged again only on a new conflict or right before the merge
+(runner backlog rule).
 
 ### Review notes (exact code)
 
