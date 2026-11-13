@@ -1636,7 +1636,8 @@ namespace g3
         /// <summary>
         /// quads of the last Generate() whose split by normal agreement alone would have kept a degenerate triangle (area at most
         /// 1e-12 times its squared longest edge, eg three vertices on a crease line) and that were split along the other
-        /// diagonal (#800)
+        /// diagonal, which has none (#800). Quads with both splits degenerate keep the agreement's choice and are not counted;
+        /// the forced diagonals of the envelope criterion (ForcedDiagonals) do not use this rule
         /// </summary>
         public int DegenerateSplitsAvoided;
         internal HashSet<int> coveredTriangles = new HashSet<int>();
@@ -2323,17 +2324,17 @@ namespace g3
         {
             Vector3d p0 = Mesh.GetVertex(v0), p1 = Mesh.GetVertex(v1), p2 = Mesh.GetVertex(v2), p3 = Mesh.GetVertex(v3);
             // the diagonal whose two triangles' normals agree best; a split with a degenerate triangle (eg three vertices on a
-            // crease line, #800) scores below every agreement: its normal is rounding noise, and the triangle has no area
-            double splitA = (degenerate(p0, p1, p2) || degenerate(p0, p2, p3)) ? -3 : MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3));
-            double splitB = (degenerate(p1, p2, p3) || degenerate(p1, p3, p0)) ? -3 : MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
-            bool preferA = splitA >= splitB;
-            if (splitA == -3 || splitB == -3) {
-                // count where the rule changed the choice: the split the agreement alone would take is the degenerate one
-                double rawA = MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3)), rawB = MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
-                if ((rawA >= rawB) != preferA) System.Threading.Interlocked.Increment(ref DegenerateSplitsAvoided);
-            }
-            if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0))
+            // crease line, #800) loses against one without: its normal is rounding noise, and the triangle has no area. With both
+            // splits degenerate (or neither) the agreement decides, as before
+            bool degA = degenerate(p0, p1, p2) || degenerate(p0, p2, p3), degB = degenerate(p1, p2, p3) || degenerate(p1, p3, p0);
+            double splitA = MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3));
+            double splitB = MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
+            bool byAgreement = splitA >= splitB;
+            bool preferA = (degA != degB) ? degB : byAgreement;
+            if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0)) {
+                if (preferA != byAgreement) DegenerateSplitsAvoided++;   // the rule changed the choice, and that split was taken
                 return true;
+            }
             if (try_split(preferA ? v1 : v0, preferA ? v2 : v1, preferA ? v3 : v2, preferA ? v0 : v3))
                 return true;
             NonManifoldTriangles += 2;
@@ -2347,7 +2348,8 @@ namespace g3
             double l2 = Math.Max(ab.LengthSquared, Math.Max(bc.LengthSquared, ca.LengthSquared));
             return !(ab.Cross(-ca).Length > 2e-12 * l2);
         }
-                bool try_split(int a, int b, int c, int d)
+
+        bool try_split(int a, int b, int c, int d)
         {
             int t0 = Mesh.AppendTriangle(a, b, c);
             if (t0 < 0)

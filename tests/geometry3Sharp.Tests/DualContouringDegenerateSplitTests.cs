@@ -29,7 +29,9 @@ namespace geometry3Sharp.Tests
 
         // the box [0, 4]^3 with the corner x + y < c cut off by a 45 degree chamfer, under the similarity sim (planes and grid
         // moved with it: normals rotated, offsets scaled and shifted, the grid box the bounds of the moved box, cell scaled)
-        static DMesh3 Contour(double c, Similarity sim, bool parallel)
+        internal static DMesh3 Contour(double c, Similarity sim, bool parallel) { DualContouring dc; return Contour(c, sim, parallel, out dc); }
+
+        internal static DMesh3 Contour(double c, Similarity sim, bool parallel, out DualContouring dc)
         {
             double r = Math.Sqrt(0.5);
             Vector3d[] n = { new Vector3d(1, 0, 0), new Vector3d(-1, 0, 0), new Vector3d(0, 1, 0), new Vector3d(0, -1, 0), new Vector3d(0, 0, 1), new Vector3d(0, 0, -1), new Vector3d(-r, -r, 0) };
@@ -42,7 +44,7 @@ namespace geometry3Sharp.Tests
             var box = new AxisAlignedBox3d(new Vector3d(-0.6, -0.55, -0.65), new Vector3d(4.6, 4.65, 4.55));
             var grid = AxisAlignedBox3d.Empty;
             for (int q = 0; q < 8; ++q) grid.Contain(sim.Apply(box.Corner(q)));
-            var dc = new DualContouring() { Implicit = f, IsoValue = 0, CellSize = sim.ApplyLength(0.25), ParallelCompute = parallel, Bounds = grid };
+            dc = new DualContouring() { Implicit = f, IsoValue = 0, CellSize = sim.ApplyLength(0.25), ParallelCompute = parallel, Bounds = grid };
             dc.HermiteF = (Vector3d a, Vector3d b, Vector3d p, out Vector3d point, out Vector3d normal) => {
                 Vector3d lo = a, hi = b;   // a inside
                 for (int i = 0; i < 80; ++i) { Vector3d m = 0.5 * (lo + hi); if (f.Value(ref m) > 0) lo = m; else hi = m; }

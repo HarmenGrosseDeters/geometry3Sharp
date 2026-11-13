@@ -346,7 +346,7 @@ code is not read.
   across a gap). **Not promised**: triangle quality; degenerate (zero-area) triangles were measured in 1 of 32 benchmark
   cases until DualContouring's quad split avoided them (#800; 0 of 32 since), and a quad with two degenerate splits can still give one.
 - **Numbers** (4 threads, 32 cases per method, procedural): band certified at half a cell 32 / 32 against 15 / 32 for
-  SDF + MC (its insets fail by chamfered creases, up to 0.37 |d|); clean 31 / 32 against 25 / 32; triangles 0.95-1.07x;
+  SDF + MC (its insets fail by chamfered creases, up to 0.37 |d|); clean 31 / 32 (32 / 32 after #800) against 25 / 32; triangles 0.95-1.07x;
   time 0.6-4.7x of SDF + MC, median 1.6x (the estimate of 5.3 was 1-3x for the contouring plus below 10 % for the
   certificate; the certificate takes about half of MeshOffset's time at the default tolerance, eg 736 of 1455 ms on the sphere at |d| / 4).
 - **Mutants** (manual, all killed by `MeshOffsetTests`): r without the far corners, r dropped, a lower distance bound 1.2x
