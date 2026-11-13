@@ -12,3 +12,9 @@ Machine: 4-core cloud container; 4 cores, and 1 core with `taskset -c 0` and `DO
 - `fine4.jsonl`: 1150177 375065 688367 763718 at 4 cores with setup and final split further.
 
 `python3 analyze.py s1.jsonl s4.jsonl` prints the sums per sub-phase (the remainder of z.apply is the first tree build).
+
+## A/B of the bit-identical serial-work change (branch claude/rounding-serial-work)
+
+`HashRun` (build with `-p:G3Src=<source tree>`): per op the rounding and op times and a SHA-256 of the result. Run on
+the 65 exported cases (`ls -d cache/*/`), whole sweeps before, after, before, after at 4 cores, then after on 1 core;
+the rows are in `benchmarks/BooleanComparison/perf/rounding_serial_work_2026-11-13.jsonl` on that branch.
