@@ -6,7 +6,12 @@ Benchmark of `ContinuousCollision` and `MeshSweepCollision` (design note `docs/d
 dotnet run --project benchmarks/CcdBenchmark -c Release -- synthetic
 benchmarks/CcdBenchmark/fetch_sample.sh /tmp/ccdsample          # outside the repository, about 157 MB
 dotnet run --project benchmarks/CcdBenchmark -c Release -- sample /tmp/ccdsample [minSeparation]
+dotnet run --project benchmarks/CcdBenchmark -c Release -- sweep /tmp/ccdsample [minSeparation]
 ```
+
+`sweep`: the self sweep of each sample scene's two frames (`frames/*.ply`, also fetched by `fetch_sample.sh`), serial and
+parallel, with the time of the preparation and of the pair search and solve (`G3_SWEEP_SCENES`, `G3_SWEEP_BLOCK`,
+`G3_SWEEP_TASKS` select scenes and job sizes for experiments).
 
 `synthetic`: the stage-1 probe's queries (CCD.md 7.1) through the library, on the filter and the interval path, and sphere
 sweeps (A moving into B) with and without a minimum separation. `sample`: the Apache-2.0 sample of the ToI dataset
@@ -90,3 +95,18 @@ parallel are also split along their cross product, on every other level (CCD.md 
 
 Vertex-triangle rows unchanged (the same box counts). All 271 852 queries: 0 false negatives, 2 false positives, 116 µs
 and 223 boxes per query on average (186 µs and 365 boxes before the PR, same machine).
+
+## Parallel broad phase (2026-11-13, CCD.md 10.9)
+
+Raw: `results-sweep-ab-fused-2026-11-13.csv` (master vs the fused-jobs variant, two rounds); the built variant (batches)
+vs master, two alternating rounds in one job, parallel, 4 cores:
+
+| scene | triangles | candidate pairs | master | batches |
+|---|---|---|---|---|
+| armadillo-rollers | 24 242 | 7 099 982 | 3.52-3.55 s | 2.76-2.87 s |
+| cloth-ball | 92 230 | 6 852 873 | 8.84-9.07 s | 7.85-8.08 s |
+| cloth-funnel | 18 484 | 41 089 | 0.56-0.60 s | 0.49-0.50 s |
+| n-body-simulation | 146 480 | 31 763 261 | 10.99-11.34 s | 8.07-8.08 s |
+| rod-twist | 79 864 | 2 489 604 | 2.12-2.19 s | 1.79-1.93 s |
+
+Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master.

@@ -213,6 +213,8 @@ namespace geometry3Sharp.Tests
             {
                 var s = self ? new MeshSweepCollision(m, endM) : new MeshSweepCollision(a, endA, b, endB);
                 s.Parallel = parallel; s.CollectAll = all; s.BlockSize = block; s.SelfTasks = tasks;
+                // small blocks also get small batches of candidate pairs (many batches)
+                if (block < 100) s.BatchPairs = 37;
                 s.Options = new CcdOptions { MinSeparation = 0.005 };
                 gParallel.SerialOnThisThread = serialThread;
                 try { s.Compute(); } finally { gParallel.SerialOnThisThread = false; }

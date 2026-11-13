@@ -58,8 +58,11 @@ namespace g3
     ///
     /// Broad phase: the box of each primitive's start and end positions (the primitive stays in it under linear
     /// motion), widened by half the minimum separation with outward rounding, in a closed, unpadded box tree (no
-    /// overlapping pair is missed). Narrow phase: ContinuousCollision per candidate pair, in parallel; each pair is
-    /// computed independently, so the result does not depend on the thread schedule.
+    /// overlapping pair is missed). Narrow phase: ContinuousCollision per candidate pair; each pair is computed
+    /// independently. Both run in parallel over fixed jobs (blocks of query primitives, self edge-pair tasks) in batches of
+    /// about two million candidate pairs; the jobs and batches depend only on the input and the outputs are merged in
+    /// job order and sorted, so the result does not depend on the thread schedule, and the memory is that of a batch and
+    /// of the kept pairs.
     /// </summary>
     public class MeshSweepCollision
     {
@@ -94,8 +97,8 @@ namespace g3
         /// <summary> the number of candidate pairs as a long (CandidatePairs saturates at int.MaxValue) </summary>
         public long CandidatePairCount;
         /// <summary>
-        /// benchmarks: the wall time of the last Compute's preparation (boxes, trees, jobs) and of its jobs (the tree
-        /// queries and the pair queries, fused per job)
+        /// benchmarks: the wall time of the last Compute's preparation (boxes, trees, jobs) and of the batches (the tree
+        /// queries and the pair queries)
         /// </summary>
         internal double BroadPhaseSeconds, NarrowPhaseSeconds;
 

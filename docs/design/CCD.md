@@ -489,9 +489,10 @@ cores (minimum separation 0), 2.1 s (0.01).
 - The bound is absolute (`M`): at UTM coordinates of a millimetre scene the time of impact moves by up to e / speed
   (the invariance test allows 256 rounding units).
 - One degenerate edge-edge query of the sample (cloth-funnel) took 0.27 s (775 689 boxes); fixed in 10.8.
-- Performance left for later (code review of #793): the broad phase runs serially; with `CollectAll = false` every
-  candidate pair still runs its tightening, also those the reduction drops (a first pass without tightening, then
-  tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the result and save time).
+- Performance left for later (code review of #793): the broad phase ran serially (parallel since 10.9); with
+  `CollectAll = false` every candidate pair still runs its tightening, also those the reduction drops (a first pass
+  without tightening, then tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the
+  result and save time).
 
 ### 10.7 Bound review (2026-11-13)
 
@@ -556,3 +557,33 @@ alternation (performance only, above).
 Result: cloth-funnel 227ee needs at most 1 495 boxes per query (was 775 689), all 263 queries in under 0.1 s (was 0.62 s);
 sample totals in the benchmark README. Test: `NearlyParallelEdges_DecideQuickly` (the pattern built procedurally: 425 317
 boxes on the old code, under 20 000 required).
+
+### 10.9 Parallel broad phase (follow-up, 2026-11-13)
+
+Upper bound, on master: the self sweep of each ToI sample scene's two frames (`CcdBenchmark sweep`, 4 cores). The broad
+phase (boxes, trees, pair lists) took 6-19 % of the serial and 15-46 % of the parallel time; a perfectly parallel broad
+phase would have made the parallel sweep at most 1.63x (n-body), 1.44x (armadillo-rollers), 1.19x (cloth-ball) faster.
+The 1M-triangle frame (puffer-ball, 250M candidate pairs) ran out of memory with the pair list.
+
+As built: fixed jobs (blocks of 128 query vertices or edges; 4 096 self edge-pair tasks of `TriangleBoxTree.SelfPairs`),
+the box lists in parallel blocks, and batches of about 2M candidate pairs: the jobs' candidates in parallel over the jobs
+(groups of 64), then the batch's pairs in parallel over the pairs, then the results recorded per job in job order. The
+jobs and batches depend only on the input, the merge is in job order and the contacts are sorted: parallel equals serial.
+Memory: a batch and the kept pairs.
+
+Measured, parallel, master vs this (two alternating rounds in one job, mean):
+
+| scene | master | fused jobs (rejected) | batches (built) |
+|---|---|---|---|
+| armadillo-rollers | 3.54 s | 2.26 s | 2.81 s |
+| cloth-ball | 8.96 s | 7.98 s | 7.97 s |
+| cloth-funnel | 0.58 s | 0.80 s | 0.50 s |
+| n-body-simulation | 11.16 s | 6.17 s | 8.07 s |
+| rod-twist | 2.15 s | 1.62 s | 1.86 s |
+| puffer-ball | out of memory | 26.7 s | (see the README) |
+
+The fused variant (each job queries and solves its own pairs) was faster on the large scenes but slower than master on
+cloth-funnel, where expensive pairs cluster in a few jobs and then run one after the other; solving each batch in parallel
+over the pairs spreads them, at the cost of the barriers. Same candidates, contacts and times in every variant. Tests:
+`Jobs_ParallelEqualsSerial` (single job vs small jobs and batches vs the defaults, parallel vs serial, repeated runs, self
+and A against B), `SelfSweep_Invariance` over `Similarity.All()`.
