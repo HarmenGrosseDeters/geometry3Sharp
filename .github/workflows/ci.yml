@@ -14,10 +14,12 @@ on:
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md']
   workflow_dispatch:
 
-# a new push to the same PR (or branch) cancels the run under way. Each master commit gets its own group, so that
-# every run on master finishes (a shared group would also drop a pending run)
+# a new push to the same PR (or branch, or master) cancels the run under way: only the newest master commit runs (2026-11-13: a
+# group per master SHA let every merge run to the end, 20 runs piled up on the runners; nothing reads a CI result per master
+# commit: new_tests_on_base.py works on git refs, coverage.yml and mutation.yml keep their own run history). A manual run on
+# master shares the group with the push runs.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || (github.ref == 'refs/heads/master' && github.sha) || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -121,11 +123,12 @@ jobs:
             if [ -f "$f" ]; then cp "$f" golden-current.json; else echo '{"format": 1, "rows": [], "removed": []}' > golden-current.json; fi
             dotnet run --project benchmarks/Meshing2Benchmark -c Release -f net10.0 --no-build -- golden verify-changes --base golden-base.json --current golden-current.json || exit 1
           done
-      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py, tools/changed_line_coverage.py)
+      - name: Test the CI scripts (tools/ci_scope.py, tools/trx_durations.py, tools/changed_line_coverage.py, tools/runtime_watch.py)
         run: |
           python3 -m unittest discover -s tools -p 'test_ci_scope.py' -v
           python3 -m unittest discover -s tools -p 'test_trx_durations.py' -v
           python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py' -v
+          python3 -m unittest discover -s tools -p 'test_runtime_watch.py' -v
       - name: Test the benchmark analysis
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
@@ -235,6 +238,9 @@ jobs:
   netstandard:
     name: ${{ matrix.name }}
     needs: scope
+    # not on a draft PR (like isolated): ready_for_review starts the full run, which reports these checks. A job skipped here
+    # reports "skipped" on the draft, which cannot be merged anyway.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:

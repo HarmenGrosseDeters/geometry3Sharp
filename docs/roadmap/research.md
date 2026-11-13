@@ -102,11 +102,20 @@ Part of the [roadmap](../ROADMAP.md).
      topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
      `WindingContouring` a certified repair path.
-     Study (Fable, draft #749): the stage-0 isotopy proof holds for clean closed meshes (piecewise linear); class S
-     (non-PL level sets, TPMS) is not proved yet. Decision (owner 2026-11-13): option A, implement now: stages 1-2, an
-     exact topology certificate for clean closed meshes and refinement driven by it (its own session, tier L). Options B
-     (interval implicits / TPMS) and C (broken inputs): attempt the proof first (docs only, in the #749 note); build
-     them only once the proof is complete and independently reviewed. B and C run alongside and do not delay A.
+     Study done 2026-11-12 ([design/CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md), measurement
+     `benchmarks/ContouringTopology`, #749): today's topology is wrong for every feature below about 1.5 cells
+     (implicit shapes, 1920 runs) and on 4 of 14 clean lever-6 meshes at one cell size at least (7 of 42 runs; 0 of
+     18 on the procedural solids), without a signal; no published method covers winding-number fields.
+     Decision (owner 2026-11-13): option A, implement now: stages 1-2, an exact topology certificate for clean closed
+     meshes and refinement driven by it (its own session, tier L). Options B (interval implicits / TPMS) and C (broken
+     inputs): attempt the proof first (docs only, in the #749 note); build them only once the proof is complete and
+     independently reviewed. B and C run alongside and do not delay A.
+     Proofs (2026-11-13, section 7 of the note, each independently reviewed): the isotopy proof for clean closed
+     meshes (Theorems 1-3); B: Theorem 5 covers level sets that are not piecewise linear under interval tests (its
+     citations of Brown 1960 / 1962 and Clarke 1983 are from memory, to be checked before SOURCES.md); C: only a
+     partial statement is provable (inside the certified cells the result differs from the level set by a
+     deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
+     yet; no cell at a defect edge can be certified.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
@@ -114,8 +123,7 @@ Part of the [roadmap](../ROADMAP.md).
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request.
-     Open platform item found on the way: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the digits with the platform parser (net48: not always
-     correctly rounded; a subnormal could lose digits).
+     Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
@@ -131,7 +139,10 @@ Part of the [roadmap](../ROADMAP.md).
      (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
      the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
      ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 started
-     (owner 2026-11-12: own session; library and short prior-art check, design note, then build).
+     (owner 2026-11-12: own session; library and short prior-art check, design note, then build). Stage 1 built in #741
+     (2026-11-12, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
+     `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
+     oracle).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
@@ -274,7 +285,7 @@ bit-for-bit determinism and invariance tests.
 | 4 | Constrained Delaunay tetrahedrization, then tetrahedral meshing | Diazzi, Panozzo, Vaxman, Attene 2023 *Constrained Delaunay Tetrahedrization: A Robust and Practical Approach*; Hu et al. 2020 *Fast Tetrahedral Meshing in the Wild* | CDT: GPL / LGPL, paper only; fTetWild: MPL-2.0, paper only | On `Delaunay3` and the implicit points of `ExactMeshArrangement` |
 | 5 | **Next large item (owner 2026-11-02).** Upper bound and literature in [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md) (#325): about 100 of 111 fallbacks on 798 meshes hinge on inside / outside, the fallbacks take 54 % of the repair time; **spike result (#331): stop.** Resolving open inputs by GWN labels makes 3 of 111 fallbacks exact (0 regressions); 62 stay open at the structural crack / `ConflictEdges` limit (no labelling closes them), 32 differ from the pointwise GWN reference of the volume check; 12.7 % of 112440 patches are within 0.05 of a half-integer. A certified boundary term would not change this. The wrap fallback stays the answer for these inputs; literature (FEWN, Antipodal, Feng & Crane 2024, Feng's thesis) recorded in the note. Generalized signed distance and winding numbers for open / broken inputs | Feng & Crane 2024 *A Heat Method for Generalized Signed Distance*; Feng, Gillespie, Crane 2023 *Winding Numbers on Discrete Surfaces* | paper | Complements `MeshGeodesicDistance`, `VectorHeatMethod` and the repair stages |
 | 6 | Grid-free PDE solving (Monte Carlo geometry processing) | Sawhney & Crane 2020 *Monte Carlo Geometry Processing* (walk on spheres); Sawhney et al. 2023 *Walk on Stars*; Zombie | MIT | Needs only closest-point and ray queries (`DMeshAABBTree`, winding numbers); works on dirty geometry |
-| 7 | Foldover-free maps: fixed-boundary local untangling | Garanzha et al. 2021 *Foldover-free maps in 50 lines of code* | paper | **Merged in #374 (2026-11-04):** `FoldoverFreeParameterization`, no default atlas hook; independent review fix: the final flip-free iterate is returned (Converged true on all fixtures, annulus symmetric Dirichlet 686.97 -> 7.46), the epsilon schedule checked against equation 6. Open: the paper's energy-decrease stop instead of epsilon <= 1e-6 (about 131 iterations even from a valid start). [Measured acceptance](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md): folded-disc gate passed; SLIM quality target not universally met; torus global-overlap fallback remains. Local flip freedom does not close the global-injectivity gap in Phase 3 |
+| 7 | Foldover-free maps: fixed-boundary local untangling | Garanzha et al. 2021 *Foldover-free maps in 50 lines of code* | paper | **Merged in #374 (2026-11-04):** `FoldoverFreeParameterization`, no default atlas hook; independent review fix: the final flip-free iterate is returned (Converged true on all fixtures, annulus symmetric Dirichlet 686.97 -> 7.46), the epsilon schedule checked against equation 6. Round-off 2026-11-12: the paper's energy-decrease stop replaces epsilon <= 1e-6 (115-169 -> 16-54 iterations, same quality); the SLIM gap is the fixed boundary, the torus overlap a self-crossing fixed boundary (both documented). [Measured acceptance](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md): folded-disc gate passed; SLIM quality target not universally met; torus global-overlap fallback remains. Local flip freedom does not close the global-injectivity gap in Phase 3 |
 | 8 | Continuous collision detection | Wang et al. 2021 *A Large Scale Benchmark and an Inclusion-Based Algorithm for Continuous Collision Detection* (Tight-Inclusion); Li et al. 2020 *IPC* | Tight-Inclusion: MIT | Conservative, provably correct CCD; Unity, robotics |
 | 9 | Simplification with intrinsic error metrics | Liu et al. 2023 *Surface Simplification using Intrinsic Error Metrics* | paper | On the intrinsic triangulation infrastructure |
 | 10 | Mesh from coarse / sparse SDFs | Sellán et al. 2023 *Reach for the Spheres*; 2024 *Reach for the Arcs* | paper | With the sparse SDF grids and TPMS items under Later |

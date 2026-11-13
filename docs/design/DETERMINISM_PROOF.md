@@ -6,7 +6,7 @@ configurations, and its section 6 says what that is worth: "absence of a differe
 proof". This note asks what a proof can rest on, maps every known source of nondeterminism to a rule a tool can check,
 and proposes where to start. It is a study: nothing is built, no library code changed. The code facts below come from
 reading and `grep` on master 58644af (line counts are grep counts, so approximate); the findings of section 5 are
-candidates from that reading and are **not confirmed by a run**.
+candidates from that reading; section 5.1 has what the probes and the workflow run of #786 made of them.
 
 ## 1. Summary
 
@@ -199,10 +199,10 @@ tooling; *flow* needs dataflow or an attribute.
 | R1 | transcendental functions (platform libm, 1 ulp) | L1 | 16 / 232 lines; in the exact scope all in `TerrainSlope*` (`Tan`, `Cos`, `Acos`, `Atan2`, `Pow`) | *ban* (G3E0004 exists; scope it to every proof scope); `CoreMath` or exact constants instead; `Math.Pow(2, -30)` becomes a literal | none once banned |
 | R2 | `float`, x87 on 32-bit | L1 (x86) | 0 / 1347 | *ban* (G3E0001) | 32-bit stays outside the claim for float code (owner decision C4) |
 | R3 | FMA, hardware intrinsics, `Vector<T>` (its width is the machine's) | L1, L2 | 0 uses of vector types in exact code (the 16 `System.Numerics` hits are `BigInteger`) | *ban* (G3E0003, RS0030; add `System.Numerics.Vector*`) | JIT contraction is T1 |
-| R4 | `Math.Min / Max` of doubles: the result for `(+0, -0)` and NaN was changed in .NET Core 3.0 to follow IEEE 754-2008 (documented breaking change; **to confirm with a probe**) | L1 | 237 / 1200 lines | *list*: not on the allow list for `double`; a library `MinExact / MaxExact` with a stated result for zeros instead, or an argument that the sign of zero cannot reach the result | a `-0.0` in a result is a different bit pattern; DETERMINISM.md 6a calls Min / Max "IEEE-exact everywhere", which this narrows |
-| R5 | `double -> int / long` casts out of range or of NaN: unspecified in C#; x64 .NET Framework gives `0x80000000`, arm64 and .NET 9 and later saturate (**to confirm with a probe**) | L1, L2 | not counted (needs the semantic model) | *flow*: a cast needs a dominating range check, or a helper with a stated result | range facts beyond simple guards need review |
+| R4 | `Math.Min / Max` of doubles: the result for `(+0, -0)` and NaN was changed in .NET Core 3.0 to follow IEEE 754-2008 (confirmed, 5.1) | L1 | 237 / 1200 lines | *list*: not on the allow list for `double`; a library `MinExact / MaxExact` with a stated result for zeros instead, or an argument that the sign of zero cannot reach the result | a `-0.0` in a result is a different bit pattern; DETERMINISM.md 6a calls Min / Max "IEEE-exact everywhere", which this narrows |
+| R5 | `double -> int / long` casts out of range or of NaN: unspecified in C#; x64 .NET Framework gives `0x80000000`, arm64 and .NET 9 and later saturate (confirmed, 5.1) | L1, L2 | not counted (needs the semantic model) | *flow*: a cast needs a dominating range check, or a helper with a stated result | range facts beyond simple guards need review |
 | R6 | conditional compilation: `#if NET` runs different code on net48 and net10 | L1 | 18 / 61 blocks (`BitLength`, `TrailingZeroCount`, `TryWriteBytes`, generated predicates) | *list*: every block in scope is registered with a differential test of the two branches; the code already compiles the portable branch everywhere "so that the tests on .NET check it"; the analyzer requires the registration | equivalence is tested (exhaustive only for small domains) |
-| R7 | hash values: `string`, `ValueTuple`, `HashCode.Combine` are seeded per process on .NET; whether `BigInteger.GetHashCode` (used by `ExactPoint3.GetHashCode`) is stable across runtimes was not verified | L0-R, L1 | 15 / 110 lines; a hash value picks the shard in `ExactMeshArrangement` (`key.GetHashCode() % Shards`); `ValueTuple` keys in `SnapRounding2` | *flow*: a hash value may only go into a hash container or an index of a lookup-only structure; never into an order, a count that is observable, or the result | shard choice is P4 (lookup result unique) with P5 for the ids |
+| R7 | hash values: `string`, `ValueTuple`, `HashCode.Combine` are seeded per process on .NET; so is `BigInteger.GetHashCode` (used by `ExactPoint3.GetHashCode`) on .NET 10 (5.1) | L0-R, L1 | 15 / 110 lines; a hash value picks the shard in `ExactMeshArrangement` (`key.GetHashCode() % Shards`); `ValueTuple` keys in `SnapRounding2` | *flow*: a hash value may only go into a hash container or an index of a lookup-only structure; never into an order, a count that is observable, or the result | shard choice is P4 (lookup result unique) with P5 for the ids |
 | R8 | enumeration order of `Dictionary` / `HashSet` (unspecified; in practice insertion order until an element is removed, and not promised equal across runtimes) | L0-R, L1 | about 157 / 542 containers created; in the Boolean, two enumerations of `.Values` feed the result: `fans.Values`, where the first fan keeps the vertex and the others get a copy (`ExactMeshBoolean.cs:4356`), and `groups.Values` (`ExactMeshArrangement.cs:1031`) | *flow*: `foreach` over a hash container (or `Keys`, `Values`, LINQ over it) is an error in scope unless the body is P2, the result goes through P3, or the site is on the allow list | the two sites above are obligations today: correct if the insertion order is fixed and the runtime keeps it, which no specification says |
 | R9 | clock, `Stopwatch`, `DateTime`, `Guid`, `Environment.*` (core count, tick count), unseeded `Random` | L0 | 9 / 70 lines; `Environment.ProcessorCount` chooses outer or inner parallelism in `ExactMeshBoolean.each` | *flow*: values from these sources may only reach members marked diagnostic, or select between branches registered as equivalent | the equivalence of the branches (P1: independent bodies) |
 | R10 | seeded `System.Random`: deterministic today, but the documentation reserves the right to change the sequence between versions | L1 | 4 uses in the Boolean (ray directions for winding numbers, a test permutation) | *list*: not allowed; the harness's SplitMix64 as a library generator; or P4 where the answer does not depend on the ray | none with an own generator |
@@ -223,6 +223,30 @@ Two readings of the table:
   that satisfies T1 to T3. This is the cheapest part and the one the measurement is weakest on (six configurations).
 - The others (R7 to R9, R11 to R15, R19) are flows from an environment value to the result. The tool does not prove
   them harmless; it proves that the sites are **all** on the list, each with a form of section 4.3.
+
+### 5.1 Results of the probes and the schedule adversary (#786, 2026-11-13)
+
+Option B, first piece, is merged: the loop-order hook of `gParallel`, the harness command `adversary`, the probes and
+`OrderAdversaryTests`. Measured in determinism run 43379590599 (linux x64, linux arm64, windows net10, .NET Framework 4.8
+x64 and as a 32-bit process; .NET 10.0.15), 61 cases.
+
+| rule | question | result | follow-up |
+|---|---|---|---|
+| R12, R13 | does a result depend on the order in which a parallel loop runs its items | no: 61 of 61 cases the same backwards and under seeded permutations of every `gParallel` loop, on linux net10 and windows net48; inside every runtime all cases are identical between parallel, serial, two runs and 1 to 8 processors | hash order, sort ties and libm are not perturbed yet (they need choke points at the call sites: with option A) |
+| R1 | platform libm in `TerrainSlope*` | **real**: `TerrainSlopeDesign` with a Ratio slope and a libm-free input differs in 20 of 15302 result values between windows net10 and windows net48, and between linux net10 and windows net10 (linux net10 and windows net48 agree). Cause, by moving each of the 15 reached call sites by one ulp: `Cos / Sin` of the fan directions (`TerrainSlopeDesign.cs:1716`), which define the planes given to the exact kernel; the other sites feed decisions and bounds and did not flip | #802 (owner decision: libm rule for `TerrainSlope*`, the one line only, or outside L1) |
+| R4 | `Math.Min / Max` on zeros | confirmed: `Min(-0, +0)` and `Max(+0, -0)` differ (.NET Framework returns the second operand, .NET the IEEE 754-2019 result); with a NaN operand both agree. Six sites of the exact scope can pass the zero to a result value | #803 |
+| R5 | `double -> integer` casts | confirmed: 63 of 150 probed casts of NaN and out-of-range values differ (.NET saturates, NaN gives 0; .NET Framework gives the minimum value). The audit found one site that a valid input drives out of range (`TerrainSlopeDesign.cs:1090`) | #804, #808 |
+| R7 | hash values | confirmed: `BigInteger` (so `ExactPoint3`), `ValueTuple` and `string` hashes differ between any two runs on .NET 10 and are fixed on .NET Framework; `double.GetHashCode` differs between the runtimes for 1 of 8 probed values. No Boolean result depends on them on any configuration | #789 (the obligation needs a test that perturbs the hash) |
+| R8 | enumeration order of `Dictionary` / `HashSet` | the same on both runtimes after inserts, after removals, after refills, after set operations and `TrimExcess`, also for keys with seeded hashes; different only for a `HashSet` emptied by `Remove` and refilled | none; the rule stays (the order is unspecified), the two `.Values` sites of the Boolean rest on behaviour that held here |
+| R10 | seeded `System.Random` | the same sequence on both runtimes | none; the rule stays (not promised) |
+| R11 | order of equal keys after the unstable sorts, `BinarySearch` among duplicates | the same on both runtimes for 16 to 20000 elements and six overloads | none; the rule stays |
+| L2 | linux arm64 against linux x64 | identical on all cases | none |
+
+What the adversary is worth, by mutation: of six normalizing sorts removed from the exact Boolean one at a time, the
+order adversary detects two, the same two that the existing repeated-run tests detect; it does so in one serial process
+instead of by parallel repeats, and not more often. The four others (`ExactMeshArrangement.cs` 987, 2509, 2516,
+`ExactMeshBoolean.cs` 4363) survive every determinism test and the harness: redundant on the inputs, or not reached by
+them. They belong to the stage 2 ledger.
 
 ## 6. Proposal
 
@@ -359,5 +383,4 @@ analyzer; `System.Random` remarks (sequence not guaranteed across versions); .NE
 
 Citations were written from memory and spot-checked by search for NonDex, DPJ, internal determinism, ECMA-335 I.12.1.3,
 the Durable Task analyzer and the reproducible-summation line; the remaining bibliographic details (venue, year) should
-be checked before they are copied elsewhere. Not verified at all: the behaviour of `BigInteger.GetHashCode` across
-runtimes (R7), and the two runtime changes of R4 and R5 beyond their documentation (probes, 6.2 item 3).
+be checked before they are copied elsewhere. The runtime facts of R4, R5 and R7 are measured (5.1).
