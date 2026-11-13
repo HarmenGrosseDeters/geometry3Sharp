@@ -59,5 +59,53 @@ namespace geometry3Sharp.Tests
         {
             Assert.Throws<InvalidOperationException>(() => Timed.MakesProgress(beat => { beat(); throw new InvalidOperationException("x"); }, TimeSpan.FromSeconds(5)));
         }
+
+        // ---- Timed.Finishes: the budget is the CPU time of the worker, not wall-clock seconds (#733) ----
+
+        static bool CpuTimeIsReadable => Environment.OSVersion.Platform == PlatformID.Win32NT || System.IO.File.Exists("/proc/thread-self/stat");
+
+        static void Spin(int ms)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms) Thread.SpinWait(200);
+        }
+
+        [Fact]
+        public void Finishes_AQuickAction_IsTrue_AndItsExceptionIsRethrown()
+        {
+            Assert.True(Timed.Finishes(() => Thread.Sleep(10), TimeSpan.FromSeconds(1)));
+            Assert.Throws<InvalidOperationException>(() => Timed.Finishes(() => throw new InvalidOperationException("x"), TimeSpan.FromSeconds(1)));
+        }
+
+        // a loaded machine: the action needs 0.6 s of CPU but 2.4 s of wall-clock time (it waits for a core between its bursts). A wall-clock
+        // budget of 1 s called this a hang (#733); the CPU budget does not
+        [Fact]
+        public void Finishes_ASlowButLightWorker_IsNotAHang()
+        {
+            if (!CpuTimeIsReadable) return;
+            Assert.True(Timed.Finishes(() => { for (int i = 0; i < 6; ++i) { Spin(100); Thread.Sleep(300); } }, TimeSpan.FromSeconds(1)));
+        }
+
+        [Fact]
+        public void Finishes_AWorkerThatSpinsPastTheBudget_IsAHang()
+        {
+            if (!CpuTimeIsReadable) return;
+            var stop = new ManualResetEventSlim();
+            try {
+                // (an endless loop: it burns CPU; the wall ceiling of 60 s is only a safety net for the test)
+                Assert.False(Timed.Finishes(() => { while (!stop.IsSet) Thread.SpinWait(200); }, TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(60)));
+            } finally { stop.Set(); }
+        }
+
+        [Fact]
+        public void Finishes_AWorkerThatBlocksForever_FailsAtTheWallCeiling()
+        {
+            var release = new ManualResetEventSlim();
+            try {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Assert.False(Timed.Finishes(() => release.Wait(), TimeSpan.FromSeconds(0.2), TimeSpan.FromSeconds(1)));
+                Assert.InRange(sw.Elapsed.TotalSeconds, 0.9, 30);
+            } finally { release.Set(); }
+        }
     }
 }
