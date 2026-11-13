@@ -237,7 +237,7 @@ namespace gs
         }
 
         // the height of the plane at (x, y), rounded down (exact: the rounded height is lowered by an ulp if it is above)
-        static double height_down(ExactSlopeKernel kernel, int plane, Vector3d p, Vector3d q, Vector3d r, double x, double y)
+        internal static double height_down(ExactSlopeKernel kernel, int plane, Vector3d p, Vector3d q, Vector3d r, double x, double y)
         {
             double h = kernel.Height(plane, x, y);
             int o2 = ExactPredicates.Orient2d(p.xy, q.xy, r.xy);
@@ -425,7 +425,8 @@ namespace gs
 
         // the width oracle (TERRAIN_RAMPS.md): every nominal polygon (Width (1 + delta) wide, its width at least
         // Width, checked exactly) is road: no triangle of another kind overlaps its interior (exact), and the road
-        // triangles cover its area (in doubles: a hole can only be where nothing is built). Else the crest comes closer
+        // triangles cover its area (in doubles, to 1e-7: a hole can only be where nothing is built, outside the slope's
+        // domain or above its height limit, which is no sliver). Else the crest comes closer
         // than Width to the outer edge, or the road hangs: RampNotOnWall
         Statuses ramp_coverage(DMesh3 mesh, List<InPiece> pieces)
         {
@@ -443,7 +444,10 @@ namespace gs
                 checkCancel();
                 if (nominal_width_ok(nm) == false)
                     return ramp_problem(Statuses.Failed, nm.Ramp, nm.Seg, "the nominal road polygon is narrower than Width (rounding)");
-                double area = polygon_area(nm.Poly), covered = 0;
+                // (the areas relative to the polygon's first corner: at UTM the absolute cross products cancel)
+                Vector2d o = nm.Poly[0];
+                Vector2d[] local = nm.Poly.Select(p => p - o).ToArray();
+                double area = polygon_area(local), covered = 0;
                 bool intruded = false;
                 Vector2d where = Vector2d.Zero;
                 for (int k = 0; k < tris.Count && intruded == false; ++k) {
@@ -452,13 +456,13 @@ namespace gs
                     mesh.GetTriVertices(tris[k], ref a, ref b, ref c);
                     var txy = new[] { a.xy, b.xy, c.xy };
                     if (pieces[mesh.GetTriangleGroup(tris[k])].Kind == 1)
-                        covered += Math.Abs(polygon_area(clip_convex(txy, nm.Poly).ToArray()));
+                        covered += Math.Abs(polygon_area(clip_convex(txy.Select(p => p - o).ToArray(), local).ToArray()));
                     else if (interiors_overlap(nm.Poly, txy)) {
                         intruded = true;
                         where = (a.xy + b.xy + c.xy) / 3;
                     }
                 }
-                if (intruded || covered < area * (1 - 1e-9)) {
+                if (intruded || covered < area * (1 - 1e-7)) {
                     if (problems.Count == 0)
                         firstProblem = $" (first: ramp {nm.Ramp} {(nm.Bend ? "bend" : "segment")} {nm.Seg}: " +
                                        (intruded ? $"a triangle at ({where.x:G6}, {where.y:G6}) enters the road)" : $"{covered / area:P3} of the road is built)");

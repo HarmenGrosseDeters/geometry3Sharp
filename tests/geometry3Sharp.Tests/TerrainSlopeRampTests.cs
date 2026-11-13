@@ -253,6 +253,17 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the catch lines lie between the references (their heights on the terrain are TerrainSlopeCatchLineTests' oracle)
+        internal static void AssertRampCatchLines(TerrainSlopeDesign d)
+        {
+            foreach (CatchLine l in d.CatchLines)
+                foreach (Vector3d q in l.Points) {
+                    double slack = 1e-9 * (Math.Abs(q.z) + 1);
+                    Assert.True(q.z <= Reference(d, q.xy, true) + slack, $"catch point {q} above the reference");
+                    Assert.True(q.z >= Reference(d, q.xy, false) - d.Tolerance - slack, $"catch point {q} below the reference");
+                }
+        }
+
         // ---- design cases ----
 
         [Fact]
@@ -270,6 +281,13 @@ namespace geometry3Sharp.Tests
             Vector2d x = new Vector2d(2.5, -21.5) + 3.9 * new Vector2d(-1.5, -12.5).Normalized;
             double zRamp = TerrainSlopeDesignTests.HeightAt(d.SlopeSurface, x), zPlain = TerrainSlopeDesignTests.HeightAt(plain.SlopeSurface, x);
             Assert.True(zPlain - zRamp > 3, $"{zRamp} vs {zPlain}");
+            // the path leaves the toe more steeply than the grade over the slope (3 / 25 > 0.1): near its end the crest
+            // lies inwards of the path (at 2.5 from the toe, the path at 3), and the road reaches it
+            DMesh3 m = d.SlopeSurface;
+            int t = Containing(m, new Vector2d(14.9, -22.65));
+            Assert.Equal(SlopePiece.Kinds.Road, d.Pieces[m.GetTriangleGroup(t)].Kind);
+            t = Containing(m, new Vector2d(14.9, -22.3));
+            Assert.Equal(SlopePiece.Kinds.Slope, d.Pieces[m.GetTriangleGroup(t)].Kind);
         }
 
         [Fact]
@@ -413,6 +431,63 @@ namespace geometry3Sharp.Tests
             var auto = run(d => d.Direction = TerrainSlopeDesign.Directions.Auto);
             Assert.Equal(TerrainSlopeDesign.Statuses.NotImplemented, auto.Status);
             Assert.Equal(TerrainSlopeDesign.StatusKinds.UnsupportedByMethod, auto.StatusKind);
+        }
+
+        [Fact]
+        public void RampShare_IsInTheToleranceBudget()
+        {
+            // the road built at g - delta sMax lies up to delta sMax x its length below the specified road: a Tolerance
+            // that the slope's margins alone (2.2e-5 here) leave room for, but not with the ramp's share (4.7e-5)
+            var d = Straight();
+            d.Tolerance = 4e-5;
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+            Assert.Contains("numerical margins", d.Message);
+            // (the margins without the ramp, as the message of a Tolerance below them says, are below 4e-5)
+            var plain = Straight(); plain.Ramps.Clear(); plain.Tolerance = 1e-9;
+            Assert.False(plain.Compute());
+            string m = plain.Message.Substring(plain.Message.LastIndexOf('(') + 1).TrimEnd(')');
+            Assert.True(double.Parse(m, System.Globalization.CultureInfo.InvariantCulture) < 3e-5, plain.Message);
+        }
+
+        [Fact]
+        public void HeightDown_IsNeverAboveThePlane()
+        {
+            var k = new ExactSlopeKernel();
+            var rnd = new Random(7);
+            for (int n = 0; n < 20; ++n) {
+                Vector3d p = new Vector3d(rnd.NextDouble() * 100, rnd.NextDouble() * 100, rnd.NextDouble() * 10),
+                    q = p + new Vector3d(30 + rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble()),
+                    r = p + new Vector3d(rnd.NextDouble(), 30 + rnd.NextDouble(), rnd.NextDouble());
+                int plane = k.AddPlane(p, q, r);
+                int o2 = ExactPredicates.Orient2d(p.xy, q.xy, r.xy);
+                for (int i = 0; i < 20; ++i) {
+                    double x = rnd.NextDouble() * 150, y = rnd.NextDouble() * 150;
+                    double h = TerrainSlopeDesign.height_down(k, plane, p, q, r, x, y);
+                    Assert.True(ExactPredicates.Orient3d(p, q, r, new Vector3d(x, y, h)) * o2 <= 0, $"{h} above the plane at ({x}, {y})");
+                    // (the next double above is above the plane: rounded down, not further)
+                    Assert.True(ExactPredicates.Orient3d(p, q, r, new Vector3d(x, y, ExactInterval.Up(h))) * o2 > 0);
+                }
+            }
+        }
+
+        [Fact]
+        public void CheckPiece_RampTriangles_AreSupportedByTheCorners()
+        {
+            // a flat road polygon at z = 2: a triangle on it passes, one an ulp above a corner does not
+            var corners = new[] { new Vector3d(0, 0, 2), new Vector3d(10, 0, 2), new Vector3d(10, 4, 2), new Vector3d(0, 4, 2) };
+            var pc = new TerrainSlopeDesign.InPiece() { Kind = 1, Spec = SlopeSpec.Percent(10), Support = corners };
+            bool slopeOk, supportOk;
+            TerrainSlopeDesign.check_piece(pc, new Vector3d(1, 1, 2), new Vector3d(5, 1, 2), new Vector3d(3, 3, 2), out slopeOk, out supportOk);
+            Assert.True(slopeOk && supportOk);
+            double up = ExactInterval.Up(2);
+            TerrainSlopeDesign.check_piece(pc, new Vector3d(1, 1, up), new Vector3d(5, 1, up), new Vector3d(3, 3, up), out slopeOk, out supportOk);
+            Assert.True(slopeOk);
+            Assert.False(supportOk);
+            // a tilted one below every corner but steeper than the grade
+            TerrainSlopeDesign.check_piece(pc, new Vector3d(1, 1, 1), new Vector3d(5, 1, 0), new Vector3d(3, 3, 0.5), out slopeOk, out supportOk);
+            Assert.False(slopeOk);
+            Assert.True(supportOk);
         }
 
         // ---- invariance, reuse ----

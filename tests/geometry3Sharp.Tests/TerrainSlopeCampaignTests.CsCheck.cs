@@ -40,7 +40,12 @@ namespace geometry3Sharp.Tests
             public int Tilt;            // Auto: the terrain tilts through the toe plane, 0 .. 2 (x 0.4 per unit)
             public int Side;            // 0 Outside, 1 Inside
             public int Holes;           // 0 .. 3 triangles removed at the terrain corner far from the toe (no-data cells)
-            public override string ToString() => $"{new[] { "cut", "fill", "auto" }[Dir]}: toe {Toe}-gon r {Radius / 2.0}, 1:{Ratio / 8.0}, terrain amp {Amp / 2.0} wave {Wave / 100.0} height {Height / 2.0} jitter {Jitter} tilt {Tilt} grid {Nx}x{Ny}{(Flip ? " flipped" : "")}, side {(Side == 0 ? "outside" : "inside")}, holes {Holes}, seed {Seed}";
+            // a ramp (cut, outside; RampCampaign): from toe vertex 0 along the first edge, leaving the toe at sin = Leave / 10 x
+            // grade / slope (below 10: the road hangs), Grade in %, Width in 0.5 units, Length in 1/10 of the edge
+            public bool Ramp;
+            public int Grade, Width, Leave, Length;
+            public override string ToString() => $"{new[] { "cut", "fill", "auto" }[Dir]}: toe {Toe}-gon r {Radius / 2.0}, 1:{Ratio / 8.0}, terrain amp {Amp / 2.0} wave {Wave / 100.0} height {Height / 2.0} jitter {Jitter} tilt {Tilt} grid {Nx}x{Ny}{(Flip ? " flipped" : "")}, side {(Side == 0 ? "outside" : "inside")}, holes {Holes}, seed {Seed}"
+                + (Ramp ? $", ramp grade {Grade} % width {Width / 2.0} leave {Leave / 10.0} length {Length / 10.0}" : "");
         }
 
         /// <summary> the design, all lengths multiplied by 2^shift (exact) </summary>
@@ -58,14 +63,26 @@ namespace geometry3Sharp.Tests
                 s.Side == 0 ? SlopeToe.Sides.Outside : SlopeToe.Sides.Inside, SlopeSpec.Ratio(s.Ratio / 8.0));
             if (s.Dir == 1) { toe.FillStart = toe.CutStart; toe.CutStart = null; }
             else if (s.Dir == 2) { toe.FillStart = toe.CutStart; }
-            return new TerrainSlopeDesign() {
+            var d = new TerrainSlopeDesign() {
                 Toes = { toe }, Terrain = terrain, Tolerance = f * 0.05, BuildComposite = true,
                 Direction = s.Dir == 0 ? TerrainSlopeDesign.Directions.Cut : s.Dir == 1 ? TerrainSlopeDesign.Directions.Fill : TerrainSlopeDesign.Directions.Auto
             };
+            if (s.Ramp) {
+                // (in the unscaled frame, then scaled and moved like the toe; the start is the toe's vertex 0, exactly)
+                var ngon = TerrainSlopeCatchLineTests.Ngon(s.Toe, s.Radius / 2.0, 0, Vector2d.Zero, 0.1);
+                Vector2d p0 = ngon[0].xy, e = ngon[1].xy - p0, u = e.Normalized, n = new Vector2d(u.y, -u.x);
+                double g = s.Grade / 100.0, sl = 8.0 / s.Ratio, sinb = Math.Min(0.8, s.Leave / 10.0 * g / sl), cosb = Math.Sqrt(1 - sinb * sinb);
+                Vector2d end = p0 + (s.Length / 10.0 * e.Length) * (cosb * u + sinb * n);
+                d.Ramps.Add(new SlopeRamp() {
+                    Toe = 0, Path = new List<Vector2d>() { toe.Points[0].xy, f * end + move.xy }, Grade = SlopeSpec.Percent(s.Grade), Width = f * s.Width / 2.0, Side = SlopeToe.Sides.Right
+                });
+            }
+            return d;
         }
 
         static bool Acceptable(TerrainSlopeDesign.Statuses st) =>
             st == TerrainSlopeDesign.Statuses.Success || st == TerrainSlopeDesign.Statuses.NoDaylight;
+        static int rampSuccess, rampNotOnWall;
 
         static long Bits(double v) => BitConverter.DoubleToInt64Bits(v);
 
@@ -136,6 +153,12 @@ namespace geometry3Sharp.Tests
                     System.Threading.Interlocked.Increment(ref openAutoCrossings);
                     return "";
                 }
+                if (d.Status == TerrainSlopeDesign.Statuses.RampNotOnWall) {
+                    // (a hanging road: only expected when the path leaves the toe more flatly than the grade over the slope)
+                    System.Threading.Interlocked.Increment(ref rampNotOnWall);
+                    if (s.Leave >= 12) return "RampNotOnWall on a path that leaves the toe at 1.2 x the grade over the slope or more: " + d.Message;
+                    return "";
+                }
                 if (d.Status == TerrainSlopeDesign.Statuses.InvalidInput || d.Status == TerrainSlopeDesign.Statuses.NotImplemented || d.Status == TerrainSlopeDesign.Statuses.Failed || d.Status == TerrainSlopeDesign.Statuses.SlopeViolation ||
                     d.Status == TerrainSlopeDesign.Statuses.CompositeFailed || d.Status == TerrainSlopeDesign.Statuses.NotHeightField)
                     return "status " + d.Status + ": " + d.Message;
@@ -175,7 +198,13 @@ namespace geometry3Sharp.Tests
                 // (cut or fill: the catch-line oracle; Auto: when all pieces have one direction, else only the composite oracles)
                 bool allFill = d.Pieces.Count > 0 && d.Pieces.All(p => p.Direction == TerrainSlopeDesign.Directions.Fill);
                 bool allCut = d.Pieces.Count > 0 && d.Pieces.All(p => p.Direction == TerrainSlopeDesign.Directions.Cut);
-                if (s.Dir != 2 || allFill || allCut) TerrainSlopeCatchLineTests.AssertCatchLines(d, s.Dir == 1 || allFill);
+                if (s.Ramp) {
+                    // (the ramp's oracles: the slope surface against the references of toe and road, the road's width and
+                    // heights, the catch lines between the references)
+                    TerrainSlopeRampTests.AssertRamps(d, 4);
+                    TerrainSlopeRampTests.AssertRampCatchLines(d);
+                    System.Threading.Interlocked.Increment(ref rampSuccess);
+                } else if (s.Dir != 2 || allFill || allCut) TerrainSlopeCatchLineTests.AssertCatchLines(d, s.Dir == 1 || allFill);
                 TerrainSlopeCatchLineTests.AssertComposite(d, s.Dir == 1);
                 if (d.Composite != null) {
                     var tvd = new TerrainVolumeDifference(d.Terrain, d.Composite);
@@ -202,6 +231,21 @@ namespace geometry3Sharp.Tests
                 (x, y, z, t) => new Scene { Tilt = t, Side = z.Item5, Holes = z.Item6, Dir = x.Item1, Toe = x.Item2, Radius = x.Item3, Ratio = x.Item4, Amp = y.Item1, Wave = y.Item2, Height = y.Item3, Jitter = y.Item4, Nx = z.Item1, Ny = z.Item2, Flip = z.Item3, Seed = z.Item4 });
 
         static readonly int[] Shifts = { -9, 11 };
+
+        // the scenes of the ramp campaign: cut, outside, with a ramp
+        static readonly Gen<Scene> GenRampScene =
+            Gen.Select(GenScene, Gen.Int[4, 12], Gen.Int[4, 10], Gen.Int[8, 30], Gen.Int[4, 9],
+                (sc, g, w, l, len) => { sc.Dir = 0; sc.Side = 0; sc.Tilt = 0; sc.Ramp = true; sc.Grade = g; sc.Width = w; sc.Leave = l; sc.Length = len; return sc; });
+
+        /// <summary> the campaign with a random ramp per scene (TERRAIN_RAMPS.md, R1): the same properties, with the ramp's oracles </summary>
+        [Fact]
+        public void RampCampaign()
+        {
+            accepted = rejected = volumeChecked = rampSuccess = rampNotOnWall = 0;
+            CampaignRunner.Run(log, nameof(TerrainSlopeCampaignTests), "terrainramp", GenRampScene, s => Property(s, Shifts), CampaignRunner.Samples(5), 412u);
+            if (CampaignRunner.Samples(5) >= 5 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY"))) Assert.True(rampSuccess > 0, $"{rampSuccess} ramps with a result");
+            log.WriteLine($"terrainramp: {accepted} designs with a result ({rampSuccess} checked with the ramp's oracles), {rejected} with another status ({rampNotOnWall} RampNotOnWall), {volumeChecked} volume checks");
+        }
 
         /// <summary>
         /// the open finding as a fixed example: the inside of a closed toe, found by the campaign (seed lyr6). When this test fails

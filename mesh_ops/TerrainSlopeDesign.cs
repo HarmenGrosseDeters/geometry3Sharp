@@ -495,7 +495,7 @@ namespace gs
 
         // ---------------------------------------------------------------- inputs
 
-        sealed class InPiece
+        internal sealed class InPiece
         {
             public int Toe, Segment;
             public Vector3d A, B;          // specified toe points (mirrored for fill)
@@ -518,7 +518,7 @@ namespace gs
 
         // the exact check of one triangle of a piece (TERRAIN.md 5.4): not steeper than its spec, counter-clockwise, and
         // its plane on or below the piece's support points (its toe ends; a ramp part's polygon corners)
-        static void check_piece(InPiece pc, Vector3d a, Vector3d b, Vector3d c, out bool slopeOk, out bool supportOk)
+        internal static void check_piece(InPiece pc, Vector3d a, Vector3d b, Vector3d c, out bool slopeOk, out bool supportOk)
         {
             slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0 && Slope.IsNotSteeper(a, b, c, pc.Spec);
             if (pc.Support == null) {
