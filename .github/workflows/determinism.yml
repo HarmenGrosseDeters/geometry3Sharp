@@ -35,6 +35,8 @@ jobs:
           $H run --out out/linux-net10-serial --serial
           # the partitioning of the library's parallel loops depends on the processor count
           for n in 1 2 3 8; do DOTNET_PROCESSOR_COUNT=$n $H run --out out/linux-net10-cpu$n; done
+      - name: Schedule adversary (every parallel loop backwards and in seeded permutations)
+        run: dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll adversary --seeds 5
       - name: Cost of the correctly rounded CoreMath (benchmarks/CoreMathBenchmark)
         run: |
           dotnet build benchmarks/CoreMathBenchmark -c Release
@@ -92,6 +94,9 @@ jobs:
           $B/net48/DeterminismHarness.exe run --out out/windows-net48-parallel
           $B/net48/DeterminismHarness.exe run --out out/windows-net48-parallel2
           $B/net48/DeterminismHarness.exe run --out out/windows-net48-serial --serial
+      - name: Schedule adversary on net48
+        shell: bash
+        run: tools/DeterminismHarness/bin/Release/net48/DeterminismHarness.exe adversary --seeds 3
       - name: Run net48 as a 32-bit process (x87 / legacy JIT arithmetic)
         shell: bash
         run: |
