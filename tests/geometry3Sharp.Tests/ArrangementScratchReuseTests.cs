@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     /// <summary>
     /// The allocation cuts in ExactMeshArrangement (lever 4 of the boolean study): TriangleBoxTree.Query with a callback
     /// reuses its result list per thread and nesting depth, BoxGrid2 keeps its boxes as structs, merge_cluster numbers
-    /// its groups. Same results, in the same order, as before.
+    /// its groups, ExactTriangulation2 is sized from its point count. Same results, in the same order, as before.
     /// </summary>
     public class ArrangementScratchReuseTests
     {
@@ -102,58 +102,6 @@ namespace geometry3Sharp.Tests
             });
             for (int i = 0; i < queries.Count; ++i)
                 Assert.Equal(expected[i], got[i]);
-        }
-
-        [Fact]
-        public void TreeRebuild_SameAsAFreshBuild_GrowingAndShrinking()
-        {
-            // the median split (small trees), the Morton order and its parallel build; sizes that fit the old arrays and
-            // sizes that do not; the rebuilt tree answers queries as a fresh one
-            int keep = TriangleBoxTree.ParallelBuildFrom;
-            TriangleBoxTree.ParallelBuildFrom = 6000;
-            try {
-                var rand = new Random(6);
-                TriangleBoxTree tree = new TriangleBoxTree(RandomBoxes(rand, 100, 0.05));
-                foreach (int n in new[] { 50, 0, 3000, 5000, 9000, 4200, 7000, 20, 9000 }) {
-                    var boxes = RandomBoxes(rand, n, 0.02);
-                    var fresh = new TriangleBoxTree(boxes);
-                    tree = tree.Rebuild(boxes);
-                    Assert.True(tree.SameAs(fresh), n.ToString());
-                    Assert.True(fresh.SameAs(tree), n.ToString());
-                    foreach (var q in RandomBoxes(rand, 20, 0.1)) {
-                        Assert.Equal(ListQuery(fresh, q), ListQuery(tree, q));
-                        Assert.Equal(fresh.Any(q), tree.Any(q));
-                    }
-                }
-            } finally {
-                TriangleBoxTree.ParallelBuildFrom = keep;
-            }
-        }
-
-        [Fact]
-        public void TreeRebuild_TheOldTree_ThrowsOnEveryUse()
-        {
-            // its arrays belong to the rebuilt tree: a query on it must not answer as an empty tree (missed candidates)
-            var rand = new Random(8);
-            var old = new TriangleBoxTree(RandomBoxes(rand, 300, 0.05));
-            var boxes = RandomBoxes(rand, 200, 0.05);
-            var tree = old.Rebuild(boxes);
-            var q = boxes[0];
-            Assert.Throws<InvalidOperationException>(() => old.Query(q, new List<int>()));
-            Assert.Throws<InvalidOperationException>(() => old.Query(q, (k) => { }));
-            Assert.Throws<InvalidOperationException>(() => old.Any(q));
-            Assert.Throws<InvalidOperationException>(() => old.QuerySegment(q.Min, q.Max, 0, (k) => { }));
-            Assert.Throws<InvalidOperationException>(() => old.SelfPairTasks(4));
-            Assert.Throws<InvalidOperationException>(() => old.SelfPairs(new Index2i(0, 0), new List<Index2i>()));
-            Assert.Throws<InvalidOperationException>(() => old.SelfPairs(new Index2i(0, 0), (i, j) => true));
-            Assert.Throws<InvalidOperationException>(() => old.Rebuild(boxes));
-            Assert.Throws<InvalidOperationException>(() => old.SameAs(tree));
-            Assert.Throws<InvalidOperationException>(() => old.Depth());
-            Assert.Throws<InvalidOperationException>(() => old.VisitedNodes(q));
-            Assert.Throws<InvalidOperationException>(() => old.NodeCapacity);
-            // the rebuilt tree works, and is the fresh one
-            Assert.True(tree.SameAs(new TriangleBoxTree(boxes)));
-            Assert.Contains(0, ListQuery(tree, q));
         }
 
         // boxes on a grid with coincident corners and faces, and a rotated one through them: many coincident

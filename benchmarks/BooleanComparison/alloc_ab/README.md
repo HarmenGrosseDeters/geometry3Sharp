@@ -45,5 +45,6 @@ What the change removes, in the allocation profile (dotnet-trace `gc-verbose`, u
 - a `List<int>` per point group in `merge_cluster`: about 2 %;
 - the growth of `ExactTriangulation2`'s containers (sized from the number of points: 1 + 2 n triangles): part of its 5 %.
 
-`TriangleBoxTree.Rebuild` (reusing a tree's arrays) is offered to `MeshRoundingRepair.rebuild_tree`, the largest single
-source (8.6 % of the bytes); that call site belongs to the snap rounding work and is not changed here.
+The largest single source, `MeshRoundingRepair.rebuild_tree` (8.6 % of the bytes: a new `TriangleBoxTree` per rounding
+round, plus its box list), is not changed here: a tree rebuild that reuses the arrays belongs with its caller, in the snap
+rounding work.
