@@ -24,7 +24,9 @@ namespace geometry3Sharp.Tests
             var hd = new MeshHausdorffDistance(m, sphere) { Symmetric = false, Tolerance = 0.02 * d };
             hd.Compute();
             // (the upper bound is sharp up to the bound's tolerance: every collapse was certified within d, the bound adds at most
-            // its tolerance; the old code gave 1.54 to 1.56 d)
+            // its tolerance; the old code gave 1.54 to 1.56 d. Unlike SimplifyWithinRetryTests.AssertCertified, which checks against
+            // maxDistance itself: SimplifyWithin keeps its margin inside the operation, MaxDeviation 0.8 maxDistance; here only the
+            // estimate can overshoot the certified d)
             Assert.True(hd.Converged && hd.UpperBound <= d + hd.Tolerance, $"deviation {hd.LowerBound / d} to {hd.UpperBound / d} times MaxDeviation, converged {hd.Converged}");
         }
     }

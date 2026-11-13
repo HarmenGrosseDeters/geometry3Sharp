@@ -318,7 +318,8 @@ namespace gs
             // Reducer.MaxDeviation from the mesh given, for every region and the last pass: by default each Reducer would
             // measure from the mesh it starts on (the region of a later round, the last pass's mesh: already reduced), and
             // the deviations of the rounds would add up (issue #747). One tree, built on first use, only read
-            // (a copy only if Configure sets a MaxDeviation: probed on an empty Reducer)
+            // (a copy only if Configure sets a MaxDeviation: probed on an empty Reducer. A Configure that sets MaxDeviation for some
+            // Reducers only gets no shared reference: each of those measures from its own start mesh, as before)
             var probe = new Reducer(new DMesh3());
             Configure?.Invoke(probe);
             DMesh3 reference = probe.MaxDeviation > 0 ? new DMesh3(m) : null;
