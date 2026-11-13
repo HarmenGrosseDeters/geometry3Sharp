@@ -206,15 +206,20 @@ namespace geometry3Sharp.Tests
         }
 
         // G1 / G2 on exact contacts: never NoCollision, and the time of impact not after the contact
-        [Fact]
-        public void ExactContacts_AreNeverMissed()
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void ExactContacts_AreNeverMissed(bool intervals, bool shifted)
         {
             var rnd = new Random(7);
-            var solver = new CcdSolver();
+            var solver = new CcdSolver { ForceIntervals = intervals };
+            // a UTM-like shift (exact: the constructions have few bits), where the filter's error bound matters
+            Vector3d shift = shifted ? V(632117.25, 5712043.5, 113.75) : Vector3d.Zero;
             int n = 0;
             for (int i = 0; i < 600; ++i) {
                 bool vf = (i & 1) == 0;
-                Query q = ConstructedContact(rnd, vf, out double tStar);
+                Query q = ConstructedContact(rnd, vf, out double tStar).Map(x => x + shift);
                 // the construction is exact (its contact holds in exact arithmetic), else skip it
                 if (contact_point_exists(q, tStar) == false)
                     continue;
@@ -243,11 +248,13 @@ namespace geometry3Sharp.Tests
         }
 
         // random queries near contact: G1 / G2 against exact samples, G3 at the reported box
-        [Fact]
-        public void RandomQueries_SampledContactsAndReportedBoxes()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void RandomQueries_SampledContactsAndReportedBoxes(bool intervals)
         {
             var rnd = new Random(11);
-            var solver = new CcdSolver();
+            var solver = new CcdSolver { ForceIntervals = intervals };
             int collisions = 0, sampled = 0;
             for (int i = 0; i < 300; ++i) {
                 bool vf = (i & 1) == 0;
@@ -290,6 +297,95 @@ namespace geometry3Sharp.Tests
                         $"corner {k} axis {axis}: |F| > {b:R}");
                 }
             }
+        }
+
+        // B1: the computed corner values on the filter path are within e of the exact values, on adversarial inputs
+        // (cancellation at large offsets, mixed magnitudes, subnormal motions, parameters with many bits)
+        [Fact]
+        public void Filter_BoundsTheEvaluationError()
+        {
+            var rnd = new Random(5);
+            var solver = new CcdSolver();
+            var errors = new double[3];
+            double worstRatio = 0, worstSubnormal = 0;
+            for (int i = 0; i < 3000; ++i) {
+                int kind = i % 4;
+                double scale = Math.Pow(2, rnd.Next(-60, 400));
+                Vector3d basePoint = kind == 1 ? V(632117.25, 5712043.5, 113.75) * scale : Vector3d.Zero;
+                Vector3d rp(double size) => basePoint + size * V(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5);
+                var q = new Query { VF = (i & 1) == 0 };
+                for (int k = 0; k < 4; ++k) {
+                    switch (kind) {
+                        case 0: q.S[k] = rp(scale); q.E[k] = q.S[k] + rp(scale) - basePoint; break;               // generic
+                        case 1: q.S[k] = rp(scale * 1e-9); q.E[k] = rp(scale * 1e-9); break;                       // cancellation
+                        case 2: q.S[k] = rp(k == 0 ? scale : scale * 1e-12); q.E[k] = rp(k == 3 ? scale : 1e-6 * scale); break;  // mixed
+                        default:                                                                                     // subnormal
+                            q.S[k] = V(rnd.Next(-1 << 20, 1 << 20), rnd.Next(-1 << 20, 1 << 20), rnd.Next(-1 << 20, 1 << 20)) * double.Epsilon;
+                            q.E[k] = q.S[k] + V(rnd.Next(-1 << 20, 1 << 20), rnd.Next(-1 << 20, 1 << 20), rnd.Next(-1 << 20, 1 << 20)) * double.Epsilon;
+                            break;
+                    }
+                }
+                solver.Set(q.S[0], q.S[1], q.S[2], q.S[3], q.E[0], q.E[1], q.E[2], q.E[3]);
+                // parameters: multiples of 2^-53 (as deep in the search as a box can be), or of 2^-k
+                double par() { int bits = rnd.Next(1, 54); return Math.Floor(rnd.NextDouble() * (1L << bits)) / (1L << bits); }
+                double t0 = par(), t1 = par(), u0 = par(), u1 = par(), v0 = par(), v1 = par();
+                double[] c = solver.FilterCornersForTests(q.VF, t0, t1, u0, u1, v0, v1, errors);
+                for (int k = 0; k < 8; ++k) {
+                    double t = (k & 1) == 0 ? t0 : t1, u = (k & 2) == 0 ? u0 : u1, v = (k & 4) == 0 ? v0 : v1;
+                    for (int axis = 0; axis < 3; ++axis) {
+                        ExactDyadic err = ExactDyadic.Of(c[8 * axis + k]) - ExactF(q, axis, t, u, v);
+                        Assert.True(ExactDyadic.Compare(err, ExactDyadic.Of(errors[axis])) <= 0
+                                 && ExactDyadic.Compare(err, ExactDyadic.Of(-errors[axis])) >= 0, $"query {i} corner {k} axis {axis}");
+                        double ratio = Math.Abs(ExactDyadic.Quotient(err, ExactDyadic.Of(errors[axis])));
+                        if (kind == 3) worstSubnormal = Math.Max(worstSubnormal, ratio);
+                        else worstRatio = Math.Max(worstRatio, ratio);
+                    }
+                }
+            }
+            // the bound is not absurdly loose (a constant 16 times smaller fails on these inputs, see the mutants in the PR)
+            Assert.True(worstRatio > 1.0 / 16, $"worst observed error / bound {worstRatio}");
+            Assert.True(worstSubnormal > 1.0 / 16, $"worst observed subnormal error / bound {worstSubnormal}");
+        }
+
+        // the filter's bound is used in the discard test: a vertex that reaches a moving triangle's corner exactly at
+        // t = 1 (and only there), where the rounding of start + 1 * (end - start) can put the computed value at the
+        // contact on the far side of zero
+        [Fact]
+        public void Filter_ContactOnlyAtACornerOfTheDomain()
+        {
+            var rnd = new Random(3);
+            int rounded = 0;
+            for (int i = 0; i < 400; ++i) {
+                Vector3d a0 = 1000 * V(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble());
+                Vector3d a1 = a0 + V(rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5) * 0.37;
+                // b and c keep a's z, so F_z = (1 - t)(p0 - a0)_z >= 0, zero only at t = 1
+                Vector3d ex = V(1, 0, 0), ey = V(0, 1, 0);
+                Vector3d p0 = a0 + V(0.1, 0.1, 3000.3);   // far apart in magnitude: end - start is rounded
+                var q = VFq(p0, a0, a0 + ex, a0 + ey, a1, a1, a1 + ex, a1 + ey);
+                Assert.True(ExactContact(q, 1, 0, 0, 0));
+                double z1 = p0.z + (a1.z - p0.z), za = a0.z + (a1.z - a0.z);
+                if (z1 - za > 0) ++rounded;
+                CcdResult r = Run(q);
+                Assert.Equal(CcdStatus.Collision, r.Status);
+                Assert.True(r.TimeOfImpact <= 1);
+            }
+            Assert.True(rounded > 20, $"only {rounded} queries round the contact away");
+        }
+
+        // inputs beyond the filter's range take the interval path, and stay correct
+        [Fact]
+        public void HugeCoordinates_TakeTheIntervalPath()
+        {
+            foreach (double scale in new[] { Math.Pow(2, 600), 1e300 }) {
+                Query q = vertexThrough(0.25, 0.25).Map(x => x * scale);
+                CcdResult r = Run(q);
+                Assert.Equal(CcdStatus.Collision, r.Status);
+                Assert.Equal(0, r.ErrorBound);
+                Assert.True(r.TimeOfImpact <= 0.5);
+                Assert.Equal(CcdStatus.NoCollision, Run(vertexThrough(2, 2).Map(x => x * scale)).Status);
+            }
+            Assert.True(Run(vertexThrough(0.25, 0.25)).ErrorBound > 0);
+            Assert.Equal(Math.Pow(2, 500), CcdSolver.FilterRange);
         }
 
         [Fact]

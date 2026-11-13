@@ -184,7 +184,7 @@ namespace g3
             ms = o.MinSeparation;
             maxIterations = o.MaxIterations;
             iterations = 0;
-            errorBound = 0;
+            prepare_filter();
             bool haveNear = false;
             Box near = default(Box);
             double nearWidth = 0;
@@ -297,14 +297,22 @@ namespace g3
                 return true;
             ++iterations;
             for (int axis = 0; axis < 3; ++axis) {
-                corners_interval(vf, axis, ref b);
+                double threshold;
+                if (useFilter) {
+                    corners_filter(axis, ref b);
+                    threshold = thresholds[axis];
+                } else {
+                    corners_interval(vf, axis, ref b);
+                    threshold = ms;
+                }
                 double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
                 for (int k = 0; k < 8; ++k) {
                     lo = Math.Min(lo, cornerLo[8 * axis + k]);
                     hi = Math.Max(hi, cornerHi[8 * axis + k]);
                 }
-                // every exact corner value lies in [lo, hi] (NaN bounds never discard: the comparisons are false)
-                if (lo > ms || hi < -ms)
+                // every exact corner value lies in [lo - e, hi + e] (filter; threshold >= ms + e) or in [lo, hi]
+                // (intervals; threshold = ms); NaN bounds never discard: the comparisons are false
+                if (lo > threshold || hi < -threshold)
                     return true;
                 width = Math.Max(width, ExactInterval.Up(hi - lo));
             }
@@ -353,6 +361,81 @@ namespace g3
                 e = Math.Max(e, hi - lo);
             }
             return e;
+        }
+
+        /// <summary>
+        /// The bound B1 of docs/design/CCD.md, section 6.2: the computed corner value of F on one axis (corners_filter's
+        /// order of operations, no FMA) differs from the exact value at the same corner by at most
+        /// 64 M 2^-53 + 16 2^-1074, M the largest magnitude of the axis' eight input coordinates. The count gives
+        /// 62 M u + 21 2^-1075 (u = 2^-53, second-order terms included); 64 M u = M 2^-47 is a power-of-two multiple, so
+        /// e scales exactly with 2^k scaling (above the subnormal range).
+        /// </summary>
+        internal const double FilterRelative = 1.0 / (1L << 47);
+        internal const double FilterAbsolute = 16 * double.Epsilon;
+        /// <summary> above this coordinate magnitude the interval path is taken (no intermediate can overflow below it) </summary>
+        internal static readonly double FilterRange = BitConverter.Int64BitsToDouble((1023L + 500) << 52);   // 2^500
+
+        readonly double[] diff = new double[12], thresholds = new double[3], errors = new double[3];
+        bool useFilter;
+
+        void prepare_filter()
+        {
+            errorBound = 0;
+            useFilter = ForceIntervals == false;
+            for (int axis = 0; axis < 3; ++axis) {
+                double m = 0;
+                for (int i = 0; i < 4; ++i)
+                    m = Math.Max(m, Math.Max(Math.Abs(start[3 * i + axis]), Math.Abs(end[3 * i + axis])));
+                if (m > FilterRange)
+                    useFilter = false;
+                double e = ExactInterval.Up(m * FilterRelative + FilterAbsolute);
+                errors[axis] = e;
+                thresholds[axis] = ExactInterval.Up(ms + e);
+                for (int i = 0; i < 4; ++i)
+                    diff[3 * i + axis] = end[3 * i + axis] - start[3 * i + axis];
+            }
+            if (useFilter)
+                errorBound = Math.Max(errors[0], Math.Max(errors[1], errors[2]));
+        }
+
+        // corner values of F on one axis in doubles, in the order of operations bound B1 was derived for:
+        // d_i = end_i - start_i (prepare_filter), x_i = start_i + t * d_i, e0, e1, e2 differences of the x_i, and
+        // F = (e0 - u * e1) - v * e2 (vertex-triangle) or (e0 + u * e1) - v * e2 (edge-edge)
+        [MethodImpl(JitHints.Optimize)]
+        void corners_filter(int axis, ref Box b)
+        {
+            double s0 = start[axis], s1 = start[3 + axis], s2 = start[6 + axis], s3 = start[9 + axis];
+            double d0 = diff[axis], d1 = diff[3 + axis], d2 = diff[6 + axis], d3 = diff[9 + axis];
+            for (int kt = 0; kt < 2; ++kt) {
+                double t = kt == 0 ? b.t0 : b.t1;
+                double x0 = s0 + t * d0, x1 = s1 + t * d1, x2 = s2 + t * d2, x3 = s3 + t * d3;
+                double e0, e1, e2;
+                if (vf) { e0 = x0 - x1; e1 = x2 - x1; e2 = x3 - x1; }
+                else { e0 = x0 - x2; e1 = x1 - x0; e2 = x3 - x2; }
+                for (int kuv = 0; kuv < 4; ++kuv) {
+                    double u = (kuv & 1) == 0 ? b.u0 : b.u1, v = (kuv & 2) == 0 ? b.v0 : b.v1;
+                    double f = vf ? (e0 - u * e1) - v * e2 : (e0 + u * e1) - v * e2;
+                    int k = kt | (kuv << 1);
+                    cornerLo[8 * axis + k] = f;
+                    cornerHi[8 * axis + k] = f;
+                }
+            }
+        }
+
+        /// <summary>
+        /// tests: the computed corner values (24: corner k of axis a at 8 a + k) of the box on the filter path, and the
+        /// per-axis bounds e in errorsOut; options as in Solve (MinSeparation 0)
+        /// </summary>
+        internal double[] FilterCornersForTests(bool vertexTriangle, double t0, double t1, double u0, double u1, double v0, double v1, double[] errorsOut)
+        {
+            vf = vertexTriangle; ms = 0;
+            prepare_filter();
+            var b = new Box { t0 = t0, t1 = t1, u0 = u0, u1 = u1, v0 = v0, v1 = v1 };
+            for (int axis = 0; axis < 3; ++axis) {
+                corners_filter(axis, ref b);
+                errorsOut[axis] = errors[axis];
+            }
+            return (double[])cornerLo.Clone();
         }
 
         // corner values of F on one axis in outward-rounded interval arithmetic: each contains the exact value at the
