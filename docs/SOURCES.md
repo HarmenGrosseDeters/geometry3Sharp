@@ -738,3 +738,19 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 | Item | Source and license |
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
+
+## Mesh offset (`MeshOffset`, planned; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
+
+Papers only; no code of these works was read (owner / coordinator rule 2026-11-13). Marks as in the design note:
+details recalled from memory there are checked before the implementation cites them.
+
+| Part | Source |
+|---|---|
+| Offset and inset of a solid as Minkowski sum / difference with a ball (definitions) | J. R. Rossignac, A. A. G. Requicha, *Offsetting operations in solid modelling*, Computer Aided Geometric Design 3(2), 1986 |
+| Topology and two-sided Hausdorff bound of a contoured distance field by per-cell tests on an adaptive grid (prior art of the certificate) | G. Varadhan, D. Manocha, *Accurate Minkowski sum approximation of polyhedral models*, Pacific Graphics 2004; Graphical Models 68(4), 2006, doi:10.1016/j.gmod.2005.11.003 |
+| Offset by dual contouring on a topology-adapted octree (prior art; manifold output) | D. Zint, N. Maruani, M. Rouxel-Labbé, P. Alliez, *Feature-Preserving Offset Mesh Generation from Topology-Adapted Octrees*, Computer Graphics Forum 42(5) (SGP 2023), doi:10.1111/cgf.14906 |
+| Offsets by combinatorial insertion in a tetrahedral mesh (prior art; not followed) | D. Zint, Z. Chen, Y. Zhu, D. Zorin, T. Schneider, D. Panozzo, *Topological Offsets*, ACM TOG (SIGGRAPH 2025), arXiv:2407.07725 |
+| Intersection-free contouring of a narrow-band signed distance by convex / concave analysis (the criterion of `DualContouring` option A) | S. Liu, C. C. L. Wang, *Fast Intersection-Free Offset Surface Generation From Freeform Models With Triangular Meshes*, IEEE Trans. Automation Science and Engineering 8(2), 2011 |
+| Volumetric offsets with feature-sensitive extraction (prior art) | D. Pavić, L. Kobbelt, *High-Resolution Volumetric Computation of Offset Surfaces with Feature Preservation*, Computer Graphics Forum 27(2) (Eurographics 2008) |
+| Generalized gradient of a locally Lipschitz function (the distance-field enclosure of stage A2) | F. H. Clarke, *Optimization and Nonsmooth Analysis*, Wiley 1983, chapter 2 |
+| Exact polytope Minkowski sums (the test oracle's idea; CGAL is GPL and not read) | P. Hachenberger, *Exact Minkowski sums of polyhedra and exact and efficient decomposition of polyhedra into convex pieces*, Algorithmica 55, 2009, doi:10.1007/s00453-008-9219-6 |

@@ -1,6 +1,7 @@
 # Robust mesh offsetting with guarantees (study)
 
-Status: **study only, nothing built; waits for the owner's decision** (section 9). No library code changed. One
+Status: **study; decided 2026-11-13** (coordinator, under the owner's autonomy mandate; section 9): option A,
+stage A1 next. No library code changed. One
 throwaway probe was run locally (public API only, not committed; section 5); its numbers are quoted with the command.
 
 ## 1. Question
@@ -298,3 +299,18 @@ Not claimed: anything for inputs that are not clean and closed (they go through 
    `MeshOffset`? (Recommended: separate, with a patent check as research.md already notes.)
 5. **`g3cli offset`**: switch it to `MeshOffset` once A1 is merged (its `enclosure_claim` then reports the
    certificate), or keep the MC path as a fast mode?
+
+Decided (coordinator 2026-11-13, under the owner's autonomy mandate):
+
+1. Option A; A1 now ((G1)-(G4), (G6)). It reuses the certified-DC pieces of the contouring-certificate work (#779),
+   no second copy; the library search for building blocks comes first (AGENT_WORKFLOW.md section 8).
+2. Yes: the distance-field enclosure is written as its own proof in this note first, reviewed by a fresh session the
+   coordinator routes; A2 is built only after that.
+3. Option C is a test oracle only, in the Nightly tier (its cost).
+4. Mitered offsets (Cao et al. 2024) stay a separate later roadmap item (research.md, "Feature-preserving offsets").
+5. `g3cli offset`: decided after A1 on benchmark numbers; first as an opt-in flag, the default changes only on the
+   coordinator's go.
+
+A1 also carries: the invariance test over `Similarity.All()`, a reuse test, mutation checks of the certificate and a
+benchmark against SDF + marching cubes. Papers only (Zint 2023, Topological Offsets 2025, Varadhan & Manocha); their
+code is not read.
