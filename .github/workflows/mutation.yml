@@ -34,6 +34,8 @@ on:
       - 'math/ExactSlopeKernel.cs'
       - 'mesh_ops/TerrainSlope*.cs'
       - 'tests/geometry3Sharp.Tests/ExactPredicatesTests.cs'
+      - 'tests/geometry3Sharp.Tests/ExactPredicatesBeyondRangeTests.cs'
+      - 'tests/geometry3Sharp.Tests/GeneratedDoublePredicatesTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactImplicitPointTests.cs'
       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
