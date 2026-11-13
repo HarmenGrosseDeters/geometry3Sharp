@@ -116,6 +116,11 @@ Part of the [roadmap](../ROADMAP.md).
      partial statement is provable (inside the certified cells the result differs from the level set by a
      deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
      yet; no cell at a defect edge can be certified.
+     Stage 1 (draft #779, 2026-11-13): `MeshWindingNumberSolidify.ComputeTopologyCertificate` (adaptive DC, clean
+     inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
+     general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
+     4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
+     serial 33-34 %).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
