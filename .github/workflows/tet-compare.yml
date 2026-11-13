@@ -5,7 +5,7 @@ name: Tet mesher comparison
 # from its README build steps; its source is never read, copied or ported, and its output files are deleted after our evaluator
 # has read them. Only our own CSVs and summary are published (data branch runs/tet-meshing, never merged). Thingi10K meshes are
 # fetched at run time and never committed.
-# Runs on demand, or on a push to the branch below whose head commit message contains [tet-compare].
+# Default 4 shards, fTetWild at 4 threads only (runner load, coordinator 2026-11-13). Runs on demand, or on a push to the branch below whose head commit message contains [tet-compare].
 on:
   workflow_dispatch:
     inputs:
@@ -15,13 +15,20 @@ on:
       timeout_s:
         description: timeout per mesh and variant (s)
         default: '1800'
+      shards:
+        description: number of shard jobs (runners), 1-8 (larger values would drop meshes)
+        default: '4'
+      ft_threads:
+        description: fTetWild thread counts to run, space separated (eg "4" or "4 1")
+        default: '4'
   push:
     branches: [claude/tet-stage1-plan]
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
-  SHARDS: 8
+  SHARDS: ${{ inputs.shards || '4' }}
+  FT_THREADS: ${{ inputs.ft_threads || '4' }}
 
 concurrency:
   group: tet-compare
@@ -37,6 +44,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       commit: ${{ steps.build.outputs.commit }}
+      matrix: ${{ steps.build.outputs.matrix }}
     steps:
       - name: Build fTetWild (README steps; black box, no source read)
         id: build
@@ -45,6 +53,7 @@ jobs:
           git clone --recursive https://github.com/wildmeshing/fTetWild.git ftw
           cd ftw && git checkout -q "${{ inputs.ftetwild_ref || 'master' }}" && git submodule update --init --recursive
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(python3 -c "import json; print(json.dumps(list(range(max(1, min(8, int('$SHARDS')))))))")" >> "$GITHUB_OUTPUT"
           mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release > ../../cmake.log 2>&1 && make -j"$(nproc)" > ../../make.log 2>&1 \
             || { tail -60 ../../cmake.log ../../make.log; exit 1; }
           bin=$(find . -maxdepth 2 -type f -name FloatTetwild_bin | head -1)
@@ -63,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: ${{ fromJSON(needs.build-ftetwild.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -75,7 +84,7 @@ jobs:
         with:
           name: ftetwild-bin
           path: ftbin
-      - name: Run shard (ours, fTetWild 4 threads, fTetWild 1 thread; one at a time)
+      - name: Run shard (ours, then fTetWild at each of FT_THREADS; one at a time)
         run: |
           sudo apt-get install -y -qq libgmp10 bc
           chmod +x ftbin/FloatTetwild_bin
@@ -131,7 +140,7 @@ jobs:
             echo
             echo "- geometry3Sharp commit: ${{ github.sha }} (benchmarks/TetMeshBenchmark, modes ours / eval)"
             echo "- fTetWild commit: ${{ needs.build-ftetwild.outputs.commit }} (black box, MPL-2.0; built and run on the hosted runner only; outputs deleted after evaluation)"
-            echo "- Command per mesh: \`FloatTetwild_bin -i <id>.stl -o <out>.mesh --max-threads N --no-binary --level 3\` (its defaults: -l 0.05, -e 1e-3), N = 4 (ft4) and 1 (ft1); ours: \`TetMeshBenchmark ours <id>.stl 20 600\` (serial)"
+            echo "- Command per mesh: \`FloatTetwild_bin -i <id>.stl -o <out>.mesh --max-threads N --no-binary --level 3\` (its defaults: -l 0.05, -e 1e-3), N in \"$FT_THREADS\" (column ftN); ours: \`TetMeshBenchmark ours <id>.stl 20 600\` (serial)"
             echo "- Timeout per mesh and variant: ${{ inputs.timeout_s || '1800' }} s; $SHARDS shards, one runner each (ubuntu-latest, see machines.txt); within a shard one mesher at a time"
             echo "- Checks are ours (TetFiles.Evaluate): exact orientation, matched facets, closed manifold boundary, exact boundary self-intersection test"
             echo

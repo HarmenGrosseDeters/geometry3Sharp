@@ -79,9 +79,9 @@ two spheres (soup),Success,85.3176,7271,4756,21.5346,13.5657,7.47241,6992,0.0060
 
 `.github/workflows/tet-compare.yml` (on demand) builds fTetWild on the GitHub-hosted runner from its README steps (MPL-2.0:
 binary only, no source read, outputs deleted after the evaluation) and runs `compare/run_shard.sh` on the 40 Thingi10K ids of
-`compare/thingi-subset-ids.txt` (every 250th id of the dataset, fetched at run time, never committed), in 8 shards, one mesher at
-a time per runner: `ours` (alpha wrap 20 / 600 + inside cells, serial, timed in process) and fTetWild with its defaults at 4 and
-1 threads. `eval <tet file> <input mesh>` checks a `.mesh` (MEDIT) or MSH 2.x ASCII file with our own exact code
+`compare/thingi-subset-ids.txt` (every 250th id of the dataset, fetched at run time, never committed), in 4 shards by default (inputs `shards`, `ft_threads`), one mesher at
+a time per runner: `ours` (alpha wrap 20 / 600 + inside cells, serial, timed in process) and fTetWild with its defaults at 4 threads
+(1 thread optional). `eval <tet file> <input mesh>` checks a `.mesh` (MEDIT) or MSH 2.x ASCII file with our own exact code
 (`TetFiles.Evaluate`): orientation by `Orient3d` (a file that is negative throughout is taken as the other convention; minority
 and zero tets count as inverted, nothing is re-oriented silently), matched facets and a closed manifold boundary
 (`TetMeshQuality.NotValidReason`), the boundary free of self-intersections (exact), quality (`TetMeshQuality.Measure`) and the

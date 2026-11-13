@@ -3,7 +3,7 @@
 # Usage: run_shard.sh <shard> <shards> <evaluator dll> <fTetWild binary or ""> <mesh dir> <work dir> <out dir> [timeout_s=1800]
 # For every id i of thingi-subset-ids.txt with (line index % shards) == shard, one at a time:
 #   ours   our stage-0 path (alpha wrap 20 / 600 + inside cells), serial, timed in process
-#   ft<N>  fTetWild with its defaults (-l 0.05 -e 1e-3 per its README), --max-threads N for N in $FT_THREADS (default "4 1"),
+#   ft<N>  fTetWild with its defaults (-l 0.05 -e 1e-3 per its README), --max-threads N for N in $FT_THREADS (default "4 1"; the workflow passes "4"),
 #          wall time from `date`; its output is read back and checked by our evaluator (exact orientation, facets, boundary)
 # fTetWild is a black box (MPL-2.0): run only, never read; its output files stay in <work dir> and are never published.
 # One CSV per variant in <out dir> (columns of TetFiles.Header, no header line); failure rows: <id>.stl,<time>,<threads>,<STATUS>.
