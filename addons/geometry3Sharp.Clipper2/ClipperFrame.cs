@@ -148,7 +148,7 @@ namespace g3.Clipper2
             return paths;
         }
 
-        /// <summary> ToPaths64 of each polygon, appended </summary>
+        /// <summary> ToPaths of each polygon, appended </summary>
         internal Paths64 ToPaths(IEnumerable<GeneralPolygon2d> polygons)
         {
             var paths = new Paths64();

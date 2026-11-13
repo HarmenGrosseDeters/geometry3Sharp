@@ -130,7 +130,8 @@ Part of the [roadmap](../ROADMAP.md).
   internal, addon version 2.0.0; the test project keeps the package for the differential test); the remaining
   Intersection case #756 gets option (c), an own narrower fix of the "micro self-intersection" branch (prior-art check
   first). Order: #751, the item 5 PR, the package removal, #756 (c).
-  Status 2026-11-13: #751 (vendoring) and #826 (item 5) merged; the package removal is in work (addon 2.0.0).
+  Status 2026-11-13: #751 (vendoring) and #826 (item 5) merged; the package removal is #851 (addon 2.0.0, no
+  dependency on the Clipper2 package); next: #756 option (c).
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml

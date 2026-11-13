@@ -43,7 +43,10 @@ if (!free.Ok)
   - `ClipType`, `FillRule`, `JoinType` and `EndType` are types of this package (namespace `g3.Clipper2`), with the
     names, members and values of Clipper2's. They replace `Clipper2Lib`'s in `Clipper2Options.FillRule`, `JoinType`,
     `EndType` and in `Clipper2Polygons.Boolean`, `BooleanPaths` and `ClipPolyLines`. Code that used them with
-    `using Clipper2Lib;` compiles once that line is removed (and is recompiled: the types changed).
+    `using Clipper2Lib;` compiles once that line is removed (and is recompiled: the types changed); fully qualified
+    uses such as `Clipper2Lib.JoinType.Miter` become `JoinType.Miter` (or `g3.Clipper2.JoinType.Miter`).
+  - The package no longer brings the Clipper2 package along: code that uses Clipper2 itself (`Clipper2Lib`) needs its
+    own `PackageReference` to `Clipper2`.
   - Code that also uses the Clipper2 package directly and imports both namespaces gets CS0104 ("ambiguous
     reference"). Name the type with an alias, eg `using FillRule = g3.Clipper2.FillRule;`, or qualify it.
   - `ClipperFrame`'s conversions to and from Clipper2's integer types are no longer public: `ToPoint64`,
