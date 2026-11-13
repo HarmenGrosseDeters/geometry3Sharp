@@ -2219,7 +2219,7 @@ namespace g3
                 int sk = arr.TryExactDouble(c, out xd) ? plane_side_filtered(t1.PlaneApprox, xd.x, xd.y, xd.z) : 2;
                 if (sk == 2) {
                     ExactPoint3 X = arr.Exact(c);
-                    sk = (t1.P.A * X.X + t1.P.B * X.Y + t1.P.C * X.Z - t1.P.D * X.W).Sign;
+                    sk = ExactLimbSigns.PlaneSide(t1.P.A, t1.P.B, t1.P.C, t1.P.D, X.X, X.Y, X.Z, X.W);
                 }
                 pos |= sk > 0;
                 neg |= sk < 0;
@@ -2881,8 +2881,8 @@ namespace g3
                 int a = local_side(U, ui, srcP, interiorSide, cp, ref d0, ref d1, ref d2, ref gp, e0, e1, e2, lp),
                     b = local_side(U, ui, srcQ, interiorSide, cq, ref d0, ref d1, ref d2, ref gq, e0, e1, e2, lq);
                 // (a centroid in the plane: the side its piece's front points to)
-                int ae = a != 0 ? a : (sp.NX * U.NX + sp.NY * U.NY + sp.NZ * U.NZ).Sign;
-                int be = b != 0 ? b : (sq.NX * U.NX + sq.NY * U.NY + sq.NZ * U.NZ).Sign;
+                int ae = a != 0 ? a : ExactLimbSigns.Dot(sp.NX, sp.NY, sp.NZ, U.NX, U.NY, U.NZ);
+                int be = b != 0 ? b : ExactLimbSigns.Dot(sq.NX, sq.NY, sq.NZ, U.NX, U.NY, U.NZ);
                 if (ae == 0 || be == 0) { degenerate = true; return; }
                 if (ae == be) return;
                 // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
@@ -2982,7 +2982,7 @@ namespace g3
             if (ui == src || interiorSide(ui, src) == 0)
                 return 0;
             ExactPoint3 P = c.P;
-            return (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
+            return ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
         }
 
         // the side of the exact point P (grid doubles g) of triangle U's plane: filtered, else exact
@@ -2991,7 +2991,7 @@ namespace g3
         {
             int s = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, g.x, g.y, g.z);
             if (s == 2)
-                s = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
+                s = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
             return s;
         }
 
@@ -3225,14 +3225,14 @@ namespace g3
                     sides++;
                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
                     if (sr == 2) {
-                        sr = (U.P.A * Rp.X + U.P.B * Rp.Y + U.P.C * Rp.Z - U.P.D).Sign;
+                        sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z, BigInteger.One);
                         exactSides++;
                     }
                     if (sr == 0) { degenerate = true; return; }
                     sides++;
                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
                     if (sp == 2) {
-                        sp = (U.P.A * P.X + U.P.B * P.Y + U.P.C * P.Z - U.P.D * P.W).Sign;
+                        sp = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
                         exactSides++;
                     }
                     // sp == 0: the point is in the plane but not in the triangle (it would be in the stack)
@@ -4059,16 +4059,12 @@ namespace g3
             return Math.Sqrt(x * x + y * y + z * z) * (1 + 1e-15);
         }
 
-        // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests)
+        // sign of the 4x4 determinant of homogeneous points (consistent orientation, used for crossing tests); on stack
+        // limbs (ExactLimbSigns: the same determinant as ExactMeshArrangement.Det4 of the rows, without its temporaries)
         [MethodImpl(JitHints.Optimize)]
         static int orient3d(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
         {
-            BigInteger[,] m = new BigInteger[4, 4];
-            ExactPoint3[] pts = { a, b, c, d };
-            for (int k = 0; k < 4; ++k) {
-                m[k, 0] = pts[k].X; m[k, 1] = pts[k].Y; m[k, 2] = pts[k].Z; m[k, 3] = pts[k].W;
-            }
-            return ExactMeshArrangement.Det4(m).Sign;
+            return ExactLimbSigns.Det4(a, b, c, d);
         }
 
 

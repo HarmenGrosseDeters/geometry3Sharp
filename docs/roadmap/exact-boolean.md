@@ -409,6 +409,12 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
+  Candidate B is built (2026-11-13, PR pending): the classification's exact sign stages (plane side, normal dot, the
+  4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
+  ([design](../design/EXACT_LIMB_SIGNS.md)). The probe before the build (operands loaded per call, 4 cores, wall time
+  with collections, median of 5): slow tail 42327 -14 to -17 % per operation (two thirds of it the collector's pause,
+  12.8 GB less allocation), 107554 up to -5 %; normal stratum unchanged within noise; hashes equal. The CPU gain of the
+  side stage needs the limbs stored with the points: candidate C, next, on the same representation.
 - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
   its tail (4 cores, median of 5, alternating A/B, hashes equal):
   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
