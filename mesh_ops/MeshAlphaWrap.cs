@@ -110,6 +110,31 @@ namespace gs
         /// <summary> stop refining after this many Steiner points (status PointLimitReached) </summary>
         public int MaxSteinerPoints = 2000000;
         /// <summary>
+        /// Raw-size budget (0 or less = off, the default): if EstimatedTriangles, the size of the result estimated from the input before
+        /// the refinement, is above this, Alpha and Offset are both scaled by sqrt(EstimatedTriangles / MaxEstimatedTriangles) (the size
+        /// goes with 1 / Alpha^2; the ratio Offset / Alpha, and with it the angle bound of the class doc, stays), and AlphaCoarsening
+        /// reports the factor (UsedAlpha and UsedOffset are the coarsened values). Unlike MaxSteinerPoints, which stops a refinement under
+        /// way (PointLimitReached, the box corners can be on the result), the coarsened wrap is a complete wrap with all the guarantees, at
+        /// the larger alpha: cavities and gaps up to about 2 * UsedAlpha are wrapped over. The wrap's time and its simplification's go with
+        /// its size, not with the input's triangle count (issue #694: a closed sphere of 260 triangles flattened onto a plane gave 211,614
+        /// triangles at diagonal / 300). The budget is on the estimate, not a bound on the result. Measured (EstimateDensity): the estimate
+        /// is about twice the size of a closed solid, about the size of a closed surface of zero volume, and about half the size of an open
+        /// sheet, so the result is about half the budget, the budget, or twice the budget. The area counts every input triangle, also
+        /// duplicated faces, nested shells and interior walls that the wrap does not follow: their estimate is higher still, and the wrap
+        /// coarser than the budget needs. Input points and segments have no area: an input of only points or segments is not coarsened.
+        /// A budget far below the input's detail gives an alpha up to the size of the input (MaxEstimatedTriangles = 1: about the
+        /// bounding box diagonal), a wrap of a few triangles around it; there is no lower bound.
+        /// </summary>
+        public int MaxEstimatedTriangles = 0;
+        /// <summary>
+        /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles) / Alpha^2. Measured (issue #694;
+        /// relative alpha 50 to 200): closed solids (sphere, boxes, a plate of 1/100 thickness) 1.35 to 1.7 triangles per area / Alpha^2, so
+        /// the estimate is about twice their size; a closed surface of zero volume (a sphere flattened onto a plane: the wrap covers both
+        /// sheets, at the double density of zero thickness, see TraverseByEmptyBall) 3.0 to 3.3, about the estimate; an open sheet (a disc:
+        /// the wrap covers its two sides, twice its area) 6.0 to 6.6, about twice the estimate.
+        /// </summary>
+        public const double EstimateDensity = 3.0;
+        /// <summary>
         /// Refine at the non-manifold spots of the carved surface before the manifold step (default true): the outside
         /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
         /// continues (up to 10 rounds). The facets of moved cells were never gates (circumradius above Alpha, caps up to
@@ -181,6 +206,14 @@ namespace gs
         public string Error;
         /// <summary> the alpha and offset used (absolute) </summary>
         public double UsedAlpha, UsedOffset;
+        /// <summary>
+        /// the estimated size of the result at the requested alpha (EstimateDensity * area of the input triangles / alpha^2; input
+        /// segments and points are not counted), set by Compute() whether or not MaxEstimatedTriangles is on; 0 before, and for an
+        /// input Compute() rejects before the alpha is known
+        /// </summary>
+        public double EstimatedTriangles;
+        /// <summary> the factor by which MaxEstimatedTriangles scaled alpha and offset (1: not coarsened) </summary>
+        public double AlphaCoarsening = 1;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> Steiner points, carved cells etc, for diagnostics </summary>
@@ -386,6 +419,8 @@ namespace gs
 
         WrapStatus setup()
         {
+            EstimatedTriangles = 0;
+            AlphaCoarsening = 1;
             var tris = new List<Vector3d>();
             var pts = new List<Vector3d>();
             if (Mesh != null) {
@@ -424,6 +459,19 @@ namespace gs
             diag = bounds.DiagonalLength;
             alpha = Alpha > 0 ? Alpha : (RelativeAlpha > 0 ? diag / RelativeAlpha : 0);
             offset = Offset > 0 ? Offset : (RelativeOffset > 0 ? diag / RelativeOffset : 0);
+            // the raw-size budget: from the area of the input triangles, before anything is inserted
+            double area = 0;
+            for (int i = 0; i + 2 < tris.Count; i += 3)
+                area += 0.5 * (tris[i + 1] - tris[i]).Cross(tris[i + 2] - tris[i]).Length;
+            // (divided twice: alpha^2 underflows below about 1e-162, and an infinite estimate must still be coarsened)
+            EstimatedTriangles = alpha > 0 ? EstimateDensity * area / alpha / alpha : 0;
+            if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
+                // the alpha whose estimate is the budget, sqrt(density * area / budget): it does not depend on the requested alpha
+                double coarse = Math.Sqrt(EstimateDensity * area / MaxEstimatedTriangles);
+                AlphaCoarsening = coarse / alpha;
+                alpha = coarse;
+                offset *= AlphaCoarsening;
+            }
             UsedAlpha = alpha; UsedOffset = offset;
             if (!(alpha > 0) || !(offset > 0) || double.IsInfinity(alpha) || double.IsInfinity(offset)) {
                 Error = "alpha and offset must be positive (relative values need an input of nonzero size)";

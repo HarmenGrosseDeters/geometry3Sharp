@@ -512,7 +512,7 @@ namespace g3
                 foreach (var p in source.Keys.OrderBy(p => p.Item2).ThenBy(p => p.Item1)) {
                     var (a, b) = routed[source[p]];
                     double ax = input.Points[a].x, ay = input.Points[a].y, dx = input.Points[b].x - ax, dy = input.Points[b].y - ay;
-                    double t = Math.Max(0, Math.Min(1, ((p.Item1 * w - ax) * dx + (p.Item2 * w - ay) * dy) / (dx * dx + dy * dy)));
+                    double t = MathUtil.MaxExact(0, MathUtil.MinExact(1, ((p.Item1 * w - ax) * dx + (p.Item2 * w - ay) * dy) / (dx * dx + dy * dy)));
                     heights.Add(input.Heights[a] + t * (input.Heights[b] - input.Heights[a]));
                 }
                 result.Heights = heights;

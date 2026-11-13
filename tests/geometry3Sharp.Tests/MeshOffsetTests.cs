@@ -63,7 +63,8 @@ namespace geometry3Sharp.Tests
         }
 
         // what a Success promises (the class comment): closed, manifold, finite, consistently oriented, free of self-intersections
-        // (reported and re-checked exactly here), the band certified. Not promised: no degenerate triangles (issue #800).
+        // (reported and re-checked exactly here), the band certified. Not promised in general: no degenerate triangles (a quad whose both splits are degenerate can
+        // still give one; #800 removed the case of three collinear crease vertices).
         static void AssertGood(MeshOffset o)
         {
             Assert.Equal(MeshOffset.Status.Success, o.ResultStatus);
@@ -147,8 +148,9 @@ namespace geometry3Sharp.Tests
             Assert.True(onCrease >= 10, $"{onCrease} vertices on the crease");
         }
 
-        // the chamfered block of benchmarks/SharpFeatureProbe (an octagon prism): its inset at a cell of |d| / 8 has a degenerate
-        // triangle (issue #800); the promised properties hold
+        // the chamfered block of benchmarks/SharpFeatureProbe (an octagon prism) inset at a cell of |d| / 8: the case of issue #800,
+        // where three dual contouring vertices on the inset's crease were collinear and the quad split kept them in one triangle;
+        // DualContouring now takes the other diagonal (DualContouringDegenerateSplitTests), so the result is clean
         [Fact]
         public void Inset_ChamferedBlock_FineCell_KeepsThePromisedProperties()
         {
@@ -163,6 +165,7 @@ namespace geometry3Sharp.Tests
             double d = -0.05 * m.CachedBounds.Diagonal.Length;
             MeshOffset o = Run(m, d, x => x.RelativeCellSize = 0.125);
             AssertGood(o);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(o.Result));
             // the inset of a convex prism is the prism of the polygon shrunk by |d| (each edge moved inward), height 4 - 2 |d|
             double area = 0;
             var inner = new List<Vector2d>();

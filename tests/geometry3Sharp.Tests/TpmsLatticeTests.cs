@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     {
         const double L = 1.0;
 
-        // An independent copy of the five closed forms (cos 2x written as 2 cos^2 x - 1), shares no code with the library.
+        // An independent copy of the six closed forms (sin 2x written as 2 sin x cos x and cos 2x as 2 cos^2 x - 1), shares no code with the library.
         static double F(TpmsType type, Vector3d q)
         {
             double a = 2 * Math.PI * q.x / L, b = 2 * Math.PI * q.y / L, c = 2 * Math.PI * q.z / L;
@@ -21,6 +21,10 @@ namespace geometry3Sharp.Tests
                 case TpmsType.SchwarzP: return ca + cb + cc;
                 case TpmsType.SchwarzD: return sa * sb * sc + sa * cb * cc + ca * sb * cc + ca * cb * sc;
                 case TpmsType.Neovius: return 3 * (ca + cb + cc) + 4 * ca * cb * cc;
+                case TpmsType.Lidinoid: {
+                    double s2a = 2 * sa * ca, s2b = 2 * sb * cb, s2c = 2 * sc * cc, c2a = 2 * ca * ca - 1, c2b = 2 * cb * cb - 1, c2c = 2 * cc * cc - 1;
+                    return 0.5 * (s2a * cb * sc + s2b * cc * sa + s2c * ca * sb) - 0.5 * (c2a * c2b + c2b * c2c + c2c * c2a) + 0.15;
+                }
                 default: return 2 * (ca * cb + cb * cc + cc * ca) - (2 * ca * ca - 1 + 2 * cb * cb - 1 + 2 * cc * cc - 1);
             }
         }
@@ -61,15 +65,17 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Combinations))]
         public void Compute_IsCleanAndNearTheTargetFraction(TpmsType type, TpmsStyle style)
         {
-            var lattice = Make(type, style, 0.3, 14);
+            // the Lidinoid has a large area per period: it needs more cubes per period to resolve its wall
+            double target = type == TpmsType.Lidinoid && style == TpmsStyle.Sheet ? 0.5 : 0.3;   // a thicker wall for the thin Lidinoid sheet
+            var lattice = Make(type, style, target, type == TpmsType.Lidinoid ? 22 : 14);
             lattice.Compute();
             Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
             Assert.True(Invariance.AllFinite(lattice.Mesh));
             // two whole periods: the realized fraction is the target up to the cut-edge rounding and the discretisation
-            Assert.InRange(lattice.RealizedVolumeFraction, 0.3 - 0.05, 0.3 + 0.05);
+            Assert.InRange(lattice.RealizedVolumeFraction, target - 0.05, target + 0.05);
             // the cut planes are the box planes: the mesh does not pass them (up to the rounding of a cut edge)
-            double h = L / 14;
+            double h = L / (type == TpmsType.Lidinoid ? 22 : 14);
             DMesh3 m = lattice.Mesh;
             AxisAlignedBox3d bounds = m.GetBounds();
             for (int d = 0; d < 3; ++d) {
@@ -125,6 +131,8 @@ namespace geometry3Sharp.Tests
         [InlineData(TpmsType.SchwarzD, TpmsStyle.SkeletalLow)]
         [InlineData(TpmsType.Neovius, TpmsStyle.SkeletalHigh)]
         [InlineData(TpmsType.IWP, TpmsStyle.Sheet)]
+        [InlineData(TpmsType.Lidinoid, TpmsStyle.SkeletalLow)]
+        [InlineData(TpmsType.Lidinoid, TpmsStyle.Sheet)]
         public void Mesh_AgreesWithTheFieldAwayFromTheSurface(TpmsType type, TpmsStyle style)
         {
             var lattice = Make(type, style, 0.35, 16);
@@ -181,15 +189,68 @@ namespace geometry3Sharp.Tests
                     // the library's evaluation agrees with the independent one
                     double k = 2 * Math.PI / L;
                     Assert.Equal(f, TpmsLattice.Evaluate(t, k * q.x, k * q.y, k * q.z), 9);
-                    // the cyclic permutation is a symmetry of all five
+                    // the cyclic permutation is a symmetry of all six
                     Assert.Equal(f, F(t, new Vector3d(q.y, q.z, q.x)), 9);
-                    if (t == TpmsType.Gyroid) continue;   // the gyroid is chiral: no swap, no mirror about a coordinate plane
+                    if (t == TpmsType.Gyroid || t == TpmsType.Lidinoid) continue;   // chiral: no swap, no mirror about a coordinate plane
                     Assert.Equal(f, F(t, new Vector3d(q.y, q.x, q.z)), 9);
                     if (t != TpmsType.SchwarzD)
                         Assert.Equal(f, F(t, new Vector3d(-q.x, q.y, q.z)), 9);
                 }
-                // the gyroid is odd under the central inversion
+                // the gyroid is odd under the central inversion, the Lidinoid even
                 Assert.Equal(-F(TpmsType.Gyroid, q), F(TpmsType.Gyroid, new Vector3d(-q.x, -q.y, -q.z)), 9);
+                Assert.Equal(F(TpmsType.Lidinoid, q), F(TpmsType.Lidinoid, new Vector3d(-q.x, -q.y, -q.z)), 9);
+            }
+        }
+
+        [Fact]
+        public void GradientBound_BoundsTheNumericalGradient()
+        {
+            // the proven bound (triangle inequality) must dominate the largest gradient found on a fine sample; it is loose, so
+            // also check it is not absurdly loose (within a factor 5 of the sampled maximum) to catch a wrong-type bound
+            var rand = new Random(17);
+            foreach (TpmsType t in Enum.GetValues(typeof(TpmsType))) {
+                double max = 0, k = 2 * Math.PI, e = 1e-6;
+                for (int i = 0; i < 20000; ++i) {
+                    var q = new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble());
+                    double gx = (F(t, q + new Vector3d(e, 0, 0)) - F(t, q - new Vector3d(e, 0, 0))) / (2 * e);
+                    double gy = (F(t, q + new Vector3d(0, e, 0)) - F(t, q - new Vector3d(0, e, 0))) / (2 * e);
+                    double gz = (F(t, q + new Vector3d(0, 0, e)) - F(t, q - new Vector3d(0, 0, e))) / (2 * e);
+                    max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz) / k);   // in phase coordinates
+                }
+                double bound = TpmsLattice.GradientBound(t);
+                Assert.True(max <= bound, t + ": sampled gradient " + max + " above the bound " + bound);
+                Assert.True(bound <= 5 * max, t + ": bound " + bound + " is more than 5 times the sampled maximum " + max);
+            }
+        }
+
+        [Fact]
+        public void ProvenBoundsFollowTheHandDerivation()
+        {
+            // Pins the hand-derived constants of the Enclosure proof (a sampled maximum cannot: the bounds are loose by design).
+            // Gradient: the largest per-component sum of absolute values of the partial derivative, times sqrt 3 for the norm.
+            //   gyroid 2 (cos x cos y, sin z sin x), P 1, D 4, Neovius 3 + 4 = 7, I-WP 2 + 2 + 2 = 6,
+            //   Lidinoid 1 + 0.5 + 0.5 + 2 = 4 (cos 2x cos y sin z, 0.5 sin 2y cos z cos x, 0.5 sin 2z sin x sin y, sin 2x (cos 2y + cos 2z)).
+            // Terms: the sum of the largest absolute values of the terms of f (the rounding error of one evaluation scales with it).
+            var gradient = new Dictionary<TpmsType, double> {
+                { TpmsType.Gyroid, 2 }, { TpmsType.SchwarzP, 1 }, { TpmsType.SchwarzD, 4 }, { TpmsType.Neovius, 7 }, { TpmsType.IWP, 6 }, { TpmsType.Lidinoid, 4 } };
+            var terms = new Dictionary<TpmsType, double> {
+                { TpmsType.Gyroid, 3 }, { TpmsType.SchwarzP, 3 }, { TpmsType.SchwarzD, 4 }, { TpmsType.Neovius, 13 }, { TpmsType.IWP, 9 }, { TpmsType.Lidinoid, 3.15 } };
+            foreach (TpmsType t in Enum.GetValues(typeof(TpmsType))) {
+                Assert.Equal(gradient[t] * Math.Sqrt(3), TpmsLattice.GradientBound(t), 12);
+                Assert.Equal(terms[t], TpmsLattice.TermSum(t), 12);
+            }
+        }
+
+        [Fact]
+        public void Enclosure_ContainsTheExactLidinoid()
+        {
+            foreach (TpmsStyle style in new[] { TpmsStyle.Sheet, TpmsStyle.SkeletalLow }) {
+                var lattice = Make(TpmsType.Lidinoid, style, 0.3, 16, 2);
+                lattice.Enclosure = true;
+                lattice.Compute();
+                Assert.True(lattice.Status == TpmsStatus.Ok, style + " " + lattice.Status + ": " + lattice.Message);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
+                AssertContainsLatticePoints(lattice, TpmsType.Lidinoid, style, 0.3, 16, 3000);
             }
         }
 
