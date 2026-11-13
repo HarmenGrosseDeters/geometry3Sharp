@@ -43,7 +43,9 @@ namespace gs
         public double Tolerance = 0;
         /// <summary> tolerance relative to the diagonal of the combined bounding box, used if Tolerance is 0 </summary>
         public double RelativeTolerance = 1e-4;
-        /// <summary> stop (Converged = false) after this many triangle subdivisions (checked per batch of 256: up to 255 more per direction) </summary>
+        /// <summary> stop (Converged = false) after this many triangle subdivisions (checked per batch of 256: up to 255 more per direction).
+        /// For the symmetric distance the first direction may use half of it, the second the rest (at least half: what the first left
+        /// unused is passed on), so that a first direction which does not converge leaves the second one its share (#740) </summary>
         public int MaxSubdivisions = 20000000;
 
         /// <summary>
@@ -158,7 +160,7 @@ namespace gs
             if (keepSpatial) { SpatialA = spatialA; SpatialB = spatialB; }
 
             Subdivisions = 0;
-            var ab = new OneSided(meshA, spatialB, tol, 0, this);
+            var ab = new OneSided(meshA, spatialB, tol, 0, this, Symmetric ? MaxSubdivisions - MaxSubdivisions / 2 : MaxSubdivisions);
             ab.Run();
             // (the certified lower bounds; the second direction is pruned against the first one's computed Lower, which the upper
             // bound of the first direction is never below, so the pruned triangles stay bounded)
@@ -166,7 +168,7 @@ namespace gs
             Converged = ab.Converged;
             Vector3d worst = ab.CertifiedWorst, worstClosest = ab.CertifiedWorstClosest; WorstPointOnB = false;
             if (Symmetric && CancelF() == false) {
-                var ba = new OneSided(meshB, spatialA, tol, ab.Lower, this);
+                var ba = new OneSided(meshB, spatialA, tol, ab.Lower, this, MaxSubdivisions);
                 ba.Run();
                 Converged = Converged && ba.Converged;
                 computed = Math.Max(computed, ba.Lower);
@@ -283,11 +285,14 @@ namespace gs
             public double CertifiedLower;
             public Vector3d CertifiedWorst, CertifiedWorstClosest;
 
-            public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner)
+            // (owner.Subdivisions, counted over both directions, at which this direction stops)
+            readonly int limit;
+
+            public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner, int limit)
             {
                 this.from = from; this.to = spatialTo.Mesh; spatial = spatialTo;
                 bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound };
-                this.tol = tol; this.prune = prune; this.owner = owner;
+                this.tol = tol; this.prune = prune; this.owner = owner; this.limit = limit;
             }
 
             void query(Vector3d p, out double d, out int t, out Vector3d c)
@@ -367,7 +372,7 @@ namespace gs
                 const int BatchSize = 256;
                 List<Index3i> batch = new List<Index3i>(BatchSize);
                 while (heap.Count > 0 && heap.TopKey > threshold() + tol) {
-                    if (owner.Subdivisions >= owner.MaxSubdivisions || owner.CancelF()) {
+                    if (owner.Subdivisions >= limit || owner.CancelF()) {
                         Converged = false;
                         break;
                     }
