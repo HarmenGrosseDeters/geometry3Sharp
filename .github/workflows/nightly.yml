@@ -2,12 +2,17 @@ name: Nightly
 
 # The tests tagged [Trait("Category", "Nightly")]: checks whose run is the check and takes more than 10 s (CLAUDE.md, "Test time";
 # docs/QA.md, "Test tiers"), e.g. the exact reference path of the 2D mesher oracle on its largest catalogue rows. They do not run in
-# PR or master CI (ci.yml excludes the category). Daily on master, and on demand.
+# PR or master CI (ci.yml excludes the category). Daily on master, and on demand. Started by the external dispatcher at 02:30 UTC
+# (workflow_dispatch; `alkis_only` is a custom run) and, as the fallback, by the cron line, which GitHub runs hours late: the guard job keeps it to one run a day.
 on:
   schedule:
     - cron: '23 2 * * *'
   workflow_dispatch:
     inputs:
+      force:
+        description: 'Run although a daily run of today already ran or is running (the schedule guard)'
+        type: boolean
+        default: false
       alkis_only:
         description: 'Run only the ALKIS job (to time it cold and warm)'
         type: boolean
@@ -25,8 +30,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Runs once a day although two things start it (docs/QA.md, "Scheduled runs"): the external dispatcher at a fixed time and the
+  # cron line as the fallback. Skips when an earlier plain daily run of today is under way or green (tools/schedule_guard.py).
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - name: Schedule guard${{ github.event_name == 'workflow_dispatch' && inputs.alkis_only && ' [custom]' || '' }}
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'master' }}
+          FORCE: ${{ inputs.force }}
+          CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.alkis_only }}
+        run: python3 tools/schedule_guard.py --workflow nightly.yml --event "$EVENT" --run-id "$RUN_ID" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --custom "$CUSTOM" --force "$FORCE"
+
   nightly:
-    if: ${{ !inputs.alkis_only }}
+    needs: guard
+    if: ${{ needs.guard.outputs.run == 'true' && !inputs.alkis_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -50,6 +82,8 @@ jobs:
   # input, every run VALID except the findings listed in alkis_known.json (a ratchet). The prepared inputs (about 2 MB) are cached,
   # keyed by the preparation version and the host's listing of the six districts; a cold run downloads about 1 GB of district archives.
   alkis:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:

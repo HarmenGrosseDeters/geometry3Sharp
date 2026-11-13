@@ -415,6 +415,7 @@ namespace g3cli
                 var catchLines = d.CatchLines.Select(l => (l.Points, l.Closed, new JsonObject() {
                     ["closed"] = l.Closed, ["start_reason"] = Snake(l.StartReason.ToString()), ["end_reason"] = Snake(l.EndReason.ToString()),
                     ["max_uncertainty"] = MeshReport.Num(l.Uncertainty.Count > 0 ? l.Uncertainty.Max() : 0),
+                    ["max_proven_uncertainty"] = MeshReport.Num(l.ProvenUncertainty.Count > 0 ? l.ProvenUncertainty.Max() : 0),
                     ["tangential_segments"] = l.Tangential.Count(t => t),
                 })).ToList();
                 if (args.Has("catch_lines"))
@@ -441,7 +442,7 @@ namespace g3cli
                 o["fill_area"] = MeshReport.Num(d.FillArea);
                 o["catch_lines"] = new JsonArray(catchLines.Select(l => (JsonNode)new JsonObject() {
                     ["points"] = l.Points.Count, ["closed"] = l.Closed, ["start_reason"] = l.Item3["start_reason"].DeepClone(),
-                    ["end_reason"] = l.Item3["end_reason"].DeepClone(), ["max_uncertainty"] = l.Item3["max_uncertainty"]?.DeepClone(),
+                    ["end_reason"] = l.Item3["end_reason"].DeepClone(), ["max_uncertainty"] = l.Item3["max_uncertainty"]?.DeepClone(), ["max_proven_uncertainty"] = l.Item3["max_proven_uncertainty"]?.DeepClone(),
                     ["tangential_segments"] = l.Item3["tangential_segments"].DeepClone() }).ToArray());
                 o["ill_conditioned_segments"] = d.IllConditionedCatchLine.Count;
                 o["tangential_contacts"] = d.TangentialContact.Count;

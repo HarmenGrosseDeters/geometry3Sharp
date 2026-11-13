@@ -465,8 +465,9 @@ the exact S it would not be. The guarantee is stated for the attribution rule (2
 
 **The composite.** With a terrain the composite is within `Tolerance` of the clamp max(S_fill, min(T, S_cut))
 except within m of the toe, lateral-limit and cap steps, whose position shifts by m. Here m is the catch points' move:
-below `MinFeatureSize` in a single run, and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing
-of a mixed run. It is certified per composite (5.5).
+below 2 × `MinFeatureSize` in a single run (a snap to a slope vertex, then a merge with a representative: each below
+`MinFeatureSize`, and they can add up), and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing of
+a mixed run. The certificate measures the moves made, so it holds whatever they are (5.5).
 
 **Realization and margin** (a new error bound, to be checked in the review that CLAUDE.md requires):
 
@@ -820,8 +821,61 @@ documentation says so.
     (`TerrainVerticalUncertainty`, a caller input, default 0). Survey errors of the terrain are not included
     unless they are given. Exact signs decide the topology of the catch line, not its exact position.
   - Every catch-line segment carries |∇D| and δ_xy. In phase 1, δ_xy is a **local linearized estimate**,
-    documented as such; a proven bound would need the minimum of |∇D| over the neighbourhood and is a later
-    item.
+    documented as such (`CatchLine.Uncertainty`). Since 2026-11-13 each segment also carries a **proven bound**
+    (`CatchLine.ProvenUncertainty`), derived below.
+  - **The proven bound (derivation).** Write D = S − T for the exact R1 surface S and the true terrain T, and
+    D̃ = S̃ − T̃ for the realized slope surface S̃ and the given terrain TIN T̃ (cut; fill mirrored, z ↦ −z).
+    1. *Premises.* 0 ≤ S − S̃ ≤ `Tolerance` on the slope surface's domain (the budget of 5.1 and 5.4, certified per
+       result: S̃ is conservative and within `Tolerance`); |T̃ − T| ≤ ε_T = `TerrainVerticalUncertainty`.
+    2. *The band.* D = D̃ + (S − S̃) + (T̃ − T) ∈ [D̃ − ε_T, D̃ + Tol + ε_T], so at every point of the true catch line
+       {D = 0}, D̃ ∈ [−Tol − ε_T, ε_T]. The true line lies in the band B = {x : −Tol − ε_T ≤ D̃(x) ≤ ε_T}, within
+       the overlay's domain (the slope surface's footprint; outside it nothing is claimed). Both limits get a slack for
+       the stored surface itself: a stored height is within e_z = 2 s_max e_xy + e_eval of its plane's exact value at the
+       rounded XY (5.4), and at creases near the toe the stored mesh can be off by it; plus 8 ulps of the heights.
+       (Numerics review: 8 ulps alone missed e_z, about 1e-9 m at UTM.) Only powers of two and ulps: 2^k scales it.
+       The claim is about the true catch line: the boundary of the true region, the components of {D < 0} connected to
+       the toe (level-set pieces not connected to it are not the catch line, by the region's definition). It is
+       connected to the toe through {D ≤ 0} ⊂ {D̃ ≤ hi}. So only faces reached from the computed region, or from a face on
+       the toe where D̃ ≤ hi somewhere (a true cut can start at a toe stretch within ε_T above the given terrain, cut off
+       from the computed region), through faces where D̃ ≤ hi somewhere (sharing an overlay vertex) can hold it; a band ring
+       elsewhere, around a hill the cone passes under, is cut off by faces with D̃ > hi, where D > 0, and is not counted.
+    3. *Per overlay face.* D̃ is linear on an overlay face f (one plane of S̃, one of T̃), and f is convex, so
+       P_f = f ∩ B is a convex polygon. Its vertices are f's vertices with D̃ in the band and the points on f's edges
+       where D̃ = −Tol − ε_T or ε_T. They are enclosed in boxes by interval arithmetic: the vertices of f (overlay
+       vertices: a vertex of one surface, or the crossing of two edges, an exact rational point) as intervals, D̃ there
+       as an interval of the two planes, and the edge parameter of a band crossing as an interval. A vertex whose
+       D̃ interval meets the band is kept (outward). So P_f lies in the convex hull of the boxes' corners. A face whose
+       plane the intervals do not decide (a sliver with n_z within its rounding) counts whole: all its vertices' boxes.
+    4. *Distance to the computed line.* For a computed catch-line segment σ, x ↦ dist(x, σ) is convex, so its maximum
+       over P_f is at most its maximum over the boxes' corners, each rounded up. Any segment gives a valid bound. The
+       one taken for P_f is the best (smallest bound) of the segments in f and in the faces reached from f through
+       band faces (breadth first, a fixed number of steps, deterministic order). P_f is assigned to that σ.
+       The bound is not tight: one segment per piece, so a piece's far corner along the line counts its distance to
+       that segment's end. On the pit tests it is 1.5 (flat terrain) to 1.8 (gradient 0.2) times the estimate. A finer
+       assignment (pieces split along the line) is a later refinement, if a use case needs it.
+    5. *The bound of a segment.* U(σ) = the largest bound of the pieces assigned to σ (0 if none), plus the largest
+       move of a catch point by the composite, measured (`SlopeComposite.MaxCatchMove`): from the overlay's catch point
+       to its final position, over both composites of a mixed run, rounded up; 0 without a composite. It covers the own
+       snap and the merge, which can add up to almost 2 × `MinFeatureSize` (numerics re-check H1: a point snapped to the
+       end of a short slope edge and merged to its other end), the nudge onto the slope side, and the partner snap. **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
+       segment σ.
+    6. *Pieces without a segment.* A band piece with no computed segment within its steps is a place where the
+       slope and the terrain come within the band without the computed line there: a possible contact away from the
+       line (a grazing contact, or a hill the cone passes just above). It is reported (`CatchLineBandWithoutLine`,
+       its box). It is not a bound of any segment, so a binding `RequiredCatchLineAccuracy` cannot be met there:
+       `CatchLineAccuracyNotReached`.
+    7. *Binding accuracy.* `RequiredCatchLineAccuracy` is checked against U, the proven bound. The warning threshold
+       stays on the estimate, which is the cheaper early signal. A smaller `Tolerance` narrows the band (the 1 / |∇D|
+       factor of the estimate is the band's width over the gradient where the faces are planar), so the refinement of
+       today still applies.
+    8. *Numerics* (for the review). All values that bound are rounded outward: the band limits (−Tol − ε_T rounded
+       down, ε_T up), D̃ on intervals, the crossing parameters on intervals, the distances rounded up. The planes of S̃
+       and T̃ are those of their stored doubles, so D̃ has no other error. The premise 0 ≤ S − S̃ ≤ Tol is the existing
+       certificate; nothing here relaxes it.
+  - **Prior art** for the bound: a level set of an approximated function lies in the sublevel band of the error
+    bound (the standard argument of certified contouring and of error-bounded isolines, eg Lorensen and Cline's
+    marching cubes with interval arithmetic, Snyder 1992, *Interval analysis for computer graphics*); the distance
+    to a set over a convex cell is bounded at its vertices (convexity of the distance to a convex set).
   - **Warning threshold exceeded** (`CatchLineWarningThreshold`, set by the caller; 10 cm is a sensible start in
     an application, not a library default): the result is returned, with the affected catch-line sections and
     their uncertainty (`IllConditionedCatchLine`).
@@ -901,9 +955,9 @@ documentation says so.
       triangles at p1 only, then any triangle whose box met a swept one: the first missed some, the second took the
       fans around the far end u, up to 8 × the triangles and 16 % of the octagon's run.)
     - **What is certified.** |z − c| ≤ `Tolerance` except within m of the toe, lateral-limit and cap steps, whose
-      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move: below `MinFeatureSize` in
-      a single run (snap and merge, no chains). In a mixed run the partner snap at a toe crossing adds up to
-      max(`MinFeatureSize`, 1e-4 × the toes' size).
+      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move, measured: below
+      2 × `MinFeatureSize` in a single run (a snap, then a merge, each below `MinFeatureSize`; no chains). In a mixed run
+      the partner snap at a toe crossing adds up to max(`MinFeatureSize`, 1e-4 × the toes' size).
     - **A mixed run** does not raise δ when its certificate fails, since each run raised its own: it fails with
       `SlopeViolation`.
     - **Tests.** `TerrainSlopeSnapBoundTests` has one synthetic case per candidate class where that class alone holds

@@ -238,7 +238,8 @@ namespace gs
         /// required: the largest vertical deviation below the exact cone envelope (data units). With a Terrain and
         /// BuildComposite, the composite is within Tolerance of the clamp of the terrain and the envelope
         /// (max(S_fill, min(T, S_cut))) except within m of the steps at the toe, the lateral limits and the cap, whose
-        /// position shifts by m: m is the largest move of a catch point, below UsedMinFeatureSize in a single run (with
+        /// position shifts by m: m is the largest move of a catch point, below 2 UsedMinFeatureSize in a single run (a snap,
+        /// then a merge; with
         /// Direction Auto, the snap at a toe crossing adds up to max(UsedMinFeatureSize, 1e-4 x the toes' size)); a
         /// composite that cannot be certified so fails with SlopeViolation (docs/design/TERRAIN.md 5.5)
         /// </summary>
@@ -253,7 +254,9 @@ namespace gs
         /// </summary>
         public double CatchLineWarningThreshold = double.PositiveInfinity;
         /// <summary>
-        /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none). Reached by a smaller
+        /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none), checked against the proven
+        /// bound CatchLine.ProvenUncertainty (since 2026-11-13; before, the local estimate Uncertainty), and no part of the
+        /// band without a segment (CatchLineBandWithoutLine). Reached by a smaller
         /// Tolerance (UsedTolerance; the whole design again, at most three times: Attempts, PhaseSeconds and the
         /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
         /// </summary>
@@ -351,6 +354,13 @@ namespace gs
         /// <summary> the catch-line segments (line, segment) where the slope and the terrain coincide (tangential or planar contact) </summary>
         public List<Index2i> TangentialContact = new List<Index2i>();
         /// <summary>
+        /// the places (boxes in XY) where the slope surface and the terrain come within the band of the proven catch-line
+        /// bound (TERRAIN.md 5.5) without a computed catch-line segment nearby: a possible contact away from the computed
+        /// line, eg a grazing contact. Not part of any segment's ProvenUncertainty; with a RequiredCatchLineAccuracy they
+        /// count as not reached
+        /// </summary>
+        public List<AxisAlignedBox2d> CatchLineBandWithoutLine = new List<AxisAlignedBox2d>();
+        /// <summary>
         /// the level lines of the slope at TargetHeights: of SlopeRegion where it is built (the slope as it is in the
         /// composite), else of SlopeSurface. Per height in the order given, polylines in the plane z = height, closed where
         /// they close, open where the slope ends (at a catch line, a lateral limit or the toe)
@@ -396,6 +406,7 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            CatchMove = 0; CatchLineBandSlack = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
@@ -406,7 +417,7 @@ namespace gs
             undercutThroughDesign = false;
             RayCount = 0; CanonicalProblem = ""; UndercutCauses = new List<SlopeMap.UndercutCause>();
             CapRounds = 0;
-            IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+            IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>(); CatchLineBandWithoutLine = new List<AxisAlignedBox2d>();
             double givenTolerance = Tolerance;
             UsedTolerance = Tolerance;
             try {
@@ -561,12 +572,14 @@ namespace gs
             int lc = c.CatchLines.Count;
             IllConditionedCatchLine = c.IllConditionedCatchLine.Concat(f.IllConditionedCatchLine.Select(x => new Index2i(x.a + lc, x.b))).ToList();
             TangentialContact = c.TangentialContact.Concat(f.TangentialContact.Select(x => new Index2i(x.a + lc, x.b))).ToList();
+            CatchLineBandWithoutLine = c.CatchLineBandWithoutLine.Concat(f.CatchLineBandWithoutLine).ToList();
             CutVolume = c.Volume; CutArea = c.PlanArea; FillVolume = f.Volume; FillArea = f.PlanArea;
             Volume = c.Volume + f.Volume; PlanArea = c.PlanArea + f.PlanArea; SlopeArea = c.SlopeArea + f.SlopeArea;
             MaxSlopeRatio = Math.Max(c.MaxSlopeRatio, f.MaxSlopeRatio);
             UsedSlopeMargin = Math.Max(c.UsedSlopeMargin, f.UsedSlopeMargin);
             UsedToeLowering = Math.Max(c.UsedToeLowering, f.UsedToeLowering);
             UsedMinFeatureSize = Math.Max(c.UsedMinFeatureSize, f.UsedMinFeatureSize);
+            CatchLineBandSlack = Math.Max(c.CatchLineBandSlack, f.CatchLineBandSlack);
             FacetAngle = Math.Max(c.FacetAngle, f.FacetAngle);
             MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips;
             MergeLambdaRequired = Math.Max(c.MergeLambdaRequired, f.MergeLambdaRequired);
@@ -613,6 +626,7 @@ namespace gs
             {
                 double budget = Math.Max(c.SnapBudget, f.SnapBudget);
                 double dev = comp.SnapDeviation();
+                CatchMove = CatchLineMove(comp);
                 SnapBudget = budget; SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 if (!(ExactInterval.Up(budget + dev) <= Tolerance))
                     return fail(Statuses.SlopeViolation, cert_message(comp, dev, budget));
@@ -784,8 +798,9 @@ namespace gs
 
         // TERRAIN.md 5.5: each catch-line segment's horizontal uncertainty, (Tolerance + TerrainVerticalUncertainty) over the
         // gradient of S - T on its face plus the move of the composite's snapping (MinFeatureSize); a local linearized
-        // estimate. Fills the reports; 0: fine, 1: RequiredCatchLineAccuracy needs a smaller Tolerance (next), 2: not
-        // reachable (the vertical uncertainty or a tangential contact alone exceeds it)
+        // estimate, for the warning threshold. RequiredCatchLineAccuracy is checked against the proven bound plus that move.
+        // Fills the reports; 0: fine, 1: RequiredCatchLineAccuracy needs a smaller Tolerance (next), 2: not reachable (the
+        // vertical uncertainty or a tangential contact alone exceeds it)
         int catch_line_accuracy(out double next)
         {
             next = Tolerance;
@@ -794,20 +809,34 @@ namespace gs
             double eps = Tolerance + Math.Max(0, TerrainVerticalUncertainty);
             for (int li = 0; li < CatchLines.Count; ++li) {
                 CatchLine l = CatchLines[li];
-                l.Uncertainty.Clear();
+                l.Uncertainty.Clear(); l.ProvenUncertainty.Clear();
                 for (int i = 0; i < l.Gradient.Count; ++i) {
                     double g = l.Gradient[i];
                     double u = g > 0 ? eps / g + UsedMinFeatureSize : double.PositiveInfinity;
                     l.Uncertainty.Add(u);
                     if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
                     if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
-                    if (required && !(u <= RequiredCatchLineAccuracy)) {
-                        // the Tolerance that meets it here (with 10 % to spare), if any
-                        double t = g > 0 ? 0.9 * ((RequiredCatchLineAccuracy - UsedMinFeatureSize) * g - Math.Max(0, TerrainVerticalUncertainty)) : 0;
+                    // (the proven bound plus the snap's move, rounded up)
+                    // (the composite's largest move of a catch point, measured: its own snap and merge, which can add up to almost
+                    // 2 MinFeatureSize, the nudge, and in a mixed run the partner snap; 0 without a composite, which moves none)
+                    double move = CatchMove;
+                    // (rounded up; 0 stays 0, which scales with 2^k)
+                    double pu = i < l.ProvenBand.Count ? (l.ProvenBand[i] + move == 0 ? 0 : ExactInterval.Up(l.ProvenBand[i] + move)) : double.PositiveInfinity;
+                    l.ProvenUncertainty.Add(pu);
+                    if (required && !(pu <= RequiredCatchLineAccuracy)) {
+                        // the Tolerance that meets it here (with 10 % to spare), if any: the band, and so the bound, shrinks with
+                        // Tolerance + TerrainVerticalUncertainty (the estimate's 1 / gradient)
+                        double room = RequiredCatchLineAccuracy - UsedMinFeatureSize;
+                        double t = (g > 0 && room > 0 && pu > UsedMinFeatureSize) ? 0.9 * (room * eps / (pu - UsedMinFeatureSize) - Math.Max(0, TerrainVerticalUncertainty)) : 0;
                         if (!(t > 0)) verdict = 2;
                         else { next = Math.Min(next, t); if (verdict == 0) verdict = 1; }
                     }
                 }
+            }
+            // (the band without a segment nearby: a possible contact the bound does not cover; a smaller Tolerance narrows it)
+            if (required && CatchLineBandWithoutLine.Count > 0) {
+                next = Math.Min(next, 0.5 * Tolerance);
+                if (verdict == 0) verdict = 1;
             }
             return verdict;
         }
@@ -921,6 +950,7 @@ namespace gs
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
                         CatchLines = br.CatchLines;
+                        CatchLineBandWithoutLine = br.BandWithoutLine;
                         lastOverlay = br.Overlay; lastPieces = pieces;
                         SlopeRegion = br.Region;
                         Composite = CompositeKind == CompositeKinds.Full ? br.Composite : null;
@@ -978,6 +1008,7 @@ namespace gs
             public double MergeLambda;
             public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
+            public List<AxisAlignedBox2d> BandWithoutLine = new List<AxisAlignedBox2d>();
             public DMesh3 Region, Composite;
             public SlopeTerrainOverlay Overlay;
             public List<int> Replaced;
@@ -1049,6 +1080,8 @@ namespace gs
             double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
+            // (the realization error of a stored height, TERRAIN.md 5.4: the slack of the catch-line bound's band, 5.5)
+            lastEz = ExactInterval.Up(ExactInterval.Up(2 * sMax * exy) + eeval);
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false)
                 return fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             // the bound of the toe lowering for triangles with altitudes of at least MinFeatureSize (plan, departure 1);
@@ -1387,12 +1420,17 @@ namespace gs
             // the gradient and the contact of each catch-line segment (its uncertainty when Compute ends)
             for (int li = 0; li < overlay.CatchLines.Count; ++li) {
                 CatchLine l = overlay.CatchLines[li];
-                l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear();
+                l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear(); l.ProvenUncertainty.Clear(); l.ProvenBand.Clear();
                 foreach (int fi in overlay.CatchFaces[li]) {
                     double g; bool coplanar;
                     overlay.SegmentContact(fi, out g, out coplanar);
                     l.Gradient.Add(g); l.Tangential.Add(coplanar);
                 }
+            }
+            // the proven bound of each segment (without the snap's move, added with the estimate's), TERRAIN.md 5.5
+            {
+                var proven = SlopeCatchLineBound.Compute(overlay, Tolerance, Math.Max(0, TerrainVerticalUncertainty), lastEz, br.BandWithoutLine, out CatchLineBandSlack);
+                for (int li = 0; li < overlay.CatchLines.Count; ++li) overlay.CatchLines[li].ProvenBand.AddRange(proven[li]);
             }
             overlay.Integrate(pieces.Count, out br.Volumes, out br.PlanAreas, out br.SlopeAreas);
             phase("overlay");
@@ -1462,6 +1500,7 @@ namespace gs
                 // of the deviation that the catch points' moves made, within Tolerance; else a larger margin δ, whose
                 // smaller MinFeatureSize moves them less
                 double dev = comp.SnapDeviation();
+                CatchMove = CatchLineMove(comp);
                 SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 phase("certificate");
                 if (!(ExactInterval.Up(SnapBudget + dev) <= Tolerance)) {
@@ -1602,6 +1641,22 @@ namespace gs
         /// copy of the rest of the terrain; false: after the whole composite (the reference: the same results)
         /// </summary>
         internal bool EarlyRegionCheck = true;
+        // the last build's realization error of a stored height, 2 sMax e_xy + e_eval rounded up (TERRAIN.md 5.4)
+        double lastEz;
+        /// <summary> diagnostics of the last overlay: the slack of the catch-line bound's band on each side (TERRAIN.md 5.5) </summary>
+        internal double CatchLineBandSlack;
+        /// <summary>
+        /// diagnostics of the last composite: the largest XY move of a catch point from the overlay's catch line to the composite
+        /// (SlopeComposite.MaxCatchMove; 0 without a composite), added to the proven catch-line bound
+        /// </summary>
+        internal double CatchMove;
+
+        /// <summary>
+        /// the move of the catch points the proven catch-line bound adds (TERRAIN.md 5.5): measured on the composite, as the own
+        /// snap and the merge can add up to almost 2 MinFeatureSize (not bounded by MinFeatureSize, the bound before the
+        /// numerics review)
+        /// </summary>
+        internal static double CatchLineMove(SlopeComposite comp) { return comp.MaxCatchMove(); }
         /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
         internal int SkippedTerrainCopies;
         /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>

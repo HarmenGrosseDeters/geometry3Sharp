@@ -109,9 +109,11 @@ Before a PR is marked ready or merged, review its diff (`/code-review`, or an ag
 the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md)
 (the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
-`mesh_ops/ExactMesh*` always get this review, including a check of every new error bound; on PRs that touch
-the mutated files, the incremental mutation run (`tests/mutation`: the changed lines against the master baseline) must
-stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
+`mesh_ops/ExactMesh*` always get this review, including a check of every new error bound. Mutation runs gate a merge
+only for PRs that touch exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points) or add or
+change an error bound: there the incremental mutation run (`tests/mutation`: the changed lines against the master
+baseline) must stay above its threshold before the merge. All other PRs merge on green CI and review; their shards run
+nightly on master, and survivors become tasks of the area's next PR (owner 2026-11-13). A PR that would need full shard runs (no master baseline for a shard, a
 changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
 (workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
 a revert only for a real defect (owner 2026-11-09). During Exact Boolean 3.0 (owner 2026-11-11): no full shard runs on

@@ -32,5 +32,8 @@ if (!free.Ok)
 - Upstream status: the Clipper2 repository (AngusJohnson/Clipper2) was archived on 2026-10-28. Clipper2 continues as a
   C++ only library at [PolyClipping/Clipper2](https://github.com/PolyClipping/Clipper2) (maintainer Seth Hillibrand);
   translations to other languages are left to third parties, so the C# package 2.0.0 this adapter uses is frozen and the
-  limitation above will not be fixed upstream. Whether to integrate the C# sources into this package is an open roadmap item.
+  limitation above will not be fixed upstream. This package therefore carries the C# sources of Clipper2 2.0.0 itself
+  (internal, `Clipper2Lib/`, owner decision 2026-11-12); they compute exactly what the package computes
+  (`Clipper2VendoredDifferentialTests`). The NuGet package `Clipper2` 2.0.0 remains a dependency for the types of the
+  public API (`Point64`, `Path64`, `Paths64` and the enums), so code that also uses Clipper2 directly sees no clash.
 - The full description is in [docs/OPERATIONS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).

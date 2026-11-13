@@ -150,12 +150,15 @@ namespace geometry3Sharp.Tests
         }
 
         // the public results of the stages are in the caller's frame after Apply(): the wrap's alpha and offset, its result, the solidify's cell size
+        // (a solidify of 16 cells, still self-intersecting, so the wrap runs, and a wrap at diag / 40: issue #692)
+        // Slow: four Applies of the 12 plates (solidify, wrap, simplify each), about 5-6 s alone, 8 s before the coarser parameters
+        [Trait("Category", "Slow")]
         [Fact]
         public void PublicStageResults_AreInTheCallersFrame()
         {
             DMesh3 plates = MeshRobustRepairTests.ThinPlates(6);
             Func<DMesh3, MeshRobustRepair> run = (m) => {
-                var r = new MeshRobustRepair(m) { RepairF = null, ExactResolve = false, SolidifyResolution = 24, WrapRelativeAlpha = 70, WrapRelativeOffset = 700 };
+                var r = new MeshRobustRepair(m) { RepairF = null, ExactResolve = false, SolidifyResolution = 16, WrapRelativeAlpha = 40, WrapRelativeOffset = 400 };
                 // (a not-clean solidify, so the wrap runs: MeshRobustRepairTests.WithUnrepairedContour)
                 MeshRobustRepairTests.WithUnrepairedContour(() => r.Apply());
                 return r;
