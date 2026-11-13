@@ -228,11 +228,13 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      # at most 12 shards at a time (was 4: the 15 mesh shards of a full run then took 4 waves, about 12 hours of wall
-      # time, with the longest shards queued behind others). The account runs at most 20 jobs at once; a full run is
-      # 12 mesh shards + the arithmetic job + the selection job = 14, which leaves 6 for the CI of the PRs. Scheduling
-      # only: it changes no shard's result (select_shards.py: not a reason for full runs)
-      max-parallel: 12
+      # at most 6 shards at a time (owner 2026-11-13: short PR jobs must not wait for slots; it was 12, and 4 before: the 15 mesh
+      # shards of a full run then took 4 waves, about 12 hours of wall time). The account runs at most 20 jobs at once; a full
+      # run is 6 mesh shards + the arithmetic job + the selection job = 8, which leaves 12 for the CI of the PRs. The 25 mesh
+      # shards of about 4 hours each need about 17 hours wall time then, so the daily full run just fits one day (the schedule
+      # guard skips a starter while the run is under way). Not a concurrency group: it keeps one pending job and cancels the
+      # others. Scheduling only: it changes no shard's result (select_shards.py: not a reason for full runs)
+      max-parallel: 6
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.mesh) }}
     steps:
