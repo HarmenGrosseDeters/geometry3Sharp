@@ -11,7 +11,7 @@ namespace geometry3Sharp.Tests
     {
         const double L = 1.0;
 
-        // An independent copy of the six closed forms (sin 2x written as 2 sin x cos x) (cos 2x written as 2 cos^2 x - 1), shares no code with the library.
+        // An independent copy of the six closed forms (sin 2x written as 2 sin x cos x and cos 2x as 2 cos^2 x - 1), shares no code with the library.
         static double F(TpmsType type, Vector3d q)
         {
             double a = 2 * Math.PI * q.x / L, b = 2 * Math.PI * q.y / L, c = 2 * Math.PI * q.z / L;
@@ -196,8 +196,9 @@ namespace geometry3Sharp.Tests
                     if (t != TpmsType.SchwarzD)
                         Assert.Equal(f, F(t, new Vector3d(-q.x, q.y, q.z)), 9);
                 }
-                // the gyroid is odd under the central inversion
+                // the gyroid is odd under the central inversion, the Lidinoid even
                 Assert.Equal(-F(TpmsType.Gyroid, q), F(TpmsType.Gyroid, new Vector3d(-q.x, -q.y, -q.z)), 9);
+                Assert.Equal(F(TpmsType.Lidinoid, q), F(TpmsType.Lidinoid, new Vector3d(-q.x, -q.y, -q.z)), 9);
             }
         }
 

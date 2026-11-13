@@ -4,7 +4,7 @@ Status: **approved by the coordinator 2026-11-12 (decisions 1-4 of section 8, as
 with a stated guarantee): design note first, then one draft PR with the code, tests and benchmark.
 
 Goal: triply periodic minimal surface (TPMS) lattices for additive manufacturing: gyroid, Schwarz P, Schwarz D,
-Neovius, I-WP, Lidinoid (added in #815); sheet and skeletal (network) variants; cell size, volume fraction or wall thickness,
+Neovius, I-WP, Lidinoid; sheet and skeletal (network) variants; cell size, volume fraction or wall thickness,
 optionally graded; clipped to a box first, then to the inside of a closed mesh. The output is a closed, manifold,
 self-intersection-free mesh. A CLI / MCP command is its own later PR.
 
@@ -40,7 +40,7 @@ Literature (sources go to `docs/SOURCES.md`; formulas are public mathematics, no
 ## 2. API (additive; new file `mesh_generators/TpmsLattice.cs`, namespace `g3`)
 
 ```cs
-public enum TpmsType   { Gyroid, SchwarzP, SchwarzD, Neovius, IWP, Lidinoid }   // Lidinoid added in #815
+public enum TpmsType   { Gyroid, SchwarzP, SchwarzD, Neovius, IWP, Lidinoid }   // the Lidinoid was added after the first version
 public enum TpmsStyle  { Sheet, SkeletalLow, SkeletalHigh }                 // |f|<=t ; f<=c ; f>=-c
 public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled }
 
@@ -81,11 +81,13 @@ for bit identical mesh up to the exact scaling; rotated and translated members a
 
 Fields (p = 2 pi x / L): gyroid `sin x cos y + sin y cos z + sin z cos x`; P `cos x + cos y + cos z`; D
 `sin x sin y sin z + sin x cos y cos z + cos x sin y cos z + cos x cos y sin z`; Neovius
-`3(cos x + cos y + cos z) + 4 cos x cos y cos z`; I-WP `2(cos x cos y + cos y cos z + cos z cos x) - (cos 2x + cos 2y + cos 2z)`; Lidinoid (#815)
+`3(cos x + cos y + cos z) + 4 cos x cos y cos z`; I-WP `2(cos x cos y + cos y cos z + cos z cos x) - (cos 2x + cos 2y + cos 2z)`; Lidinoid
 `0.5 (sin 2x cos y sin z + sin 2y cos z sin x + sin 2z cos x sin y) - 0.5 (cos 2x cos 2y + cos 2y cos 2z + cos 2z cos 2x) + 0.15`
 (the nodal approximation as given by Al-Ketan & Abu Al-Rub 2019; the constant 0.15 puts the zero set on the Lidinoid; the
 formula is invariant under the cyclic permutation of the axes and even under the central inversion; it has no mirror
-or axis swap symmetry). Gradient bound for Enclosure: `d/dx = cos 2x cos y sin z + 0.5 sin 2y cos z cos x
+or axis swap symmetry). The zero set depends on the constant: other implementations write the same terms without the two factors 0.5 and the constant +0.3, which is
+the same surface. `f < 0` covers about 38 % of the cell, so the zero set is not volume-balanced and the low and high skeletal styles give
+different shapes; the volume fraction comes from the quantile table, not from the constant. Gradient bound for Enclosure: `d/dx = cos 2x cos y sin z + 0.5 sin 2y cos z cos x
 - 0.5 sin 2z sin x sin y + sin 2x (cos 2y + cos 2z)`, so `|d/dx| <= 1 + 0.5 + 0.5 + 2 = 4` and `|grad f| <= 4 sqrt 3`; the sum of
 the absolute terms is `0.5 * 3 + 0.5 * 3 + 0.15 = 3.15`. A Lidinoid sheet has a large area per period, so it needs
 more cubes per period (about 22+) than the other types for the wall to be resolved.
@@ -196,4 +198,4 @@ solid and the result is closed.
    `LinearEdges` work exists, and it is a small addition once the field is Lipschitz-normalised.
 3. `WallThickness` as a first-order convenience in the first PR (it is approximate). Recommended: yes, with the
    reported `MeanWallThickness`.
-4. Lidinoid and graded cell size: not in the first PR (the Lidinoid followed in #815; graded cell size is #816).
+4. Lidinoid and graded cell size: not in the first PR (the Lidinoid was added afterwards; graded cell size follows).
