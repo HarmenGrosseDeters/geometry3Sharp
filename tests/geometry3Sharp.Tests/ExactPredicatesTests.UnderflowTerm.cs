@@ -9,9 +9,9 @@ namespace geometry3Sharp.Tests
     // expression bit for bit, and the predicates stay exact around the threshold.
     public partial class ExactPredicatesTests
     {
-        const double Epsilon = 1.1102230246251565e-16;
-        const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
-        const double UnderflowUnit = double.Epsilon * 256;
+        const double Epsilon = ExactPredicates.Epsilon;
+        const double Orient3dBound = ExactPredicates.Orient3dBound;
+        const double UnderflowUnit = ExactPredicates.UnderflowUnit;
 
         // the filter as it was before: the underflow term on every call
         static int Orient3dFilterFull(double ux, double uy, double uz, double vx, double vy, double vz, double wx, double wy, double wz)
@@ -34,6 +34,21 @@ namespace geometry3Sharp.Tests
             if (kind == 1) return (rnd.Next(2) == 0 ? 1 : -1) * double.Epsilon * rnd.Next(1, 1 << 20);
             if (kind == 2) return rnd.Next(3) == 0 ? double.NaN : (rnd.Next(2) == 0 ? double.PositiveInfinity : double.NegativeInfinity);
             return (rnd.NextDouble() - 0.5) * Math.Pow(2, rnd.Next(lo, hi));
+        }
+
+        [Fact]
+        public void Bound_ShortcutPreconditions_Hold()
+        {
+            // the proof of with_underflow: every bound constant >= 2^-51 and UnderflowLimit > 2^-706, so that B * permanent
+            // >= 2^-757 wherever a filter decides, and half an ulp of that (>= 2^-810) exceeds the largest skipped term,
+            // just below 2^256 * 2^-1066 = 2^-810
+            foreach (double B in new[] { ExactPredicates.Orient3dBound, ExactPredicates.InCircleBound, ExactPredicates.InSphereBound })
+                Assert.True(B >= Math.Pow(2, -51));
+            Assert.True(ExactPredicates.UnderflowLimit > Math.Pow(2, -706));
+            Assert.Equal(Math.Pow(2, 256), ExactPredicates.UnderflowSumNegligible);
+            Assert.Equal(Math.Pow(2, -1066), ExactPredicates.UnderflowUnit);
+            double minRelative = Math.Pow(2, -51) * ExactPredicates.UnderflowLimit;
+            Assert.True(ExactPredicates.UnderflowSumNegligible * ExactPredicates.UnderflowUnit <= minRelative * Epsilon / 2);
         }
 
         [Fact]
@@ -77,10 +92,10 @@ namespace geometry3Sharp.Tests
             // each filter decides only with a permanent above 1e-200: Orient3dFilter returns 0 at and below it (the
             // bound may then differ from the full expression), the public predicates go to their exact stage
             double s = Math.Pow(2, -334);       // products of two coordinates about 2^-668 < 1e-200
+            Assert.Equal(0, ExactPredicates.Orient3dFilter(s, 0, 0, 0, s, 0, 0, 0, s * (1 << 10)));
             for (int k = -2; k <= 2; ++k) {
                 double w = Math.Pow(2, 300 + k);   // sum above the threshold: the full term
                 double tiny = 1e-200 / w;           // permanents near the cutoff
-                Assert.Equal(0, ExactPredicates.Orient3dFilter(s, 0, 0, 0, s, 0, 0, 0, s * (1 << 10)));
                 Assert.Equal(Orient3dFilterFull(tiny, 0, 0, 0, 1, 0, 0, 0, w), ExactPredicates.Orient3dFilter(tiny, 0, 0, 0, 1, 0, 0, 0, w));
                 Assert.Equal(Orient3dFilterFull(Up(tiny), 0, 0, 0, 1, 0, 0, 0, w), ExactPredicates.Orient3dFilter(Up(tiny), 0, 0, 0, 1, 0, 0, 0, w));
                 Assert.Equal(Orient3dFilterFull(tiny / 2, 0, 0, 0, 1, 0, 0, 0, w), ExactPredicates.Orient3dFilter(tiny / 2, 0, 0, 0, 1, 0, 0, 0, w));

@@ -15,12 +15,14 @@ namespace g3
     /// </summary>
     public static class ExactPredicates
     {
-        const double Epsilon = 1.1102230246251565e-16;     // 2^-53
+        internal const double Epsilon = 1.1102230246251565e-16;     // 2^-53
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
         internal const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
         internal const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
         internal const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
-        // below this the products may be subnormal (absolute, not relative rounding error)
+        // below this the products may be subnormal (absolute, not relative rounding error). with_underflow relies on
+        // UnderflowLimit > 2^-706 and on every bound constant being at least 2^-51 (then B * permanent >= 2^-757 and
+        // half an ulp of it exceeds 2^-810, the largest term it skips); ExactPredicatesTests checks this coupling.
         internal const double UnderflowLimit = 1e-200;
         // A larger permanent does not exclude subnormal partial products either: a subnormal 2x2 product (absolute
         // error up to 2^-1075) times a large coordinate or lift. With fl(x * y) = x y (1 + d) + n, |n| <= 2^-1075
