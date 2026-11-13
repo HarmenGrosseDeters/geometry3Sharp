@@ -9,7 +9,9 @@ namespace g3cli
 {
     /// <summary>
     /// offset: the offset surface of a closed mesh by marching cubes on a signed distance grid (docs/design/CLI_MCP_UPDATE.md section 1,
-    /// owner decision Q1: LinearEdges as an option, enclosure_claim "none").
+    /// owner decision Q1: LinearEdges as an option, enclosure_claim "none"), or, opt-in with method mesh_offset, by gs.MeshOffset
+    /// (docs/design/MESH_OFFSET.md section 10: a one-sided band certificate, enclosure_claim "band"; coordinator decision 2026-11-13,
+    /// the default stays sdf_mc).
     /// </summary>
     public static partial class Commands
     {
@@ -25,10 +27,15 @@ namespace g3cli
                     "original corner samples without the endpoint nudges (the mode of the conservative marching cubes audit): it requires finite samples, no sample exactly at the iso value and crossings " +
                     "strictly inside their edges and never repairs a violation (the command then fails with operation_failed and offset_status linear_edges_precondition, and writes nothing). " +
                     "The result states enclosure_claim \"none\": this command promises nothing about the offset surface enclosing the input; the signed distance of a mesh is sampled in float and is " +
-                    "not the exact 1-Lipschitz field the enclosure recipe (docs/design/CONSERVATIVE_MC_AUDIT.md) assumes. Inputs that are not closed, or whose triangles face inward (negative volume), are refused (the sign comes from the inside test; a mesh with some components inside out is not detected).",
+                    "not the exact 1-Lipschitz field the enclosure recipe (docs/design/CONSERVATIVE_MC_AUDIT.md) assumes. Inputs that are not closed, or whose triangles face inward (negative volume), are refused (the sign comes from the inside test; a mesh with some components inside out is not detected). " +
+                    "method mesh_offset (opt-in) uses MeshOffset instead: dual contouring of the exact distance field with sharp creases where offset sheets meet, the self-intersection test decided exactly " +
+                    "(self_intersection_free), and a proven one-sided band (band_deviation: every point of the result has a signed distance within that of distance; band_certified: within half a cell); " +
+                    "enclosure_claim is then \"band\". It needs a cell of at most half of |distance| (cell_size or relative_cell_size as for sdf_mc), max_cells bounds its grid nodes, root_mode other than " +
+                    "single_lerp and root_steps are refused, and the input must also be free of self-intersections (not checked; the inside test assumes it).",
             };
             c.Params.Add(Input());
             c.Params.Add(Output());
+            c.Params.Add(new Param("method", ParamType.String, "sdf_mc: signed distance grid + marching cubes (default); mesh_offset: MeshOffset (exact distance field, dual contouring, band certificate)") { Default = "sdf_mc", Enum = new[] { "sdf_mc", "mesh_offset" } });
             c.Params.Add(new Param("distance", ParamType.Number, "offset distance in mesh units, positive outward, negative inward") { Required = true });
             c.Params.Add(new Param("cell_size", ParamType.Number, "grid cell size in mesh units"));
             c.Params.Add(new Param("relative_cell_size", ParamType.Number, "grid cell size as a fraction of the bounding box diagonal of the input (default 0.01)"));
@@ -50,6 +57,9 @@ namespace g3cli
                 if (args.Has("relative_cell_size") && !(args.Number("relative_cell_size") > 0 && args.Number("relative_cell_size") <= 1))
                     throw new CommandException(ResultCodes.InvalidArguments, "'relative_cell_size' must be in (0, 1]");
                 string rootMode = args.String("root_mode");
+                bool meshOffset = args.String("method") == "mesh_offset";
+                if (meshOffset && (rootMode != "single_lerp" || args.Has("root_steps")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "root_mode and root_steps are options of method sdf_mc (mesh_offset places its vertices by dual contouring)");
                 if (args.Has("root_steps")) {
                     if (rootMode != "lerp_steps" && rootMode != "bisection")
                         throw new CommandException(ResultCodes.InvalidArguments, "'root_steps' is an option of root_mode lerp_steps and bisection");
@@ -79,6 +89,8 @@ namespace g3cli
                 // the grid covers the input, the offset and two cells of margin (as docs/examples/OffsetSurfaceExample.cs)
                 double margin = Math.Max(distance, 0) + 2 * cell;
                 var gridBox = new AxisAlignedBox3d(box.Min - margin * Vector3d.One, box.Max + margin * Vector3d.One);
+                if (meshOffset)
+                    return OffsetByMeshOffset(args, input, inputMetrics, distance, cell, maxCells, selfInt, warnings);
                 if (!(Math.Abs(distance) / cell < 1e6) || !(cell >= diagonal * 1e-9))
                     throw new CommandException(ResultCodes.InvalidArguments, "the offset distance is more than a million cells, or the cell is below 1e-9 of the diagonal");
                 int band = (int)Math.Ceiling(Math.Abs(distance) / cell) + 2;
@@ -121,7 +133,7 @@ namespace g3cli
                         new JsonObject() { ["offset_status"] = "empty", ["enclosure_claim"] = "none" });
                 MeshFiles.Write(args.String("output"), result, args.Bool("binary"));
                 var o = new JsonObject() {
-                    ["input"] = args.String("input"), ["output"] = args.String("output"), ["offset_status"] = "ok",
+                    ["input"] = args.String("input"), ["output"] = args.String("output"), ["offset_status"] = "ok", ["method"] = "sdf_mc",
                     ["distance"] = distance, ["cell_size"] = cell, ["cells"] = new JsonArray(mc.CellDimensions.x, mc.CellDimensions.y, mc.CellDimensions.z),
                     ["grid_cells"] = (long)mc.CellDimensions.x * mc.CellDimensions.y * mc.CellDimensions.z,
                     ["root_mode"] = rootMode, ["root_steps"] = (rootMode == "lerp_steps" || rootMode == "bisection") ? mc.RootModeSteps : (JsonNode)null,
@@ -133,6 +145,46 @@ namespace g3cli
                 return o;
             };
             return c;
+        }
+
+        // method mesh_offset: gs.MeshOffset with the command's cell and node budget
+        static JsonObject OffsetByMeshOffset(Args args, DMesh3 input, JsonObject inputMetrics, double distance, double cell, long maxCells, bool selfInt, List<string> warnings)
+        {
+            if (distance == 0)
+                throw new CommandException(ResultCodes.InvalidArguments, "method mesh_offset needs a nonzero distance");
+            if (!(cell <= 0.5 * Math.Abs(distance)))
+                throw new CommandException(ResultCodes.InvalidArguments,
+                    $"method mesh_offset needs a cell of at most half of |distance| (cell {cell:G4}, distance {distance:G4}): use a smaller cell_size or relative_cell_size");
+            var o = new gs.MeshOffset(input, distance) { CellSize = cell, MaxGridNodes = maxCells, UseParallel = args.Bool("parallel") };
+            o.Compute();
+            switch (o.ResultStatus) {
+                case gs.MeshOffset.Status.Success:
+                    break;
+                case gs.MeshOffset.Status.GridTooLarge:
+                    throw new CommandException(ResultCodes.InvalidArguments, $"the grid would have more than {maxCells} nodes (max_cells): use a larger cell_size or relative_cell_size",
+                        new JsonObject() { ["offset_status"] = "grid_too_large", ["enclosure_claim"] = "none" });
+                case gs.MeshOffset.Status.Empty:
+                    throw new CommandException(ResultCodes.OperationFailed, "the offset surface is empty (a negative distance beyond the inner half thickness, or a cell larger than the shape)",
+                        new JsonObject() { ["offset_status"] = "empty", ["enclosure_claim"] = "none" });
+                case gs.MeshOffset.Status.InvalidParameters:
+                case gs.MeshOffset.Status.InvalidInput:
+                    throw new CommandException(ResultCodes.InvalidArguments, "MeshOffset refused the input or the parameters: " + o.ResultStatus,
+                        new JsonObject() { ["offset_status"] = "invalid", ["enclosure_claim"] = "none" });
+                default:
+                    throw new CommandException(ResultCodes.OperationFailed, "MeshOffset failed: " + o.ResultStatus + " (the contour is not closed and manifold)",
+                        new JsonObject() { ["offset_status"] = "failed", ["enclosure_claim"] = "none" });
+            }
+            MeshFiles.Write(args.String("output"), o.Result, args.Bool("binary"));
+            var r = new JsonObject() {
+                ["input"] = args.String("input"), ["output"] = args.String("output"), ["offset_status"] = "ok", ["method"] = "mesh_offset",
+                ["distance"] = distance, ["cell_size"] = o.UsedCellSize,
+                ["band_deviation"] = o.BandDeviation, ["band_certified"] = o.BandCertified, ["self_intersection_free"] = o.SelfIntersectionFree,
+                ["enclosure_claim"] = "band",
+            };
+            r["input_mesh"] = inputMetrics;
+            r["mesh"] = MeshReport.Metrics(o.Result, selfInt);
+            r["warnings"] = Warnings(warnings);
+            return r;
         }
     }
 }

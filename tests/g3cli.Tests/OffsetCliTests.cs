@@ -182,5 +182,89 @@ namespace g3cli.Tests
             var (e5, r5) = Run("offset", m.Empty, m.Path_("x.obj"), "--distance", "0.1", "--compact");
             AssertError(e5, r5, "empty_mesh");
         }
+
+        // ---- method mesh_offset (gs.MeshOffset, opt-in; the default stays sdf_mc) ----
+
+        [Fact]
+        public void MeshOffset_Outward_IsTheRoundedBox_WithACertifiedBand()
+        {
+            string output = m.Path_("mo_out.obj");
+            var (exit, r) = Run("offset", m.Cube, output, "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["offset_status"]));
+            Assert.Equal("mesh_offset", S(r["method"]));
+            Assert.Equal("band", S(r["enclosure_claim"]));
+            Assert.Equal(0.1, D(r["cell_size"]), 12);
+            Assert.True(B(r["band_certified"]));
+            Assert.InRange(D(r["band_deviation"]), 0, 0.05 + 1e-12);           // half a cell
+            Assert.True(B(r["self_intersection_free"]));
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.99 * RoundedBoxVolume(0.5), 1.01 * RoundedBoxVolume(0.5));
+            Assert.Null(r["root_mode"]);
+            Assert.Null(r["cells"]);
+            Assert.True(File.Exists(output));
+            Assert.Equal(I(r["mesh"]["triangles"]), StandardMeshReader.ReadMesh(output).TriangleCount);
+        }
+
+        [Fact]
+        public void MeshOffset_Inward_IsTheSharpSmallerCube()
+        {
+            var (exit, r) = Run("offset", m.Cube, m.Path_("mo_in.obj"), "--distance=-0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, exit);
+            Assert.True(B(r["band_certified"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.999, 1.001);                 // the cube [-0.5, 0.5]^3 with its corners (dual contouring)
+            Assert.Equal(0.5, D(r["mesh"]["bounds"]["max"][1]), 6);
+        }
+
+        [Fact]
+        public void MeshOffset_CellMapping_RelativeCellSize_AndTheHalfDistanceLimit()
+        {
+            double diagonal = 2 * Math.Sqrt(3);
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_rel.obj"), "--distance", "0.5", "--relative-cell-size", "0.04", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0.04 * diagonal, D(r1["cell_size"]), 12);
+            // the cell must be at most |distance| / 2 (the default, a hundredth of the diagonal, is 0.0346 here: too large for 0.05)
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_big.obj"), "--distance", "0.05", "--method", "mesh_offset", "--compact");
+            AssertError(e2, r2, "invalid_arguments");
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("mo_big2.obj"), "--distance", "0.5", "--cell-size", "0.3", "--method", "mesh_offset", "--compact");
+            AssertError(e3, r3, "invalid_arguments");
+        }
+
+        [Fact]
+        public void MeshOffset_MaxCells_BoundsTheGridNodes()
+        {
+            string never = m.Path_("mo_never.obj");
+            var (exit, r) = Run("offset", m.Cube, never, "--distance", "0.5", "--cell-size", "0.1", "--max-cells", "1000", "--method", "mesh_offset", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Equal("grid_too_large", S(r["offset_status"]));
+            Assert.False(File.Exists(never));
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_ok.obj"), "--distance", "0.5", "--cell-size", "0.1", "--max-cells", "200000", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e2);
+        }
+
+        [Fact]
+        public void MeshOffset_RefusesRootModeAndRootSteps()
+        {
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_rm.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--root-mode", "bisection", "--compact");
+            AssertError(e1, r1, "invalid_arguments");
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_rs.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--root-steps", "4", "--compact");
+            AssertError(e2, r2, "invalid_arguments");
+        }
+
+        [Fact]
+        public void SdfMc_IsTheDefault_AndClaimsNoEnclosure()
+        {
+            var (exit, r) = Run("offset", m.Cube, m.Path_("sm_def.obj"), "--distance", "0.5", "--cell-size", "0.1", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("sdf_mc", S(r["method"]));
+            Assert.Equal("none", S(r["enclosure_claim"]));
+            Assert.Null(r["band_deviation"]);
+            Assert.Null(r["band_certified"]);
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("sm_exp.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "sdf_mc", "--compact");
+            Assert.Equal(0, e2);
+            Assert.Equal("none", S(r2["enclosure_claim"]));
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("sm_bad.obj"), "--distance", "0.5", "--method", "exact", "--compact");
+            AssertError(e3, r3, "invalid_arguments");
+        }
     }
 }

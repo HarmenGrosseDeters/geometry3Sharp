@@ -272,6 +272,12 @@ namespace g3cli.Tests
             r = Handle(server, Call(2, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_off2.obj"), ["distance"] = 0.0, ["cell_size"] = 0.25, ["root_mode"] = "linear_edges" }));
             Assert.True(B(r["result"]["isError"]));
             Assert.Equal("linear_edges_precondition", S(r["result"]["structuredContent"]["offset_status"]));
+            r = Handle(server, Call(3, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_off3.obj"), ["distance"] = 0.5, ["cell_size"] = 0.1, ["method"] = "mesh_offset" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            sc = r["result"]["structuredContent"];
+            Assert.Equal("band", S(sc["enclosure_claim"]));
+            Assert.True(B(sc["band_certified"]));
+            Assert.True(B(sc["self_intersection_free"]));
         }
 
         [Fact]
