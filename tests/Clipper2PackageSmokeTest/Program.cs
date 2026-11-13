@@ -22,7 +22,7 @@ static class Program
                 foreach (string expected in new[] {
                         "lib/net10.0/geometry3Sharp.Clipper2.dll", "lib/net10.0/geometry3Sharp.Clipper2.xml",
                         "lib/netstandard2.0/geometry3Sharp.Clipper2.dll", "lib/netstandard2.0/geometry3Sharp.Clipper2.xml",
-                        "README.md", "LICENSE" })
+                        "README.md", "LICENSE", "THIRD-PARTY-NOTICES.txt" })
                     check(entries.Contains(expected), "package contains " + expected);
                 ZipArchiveEntry nuspec = zip.Entries.First(e => e.FullName.EndsWith(".nuspec"));
                 string spec = new StreamReader(nuspec.Open()).ReadToEnd();

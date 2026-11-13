@@ -13,8 +13,12 @@ namespace geometry3Sharp.Tests
     /// covers, so the margin δ is raised. The current behaviour, pinned until the vertex-edge separation of the
     /// RoundToGrid item (Halperin and Packer 2002) repairs it: success in a second attempt.
     /// </summary>
-    public class TerrainSlopeClippedRegionTests
+    public class TerrainSlopeClippedRegionTests : IClassFixture<TerrainSlopeClippedRegionTests.ReferenceFixture>
     {
+        // (the shared reference is built by a class fixture, before the first test: its cost, about 5 s, is no test's, whichever row runs first)
+        public sealed class ReferenceFixture { public ReferenceFixture() { var d = TerrainSlopeClippedRegionTests.reference.Value; } }
+
+
         // a wavy 48-gon (r 150 m) on waves of amplitude 30 m near the origin (TerrainSlopeBandRepairTests.WavyOnWaves)
         // (first the 32-gon of r 100 m; since the composite's snap reserves Tolerance / 4, its finer facets have the sliver
         // in this one)
@@ -23,7 +27,7 @@ namespace geometry3Sharp.Tests
             return TerrainSlopeBandRepairTests.WavyOnWaves(s, new Vector3d(0, 0, -340), amp: 30);
         }
 
-        static readonly Lazy<TerrainSlopeDesign> reference = new Lazy<TerrainSlopeDesign>(() => {
+        internal static readonly Lazy<TerrainSlopeDesign> reference = new Lazy<TerrainSlopeDesign>(() => {
             var d = Make(Similarity.Identity);
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             return d;
@@ -37,10 +41,19 @@ namespace geometry3Sharp.Tests
         // first margin): triangles of the clipped region fail the first two attempts, with no room for the band merge (its
         // radius is r), another cause (TERRAIN.md 5.8.1). Every frame succeeds with a valid composite; the 2^k frames are bit
         // for bit
+        // The frame "rotated, scale 1e-3, utm" (a design of centimetres at UTM coordinates: MinFeatureSize 1.5 cm, three builds by design, TERRAIN.md
+        // 5.8.1, #696) costs 2-3 times the other frames and runs in the Nightly test WavyToeNearTheOrigin_ClippedSliverIsMerged_ExtremeFrame: the run is the check
+        // Slow: 2.2-5.0 s a row alone (two designs of 48 vertices on waves, three Computes of the frame, bit for bit in the 2^k frames)
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
-        public void WavyToeNearTheOrigin_ClippedSliverIsMerged(string name)
+        [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
+        public void WavyToeNearTheOrigin_ClippedSliverIsMerged(string name) => ClippedSliverIsMerged(name);
+
+        [Trait("Category", "Nightly")]
+        [Fact]
+        public void WavyToeNearTheOrigin_ClippedSliverIsMerged_ExtremeFrame() => ClippedSliverIsMerged(Similarity.RotatedUtmMillimetre.Name);
+
+        static void ClippedSliverIsMerged(string name)
         {
             Similarity s = Similarity.ByName(name);
             if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);

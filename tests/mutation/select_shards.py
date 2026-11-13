@@ -17,6 +17,9 @@ only a coarse one: test_select_shards.py checks that it covers every config.
 An edit of the workflow runs every config in full, unless every changed line lies in a region that cannot change how
 a shard runs (workflow_edit_forces_full below; checked on the diff between $BASE and $HEAD, which the workflow sets):
 adding a test file to the trigger paths, raising max-parallel or editing a reporting step changes no shard.
+A config whose edit only moves the spans of its `mutate` entries (a source edit shifts their character offsets; a
+resplit moves a boundary) runs in `source` mode instead of in full: incremental.py carries the baseline's spans over
+the line diff and runs what the moved boundary adds (config_edit_moves_only_spans; checked on $BASE / $HEAD as well).
 With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding-1 runs only those
 (workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards).
 """
@@ -26,6 +29,8 @@ import os
 import re
 import subprocess
 import sys
+
+import incremental
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = "tests/geometry3Sharp.Tests/"
@@ -257,6 +262,16 @@ def workflow_edit_forces_full(diff, old_text, new_text):
     return not changed
 
 
+def config_edit_moves_only_spans(old_text, new_text):
+    """True if two texts of a config differ at most in the spans of `mutate` (the same files in the same order, every
+    other key equal); False for anything else, including a text that is not a config"""
+    try:
+        old, new = json.loads(old_text)["stryker-config"], json.loads(new_text)["stryker-config"]
+        return incremental.without_spans(old) == incremental.without_spans(new)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def load_configs(directory=HERE):
     """name of the config -> (config path, mutated paths, test paths)"""
     configs = {}
@@ -297,8 +312,9 @@ SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "te
 SCRIPT_SHARD = "mesh-fixed"
 
 
-def select(changed, configs, run_all=False, only=None):
-    """(mode of the arithmetic config, list of the mesh shards to run)"""
+def select(changed, configs, run_all=False, only=None, moved=()):
+    """(mode of the arithmetic config, list of the mesh shards to run); `moved`: the names of the configs whose edit
+    only moved their spans (not in `changed`), which run at least incrementally"""
     changed = set(changed)
     if only is not None:
         unknown = set(only) - {shard_name(n) for n in configs}
@@ -306,6 +322,9 @@ def select(changed, configs, run_all=False, only=None):
             raise ValueError("unknown shards: " + ", ".join(sorted(unknown)))
     modes = {name: ("full" if only is None or shard_name(name) in only else "none") if run_all
              else mode_of(config, changed) for name, config in configs.items()}
+    for name in moved:
+        if not run_all and modes.get(name) in ("none", "tests"):
+            modes[name] = "source"
     if not run_all and changed & SCRIPTS and SCRIPT_SHARD in modes:
         modes[SCRIPT_SHARD] = "full"
     mesh = [{"shard": name[len("mesh-"):], "mode": mode} for name, mode in modes.items()
@@ -332,6 +351,19 @@ if __name__ == "__main__":
             paths.remove(WORKFLOW)
             print("workflow: only regions that do not change how a shard runs were edited, not a reason for full runs",
                   file=sys.stderr)
-    arithmetic, mesh = select(paths, load_configs(), run_all, only)
+    moved = set()
+    if base and head and not run_all:
+        def git_show(rev, path):
+            p = subprocess.run(["git", "show", f"{rev}:{path}"], capture_output=True, text=True)
+            return p.stdout if p.returncode == 0 else None
+        merge_base = subprocess.run(["git", "merge-base", base, head], check=True, capture_output=True,
+                                    text=True).stdout.strip()
+        for path in [p for p in paths if re.fullmatch(r"tests/mutation/stryker-[^/]*\.json", p)]:
+            old, new = git_show(merge_base, path), git_show(head, path)
+            if old is not None and new is not None and config_edit_moves_only_spans(old, new):
+                paths.remove(path)
+                moved.add(os.path.basename(path)[len("stryker-"):-len(".json")])
+                print(f"{path}: only the spans of mutate moved, the shard runs incrementally", file=sys.stderr)
+    arithmetic, mesh = select(paths, load_configs(), run_all, only, moved)
     print("arithmetic=" + arithmetic)
     print("mesh=" + json.dumps(mesh))
