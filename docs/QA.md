@@ -725,6 +725,28 @@ The scheduling regression in `RobustnessSweepRemainingTests` checks both the ass
 This uses xUnit's [collection-level parallelism opt-out](https://xunit.net/docs/running-tests-in-parallel), not a
 suite-wide concurrency change; it does not eliminate noise from unrelated processes or other test assemblies.
 
+### 3.3 Runtime watch (extreme cases, nightly)
+
+`.github/workflows/runtime-watch.yml` times a fixed list of known extreme cases of the Exact Boolean and the Alpha Wrap
+daily at 01:17 UTC on master (owner 2026-11-13) and on demand (a full run is about 1 h typical, about 4 h
+if every case hits its timeout; a run under way is never cancelled by the next trigger) (`tools/runtime-watch/cases.json`, run by `tools/runtime_watch.py`). Owner decision 2026-11-12: it
+watches the tail, not the median. Each case is one process per run (isolated, never two cases at once), a few repeats,
+the median counts; the machine (CPU, cores, memory, dotnet) is recorded. Procedural cases run directly; Thingi10K meshes
+are fetched at run time by the nightly job only (never committed, never fetched by a PR-tier test).
+
+Outlier rule (`rules` in the case list): a median more than 1.3x the median of the last 10 runs of the case and more than 1 s
+above it (a regression); a median over 20 s (a potential defect, platform.md time rules); a failed or timed-out case. The
+job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (none of the last 3 nights had the flag: a
+regression, a failure, a case newly over 20 s), so a known slow case is not repeated every night. Results are a workflow
+artifact; the history (`history.json`, last 60 entries per case, plus one result file per commit) is on the data branch
+`runs/runtime-watch` (never merged). A run with a case subset (`only`) does not update the history. GitHub-hosted runners
+vary, so the absolute 1 s and the 1.3x are a floor; a persistent step change enters the rolling median after about five nights.
+
+Add a case: an entry in `cases.json` (`area` boolean or alphawrap, `kind` procedural or thingi, `setup` and `run` argv lists with
+`{work}`, `{dll:Project}` and `{thingi:ID}`, `time_field` the JSON field of the run's last output line, or `wall`), then
+`python3 tools/runtime_watch.py validate tools/runtime-watch/cases.json`. The tooling's tests (`tools/test_runtime_watch.py`:
+rule, case-list parsing, runner on stub commands) run in the PR tier without network or dotnet.
+
 ## 4a. Making agent work verifiable
 
 Most rules in CLAUDE.md are enforced by review only. These items make them machine-checked, or add oracles that do
