@@ -1,6 +1,6 @@
 # Test impact analysis for PR CI (study, 2026-11-13)
 
-Status: study with one measurement (section 8a), no library or workflow code in this PR. Author: study session (Sonnet) for the
+Status: study with one measurement (section 8a), no library or workflow code in this PR. Author: study session for the
 coordinator. Tier S (docs only). Owner decisions of 2026-11-13 are in section 12.
 
 ## 1. Question
@@ -26,8 +26,8 @@ outcome because of the change. Safe selection is a property of the map, not of t
 | `tests/mutation/narrow_tests.py` (open PR #777) | from Stryker `coveredBy/killedBy` builds a greedy test cover per mutation shard, with content hashes of mutated and test files as staleness guard, falls back to the full set when stale | **same design pattern** (map + hash guard + fallback to full) and a lesson: Stryker records no killer for timeouts. Reusable code: the hash/staleness guard and the vstest filter escaping (`FullyQualifiedName=...`, theory rows reduced to the method) |
 | `ExactCodeAllowList`, analyzers, `.editorconfig` lists | exact-code file lists | the exact files are a natural "always full" set |
 
-Not existing: any per-test coverage, any test-to-source map, any selection in `ci.yml`. The only SDK-side facts available
-to this study are the repo files; this container has no .NET SDK and CI artifacts (trx) of master are not retrievable
+Not existing: any per-test coverage, any test-to-source map, any selection in `ci.yml`. At the time of the static study (sections 1-8) the
+only SDK-side facts available were the repo files: the container had no .NET SDK (installed later for section 8a) and CI artifacts (trx) of master are not retrievable
 (the latest master `ci.yml` runs are cancelled by the backlog), so numbers in section 8 come from a static probe, see there.
 
 ## 3. Prior art (citations marked *(memory)* were recalled, not re-fetched; verify before quoting)
@@ -190,7 +190,7 @@ Backstop and feedback:
 
 ## 8. Upper bound (what share of the suite a PR would run)
 
-Constraints of this measurement: no .NET SDK in the study container; trx of master not retrievable (recent master `ci.yml`
+Constraints of this static measurement (before section 8a): no .NET SDK in the study container; trx of master not retrievable (recent master `ci.yml`
 runs are cancelled); `coverage.yml` has produced no usable map. So there is **no per-test coverage and no trx duration**
 here. Instead a **static probe** (throwaway, not committed; Python, regex over identifiers) computed, for the last 50 first-parent
 merges on master (2026-11-13 checkout):
@@ -291,6 +291,20 @@ Limits of this number, in the order of weight:
    was replayed, so the miss rate is not measured. That is what the shadow period (section 6) is for.
 5. Windows shards, `#if` code and the net48 differences are not measured (net10.0 map; owner decision: `linux` only).
 6. With the 10 % sampled full run (owner decision) the expected PR share is about 13.4 % + 0.1 x 86.6 % = 22 % of the test time.
+
+## 8b. Plan for the re-measurement (build / no build)
+
+Section 8a measured one window with coverage-run weights. Before anything is built, repeat it on data of the CI itself:
+1. Inputs: the `full-run-trx` artifact (`net10.trx`) and `isolated-results/alone.trx` of the 10 newest completed (not cancelled)
+   master `ci.yml` runs. The latest master runs at the time of the study were cancelled, so completed ones have to be searched for.
+2. Weights: per-class sums of the test durations from those trx files (a `--weights` option for `replay` in `tools/tia_map.py`,
+   branch `claude/test-impact-measure`), in place of the durations of the coverage run.
+3. Replay the 50 newest merges on a master at least a week past d2e02a1 (the map is made again at that commit).
+4. Decision number: the mean selected share of the test time over the merges that change code, forced-full merges included.
+   Build (shadow mode first, section 6) only if that mean is <= 40 % in both windows (8a and this one) and p90 <= 60 %;
+   otherwise stop at extensions of `ci_scope.py` and option E.
+5. The replay does **not** measure the miss rate: it shows what would run, not what would have failed. The miss rate is the job of
+   the shadow period (20 merges, section 6) and of replaying the first failing master run against the map.
 
 ## 9. Test plan (repo style)
 
