@@ -279,8 +279,9 @@ namespace g3
                 double v = Raw(ref p);
                 // Sliver guard: a node whose value is within rounding of the level makes a crossing at a cube corner and so degenerate
                 // triangles (found: large lattices with a position dependent level or a graded cell size). Values within Snap of the
-                // level count as inside, with Snap = 2^-8 cube: every crossing is then at least 2^-8 of an edge from a node, so no
-                // triangle is smaller than about 1e-5 cube^2. The surface moves by less than 2 Snap, and only down, which keeps the
+                // level count as inside, with Snap = ratio * 2^-8 cube (ratio: see Compute): where F is 1-Lipschitz in length every crossing is
+                // then at least ratio / 256 of an edge from a node. That is a heuristic size, not a proof (the clip distance d changes by h per
+                // edge, and a position dependent level makes F not 1-Lipschitz); the result is certified separately. The surface moves by less than 2 Snap, and only down, which keeps the
                 // solid a superset (the enclosure survives).
                 return SliverGuard(v, Iso, Snap);
             }

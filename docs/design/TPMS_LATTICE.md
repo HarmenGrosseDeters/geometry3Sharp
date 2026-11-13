@@ -128,10 +128,13 @@ solid and the result is closed.
   the gyroid-like types, about 1/4 for Schwarz D and Neovius, whose bound is loose), so that the band is the same fraction of the change of f
   per edge for every type: every crossing is then at least 2^-8 of an edge from its node and no
   triangle is smaller than about 1e-5 cube^2. The field value of a snapped node moves by less than `2 Snap` and only down: the solid `{F <= iso}` can only grow, in
-  every variant (sheet: both walls thicken; skeletal: the solid grows). `F` is 1-Lipschitz in length (`(g - c) / Lw`), so the change of F per
-  cube edge is at most `h` and every crossing is at least `Snap / h` of an edge from its node. For `Enclosure` the sample error is one-sided and below
-  `2 Snap` in field units: the level pad pays `2 Snap` (the audit's `e` term) on top of `sqrt(3) h / 2`. On the constant lattices of the tests
-  13 of 15 type / style cases are bit for bit unchanged; Neovius skeletal changes by less than 5 % of a cube and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
+  every variant (sheet: both walls thicken; skeletal: the solid grows). Where `F` is 1-Lipschitz in length (`(g - c) / Lw` with a constant `c`), the change of F per
+  cube edge is at most `h` and every crossing is at least `Snap / h = ratio / 256` of an edge from its node (about 1/1024 of an edge for Schwarz D
+  and Neovius). This is a heuristic sizing, not a proof: the clip distance `d` changes by `h` per edge, and a position dependent level
+  (`VolumeFractionAt`, the motivating case) makes `F` not 1-Lipschitz, so the crossing distance there is smaller; the guard still removes
+  the exact-corner crossings, and the result is certified separately (`NotCleanReason`, exact self-intersection check). For `Enclosure` the sample error is one-sided and below
+  `2 Snap` in field units: the level pad pays `2 Snap` (the audit's `e` term) on top of `sqrt(3) h / 2`. On the constant lattices of the tests (2 periods, 14 cubes per period, fraction 0.3; not a guarantee for other
+  fractions, resolutions or box offsets) 13 of 15 type / style cases are bit for bit unchanged; Neovius skeletal changes by less than 5 % of a cube and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
   retries are rare and remain for what the guard cannot see.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).

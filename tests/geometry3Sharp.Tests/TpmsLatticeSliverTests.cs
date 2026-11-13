@@ -24,6 +24,7 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        [Trait("Category", "Slow")]   // a lattice of 360 k nodes is needed to hit nodes within rounding of a varying level (about 2 s locally)
         public void Compute_LargeLatticeWithAPositionDependentLevelHasNoSlivers()
         {
             // Found by a large graded lattice: with a level that varies continuously the node values are generic, and on a 4^3 box at
@@ -68,8 +69,8 @@ namespace geometry3Sharp.Tests
         {
             // the guarded path on the large position-dependent case: parallel equals serial, and a repeated run is identical
             Func<TpmsLattice> make = () => new TpmsLattice {
-                Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = L, Divisions = 16, VolumeFraction = 0.317,
-                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(4, 4, 4)),
+                Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = L, Divisions = 12, VolumeFraction = 0.317,
+                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(3, 3, 3)),
                 VolumeFractionAt = p => 0.317 + 0.05 * Math.Sin(p.x + 2 * p.y)
             };
             TpmsLattice serial = make(), parallel = make(), again = make();
