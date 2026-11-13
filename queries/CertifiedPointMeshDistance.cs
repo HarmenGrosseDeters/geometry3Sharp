@@ -10,7 +10,9 @@ namespace gs
     /// exact distance, rounding included (#738). Every triangle is first bounded by the distance to its bounding box, evaluated with
     /// outward rounding (ExactInterval), so no triangle is dropped by rounding; the triangles that may be the nearest are then
     /// measured exactly, in integers (the coordinates of the point and the triangle scaled to a common power of two), with an
-    /// exact region test; the squared distance, converted to double, and its square root are rounded down.
+    /// exact region test; the squared distance, converted to double, and its square root are rounded down where they are not exact.
+    /// Any finite coordinates (the exact parts have no range limit; a box bound whose square overflows does not prune). In
+    /// MeshHausdorffDistance the coordinates are at most about 2^90 (copies beyond), so the doubles stay finite.
     /// </summary>
     internal static class CertifiedPointMeshDistance
     {
@@ -37,14 +39,19 @@ namespace gs
                 if (less(n, d, x, bestNum, bestDen, bestExp)) { bestNum = n; bestDen = d; bestExp = x; }
             }
             // d^2 = num / den * 2^exp; rounded down twice (ToDouble truncates the quotient and then rounds to nearest once, and once
-            // more in the subnormal range), and its root rounded down (sqrt rounds to nearest: one step down is below the root)
+            // more in the subnormal range) unless the conversion is exact, and its root rounded down (sqrt rounds to nearest: one step
+            // down is below the root) unless it is exact: exact values stay exact (eg 0.125 for two planes 0.125 apart; numerics review)
             if (bestNum.IsZero)
                 return 0;
-            double d2 = ExactInterval.Down(ExactInterval.Down(ExactPoint3.ToDouble(bestNum, bestDen, bestExp)));
+            double d2 = ExactPoint3.ToDouble(bestNum, bestDen, bestExp);
+            if (!equals(d2, bestNum, bestDen, bestExp))
+                d2 = ExactInterval.Down(ExactInterval.Down(d2));
             if (!(d2 > 0))
                 return 0;
-            double r = ExactInterval.Down(Math.Sqrt(d2));
-            return (r > 0) ? r : 0;
+            double r = Math.Sqrt(d2);
+            if (!(r > 0) || !square_equals(r, d2))
+                r = ExactInterval.Down(r);
+            return (r > 0 && !double.IsInfinity(r)) ? r : (r > 0 ? double.MaxValue : 0);
         }
 
         // a lower bound of the squared distance from p to the bounding box of the triangle: per axis the gap below the box or above
@@ -64,10 +71,29 @@ namespace gs
             return (sum > 0) ? sum : 0;
         }
 
-        // lb (a double) > num / den * 2^exp, exactly
+        // d (a finite double) == num / den * 2^exp, exactly
+        static bool equals(double d, BigInteger num, BigInteger den, int exp)
+        {
+            if (double.IsNaN(d) || double.IsInfinity(d)) return false;
+            if (d == 0) return num.IsZero;
+            ExactPoint3.Decompose(d, out BigInteger m, out int e);
+            return compare(m * den, e - exp, num) == 0;
+        }
+
+        // r * r == d exactly (r, d finite and positive)
+        static bool square_equals(double r, double d)
+        {
+            if (double.IsInfinity(r) || double.IsInfinity(d)) return false;
+            ExactPoint3.Decompose(r, out BigInteger mr, out int er);
+            ExactPoint3.Decompose(d, out BigInteger md, out int ed);
+            return compare(mr * mr, 2 * er - ed, md) == 0;
+        }
+
+        // lb (a double) > num / den * 2^exp, exactly; false for a non-finite lb (a box gap whose square overflowed proves nothing
+        // against an exact value that may be as large: the triangle is measured)
         static bool greater(double lb, BigInteger num, BigInteger den, int exp)
         {
-            if (!(lb > 0)) return false;
+            if (!(lb > 0) || double.IsInfinity(lb)) return false;
             ExactPoint3.Decompose(lb, out BigInteger m, out int e);
             // m 2^e > num / den 2^exp  <=>  m den 2^(e - exp) > num
             return compare(m * den, e - exp, num) > 0;

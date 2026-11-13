@@ -75,6 +75,39 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> the upper bound of one rounded child (TriangleUpper, docs c3) in a quantized frame: at Y = 2^52 (an ulp is 1) the
+        /// exact child (0, Y, 0), (1, Y, 0), (0.5, Y + 0.5, 0) is the rounded (0, Y, 0), (1, Y, 0), (0.5, Y, 0), its third corner off by
+        /// 0.5. The target is one tilted triangle, farther from the exact corner (1.078) than from its rounded image (0.98). The bound
+        /// of the rounded triangle alone (all corners nearest the same triangle: their largest distance) is below the exact maximum
+        /// over the exact child; with the corners' allowance it is above it (numerics review of #819) </summary>
+        [Fact]
+        public void TriangleUpper_CoversTheExactChild_WhichTheRoundedBoundAloneDoesNot()
+        {
+            double Y = Math.Pow(2, 52);
+            var b = new DMesh3();
+            b.AppendTriangle(b.AppendVertex(new Vector3d(-5, Y - 10, -1)), b.AppendVertex(new Vector3d(5, Y - 10, -1)), b.AppendVertex(new Vector3d(0, Y + 10, 3)));
+            var bounds = new TriangleDeviationBounds(b);
+            Vector3d c0 = new Vector3d(0, Y, 0), c1 = new Vector3d(1, Y, 0), c2 = HausdorffRounding.Midpoint(new Vector3d(0, Y, 0), new Vector3d(1, Y + 1, 0), out double err);
+            Assert.Equal(new Vector3d(0.5, Y, 0), c2);        // (the midpoint (0.5, Y + 0.5) rounds to y = Y)
+            Assert.True(err >= 0.5, "allowance " + err);
+            double D(Vector3d p) => Math.Sqrt(MeshQueries.TriangleDistance(b, 0, p).DistanceSquared);
+            double withOff = HausdorffRounding.TriangleUpper(bounds, c0, c1, c2, D(c0), D(c1), D(c2), 0, 0, 0, 0, 0, err, 0);
+            double alone = HausdorffRounding.TriangleUpper(bounds, c0, c1, c2, D(c0), D(c1), D(c2), 0, 0, 0, 0, 0, 0, 0);
+            // the exact child, measured exactly shifted by Y (exact: Sterbenz), on a dense barycentric grid
+            var sb = new DMesh3();
+            sb.AppendTriangle(sb.AppendVertex(new Vector3d(-5, -10, -1)), sb.AppendVertex(new Vector3d(5, -10, -1)), sb.AppendVertex(new Vector3d(0, 10, 3)));
+            Vector3d e0 = new Vector3d(0, 0, 0), e1 = new Vector3d(1, 0, 0), e2 = new Vector3d(0.5, 0.5, 0);
+            double exact = 0;
+            const int n = 40;
+            for (int i = 0; i <= n; ++i)
+                for (int j = 0; i + j <= n; ++j) {
+                    Vector3d q = e0 + (i / (double)n) * (e1 - e0) + (j / (double)n) * (e2 - e0);
+                    exact = Math.Max(exact, Math.Sqrt(MeshQueries.TriangleDistance(sb, 0, q).DistanceSquared));
+                }
+            Assert.True(alone < exact, $"the rounded triangle's bound {alone:R} is not below the exact child's maximum {exact:R}: the test has no power");
+            Assert.True(withOff >= exact, $"the bound with the allowance {withOff:R} is below the exact child's maximum {exact:R}");
+        }
+
         [Fact]
         public void MidOff_IsAtLeastTheMeanPlusTheError()
         {

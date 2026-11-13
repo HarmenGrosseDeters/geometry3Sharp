@@ -100,7 +100,8 @@ namespace geometry3Sharp.Tests
                 var oneSidedRef = symmetric ? reference : new MeshHausdorffDistance(Shifted(a, z), Shifted(b, z)) { Symmetric = false };
                 if (!symmetric) Assert.True(oneSidedRef.Compute());
                 AssertValid(given, oneSidedRef, "as given, z = " + z + ", symmetric " + symmetric);
-                // (converged means the certified gap is within the tolerance, 1e-4 of the diagonal)
+                // (converged means the gap is within the tolerance, 1e-4 of the diagonal: the lower bound certified, the upper bound up
+                // to the floating-point evaluation of the distance queries)
                 if (given.Converged)
                     Assert.True(given.UpperBound - given.LowerBound <= 1e-4 * 2.01 * Math.Sqrt(3) * 1.0001, "converged with a gap of " + (given.UpperBound - given.LowerBound));
             }
@@ -142,6 +143,8 @@ namespace geometry3Sharp.Tests
                 var h = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric, MaxSubdivisions = 100000 };
                 Assert.True(h.Compute());
                 Assert.True(h.LowerBound <= d && d <= h.UpperBound, $"k {k} m {m}: {h.LowerBound:R} .. {h.UpperBound:R}, distance {d:R}");
+                // (the distance is a power of two: the exact re-evaluation gives it exactly, not rounded down; numerics review)
+                Assert.Equal(d, h.LowerBound);
                 Assert.True(h.Converged, $"k {k} m {m}");
                 Assert.True(h.UpperBound - h.LowerBound <= 1e-3 * s, $"k {k} m {m}: gap {h.UpperBound - h.LowerBound}");
                 var given = new MeshHausdorffDistance(Grid(s, z, x0), Grid(s, z + d, x0)) { Symmetric = symmetric, MaxSubdivisions = 100000 };

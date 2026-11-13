@@ -122,10 +122,21 @@ skipped.
   |q|² if t ≤ 0, |P − w|² if t ≥ w'·w', else (|q|²·|w'|² − t²)/|w'|².
 - All of this is integer arithmetic. The region test is exact.
 
-**Conversion.** d² = num/den·2^exp goes to double with `ExactPoint3.ToDouble`. That truncates the quotient to 64 bits,
-then rounds to nearest once, and once more in the subnormal range: at most one ulp above the exact value. `Down` is applied
-twice, so the result is ≤ the exact value. Then `sqrt`, which rounds to nearest within half an ulp, and `Down` once more:
-≤ the exact distance.
+**Conversion.** d² = num/den·2^exp goes to double with `ExactPoint3.ToDouble`.
+- That truncates the quotient to 64 bits, then rounds to nearest once, and once more in the subnormal range: at most one ulp
+  above the exact value.
+- If the double equals the exact value (compared exactly), it is kept. Otherwise `Down` is applied twice, so the result is
+  ≤ the exact value.
+- Then `sqrt`, which rounds to nearest within half an ulp. If r·r equals d² exactly, r is the root and is kept; otherwise
+  `Down` once more. Either way the result is ≤ the exact distance, and exact distances stay exact (numerics review, N1:
+  0.125 for two planes 0.125 apart).
+
+**Range (N3).** Any finite coordinates:
+- The exact parts have no range limit.
+- A box bound whose square overflows to infinity does not prune: the triangle is measured exactly.
+- A distance above `MaxValue` returns `MaxValue`, a valid lower bound.
+- In `MeshHausdorffDistance` the coordinates are at most about 2^90, since the copies take over beyond that, so these cases
+  do not occur there.
 
 ## 4. Behaviour on ordinary inputs (measured, 18 cases, symmetric and one-sided)
 - **Refinement.** Unchanged: the same subdivisions in every case.
@@ -153,14 +164,30 @@ twice, so the result is ≤ the exact value. Then `sqrt`, which rounds to neares
 - `HausdorffRoundingTests`: the midpoint allowance against the exact error in integers, including subnormal sums and
   remainders and random pairs at all exponents.
 
-**Mutation: 23 mutants, 20 killed.**
+**Mutation: 23 mutants, 21 killed** (the off term in the triangle bound at the component level since the numerics review).
 - **Equivalent:** the strict region test (`s > 0` instead of `s >= 0`). On the boundary of the region the face formula and
   the edge formula give the same distance.
 - **Not killed:**
-  - The guard on a child identical to its parent. It is reachable only when the tolerance exceeds the off of the rounded
-    midpoint and the bound still exceeds lower + tol. In every constructed case the bound of such a needle was below that.
-    It is kept as the stop against an otherwise endless loop.
-  - The off term in a triangle's upper bound. In every constructed case a sibling with a looser bound covered the distance.
+  - The guard on a child identical to its parent (corrected after the numerics review of #819; the first version said the
+    bound of such a needle was below lower + tol, which cannot hold for a refined triangle's identical child: its bound is at
+    least the parent's).
+    - **Why it is subsumed in practice.** A child is identical to its parent only if every midpoint rounds onto a corner. Then
+      the off of each such midpoint is at least half that edge. The gap of a triangle's bound above its corner distances is at
+      most its covering radius (u2), and for a needle, the triangles where this happens, that is half its longest edge. So
+      with tol < off the off > tol clause stops the identical child too. With tol ≥ off the parent is not refined at all,
+      since its gap ≤ off ≤ tol.
+    - **Measured.** Needles at heights 0.1, 1 and 3 and widths of B 0.0625 to 2, tolerances 1e-300 and 0.5 to 0.9, measured
+      as given: identical subdivisions and bounds with and without the guard.
+    - **Where it could decide.** Only for a triangle whose covering radius exceeds the off of its rounded midpoints, i.e. a
+      near-equilateral triangle on the ulp lattice (covering radius up to e/√3 > e/2) whose three midpoints all round onto
+      corners. Such a triangle was not constructed: ties round to even per coordinate, and the parities it needs did not
+      work out in the one attempt made; whether one exists is open.
+    - It stays as the stop against an otherwise endless loop, at no cost.
+  - The off term in a triangle's upper bound. End to end, in every constructed case a sibling with a looser bound covered the
+    distance. It is killed at the component level by `HausdorffRoundingTests.TriangleUpper_CoversTheExactChild_WhichTheRoundedBoundAloneDoesNot`
+    (numerics review of #819): at Y = 2^52, a child whose third corner rounded from y = Y + 0.5 onto y = Y, and one tilted target
+    triangle, 0.98 from the rounded corner and 1.078 from the exact one; the rounded triangle's own bound (0.98) is below the
+    exact child's maximum, the bound with the allowance (1.48) above it.
     The term is needed for soundness (c3) wherever a tight bound (all corners nearest one triangle, or a polygon split) is
     taken on a rounded triangle.
 

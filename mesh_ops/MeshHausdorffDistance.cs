@@ -61,9 +61,13 @@ namespace gs
         public Func<bool> CancelF = () => { return false; };
 
         // outputs
-        /// <summary> output: interval that contains the exact Hausdorff distance (NaN if Compute() failed on its inputs) </summary>
+        /// <summary> output: interval that contains the exact Hausdorff distance (NaN if Compute() failed on its inputs): LowerBound
+        /// certified, rounding included; UpperBound up to the floating-point evaluation of the distance queries, about 2^-50 of the
+        /// coordinates (see Compute) </summary>
         public double LowerBound, UpperBound;
-        /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF) </summary>
+        /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF, or if
+        /// the subdivision points' rounding keeps the gap open); the upper bound, and so the gap, up to the floating-point evaluation of
+        /// the distance queries </summary>
         public bool Converged;
         /// <summary> point where the lower bound is attained (on A, or on B if WorstPointOnB), and its closest point on the other mesh </summary>
         public Vector3d WorstPoint, WorstPointClosest;
@@ -446,10 +450,8 @@ namespace gs
             // upper bound of the distance to To over the triangle (i, j, k), and over the part of From's triangle it stands for
             double upper_bound(Index3i t)
             {
-                double o = Math.Max(off[t.a], Math.Max(off[t.b], off[t.c]));
-                double u = bounds.UpperBound(pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
-                    near[t.a], near[t.b], near[t.c], threshold());
-                return (o > 0) ? HausdorffRounding.Up(u + o) : u;
+                return HausdorffRounding.TriangleUpper(bounds, pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
+                    near[t.a], near[t.b], near[t.c], off[t.a], off[t.b], off[t.c], threshold());
             }
         }
     }
@@ -486,6 +488,17 @@ namespace gs
             }
             err = (e1 > 0) ? Up(e1) : 0;
             return m;
+        }
+
+        /// <summary> an upper bound of the distance to the target over the exact triangle that the rounded triangle (p0, p1, p2) stands
+        /// for, its corners off by at most o0, o1, o2 (docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md c3): the rounded triangle's bound plus
+        /// the largest of them, rounded up </summary>
+        internal static double TriangleUpper(TriangleDeviationBounds bounds, Vector3d p0, Vector3d p1, Vector3d p2, double d0, double d1, double d2,
+            int n0, int n1, int n2, double o0, double o1, double o2, double threshold)
+        {
+            double o = Math.Max(o0, Math.Max(o1, o2));
+            double u = bounds.UpperBound(p0, p1, p2, d0, d1, d2, n0, n1, n2, threshold);
+            return (o > 0) ? Up(u + o) : u;
         }
 
         internal static double MidOff(double oa, double ob, double err)
