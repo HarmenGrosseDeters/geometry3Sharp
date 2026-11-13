@@ -128,11 +128,13 @@ before and after it differ by -3 % to +6 % per row, inside the run-to-run range 
   tests are the check; the expansions are in the spec's comments).
 - `stackalloc` of `2 L(s)` limbs, at most 2.1 KB; on netstandard2.0 the 64 x 64 multiply is
   `FixedArith.MulHighPortable` and the kernels do not use `Span`.
-- Local CI (the full list of CLAUDE.md) on the branch, 4-core cloud container: library tests net10.0 11484 passed, 0
-  failed, 2 skipped (22 m 48 s); g3cli tests 475 passed; `dotnet pack` with the API validation against 1.0.324 and the
-  package smoke test; the net48 builds of both test projects; Clipper2 tests 72 passed, its pack and smoke test; every
-  benchmark project and `tools/PredicateCompiler` build. `tools/new_tests_on_base.py --require-failing`: exit 0, 2 of
-  the 13 new test methods fail on the base (`ExactPredicatesBeyondRangeTests`), the other 11 do not compile there by
-  design (they test the generator and the generated class).
+- Local CI on the branch, 4-core cloud container. On the final commits: library tests net10.0 11484 passed, 0 failed,
+  2 skipped (18 m 51 s); `dotnet pack` with the API validation against 1.0.324; the net48 build of the library tests;
+  the builds of `benchmarks/PredicateComparison` and `tools/PredicateCompiler`; `tools/new_tests_on_base.py
+  --require-failing`: exit 0, 2 of the 13 new test methods fail on the base (`ExactPredicatesBeyondRangeTests`), the
+  other 11 do not compile there by design (they test the generator and the generated class). On the commits before the
+  generated helpers were restructured for the mutation run (same library code otherwise): g3cli tests 475 passed, the
+  package smoke test, Clipper2 tests 72 passed with its pack, smoke test and net48 build, and every other benchmark
+  project; CI repeats them.
 
 Closes #711.
