@@ -1,0 +1,261 @@
+From b918802011d43a17d9efee1f23f9431206770889 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 10:09:11 +0000
+Subject: [PATCH 2/2] WIP candidate D: orient_exact / incircle_exact, shard
+ config, design note section (local, not pushed)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm
+---
+ .github/workflows/mutation.yml                |  2 +-
+ docs/design/EXACT_LIMB_SIGNS.md               | 55 +++++++++++++++++--
+ mesh_ops/ExactMeshArrangement.cs              | 40 ++++++++++----
+ .../ExactLimbSignsTestsPlanar.cs              | 15 +----
+ tests/mutation/README.md                      |  2 +-
+ .../mutation/stryker-mesh-arrangement-2.json  |  4 +-
+ .../mutation/stryker-mesh-arrangement-3.json  |  2 +-
+ .../mutation/stryker-mesh-arrangement-4.json  |  2 +-
+ tests/mutation/stryker-mesh-fixed.json        |  2 +-
+ 9 files changed, 89 insertions(+), 35 deletions(-)
+
+diff --git a/.github/workflows/mutation.yml b/.github/workflows/mutation.yml
+index 616aa0f..1d011f8 100644
+--- a/.github/workflows/mutation.yml
++++ b/.github/workflows/mutation.yml
+@@ -39,7 +39,7 @@ on:
+       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
+-      - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs'
++      - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests*.cs'
+       - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactPlanesFixedWidthTests.cs'
+diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
+index e012a82..f4f8174 100644
+--- a/docs/design/EXACT_LIMB_SIGNS.md
++++ b/docs/design/EXACT_LIMB_SIGNS.md
+@@ -1,7 +1,8 @@
+-# Exact sign stages on stack limbs (candidate B of the exact-number study)
++# Exact sign stages on stack limbs (candidates B and D of the exact-number study)
+ 
+-Status: built (2026-11-13): `math/ExactLimbSigns.cs` and its seven call sites in `ExactMeshBoolean`. Study: branch
+-`runs/exact-numbers`, `REPORT.md` sections 3 (P3b) and 5b (the probe).
++Status: built (2026-11-13): `math/ExactLimbSigns.cs`, its seven call sites in `ExactMeshBoolean` (B, sections 1 to
++4) and its two in `ExactMeshArrangement` (D, section 5). Study: branch `runs/exact-numbers`, `REPORT.md` sections 3
++(P3b), 5b and 5e (the probes).
+ 
+ ## 1. What and why
+ 
+@@ -130,7 +131,53 @@ is parked until lever 1 (#767) has landed, which changes how often these stages
+ - The existing tests of `ExactMeshBoolean` (filtered against unfiltered results, the invariance over
+   `Similarity.All()`, reuse, parallel against serial) cover the operation, whose results do not change.
+ 
+-## 5. Sources
++## 5. The arrangement's Orient and InCircle beyond the fixed width (candidate D)
++
++`ExactMeshArrangement.Orient` and `InCircle` decide on fixed-width points with `FixedArith` (4 limbs per coordinate).
++For points beyond that width their last stage was a BigInteger determinant: `Det3` of the rows `(v[i], v[j], v.W)`
++for the orientation in the plane of the axes `i`, `j`, and for the in-circle test `Det3` of a row
++`(A s, B s, A^2 + B^2)` per point `v` of the triangle against the fourth point `d`, with `A = v[i] d.W - d[i] v.W`,
++`B` likewise with `j`, `s = v.W d.W` (the derivation is the comment in `InCircle`). On 55928 with its rotated copy
++this stage runs 12.4 million times in one operation and owns nearly half of its allocation.
++
++`ExactLimbSigns.Orient2` and `ExactLimbSigns.InCircle` evaluate the same determinants on stack limbs, with `load`
++and `det3` of section 2. They return false when the call does not run on the stack (the limit below, netstandard2.0);
++the two call sites then evaluate the BigInteger determinant as before (`incircle_big`, `incircle_row`).
++
++Scratch space (the rules of section 2: a product takes the sum of its factors' limbs, a sum or difference at most one
++limb more than its longer operand):
++- `Orient2`, with `a`, `b`, `c` the limbs of the widest entry of each row: one 3 x 3 determinant, as a minor of
++  `Det4`: at most `5 a + 14 (b + c) + 11`. Allocated: `6 a + 15 (b + c) + 32` (`OrientScratch`).
++- `InCircle`. For a point `v` of the triangle let `t` be the limbs of its widest entry plus those of `d`'s widest
++  entry. Its row: `A` takes two products of at most `t` limbs and their difference of `t + 1`: `3 t + 1`, `B` the
++  same, `s` at most `t`; `A s` and `B s` at most `2 t + 1` each, `A^2` and `B^2` `2 t + 2` each, their sum
++  `2 t + 3`: `17 t + 11` for the row, whose entries have at most `2 t + 1`, `2 t + 1` and `2 t + 3` limbs. The
++  determinant of the rows of `p`, `q`, `r` (with `t_p`, `t_q`, `t_r`, and `u = 2 (t_q + t_r) + 4`): each of its first
++  two terms takes two products of at most `u` limbs, their difference `u + 1` and the product with an entry of the
++  first row `2 t_p + u + 2`: `4 u + 2 t_p + 3`; the third term two products of `u - 2`, their difference `u - 1` and
++  the product `2 t_p + u + 2`: `4 u + 2 t_p - 3`; the two sums of the terms `2 t_p + u + 3` and `2 t_p + u + 4`:
++  `14 u + 10 t_p + 10 = 10 t_p + 28 (t_q + t_r) + 66`. With the three rows: at most
++  `27 t_p + 45 (t_q + t_r) + 99`, for points of one width `m` (so `t = 2 m`) `234 m + 99`. Allocated:
++  `28 t_p + 46 (t_q + t_r) + 128` (`InCircleScratch`).
++- The limit is the one of `Det4`: operands and scratch space together at most `MaxDeterminantLimbs` = 4608 limbs
++  (36 KB of stack), compared in `long`. Rows of one width are on the stack up to 101 limbs for `Orient2` and points
++  of one width up to 17 limbs (1088 bits) for `InCircle`. The widest call of the measured models has 12 limbs for
++  the two widest operands together (about 1,500 limbs of scratch space).
++- The kernels are leaves; their callers are the triangulation's predicates, which do not recurse through them.
++
++Tests: `ExactLimbSignsTestsPlanar` (the kernels against the BigInteger determinants in the three projections, with
++collinear and cocircular points by construction and one unit off them, other homogeneous factors, the path and the
++scratch use of every call, the limits at 4608 and 4609 limbs, one wide row or point in each position on both sides
++of the limit, dense operands at the widest uniform size, which take at least `33 w` of `33 w + 11` and `117 t` of
++`117 t + 99` limbs; translation, 2^k scale and homogeneous factors keep the signs; no allocation) and
++`ExactBooleanWidePointTests` (through `ExactMeshBoolean` with every exact point kept as BigIntegers and the filters
++off, so that every Orient and InCircle on a constructed point takes this stage: the default mesh triangle for
++triangle for the three operations, under `Similarity.All()`, on a reused instance and with the loops serial; the
++union allocates 7 / 11 / 28 / 17 MB against 20 / 32 / 73 / 36 MB with the BigInteger determinants).
++
++@@D_MEASURED@@
++
++## 6. Sources
+ 
+ Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
+ `ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index bb9b3a7..4c9fbec 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1626,12 +1626,7 @@ namespace g3
+                 if (fdet > err) { local.Decided++; return t.Sign; }
+                 if (-fdet > err) { local.Decided++; return -t.Sign; }
+             }
+-            ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
+-            // (on stack limbs, docs/design/EXACT_LIMB_SIGNS.md; beyond its stack limit the BigInteger determinant)
+-            int sign;
+-            if (ExactLimbSigns.Orient2(a, b, c, i, j, out sign) == false)
+-                sign = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;
+-            return sign * t.Sign;
++            return orient_exact(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;
+         }
+ 
+         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
+@@ -1711,14 +1706,35 @@ namespace g3
+                 if (fdet > bound) { local.Decided++; return t.Sign; }
+                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
+             }
+-            ExactPoint3 pp = Exact(p), pq = Exact(q), pr = Exact(r), pd = Exact(s);
+-            // (on stack limbs, docs/design/EXACT_LIMB_SIGNS.md; beyond its stack limit the BigInteger determinant)
+-            int sign;
+-            if (ExactLimbSigns.InCircle(pp, pq, pr, pd, i, j, out sign) == false)
+-                sign = incircle_big(pp, pq, pr, pd, i, j);
+             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
+             // may mirror the triangle, which flips the orientation of a, b, c and the sign
+-            return sign * t.Sign;
++            return incircle_exact(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;
++        }
++
++        /// <summary>
++        /// the sign of the determinant with the rows (v[i], v[j], v.W) of a, b, c: on stack limbs
++        /// (docs/design/EXACT_LIMB_SIGNS.md), beyond their stack limit the BigInteger determinant
++        /// </summary>
++        [MethodImpl(JitHints.Optimize)]
++        internal static int orient_exact(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
++        {
++            int sign;
++            if (ExactLimbSigns.Orient2(a, b, c, i, j, out sign) == false)
++                sign = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;
++            return sign;
++        }
++
++        /// <summary>
++        /// the sign of the in-circle determinant of p, q, r against d in the axes i, j (the rows of incircle_row): on
++        /// stack limbs, beyond their stack limit with BigInteger rows
++        /// </summary>
++        [MethodImpl(JitHints.Optimize)]
++        internal static int incircle_exact(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
++        {
++            int sign;
++            if (ExactLimbSigns.InCircle(p, q, r, d, i, j, out sign) == false)
++                sign = incircle_big(p, q, r, d, i, j);
++            return sign;
+         }
+ 
+         /// <summary> the sign of the in-circle determinant of p, q, r against d in the axes i, j, with BigInteger rows </summary>
+diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
+index 8f9e34e..ffd2f68 100644
+--- a/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
++++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
+@@ -76,18 +76,9 @@ namespace geometry3Sharp.Tests
+             return limbs <= ExactLimbSigns.MaxDeterminantLimbs;
+         }
+ 
+-        // the sign of Orient2 where it is on the stack, the BigInteger determinant otherwise (as the arrangement does)
+-        static int Orient(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
+-        {
+-            int sign;
+-            return ExactLimbSigns.Orient2(a, b, c, i, j, out sign) ? sign : OrientBig(a, b, c, i, j);
+-        }
+-
+-        static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
+-        {
+-            int sign;
+-            return ExactLimbSigns.InCircle(p, q, r, d, i, j, out sign) ? sign : ExactMeshArrangement.incircle_big(p, q, r, d, i, j);
+-        }
++        // the arrangement's stages: the kernel where it is on the stack, the BigInteger determinant otherwise
++        static int Orient(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j) { return ExactMeshArrangement.orient_exact(a, b, c, i, j); }
++        static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j) { return ExactMeshArrangement.incircle_exact(p, q, r, d, i, j); }
+ 
+         [Fact]
+         public void Orient2_MatchesBigInteger()
+diff --git a/tests/mutation/README.md b/tests/mutation/README.md
+index a1741c8..f6186c5 100644
+--- a/tests/mutation/README.md
++++ b/tests/mutation/README.md
+@@ -215,7 +215,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
+ | `boolean-1` .. `boolean-4` | `mesh_ops/ExactMeshBoolean.cs`, split at `open_winding_per_patch`, `trace_clusters` and `front_winding` (since 12 November 2026 three parts: the 55928 tail-case stage, #633, put the open winding per patch and the carried rays before `front_winding` and nearly doubled the first part, 74.8k to 140.1k characters; it is split where that code begins, and the old `boolean-2` is `boolean-3`; the new `boolean-2` keeps the break threshold of `boolean-1` until its own full run gives a reason to change it. Since T5 PR 2, #675, four parts: the carry across input-triangle edges grew `boolean-2` from 67.8k to 100.0k characters; it is split at `trace_clusters`, 52.1k and 47.9k, the new `boolean-3` with `boolean-2`'s filter and threshold, and the old `boolean-3` is `boolean-4`) | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-3` also `ExactBooleanFilterTests` |
+ | `arrangement-1` .. `arrangement-4` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles`, `candidates` and `triangulate_touched` (since 8 November 2026 `arrangement-2` is three shards: on #403 it had 1375 mutants, its coverage pass took 71 min and the job was cancelled after 350 minutes, 272 of them testing; each part keeps the break threshold 72 until its own full runs give a reason to change it) | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
+ | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
+-| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
++| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages and the arrangement's last Orient and InCircle stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactLimbSignsTestsPlanar`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
+ | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92) | `GeneratedPredicatesIndirectTests` |
+ | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
+ | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
+diff --git a/tests/mutation/stryker-mesh-arrangement-2.json b/tests/mutation/stryker-mesh-arrangement-2.json
+index 982d4f3..149b197 100644
+--- a/tests/mutation/stryker-mesh-arrangement-2.json
++++ b/tests/mutation/stryker-mesh-arrangement-2.json
+@@ -6,9 +6,9 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshArrangement.cs{70571..112703}"
++      "**/mesh_ops/ExactMeshArrangement.cs{70571..114085}"
+     ],
+-    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
++    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactBooleanWidePointTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "ignore-methods": [
+       "*PredicateStats.*"
+     ],
+diff --git a/tests/mutation/stryker-mesh-arrangement-3.json b/tests/mutation/stryker-mesh-arrangement-3.json
+index ecd55a4..b7c1a16 100644
+--- a/tests/mutation/stryker-mesh-arrangement-3.json
++++ b/tests/mutation/stryker-mesh-arrangement-3.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshArrangement.cs{112703..134282}"
++      "**/mesh_ops/ExactMeshArrangement.cs{114085..135664}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-arrangement-4.json b/tests/mutation/stryker-mesh-arrangement-4.json
+index b2b6791..54f586d 100644
+--- a/tests/mutation/stryker-mesh-arrangement-4.json
++++ b/tests/mutation/stryker-mesh-arrangement-4.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshArrangement.cs{134282..1000000}"
++      "**/mesh_ops/ExactMeshArrangement.cs{135664..1000000}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-fixed.json b/tests/mutation/stryker-mesh-fixed.json
+index e17ad36..e5a7ac1 100644
+--- a/tests/mutation/stryker-mesh-fixed.json
++++ b/tests/mutation/stryker-mesh-fixed.json
+@@ -9,7 +9,7 @@
+       "**/math/FixedPoint3.cs",
+       "**/math/ExactLimbSigns.cs"
+     ],
+-    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactLimbSignsTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
++    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactLimbSignsTests|FullyQualifiedName~ExactLimbSignsTestsPlanar|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
+     "ignore-methods": [
+       "*PredicateStats.*"
+     ],
+-- 
+2.43.0
+
