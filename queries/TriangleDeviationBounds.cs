@@ -513,7 +513,7 @@ namespace g3
 
         // largest distance from a point of the triangle to its nearest corner: the circumradius for an
         // acute triangle, otherwise half the longest edge
-        static double covering_radius(double a, double b, double c)
+        internal static double covering_radius(double a, double b, double c)
         {
             double l = Math.Max(a, Math.Max(b, c));
             double a2 = a * a, b2 = b * b, c2 = c * c, l2 = l * l;

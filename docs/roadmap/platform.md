@@ -66,6 +66,10 @@ Part of the [roadmap](../ROADMAP.md).
   included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
   isolated re-run time of the flagged tests (#685 changes CLAUDE.md and docs/QA.md with it); the 20 s rule above
   covers what hides behind load in the full run.
+  **Owner 2026-11-12/13, runtime watch (#726):** `runtime-watch.yml` times a fixed list of known extreme Exact Boolean and Alpha Wrap
+  cases in isolation (`tools/runtime-watch/cases.json`, docs/QA.md 3.3) and reports regressions (> 1.3x the rolling median and > 1 s) and
+  anything over 20 s in one tracking issue; daily at 01:17 UTC from the merge (owner 2026-11-13), about 1 h typical, about 4 h worst case.
+  Peers add cases as `cases.json` entries; a regression goes to the owning session.
   **Owner 2026-11-12, Terrain Slope rows in the rotated/1e-3/utm frame:** no library change (a first-δ shortcut was
   approved, then withdrawn: the formula gives no fraction, so it would be a constant tuned on one design; TERRAIN.md
   5.8.1 states the limit, `LocalFrame` is the remedy). Rows of that frame at or under 10 s alone get Slow with the
@@ -77,14 +81,14 @@ Part of the [roadmap](../ROADMAP.md).
   7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
   touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
   decision, not needed for the gate).
-- **CLI / MCP update (owner 2026-11-08; in progress, Sonnet session started 2026-11-12):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
+- **CLI / MCP update (owner 2026-11-08; Sonnet session started 2026-11-12; done with #707):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
   section 11); PRs A (`repair` options and result fields, #662), B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665), C (`polygon_solids`, #667)
-  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702, `query3d --camera` #707) are in review; G without `voxelize` as in its section 10.
+  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702) are merged; `query3d --camera` (#707) is the last PR (in review); G is without `voxelize` as in its section 10 (dropped by the owner).
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
@@ -112,6 +116,11 @@ Part of the [roadmap](../ROADMAP.md).
   as is and document the limitation (current state); (b) vendor the C# 2.0.0 sources into the addon (Boost-1.0, allowed;
   listed in `docs/SOURCES.md`, license file kept) and fix item 5 ourselves; (c) follow a third-party C# port of the new
   C++ line, if one appears. Decide before the next addon change that needs Clipper2 itself.
+  Follow-ups (owner 2026-11-13): remove the Clipper2 NuGet package from the addon (an addon API break, accepted:
+  the four enums move to `g3.Clipper2` with the same names and values, the integer `ClipperFrame` conversions become
+  internal, addon version 2.0.0; the test project keeps the package for the differential test); the remaining
+  Intersection case #756 gets option (c), an own narrower fix of the "micro self-intersection" branch (prior-art check
+  first). Order: #751, the item 5 PR, the package removal, #756 (c).
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
@@ -121,6 +130,23 @@ Part of the [roadmap](../ROADMAP.md).
   line; seed master baselines for the new / never-seeded shards by workflow_dispatch right after #403. Later, with
   per-mutant data: two-tier tests / dropping test classes without exclusive kills; timeout ratio 1.1 / 5 s only after
   an A/B with identical survivor sets; larger runners are the owner's cost call.
+- **Smaller test sets per mutation shard (owner go 2026-11-13, measured; PR #777):** from the stored Stryker reports
+  (`killedBy`, `coveredBy`; newest full report per shard, 2026-11-09 to 12) and the test durations of the master full run
+  of 2026-11-13 (trx, contended run, so a proxy). **Stryker records no killer for a Timeout mutant** (`killedBy` is empty for
+  all 1216 in these reports; only `coveredBy`), and timeouts are 20-60 % of the mutants of the rounding / envelope shards.
+  So there are two covers (capture / mutant-run saving; mutant run = sum of the covering tests, timeouts x 1.5):
+  `--timeouts all` (default, cannot lose a timeout: every covering test of a timed-out mutant stays): arithmetic 2 of 148
+  tests, 84 / 66 %; terrain-arith 16 of 46, 86 / 40 %; terrain-kernel 15 of 29, 85 / 85 %; envelope-4 26 / 1 %; every other
+  measured shard (envelope-1..3, fixed, rounding-1..8) 0-10 % (rounding-8 60 / 0 %), i.e. no filter. `--timeouts one`
+  (one covering test per timed-out mutant; usually still hangs, not guaranteed): envelope-1 9 of 21, 92 / 93 %; -2 86 / 85 %;
+  -3 59 / 52 %; -4 50 / 8 %; fixed 20 of 49, 35 / 35 %; rounding-1..8 3 to 19 of 156 (193), 80-99 / 76-100 %; terrain-arith
+  4 of 46, 100 / 100 %. No full report with tested mutants exists on master for arrangement-1..4, boolean-1/2, planar and
+  terrain-overlay (cancelled or empty runs; boolean was re-split by #615). Built: `tests/mutation/narrow_tests.py` (`make`
+  from a report, `apply` with the staleness guard), wired into `full()` of `run_stryker.sh`; a stale filter (changed config,
+  mutated file, test file, or a new test file naming the filter's classes) falls back to the full filter. Owner
+  2026-11-13: `--timeouts one` is the default; the scheduled run of every Sunday (UTC) is unfiltered and checks it. Open: making the filter
+  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (follow-up PR, once full master reports exist for
+  arrangement / boolean / planar / overlay).
 - **`Vector2d` / `Vector3d.IsFinite` (owner 2026-11-12):** corrected to a component-wise check (today it tests the sum
   of the components, which overflows to infinity for large finite components); the fix is in work (branch
   `fix/vector-isfinite-components`).
