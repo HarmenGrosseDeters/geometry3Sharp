@@ -1186,7 +1186,7 @@ namespace gs
                 int o;
                 if (outId.TryGetValue(r, out o)) return o;
                 double z = double.MaxValue;
-                foreach (int l in labelsAt[r]) z = Math.Min(z, K.Height(l, r.x, r.y, lower));
+                foreach (int l in labelsAt[r]) z = MathUtil.MinExact(z, K.Height(l, r.x, r.y, lower));     // (the output height: one zero on every runtime)
                 o = mesh.AppendVertex(new Vector3d(r.x, r.y, fill ? -z : z));
                 outId[r] = o;
                 OutLabels.Add(labelsAt[r]);
@@ -1633,7 +1633,7 @@ namespace gs
                     DMesh3.EdgeCollapseInfo info;
                     if (mesh.CollapseEdge(keep, remove, out info) != MeshResult.Ok) continue;
                     double z = double.MaxValue;
-                    foreach (int l in union) z = Math.Min(z, height(l, kp.x, kp.y));
+                    foreach (int l in union) z = MathUtil.MinExact(z, height(l, kp.x, kp.y));
                     mesh.SetVertex(keep, new Vector3d(kp.x, kp.y, fill ? -z : z));
                     labels[keep] = union;
                     List<Vector2d> kept;
