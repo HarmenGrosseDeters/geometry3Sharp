@@ -34,8 +34,16 @@ namespace gs
         readonly Dictionary<int, int> owner = new Dictionary<int, int>();
 
         public SlopeMap(ExactSlopeKernel kernel) { K = kernel; }
-        /// <summary> an upper bound of the gradient of every plane (the prefilter's error at an approximate corner); infinity: none known </summary>
-        public double MaxGradient = double.PositiveInfinity;
+        /// <summary>
+        /// an upper bound of the gradient of every plane handed to the map so far (the cap and the pieces' planes, from the
+        /// kernel's enclosures of their normals): the prefilter's error of a label's height at an approximate corner
+        /// </summary>
+        public double MaxGradient { get; private set; }
+
+        void bound_gradients(List<int> planes)
+        {
+            foreach (int p in planes) MaxGradient = Math.Max(MaxGradient, K.GradientBound(p));
+        }
         public int FaceCount { get { return fEdge.Count; } }
 
         // ---------------------------------------------------------------- structure
@@ -387,6 +395,7 @@ namespace gs
         public void LabelDomain(int cap)
         {
             owner[cap] = -1;
+            MaxGradient = Math.Max(MaxGradient, K.GradientBound(cap));
             for (int f = 0; f < fEdge.Count; ++f) fLabel[f] = fDomain[f] ? cap : -1;
         }
 
@@ -404,6 +413,8 @@ namespace gs
             foreach (int p in strip) owner[p] = k;
             foreach (int p in fanA) owner[p] = k;
             foreach (int p in fanB) owner[p] = k;
+            // (the labels a face can have: the cap and the planes of the pieces inserted so far, this one's included)
+            bound_gradients(strip); bound_gradients(fanA); bound_gradients(fanB);
             var hits = hitBuffer;
             hits.Clear();
             qt.QueryRectangle(reach, hits);
@@ -438,18 +449,10 @@ namespace gs
                 var pos = prefilterPos;
                 pos.Clear(); prefilterVerts.Clear();
                 { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
-                // prefilter (conservative): F_k over the face is at least zmin + slb * dmin. The corners are approximate,
-                // within e = 4e-12 (|x| + |y|) of the exact ones (Approx): the distance is taken e shorter, and the label's
-                // height at a corner is off by at most MaxGradient e (a face smaller than e, eg at an apex where many planes
-                // meet, was skipped by its approximate distance alone, differently at different scales)
-                double upper = double.MinValue, e = 0;
-                foreach (var q in pos) { upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y)); e = Math.Max(e, Math.Abs(q.x) + Math.Abs(q.y)); }
-                e *= 4e-12;
-                double dmin = poly_segment_distance(pos, A.xy, B.xy);
-                double lowerF = zmin + slb * Math.Max(0, dmin - e);
-                double size = 0;
-                foreach (var q in pos) size = Math.Max(size, q.Distance(pos[0]));
-                if (lowerF > upper + MaxGradient * e + 1e-9 * (Math.Abs(upper) + Math.Abs(lowerF) + slb * (size + dmin)))
+                // prefilter (conservative): F_k over the face is at least zmin + slb * dmin, with the corners' error
+                double upper = double.MinValue;
+                foreach (var q in pos) upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y));
+                if (prefilter_skips(pos, upper, zmin, slb, A.xy, B.xy, MaxGradient))
                     continue;
                 relevant.Clear();
                 relevant.AddRange(strip);
@@ -457,6 +460,26 @@ namespace gs
                 add_sector(relevant, fanA, angA, A.xy, pos, theta);
                 insert_into(f, label, relevant);
             }
+        }
+
+        /// <summary>
+        /// the second prefilter of InsertPiece (conservative): a face with the approximate corners pos, whose label is at
+        /// most 'upper' at them, is skipped if the piece (at least zmin + slb x the distance to the segment AB) is higher
+        /// everywhere on it. The corners are within e = 4e-12 (|x| + |y|) (+ the smallest double) of the exact ones
+        /// (ExactSlopeKernel.Approx): the distance is taken e shorter, and the label's height at a corner may be off by
+        /// maxGradient x e. Without both, a face smaller than e (at an apex where many planes meet) was skipped by its
+        /// approximate distance alone, although the piece is lower there, and differently at different scales
+        /// </summary>
+        internal static bool prefilter_skips(List<Vector2d> pos, double upper, double zmin, double slb, Vector2d A, Vector2d B, double maxGradient)
+        {
+            double e = 0;
+            foreach (var q in pos) e = Math.Max(e, Math.Abs(q.x) + Math.Abs(q.y));
+            e = 4e-12 * e + double.Epsilon;
+            double dmin = poly_segment_distance(pos, A, B);
+            double lowerF = zmin + slb * Math.Max(0, dmin - e);
+            double size = 0;
+            foreach (var q in pos) size = Math.Max(size, q.Distance(pos[0]));
+            return lowerF > upper + maxGradient * e + 1e-9 * (Math.Abs(upper) + Math.Abs(lowerF) + slb * (size + dmin));
         }
 
         /// <summary>
@@ -482,6 +505,8 @@ namespace gs
             owner[roadPlane] = roadOwner;
             foreach (int p in walls) owner[p] = wallOwner;
             foreach (var l in fans) foreach (int p in l) owner[p] = wallOwner;
+            // (the labels a face can have include these planes from now on)
+            bound_gradients(new List<int> { roadPlane }); bound_gradients(walls); foreach (var l in fans) bound_gradients(l);
             var hits = hitBuffer;
             hits.Clear();
             qt.QueryRectangle(reach, hits);
@@ -515,7 +540,7 @@ namespace gs
                     // polygon taken e shorter, the label's heights at the corners off by at most MaxGradient e
                     double upper = double.MinValue, e = 0;
                     foreach (var q in pos) { upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y)); e = Math.Max(e, Math.Abs(q.x) + Math.Abs(q.y)); }
-                    e *= 4e-12;
+                    e = 4e-12 * e + double.Epsilon;
                     double dmin = poly_poly_distance(pos, polygon);
                     double lowerF = zmin + slb * Math.Max(0, dmin - e);
                     double size = 0;

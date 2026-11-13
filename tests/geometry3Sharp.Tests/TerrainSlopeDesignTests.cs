@@ -472,23 +472,40 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"attempts {d.Attempts}, λ {d.UsedToeLowering:G3}, δ {d.UsedSlopeMargin:G3}");
         }
 
-        // regular polygons whose realization merged positions within 64 ulps (found by a sweep over random regular
-        // polygons). The clusters of map vertices there came from faces at an apex that the insertion's prefilter skipped
-        // by their approximate distance alone (TERRAIN_RAMPS.md, "A fix found by the ramp campaign"): with the prefilter
-        // counting the corners' error, the map is the exact envelope and nothing is merged (none in 1500 random regular
-        // polygons). The merge's lowering stays tested on the wavy toe (TerrainSlopeBandMergeTests); here: the designs
-        // are certified, and a merge, if any, is covered by the lowering
-        [Theory]
-        [InlineData(16, 27.33760196358785, 0.4471245046924448, 2.280296943513815)]
-        [InlineData(22, 12.984759201288576, 0.5293125866583142, 3.0107992275202644)]
-        public void Merge_RaisesTheToeLowering(int n, double r, double phase, double ratio)
+        // the prefilter's decision (SlopeMap.prefilter_skips) at |xy| ~ 2^30, z ~ 0, where the corners' error e = 4e-12 x 2^31
+        // is about 8.6e-3: a face at the approximate distance d from the segment whose label is slb (d - e / 2) above zmin can
+        // hold a point where the piece is lower, so it is kept (skipping it by the approximate distance alone was the bug); a
+        // face far enough away is skipped. Likewise the label's height at an approximate corner, off by up to maxGradient e
+        [Fact]
+        public void Prefilter_CountsTheCornersError()
         {
-            var toe = SlopeToe.Constant(Ngon(n, r, 0, phase), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
-            var d = Run(r * 0.6, 0.05, toe);
-            AssertAll(d);
-            // the triangles of a merged vertex may rise above S̃ by 2 sMax (r + e_xy): the lowering covers it
-            Assert.Equal(0, d.MergedPositions);
-            Assert.True(d.UsedToeLowering >= d.MergeLambdaRequired, $"λ {d.UsedToeLowering} < {d.MergeLambdaRequired}");
+            double big = Math.Pow(2, 30), e = 4e-12 * 2 * big, slb = 0.5, zmin = 0;
+            Vector2d A = new Vector2d(big, big), B = new Vector2d(big + 100, big);
+            Func<double, List<Vector2d>> face = (d) => new List<Vector2d> { new Vector2d(big + 50, big + d), new Vector2d(big + 50.001, big + d), new Vector2d(big + 50, big + d + 0.001) };
+            // the distance: d = 4 e, the label at slb (d - e / 2): kept (the mutant without the shortening skips it)
+            double d0 = 4 * e;
+            Assert.False(SlopeMap.prefilter_skips(face(d0), zmin + slb * (d0 - 0.5 * e), zmin, slb, A, B, 0));
+            // far below the piece there: skipped
+            Assert.True(SlopeMap.prefilter_skips(face(d0), zmin + slb * (d0 - 2 * e), zmin, slb, A, B, 0));
+            // the label's height: d = 10 e, the label at slb (d - e) - maxGradient e / 2: kept (the mutant without the term skips)
+            double d1 = 10 * e, g = 0.5;
+            Assert.False(SlopeMap.prefilter_skips(face(d1), zmin + slb * (d1 - e) - 0.5 * g * e, zmin, slb, A, B, g));
+            Assert.True(SlopeMap.prefilter_skips(face(d1), zmin + slb * (d1 - e) - 2 * g * e, zmin, slb, A, B, g));
+        }
+
+        [Fact]
+        public void SlopeMap_MaxGradient_BoundsEveryPlane()
+        {
+            // the map bounds the gradients itself, from the planes it is handed (the cap and the pieces' planes)
+            var k = new ExactSlopeKernel();
+            var map = new SlopeMap(k);
+            Assert.Equal(0, map.MaxGradient);
+            int p = k.AddPlane(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0.75), new Vector3d(0, 1, 0));
+            Assert.InRange(k.GradientBound(p), 0.75, 0.75 * (1 + 1e-8));
+            int flat = k.AddHorizontalPlane(3);
+            Assert.Equal(0, k.GradientBound(flat));
+            map.LabelDomain(flat);
+            Assert.Equal(0, map.MaxGradient);
         }
 
         [Fact]

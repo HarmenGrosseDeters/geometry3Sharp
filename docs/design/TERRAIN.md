@@ -66,11 +66,33 @@ oracle.
   for the check**: the oracle checks against what the user specified, not only against a rounded double.
   - Ratio 1:n: exact check (nx² + ny²)·n² ≤ nz² on the stored triangle, no rounding involved.
   - Percent: exact check (nx² + ny²)·10⁴ ≤ p²·nz².
-  - Angle: tan α is transcendental, so there is no exact rational check. Phase 1 guarantees the slope against the
-    double s that is used and says so (`SlopeSpec.Guarantee = AgainstDouble`). Stepping `Math.Tan` down by "a few
-    ulps" is not a formal guarantee against the angle as entered. A guarantee against the angle needs a proven
-    conservative interval evaluation of tan (a later item, with a derived error bound, tested against a
-    high-precision reference on net48 and net10).
+  - Angle: tan α is transcendental, so there is no exact rational check. The check runs against a proven lower bound
+    S ≤ tan α (2026-11-12; before, against `Math.Tan`'s double, which is not a guarantee: it is above tan α for
+    10°, 50°, 75°, 85° and 89°, by up to 64 ulps (89°), so a triangle at that double was accepted although steeper than the
+    angle). The check is conservative, not exact: a slope between S and tan α is rejected (a few ulps), none above it
+    is accepted. `ExactlyCheckable` stays false for angles. The bound (`SlopeSpec.TanLowerBound`):
+    - x = a·π_lo / 180 with π_lo = `Math.PI` + a double below π − `Math.PI` (their exact sum, 3e-32 below π), so
+      x ≤ α in radians, and tan x ≤ tan α (tan rises on (0, π/2));
+    - sin_lo, cos_hi: the Taylor sums of sin and cos up to x⁴⁷ and x⁴⁸. For x < π/2 the terms x^m / m! fall
+      after the last term kept (x² < (m + 1)(m + 2) for m ≥ 47), so the omitted tail of each alternating series falls:
+      a partial sum that ends with a negative term is below the limit, one that ends with a positive term is above it
+      (Leibniz). The last sin term
+      (m = 47) is negative and the last cos term (m = 48) positive, so sin_lo ≤ sin x and cos_hi ≥ cos x > 0;
+    - a candidate t > 0 is proven if sin_lo ≥ t · cos_hi: then tan x = sin x / cos x ≥ sin_lo / cos_hi ≥ t. The test is
+      exact: both sums times 180⁴⁸ · 48! are dyadic (x^m / m! · 180⁴⁸ 48! = y^m · 180^(48−m) · 48! / m!, y = a·π_lo);
+    - S is the largest proven double: proven is monotone in t, so a bracket (a proven and an unproven double) from
+      `Math.Tan`'s value, widened in growing steps, is bisected on the bit patterns to adjacent doubles (at most 64
+      steps). So S depends on a only, the same on every platform whatever
+      Math.Tan returns; the truncation error of the sums, below x⁴⁹ / 49! ≈ 1e-53, is far below an ulp, so S is at most
+      an ulp or two below tan α up to 89.99999° (closer to 90° the 3e-32 of π_lo grows with tan² α). Near 90° π's rounding matters: tan α ≈ 1 / (π/2 − α), so π's own rounding (`Math.PI` alone is
+      1.2e-16 below π) costs about 1e-16 · α · tan² α relative; π_lo's 3e-32 makes that negligible up to 89.99999°.
+    - 45° is the one angle in (0°, 90°) whose tangent is a double (1, Niven's theorem): S = 1 there, exactly, so a 1:1
+      slope entered as 45° passes. Everywhere else S is the largest double not above tan α, or the one just below it;
+      0 only where tan α is below the smallest positive double (α below about 2.8e-322°).
+    - Tests (`TerrainSlopeOracleTests`): S at or below a 60-digit reference and within 4 ulps of it for angles from
+      1e-6° to 89.99999°; a triangle at `Math.Tan`'s value, accepted before and steeper than the angle, is rejected.
+    Prior art: rigorous elementary functions by argument bounds and series with a remainder (Muller, *Elementary
+    Functions*, 3rd ed. 2016, ch. 2 and 11; interval libraries such as MPFI and Arb evaluate the same way).
 - **Arc length** along the toe (for interpolation) is measured in XY.
 - **Meaning of the input slope** (decided, 2.5): the maximum admissible **local** slope of the generated surface,
   checked for every output triangle. It is not an overall or inter-ramp angle; those are checked separately and
@@ -443,8 +465,9 @@ the exact S it would not be. The guarantee is stated for the attribution rule (2
 
 **The composite.** With a terrain the composite is within `Tolerance` of the clamp max(S_fill, min(T, S_cut))
 except within m of the toe, lateral-limit and cap steps, whose position shifts by m. Here m is the catch points' move:
-below `MinFeatureSize` in a single run, and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing
-of a mixed run. It is certified per composite (5.5).
+below 2 × `MinFeatureSize` in a single run (a snap to a slope vertex, then a merge with a representative: each below
+`MinFeatureSize`, and they can add up), and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing of
+a mixed run. The certificate measures the moves made, so it holds whatever they are (5.5).
 
 **Realization and margin** (a new error bound, to be checked in the review that CLAUDE.md requires):
 
@@ -798,8 +821,61 @@ documentation says so.
     (`TerrainVerticalUncertainty`, a caller input, default 0). Survey errors of the terrain are not included
     unless they are given. Exact signs decide the topology of the catch line, not its exact position.
   - Every catch-line segment carries |∇D| and δ_xy. In phase 1, δ_xy is a **local linearized estimate**,
-    documented as such; a proven bound would need the minimum of |∇D| over the neighbourhood and is a later
-    item.
+    documented as such (`CatchLine.Uncertainty`). Since 2026-11-13 each segment also carries a **proven bound**
+    (`CatchLine.ProvenUncertainty`), derived below.
+  - **The proven bound (derivation).** Write D = S − T for the exact R1 surface S and the true terrain T, and
+    D̃ = S̃ − T̃ for the realized slope surface S̃ and the given terrain TIN T̃ (cut; fill mirrored, z ↦ −z).
+    1. *Premises.* 0 ≤ S − S̃ ≤ `Tolerance` on the slope surface's domain (the budget of 5.1 and 5.4, certified per
+       result: S̃ is conservative and within `Tolerance`); |T̃ − T| ≤ ε_T = `TerrainVerticalUncertainty`.
+    2. *The band.* D = D̃ + (S − S̃) + (T̃ − T) ∈ [D̃ − ε_T, D̃ + Tol + ε_T], so at every point of the true catch line
+       {D = 0}, D̃ ∈ [−Tol − ε_T, ε_T]. The true line lies in the band B = {x : −Tol − ε_T ≤ D̃(x) ≤ ε_T}, within
+       the overlay's domain (the slope surface's footprint; outside it nothing is claimed). Both limits get a slack for
+       the stored surface itself: a stored height is within e_z = 2 s_max e_xy + e_eval of its plane's exact value at the
+       rounded XY (5.4), and at creases near the toe the stored mesh can be off by it; plus 8 ulps of the heights.
+       (Numerics review: 8 ulps alone missed e_z, about 1e-9 m at UTM.) Only powers of two and ulps: 2^k scales it.
+       The claim is about the true catch line: the boundary of the true region, the components of {D < 0} connected to
+       the toe (level-set pieces not connected to it are not the catch line, by the region's definition). It is
+       connected to the toe through {D ≤ 0} ⊂ {D̃ ≤ hi}. So only faces reached from the computed region, or from a face on
+       the toe where D̃ ≤ hi somewhere (a true cut can start at a toe stretch within ε_T above the given terrain, cut off
+       from the computed region), through faces where D̃ ≤ hi somewhere (sharing an overlay vertex) can hold it; a band ring
+       elsewhere, around a hill the cone passes under, is cut off by faces with D̃ > hi, where D > 0, and is not counted.
+    3. *Per overlay face.* D̃ is linear on an overlay face f (one plane of S̃, one of T̃), and f is convex, so
+       P_f = f ∩ B is a convex polygon. Its vertices are f's vertices with D̃ in the band and the points on f's edges
+       where D̃ = −Tol − ε_T or ε_T. They are enclosed in boxes by interval arithmetic: the vertices of f (overlay
+       vertices: a vertex of one surface, or the crossing of two edges, an exact rational point) as intervals, D̃ there
+       as an interval of the two planes, and the edge parameter of a band crossing as an interval. A vertex whose
+       D̃ interval meets the band is kept (outward). So P_f lies in the convex hull of the boxes' corners. A face whose
+       plane the intervals do not decide (a sliver with n_z within its rounding) counts whole: all its vertices' boxes.
+    4. *Distance to the computed line.* For a computed catch-line segment σ, x ↦ dist(x, σ) is convex, so its maximum
+       over P_f is at most its maximum over the boxes' corners, each rounded up. Any segment gives a valid bound. The
+       one taken for P_f is the best (smallest bound) of the segments in f and in the faces reached from f through
+       band faces (breadth first, a fixed number of steps, deterministic order). P_f is assigned to that σ.
+       The bound is not tight: one segment per piece, so a piece's far corner along the line counts its distance to
+       that segment's end. On the pit tests it is 1.5 (flat terrain) to 1.8 (gradient 0.2) times the estimate. A finer
+       assignment (pieces split along the line) is a later refinement, if a use case needs it.
+    5. *The bound of a segment.* U(σ) = the largest bound of the pieces assigned to σ (0 if none), plus the largest
+       move of a catch point by the composite, measured (`SlopeComposite.MaxCatchMove`): from the overlay's catch point
+       to its final position, over both composites of a mixed run, rounded up; 0 without a composite. It covers the own
+       snap and the merge, which can add up to almost 2 × `MinFeatureSize` (numerics re-check H1: a point snapped to the
+       end of a short slope edge and merged to its other end), the nudge onto the slope side, and the partner snap. **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
+       segment σ.
+    6. *Pieces without a segment.* A band piece with no computed segment within its steps is a place where the
+       slope and the terrain come within the band without the computed line there: a possible contact away from the
+       line (a grazing contact, or a hill the cone passes just above). It is reported (`CatchLineBandWithoutLine`,
+       its box). It is not a bound of any segment, so a binding `RequiredCatchLineAccuracy` cannot be met there:
+       `CatchLineAccuracyNotReached`.
+    7. *Binding accuracy.* `RequiredCatchLineAccuracy` is checked against U, the proven bound. The warning threshold
+       stays on the estimate, which is the cheaper early signal. A smaller `Tolerance` narrows the band (the 1 / |∇D|
+       factor of the estimate is the band's width over the gradient where the faces are planar), so the refinement of
+       today still applies.
+    8. *Numerics* (for the review). All values that bound are rounded outward: the band limits (−Tol − ε_T rounded
+       down, ε_T up), D̃ on intervals, the crossing parameters on intervals, the distances rounded up. The planes of S̃
+       and T̃ are those of their stored doubles, so D̃ has no other error. The premise 0 ≤ S − S̃ ≤ Tol is the existing
+       certificate; nothing here relaxes it.
+  - **Prior art** for the bound: a level set of an approximated function lies in the sublevel band of the error
+    bound (the standard argument of certified contouring and of error-bounded isolines, eg Lorensen and Cline's
+    marching cubes with interval arithmetic, Snyder 1992, *Interval analysis for computer graphics*); the distance
+    to a set over a convex cell is bounded at its vertices (convexity of the distance to a convex set).
   - **Warning threshold exceeded** (`CatchLineWarningThreshold`, set by the caller; 10 cm is a sensible start in
     an application, not a library default): the result is returned, with the affected catch-line sections and
     their uncertainty (`IllConditionedCatchLine`).
@@ -879,9 +955,9 @@ documentation says so.
       triangles at p1 only, then any triangle whose box met a swept one: the first missed some, the second took the
       fans around the far end u, up to 8 × the triangles and 16 % of the octagon's run.)
     - **What is certified.** |z − c| ≤ `Tolerance` except within m of the toe, lateral-limit and cap steps, whose
-      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move: below `MinFeatureSize` in
-      a single run (snap and merge, no chains). In a mixed run the partner snap at a toe crossing adds up to
-      max(`MinFeatureSize`, 1e-4 × the toes' size).
+      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move, measured: below
+      2 × `MinFeatureSize` in a single run (a snap, then a merge, each below `MinFeatureSize`; no chains). In a mixed run
+      the partner snap at a toe crossing adds up to max(`MinFeatureSize`, 1e-4 × the toes' size).
     - **A mixed run** does not raise δ when its certificate fails, since each run raised its own: it fails with
       `SlopeViolation`.
     - **Tests.** `TerrainSlopeSnapBoundTests` has one synthetic case per candidate class where that class alone holds
@@ -1076,7 +1152,7 @@ namespace gs
         public enum Kinds { Ratio /* 1:n, reference convention */, Percent, Degrees, Rise }
         public Kinds Kind; public double Value;
         public double S { get; }               // rise / run, conservative (never steeper than the spec)
-        public bool ExactlyCheckable { get; }  // Ratio, Percent, Rise: exact; Degrees: against the double S only
+        public bool ExactlyCheckable { get; }  // Ratio, Percent, Rise: exact; Degrees: conservative, against a proven S <= tan
         public static SlopeSpec Ratio(double n); public static SlopeSpec Percent(double p);
         public static SlopeSpec Degrees(double a); public static SlopeSpec Rise(double s);
     }

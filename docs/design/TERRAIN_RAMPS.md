@@ -1,6 +1,6 @@
 # Design note: ramps as design geometry (terrain item 2)
 
-Status: **R1 implemented** (branch `claude/terrain-ramps-r1`, see "R1 as built"); the owner decided the three questions on 2026-11-13 (PR #771): the path is the inner edge, R1 is cut only with access ramps ending at daylight, one constant grade per ramp.
+Status: **R1 implemented** (branch `claude/terrain-ramps-r1`, see "R1 as built"); owner decision 2026-11-13: yes to all three proposals (the path is the inner edge, R1 is cut only with access ramps ending at daylight, one constant grade per ramp).
 
 ## Goal
 
@@ -92,7 +92,14 @@ inclined level instead of a horizontal one:
   vertex and enters the budget like the toe heights).
 - Estimate: about the size of terrain 1b (#285).
 
-## Questions for the owner
+## Owner decisions (2026-11-13)
+
+1. The path is the road's **inner edge** (crest side), not its centreline: the width is guaranteed outwards.
+2. R1 is a **pure cut ramp up to the daylight line**: an access ramp ends where the road meets the terrain on the catch
+   line; no fill embankments in R1.
+3. **One constant grade per ramp.**
+
+## Questions for the owner (answered above)
 
 1. Is the path the road's inner edge (crest side, as proposed: the width is then guaranteed outward), or its
    centreline?
@@ -220,15 +227,12 @@ So the ramp's pieces go into the same envelope as the toe's:
 
 ### A fix found by the ramp campaign
 
-The second prefilter of `SlopeMap.InsertPiece` took the distance of a face from its approximate corners (within
-4e-12 (|x| + |y|) of the exact ones, `ExactSlopeKernel.Approx`) as a lower bound. A face smaller than that error, at an
-apex where many planes meet (here: the ramp's start on a toe vertex), could be skipped although the piece is lower
-there, and differently at different scales: the campaign found a design that was not the same scaled by 2^-9. The
-distance is now taken that error shorter and the label's height at a corner may be off by `MaxGradient` times it. A
-right skip does not change the map, so only wrong skips change results: on the regular polygons of
-`Merge_RaisesTheToeLowering` the clusters of map vertices that the realization merged are gone (none in 1500 random
-regular polygons), so that test now asserts that nothing is merged; the merge's lowering stays tested by
-`TerrainSlopeBandMergeTests`.
+The ramp campaign found a design that was not the same scaled by 2^-9: the second prefilter of `SlopeMap.InsertPiece`
+skipped faces smaller than the error of their approximate corners (at the ramp's start on a toe vertex, where many
+planes meet). Fixed separately in #806 (issue #805: `SlopeMap.prefilter_skips`, `MaxGradient` bounded by the map from
+the planes it is handed); `InsertPolygonPiece` hands it the road and wall planes too, and its own polygon prefilter
+counts the same corner error. `TerrainSlopeCampaignTests.Regression_PrefilterOfTinyFaces_IsScaleInvariant` keeps the
+ramp case.
 
 ### Limits of R1
 

@@ -47,6 +47,8 @@ namespace gs
         public int MaxThreads = 0;
         /// <summary> sets the reducer options (the same for the regions and the last pass) </summary>
         public Action<Reducer> Configure;
+        // Configure plus the shared MaxDeviation reference (Reduce)
+        Action<Reducer> configure;
         /// <summary> (tests) false: a pinned vertex keeps its quadric and fold-over reference from before the round (the
         /// earlier error: what the region's collapses added to it is lost, and later collapses are costed too low) </summary>
         internal bool CarryPinnedVertexData = true;
@@ -230,7 +232,7 @@ namespace gs
                 var sl = new double[sub.MaxVertexID];
                 for (int sv = 0; sv < s2g.Count; ++sv) { sq[sv] = q[s2g[sv]]; sn[sv] = rn[s2g[sv]]; sl[sv] = rl[s2g[sv]]; }
                 var r = new SeededReducer(sub, sq, origin, scale) { Box = boxes[k], LimitToBox = true, SeedReferenceNormals = sn, SeedReferenceLengths = sl };
-                Configure?.Invoke(r);
+                configure(r);
                 r.PreserveBoundaryShape = false;
                 r.SetExternalConstraints(cons);
                 r.ReduceToMaxQuadricError(maxError);
@@ -313,6 +315,20 @@ namespace gs
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             m = new DMesh3(m, true);
+            // Reducer.MaxDeviation from the mesh given, for every region and the last pass: by default each Reducer would
+            // measure from the mesh it starts on (the region of a later round, the last pass's mesh: already reduced), and
+            // the deviations of the rounds would add up (issue #747). One tree, built on first use, only read
+            // (a copy only if Configure sets a MaxDeviation: probed on an empty Reducer. A Configure that sets MaxDeviation for some
+            // Reducers only gets no shared reference: each of those measures from its own start mesh, as before)
+            var probe = new Reducer(new DMesh3());
+            Configure?.Invoke(probe);
+            DMesh3 reference = probe.MaxDeviation > 0 ? new DMesh3(m) : null;
+            var referenceTree = new Lazy<DMeshAABBTree3>(() => new DMeshAABBTree3(reference, true), System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+            configure = (r) => {
+                Configure?.Invoke(r);
+                if (reference != null && r.MaxDeviation > 0 && r.HasDeviationReference == false)
+                    r.SetDeviationReference(referenceTree.Value);
+            };
             Vector3d origin;
             double scale;
             QuadricError[] q = SeededReducer.Compute(m, Configure, out origin, out scale);
@@ -341,7 +357,7 @@ namespace gs
             StitchMs = sw.ElapsedMilliseconds; sw.Restart();
             // the last pass, serial, on the whole mesh, with the carried quadrics
             var last = new SeededReducer(res, resQ, origin, scale) { SeedReferenceNormals = rn, SeedReferenceLengths = rl };
-            Configure?.Invoke(last);
+            configure(last);
             last.ReduceToMaxQuadricError(maxError);
             LastCollapses = last.Collapses;
             LastMs = sw.ElapsedMilliseconds;

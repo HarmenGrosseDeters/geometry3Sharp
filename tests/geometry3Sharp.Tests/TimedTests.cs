@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using Xunit;
 
@@ -10,8 +11,39 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void SlowButSteadyRun_MakesProgress_WhateverItsTotalTime()
         {
-            // 12 units of 100 ms against a stall limit of 1 s: the total (1.2 s) is longer than the limit, no unit is
-            Assert.True(Timed.MakesProgress(beat => { for (int i = 0; i < 12; ++i) { Thread.Sleep(100); beat(); } }, TimeSpan.FromSeconds(1)));
+            // units of 300 ms until the run is 1.3 times the stall limit of 1 s long: the total is longer than the limit,
+            // no unit is (and a unit is long enough that a watchdog with a far shorter limit would trip). A loaded machine can hold a sleeping thread back for longer than the limit (a net48 CI runner
+            // did: 12 sleeps of 100 ms took 4 s, #755), and then the watchdog is right to report a stall. So the run
+            // measures its own waits between two beats (from the call to the first beat, and from the last beat to the
+            // watchdog's answer, too): an attempt in which one of them reached 0.7 of the limit says nothing about the
+            // watchdog and is repeated; an attempt without one must be reported as progress
+            TimeSpan stall = TimeSpan.FromSeconds(1);
+            long tooLong = (long)(0.7 * stall.TotalSeconds * Stopwatch.Frequency);
+            for (int attempt = 0; attempt < 5; ++attempt) {
+                long start = Stopwatch.GetTimestamp(), lastBeat = start, longest = 0;
+                bool ok = Timed.MakesProgress(beat => {
+                    while (true) {
+                        long now = Stopwatch.GetTimestamp();
+                        long wait = now - Interlocked.Read(ref lastBeat);
+                        if (wait > Interlocked.Read(ref longest))
+                            Interlocked.Exchange(ref longest, wait);
+                        Interlocked.Exchange(ref lastBeat, now);
+                        beat();
+                        if (now - start > 1.3 * stall.TotalSeconds * Stopwatch.Frequency)
+                            break;
+                        Thread.Sleep(300);
+                    }
+                }, stall);
+                long end = Stopwatch.GetTimestamp();
+                long waited = Math.Max(Interlocked.Read(ref longest), end - Interlocked.Read(ref lastBeat));
+                if (waited >= tooLong)
+                    continue;
+                // (a finished run was longer than the limit: its last beat came after 1.3 times the limit)
+                Assert.True(ok, $"a run whose longest wait was {(double)waited / Stopwatch.Frequency:F3} s was reported as stalled at a limit of {stall.TotalSeconds} s");
+                Assert.True(Interlocked.Read(ref lastBeat) - start > stall.TotalSeconds * Stopwatch.Frequency);
+                return;
+            }
+            Assert.True(false, "the machine held the run back for 0.7 of the stall limit or more in each of 5 attempts");
         }
 
         [Fact]
@@ -58,6 +90,54 @@ namespace geometry3Sharp.Tests
         public void ExceptionOfTheAction_IsRethrown()
         {
             Assert.Throws<InvalidOperationException>(() => Timed.MakesProgress(beat => { beat(); throw new InvalidOperationException("x"); }, TimeSpan.FromSeconds(5)));
+        }
+
+        // ---- Timed.Finishes: the budget is the CPU time of the worker, not wall-clock seconds (#733) ----
+
+        static bool CpuTimeIsReadable => Environment.OSVersion.Platform == PlatformID.Win32NT || System.IO.File.Exists("/proc/thread-self/stat");
+
+        static void Spin(int ms)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms) Thread.SpinWait(200);
+        }
+
+        [Fact]
+        public void Finishes_AQuickAction_IsTrue_AndItsExceptionIsRethrown()
+        {
+            Assert.True(Timed.Finishes(() => Thread.Sleep(10), TimeSpan.FromSeconds(1)));
+            Assert.Throws<InvalidOperationException>(() => Timed.Finishes(() => throw new InvalidOperationException("x"), TimeSpan.FromSeconds(1)));
+        }
+
+        // a loaded machine: the action needs 0.6 s of CPU but 2.4 s of wall-clock time (it waits for a core between its bursts). A wall-clock
+        // budget of 1 s called this a hang (#733); the CPU budget does not
+        [Fact]
+        public void Finishes_ASlowButLightWorker_IsNotAHang()
+        {
+            if (!CpuTimeIsReadable) return;
+            Assert.True(Timed.Finishes(() => { for (int i = 0; i < 6; ++i) { Spin(100); Thread.Sleep(300); } }, TimeSpan.FromSeconds(1)));
+        }
+
+        [Fact]
+        public void Finishes_AWorkerThatSpinsPastTheBudget_IsAHang()
+        {
+            if (!CpuTimeIsReadable) return;
+            var stop = new ManualResetEventSlim();
+            try {
+                // (an endless loop: it burns CPU; the wall ceiling of 60 s is only a safety net for the test)
+                Assert.False(Timed.Finishes(() => { while (!stop.IsSet) Thread.SpinWait(200); }, TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(60)));
+            } finally { stop.Set(); }
+        }
+
+        [Fact]
+        public void Finishes_AWorkerThatBlocksForever_FailsAtTheWallCeiling()
+        {
+            var release = new ManualResetEventSlim();
+            try {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Assert.False(Timed.Finishes(() => release.Wait(), TimeSpan.FromSeconds(0.2), TimeSpan.FromSeconds(1)));
+                Assert.InRange(sw.Elapsed.TotalSeconds, 0.9, 30);
+            } finally { release.Set(); }
         }
     }
 }
