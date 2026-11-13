@@ -701,7 +701,6 @@ Own implementation of the informal format (one point per line, optional normals)
 column rule (values 4-6 are normals when there are six or more; further columns are ignored) is our decision, documented at
 the reader. The PLY point cloud path is the existing `PLYReader` / `PLYWriter`.
 
-
 ## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
 
 Implemented from the papers below; no code of any of them was read.
@@ -714,7 +713,6 @@ Implemented from the papers below; no code of any of them was read.
 | Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
 | k-nearest neighbours | a k-d tree with median splits and bounded-distance pruning; textbook method (J. L. Bentley, Multidimensional binary search trees used for associative searching, CACM 1975, from memory), own code |
 
-
 ## Point cloud surface (`PointCloudSurface`, step C1 of the design note)
 
 | Part | Source |
@@ -724,7 +722,6 @@ Implemented from the papers below; no code of any of them was read.
 | Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
 | Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
 | Marching cubes | the library's `MarchingCubes` |
-
 
 ## Correctly rounded sin, cos, atan2, exp, log (`math/CoreMath`, internal; C1 of `docs/design/DETERMINISM.md`)
 
@@ -760,6 +757,21 @@ the large comparison (1 000 000 random arguments and up to 30 000 worst cases pe
 | Item | Source and license |
 |---|---|
 | Parcels (`Flurstueck`), buildings (`GebauedeBauwerk`) and land use (`Nutzung`) of the Liegenschaftskataster NRW, "Grundrissdaten vereinfacht" (GeoPackage per district, ETRS89 / UTM 32N) | Geobasis NRW, <https://www.opengeodata.nrw.de/produkte/geobasis/lk/akt/gru_vereinfacht_gpkg/>, license Datenlizenz Deutschland - Zero - Version 2.0 (dl-de/zero-2-0, <https://www.govdata.de/dl-de/zero-2-0>). Fetched at run time into a cache directory, prepared into plain text inputs, never committed. The source ("akt") changes over time: a result is reproducible per archive SHA-256, which the scripts print and write to `sample.json`. Test meshes built from it are not committed either. |
+
+## TPMS lattices (`TpmsLattice`)
+
+Implemented from the published formulas and papers; no code taken from any library. Design:
+[design/TPMS_LATTICE.md](design/TPMS_LATTICE.md).
+
+| Part | Source |
+|---|---|
+| Gyroid | A. H. Schoen, *Infinite periodic minimal surfaces without self-intersections*, NASA Technical Note D-5541, 1970 |
+| Schwarz P and D | H. A. Schwarz, *Gesammelte Mathematische Abhandlungen* (vol. 1), 1890 |
+| Neovius surface | E. R. Neovius, *Bestimmung zweier speciellen periodischen Minimalflaechen*, 1883 |
+| Nodal (trigonometric) approximations of P, G, D and I-WP | P. J. F. Gandy, S. Bardhan, A. L. Mackay, J. Klinowski, *Nodal surface approximations to the P, G, D and I-WP triply periodic minimal surfaces*, Chem. Phys. Lett. 336 (2001) 187-195; the Neovius form as in O. Al-Ketan, R. K. Abu Al-Rub below |
+| Sheet and skeletal ("solid network") lattices, level set offset, grading by a position dependent level | O. Al-Ketan, R. K. Abu Al-Rub, *Multifunctional mechanical metamaterials based on triply periodic minimal surface lattices*, Adv. Eng. Mater. 21 (2019) 1900524 |
+| Marching cubes | W. E. Lorensen, H. E. Cline, *Marching cubes: a high resolution 3D surface construction algorithm*, SIGGRAPH 1987 |
+| Enclosure of the exact solid by the contoured one (level pad, 1-Lipschitz field) | A. Jacobson, *A Sharp Conservative Offset for Marching Cubes*, arXiv:2609.13430 (see [design/CONSERVATIVE_MC_AUDIT.md](design/CONSERVATIVE_MC_AUDIT.md)) |
 
 ## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
 
