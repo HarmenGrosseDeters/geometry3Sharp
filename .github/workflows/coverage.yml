@@ -20,6 +20,10 @@ on:
         description: 'Branch or SHA to check (default: the selected ref)'
         required: false
         default: ''
+      force:
+        description: 'Run although a daily run of today already ran or is running (the schedule guard)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,7 +39,35 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # Runs once a day although two things start it (docs/QA.md, "Scheduled runs"): the external dispatcher at a fixed time and the
+  # cron line as the fallback. Skips when an earlier plain daily run of today is under way or green (tools/schedule_guard.py).
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run: ${{ steps.guard.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools
+      - name: Schedule guard${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' && ' [custom]' || '' }}
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'master' }}
+          FORCE: ${{ inputs.force }}
+          CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.ref != '' }}
+        run: python3 tools/schedule_guard.py --workflow coverage.yml --event "$EVENT" --run-id "$RUN_ID" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --custom "$CUSTOM" --force "$FORCE"
+
   core:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -68,8 +100,8 @@ jobs:
           path: test-results/core/
 
   gate:
-    needs: core
-    if: always()
+    needs: [guard, core]
+    if: always() && needs.guard.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -102,7 +134,7 @@ jobs:
           # manual run of another ref on master must not move the base), else 24 h of master
           git fetch -q origin master
           BASE=""
-          for id in $(gh run list --workflow coverage.yml --branch master --limit 20 --json databaseId --jq '.[].databaseId'); do
+          for id in $(gh run list --workflow coverage.yml --branch master --limit 60 --json databaseId --jq '.[].databaseId'); do
             rm -rf previous
             if gh run download "$id" -n gate-result -D previous 2>/dev/null; then
               BASE=$(python3 -c "import json;print(json.load(open('previous/changed-line-coverage.json'))['head'])")

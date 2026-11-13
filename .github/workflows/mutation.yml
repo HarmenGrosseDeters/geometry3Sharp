@@ -73,11 +73,17 @@ on:
       shards:
         description: 'Shards to run in full: all, or a comma-separated list (arithmetic, rounding-1, boolean-1, ...)'
         default: all
+      force:
+        description: 'Run although a daily run of today already ran or is running (the schedule guard)'
+        type: boolean
+        default: false
 
-# a new push to the same PR, a switch back to draft, and closing or merging the PR cancel the running run
+# a new push to the same PR, a switch back to draft, and closing or merging the PR cancel the running run; a scheduled or
+# dispatched run is never cancelled by another (the late cron would otherwise cancel the full run that the dispatcher started,
+# hours of work: it waits and the schedule guard skips it)
 concurrency:
   group: mutation-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -94,6 +100,9 @@ jobs:
     # so they are skipped too
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read          # the schedule guard reads the earlier runs of today
     outputs:
       arithmetic: ${{ steps.select.outputs.arithmetic }}
       mesh: ${{ steps.select.outputs.mesh }}
@@ -109,16 +118,36 @@ jobs:
           python3 test_incremental.py
           python3 test_suggest_split.py
           python3 test_narrow_tests.py
+      # Runs once a day although two things start it (docs/QA.md 2.12): the external dispatcher at a fixed time and the cron
+      # line as the fallback (tools/schedule_guard.py). A step of this job, not a job of its own: select_shards.py takes a new
+      # job or top key of this workflow as a reason to run every shard in full.
+      - if: github.event_name != 'pull_request'
+        name: Schedule guard${{ github.event_name == 'workflow_dispatch' && inputs.shards != 'all' && inputs.shards != '' && ' [custom]' || '' }}
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'master' }}
+          FORCE: ${{ inputs.force }}
+          CUSTOM: ${{ github.event_name == 'workflow_dispatch' && inputs.shards != 'all' && inputs.shards != '' }}
+        run: python3 tools/schedule_guard.py --workflow mutation.yml --event "$EVENT" --run-id "$RUN_ID" --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --custom "$CUSTOM" --force "$FORCE"
       - id: select
         env:
           EVENT: ${{ github.event_name }}
+          GUARD: ${{ steps.guard.outputs.run }}
           SHARDS: ${{ github.event.inputs.shards }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           # a failed git diff must fail this step: empty input would select nothing and skip the runs in green
           set -o pipefail
-          if [ "$EVENT" != "pull_request" ]; then
+          if [ "$GUARD" = false ]; then
+            # skipped by the schedule guard: nothing to run (the Stryker jobs wait for a non-empty selection)
+            echo 'arithmetic=none' | tee -a "$GITHUB_OUTPUT"
+            echo 'mesh=[]' | tee -a "$GITHUB_OUTPUT"
+          elif [ "$EVENT" != "pull_request" ]; then
             python3 tests/mutation/select_shards.py --all --only "${SHARDS:-all}" | tee -a "$GITHUB_OUTPUT"
           else
             git diff --name-only "$BASE...$HEAD" | python3 tests/mutation/select_shards.py | tee -a "$GITHUB_OUTPUT"

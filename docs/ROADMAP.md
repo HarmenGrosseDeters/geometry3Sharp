@@ -109,7 +109,8 @@ Status on 2026-11-12 (evening, Berlin).
   [platform.md](roadmap/platform.md)
 - **Scheduled runs on GitHub are unreliable:** they fire hours late. `coverage.yml` (cron 03:41 UTC): first scheduled run
   2026-11-12, started 11:48 UTC (failed); `nightly.yml` (cron 02:23 UTC): 2026-11-11 started 09:36 UTC, 2026-11-12 started
-  09:57 UTC (both green).
+  09:57 UTC (both green). Cause: GitHub creates the runs hours late (7-8 h), not the runners. Fix: external dispatch
+  plus a once-a-day guard, [QA.md 2.12](QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13).
   [platform.md](roadmap/platform.md#open)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
