@@ -1,0 +1,167 @@
+diff --git a/mesh_ops/MeshRoundingRepair.cs b/mesh_ops/MeshRoundingRepair.cs
+index 54ba513..d0872d3 100644
+--- a/mesh_ops/MeshRoundingRepair.cs
++++ b/mesh_ops/MeshRoundingRepair.cs
+@@ -259,6 +259,9 @@ namespace g3
+         /// </summary>
+         public bool IsClean { get { return RemainingIntersections == 0 && RemainingDegenerate == 0 && RemainingFalseContacts == 0 && ScaleDisparity == 0 && ScaleNotFinite == false && OutsideRange == false; } }
+ 
++        internal static readonly bool Probe = Environment.GetEnvironmentVariable("G3_ROUND_PROBE") == "1";
++        internal long pTree, pFull, pIncr, pDegen, pPasses, pNear, pTiny, pScales, pTotal, pBodyCpu, pTestCpu, pCand, pTests, pNearCalls, pNearHits, pEvals, pFullCount, pIncrCount, pFalse, pPositions;
++        static long Now() { return System.Diagnostics.Stopwatch.GetTimestamp(); }
+         public MeshRoundingRepair(DMesh3 mesh)
+         {
+             Mesh = mesh;
+@@ -424,8 +427,24 @@ namespace g3
+         }
+ 
+         /// <summary> repair (see class comment); returns IsClean </summary>
+-        [MethodImpl(JitHints.Optimize)]
+         public bool Apply()
++        {
++            pTree = pFull = pIncr = pDegen = pPasses = pNear = pTiny = pScales = pBodyCpu = pTestCpu = pCand = pTests = pNearCalls = pNearHits = pEvals = pFullCount = pIncrCount = pFalse = pPositions = 0;
++            long t0 = Now();
++            bool r = apply_inner();
++            pTotal = Now() - t0;
++            if (Probe) {
++                double f = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
++                Console.Error.WriteLine(string.Format(System.Globalization.CultureInfo.InvariantCulture,
++                    "ROUNDPROBE {{\"tris\":{0},\"total\":{1:F2},\"scales\":{2:F2},\"positions\":{3:F2},\"tree\":{4:F2},\"full\":{5:F2},\"incr\":{6:F2},\"degen\":{7:F2},\"passes\":{8:F2},\"near\":{9:F2},\"tiny\":{10:F2},\"false\":{11:F2},\"body_cpu\":{12:F2},\"test_cpu\":{13:F2},\"cand\":{14},\"tests\":{15},\"near_calls\":{16},\"near_hits\":{17},\"evals\":{18},\"full_n\":{19},\"incr_n\":{20},\"clean\":{21},\"edits\":{22},\"init_i\":{23},\"init_d\":{24},\"skipped\":{25}}}",
++                    Mesh.TriangleCount, pTotal * f, pScales * f, pPositions * f, pTree * f, pFull * f, pIncr * f, pDegen * f, pPasses * f, pNear * f, pTiny * f, pFalse * f, pBodyCpu * f, pTestCpu * f, pCand, pTests, pNearCalls, pNearHits, evaluations, pFullCount, pIncrCount,
++                    r ? "true" : "false", Collapses + Flips + Moves + Zips, InitialIntersections, InitialDegenerate, SkippedExactQueries));
++            }
++            return r;
++        }
++
++        [MethodImpl(JitHints.Optimize)]
++        bool apply_inner()
+         {
+             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+             MaxDrift = 0;
+@@ -470,7 +489,7 @@ namespace g3
+                 InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                 return true;
+             }
+-            component_scales();
++            { long t = Now(); component_scales(); pScales += Now() - t; }
+             // a vertex of a triangle that is not finite (NaN or infinite): nothing to repair or to certify; the exact
+             // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
+             // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
+@@ -489,10 +508,12 @@ namespace g3
+                 return false;
+             }
+             if (SharedPositionsTouch) {
++                long t = Now();
+                 atPosition = new Dictionary<Vector3d, List<int>>();
+                 canonId = new int[Mesh.MaxVertexID];
+                 foreach (int vid in Mesh.VertexIndices())
+                     position_add(vid, Mesh.GetVertex(vid));
++                pPositions += Now() - t;
+             }
+             SkippedExactQueries = 0;
+             if (exactF != null) {
+@@ -566,8 +587,9 @@ namespace g3
+ 
+ 
+         // the passes over the defects (see Apply), until one changes nothing
++        void repair_passes(ref List<Index2i> pairs, ref List<int> bad) { long t = Now(); long f0 = pFull + pIncr + pDegen + pTree; repair_passes_inner(ref pairs, ref bad); pPasses += Now() - t - (pFull + pIncr + pDegen + pTree - f0); }
+         [MethodImpl(JitHints.Optimize)]
+-        void repair_passes(ref List<Index2i> pairs, ref List<int> bad)
++        void repair_passes_inner(ref List<Index2i> pairs, ref List<int> bad)
+         {
+             for (int pass = 0; pass < MaxPasses && (pairs.Count > 0 || bad.Count > 0); ++pass) {
+                 int edits = Collapses + Flips + Moves + Zips;
+@@ -832,8 +854,9 @@ namespace g3
+ 
+         // ---- spatial queries ----
+ 
++        void rebuild_tree() { long t = Now(); rebuild_tree_inner(); pTree += Now() - t; }
+         [MethodImpl(JitHints.Optimize)]
+-        void rebuild_tree()
++        void rebuild_tree_inner()
+         {
+             var boxes = new List<AxisAlignedBox3d>();
+             treeTids = new List<int>();
+@@ -868,8 +891,9 @@ namespace g3
+         }
+ 
+         // the current triangles whose box overlaps query (each once)
++        void near(AxisAlignedBox3d query, List<int> result) { long t = Now(); near_inner(query, result); pNear += Now() - t; pNearCalls++; pNearHits += result.Count; }
+         [MethodImpl(JitHints.Optimize)]
+-        void near(AxisAlignedBox3d query, List<int> result)
++        void near_inner(AxisAlignedBox3d query, List<int> result)
+         {
+             result.Clear();
+             // (the list overload: no list and no closure per query)
+@@ -966,10 +990,10 @@ namespace g3
+                 pairs = new List<Index2i>(lastPairs);
+                 UnchangedPairSearches++;
+             } else if (lastPairs != null && pairsStale.Count <= treeTids.Count / 4) {
+-                pairs = intersecting_pairs_of_changed();
++                { long t = Now(); pairs = intersecting_pairs_of_changed(); pIncr += Now() - t; pIncrCount++; }
+                 IncrementalPairSearches++;
+             } else {
+-                pairs = intersecting_pairs_all();
++                { long t = Now(); pairs = intersecting_pairs_all(); pFull += Now() - t; pFullCount++; }
+                 FullPairSearches++;
+             }
+             if (check) {
+@@ -1008,6 +1032,8 @@ namespace g3
+             var found = new List<Index2i>[tris.Length];
+             gParallel.ForRange(tris.Length, (k) => {
+                 int ta = tris[k];
++                long tb0 = Now(), tt = 0; int cand = 0, tests = 0;
++                try {
+                 // (an exact triangle's pairs with the others are found from those)
+                 if (skip && exact_triangle(ta)) {
+                     System.Threading.Interlocked.Increment(ref skipped);
+@@ -1020,20 +1046,27 @@ namespace g3
+                 List<Index2i> local = null;
+                 tree.Query(box(ia), (i) => {
+                     int tb = tris[i];
++                    cand++;
+                     // (a pair of two triangles that are not skipped once, from the smaller id; one with a skipped
+                     // triangle from the other)
+                     if (tb == ta || (tb < ta && (skip == false || exact_triangle(tb) == false))) return;
+                     Index3i ib = Mesh.GetTriangle(tb);
+                     Triangle3d B = triangle(ib);
+                     if (ExactTriangleIntersection.IsDegenerate(ref B)) return;
++                    tests++; long ts = Now();
+                     // (the smaller id first, as without the skip)
+                     bool hit = ta < tb ? intersects(ia, ref A, ib, ref B) : intersects(ib, ref B, ia, ref A);
++                    tt += Now() - ts;
+                     if (hit) {
+                         if (local == null) local = new List<Index2i>();
+                         local.Add(new Index2i(Math.Min(ta, tb), Math.Max(ta, tb)));
+                     }
+                 });
+                 found[k] = local;
++                } finally {
++                    System.Threading.Interlocked.Add(ref pBodyCpu, Now() - tb0); System.Threading.Interlocked.Add(ref pTestCpu, tt);
++                    System.Threading.Interlocked.Add(ref pCand, cand); System.Threading.Interlocked.Add(ref pTests, tests);
++                }
+             });
+             SkippedExactQueries += skipped;
+             var pairs = new List<Index2i>();
+@@ -1088,8 +1121,9 @@ namespace g3
+             return pairs;
+         }
+ 
++        List<int> degenerate_triangles() { long t = Now(); var l = degenerate_triangles_inner(); pDegen += Now() - t; return l; }
+         [MethodImpl(JitHints.Optimize)]
+-        List<int> degenerate_triangles()
++        List<int> degenerate_triangles_inner()
+         {
+             var list = new List<int>();
+             foreach (int tid in Mesh.TriangleIndices())
+@@ -2610,8 +2644,9 @@ namespace g3
+         }
+ 
+         // components with a degenerate triangle or an edited vertex that are tiny or thin
++        int remove_tiny_components(List<int> bad) { long t = Now(); long f0 = pTree; int n = remove_tiny_components_inner(bad); pTiny += Now() - t - (pTree - f0); return n; }
+         [MethodImpl(JitHints.Optimize)]
+-        int remove_tiny_components(List<int> bad)
++        int remove_tiny_components_inner(List<int> bad)
+         {
+             var comps = new MeshConnectedComponents(Mesh);
+             comps.FindConnectedT();
