@@ -1,7 +1,8 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **study only, nothing built; waits for the owner's decision** (section 6). Stage 0, the proof written out
-(section 7), was added on 2026-11-13 on the coordinator's decision. Approved as a study by the owner on
+Status: **study and proofs; nothing built here.** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
+1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. No library code changed; the measurement is
 [`benchmarks/ContouringTopology`](../../benchmarks/ContouringTopology/README.md) (public API only).
 
@@ -340,8 +341,8 @@ claim proper and the least certain.
 | | what | gain | cost | risk |
 |---|---|---|---|---|
 | **A. Stages 0-2** | certificate and refinement for clean closed meshes | wrong topology is detected and mostly fixed where the truth is exact; 4 of 14 clean real meshes today | S + M + S-M, exact code | the proof (section 7) needs a second reader; general position at grid planes (CAD faces on the grid) decides the certified share |
-| B. A, then stage 3 | plus interval implicits | TPMS / implicit inputs get a certificate; thin features resolved or reported | + M, a new optional interface | interval functions for user implicits are opt-in |
-| C. A, B, then stage 4 | plus broken inputs away from defects | the repair statement | + M-L | research; may end as "report only" |
+| B. A, then stage 3 | plus interval implicits | TPMS / implicit inputs get a certificate; thin features resolved or reported | + M, a new optional interface | interval functions for user implicits are opt-in; the proof (Theorem 5, section 7.8) is written and reviewed, its citations of Brown and Clarke are from memory |
+| C. A, B, then stage 4 | plus broken inputs away from defects | a partial statement only: inside the certified cells the result differs from the level set by a deformation that keeps every cell in place; never "isotopic to the level set" | + M-L | provable from Theorems 1b, 3, 5 and Lemmas 9.1, 9.2 once rigorous enclosures of the winding number (interval atan2, square root) and of its gradient over a box exist (section 7.9, items 1 and 2); limit: no cell with a piece of a defect edge is ever certified, so the share of the surface it covers is unmeasured |
 | D. Detection only | compare components and genus of the result with the input's (clean inputs) and report a mismatch; lower `MinRefineEdges` | cheap signal for the cases of 2.2 (misses knots and compensating errors, says nothing about where) | S | no guarantee |
 | E. Nothing | document the 2-cell rule | - | 0 | silent wrong topology stays |
 
