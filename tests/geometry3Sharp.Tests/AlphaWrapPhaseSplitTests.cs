@@ -33,7 +33,11 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void PhaseParts_AddUpToTheTotals_AndExplainThePhases()
         {
-            // (a soup with pinches and quality points: all four refinement phases run)
+            // (a soup with pinches and quality points: all four refinement phases run). The shares below compare wall-clock parts of
+            // a phase, so the measured run must not carry the first call's JIT. On net48 a pinch pass once spent most of its time outside
+            // its timed parts ("pinch passes 111: trials 46, carving 0"), most likely compiling the code of the pinch points and their
+            // insertion on the first call (not reproduced: net48 does not run here). One warm-up wrap of the same input first
+            Assert.True(new MeshAlphaWrap(AlphaWrapTests.RandomSoup(42)) { RelativeAlpha = 60, RelativeOffset = 600 }.Compute());
             var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(42)) { RelativeAlpha = 60, RelativeOffset = 600 };
             Assert.True(w.Compute(), w.Error);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
