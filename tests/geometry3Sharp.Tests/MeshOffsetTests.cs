@@ -142,14 +142,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Offset_HollowPart_KeepsTheInnerShell_InsetKeepsTheWall()
         {
-            MeshOffset o = Run(Hollow(), 0.25);
+            MeshOffset o = Run(Hollow(), 0.25, x => x.RelativeCellSize = 0.5);
             AssertGood(o);
             Assert.Equal(2, Components(o.Result));
             // outer shell: the 4-cube grown by 0.25; the void: the 2-cube shrunk by 0.25 (sharp, it is an inset of the void)
             double expected = BoxOffsetVolume(4, 4, 4, 0.25) - 1.5 * 1.5 * 1.5;
             Assert.True(Math.Abs(Volume(o.Result) - expected) < 0.01 * expected, $"{Volume(o.Result)} vs {expected}");
 
-            MeshOffset i = Run(Hollow(), -0.25);
+            MeshOffset i = Run(Hollow(), -0.25, x => x.RelativeCellSize = 0.5);
             AssertGood(i);
             Assert.Equal(2, Components(i.Result));
             double inner = BoxOffsetVolume(2, 2, 2, 0.25);
@@ -163,7 +163,7 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 m = Box(Vector3d.Zero, new Vector3d(1, 1, 1));
             new MeshEditor(m).AppendMesh(Box(new Vector3d(1.4, 0, 0), new Vector3d(2.4, 1, 1)));
-            MeshOffset o = Run(m, d, x => x.RelativeCellSize = 0.125);
+            MeshOffset o = Run(m, d);
             AssertGood(o);
             Assert.Equal(components, Components(o.Result));
         }
