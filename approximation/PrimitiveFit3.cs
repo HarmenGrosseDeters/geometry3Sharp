@@ -327,7 +327,7 @@ namespace g3
                     return m.r > maxRadius && !double.IsInfinity(m.r);
                 case Primitives.Cone:
                     return m.r > MathUtil.Clamp(MaxConeAngle, 1, 89.9) * MathUtil.Deg2Rad && m.r < 0.5 * Math.PI
-                        || (m.a - Points[0]).Length > maxRadius && !double.IsInfinity(m.a.x + m.a.y + m.a.z);
+                        || (m.a - Points[0]).Length > maxRadius && m.a.IsFinite;
                 default:
                     return false;
             }
@@ -335,7 +335,8 @@ namespace g3
 
         bool valid(Model m)
         {
-            if (double.IsNaN(m.a.x + m.a.y + m.a.z + m.d.x + m.d.y + m.d.z + m.r) || double.IsInfinity(m.a.x + m.a.y + m.a.z + m.r))
+            // (each component: a sum of them overflows for finite large values)
+            if (!m.a.IsFinite || !MathUtil.IsFinite(m.r) || double.IsNaN(m.d.x + m.d.y + m.d.z))
                 return false;
             if (Math.Abs(m.d.Length - 1) > 1e-6)
                 return false;

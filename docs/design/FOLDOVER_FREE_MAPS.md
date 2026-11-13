@@ -153,5 +153,9 @@ normalize the private mesh to unit total area. This removes residual scale depen
 similarities. Returned Energy uses InitialEpsilon so retained candidates remain comparable; the final iterate is
 returned when it has no more invalid triangles than any earlier one (the solver minimizes F(., epsilon) for a
 shrinking epsilon, so the energy at InitialEpsilon does not rank flip-free iterates; review of #374), and
-Converged is false if the returned map differs from the converged iterate. The original map is returned without a
+Converged is false if the returned map differs from the converged iterate.
+
+Round-off 2026-11-12: the stop is Algorithm 1 line 11 (flip-free and energy decrease below `EnergyDecreaseTolerance`,
+compared at the iteration's own epsilon) plus a regularization guard (`F(x, 0) <= (1 + tol) F(x, epsilon)`); results in
+the [benchmark README](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md#round-off-2026-11-12). The original map is returned without a
 round trip when no better candidate was retained.
