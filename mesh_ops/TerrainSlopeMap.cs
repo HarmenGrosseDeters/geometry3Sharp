@@ -483,6 +483,103 @@ namespace gs
             return lowerF > upper + maxGradient * e + 1e-9 * (Math.Abs(upper) + Math.Abs(lowerF) + slb * (size + dmin));
         }
 
+        /// <summary>
+        /// A convex polygon piece (a ramp's road part, docs/design/TERRAIN_RAMPS.md): F = max(the road plane, the walls'
+        /// strip planes, the corner fans), which is the road plane on the polygon and its slope cone outside. The faces
+        /// where F is lower than their label get its planes, as InsertPiece does; the road plane is owned by roadOwner,
+        /// the wall planes by wallOwner. zmin, slb: F &gt;= zmin + slb * distance to the polygon (its box bounds the
+        /// distance from below, the prefilter); reach: no effect beyond it.
+        /// </summary>
+        public void InsertPolygonPiece(int roadOwner, int wallOwner, int roadPlane, List<int> walls, List<Vector2d> apexes,
+                                       List<List<int>> fans, List<List<double>> angles, AxisAlignedBox2d polyBox, double zmin,
+                                       double slb, AxisAlignedBox2d reach, double theta)
+        {
+            InsertPolygonPiece(roadOwner, wallOwner, roadPlane, walls, apexes, fans, angles, polyBox, zmin, slb, reach, theta, null);
+        }
+
+        /// <summary> InsertPolygonPiece with the polygon (counter-clockwise, its corners: apexes) for the distance prefilter </summary>
+        public void InsertPolygonPiece(int roadOwner, int wallOwner, int roadPlane, List<int> walls, List<Vector2d> apexes,
+                                       List<List<int>> fans, List<List<double>> angles, AxisAlignedBox2d polyBox, double zmin,
+                                       double slb, AxisAlignedBox2d reach, double theta, List<Vector2d> polygon)
+        {
+            ordered = null;
+            owner[roadPlane] = roadOwner;
+            foreach (int p in walls) owner[p] = wallOwner;
+            foreach (var l in fans) foreach (int p in l) owner[p] = wallOwner;
+            // (the labels a face can have include these planes from now on)
+            bound_gradients(new List<int> { roadPlane }); bound_gradients(walls); foreach (var l in fans) bound_gradients(l);
+            var hits = hitBuffer;
+            hits.Clear();
+            qt.QueryRectangle(reach, hits);
+            if (faceStamp.Length < fEdge.Count) Array.Resize(ref faceStamp, 2 * fEdge.Count);
+            ++stampNow;
+            var faces = faceBuffer;
+            faces.Clear();
+            foreach (int id in hits) {
+                int f = qtFace[id];
+                if (f >= 0 && fAlive[f] && fDomain[f] && faceStamp[f] != stampNow) { faceStamp[f] = stampNow; faces.Add(f); }
+            }
+            faces.Sort();
+            var relevant = new List<int>();
+            foreach (int f in faces) {
+                int label = fLabel[f];
+                AxisAlignedBox2d bb = fBox[f];
+                double upperB = double.MinValue;
+                for (int i = 0; i < 4; ++i) { Vector2d q = bb.GetCorner(i); upperB = Math.Max(upperB, K.ApproxHeight(label, q.x, q.y)); }
+                // (the distance of the boxes is at most the distance of the face to the polygon)
+                double dx = Math.Max(Math.Max(polyBox.Min.x - bb.Max.x, bb.Min.x - polyBox.Max.x), 0);
+                double dy = Math.Max(Math.Max(polyBox.Min.y - bb.Max.y, bb.Min.y - polyBox.Max.y), 0);
+                double dminB = Math.Sqrt(dx * dx + dy * dy);
+                double lowerB = zmin + slb * dminB;
+                if (lowerB > upperB + 1e-9 * (Math.Abs(upperB) + Math.Abs(lowerB) + slb * (bb.Diagonal.Length + polyBox.Diagonal.Length + dminB)))
+                    continue;
+                var pos = prefilterPos;
+                pos.Clear(); prefilterVerts.Clear();
+                { int h0 = fEdge[f], h = h0; do { pos.Add(K.Approx(hOrig[h])); prefilterVerts.Add(hOrig[h]); h = hNext[h]; } while (h != h0); }
+                if (polygon != null) {
+                    // the prefilter on the face's approximate corners (as InsertPiece's): the distance of the face to the
+                    // polygon taken e shorter, the label's heights at the corners off by at most MaxGradient e
+                    double upper = double.MinValue, e = 0;
+                    foreach (var q in pos) { upper = Math.Max(upper, K.ApproxHeight(label, q.x, q.y)); e = Math.Max(e, Math.Abs(q.x) + Math.Abs(q.y)); }
+                    e = 4e-12 * e + double.Epsilon;
+                    double dmin = poly_poly_distance(pos, polygon);
+                    double lowerF = zmin + slb * Math.Max(0, dmin - e);
+                    double size = 0;
+                    foreach (var q in pos) size = Math.Max(size, q.Distance(pos[0]));
+                    if (lowerF > upper + MaxGradient * e + 1e-9 * (Math.Abs(upper) + Math.Abs(lowerF) + slb * (size + polyBox.Diagonal.Length + dmin)))
+                        continue;
+                }
+                relevant.Clear();
+                relevant.Add(roadPlane);
+                relevant.AddRange(walls);
+                for (int i = 0; i < apexes.Count; ++i) add_sector(relevant, fans[i], angles[i], apexes[i], pos, theta);
+                insert_into(f, label, relevant);
+            }
+        }
+
+        // the distance of two convex counter-clockwise polygons (approximate, as poly_segment_distance): 0 if one contains a
+        // corner of the other or their edges cross
+        static double poly_poly_distance(List<Vector2d> a, List<Vector2d> b)
+        {
+            foreach (Vector2d p in a) if (inside_convex(b, p)) return 0;
+            foreach (Vector2d p in b) if (inside_convex(a, p)) return 0;
+            double d = double.MaxValue;
+            for (int i = 0; i < b.Count; ++i) {
+                double di = poly_segment_distance(a, b[i], b[(i + 1) % b.Count]);
+                if (di == 0) return 0;
+                d = Math.Min(d, di);
+            }
+            return d;
+        }
+
+        static bool inside_convex(List<Vector2d> poly, Vector2d p)
+        {
+            if (poly.Count < 3) return false;
+            for (int i = 0; i < poly.Count; ++i)
+                if (cross(poly[(i + 1) % poly.Count] - poly[i], p - poly[i]) < 0) return false;
+            return true;
+        }
+
         readonly List<int> hitBuffer = new List<int>(), faceBuffer = new List<int>();
         int[] faceStamp = new int[0];
         int stampNow;
@@ -1089,7 +1186,7 @@ namespace gs
                 int o;
                 if (outId.TryGetValue(r, out o)) return o;
                 double z = double.MaxValue;
-                foreach (int l in labelsAt[r]) z = Math.Min(z, K.Height(l, r.x, r.y, lower));
+                foreach (int l in labelsAt[r]) z = MathUtil.MinExact(z, K.Height(l, r.x, r.y, lower));     // (the output height: one zero on every runtime)
                 o = mesh.AppendVertex(new Vector3d(r.x, r.y, fill ? -z : z));
                 outId[r] = o;
                 OutLabels.Add(labelsAt[r]);
@@ -1536,7 +1633,7 @@ namespace gs
                     DMesh3.EdgeCollapseInfo info;
                     if (mesh.CollapseEdge(keep, remove, out info) != MeshResult.Ok) continue;
                     double z = double.MaxValue;
-                    foreach (int l in union) z = Math.Min(z, height(l, kp.x, kp.y));
+                    foreach (int l in union) z = MathUtil.MinExact(z, height(l, kp.x, kp.y));
                     mesh.SetVertex(keep, new Vector3d(kp.x, kp.y, fill ? -z : z));
                     labels[keep] = union;
                     List<Vector2d> kept;

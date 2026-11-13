@@ -256,6 +256,27 @@ a margin raise (a slope failure), which still needs a new map. The results are b
 the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
 of the cap now lies at H − λ (the map is lowered as a whole, the cap with it, so its lines stay where they are).
 
+### Ramps (`slope ... ramp=1`, terrain ramps R1)
+
+`ramp=1` adds a ramp from toe vertex 0 around the pit (`docs/design/TERRAIN_RAMPS.md`, R1): `rampsegs` path segments
+(default n / 3), one per toe vertex, counter-clockwise (every bend turns away from the road, a flat kite each), grade
+`rampgrade` % (default 8), width `rampwidth` (default 10 m), leaving the toe at `rampleave` (default 1.5) x the grade
+over the slope. Printed in addition: the road and ramp-wall triangles; the oracle counts a road or wall triangle when
+it is not steeper than its spec (its support is the library's check). 4 cores, 2026-11-13, `Tolerance` 0.01, slope 1:1,
+24-gon r 200 m, h 60 m, UTM, 8 segments (479 m of road, 38 m up), warm medians:
+
+| case | without the ramp | with the ramp | builds | slope triangles (road / wall) | oracle | overlaps |
+|---|---|---|---|---|---|---|
+| no terrain | 1.80 s | 6.7 s | 1 / 1 | 297 → 1148 (297 / 437) | 1148 / 1148 | 0 |
+| `terrain=wave tgrid=5 composite=1` | 3.6 s | 12.1 s | 1 / 1 | 365 → 1400 (360 / 531) | 1400 / 1400, region 2169 / 2169 | 0 |
+
+The ramp adds 15 pieces (8 road polygons and 7 bend kites, each with four corner fans) to the 24 of the toe, and the
+insertion takes most of the time (5.3 of 6.7 s, 10.1 of 12.1 s); the facet angle is the same as without the ramp
+(0.023 / 0.018 rad). During development the terrain case took 59 s: the road triangles' support was first checked at
+the polygon's far corners, whose extrapolation of the rounding raised δ once, and a larger road margin then took the
+facets' share (TERRAIN_RAMPS.md, "Margins"); with the support by the road plane and the margin δ sMin / 2 it takes one
+build.
+
 ### Slope design on the Hambach DGM (`slope ... terrain=dgm`)
 
 The DGM1 2022 of `fetch_data.py` (only the 12 DGM tiles are needed: `dgm2022`, 3 x 4 km, no gaps, z −325 to +103 m) as

@@ -18,7 +18,7 @@ Summary over the 32 cases per method (8 inputs x offset / inset x 2 cells):
 | | MeshOffset | SDF + MC |
 |---|---|---|
 | band certified at half a cell | 32 / 32 | 15 / 32 (every inset except the sphere's, chamfered creases, bound up to 0.37 abs(d) at cell abs(d) / 4; and the octant and hollow offsets) |
-| `NotCleanReason` empty | 31 / 32 (chamfer inset at abs(d) / 8: a degenerate triangle) | 25 / 32 (degenerate triangles) |
+| `NotCleanReason` empty | 31 / 32 (chamfer inset at abs(d) / 8: a degenerate triangle; 32 / 32 after #800, see PR #853) | 25 / 32 (degenerate triangles) |
 | self-intersection free | 32 / 32 (exact: covered by construction or checked) | 32 / 32 (measured, no guarantee) |
 | triangles | 0.95x - 1.07x of SDF + MC | |
 | time | 0.6x - 4.7x of SDF + MC, median 1.6x | |
