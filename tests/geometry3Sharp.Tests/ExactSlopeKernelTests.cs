@@ -48,6 +48,38 @@ namespace geometry3Sharp.Tests
 
         static Vector3d R(Random rnd, double s = 10) => new Vector3d(s * (rnd.NextDouble() - 0.5), s * (rnd.NextDouble() - 0.5), s * (rnd.NextDouble() - 0.5));
 
+        // the gradient bound of a plane (SlopeMap's prefilter): at least the exact gradient sqrt(Nx^2 + Ny^2) / Nz (rationals),
+        // within 1e-8 of it; 0 for a horizontal plane; infinity for a plane whose Nz enclosure reaches 0
+        [Fact]
+        public void GradientBound_IsATightUpperBound()
+        {
+            var k = new ExactSlopeKernel();
+            var rnd = new Random(11);
+            int n = 0;
+            for (int i = 0; i < 300; ++i) {
+                Vector3d p = R(rnd), q = R(rnd), r = R(rnd);
+                double cr = (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+                if (Math.Abs(cr) < 1) continue;
+                int pl = k.AddPlane(p, q, r);
+                Q ux = Q.Of(q.x) - Q.Of(p.x), uy = Q.Of(q.y) - Q.Of(p.y), uz = Q.Of(q.z) - Q.Of(p.z);
+                Q vx = Q.Of(r.x) - Q.Of(p.x), vy = Q.Of(r.y) - Q.Of(p.y), vz = Q.Of(r.z) - Q.Of(p.z);
+                Q nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+                Q g2 = (nx * nx + ny * ny) / (nz * nz);
+                double g = k.GradientBound(pl);
+                Assert.True(MathUtil.IsFinite(g) && g >= 0, $"{g}");
+                Q d = Q.Of(g) * Q.Of(g) - g2;
+                Assert.True(d.N.Sign >= 0, $"plane {i}: {g} below the gradient");
+                double exact = Math.Sqrt((double)(g2.N * BigInteger.Pow(10, 30) / g2.D)) * 1e-15;
+                Assert.True(g <= exact * (1 + 1e-8), $"plane {i}: {g} vs {exact}");
+                n++;
+            }
+            Assert.True(n > 100);
+            Assert.Equal(0, k.GradientBound(k.AddHorizontalPlane(2.5)));
+            // a steep plane (gradient 1e100): finite
+            int steep = k.AddPlane(new Vector3d(0, 0, 0), new Vector3d(1, 0, 1e100), new Vector3d(0, 1, 0));
+            Assert.InRange(k.GradientBound(steep), 1e100, 1.000001e100);
+        }
+
         [Fact]
         public void PlaneLines_Crossings_Side_Orient_AgainstRationals()
         {

@@ -104,10 +104,13 @@ namespace g3
         public double GradientBound(int plane)
         {
             Plane pl = planes[plane];
+            // Stryker disable once Linq: the enclosures are tight to a few ulps, so Min instead of Max changes the bound by
+            // far less than its 1e-9 to spare (an upper bound either way)
             double nx = Math.Max(Math.Abs(pl.Nx.Lo), Math.Abs(pl.Nx.Hi)), ny = Math.Max(Math.Abs(pl.Ny.Lo), Math.Abs(pl.Ny.Hi));
+            // Stryker disable once Equality: '>= 0' differs only at Nz.Lo == 0, where the division below gives +infinity too
             if (!(pl.Nz.Lo > 0)) return double.PositiveInfinity;
-            double g = Math.Sqrt(nx * nx + ny * ny) / pl.Nz.Lo * (1 + 1e-9);
-            return MathUtil.IsFinite(g) ? g : double.PositiveInfinity;
+            // (never NaN: the numerator is at least 0 and Nz.Lo > 0; an overflow is +infinity, the right answer)
+            return Math.Sqrt(nx * nx + ny * ny) / pl.Nz.Lo * (1 + 1e-9);
         }
 
         /// <summary> the horizontal plane z = h </summary>
