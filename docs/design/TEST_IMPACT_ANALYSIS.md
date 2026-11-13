@@ -1,7 +1,7 @@
 # Test impact analysis for PR CI (study, 2026-11-13)
 
-Status: study, no code. Author: study session (Sonnet) for the coordinator. Tier S (docs only), but the recommendation
-touches CI and is for the owner to decide.
+Status: study with one measurement (section 8a), no library or workflow code in this PR. Author: study session (Sonnet) for the
+coordinator. Tier S (docs only). Owner decisions of 2026-11-13 are in section 12.
 
 ## 1. Question
 
@@ -237,6 +237,61 @@ Needed to turn this into a real number (one run on a machine with the SDK, 1 coo
 the trx of one full run; then replay the same 50 merges against the map (the replay script is the same selector as the
 production one, so the bound is also the first test of it).
 
+## 8a. Measurement (2026-11-13, local run with the SDK)
+
+Done after the owner approved the measurement step. Tool: `tools/tia_map.py` (`collect`, `replay`), kept on the branch
+`claude/test-impact-measure` (commit e71b63f, with its tests and the `tia-map` / `tia-replay` jobs for `coverage.yml`; not part of
+this PR). The tool itself is exercised by 13 unit tests, 12 hand-made mutants of it are all killed.
+
+Setup: linux, net10.0 Release, .NET SDK 10.0.115 (apt), 4 cores, one `dotnet test` per test class (468 classes of
+`tests/geometry3Sharp.Tests`, `Category!=Nightly`, the Slow tier included) under coverlet 6.0.4 with `tests/coverage.runsettings`
+(`SingleHit`); map made at master d2e02a1. Classes ran one after another, so their times are close to "alone", but under the
+instrumentation. Every class produced a report; the host crashed (segfault in libc) in a first attempt that ran two coverage
+processes in parallel, a single process had no crash and no `.missing` class; the tool retries a crashed class twice.
+
+| Fact | Value |
+|---|---|
+| classes / test time summed (under coverage) | 468 / 4550 s (CI full run, summed net10.0 times: about 4160 s: same order) |
+| of which shard a (Mesh2, Meshing2, Terrain) | 1624 s (36 %) |
+| cost of the collection | about 20-35 s per class, 468 classes in about 3.5 h on 4 cores in one process (CI: four shards, about 1 h each) |
+| size of the map | 8.2 MB as JSON (line ranges per class and file), 1.5 MB gzipped: no storage problem |
+| heaviest classes | `RobustRepairFarPartTests` 221 s, `Meshing2OracleFastPathCheckTests` 187 s, `TerrainSlopeBandRepairTests` 171 s; the top 20 classes are 45 % of the time |
+| failing tests in the map run | 0 |
+
+Replay of the last 50 first-parent merges of master (HEAD d2e02a1) against that map. Selection as in sections 5 and 6, minus
+the smoke set, the sampling and the "all tests of a changed test helper" rule (those only add): changed lines of the merge,
+translated to the map's commit (a line that a later change touched falls back to its whole file), a class is selected when
+it hits a changed line (line level) or covers the changed file (file level); a changed test file selects the classes it
+declares; build-level files and exact code force everything. Weights are the measured per-class test seconds.
+
+| Share of the summed test time that runs | mean | median | p75 | p90 | max |
+|---|---|---|---|---|---|
+| line level, the 41 merges that change code | 13.4 % | 0.4 % | 14.3 % | 29.1 % | 100 % (a forced-full merge) |
+| file level (safe over-estimate of the line level) | 15.9 % | 0.4 % | | | |
+| line level, all 50 merges (9 have no code change) | 11.0 % | | | | |
+| line level, shard a (Mesh2, Meshing2, Terrain) / shard b | 12.2 % / 14.1 % | | | | |
+
+Of the 41 code merges: 3 are forced full (build-level files or exact code: 100 %), 10 select no class of this suite (changes
+to the CLI tests, the Clipper2 tests, the mutation tooling: their own suites run), the other 28 select 0.1 % to 61 %. The
+largest line-level case that is not forced is a merge of 13 library files (60.8 %). Line level beats file level mostly on core
+files (da929431: 100 % at file level, 60.8 % at line level; e48dd964: 59.4 % to 29.1 %).
+
+Reading against the rule "go only if the selected share is <= 40 %": **the mean (13.4 % line level, 15.9 % file level) is far
+below 40 %**, and all 38 merges that are not forced full stay at 61 % or less. The earlier planning range of section 8 (central guess 20-30 %) was
+too high; the static transitive model (32 % mean) was the over-estimate it was labelled as, the direct model (6.5 %) too low.
+Limits of this number, in the order of weight:
+1. 50 merges is one window; the share is dominated by the few core-file merges (the mean is 13.4 %, the median 0.4 %). A window
+   with more core changes (DMesh3, Vector3d dependents) is worse; the CI replay of the same script on a later master is the
+   check.
+2. It measures the share of the *test* time. The fixed steps of the `linux` job (pack, smoke, fuzz-harness tests, benchmark
+   builds) and the build do not shrink, and the saving is in runner minutes, not in queue position.
+3. Time weights come from the coverage run, where relative class costs differ somewhat from the plain run (instrumented loops
+   are slower).
+4. It says nothing about **safety**: the replay shows what *would* run, not what *would have failed*; no failing run of master
+   was replayed, so the miss rate is not measured. That is what the shadow period (section 6) is for.
+5. Windows shards, `#if` code and the net48 differences are not measured (net10.0 map; owner decision: `linux` only).
+6. With the 10 % sampled full run (owner decision) the expected PR share is about 13.4 % + 0.1 x 86.6 % = 22 % of the test time.
+
 ## 9. Test plan (repo style)
 
 New files only under `tools/` (no library change); CLAUDE.md "tools/tests/new files" level of local checks.
@@ -296,3 +351,12 @@ changes; (4) keep the full run on master and the sampled full run on PRs. Not B 
 5. Windows shards: select there too, or run them fully and only select on `linux` (simplest, halves the gain)?
 6. Is the shadow period N merges (proposal 20) acceptable?
 7. Should option E (shard `linux`, run Windows shards only on ready PRs/master) be done first, independent of TIA?
+
+### Owner decisions of 2026-11-13 (relayed by the coordinator session)
+
+1. A missed failure caught later by master / nightly is acceptable. 2. A measurement run first; build only if the selected share
+is <= 40 % (section 8a: 13.4 % mean, 15.9 % file level, from 468 classes and 50 merges: the condition holds on this window).
+3. 10 % sampling, at most 1 miss per 50 merges. 4. Extend `coverage.yml` rather than a new workflow. 5. `linux` only.
+6. 20 merges in shadow mode before anything gates. 7. Option E is mostly done by #781: drop what #781 covers.
+**Update:** nothing is built until a real measurement on master data shows a saving worth having; this note is merged as a
+docs PR. The measurement plan (which master trx files, which number decides) is in the PR description.
