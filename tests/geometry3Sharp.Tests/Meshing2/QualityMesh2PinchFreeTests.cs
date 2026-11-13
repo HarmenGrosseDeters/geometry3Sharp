@@ -43,13 +43,10 @@ namespace geometry3Sharp.Tests
             Assert.True(r.Ok, r.ToString());
         }
 
-        /// <summary> the same inputs in the constrained quality mode, at 20 and 25 degrees (lenses) </summary>
-        [Trait("Category", "Slow")]
-        [Fact]
-        public void StarFuzz_ConstrainedQuality_NoPinch()
+        static int StarFuzzConstrainedPinches(IEnumerable<int> seeds)
         {
             int pinches = 0;
-            for (int seed = 0; seed < 3000; ++seed) {
+            foreach (int seed in seeds) {
                 var input = StarPolygonFuzz.Make(seed);
                 input.ConstrainedQuality = true;
                 input.MinAngleDeg = seed % 2 == 0 ? 20 : 25;
@@ -57,7 +54,33 @@ namespace geometry3Sharp.Tests
                 if (o.Status != Mesh2Status.Success) continue;
                 pinches += Pinches(Judge(input, o));
             }
-            Assert.Equal(0, pinches);
+            return pinches;
+        }
+
+        /// <summary>
+        /// the same inputs in the constrained quality mode, at 20 and 25 degrees (lenses). The full 3000 seeds are Nightly (the
+        /// oracle takes 14 of the 15 s; the run is the check); the PR tier takes every fifth seed (600) and seed 2858, the one of the
+        /// 3000 that pinches without the rule (StarFuzz_ConstrainedQuality_PinchRuleOff_PinchesSeed2858)
+        /// </summary>
+        [Trait("Category", "Nightly")]
+        [Fact]
+        public void StarFuzz_ConstrainedQuality_NoPinch() => Assert.Equal(0, StarFuzzConstrainedPinches(Enumerable.Range(0, 3000)));
+
+        [Trait("Category", "Slow")]
+        [Fact]
+        public void StarFuzz_ConstrainedQuality_NoPinch_Reduced()
+        {
+            Assert.Equal(0, StarFuzzConstrainedPinches(Enumerable.Range(0, 3000).Where(s => s % 5 == 0).Concat(new[] { 2858 })));
+        }
+
+        /// <summary> the reduced test has a kill: with the pinch rule off (the library's test hook) seed 2858 pinches, in the same mode </summary>
+        [Fact]
+        public void StarFuzz_ConstrainedQuality_PinchRuleOff_PinchesSeed2858()
+        {
+            QualityMesh2.Refiner.KeepPinchFreeForTests = false;
+            try { Assert.True(StarFuzzConstrainedPinches(new[] { 2858 }) > 0); }
+            finally { QualityMesh2.Refiner.KeepPinchFreeForTests = null; }
+            Assert.Equal(0, StarFuzzConstrainedPinches(new[] { 2858 }));
         }
 
         /// <summary>
