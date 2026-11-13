@@ -266,14 +266,14 @@ too much, so the first step measures the window count on procedural terrain and 
 
 - The heat method: no a-priori bound. The a-posteriori Lipschitz lower bound of 4.2 is proven but too weak to use;
   against the oracle of 4.1 its error becomes measurable on any mesh, not only on analytic ones. First numbers from the
-  plain-double exact probe of section 6 (`MeshGeodesicDistance` with default settings, one source in the centre or
+  plain-double exact probe of section 6, corrected 2026-11-13 (`MeshGeodesicDistance` with default settings, one source in the centre or
   near the ridge; errors in mesh units, edge length h):
 
   | mesh | vertices | h | heat - exact, mean \|.\| | max \|.\| |
   |---|---|---|---|---|
   | terrain (sum of sines, amplitude up to 8) 101 x 101 | 10201 | 1 | 0.37 | 3.42 |
   | the same terrain 201 x 201 | 40401 | 1 | 1.07 | 5.12 |
-  | ridge with 75 degree faces 161 x 161 | 25921 | 0.25 | 1.60 | 9.04 |
+  | ridge with 75 degree faces 161 x 161 | 25921 | 0.25 | 1.60 | 3.53 |
 
   This quantifies the documented "not guaranteed" gap of `TerrainSafety.AlongSurface` (raw grids, not its remeshed
   band; a benchmark on the TerrainSafety inputs follows with the oracle).
@@ -302,17 +302,22 @@ Not recommended: D (no bound, no gain over the existing heat method), E (cost), 
    peak memory and time. Stop rule: if the 10^5-vertex terrain needs more than 10 s in doubles or more than 2 GB, stop
    and fall back to option B. **Done 2026-11-13** (throwaway probe, not committed; MMP-style one-sided trimming on each
    edge side, trimming against the edge-end vertices, pseudo-sources emitted into every incident face; no VTP / ICH
-   filter, no compact storage, so pessimistic). Correct to 1e-13 on the plane, the noisy plane and the unrolled prism;
-   on small hill, saddle, sine and terrain grids never below the 3D distance nor above edge-Dijkstra; with and without
-   trimming the same up to 3.7e-10. Measured (net10 Release, this container; managed memory from the GC):
+   filter, no compact storage, so pessimistic).
+   **Corrected 2026-11-13:** the first probe classified each piece between two computed roots of the pair trimming by
+   its midpoint sign alone, with roots from an unstable quadratic formula, and was up to 1.08e-2 too high against an
+   untrimmed reference (41 x 41 terrain; the first check had covered only 21 x 21). Fixed by stable roots and by
+   removing a piece only if the signs at both of its ends and at its midpoint agree; all variants then agree with the
+   untrimmed reference to 7e-15. The numbers of the stop rule, from the corrected probe (which also merges adjacent
+   windows with the same origin and position, and tests whole pieces against the third vertex of the face beyond; net10
+   Release, this container; managed memory from the GC):
 
    | mesh | vertices | time | windows per edge | managed memory |
    |---|---|---|---|---|
-   | plane 101 x 101, centre source | 10201 | 0.45 s | 9.7 | 34 MB |
-   | terrain 317 x 317, centre / corner source | 100489 | 1.90 / 1.70 s | 4.9 | about 320 MB |
-   | rough terrain 317 x 317 (z noise +-0.3 h) | 100489 | 1.92 s | 4.8 | 314 MB |
-   | ridge with 75 degree faces 161 x 161 | 25921 | 0.73 s | 27 | 257 MB |
-   | ridge with 75 degree faces 317 x 317 | 100489 | 12.3 s | 51 | 1.49 GB (process peak 1.73 GB) |
+   | terrain 317 x 317, centre / corner source | 100489 | 3.25 / 2.97 s | 4.6 | about 250 / 280 MB |
+   | rough terrain 317 x 317 (z noise +-0.3 h) | 100489 | 3.3 s | 4.5 | 240 MB |
+
+   The plane and ridge rows of the first version of this table came from the defective probe; the gate-2 table of the
+   next change replaces them.
 
    The stop rule passes on its defined case (the 10^5 terrain); the steep ridge does not count against it
    (coordinator, 2026-11-13). Flat regions are the expensive case (many tying windows from one pseudo-source).
