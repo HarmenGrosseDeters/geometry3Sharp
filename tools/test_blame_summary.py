@@ -34,6 +34,20 @@ class Summary(unittest.TestCase):
             self.assertTrue(any("B.Hangs" in l for l in lines))
             self.assertFalse(any("A.Done" in l for l in lines))
 
+    def test_lists_the_last_twenty_incomplete_tests_not_the_first(self):
+        # the host is killed while the hung test runs: it is among the last tests of the sequence, not the first
+        with tempfile.TemporaryDirectory() as d:
+            tests = "".join(f'<Test Name="T.N{i:02d}" Source="x.dll" Completed="False"/>' for i in range(30))
+            self.write(d, "Sequence_1.xml", "<TestSequence>" + tests + "</TestSequence>")
+            lines, total = b.report(d)
+            text = "\n".join(lines)
+            self.assertEqual(30, total)
+            self.assertIn("T.N29", text)
+            self.assertIn("T.N10", text)
+            self.assertNotIn("T.N09", text)
+            self.assertNotIn("`T.N00`", text)
+            self.assertIn("10 earlier ones not shown", text)
+
     def test_a_clean_run_reports_nothing_incomplete(self):
         with tempfile.TemporaryDirectory() as d:
             self.write(d, "Sequence_1.xml", '<TestSequence><Test Name="A" Source="x.dll" Completed="True"/></TestSequence>')
@@ -46,6 +60,8 @@ class Summary(unittest.TestCase):
             lines, total = b.report(d)
             self.assertEqual(0, total)
             self.assertIn("No Sequence file", " ".join(lines))
+            self.assertIn("no test host hang or crash", " ".join(lines))        # an ordinary assertion failure leaves no Sequence file
+            self.assertNotIn("did not start", " ".join(lines).replace("did not get as far as", ""))
             self.write(d, "Sequence_2.xml", "<TestSequence><Test Name=")        # killed while writing
             lines, total = b.report(d)
             self.assertTrue(any("not readable" in l for l in lines))

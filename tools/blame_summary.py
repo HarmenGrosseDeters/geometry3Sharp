@@ -17,6 +17,9 @@ import sys
 import xml.etree.ElementTree as ET
 
 
+SHOWN = 20
+
+
 def incomplete_tests(sequence_file):
     """[(name, source)] of the tests of one Sequence file that started and did not complete, in start order"""
     try:
@@ -30,7 +33,9 @@ def report(results_dir):
     """(Markdown lines, number of incomplete tests) over all Sequence files below results_dir"""
     files = sorted(glob.glob(os.path.join(results_dir, "**", "Sequence_*.xml"), recursive=True))
     if not files:
-        return ["### Blame", "No Sequence file in " + results_dir + ": the test host wrote none (the run did not start, or `--blame` was off)."], 0
+        # (vstest keeps a Sequence file only when the test host hung or crashed: after an ordinary failing test there is none)
+        return ["### Blame", "No Sequence file in " + results_dir + ": no test host hang or crash was recorded. The failure is an ordinary "
+                "test failure (see the test log), or the run did not get as far as running tests."], 0
     lines, total = ["### Blame: tests that started and did not complete"], 0
     for f in files:
         tests = incomplete_tests(f)
@@ -40,10 +45,13 @@ def report(results_dir):
             lines.append(f"- `{os.path.basename(f)}`: every started test completed")
         else:
             total += len(tests)
-            lines.append(f"- `{os.path.basename(f)}`: {len(tests)} did not complete (the hang or crash is in one of them):")
-            lines += [f"  - `{name}` ({source})" for name, source in tests[:20]]
-            if len(tests) > 20:
-                lines.append(f"  - ... and {len(tests) - 20} more")
+            # the suspects are the LAST tests that started (the sequence file is in start order, a hung test is still running
+            # when the host is killed): the last SHOWN, not the first
+            shown = tests[-SHOWN:]
+            lines.append(f"- `{os.path.basename(f)}`: {len(tests)} did not complete (the hang or crash is in one of them, usually the last):")
+            if len(tests) > SHOWN:
+                lines.append(f"  - ... {len(tests) - SHOWN} earlier ones not shown")
+            lines += [f"  - `{name}` ({source})" for name, source in shown]
     return lines, total
 
 
