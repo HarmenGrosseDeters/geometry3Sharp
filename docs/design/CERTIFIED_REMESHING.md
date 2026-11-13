@@ -1,267 +1,347 @@
-# Certified surface remeshing (study)
+# Certified surface remeshing by restricted Delaunay refinement (study)
 
-Status: **study only, nothing built; waits for the owner's decision** (section 9). Docs only; the probe of section 4
-was a throwaway program in the session's scratch directory (not committed; numbers and setup below). Written
-2026-11-13.
+Status: **study only, nothing built; waits for the owner's decision** (section 12). Docs only. The probe of section 9
+was a throwaway program in the session's scratch directory (not committed; numbers and setup there). Written
+2026-11-13; revised the same day on the owner's focus note (via the coordinator): restricted Delaunay refinement on
+surfaces is the main subject, the guard of the existing `Remesher` a side section (section 10).
 
-Question: can the library offer an isotropic surface remesher with stated guarantees: the output closed, manifold and
-free of self-intersections, within a Hausdorff band of the input, with the input's topology (isotopic, not only the same
-genus), and with triangle quality bounds where they can be proved? Which of these need a reach / local feature size
-(lfs) estimate, can one be computed for a triangle mesh, and what does each step cost?
+Question: an isotropic surface remesher with stated guarantees: closed, manifold, free of self-intersections, within
+a Hausdorff band of the input, topology kept (homeomorphic, isotopic where it can be proved), triangle quality
+(radius-edge ratio / minimum angle) where it can be proved. Which theorem gives which guarantee under which
+hypotheses; how the hypotheses can be met or certified for a triangle-mesh input, whose local feature size is 0 at
+every crease; which predicates are needed and which of the library's exact building blocks cover them; termination,
+size bounds, determinism, 2^k invariance; a staged plan with tiers and stop rules.
 
 Short answer:
 
-- **Closed, manifold, no self-intersections and a one-sided band can be guaranteed by construction today**, with
-  existing pieces: `Remesher.PreventSelfIntersections`, the link condition of the edge operations, and
-  `TriangleDeviationBounds.IsWithin` (used by the Reducer and `AlphaWrapQualityPass`, not yet by the Remesher). The
-  other direction of the band is a final certified check (`MeshHausdorffDistance`).
-- **Topology: the reach / lfs route does not fit a triangle-mesh input.** The reach of a polyhedral surface is 0 at
-  every crease (the medial axis touches every non-flat edge), so every guarantee of the Boissonnat-Oudot / Chew family
-  ("isotopic for a band below the reach / for a sampling below eps lfs") is void for it as stated. The weak feature
-  size is positive but there is no cheap certified bound for it.
-- **A reach-free route exists:** prove every edge operation and vertex move an *elementary move across an empty
-  tetrahedron* (the PL definition of isotopy). Then the output is ambient isotopic to the input by construction, with
-  exact `Orient3d` tests on the mesh's doubles only, no reach, no constructed point. This is stronger than
-  `PreventSelfIntersections` (which checks only the end state: a flip can jump over a thin sheet and change the linking
-  while both states are intersection-free). Prior art: the CCD-guarded remeshing of Brochu and Bridson (El Topo).
-- **A post-hoc grid certificate does not work on a fixed grid** (probe, section 4): the contouring study's grid lemma
-  (Theorem 1 of CONTOURING_TOPOLOGY.md) applies to any two PL surfaces, but grid nodes inside the thin band between
-  input and output flip the crossing pattern; on 4 procedural shapes, 0 of 8 random grid offsets certified the output in
-  40 of 48 settings.
-- **Triangle quality has no provable absolute bound for the Botsch-Kobbelt remesher**; what can be proved is
-  monotonicity ("no operation lowers the smallest angle below the current minimum or a threshold", Hu et al. 2017,
-  already the rule of `AlphaWrapQualityPass`). Provable absolute angle bounds need Delaunay refinement (Chew 1993,
-  Boissonnat-Oudot 2005, DelPSC), which on faceted meshes needs protecting balls at every crease: tier L or more.
-- **Recommendation: option B** (section 6): an opt-in isotopy guard in the Remesher (empty swept tetrahedra per
-  operation) plus a band guard and a `RemeshCertificate` result, in three stages, after a stage-0 proof of the move
-  lemmas. Tier M (stages 1-2), stage 3 measured.
+- **The classical theorems do not apply to a triangle mesh as stated.** Boissonnat-Oudot (2005) and the Chew-style
+  refinement prove homeomorphism, isotopy, Hausdorff O(eps^2 lfs) and a 30 degree angle bound for epsilon-samples of a
+  smooth (C2) surface, with the sizing tied to the local feature size (lfs). A polyhedral surface has lfs = 0 on every
+  crease (the medial axis touches every non-flat edge), so the epsilon-sample condition cannot be met there.
+- **What replaces lfs for a PL input** (section 4): (a) the **topological ball property (TBP)** of Edelsbrunner and
+  Shah, which gives homeomorphism without any feature size and *can be checked exactly* on a PL surface (the counting
+  lemma of the contouring certificate, CONTOURING_TOPOLOGY.md Theorem 3, holds for any convex cell, so it carries over
+  to Voronoi cells); refinement enforces it, as Cheng, Dey, Ramos and Ray (2004) do on smooth surfaces;
+  (b) **feature protection** at creases and corners above a feature angle (sample points on the crease curves first,
+  weighted protecting balls as in DelPSC where that is not enough); (c) a **user minimum size h_min**, which makes
+  termination and the size bound unconditional (packing) and turns the theorems into a **certificate**: every region is
+  proved or listed as uncertified, as in the contouring certificate.
+- **Guarantees then** (section 5): closed, 2-manifold and free of self-intersections by construction (the output is a
+  subcomplex of the exact `Delaunay3` triangulation; TBP gives the manifold); homeomorphic to the input when no region
+  is uncertified; Hausdorff both ways at most r_max, proved by the refinement rules; radius-edge ratio at most rho
+  (min angle at least arcsin(1 / (2 rho)), 30 degrees at rho = 1) on every facet except listed ones near h_min or at
+  protected features. **Isotopy is not covered** by a published theorem for PL inputs without lfs; it is a stage-0
+  proof attempt (section 5.3), not a promise.
+- **Predicates** (section 6): one new family covers the restricted-Delaunay test, the surface Delaunay balls and the TBP
+  checks: signs of linear forms (bisector planes, the input triangle's planes and edge lines) at the intersection point
+  of two bisector planes with a triangle's plane, a three-plane point of degree 5 / 4 whose tests have degree 6, lower
+  than the TPI orient3d (degree 9) the predicate compiler already handles. `Delaunay3`, `ExactPredicates`, the
+  predicate compiler with `FixedArith`, Simulation of Simplicity (`ExactRayTriangle`) and the alpha wrap's refinement
+  skeleton cover the rest. Stage 2's weighted points need a regular triangulation (power test): new.
+- **Recommendation**: build it, in stages (section 11): stage 0 the proofs (docs), stage 1 a float-predicate spike as
+  the upper bound, then smooth-ish closed inputs without features with the exact predicates and the certificate
+  (tier L), stage 2 feature protection (tier L), each with a stop rule. The cheap side path (guard the `Remesher`,
+  section 10) stays available and is independent.
 
 ## 1. What the library has (searched before the literature)
 
-| Block | Where | What it gives here |
+| Block | Where | Use for restricted Delaunay refinement (RDR) |
 |---|---|---|
-| `Remesher` / `RemesherPro` / `RegionRemesher` | `mesh/Remesher.cs` | Botsch-Kobbelt split / collapse / flip / smooth / project; collapses under the link condition (manifold kept); `PreventSelfIntersections` (exact, `ExactTriangleIntersection.IntersectsBeyondShared`, end state of every operation and buffered move pass, deterministic revert rounds); `MinTriangleQuality` guards (normal flips, flat triangles, the rim fold check of #621 / #640); `RejectInvertingPasses` (whole-pass rollback when a closed component turns inside out); 2^k scaling bit-identical since 2.0 T5 |
-| Quality and validity measures | `TriangleQualityStatistics`, `MeshFidelityMetrics`, `MeshTopologySummary`, `MeshRobustRepair.NotCleanReason(s)`, `MeshRepairMetrics.SelfIntersections` | closed / manifold / degenerate / self-intersection checks (exact), genus and components, p01 angles |
-| Certified distances | `MeshHausdorffDistance` (Sacht-Jacobson 2024 cascading bounds), `TriangleDeviationBounds.IsWithin`, `PolyhedralEnvelope` (Wang et al. 2020, exact) | two-sided Hausdorff as an interval; per-triangle "within eps of the input" (float, certified); exact envelope containment (too slow for per-operation use in the remeshers, research.md) |
-| Guarded local operations | `AlphaWrapQualityPass` (Hu et al. 2017 style) | the pattern of option B: worst-first ops, each kept only if it keeps the min angle, stays within tolerance (IsWithin), and (optionally) creates no intersection; serial, deterministic, scale invariant |
-| 2D Delaunay refinement with proofs | `QualityMesh2` (Ruppert / Shewchuk / Chew, off-centres, concentric shells, lenses; MESHING2D_*.md) | the proof style and oracle / golden infrastructure for angle bounds; nothing 3D |
-| 3D Delaunay | `Delaunay3` (exact Bowyer-Watson, `Orient3d` / `InSphere`) | the kernel a restricted-Delaunay remesher (option C) would use |
-| Alpha wrap | `MeshAlphaWrap` | a restricted-Delaunay-like mesher of the *offset* surface with Chew-style quality refinement (`RefineMinAngleDegrees`) and a proven separation, so min angle >= asin(offset / (2 alpha)); closed, manifold, intersection-free by construction. Not a remesher of the input: one-sided band (outside), topology not kept (gaps below 2 alpha are closed) |
-| Contouring topology certificate | CONTOURING_TOPOLOGY.md (#749, owner decision 2026-11-13: stages 1-2 of option A), spike on `claude/contouring-certificate-stage1` | grid lemma (two PL surfaces compatible with one grid and with the same pattern are ambient isotopic) and an exact per-cell test by counting (Theorem 3, `Orient2d` / `Orient3d` only). Probed for remeshing in section 4 |
-| lfs-like estimates | `MeshWallThickness` (InscribedSphere, shrinking ball with the Dey-Zhao angle condition), `RemeshSizing.FromWallThickness` | sizing below the local thickness; an estimate, not a bound: cannot be the premise of a guarantee |
-| Intrinsic triangulations | `IntrinsicTriangulation.DelaunayRefine`, `IntrinsicCommonSubdivision` | provable angle bounds on the *same* surface (Hausdorff 0, topology trivially kept), but the result is intrinsic; the common subdivision is a polygon mesh, not a remesh |
+| `Delaunay3` | `comp_geom/Delaunay3.cs` | exact incremental Bowyer-Watson (`Orient3d`, `InSphere`), box hull with 8 corner vertices (no infinite cells, so every Voronoi edge of an interior facet is a bounded segment between two circumcentres), stochastic walk, `Insert(p, hint, minSeparation, ..., removed, added)` reports the cavity's removed and new cells: exactly the update RDR needs. No deletion, no weights |
+| `MeshAlphaWrap` | `mesh_ops/MeshAlphaWrap.cs`, ALPHA_WRAP_PAPER_NOTES.md sections 6-7 | the closest existing mesher: refines a `Delaunay3` by inserting points on a surface (the offset surface), Chew / Boissonnat-Oudot quality rule (`RefineMinAngleDegrees`: the centre of a facet's surface Delaunay ball = its dual Voronoi edge crossing the surface), a proven separation min(offset, alpha - offset) giving termination and asin(offset / (2 alpha)); pinch refinement after Boissonnat-Oudot. Its surface tests are floating point (distance to the input) because the offset surface is not PL |
+| 2D Delaunay refinement | `QualityMesh2` (Ruppert, Shewchuk, Chew; off-centres, concentric shells, diametral lenses; MESHING2D_*.md) | the proof pattern: insertion radius, termination by packing, the small-angle exemptions; concentric shells are the 2D analogue of protecting the neighbourhood of a sharp feature |
+| Exact predicates and implicit points | `ExactPredicates` (`Orient2d`, `Orient3d`, `InCircle`, `InSphere`), `AdaptivePredicates`, `math/Generated/IndirectPredicates.cs` from `tools/PredicateCompiler` (LPI, TPI; filter with proven bound, expansions, `FixedArith` / `BigInteger` fallback), FIXED_WIDTH_EXACT_POINTS.md | the generator derives the filters and bounds of the new predicate family (section 6) from the formula; the bounds-table style and its tests exist |
+| Exact mesh kernels | `ExactMeshArrangement` (`TriangleBoxTree`, internal), `ExactTriangleIntersection`, `ExactRayTriangle` (with Simulation of Simplicity) | candidate search of input triangles against Voronoi edges and cells in exact code; SoS for degenerate positions |
+| Contouring certificate | CONTOURING_TOPOLOGY.md (#749; owner 2026-11-13: stages 1-2 of option A), spike `claude/contouring-certificate-stage1` | Theorem 3's counting lemma (Euler characteristic of S in a *convex* cell by counting triangles, edges and vertices that meet it) is the exact TBP test; the per-cell certified / uncertified statement is the model for RDR's certificate |
+| Certified distances | `MeshHausdorffDistance`, `TriangleDeviationBounds.IsWithin`, `PolyhedralEnvelope` | the independent final check of the band (section 5.2 proves it; the check guards the implementation) |
+| Validity and measures | `MeshRobustRepair.NotCleanReason(s)`, `MeshTopologySummary`, `TriangleQualityStatistics`, `MeshFidelityMetrics` | input precondition (clean), result checks of the tests and benchmarks |
+| lfs-like estimates | `MeshWallThickness` (InscribedSphere), `RemeshSizing.FromWallThickness` | an initial sizing field and a default for r_max; an estimate, never a premise |
 
-Missing: an exact triangle-tetrahedron / tetrahedron-tetrahedron overlap test (all `Orient3d`, small); a swept-volume
-check of the Remesher's operations; the band guard (`IsWithin`) in the Remesher; a certificate result object for a
-remesh; any certified reach / weak-feature-size bound; restricted Voronoi computations on a PL surface (option C).
+Missing: the bisector-plane predicate family (section 6); restricted Voronoi bookkeeping (which Delaunay facets,
+edges and cells are restricted, per cavity update); the TBP checks on Voronoi cells; feature detection with a feature
+angle and crease-curve sampling (stage 2); a weighted (regular) `Delaunay3` with an exact power test (stage 2, only if
+unweighted crease sampling is not enough); a certificate result type.
 
-## 2. Prior art
+## 2. Prior art: theorems, guarantees, hypotheses
 
-Read status: **R** read (abstract and summary pages in this study), **S** from a restating source (the
-search summaries or the library's own notes), **M** from memory, not re-read (check before code is built on it). All
-paper only; no code read. CGAL and libigl appear as papers only.
+Read status: **R** read in this study (abstract or summary pages), **S** from a restating source (search summaries,
+the textbook's statements as restated by CONTOURING_TOPOLOGY.md, or the library's own notes), **M** from memory, not
+re-read. Constants and exact hypotheses marked M or S must be checked against the papers before stage 0 relies on
+them. All papers only; CGAL (Mesh_3, surface mesher) and the DelPSC software appear as papers only, no code read.
 
-| Source | Guarantee | Needs | Fits a PL input? |
-|---|---|---|---|
-| L. P. Chew, *Guaranteed-quality mesh generation for curved surfaces*, SoCG 1993 (in SOURCES.md) | min angle (30 deg) via circumcentre insertion on the surface | smooth surface, sizing below lfs | no (lfs = 0 at creases) |
-| H. Edelsbrunner, N. Shah, *Triangulating topological spaces*, IJCGA 7, 1997 (M) | restricted Delaunay homeomorphic if the Voronoi diagram has the topological ball property (TBP) | TBP check | in principle (TBP can be tested), at the cost of exact restricted Voronoi faces |
-| J.-D. Boissonnat, S. Oudot, *Provably good sampling and meshing of surfaces*, Graphical Models 67, 2005 (in SOURCES.md; R via CONTOURING_TOPOLOGY.md) | restricted Delaunay isotopic, Hausdorff O(eps^2 lfs), angle bounds | C2 surface, eps-sample w.r.t. lfs, an intersection oracle | no |
-| S.-W. Cheng, T. K. Dey, E. A. Ramos, T. Ray, *Sampling and meshing a surface with guaranteed topology and geometry*, SoCG 2004 (S) | homeomorphism without lfs, by enforcing TBP | smooth surface, critical-point computations | no |
-| S.-W. Cheng, T. K. Dey, E. A. Ramos, *Delaunay refinement for piecewise smooth complexes*, SODA 2007 / DCG 2010 (S); S.-W. Cheng, T. K. Dey, J. A. Levine, *A practical Delaunay meshing algorithm for a large class of domains*, IMR 2007 (DelPSC) (S); T. K. Dey, J. A. Levine, *Delaunay meshing of piecewise smooth complexes without expensive predicates*, 2008 manuscript (S) | homeomorphism (extended TBP), creases protected by weighted points, no input-angle restriction | features given as a complex; on a faceted mesh every crease edge is a feature | yes in principle; cost and the number of protecting balls on faceted meshes unknown; DelPSC software takes a polygonal mesh |
-| S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012, ch. 13-15 (in SOURCES.md; M for chapter numbers) | the textbook statements of the rows above | | |
-| F. Chazal, D. Cohen-Steiner, *A condition for isotopic approximation*, Symposium on Solid Modeling 2004, pp. 93-99, doi 10.2312/sm.20041380; INRIA RR-4931, 2003 (R, abstract) | two homeomorphic surfaces are isotopic if one lies in a topological thickening of the other and separates its sides | that the band is a thickening (reach / wfs) | needs a wfs bound for the input |
-| F. Chazal, A. Lieutier, *The lambda-medial axis*, Graphical Models 2005; F. Chazal, D. Cohen-Steiner, A. Lieutier, *A sampling theory for compact sets in Euclidean space*, DCG 41, 2009 (M) | weak feature size (wfs) and mu-reach: positive for polyhedra, offsets below wfs share the topology | critical points of the distance function | defined, but no cheap certified bound for a mesh |
-| M. Botsch, L. Kobbelt, *A remeshing approach to multiresolution modeling*, SGP 2004 (in SOURCES.md) | none (the heuristic baseline the `Remesher` implements) | | |
-| V. Surazhsky, C. Gotsman, *Explicit surface remeshing*, SGP 2003 (M) | none (area-equalising relocation, angle improvement) | | |
-| D.-M. Yan, B. Lévy, Y. Liu, F. Sun, W. Wang, *Isotropic remeshing with fast and exact computation of restricted Voronoi diagram*, SGP 2009 (M) | CVT quality measured, no topology proof; RVD computed exactly on the input triangles | | building block for option C (the RVD of a PL surface); geogram (BSD) implements it, licence to check per file |
-| K. Hu, D.-M. Yan, D. Bommes, P. Alliez, B. Benes, *Error-bounded and feature preserving surface remeshing with minimal angle improvement*, IEEE TVCG 2017 (in SOURCES.md) | hard Hausdorff bound per operation, min angle monotone | | yes; the model of option B's band and quality guards |
-| Y. Wang et al., *Isotropic surface remeshing without large and small angles*, TVCG 2019 (in SOURCES.md) | angle ranges measured, not proved | | |
-| T. Brochu, R. Bridson, *Robust topological operations for dynamic explicit surfaces*, SIAM J. Sci. Comput. 31(4), 2009 (El Topo; S: UBC TR-2009-03 and search summary) | the mesh stays intersection-free through remeshing and motion; each collapse / flip / split is checked as a motion with continuous collision detection | CCD | yes; **closest prior art of option B** |
-| T. Brochu, E. Edwards, R. Bridson, *Efficient geometrically exact continuous collision detection*, SIGGRAPH 2012 (S) | exact CCD for linear vertex motion; used in curvature-driven adaptive cloth remeshing that stays intersection-free | | yes; option B needs only the simpler swept-tetrahedron case (one vertex moves, or a flip) |
-| C. Rourke, B. Sanderson, *Introduction to piecewise-linear topology*, Springer 1972 (M) | PL isotopy is generated by elementary moves across simplices whose interiors miss the rest | | the lemma behind option B |
-
-How others solve it (one line): guaranteed topology comes either from sampling theory on smooth surfaces (lfs, reach,
-TBP; Boissonnat-Oudot, Cheng-Dey) or, for explicit meshes that move and are remeshed, from checking every local change
-as a collision-free motion (Brochu-Bridson); error bounds from per-operation envelope or Hausdorff tests (Hu 2017,
-fTetWild's envelope); angle bounds are proved only by Delaunay refinement and are otherwise monotone or measured.
-
-## 3. Which guarantees need a reach / lfs estimate
-
-| Guarantee | Needs reach / lfs? | Without it |
-|---|---|---|
-| closed, manifold | no | link condition and non-degenerate operations (by construction, today) |
-| no self-intersections | no | exact end-state checks (`PreventSelfIntersections`, today) |
-| out -> in band (output within delta of input) | no | `IsWithin` per new triangle (certified, float distances with bounds); exact alternative `PolyhedralEnvelope` |
-| in -> out band (input within delta of output) | no | final `MeshHausdorffDistance` (certified interval); per operation only approximately (the removed triangles' patch against the new one) |
-| same genus, components, nesting (homeomorphism, same inside / outside structure) | no | `MeshTopologySummary` and exact nesting tests at the end; implied by option B |
-| **isotopy** | **yes for the sampling theorems** (band below reach, sampling below eps lfs; reach = 0 at every crease of a PL surface, so they say nothing); wfs-based variant (Chazal-Cohen-Steiner) needs a certified wfs bound | **elementary moves** (option B): no premise on the input beyond being clean |
-| absolute min-angle bound | yes (Chew, Boissonnat-Oudot: sizing below lfs; DelPSC: protecting balls) | monotone bound only (no worse than the threshold or the current minimum) |
-
-Computing or bounding the reach / wfs of a mesh: the reach of a polyhedral surface is 0 unless it is flat; the local
-feature size is 0 on every crease. The wfs is the smallest critical value of the distance function; a certified lower
-bound needs a search for critical points over the band (a branch and bound with distance bounds on cells, in the
-style of `MeshHausdorffDistance`), with no published cheap method found (terms: "weak feature size computation
-polyhedron", "certified reach estimate mesh"). `MeshWallThickness` estimates local thickness well on smooth parts but
-is not a bound. Use: sizing (`RemeshSizing.FromWallThickness`) and diagnostics only.
-
-## 4. Probe: the grid isotopy certificate on remesher output (throwaway, not committed)
-
-Idea: Theorem 1 of CONTOURING_TOPOLOGY.md is stated for *any* two PL surfaces compatible with a grid with the same
-pattern. Run the spike's exact cell test (`LevelSetCertificate`, commit fe9f3361 of
-`claude/contouring-certificate-stage1`, copied, the winding classification removed) on the input M and the output M'
-on one uniform grid; the crossings of M define the pattern that M' must match (pairing on 4-crossing faces by the
-exact parity inside test of M). Certified = no cell refused for either.
-
-Setup: master d2e02a14, net10.0, 4 cores. Procedural closed inputs, rotated by 23.7 deg about (0.3, 0.7, 0.2): sphere
-(18k triangles), bumpy sphere (42k), torus R 1 r 0.3 (15k), thin torus r 0.04 (13k). `Remesher` with
-`SetTargetEdgeLength(L)`, `MeshProjectionTarget.Auto(input)`, `MinTriangleQuality = 0.2`, 15 passes;
-`PreventSelfIntersections` on for the thin torus. Grid cell diag / N, N in {8, 12, 16, 24}, 8 random offsets.
-
-| case | L / diag | out tris | new SI pairs | Hausdorff / diag | offsets certified at N = 8 / 12 / 16 / 24 | cells refused for the input (best offset) |
-|---|---:|---:|---:|---:|---|---|
-| sphere | 0.01 | 33360 | 0 | 0.00031 | 5 / 4 / 2 / 1 | 0 |
-| sphere | 0.02 | 7264 | 0 | 0.00089 | 5 / 3 / 0 / 0 | 0 |
-| sphere | 0.05 | 1136 | 0 | 0.00405 | 0 / 0 / 0 / 0 | 0 |
-| bumpy | 0.01 | 30758 | 0 | 0.00108 | 0 / 1 / 1 / 0 | 0-4 |
-| bumpy | 0.02, 0.05 | 7264, 1130 | 0 | 0.0029, 0.0118 | 0 everywhere | 0-4 |
-| torus | 0.01, 0.02, 0.05 | 24390, 5328, 894 | 0, **6**, 0 | 0.0006-0.017 | 0 everywhere | 4-7 |
-| thin torus (si on) | 0.01-0.05 | 4656-552 | 0 | 0.0036-0.024 | 0 everywhere | 28-71 |
-
-Earlier single-offset run, refusal reasons: almost all refusals of M' are **sign mismatches** (a grid edge crossed by
-M but not by M', or the reverse: a node lies between the two surfaces), e.g. sphere L 0.05 at / 64: 2047 of 2061
-refused cells; the input's own refusals are edges crossed twice near silhouettes (a grid line almost tangent to the
-surface) and, for the thin torus, faces and cells (tube thinner than a cell).
-
-Reading: the expected number of grid nodes in the band is about area x mean deviation / h^3, so the certificate needs
-cells coarse against the deviation but fine against the features; that window is empty or narrow for most settings,
-and refining the grid adds nodes to the band rather than removing them. A post-hoc isotopy certificate on a fixed or
-adaptive box grid is **not practical** for remeshing; repairing it (moving nodes off the band, non-box cells) is a
-research item, not a building block. Side findings: the plain `Remesher` at `MinTriangleQuality = 0.2` created 6
-self-intersecting pairs on a clean torus (L 0.02 diag) and 460 / 123 / 63 on the thin torus without
-`PreventSelfIntersections` (not tabulated above); the probe cost 0.1-0.7 s per grid, comparable to the remesh itself.
-
-## 5. Options
-
-| | Option | Guarantees (proved / measured) | Tier | Cost estimate |
+| # | Source | Guarantee | Hypotheses | PL input? |
 |---|---|---|---|---|
-| A | **Certify after the fact**: `RemeshCertificate` (closed, manifold, exact no self-intersections, certified two-sided Hausdorff, same genus / components / nesting) on the existing Remesher with `PreventSelfIntersections` | all checks proved when they pass; isotopy not covered; a failed check is reported, not avoided | S | one exact SI check + one `MeshHausdorffDistance` + topology summary per call, about the cost of 1-3 remesh passes (to measure) |
-| B | **Guard by construction**: A plus, per operation, (1) the isotopy guard (every flip, collapse, split and vertex move an elementary move across empty tetrahedra, exact), (2) the out -> in band guard (`IsWithin(delta)` on new triangles), (3) the min-angle monotone guard (exists in part as `MinTriangleQuality`); the final certificate of A checks in -> out | closed, manifold, intersection-free, ambient isotopic to the input, out -> in band: proved by construction; in -> out band: certified at the end (reported if not met); quality: monotone, p01 measured | M (stages 1-2), S (stage 3) | upper bound below: about 1-2 x the cost of today's `PreventSelfIntersections` (12-17 x the plain Remesher on Thingi10K before #261's filter, 2-4 x less after it) plus `IsWithin` (the Reducer's `MaxDeviation` pays 12-32 x, cached) |
-| C | **Restricted Delaunay refinement** on the PL input (Delaunay3 + exact restricted Voronoi of the triangles, DelPSC-style protecting balls at creases, TBP checks, Chew quality rule) | homeomorphism (TBP), absolute angle bounds away from small input angles, Hausdorff by refinement; isotopy from the TBP results only for smooth parts (M) | L / XL | new high-degree implicit predicates (Voronoi vertex against a triangle plane), protecting balls on every crease edge of a faceted mesh, vertices rounded to doubles (re-check needed, as the rounding of the boolean); no upper bound possible without a prototype |
-| D | **Alpha wrap at a small offset** (exists) | closed, manifold, intersection-free, angle bound asin(offset / (2 alpha)), proved; one-sided band (outside, up to about offset + alpha) | 0 | exists; not a remesher of the input: topology not kept, output offset outwards |
-| E | **Grid isotopy certificate** after the fact (section 4) | isotopy when it passes | M | probe: rarely passes; not recommended |
+| T1 | H. Edelsbrunner, N. Shah, *Triangulating topological spaces*, IJCGA 7(4), 1997 (M) | if Vor(P) has the **closed ball property** (TBP) w.r.t. a manifold S, the restricted Delaunay complex Del(P)\|S is homeomorphic to S | TBP: every Voronoi cell, facet, edge meets S in a closed ball of dimension 2, 1, 0 or not at all (with general position); whether P must lie on S: check (M) | **yes**: needs no lfs; checkable exactly on PL S (section 6) |
+| T2 | N. Amenta, M. Bern, *Surface reconstruction by Voronoi filtering*, DCG 22, 1999 (M); Boissonnat-Oudot 2005 (below) | an epsilon-sample (every x on S has a sample within eps lfs(x)) of a smooth S with eps small (about 0.1; book: 0.08, S) has the TBP | C2 (or C1,1) surface, lfs > 0 | **no** (lfs = 0 on creases) |
+| T3 | J.-D. Boissonnat, S. Oudot, *Provably good sampling and meshing of surfaces*, Graphical Models 67(5), 2005 (in SOURCES.md; S) | Del(P)\|S of a loose eps-sample is **isotopic** to S, Hausdorff O(eps^2 lfs), normals O(eps); the refinement (insert the centre of a bad surface Delaunay ball) terminates with O(integral of 1 / lfs^2) points | smooth S, an oracle for segment-S intersection, a sizing below eps lfs | no as stated; the refinement skeleton is ours already (alpha wrap) |
+| T4 | L. P. Chew, *Guaranteed-quality mesh generation for curved surfaces*, SoCG 1993 (in SOURCES.md) | radius-edge ratio at most rho for every restricted facet, so min angle at least arcsin(1 / (2 rho)), 30 degrees for rho = 1; termination for rho >= 1 by the insertion-radius argument | smooth surface, sizing below lfs | the angle part carries over to PL with h_min (section 5.4) |
+| T5 | S.-W. Cheng, T. K. Dey, E. A. Ramos, T. Ray, *Sampling and meshing a surface with guaranteed topology and geometry*, SoCG 2004 / SIAM J. Comput. 2007 (S) | homeomorphism **without knowing lfs**: refine until the TBP holds (checked), then T1 | smooth S (termination: an eps-sample is eventually reached); critical-point / TBP computations | the TBP enforcement carries over; termination does not (section 4) |
+| T6 | S.-W. Cheng, T. K. Dey, E. A. Ramos, *Delaunay refinement for piecewise smooth complexes*, SODA 2007 / DCG 43, 2010 (S) | for a piecewise smooth complex (PSC): protect 0- and 1-cells by weighted points (balls), refine until an **extended TBP** holds; output homeomorphic, stratum by stratum; no restriction on input angles | the PSC's features given; weighted Delaunay; exact TBP checks | **yes in principle** (a faceted mesh is a PSC); every crease is a 1-cell |
+| T7 | S.-W. Cheng, T. K. Dey, J. A. Levine, *A practical Delaunay meshing algorithm for a large class of domains*, IMR 2007 (DelPSC) (S, R abstract) | as T6, a practical version; surfaces and volumes; DelPSC software takes a polygonal mesh of a PSC | as T6 | yes; the closest prior art for stage 2 |
+| T8 | T. K. Dey, J. A. Levine, *Delaunay meshing of piecewise smooth complexes without expensive predicates*, 2008 manuscript / IMR 2009 (S) | avoids the expensive TBP checks with a new notion of local feature size and a generalized TBP proof | as T6 | an option if the exact TBP checks are too slow (stage 1 stop rule) |
+| T9 | J.-D. Boissonnat, S. Oudot, *Provably good sampling and meshing of Lipschitz surfaces*, SoCG 2006 (M) | isotopy / Hausdorff for Lipschitz surfaces (sharp features allowed, bounded "Lipschitz radius"), no protection | Lipschitz radius > 0; dihedral angles not too sharp | a candidate for moderate creases without protection (M; check) |
+| T10 | S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012, ch. 12-15 (smooth surfaces, PSCs; chapter numbers M) | the textbook statements of T1-T7, with constants and proofs | | the reference for stage 0 |
+| T11 | F. Chazal, D. Cohen-Steiner, *A condition for isotopic approximation*, Symposium on Solid Modeling 2004, pp. 93-99, doi 10.2312/sm.20041380 (R, abstract) | homeomorphic surfaces are isotopic if one lies in a topological thickening of the other and separates its sides | that the band is a thickening (reach / weak feature size) | a route to isotopy if a wfs bound or a certified thickening exists (section 5.3) |
+| T12 | F. Chazal, D. Cohen-Steiner, A. Lieutier, *A sampling theory for compact sets in Euclidean space*, DCG 41, 2009 (M) | weak feature size and mu-reach; positive for polyhedra | critical points of the distance function | defines what replaces lfs; no cheap certified bound found |
+| T13 | J. Ruppert 1995; J. R. Shewchuk, *Delaunay refinement algorithms for triangular mesh generation*, CGTA 2002 (in SOURCES.md) | 2D termination and angle bounds, small input angles (concentric shells) | | the 2D proofs `QualityMesh2` implements; pattern for crease protection |
+| T14 | D.-M. Yan, B. Lévy, Y. Liu, F. Sun, W. Wang, *Isotropic remeshing with fast and exact computation of restricted Voronoi diagram*, SGP 2009 (M) | restricted Voronoi diagram of a PL surface computed exactly by clipping input triangles; CVT quality measured, no topology proof | | the computation of restricted Voronoi cells on a PL surface (used in a TBP check alternative) |
 
-Upper bound for B (from existing measurements; a probe is stage 1's first step): the isotopy test uses the same
-candidate search as `PreventSelfIntersections` (the triangles near the union box of the old and new triangles; the
-swept tetrahedra lie in the convex hull of old and new, so the box is the same) and replaces each triangle-triangle
-test by triangle-tetrahedron tests (a tetrahedron is 4 faces plus containment: at most about 4 exact tri-tri-like
-decisions, most rejected by the float filter of `TriangleTriangleFilter` style). Bound: 1x (filter rejects as before)
-to 4x (no filter) the check cost of `PreventSelfIntersections`, whose check is 92 % of its run. So B costs about
-13-50 x the plain Remesher in the worst reading, realistically 1-2 x the `PreventSelfIntersections` time. The
-smoothing pass must become a sequence of independent sets (below), losing part of its parallel speed (smoothing +
-projection were 26-47 % of the plain run, parallel).
+How others solve it: guaranteed surface meshing with topology and quality is done by restricted Delaunay refinement
+with a sizing tied to lfs on smooth surfaces (Boissonnat-Oudot; CGAL's surface mesher as a paper), by TBP enforcement
+when lfs is unknown (Cheng-Dey-Ramos-Ray), and with protecting balls on sharp features (DelPSC; CGAL Mesh_3's
+protection as a paper). Explicit-mesh remeshers (Botsch-Kobbelt, Hu 2017, Brochu-Bridson) give per-operation error
+and intersection guarantees but no topology or angle theorems.
 
-## 6. Recommendation: option B, staged
+## 3. The hypotheses, one by one, for a triangle-mesh input
 
-**Stage 0 (docs, S): the move lemmas, written out like CONTOURING_TOPOLOGY.md section 7.** On a clean closed surface S
-(PL, embedded):
+| Hypothesis of the theorems | On a clean closed triangle mesh S | What replaces it |
+|---|---|---|
+| S smooth (C2, or C1,1) | false on every edge with a dihedral angle != 180 deg | treat S as a PSC: creases above a feature angle theta_f are 1-cells (protected, stage 2); creases below it are left to the TBP checks (stage 1) |
+| lfs(x) > 0, sizing below eps lfs | lfs = 0 on every crease, so no eps-sample exists near one | TBP checked instead (T1, T5); a user minimum size h_min; regions that fail the TBP at h_min are listed, not proved |
+| an intersection oracle for segment-surface | exact for PL S: a segment (a Voronoi edge) meets an input triangle, decided by signs (section 6) | none needed: PL is the easy case for the oracle |
+| samples on S | an inserted point is the surface Delaunay ball centre, an implicit point on an input triangle, rounded to doubles: off S by up to half an ulp | check T1's hypothesis (M); if P must lie on S, keep the combinatorics on the rounded points and prove T1 for points near S (stage 0), or check the result exactly at the end (as the boolean's rounding) |
+| general position (no five points cospherical, no Voronoi vertex on S, no input vertex on a Voronoi facet) | violated by CAD inputs (axis-aligned faces, symmetric samples) | Simulation of Simplicity on the input's doubles (as `ExactRayTriangle`, terrain overlay); or refuse the element and perturb the inserted point's rounding |
+| features given (T6, T7) | not given | detected: edges with a dihedral deviation above theta_f, vertices with two crease edges meeting at an angle or with three or more crease edges (corners), crease curves as chains |
 
-1. *Flip* of edge ab with opposite vertices c, d: the old and new triangles bound the tetrahedron abcd. If abcd is
-   non-degenerate and no triangle of S other than the two old ones meets it except in the shared edges and vertices of
-   its boundary (exact tests), the flip is a move across abcd: an ambient isotopy. Flat case (abcd degenerate): the
-   flip is in the plane, an isotopy iff the quad is strictly convex (the old triangles already exclude other surface
-   there).
-2. *Vertex move* v -> v' along a segment: triangle (v, a, b) sweeps the tetrahedron (v, v', a, b). If these
-   tetrahedra have pairwise disjoint interiors, each meets the others only in the faces / edges through vv', and no
-   other triangle meets their union except in the shared link, the move is an isotopy (at time t each moving triangle
-   lies in its own tetrahedron; neighbours meet only in the segment v(t) b; argument to be written out).
-3. *Collapse* of ab (a -> b) under the link condition: the vertex move a -> b of rule 2 restricted to the link of a
-   without b; the two triangles at ab degenerate. Claim: isotopy if the swept tetrahedra (a, b, x_i, x_{i+1}) satisfy
-   rule 2. The degenerate end needs its own argument (an epsilon-before-the-end surface plus one more move); to prove.
-4. *Split*: the new vertex is the rounded midpoint m; if m is not exactly on ab, the split is a move across (a, b, c,
-   m) and (a, b, d, m) (rule 1 shape); exactly on ab: no move.
-5. *Simultaneous moves* (the buffered smoothing and projection passes): an independent set of vertices (no two in one
-   triangle) moving at once is an isotopy if, in addition to rule 2 per vertex, the swept tetrahedra of different
-   vertices have disjoint interiors. Deterministic batches: a fixed greedy colouring by vertex id; a rejected move
-   stays (as the `PreventSelfIntersections` revert rounds today).
-6. Input requirement: the input must be clean (closed, manifold, no self-intersections; `NotCleanReason` empty);
-   otherwise the guard reports `InputNotClean` and runs as today.
+Why a feature angle is needed at all (scale argument, to be proved in stage 0): near a crease of dihedral angle phi,
+S is a wedge, invariant under scaling about a point of the crease. If the Voronoi cell of a sample on one face meets
+the other face in a second piece (the TBP fails) for some configuration, the scaled configuration fails the same way,
+so refinement alone cannot make the TBP hold near a sharp enough crease: there is a threshold angle below which
+points must be put on the crease itself (as T6 does). For mild creases (phi near 180 deg) the Voronoi cells of nearby
+samples meet the wedge in disks and refinement terminates. Measuring the threshold on wedges is stage 1's first probe.
 
-Proof review by a fresh session that gets the note only (as #749). Prior art for these lemmas: Rourke-Sanderson
-(elementary moves), Brochu-Bridson (the remeshing practice).
+## 4. Algorithm (stage 1: clean closed input, creases below theta_f only)
 
-**Stage 1 (M): `RemeshCertificate` (option A) and the probe of B's cost.** A result object with `Closed`, `Manifold`,
-`SelfIntersectionFree` (exact), `Hausdorff` (interval), `TopologyKept` (genus, components, nesting), and the reasons;
-the stage-1 probe instruments the swept-tetrahedron test (throwaway) on the RemeshQualityBenchmark set to replace the
-upper bound above by a measurement, with a stop rule: if B costs more than 2 x `PreventSelfIntersections` on the median
-mesh, report and let the owner decide.
+Input: a clean closed mesh S (`NotCleanReason` empty), r_max (largest surface Delaunay ball radius, the size and
+band parameter), rho (radius-edge bound, default 1), h_min (floor, default r_max / 16). Output: the restricted
+Delaunay triangulation D = Del(P)\|S, a certificate (section 5) and the list of uncertified elements.
 
-**Stage 2 (M): the guards** in `Remesher` / `RemesherPro`, opt-in (`PreserveIsotopy`, `MaxDeviation`), the exact
-triangle-tetrahedron test (new, `Orient3d` only; in an exact file under the `.editorconfig` rules, no parallel loop
-inside it), sharing the hash grid of `PreventSelfIntersections` (which it implies: `PreserveIsotopy` switches it on).
-Defaults unchanged (upstream compatibility; the owner's rule on the Remesher defaults).
+1. `Delaunay3` on a box around S enlarged by a margin (the 8 corners keep every interior Voronoi edge bounded).
+2. Initial sample: a deterministic h_min-separated subset of the input vertices (or points from a grid in vertex-id
+   order), enough to meet every component (one per component at least, plus the TBP refinement does the rest).
+3. Restricted elements: a Delaunay facet is restricted if its dual Voronoi edge (between the circumcentres of its two
+   cells) meets S; each meeting point is a surface Delaunay ball centre c, radius |c - a|. Kept incrementally from the
+   cavity lists of `Insert`.
+4. Refinement queue, worst first with a deterministic key (squared radius, then the sorted vertex ids):
+   - R1 (TBP): a Voronoi edge of a restricted facet meets S more than once; a Voronoi facet meets S in something other
+     than one arc; a Voronoi cell of a sample meets S in something other than one disk. Insert the farthest
+     intersection point of the violating element from its sample (a surface Delaunay ball centre or a restricted
+     Voronoi vertex), as T5 does (S: the choice rule to be fixed in stage 0).
+   - R2 (size and band): a surface Delaunay ball with radius above r_max; a restricted Voronoi region (Vor(p) meets S)
+     with a point farther than r_max from p (the farthest point of a convex cell's intersection with a planar piece is
+     at a vertex of that polygon, so the test runs over finitely many implicit points).
+   - R3 (quality): a restricted facet with circumradius / shortest edge above rho; insert its surface Delaunay ball
+     centre.
+   - Separation: an insertion closer than h_min to an existing sample is refused (`Insert`'s `minSeparation`); the
+     element stays and is listed as uncertified.
+5. Stop when the queue is empty. D is the set of restricted facets.
 
-**Stage 3 (S, measured only):** quality: the monotone min-angle rule in front of every operation (as
-`AlphaWrapQualityPass`), absolute p01 reported on the benchmark set; no absolute bound claimed.
+Termination and size bound (to be written as proofs in stage 0, after the alpha wrap's argument): every inserted point
+is at least h_min from every sample (rule 4 separation, up to the rounding of the insertion, a relative slack of a few
+ulp), so the balls of radius h_min / 2 around the samples are disjoint and lie in the h_min / 2 offset of S. By
+Steiner's formula for the offset of a polyhedral surface, its volume is at most area(S) h_min + O(h_min^2 crease
+length) + O(h_min^3 vertices), so |P| <= C (area(S) / h_min^2 + total crease length / h_min + input vertices), finite,
+and every step inserts one point or lists one element: the refinement terminates. Where lfs is large compared with
+r_max (smooth-ish parts) the classical insertion-radius argument (T3, T4 with rho >= 1) gives the better bound
+O(area / r_max^2) and no element reaches h_min; the share that does is measured.
 
-Not recommended now: C (tier L/XL, no prototype bound; revisit if a user needs absolute angle bounds with topology,
-eg FEM, and then first for smooth implicit inputs where Boissonnat-Oudot applies directly); E (section 4).
+Determinism: insertion is serial in queue order with the deterministic key; the tests of the new elements of a cavity
+(restricted-facet tests, TBP checks) are pure functions of the triangulation and may run in parallel, written into
+per-element slots and merged in element-id order, so parallel = serial bit for bit (the pattern of the alpha wrap and
+the boolean). The stochastic walk of `Delaunay3` must use a fixed seed (to check).
 
-## 7. Guarantees: proved vs measured (option B)
+2^k invariance: every decision is an exact sign of a homogeneous polynomial in the coordinates, so it is unchanged by
+a 2^k scaling (inside the supported input range); the constructed centres (Cramer's rule with + - * /) and squared
+radii scale exactly, so the queue order and the rounded insertions scale exactly; r_max and h_min are lengths and are
+scaled with the input in the invariance test. Square roots only in reported values, never in decisions.
 
-| Property | Status |
+## 5. Guarantees: what is proved, what is checked, what is measured
+
+### 5.1 By construction (proved)
+
+- **No self-intersections, consistent embedding**: D is a subcomplex of the exact Delaunay triangulation of the double
+  points P, so two output triangles meet only in a common edge or vertex. No rounding after the fact (the vertices are
+  the inserted doubles), unlike the boolean's rounding.
+- **Closed 2-manifold, homeomorphic to S**: by T1 when no element is uncertified (TBP checked exactly for every
+  restricted element). Orientation from S (the side of the dual edge's crossing).
+- **Partial statement** when elements are uncertified: the analogue of the contouring note's Theorem 1b (homeomorphic
+  outside the listed Voronoi cells); to be proved in stage 0. With uncertified elements D may be non-manifold there;
+  the result then reports `TopologyCertified = false` and the cells.
+
+### 5.2 Hausdorff band (proved, both directions)
+
+- D within r_max of S: every point of an output facet lies in one of its surface Delaunay balls (the facet's
+  circumdisk is inside every ball through its vertices whose centre is on the dual line), whose centre is on S and
+  radius at most r_max (R2).
+- S within r_max of D: every x on S lies in a restricted Voronoi region of some sample p, at distance at most r_max
+  from p (R2), and p is a vertex of D (a sample whose region is a disk under the TBP is a vertex of a restricted
+  facet). So the two-sided Hausdorff distance is at most r_max. `MeshHausdorffDistance` re-checks it in the tests.
+
+### 5.3 Isotopy (open for PL inputs)
+
+T3 proves isotopy for smooth S through the normal projection (needs the reach). For a PL S no published theorem was
+found (terms: "restricted Delaunay isotopic polyhedral surface", "isotopy topological ball property"). Routes for the
+stage-0 proof attempt, in order: (a) the grid lemma of CONTOURING_TOPOLOGY.md Theorem 1 holds for any complex of
+convex cells, so S and D are isotopic if both are compatible with the Voronoi complex with the same pattern; S is
+compatible by the TBP, D in general is not (a restricted facet meets its own dual edge only if its circumcentre is inside
+it): it needs an intermediate surface or a refined complex; (b) T11 with the union of the surface Delaunay balls as
+the thickening; (c) the elementary-move argument of section 10. Until one is proved and reviewed, the stated guarantee
+is homeomorphism, and nesting and linking are checked only as far as `MeshTopologySummary` and the exact nesting
+tests go.
+
+The post-hoc grid certificate (comparing the crossing patterns of S and D on a box grid) was probed and is not
+practical (section 9).
+
+### 5.4 Quality (proved with exemptions)
+
+After R3, every restricted facet has circumradius / shortest edge at most rho, so its smallest angle is at least
+arcsin(1 / (2 rho)) (30 deg at rho = 1), except facets whose refinement was refused by h_min or that touch a protected
+feature (stage 2; T6 gives no angle bound near small input angles, M). The exempt facets are listed and counted; the
+share is measured. This is the alpha wrap's statement with h_min in place of the offset separation.
+
+### 5.5 Checked or measured, not proved
+
+| Item | How |
 |---|---|
-| closed, 2-manifold, consistently oriented | proved (link condition, rules of stage 0) |
-| no self-intersections | proved (implied by the isotopy guard; exact) |
-| ambient isotopic to the input | proved, after stage 0's review; requires a clean input |
-| output within delta of the input | proved per new triangle (`IsWithin`, certified float bounds) |
-| input within delta of the output | certified at the end (interval); not guaranteed: reported |
-| min angle | monotone (proved); absolute p01 measured |
-| target edge length reached | measured (guards block operations; the share blocked is reported) |
-| determinism | parallel = serial, repeat = same bits (fixed colouring and order); tested |
-| 2^k scale invariance | bit-identical (exact predicates are scale-free, the guards use relative or scaled tolerances); tested |
+| implementation of the proofs | every success-path test checks `NotCleanReason` empty, genus and components equal to the input, `MeshHausdorffDistance.UpperBound <= r_max`, the angle bound on the non-exempt facets |
+| the TBP premise when samples are rounded off S | stage 0 (T1's hypotheses); until then the final checks above |
+| uncertified share, output size against the bound, p01 angle, time | benchmark (section 7) |
+
+## 6. Predicates and building blocks
+
+Notation: a, b, c, d, e samples (doubles), t a triangle of S with vertices t0, t1, t2 (doubles). The bisector plane of
+a and b: n = 2 (b - a) (degree 1), offset |b|^2 - |a|^2 (degree 2). The plane of t: normal (degree 2), offset (degree
+3).
+
+| Need | Formulation | Degree (homogeneous, estimate) | Covered by |
+|---|---|---|---|
+| Delaunay3 insertion, location, conflict | `Orient3d`, `InSphere` on doubles | 3, 4 | `Delaunay3` (exists) |
+| restricted facet: the dual Voronoi edge of abc meets t | the point x = (bisector(a, b)) ∩ (bisector(a, c)) ∩ plane(t), a three-plane point (TPI-like, numerators degree 5, denominator degree 4); x on the dual edge iff x is closer to a than to d and than to e (d, e the apexes of the two cells): the sign of bisector(a, d) at x, degree 6; x in t: orient2d of x with two vertices of t in t's dominant projection, degree 6 | 6 | **new**: a "bisector TPI" point kind in `tools/PredicateCompiler` (planes given by coefficients instead of three points); filter and bounds from the generator; fallback `FixedArith` / `BigInteger` |
+| surface Delaunay ball centre and radius (for insertion and the queue) | x in floating point (Cramer's rule), squared radius | construction | float; the decision whether to insert is exact (the queue key may be approximate without breaking proofs, the rules R1-R3 are decided exactly) |
+| TBP (E'): a Voronoi edge meets S at most once | count the triangles t for which the test above holds; a Voronoi edge that hits a mesh edge or vertex is a degeneracy (SoS) | 6 | new family + candidate search |
+| TBP (F'): a Voronoi facet (dual of Delaunay edge ab: the polygon on bisector(a, b) bounded by Voronoi edges) meets S in one arc | Theorem 3's counting on a convex polygon: mesh edges crossing the polygon (endpoint signs against bisector(a, b): degree 2 on doubles; the crossing LPI point inside the polygon: bisector signs at an LPI point, degree about 3-4) and triangles crossed by the polygon's edges (row above); per part \|T\| - \|M\| = 1 | 2-6 | new family; the counting code of the contouring certificate |
+| TBP (C'): a Voronoi cell meets S in one disk | Theorem 3's counting on a convex cell: mesh vertices in the cell (nearest-sample tests, degree 2), edges and triangles from (E'), (F'); per part \|T\| - \|M\| + \|V\| = 1 | 2-6 | as above; **the lemma holds for any convex X** (CONTOURING_TOPOLOGY.md 7.4), so it carries over unchanged |
+| R2 farthest point of a restricted Voronoi region | distances from p to the region's vertices (restricted Voronoi vertices = the TPI points above, mesh vertices, LPI points of mesh edges with Voronoi facets) against r_max | 6-8 | comparison of a squared distance at an implicit point with r_max^2: new, same family |
+| candidate search (triangles near a Voronoi edge or cell) | boxes; exact code | - | `TriangleBoxTree` (internal, exact code) or `DMeshAABBTree3` with conservative padding |
+| degeneracies | Simulation of Simplicity on the input's doubles | - | the pattern of `ExactRayTriangle` / terrain overlay; per predicate in the generator (new work) |
+| stage 2: weighted points (protecting balls) | regular triangulation: power test (lifted orient4d, degree 5) | 5 | **new**: weighted `Delaunay3`; only if unweighted crease sampling fails |
+| stage 2: crease curves | 1D refinement along chains of input edges (points on input edges: rounded, on the edge up to an ulp) | - | the 2D segment encroachment pattern of `QualityMesh2` |
+
+The exact files (new predicates, the restricted bookkeeping) fall under the `.editorconfig` rules: no FMA, no `float`,
+no parallel loop without review; the parallel tests of section 4 are outside the exact kernels (they call them) or go
+into `core/ExactCodeAllowList.cs` with a review.
+
+## 7. Cost and upper bound
+
+No direct measurement yet; the bound is from the alpha wrap, which does the same kind of work (a `Delaunay3`
+refinement with surface tests per facet): about 100 us per raw triangle (median raw wrap 3.7 s; alpha-wrap roadmap
+WP1), floating-point surface tests. RDR has fewer cells (points only on S, not in a volume band) but exact tests and
+the TBP counting per cell; estimate 50-300 us per output vertex (2 output triangles per vertex), so 100k output
+triangles in about 2.5-15 s. Against the `Remesher`: 11-23 us per triangle plain, about 280 us with
+`PreventSelfIntersections` (REDUCER_REMESHER_20.md section 2). So RDR is expected between the plain and the guarded
+Remesher, with stronger guarantees. Stage 1's first step is a float-predicate spike that replaces this estimate
+before any exact code is written (upper bound first, AGENT_WORKFLOW section 3).
 
 ## 8. Test plan (repo style)
 
-- **Counterexample tests that fail on the old code** (the CI job `New tests on base`): a thin sheet threaded through
-  the tetrahedron of a flip (both end states intersection-free, linking changed): `PreventSelfIntersections` accepts
-  the flip, `PreserveIsotopy` must reject it; the same for a collapse and for a smoothing move that jumps a sheet; a
-  split whose rounded midpoint leaves the edge next to a touching sheet.
-- **Result checks on the success path**: `NotCleanReason` empty, `RemeshCertificate` all true, genus and components
-  equal, `MeshHausdorffDistance.UpperBound <= delta` for the out -> in direction, on procedural inputs (sphere, torus,
-  thin torus, two nested shells, a box with creases, a linked pair of tori: the case whose linking a non-isotopic remesh
-  could change).
-- **Invariance over `Similarity.All()`** (`tests/geometry3Sharp.Tests/Harness/Invariance.cs`): 2^k scales bit for bit;
-  the other similarities give the same certificate booleans and topology, triangle counts within the 5 % of 2.0 T5.
-- **Reuse**: `RemeshCertificate.Compute()` twice on one instance; one `Remesher` instance run twice.
-- **Determinism**: parallel smoothing batches = serial, 10 repeated runs same bits, any thread count.
-- **Mutation**: each rule of stage 0 gets a hand mutant (drop the flat-flip convexity test, drop the
-  tetrahedron-tetrahedron test of simultaneous moves, test only the end state) that a test kills; the exact test file
-  in its Stryker shard; incremental run on the PR.
-- **Fuzz**: random clean inputs from the harness generators, the invariant "certificate true" as the oracle; any
-  failure becomes a test.
-- Time: procedural inputs of at most a few thousand triangles per test (5 s rule); the corpus run is a benchmark
-  (`benchmarks/RemeshQualityBenchmark`, with before / after numbers), not a test.
+- **Procedural inputs only** (no mesh files): sphere, ellipsoid, torus, thin torus, two nested spheres, a linked pair of
+  tori, a bumpy sphere (smooth-ish); stage 2: box, cylinder, wedges of dihedral angle 30-170 deg, a cone tip.
+- **Success path checks the result**: `NotCleanReason` empty; genus and components equal; `TopologyCertified` and an
+  empty uncertified list on the smooth set; `MeshHausdorffDistance.UpperBound <= r_max`; min angle >= arcsin(1/(2 rho))
+  on the non-exempt facets; output size below the packing bound.
+- **Predicate tests**: the new family against an exact rational oracle (`BigInteger`) at many scales and in degenerate
+  positions (cospherical samples, a Voronoi vertex on a triangle, a mesh edge on a bisector), as the indirect predicates'
+  tests; the generator's bound table checked by `GeneratedPredicatesTests`.
+- **TBP counterexamples**: hand-built configurations where each of (E'), (F'), (C') fails (a Voronoi edge crossing a
+  thin slab twice, a facet meeting S in a closed curve, a cell containing a handle); the check must refuse each; mutants
+  that drop one clause must fail a test.
+- **Invariance over `Similarity.All()`**: 2^k scales bit for bit (r_max, h_min scaled); rotations and translations give
+  the same certificate booleans, genus and the angle bound (counts within a tolerance).
+- **Reuse**: `Compute()` twice on one instance, same bits.
+- **Determinism**: parallel tests = serial, repeated runs same bits, any thread count.
+- **Mutation**: the new exact files in their own Stryker shard (threshold set once locally), incremental runs on PRs;
+  hand mutants for R1-R3 and the separation rule.
+- **Fuzz**: random clean meshes from the harness generators; oracle "certificate true implies the result checks hold".
+- **Time**: tests on inputs of at most a few thousand output triangles (5 s rule); the corpus (the 20 Thingi10K
+  meshes of `RemeshBenchmark`, fetched at run time) is a benchmark with before / after numbers against the `Remesher`.
 
-## 9. Risks
+## 9. Probe: a post-hoc grid isotopy certificate on remesher output (throwaway, not committed)
 
-- **The guard blocks too much**: near thin walls and creases most operations may be refused, so the result keeps
-  short edges and misses the target length (as `PreventSelfIntersections` today: "thin walls stay intersection-free but
-  end far from the input"). Measured in stage 1; reported as the blocked share.
-- **Cost** (section 5): the bound is wide (1-4 x the SI check); the stop rule of stage 1 applies.
-- **The collapse lemma** (stage 0, item 3) is the one not yet argued; if it fails, collapses must be decomposed
-  (vertex move to near b plus a flip-like removal) or checked more conservatively.
-- **Parallel smoothing** becomes batched: slower; the determinism argument must cover the batch order.
-- **In -> out band** stays a final check, not a construction guarantee: a mesh can pass all guards and still miss it
-  (drift); the certificate reports it.
-- Option C stays the only route to absolute angle bounds; the owner should not expect them from B.
+Question: can the contouring certificate's grid lemma certify isotopy of a remesh after the fact (S and the output D
+compatible with one box grid with the same pattern)? Setup: the spike's exact cell test (`LevelSetCertificate`,
+commit fe9f3361 of `claude/contouring-certificate-stage1`, copied, winding classification removed); the crossings of S
+define the pattern D must match. Master d2e02a14, net10.0, 4 cores; procedural closed inputs rotated by 23.7 deg about
+(0.3, 0.7, 0.2): sphere (18k triangles), bumpy sphere (42k), torus R 1 r 0.3 (15k), thin torus r 0.04 (13k);
+`Remesher` with `MeshProjectionTarget.Auto`, `MinTriangleQuality = 0.2`, 15 passes (`PreventSelfIntersections` on for
+the thin torus); grid cell diag / N, N in {8, 12, 16, 24}, 8 random offsets.
 
-## 10. Decisions for the owner
+| case | L / diag | out tris | new SI pairs | Hausdorff / diag | offsets certified at N = 8 / 12 / 16 / 24 |
+|---|---:|---:|---:|---:|---|
+| sphere | 0.01 | 33360 | 0 | 0.00031 | 5 / 4 / 2 / 1 |
+| sphere | 0.02 | 7264 | 0 | 0.00089 | 5 / 3 / 0 / 0 |
+| sphere | 0.05 | 1136 | 0 | 0.00405 | 0 / 0 / 0 / 0 |
+| bumpy | 0.01 | 30758 | 0 | 0.00108 | 0 / 1 / 1 / 0 |
+| bumpy | 0.02, 0.05 | 7264, 1130 | 0 | 0.0029, 0.0118 | 0 everywhere |
+| torus | 0.01, 0.02, 0.05 | 24390, 5328, 894 | 0, **6**, 0 | 0.0006-0.017 | 0 everywhere |
+| thin torus | 0.01-0.05 | 4656-552 | 0 | 0.0036-0.024 | 0 everywhere |
 
-1. Option B, staged as in section 6 (stage 0 proof and its review first, stage 1 certificate and cost probe with the
-   stop rule "> 2 x `PreventSelfIntersections` on the median mesh: report")? Leaning: yes.
-2. Opt-in only (`PreserveIsotopy`, `MaxDeviation`), defaults unchanged? Leaning: yes (upstream compatibility, the
-   owner's 2026-11 rule on Remesher defaults).
-3. Absolute angle bounds (option C): not now; a separate study only if a user asks for them (eg FEM). Leaning: not now.
-4. Order against the running work (Exact Boolean 3.0, Alpha Wrap 3.0, contouring certificate stages 1-2): stage 0
-   (docs) can run anytime; stages 1-2 after the contouring certificate stage 1, which builds a similar exact counting
-   kernel. Leaning: stage 0 now, the rest queued.
+0 of 8 offsets certified in 40 of 48 settings. The refusals of D are almost all sign mismatches (a grid node between
+S and D); the input's own refusals are grid edges crossed twice near silhouettes and, for the thin torus, cells larger
+than the tube. Expected nodes in the band: about area x mean deviation / h^3, and refinement adds nodes to the band, so
+the window between "coarse against the deviation" and "fine against the features" is empty for most settings: **not
+practical**. Side finding: the plain `Remesher` at `MinTriangleQuality = 0.2` created 6 self-intersecting pairs on a
+clean torus (L 0.02 diag) and 63-460 on the thin torus without `PreventSelfIntersections`.
+
+## 10. Side path: guard the existing Remesher (cheap, independent)
+
+For callers who keep the Botsch-Kobbelt remesher: closed, manifold and free of self-intersections already hold with
+`PreventSelfIntersections`; add (1) the out -> in band guard `IsWithin(delta)` on new triangles (as the Reducer's
+`MaxDeviation` and `AlphaWrapQualityPass`), (2) a `RemeshCertificate` result (exact SI check, certified two-sided
+Hausdorff, genus / components / nesting), and optionally (3) an isotopy guard: every flip, collapse, split and vertex
+move must be an elementary move across empty tetrahedra (a flip across abcd, a move v -> v' across the tetrahedra
+(v, v', a, b) of its star; exact `Orient3d` triangle-tetrahedron tests), which makes the result ambient isotopic to a
+clean input by construction (PL elementary moves, Rourke-Sanderson 1972, M; the remeshing practice of T. Brochu,
+R. Bridson, *Robust topological operations for dynamic explicit surfaces*, SIAM J. Sci. Comput. 31(4), 2009, S, and
+T. Brochu, E. Edwards, R. Bridson, *Efficient geometrically exact continuous collision detection*, SIGGRAPH 2012, S).
+(1)-(2) tier S; (3) tier M with a cost bound of 1-4 x today's `PreventSelfIntersections` check (the same candidate
+search, triangle-tetrahedron instead of triangle-triangle tests), and the collapse lemma still to prove. No angle
+bound: only monotone (the min angle does not drop, Hu et al. 2017). Independent of the RDR work; can run first if a
+caller needs it.
+
+## 11. Staged plan
+
+| Stage | Content | Tier | Stop rule / gate |
+|---|---|---|---|
+| 0 | Proofs written out (docs, as CONTOURING_TOPOLOGY.md section 7): T1's hypotheses checked against the paper (samples off S by rounding), termination and size bound with h_min, the band proofs of 5.2, the angle statement of 5.4, the partial statement for uncertified elements, the wedge threshold argument of section 3, the isotopy attempt of 5.3. Reviewed by a fresh session with the note only | S-M | a hypothesis that fails (eg T1 needs P on S and no repair argument): report before stage 1 |
+| 1a | Spike, float predicates, benchmark project only (no library code): RDR with R1-R3 on the smooth procedural set and wedges; measure time per output vertex, uncertified share at h_min = r_max / 16, the TBP threshold angle on wedges | M | stop and report if the median exceeds 300 us per output vertex, or more than 1 % of restricted facets on the smooth set stay uncertified, or the wedge threshold is above 150 deg (stage 1 would then cover almost no real mesh without stage 2) |
+| 1b | Exact version in the library, internal first: the bisector-TPI predicate family from the generator (bounds review), the restricted bookkeeping, TBP counting, certificate, tests of section 8; public API (`RestrictedDelaunayRemesh`, options + `Compute()` + result with status) after the review | L | exact-code review of every new bound; incremental mutation run above threshold; time within 2 x the spike |
+| 2 | Feature protection: feature detection (theta_f), crease-curve sampling (1D encroachment), corners; weighted `Delaunay3` (power test) only if the unweighted protection fails the wedge tests; extended TBP (T6) | L | stop and report if the unweighted variant fails below the wedge threshold measured in 1a and the weighted kernel's upper bound (a spike) exceeds 2 x stage 1's time |
+| 3 | Benchmark against the `Remesher` (plain, with `PreventSelfIntersections`) on the 20 Thingi10K meshes: guarantees, p01 angle, Hausdorff, size, time | S | numbers in the benchmark README; no default changes |
+
+## 12. Risks
+
+- **T1 with rounded samples**: if the theorem needs samples on S, rounding breaks the premise; repair needs a
+  perturbation argument (stage 0). Fallback: exact final checks (closed, manifold, no self-intersections, genus) and
+  report homeomorphism only as "checked".
+- **Faceted real meshes are mostly creases**: on 30 degree creases, 35-94 % of the vertices of the Remesher's worst
+  meshes were feature vertices (REDUCER_REMESHER_20.md section 13); stage 1 alone may cover few real inputs, so stage 2
+  carries the practical value. The wedge threshold of 1a decides how much.
+- **Predicate degree and cost**: degree 6-8 with `BigInteger` fallbacks in degenerate CAD positions; the generator
+  bounds them, but the slow tail may be large (as the boolean's rounding was). Stop rules of 1a / 1b.
+- **TBP checks are the expensive part** (T8 exists because of it); if too slow, the Dey-Levine variant (paper only).
+- **Isotopy stays open**: the owner should expect homeomorphism plus the band, not isotopy, unless stage 0 succeeds.
+- **No output-size control by count**: the output size follows r_max, rho and the surface; a triangle-count target is
+  not a guarantee of this method.
+- **Small input angles at features** (stage 2): no angle bound there in T6 (M); exemptions as in `QualityMesh2`.
+
+## 13. Decisions for the owner
+
+1. RDR as the main route, staged as in section 11 (stage 0 proofs and review first, stage 1a spike with its stop
+   rules before any library code)? Leaning: yes.
+2. The stated guarantee: homeomorphism + two-sided band r_max + radius-edge bound with listed exemptions, and isotopy
+   only if stage 0's proof succeeds? Leaning: yes.
+3. Inputs: clean closed meshes only (broken inputs go through `MeshRobustRepair` first)? Leaning: yes.
+4. Side path (section 10): build the band guard and `RemeshCertificate` for the existing `Remesher` now (tier S),
+   the isotopy guard later or not? Leaning: certificate now only if a caller needs it; otherwise after stage 1a.
+5. Order against the running work (Exact Boolean 3.0, Alpha Wrap 3.0, contouring certificate stages 1-2): stage 0 now
+   (docs); stage 1 after contouring certificate stage 1, whose counting kernel it reuses. Leaning: yes.
