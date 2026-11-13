@@ -555,3 +555,35 @@ They are candidates in this order of gain per effort; each one is built only aft
 No single lever reaches 10 % of the normal stratum: the time of a typical boolean (median 0.29 s) is spread over five
 phases of similar size. Together the queued items (rounding search, lever 4, lever 1) and C / C' bound about 20-25 % of
 the stratum. The bounds overlap partly: the GC pauses sit inside the phases.
+
+## 9. Upper bound of the rounding-search levers (2026-11-13)
+
+Before any code for the rounding search of section 8 (lever 1: the box-neighbour enumeration of the full pair search,
+lever 2: `near`, the box query of the evaluations), a probe measured both parts.
+- Setup: master `79ccaf38`, `DOTNET_TieredPGO=0` (issue #825), median of 5, union.
+- Probe: Stopwatch timers in `MeshRoundingRepair`, from `probe_rounding_search.py` on a throw-away worktree. The
+  instrumented build gives the same hashes as master.
+- Job: `rounding_bound_job.sh`. Rows: `results/rounding_bound_2026-11-13.jsonl`.
+- Cases: the 36 unions of section 8, and 9 rounding-heavy tail unions.
+
+| | normal stratum (36 ops, 18.5 s) | tail (9 ops, 101.8 s) |
+|---|---|---|
+| rounding phase | 29 % of the op (op median 31 %) | 25 % |
+| full pair searches (lever 1) | 5.3 % (op median 6.5 %) | 7.3 %: 519511 28 %, 668056 21 %, 1368057 9 % |
+| `near` (lever 2) | 1.5 % (op median 0.1 %) | 7.4 %: 119829 45 %, 102375 43 %, 486343 16 %, 67709 8 % |
+| tree rebuilds | 8.2 % (op median 6.8 %) | 1.4 % |
+| rest of the rounding (not probed) | 13.7 % | |
+
+**Expected gain.**
+- Lever 1: about 2 % on the normal stratum at 1.5x, 2-3 % on the tail (9 % on 519511).
+- Lever 2: about 0 on the normal stratum. About 20 % at 2x on the rotated CAD parts with many evaluations, which make
+  95-108 k queries at about 13 µs each.
+- Section 8's 8 % assumed 1.5x on the whole rounding phase; these two parts are only 7-15 % of the op.
+- Both stay candidates under the never-slower rule, lever 2 for its class. On the normal stratum the tree rebuild
+  (8.2 %, mostly the first build per `Apply`, with a serial box collection) and the unprobed 13.7 % are the larger
+  targets.
+
+**Seen on the way.**
+- With option A on master, 67709 union takes 21.5 s (9.0 s in section 3.1): classification 3.0 -> 16.5 s on the
+  Antipodal path. This is lever 1 of section 5, T3a.
+- Stopping at the evaluation limit cut the rounding of 1368057 union from 20.9 to 3.2 s and of 42327 from 12.3 to 2.9 s.
