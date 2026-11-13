@@ -114,6 +114,7 @@ namespace geometry3Sharp.Tests
             var mesher = new QualityMesh2Candidate();
             Mesh2Output a = mesher.Run(input), b = mesher.Run(Moved(input, s));
             Assert.True(a.Status == Mesh2Status.Success, "the original: " + a.Status + " " + a.FailureKind);
+            Assert.True(b.Status == Mesh2Status.Success, $"{similarity}: {b.Status} {b.FailureKind}");
             Assert.False(b.SteinerLimitReached, $"{similarity}: the Steiner limit was reached ({b.VertexCount} vertices, the original {a.VertexCount})");
             Assert.Equal("", Bound("vertices", a.VertexCount, b.VertexCount, s.IsExact));
             Assert.Equal("", Bound("triangles", a.Triangles.Length, b.Triangles.Length, s.IsExact));
@@ -144,12 +145,14 @@ namespace geometry3Sharp.Tests
         public static IEnumerable<object[]> TimeCases() =>
             RobustnessSweepTests.Ops.Where(o => !SymmetryInvarianceTests.Excluded.ContainsKey(o.Name)).Select(o => new object[] { o.Name });
 
-        static TimeSpan Fastest(Func<RobustnessSweepTests.Sig> run, int repeats)
+        /// <summary> the best of several runs of run on a fresh input; only run is timed, not the construction or the transformation of the input </summary>
+        static TimeSpan Fastest(Func<DMesh3> input, Func<DMesh3, RobustnessSweepTests.Sig> run, int repeats)
         {
             TimeSpan best = TimeSpan.MaxValue;
             for (int i = 0; i < repeats; ++i) {
+                DMesh3 m = input();
                 var watch = Stopwatch.StartNew();
-                run();
+                run(m);
                 if (watch.Elapsed < best) best = watch.Elapsed;
             }
             return best;
@@ -166,13 +169,13 @@ namespace geometry3Sharp.Tests
             Op op = RobustnessSweepTests.Ops.First(o => o.Name == opName);
             Similarity identity = Similarity.Identity;
             op.Run(op.Input(), identity, op.Param);   // warm-up (JIT)
-            TimeSpan baseline = Fastest(() => op.Run(op.Input(), identity, op.Param), 3);
+            TimeSpan baseline = Fastest(() => op.Input(), x => op.Run(x, identity, op.Param), 3);
             var failures = new List<string>();
             foreach (Similarity s in RobustnessSweepTests.Similarities().Where(x => x.Name != "identity")) {
                 if (RobustnessSweepTests.KnownFailures.ContainsKey(opName + "|" + s.Name)) continue;   // a documented defect of the sweep (R..)
                 if (op.PlanarInput && (s.Translation.z != 0 || s.IsRotated)) continue;
                 double param = double.IsNaN(op.Param) ? double.NaN : s.ApplyLength(op.Param);
-                TimeSpan t = Fastest(() => op.Run(Invariance.Transformed(op.Input(), s), s, param), 3);
+                TimeSpan t = Fastest(() => Invariance.Transformed(op.Input(), s), x => op.Run(x, s, param), 3);
                 string r = TimeBound($"{opName} under {s.Name}", baseline, t);
                 if (r != "") failures.Add(r);
             }

@@ -31,6 +31,12 @@ namespace geometry3Sharp.Tests
 
         // ---------------------------------------------------------------- classification
 
+        /// <summary> the bound of the rows that differ in the last bits only: 1e-9 absolute on values of size 1 to 15 (the differences seen are below 1e-11) </summary>
+        public const double LastBits = 1e-9;
+
+        /// <summary> the rows whose wide bound applies to the 24 reflections only; the rotations (bit for bit or the last bits) get LastBits and no count tolerance </summary>
+        static readonly HashSet<string> ReflectionsOnly = new HashSet<string> { "MeshStitchLoops", "Remesher", "SmoothedHoleFill" };
+
         /// <summary>
         /// Operations compared within a tolerance instead of bit for bit, with the reason, measured by the report of all 47
         /// symmetries (G3_SYMMETRY_REPORT=1; the first of each pair is the largest relative difference seen). Tol and CountTol of -1 take the
@@ -39,23 +45,23 @@ namespace geometry3Sharp.Tests
         public static readonly Dictionary<string, (string Reason, double Tol, double CountTol)> Toleranced = new Dictionary<string, (string, double, double)> {
             // last bits only (up to 3e-12): the sum x*x + y*y + z*z, a cross product or a CG / ICP iteration runs in another order after an
             // axis permutation, and a reflection swaps two corners of every triangle (a mirror alone already changes them)
-            ["BoundaryFirstFlattening"] = ("last bits (1e-15): summation order", -1, -1),
-            ["DMeshAABBTree3"] = ("last bits: summation order (a winding number near 0 differs by 1e-17)", -1, -1),
-            ["LSCMParameterization"] = ("last bits (1e-15): summation order", -1, -1),
-            ["LaplacianMeshSmoother"] = ("last bits (1.6e-16): summation order of the CG solve", -1, -1),
-            ["MeshBatchQueries"] = ("last bits (2e-16): summation order", -1, -1),
-            ["MeshDeviation"] = ("last bits (2e-15): summation order", -1, -1),
-            ["MeshExtrudeMesh"] = ("last bits (6e-16): summation order", -1, -1),
-            ["MeshGeodesicDistance"] = ("last bits (3e-15): summation order of the Poisson solve", -1, -1),
-            ["MeshICP"] = ("last bits (3e-12): the iteration sums in another order", -1, -1),
-            ["MeshInsertPolygon"] = ("last bits (3e-16): summation order", -1, -1),
-            ["MeshIsoCurves"] = ("last bits (3e-16): summation order", -1, -1),
-            ["MeshNormals"] = ("last bits (2e-16): the area weighted sum of face normals runs in corner order", -1, -1),
-            ["MeshPlaneCut"] = ("last bits (6e-16): summation order", -1, -1),
-            ["MeshRoundingRepair"] = ("last bits (2e-16) of the volume sum; the repair itself is the same", -1, -1),
-            ["PointAABBTree3"] = ("last bits (1e-16): summation order", -1, -1),
-            ["Reducer.MaxDeviation"] = ("last bits (2e-15) of the area and volume sums; the same triangles", -1, -1),
-            ["Reducer.TriangleCount"] = ("last bits (2e-15) of the area and volume sums; the same triangles", -1, -1),
+            ["BoundaryFirstFlattening"] = ("last bits (1e-15): summation order", LastBits, -1),
+            ["DMeshAABBTree3"] = ("last bits: summation order (a winding number near 0 differs by 1e-17)", LastBits, -1),
+            ["LSCMParameterization"] = ("last bits (1e-15): summation order", LastBits, -1),
+            ["LaplacianMeshSmoother"] = ("last bits (1.6e-16): summation order of the CG solve", LastBits, -1),
+            ["MeshBatchQueries"] = ("last bits (2e-16): summation order", LastBits, -1),
+            ["MeshDeviation"] = ("last bits (2e-15): summation order", LastBits, -1),
+            ["MeshExtrudeMesh"] = ("last bits (6e-16): summation order", LastBits, -1),
+            ["MeshGeodesicDistance"] = ("last bits (3e-15): summation order of the Poisson solve", LastBits, -1),
+            ["MeshICP"] = ("last bits (3e-12): the iteration sums in another order", LastBits, -1),
+            ["MeshInsertPolygon"] = ("last bits (3e-16): summation order", LastBits, -1),
+            ["MeshIsoCurves"] = ("last bits (3e-16): summation order", LastBits, -1),
+            ["MeshNormals"] = ("last bits (2e-16): the area weighted sum of face normals runs in corner order", LastBits, -1),
+            ["MeshPlaneCut"] = ("last bits (6e-16): summation order", LastBits, -1),
+            ["MeshRoundingRepair"] = ("last bits (2e-16) of the volume sum; the repair itself is the same", LastBits, -1),
+            ["PointAABBTree3"] = ("last bits (1e-16): summation order", LastBits, -1),
+            ["Reducer.MaxDeviation"] = ("last bits (2e-15) of the area and volume sums; the same triangles", LastBits, -1),
+            ["Reducer.TriangleCount"] = ("last bits (2e-15) of the area and volume sums; the same triangles", LastBits, -1),
             // axis-aligned structure: a grid, an octree or a sampling pattern whose cells follow the axes (the sweep's own tolerances)
             ["MeshAlphaWrap"] = ("an axis-aligned octree of cells: area within 1.2e-2 (relative) under axis changes", -1, -1),
             ["MeshFidelityMetrics"] = ("sampled points on the triangles in axis order: chamfer within 8e-6", -1, -1),
@@ -109,8 +115,10 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> "" if the signatures agree: bit for bit unless the operation is classified as toleranced </summary>
-        public static string Compare(Op op, Sig a, Sig b, bool? forceExact = null)
+        public static string Compare(Op op, Sig a, Sig b, bool? forceExact = null, bool reflects = true)
         {
+            if (a.Failed) return "the original run reports failure (nothing to compare with)";
+            if (a.Values.Count == 0) return "the original run has no values (nothing to compare with)";
             if (a.Failed != b.Failed) return $"status: failed={a.Failed} on the original, {b.Failed} under the symmetry";
             if (a.Values.Count != b.Values.Count) return $"{a.Values.Count} values vs {b.Values.Count}";
             bool exact = forceExact ?? (op.BitExact && !Toleranced.ContainsKey(op.Name));
@@ -118,6 +126,8 @@ namespace geometry3Sharp.Tests
             if (Toleranced.TryGetValue(op.Name, out var cls)) {
                 if (cls.Tol >= 0) tolerance = cls.Tol;
                 if (cls.CountTol >= 0) countTolerance = cls.CountTol;
+                // the rotations of these rows differ in the last bits at most: only the reflections get the wide bound
+                if (ReflectionsOnly.Contains(op.Name) && !reflects) { tolerance = LastBits; countTolerance = 0; }
             }
             for (int i = 0; i < a.Values.Count; ++i) {
                 var x = a.Values[i]; var y = b.Values[i];
@@ -137,9 +147,10 @@ namespace geometry3Sharp.Tests
         {
             try {
                 Sig a = Baselines.GetOrAdd(op.Name, _ => Run(op, Symmetry.All48[0]));
+                if (a.Contradiction != "") return "claim contradicted on the original: " + a.Contradiction;
                 Sig b = Run(op, sym);
                 if (b.Contradiction != "") return "claim contradicted: " + b.Contradiction;
-                return Compare(op, a, b, forceExact);
+                return Compare(op, a, b, forceExact, sym.Reflects);
             } catch (Exception e) {
                 return e.Message;
             }
@@ -167,7 +178,9 @@ namespace geometry3Sharp.Tests
         {
             Op op = ByName(opName);
             var failures = new List<string>();
+            int exactDifferences = 0, runs = 0;
             foreach (Symmetry s in Symmetry.All48.Where(s => !s.IsIdentity && (!op.PlanarInput || s.FixesZ))) {
+                if (Toleranced.ContainsKey(op.Name)) { ++runs; if (Outcome(op, s, true) != "") ++exactDifferences; }
                 string outcome = Outcome(op, s);
                 string key = op.Name + "|" + s.Name;
                 bool known = KnownFailures.TryGetValue(key, out string issue) || KnownFailures.TryGetValue(op.Name + "|*", out issue);
@@ -175,6 +188,8 @@ namespace geometry3Sharp.Tests
                 else if (known && outcome == "") failures.Add($"{key} passes now: remove its entry ({issue})");
                 else if (!known && outcome != "") failures.Add($"{key}: {outcome}");
             }
+            if (Toleranced.ContainsKey(op.Name) && runs > 0 && exactDifferences == 0 && !Report)
+                failures.Add($"{op.Name} is bit for bit under all {runs} symmetries now: remove its row from Toleranced");
             Assert.True(failures.Count == 0, string.Join("\n", failures.Take(10)) + (failures.Count > 10 ? $"\n... {failures.Count} in all" : ""));
         }
 
