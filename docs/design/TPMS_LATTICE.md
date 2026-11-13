@@ -123,10 +123,15 @@ solid and the result is closed.
 - **Sliver guard** (bugfix after #750, found by a large graded lattice): with a level that varies continuously (`VolumeFractionAt`, a
   graded cell size) the node values are generic, and on a lattice of a few hundred thousand nodes a few lie within rounding of the
   level; their crossings sit at cube corners and give degenerate triangles that no grid shift avoids (a constant lattice on its own
-  grid has a small discrete set of node values and was not hit). The field therefore treats a value within `h / 256` of the level as
-  inside (moved to `iso - h / 256`, `TpmsLattice.SliverGuard`): every crossing is then at least 2^-8 of an edge from its node and no
-  triangle is smaller than about 1e-5 cube^2. The surface moves by less than `2 h / 256` and only outward, so the solid is a superset
-  and the `Enclosure` guarantee survives. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
+  grid has a small discrete set of node values and was not hit). The field therefore treats a value within `Snap = h / 256 * ratio` of the level as
+  inside (moved to `iso - Snap`, `TpmsLattice.SliverGuard`), where `ratio` is the sampled maximum of `|grad f|` over the proven bound (1 for
+  the gyroid-like types, about 1/4 for Schwarz D and Neovius, whose bound is loose), so that the band is the same fraction of the change of f
+  per edge for every type: every crossing is then at least 2^-8 of an edge from its node and no
+  triangle is smaller than about 1e-5 cube^2. The field value of a snapped node moves by less than `2 Snap` and only down: the solid `{F <= iso}` can only grow, in
+  every variant (sheet: both walls thicken; skeletal: the solid grows). `F` is 1-Lipschitz in length (`(g - c) / Lw`), so the change of F per
+  cube edge is at most `h` and every crossing is at least `Snap / h` of an edge from its node. For `Enclosure` the sample error is one-sided and below
+  `2 Snap` in field units: the level pad pays `2 Snap` (the audit's `e` term) on top of `sqrt(3) h / 2`. On the constant lattices of the tests
+  13 of 15 type / style cases are bit for bit unchanged; Neovius skeletal changes by less than 5 % of a cube and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
   retries are rare and remain for what the guard cannot see.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).

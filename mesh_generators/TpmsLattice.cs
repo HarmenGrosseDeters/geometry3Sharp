@@ -94,6 +94,8 @@ namespace g3
         public int GridShiftsUsed;
         /// <summary> The marching cubes level used (0 unless Enclosure: sqrt(3) h / 2 plus the floating point pad, in length units). </summary>
         public double IsoValueUsed;
+        // the sliver guard of the field, in cubes (2^-8); 0 switches it off. Internal: for the tests that compare with and without it
+        internal double SliverGuardCubeFraction = 1.0 / 256;
         // test hooks: reject a grid attempt as if the contouring had failed; the lowest node of the grid last used
         internal Func<int, bool> RejectAttempt;
         internal Vector3d LastGridMin;
@@ -137,6 +139,27 @@ namespace g3
                 case TpmsType.IWP: return 6 * r3;        // 2|sin x|(|cos y| + |cos z|) + 2|sin 2x|
                 default: throw new ArgumentOutOfRangeException(nameof(type));
             }
+        }
+
+        static readonly ConcurrentDictionary<TpmsType, double> gradientRatios = new ConcurrentDictionary<TpmsType, double>();
+
+        // sampled maximum of |grad f| over one period (central differences, 24^3 points) divided by the proven bound: in (0, 1]
+        internal static double GradientRatio(TpmsType type)
+        {
+            return gradientRatios.GetOrAdd(type, t => {
+                const int n = 24;
+                double e = 1e-5, max = 0, step = 2 * Math.PI / n;
+                for (int i = 0; i < n; ++i)
+                    for (int j = 0; j < n; ++j)
+                        for (int l = 0; l < n; ++l) {
+                            double x = (i + 0.37) * step, y = (j + 0.61) * step, z = (l + 0.23) * step;
+                            double gx = (Evaluate(t, x + e, y, z) - Evaluate(t, x - e, y, z)) / (2 * e);
+                            double gy = (Evaluate(t, x, y + e, z) - Evaluate(t, x, y - e, z)) / (2 * e);
+                            double gz = (Evaluate(t, x, y, z + e) - Evaluate(t, x, y, z - e)) / (2 * e);
+                            max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz));
+                        }
+                return Math.Min(1, 1.05 * max / GradientBound(t));
+            });
         }
 
         // bound of the sum of the absolute values of the terms, for the rounding error of an evaluation
@@ -373,6 +396,12 @@ namespace g3
 
             // ---- grid (in the lattice frame, anchored at multiples of the cube) ----
             double h = CellSize / Divisions;
+            // The sliver guard in field units: SliverGuardCubeFraction of a cube times the ratio of the true gradient scale to the proven bound
+            // Lw (the bound is loose for some types: Schwarz D and Neovius by about 4). The guard band is then the same fraction of the f
+            // change per edge for every type, and the crossing distance of 2^-8 of an edge holds against the sampled maximum change per
+            // edge. The ratio is a sampled estimate and only sizes the guard: the result is certified separately, and the enclosure pad
+            // pays 2 Snap in field units whatever Snap is.
+            double snap = h * SliverGuardCubeFraction * Math.Max(GradientRatio(Type), 1.0 / 16);
             var cells = new int[3];
             var kmin = new double[3];
             double nodes = 1;
@@ -412,7 +441,9 @@ namespace g3
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain is too small against the period for the proven error bound");
                     return;
                 }
-                isoValue = Math.Sqrt(3.0) * h / 2 + s * (Math.Pow(2, -26) + 4 * eNorm);
+                // + 2 Snap: the sliver guard moves node values by less than 2 Snap (one-sided, down), a sample error e in the sense of the
+                // audit's rule "level above half diagonal + e + S E"; the pad pays for it although a one-sided error would need less
+                isoValue = Math.Sqrt(3.0) * h / 2 + 2 * snap + s * (Math.Pow(2, -26) + 4 * eNorm);
                 // the samples of the outermost nodes are at least 1.2 cubes above the box; they must stay above the level
                 if (!(isoValue < 1.2 * h)) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the cube is too small against the coordinates for the proven level pad (reduce the number of cubes)");
@@ -422,7 +453,7 @@ namespace g3
 
             IsoValueUsed = isoValue;
             var field = new FieldFunction {
-                Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt, Iso = isoValue, Snap = h / 256,
+                Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt, Iso = isoValue, Snap = snap,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
                 DomainTree = tree, DomainBounds = box
             };
