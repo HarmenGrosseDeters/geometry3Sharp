@@ -516,7 +516,7 @@ the edge length) instead of t (along which only the small offset changes). Upper
 direction across the strip once its t-width is below about distance / |w'|, ie after some 15-20 t-splits; the search
 needed 775 689 boxes.
 
-Fix, for edge-edge with nearly parallel edges only (sine of the angle below 0.01): (1) two more separating directions,
+Fix, for edge-edge with nearly parallel edges (sine of the angle below 0.01): (1) two more separating directions,
 the value of F near the box's centre with its part along edge a, resp. edge b, removed (any direction is valid, the test
 is the interval test of 10.1); (2) the split rule measures the change of F along the first of them and splits that
 parameter, as long as the image's spread along it exceeds both the tolerance and the minimum separation (below that a
@@ -525,6 +525,21 @@ restriction to nearly parallel edges, the extra direction moved the near box of 
 minimum separation) later and loosened the time of impact; without the spread condition, parallel edges with a
 minimum separation hit the iteration limit (a sphere sweep pair: 10^6 boxes, 1 889 with it).
 
-Result: cloth-funnel 227ee needs at most 3 261 boxes per query (was 775 689), all 263 queries in 0.1 s (was 0.62 s);
+Code review of #845, fixed in the same PR:
+- the parallel test and the directions use vectors scaled by a power of two to a largest component in [1, 2) (exact): the
+  raw products over- or underflowed at extreme 2^k scales (the decisions differed at 2^262, 2^-270) and the direction
+  turned NaN above about 1e154; test `ParallelEdgePath_ExtremeScales` (identical results from 2^-280 to 2^400, bounded
+  boxes at 2^520 and 2^900);
+- no cliff at the threshold: edges that are not nearly parallel are split along their cross product (under the same
+  spread condition), so a sine of 0.011 needs 1 069 boxes (was 6 840; 116 at 0.009); a generic crossing 116 (was 166);
+  test `ParallelEdgePath_NoCliffAtTheThreshold`;
+- the default tolerance is at least the evaluation error `M 2^-47`: below it the computed corner widths are met only by
+  chance (the parallel pattern in UTM coordinates hit the iteration limit, also before this change);
+- tests for the vertex-triangle guard (`ParallelEdgePath_LeavesVertexTriangleAlone`), the interval path (a variant of
+  the new test) and the invariance set (both parallel patterns; a frame's verdict on the 1.7e-7 miss is only fixed where
+  its resolution resolves it); the edge vectors are computed by one helper (`edges_at`).
+Equivalent survivors: the direction of edge b instead of edge a for the split (the edges are nearly parallel).
+
+Result: cloth-funnel 227ee needs at most 1 495 boxes per query (was 775 689), all 263 queries in 0.07 s (was 0.62 s);
 sample totals in the benchmark README. Test: `NearlyParallelEdges_DecideQuickly` (the pattern built procedurally: 425 317
 boxes on the old code, under 20 000 required).
