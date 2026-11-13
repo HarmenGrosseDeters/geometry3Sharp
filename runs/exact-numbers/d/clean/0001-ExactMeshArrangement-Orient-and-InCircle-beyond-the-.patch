@@ -1,0 +1,1044 @@
+From 7e1f5eb6703d4db15d2e53329bb034257130f66f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 13 Nov 2026 16:51:46 +0000
+Subject: [PATCH] ExactMeshArrangement: Orient and InCircle beyond the fixed
+ width on stack limbs
+
+The last stage of ExactMeshArrangement.Orient and InCircle for points beyond the fixed width was a BigInteger 3 x 3
+determinant (12.4 million calls in the difference of 55928 with its rotated copy, nearly half of its allocation).
+ExactLimbSigns.Orient2 and InCircle evaluate the same determinants on stack limbs with FixedArith; beyond the stack
+limit of Det4 (operands and scratch space above 4608 limbs) and on netstandard2.0 they evaluate the BigInteger form
+themselves (Orient2Big, InCircleBig). The arrangement's two BigInteger determinants and incircle_row move there; the
+call sites multiply the kernel's sign by the projection's.
+
+Scratch space: OrientScratch = 6 a + 15 (b + c) + 32 (need at most 5 a + 14 (b + c) + 11), InCircleScratch =
+28 p + 46 (q + r) + 128 (need at most 27 p + 45 (q + r) + 99); derivation in docs/design/EXACT_LIMB_SIGNS.md, section 5.
+
+Measured against the kernels of #772 (4 cores, wall time with collections, median of 5): 55928 352.8 -> 310.4 s
+(-12.0 %), allocation 180 -> 94 GB; 107554, 42327 and the normal stratum unchanged within the run-to-run range;
+hashes equal.
+
+Tests: ExactLimbSignsTestsPlanar (reference determinants written in the test, known signs, paths, scratch use, the
+limits in the three projections), ExactBooleanWidePointTests (through ExactMeshBoolean with BigInteger points and
+the filters off: results, invariance, reuse, serial against parallel, the allocation bound). The offsets of the
+shards mesh-arrangement-2..4 follow the file.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm
+---
+ .github/workflows/mutation.yml                |   2 +-
+ docs/design/EXACT_LIMB_SIGNS.md               |  90 ++++-
+ docs/roadmap/exact-boolean.md                 |  11 +-
+ math/ExactLimbSigns.cs                        | 183 +++++++++-
+ mesh_ops/ExactMeshArrangement.cs              |  26 +-
+ .../ExactBooleanLimbSignsTests.cs             |   2 +-
+ .../ExactBooleanWidePointTests.cs             | 126 +++++++
+ .../ExactLimbSignsTests.cs                    |  14 +-
+ .../ExactLimbSignsTestsPlanar.cs              | 340 ++++++++++++++++++
+ tests/mutation/README.md                      |   2 +-
+ .../mutation/stryker-mesh-arrangement-2.json  |   4 +-
+ .../mutation/stryker-mesh-arrangement-3.json  |   2 +-
+ .../mutation/stryker-mesh-arrangement-4.json  |   2 +-
+ 13 files changed, 755 insertions(+), 49 deletions(-)
+ create mode 100644 tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs
+ create mode 100644 tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
+
+diff --git a/.github/workflows/mutation.yml b/.github/workflows/mutation.yml
+index 7f56301..5ad71aa 100644
+--- a/.github/workflows/mutation.yml
++++ b/.github/workflows/mutation.yml
+@@ -41,7 +41,7 @@ on:
+       - 'tests/geometry3Sharp.Tests/PredicateDifferentialTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactPoint3ConversionTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactPoint3FixedWidthTests.cs'
+-      - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs'
++      - 'tests/geometry3Sharp.Tests/ExactLimbSignsTests*.cs'
+       - 'tests/geometry3Sharp.Tests/ExactOrient3dKernelTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
+       - 'tests/geometry3Sharp.Tests/ExactPlanesFixedWidthTests.cs'
+diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
+index e012a82..507681a 100644
+--- a/docs/design/EXACT_LIMB_SIGNS.md
++++ b/docs/design/EXACT_LIMB_SIGNS.md
+@@ -1,7 +1,8 @@
+-# Exact sign stages on stack limbs (candidate B of the exact-number study)
++# Exact sign stages on stack limbs (candidates B and D of the exact-number study)
+ 
+-Status: built (2026-11-13): `math/ExactLimbSigns.cs` and its seven call sites in `ExactMeshBoolean`. Study: branch
+-`runs/exact-numbers`, `REPORT.md` sections 3 (P3b) and 5b (the probe).
++Status: built (2026-11-13): `math/ExactLimbSigns.cs`, its seven call sites in `ExactMeshBoolean` (B, sections 1 to
++4) and its two in `ExactMeshArrangement` (D, section 5). Study: branch `runs/exact-numbers`, `REPORT.md` sections 3
++(P3b), 5b and 5e (the probes).
+ 
+ ## 1. What and why
+ 
+@@ -130,7 +131,88 @@ is parked until lever 1 (#767) has landed, which changes how often these stages
+ - The existing tests of `ExactMeshBoolean` (filtered against unfiltered results, the invariance over
+   `Similarity.All()`, reuse, parallel against serial) cover the operation, whose results do not change.
+ 
+-## 5. Sources
++## 5. The arrangement's Orient and InCircle beyond the fixed width (candidate D)
++
++`ExactMeshArrangement.Orient` and `InCircle` decide on fixed-width points with `FixedArith` (4 limbs per coordinate).
++For points beyond that width their last stage was a BigInteger determinant: `Det3` of the rows `(v[i], v[j], v.W)`
++for the orientation in the plane of the axes `i`, `j`, and for the in-circle test `Det3` of a row
++`(A s, B s, A^2 + B^2)` per point `v` of the triangle against the fourth point `d`, with `A = v[i] d.W - d[i] v.W`,
++`B` likewise with `j`, `s = v.W d.W` (the derivation is the comment in `InCircle`). On 55928 with its rotated copy
++this stage runs 12.4 million times in one operation and owns nearly half of its allocation.
++
++`ExactLimbSigns.Orient2` and `ExactLimbSigns.InCircle` evaluate the same determinants on stack limbs, with `load`
++and `det3` of section 2. A call that does not run on the stack (the limit below, netstandard2.0) evaluates the
++BigInteger determinant inside the kernel, as `Det4` does (`Orient2Big`, `InCircleBig` with the arrangement's former
++`incircle_row`): a caller cannot take a call beyond the limit for a zero. The two call sites only multiply by the
++projection's sign.
++
++Scratch space (the rules of section 2: a product takes the sum of its factors' limbs, a sum or difference at most one
++limb more than its longer operand):
++- `Orient2`, with `a`, `b`, `c` the limbs of the widest entry of each row: one 3 x 3 determinant, as a minor of
++  `Det4`: at most `5 a + 14 (b + c) + 11`. Allocated: `6 a + 15 (b + c) + 32` (`OrientScratch`).
++- `InCircle`. For a point `v` of the triangle let `t` be the limbs of its widest entry plus those of `d`'s widest
++  entry. Its row: `A` takes two products of at most `t` limbs and their difference of `t + 1`: `3 t + 1`, `B` the
++  same, `s` at most `t`; `A s` and `B s` at most `2 t + 1` each, `A^2` and `B^2` `2 t + 2` each, their sum
++  `2 t + 3`: `17 t + 11` for the row, whose entries have at most `2 t + 1`, `2 t + 1` and `2 t + 3` limbs. The
++  determinant of the rows of `p`, `q`, `r` (with `t_p`, `t_q`, `t_r`, and `u = 2 (t_q + t_r) + 4`): each of its first
++  two terms takes two products of at most `u` limbs, their difference `u + 1` and the product with an entry of the
++  first row `2 t_p + u + 2`: `4 u + 2 t_p + 3`; the third term two products of `u - 2`, their difference `u - 1` and
++  the product `2 t_p + u + 2`: `4 u + 2 t_p - 3`; the two sums of the terms `2 t_p + u + 3` and `2 t_p + u + 4`:
++  `14 u + 10 t_p + 10 = 10 t_p + 28 (t_q + t_r) + 66`. With the three rows: at most
++  `27 t_p + 45 (t_q + t_r) + 99`, for points of one width `m` (so `t = 2 m`) `234 m + 99`. Allocated:
++  `28 t_p + 46 (t_q + t_r) + 128` (`InCircleScratch`).
++- The limit is the one of `Det4`: operands and scratch space together at most `MaxDeterminantLimbs` = 4608 limbs
++  (36 KB of stack), compared in `long`. Rows of one width are on the stack up to 101 limbs for `Orient2` and points
++  of one width up to 17 limbs (1088 bits) for `InCircle`. The widest call of the measured models has 12 limbs for
++  the two widest operands together (about 1,500 limbs of scratch space).
++- The kernels are leaves: they call nothing but `FixedArith`, so the 36 KB are taken once on top of the caller of
++  `Orient` / `InCircle` (the triangulation, `ExactMeshBoolean`, `ExactPlanarSimplify`), whoever that is.
++
++Tests: `ExactLimbSignsTestsPlanar` (the kernels and their BigInteger forms against references written in the test:
++the 3 x 3 expansion for the orientation and, for the in-circle test, the 4 x 4 determinant of the lifted points,
++which is another formula than the kernel's; in the three projections, with collinear and cocircular points by
++construction and one unit off them, other homogeneous factors, the path and the scratch use of every call; signs
++known in advance (a counter-clockwise triangle, a point inside, on and outside its circle); the limits at 4608 and
++4609 limbs and one wide row or point in each position on both sides of the limit, in each projection and with a
++wider entry in the axis the determinant does not read; dense operands at the widest uniform size, which take at
++least `33 w` of `33 w + 11` and `117 t` of `117 t + 99` limbs; translation, 2^k scale and homogeneous factors keep
++the signs; no allocation) and `ExactBooleanWidePointTests` (through `ExactMeshBoolean` with every exact point kept
++as BigIntegers and the filters off, so that every Orient and InCircle on a constructed point takes this stage: the
++default mesh, triangle for triangle, for the three operations, under `Similarity.All()`, on a reused instance and
++with the loops serial; the union allocates 7 / 11 / 28 / 17 MB against 20 / 32 / 73 / 36 MB with the BigInteger
++determinants).
++
++Measured: before = the kernels of sections 1 to 4 (d555e22), after = this section on it. 4-core cloud container,
++.NET SDK 10.0.115, Release, workstation GC; alternating runs, medians (range in brackets); wall time with
++collections, the collector's pause and the allocation separately. Rows: branch `runs/exact-numbers`, `results/d2`
++(the probe before the build, a prototype on c0f8aa9: `results/d`, 371.0 -> 318.8 s on 55928) and `results/d4`.
++
++| stratum | operation | runs | before | after | change | GC pause | allocated |
++|---|---|---|---|---|---|---|---|
++| slow tail | 55928 with its rotated copy, difference | 5 | 352.8 s (349.1-376.2) | 310.4 s (291.8-331.3) | -12.0 % | 78.4 -> 63.0 s | 180.1 -> 93.8 GB |
++| slow tail | 107554, union | 5 | 23.5 s (23.2-25.1) | 23.5 s (22.1-24.3) | -0.1 % | 5.0 -> 5.1 s | 9.2 -> 8.8 GB |
++| slow tail | 107554, intersection | 5 | 17.9 s (17.6-18.2) | 17.6 s (17.2-18.3) | -1.2 % | 4.7 -> 4.6 s | 8.5 -> 8.0 GB |
++| slow tail | 107554, difference | 5 | 18.1 s (17.2-18.5) | 18.1 s (17.5-19.3) | 0.0 % | 4.7 -> 4.7 s | 8.5 -> 8.0 GB |
++| slow tail | 42327, union | 21 | 24.4 s (23.0-27.9) | 24.7 s (23.2-27.8) | +1.2 % | 3.7 -> 3.7 s | 7.6 -> 7.4 GB |
++| slow tail | 42327, intersection | 21 | 22.6 s (20.7-24.7) | 22.3 s (20.6-26.5) | -1.3 % | 3.7 -> 3.5 s | 7.3 -> 7.1 GB |
++| slow tail | 42327, difference | 21 | 22.7 s (20.7-25.2) | 23.0 s (21.1-27.6) | +1.3 % | 3.6 -> 3.8 s | 7.4 -> 7.2 GB |
++| normal | 20 pairs, 60 operations (sum of the medians) | 5 | 6.79 s (6.72-7.09) | 6.70 s (6.68-7.06) | -1.3 %, inside the run-to-run range | 0.14 -> 0.15 s | 2.36 -> 2.36 GB |
++| normal | 13 models with a rotated copy, 39 operations | 5 | 4.50 s (4.38-4.74) | 4.43 s (4.30-4.66) | -1.5 %, inside the range | 0.13 -> 0.13 s | 1.48 -> 1.48 GB |
++
++Result hashes and statuses are equal in every run. On 55928 (4 cores, collections included) the ranges of before
++and after do not overlap; 15 s of the 42 s are the collector's pause (86 GB less allocation). On 107554 and on the
++normal strata nothing changes beyond the run-to-run range: their points stay inside the fixed width, the stage is
++hardly reached. 42327 does not reach it either (its allocation drops by 0.2 GB); its rows are 21 processes per
++side (the 5 of the series with 107554 before it in the process, 5 with 107554 after it, 8 with 42327 alone, 3 of
++`results/d4`), because its classification time spreads between processes: 12 to 16 s for the same work (all
++counters, the allocation and the hash are equal), in 3 of 33 processes before and 5 of 33 after the median of the
++three operations is 14.4 s or more, with more CPU time and the same collector's pause. In the first series of 5
++that put three such processes on the after side (+2.1 / +9.1 / +10.3 % per operation), in the series with the
++order of the models reversed two on the before side (the sum of the six operations 129.7 -> 124.1 s). The spread
++is in the base and is not an effect of this change: it comes from the tiered JIT's dynamic PGO (#825: one union per
++process, 11 of 40 processes at 14.4 s or more by default, 0 of 40 with `DOTNET_TieredPGO=0`).
++
++## 6. Sources
+ 
+ Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
+ `ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
+diff --git a/docs/roadmap/exact-boolean.md b/docs/roadmap/exact-boolean.md
+index 3dd7c8e..f976714 100644
+--- a/docs/roadmap/exact-boolean.md
++++ b/docs/roadmap/exact-boolean.md
+@@ -385,7 +385,8 @@ Open:
+   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
+ - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
+ - **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
+-  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
++  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`. Built as candidate D of the exact-number study
++  (below).
+ - **Extreme-runtime boolean levers (owner 2026-11-12, study #734, `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`):**
+   (1) a hierarchical antipodal boundary sum (Barnes-Hut far field with a certified fallback to the full sum, decisions
+   unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression), design note and
+@@ -423,7 +424,13 @@ Open:
+   models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
+   that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
+   15 % of the slow tail's one-thread time, nothing on the normal stratum) are parked until lever 1 (#767) has
+-  landed, which changes how often these stages run, and are measured again then.
++  landed, which changes how often these stages run, and are measured again then. Candidate D is built
++  (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
++  BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
++  `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the
++  branch of B (4 cores, wall time with collections, median of 5): 55928 352.8 -> 310.4 s (-12.0 %, 15 s of it the
++  collector's pause, allocation 180 -> 94 GB); 107554, 42327 and the normal stratum unchanged within the run-to-run
++  range; hashes equal.
+ - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
+   its tail (4 cores, median of 5, alternating A/B, hashes equal):
+   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
+diff --git a/math/ExactLimbSigns.cs b/math/ExactLimbSigns.cs
+index 46ae555..10e3bcc 100644
+--- a/math/ExactLimbSigns.cs
++++ b/math/ExactLimbSigns.cs
+@@ -8,20 +8,22 @@ namespace g3
+     /// <summary>
+     /// Signs of small integer expressions on BigInteger operands, evaluated on stack limbs with FixedArith instead of
+     /// BigInteger temporaries: the plane side A X + B Y + C Z - D W (and with W = 1), the dot of two integer vectors and
+-    /// the 4 x 4 determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification). The
++    /// the 4 x 4 determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification), and
++    /// the planar orientation and in-circle determinants of homogeneous points (the last stages of
++    /// ExactMeshArrangement.Orient and InCircle, for points beyond the fixed width). The
+     /// operands are copied into sign-magnitude limbs per call (no allocation), the arithmetic is the library's
+     /// FixedArith, so the value is the same integer and the sign the same as the BigInteger expression's.
+     /// A call whose stack need is above a limit uses the BigInteger expression: for the sides and the dot the sum of
+     /// the operands' limbs above MaxOperandLimbs (one wide operand beside small ones stays on the stack), for the
+-    /// determinant the operands' limbs and the scratch space above MaxDeterminantLimbs; so does netstandard2.0 (no
+-    /// BigInteger.TryWriteBytes). The limits bound the stack of one call, which calls nothing but FixedArith: 13 KB
+-    /// for a side or a dot, 36 KB for the determinant (docs/design/EXACT_LIMB_SIGNS.md, which derives the scratch space).
++    /// three determinants the operands' limbs and the scratch space above MaxDeterminantLimbs; so does netstandard2.0
++    /// (no BigInteger.TryWriteBytes). The limits bound the stack of one call, which calls nothing but FixedArith: 13 KB
++    /// for a side or a dot, 36 KB for a determinant (docs/design/EXACT_LIMB_SIGNS.md, which derives the scratch space).
+     /// </summary>
+     internal static unsafe class ExactLimbSigns
+     {
+         /// <summary> the sides and the dot run on the stack while their operands take at most this many 64-bit limbs in all </summary>
+         internal const int MaxOperandLimbs = 320;
+-        /// <summary> the determinant runs on the stack while its operands and its scratch space take at most this many limbs (36 KB) </summary>
++        /// <summary> a determinant (Det4, Orient2, InCircle) runs on the stack while its operands and its scratch space take at most this many limbs (36 KB) </summary>
+         internal const int MaxDeterminantLimbs = 4608;
+ 
+         /// <summary> the scratch limbs of a side or a dot whose operands take `total` limbs (the need is at most 4 total + 6) </summary>
+@@ -255,6 +257,177 @@ namespace g3
+             return Det4Big(a, b, c, d);
+         }
+ 
++        /// <summary>
++        /// the scratch limbs of the planar orientation for rows whose widest entries take a, b, c limbs (the need is at
++        /// most 5 a + 14 (b + c) + 11: one 3 x 3 determinant, as a minor of Det4)
++        /// </summary>
++        internal static long OrientScratch(int a, int b, int c) { return 6L * a + 15L * ((long)b + c) + 32; }
++
++        /// <summary>
++        /// the scratch limbs of the in-circle determinant; p, q, r: for each of the three points the limbs of its widest
++        /// entry plus those of the fourth point's widest entry (the need is at most 27 p + 45 (q + r) + 99)
++        /// </summary>
++        internal static long InCircleScratch(long p, long q, long r) { return 28L * p + 46L * (q + r) + 128; }
++
++        /// <summary>
++        /// The sign of the determinant with the rows (v[i], v[j], v.W) of a, b, c: the orientation of the three points
++        /// in the plane of the axes i, j (W > 0).
++        /// </summary>
++        internal static int Orient2(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
++        {
++            int used;
++            return Orient2(a, b, c, i, j, out used);
++        }
++
++        /// <summary> Orient2, and the scratch limbs it used (-1: the BigInteger form) </summary>
++        [MethodImpl(JitHints.Optimize)]
++#if NET
++        [SkipLocalsInit]
++#endif
++        internal static int Orient2(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j, out int used)
++        {
++#if NET
++            BigInteger ai = a[i], aj = a[j], bi = b[i], bj = b[j], ci = c[i], cj = c[j];
++            int* n = stackalloc int[9];
++            n[0] = limbs_of(ai); n[1] = limbs_of(aj); n[2] = limbs_of(a.W);
++            n[3] = limbs_of(bi); n[4] = limbs_of(bj); n[5] = limbs_of(b.W);
++            n[6] = limbs_of(ci); n[7] = limbs_of(cj); n[8] = limbs_of(c.W);
++            // (the sizes in long: a BigInteger has fewer than 2^26 limbs, so neither sum overflows)
++            long total = 0;
++            for (int k = 0; k < 9; ++k) total += n[k];
++            long need = OrientScratch(Math.Max(n[0], Math.Max(n[1], n[2])), Math.Max(n[3], Math.Max(n[4], n[5])), Math.Max(n[6], Math.Max(n[7], n[8])));
++            if (total + need <= MaxDeterminantLimbs) {
++                int scratch = (int)need;
++                ulong* buf = stackalloc ulong[(int)total];
++                ulong* sc = stackalloc ulong[scratch];
++                var ar = new FixedArena(sc, scratch);
++                ulong* p = buf;
++                FixedInt f0 = load(ai, p, n[0]); p += n[0];
++                FixedInt f1 = load(aj, p, n[1]); p += n[1];
++                FixedInt f2 = load(a.W, p, n[2]); p += n[2];
++                FixedInt f3 = load(bi, p, n[3]); p += n[3];
++                FixedInt f4 = load(bj, p, n[4]); p += n[4];
++                FixedInt f5 = load(b.W, p, n[5]); p += n[5];
++                FixedInt f6 = load(ci, p, n[6]); p += n[6];
++                FixedInt f7 = load(cj, p, n[7]); p += n[7];
++                FixedInt f8 = load(c.W, p, n[8]);
++                int sign = det3(f0, f1, f2, f3, f4, f5, f6, f7, f8, ref ar).Sign;
++                used = scratch - ar.Remaining;
++                return sign;
++            }
++#endif
++            used = -1;
++            return Orient2Big(a, b, c, i, j);
++        }
++
++        /// <summary> the BigInteger form of Orient2 (wide operands, netstandard2.0, and the tests' reference) </summary>
++        internal static int Orient2Big(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
++        {
++            return ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;
++        }
++
++#if NET
++        // the in-circle row of v against d: (A s, B s, A^2 + B^2) with A = v_i d_w - d_i v_w, B likewise, s = v_w d_w
++        [MethodImpl(MethodImplOptions.AggressiveInlining)]
++        static void incircle_row(FixedInt vi, FixedInt vj, FixedInt vw, FixedInt di, FixedInt dj, FixedInt dw, ref FixedArena ar, out FixedInt x, out FixedInt y, out FixedInt l)
++        {
++            FixedInt A = FixedArith.Sub(FixedArith.Mul(vi, dw, ref ar), FixedArith.Mul(di, vw, ref ar), ref ar);
++            FixedInt B = FixedArith.Sub(FixedArith.Mul(vj, dw, ref ar), FixedArith.Mul(dj, vw, ref ar), ref ar);
++            FixedInt s = FixedArith.Mul(vw, dw, ref ar);
++            x = FixedArith.Mul(A, s, ref ar);
++            y = FixedArith.Mul(B, s, ref ar);
++            l = FixedArith.Add(FixedArith.Mul(A, A, ref ar), FixedArith.Mul(B, B, ref ar), ref ar);
++        }
++#endif
++
++        /// <summary>
++        /// The sign of the in-circle determinant of p, q, r against d in the plane of the axes i, j: the 3 x 3
++        /// determinant with a row (A s, B s, A^2 + B^2) per point v of p, q, r, A = v[i] d.W - d[i] v.W, B likewise
++        /// with j, s = v.W d.W (ExactMeshArrangement.InCircle derives it; W > 0).
++        /// </summary>
++        internal static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
++        {
++            int used;
++            return InCircle(p, q, r, d, i, j, out used);
++        }
++
++        /// <summary> InCircle, and the scratch limbs it used (-1: the BigInteger form) </summary>
++        [MethodImpl(JitHints.Optimize)]
++#if NET
++        [SkipLocalsInit]
++#endif
++        internal static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j, out int used)
++        {
++#if NET
++            BigInteger pi = p[i], pj = p[j], qi = q[i], qj = q[j], ri = r[i], rj = r[j], di = d[i], dj = d[j];
++            int* n = stackalloc int[12];
++            n[0] = limbs_of(pi); n[1] = limbs_of(pj); n[2] = limbs_of(p.W);
++            n[3] = limbs_of(qi); n[4] = limbs_of(qj); n[5] = limbs_of(q.W);
++            n[6] = limbs_of(ri); n[7] = limbs_of(rj); n[8] = limbs_of(r.W);
++            n[9] = limbs_of(di); n[10] = limbs_of(dj); n[11] = limbs_of(d.W);
++            // (the sizes in long, as in Orient2)
++            long total = 0;
++            for (int k = 0; k < 12; ++k) total += n[k];
++            // the widest entry of the fourth point, and with it of each of the three
++            long wd = Math.Max(n[9], Math.Max(n[10], n[11]));
++            long need = InCircleScratch(Math.Max(n[0], Math.Max(n[1], n[2])) + wd, Math.Max(n[3], Math.Max(n[4], n[5])) + wd, Math.Max(n[6], Math.Max(n[7], n[8])) + wd);
++            if (total + need <= MaxDeterminantLimbs) {
++                int scratch = (int)need;
++                ulong* buf = stackalloc ulong[(int)total];
++                ulong* sc = stackalloc ulong[scratch];
++                var ar = new FixedArena(sc, scratch);
++                ulong* b = buf;
++                FixedInt f0 = load(pi, b, n[0]); b += n[0];
++                FixedInt f1 = load(pj, b, n[1]); b += n[1];
++                FixedInt f2 = load(p.W, b, n[2]); b += n[2];
++                FixedInt f3 = load(qi, b, n[3]); b += n[3];
++                FixedInt f4 = load(qj, b, n[4]); b += n[4];
++                FixedInt f5 = load(q.W, b, n[5]); b += n[5];
++                FixedInt f6 = load(ri, b, n[6]); b += n[6];
++                FixedInt f7 = load(rj, b, n[7]); b += n[7];
++                FixedInt f8 = load(r.W, b, n[8]); b += n[8];
++                FixedInt f9 = load(di, b, n[9]); b += n[9];
++                FixedInt f10 = load(dj, b, n[10]); b += n[10];
++                FixedInt f11 = load(d.W, b, n[11]);
++                FixedInt ax, ay, al, bx, by, bl, cx, cy, cl;
++                incircle_row(f0, f1, f2, f9, f10, f11, ref ar, out ax, out ay, out al);
++                incircle_row(f3, f4, f5, f9, f10, f11, ref ar, out bx, out by, out bl);
++                incircle_row(f6, f7, f8, f9, f10, f11, ref ar, out cx, out cy, out cl);
++                int sign = det3(ax, ay, al, bx, by, bl, cx, cy, cl, ref ar).Sign;
++                used = scratch - ar.Remaining;
++                return sign;
++            }
++#endif
++            used = -1;
++            return InCircleBig(p, q, r, d, i, j);
++        }
++
++        /// <summary> the BigInteger form of InCircle (wide operands, netstandard2.0, and the tests' reference) </summary>
++        [MethodImpl(JitHints.Optimize)]
++        internal static int InCircleBig(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
++        {
++            BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
++            incircle_row_big(p, d, i, j, out ax, out ay, out al);
++            incircle_row_big(q, d, i, j, out bx, out by, out bl);
++            incircle_row_big(r, d, i, j, out cx, out cy, out cl);
++            return ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl).Sign;
++        }
++
++        // the row of incircle_row in BigIntegers; with both W = 1 the factor s is 1
++        [MethodImpl(JitHints.Optimize)]
++        static void incircle_row_big(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
++        {
++            BigInteger A, B, s;
++            if (v.W.IsOne && d.W.IsOne) {
++                A = v[i] - d[i]; B = v[j] - d[j];
++                x = A; y = B;
++            } else {
++                A = v[i] * d.W - d[i] * v.W; B = v[j] * d.W - d[j] * v.W; s = v.W * d.W;
++                x = A * s; y = B * s;
++            }
++            l = A * A + B * B;
++        }
++
+         /// <summary> the BigInteger form of Det4 (wide operands, netstandard2.0, and the tests' reference) </summary>
+         internal static int Det4Big(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
+         {
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index 4fae20e..3079168 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -1633,9 +1633,7 @@ namespace g3
+                 if (fdet > err) { local.Decided++; return t.Sign; }
+                 if (-fdet > err) { local.Decided++; return -t.Sign; }
+             }
+-            ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
+-            BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
+-            return det.Sign * t.Sign;
++            return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;
+         }
+ 
+         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
+@@ -1715,29 +1713,9 @@ namespace g3
+                 if (fdet > bound) { local.Decided++; return t.Sign; }
+                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
+             }
+-            ExactPoint3 pd = Exact(s);
+-            BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
+-            incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
+-            incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
+-            incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
+-            BigInteger det = ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl);
+             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
+             // may mirror the triangle, which flips the orientation of a, b, c and the sign
+-            return det.Sign * t.Sign;
+-        }
+-
+-        [MethodImpl(JitHints.Optimize)]
+-        static void incircle_row(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
+-        {
+-            BigInteger A, B, s;
+-            if (v.W.IsOne && d.W.IsOne) {
+-                A = v[i] - d[i]; B = v[j] - d[j];
+-                x = A; y = B;
+-            } else {
+-                A = v[i] * d.W - d[i] * v.W; B = v[j] * d.W - d[j] * v.W; s = v.W * d.W;
+-                x = A * s; y = B * s;
+-            }
+-            l = A * A + B * B;
++            return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;
+         }
+ 
+         [MethodImpl(JitHints.Optimize)]
+diff --git a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+index 1ec66c1..820dc61 100644
+--- a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
++++ b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
+@@ -71,7 +71,7 @@ namespace geometry3Sharp.Tests
+         }
+ 
+         // the triangles of a mesh as sorted coordinate strings (the same mesh: the same list)
+-        static List<string> Triangles(DMesh3 m)
++        internal static List<string> Triangles(DMesh3 m)
+         {
+             var list = new List<string>();
+             foreach (int t in m.TriangleIndices()) {
+diff --git a/tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs b/tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs
+new file mode 100644
+index 0000000..cef7be6
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs
+@@ -0,0 +1,126 @@
++using System;
++using System.Collections.Generic;
++using g3;
++using Xunit;
++
++namespace geometry3Sharp.Tests
++{
++    /// <summary>
++    /// The last stages of ExactMeshArrangement.Orient and InCircle (points beyond the fixed width) run on stack limbs
++    /// (ExactLimbSigns.Orient2, InCircle). Through the library's existing entry points only, so that the tests also
++    /// build against the base library: with every exact point kept as BigIntegers (FixedWidthPoints off) and the
++    /// filters off, every Orient and InCircle of the triangulation on a constructed point takes that stage; the result
++    /// must be the default one, and the operation must allocate far less than with BigInteger determinants.
++    /// </summary>
++    public class ExactBooleanWidePointTests
++    {
++        static DMesh3 Input(string kind)
++        {
++            if (kind.StartsWith("sphere"))
++                return new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = int.Parse(kind.Substring(6)) }.Generate().MakeDMesh();
++            return ExactBooleanLimbSignsTests.Shape(kind);
++        }
++
++        // wide: all exact points as BigIntegers and no filters; the parallel loops on this thread if serial (so that the
++        // thread's allocation counter sees the whole operation and nothing of the tests that run beside this one)
++        static long Run(DMesh3 a, DMesh3 b, ExactMeshBoolean.Operations operation, bool wide, bool serial, out ExactMeshBoolean op)
++        {
++            bool before = gParallel.SerialOnThisThread;
++            gParallel.SerialOnThisThread = serial;
++            try {
++                long bytes = GC.GetAllocatedBytesForCurrentThread();
++                op = new ExactMeshBoolean(a, b, operation);
++                if (wide) { op.FixedWidthPoints = false; op.DisableFilters = true; }
++                op.Compute();
++                return GC.GetAllocatedBytesForCurrentThread() - bytes;
++            } finally {
++                gParallel.SerialOnThisThread = before;
++            }
++        }
++
++        static List<string> Triangles(DMesh3 m) { return ExactBooleanLimbSignsTests.Triangles(m); }
++
++        // Measured (one thread, .NET 10): 7 / 11 / 28 / 17 MB with the limb stages, 20 / 32 / 73 / 36 MB with the BigInteger
++        // determinants. The
++        // bound is on the allocation of the operation, which does not depend on the machine's speed; it is checked
++        // where the library has the limb stages (net10.0, not the netstandard2.0 build under net48).
++        [Theory]
++        [InlineData("sphere8", 12)]
++        [InlineData("sphere12", 20)]
++        [InlineData("sheets4", 45)]
++        [InlineData("sheets3", 25)]
++        public void WidePoints_SameResult_WithoutBigIntegerDeterminants(string kind, int megabytes)
++        {
++            DMesh3 a = Input(kind), b = ExactBooleanLimbSignsTests.Copy(a);
++            ExactMeshBoolean normal, wide;
++            Run(a, b, ExactMeshBoolean.Operations.Union, false, true, out normal);
++            Run(a, b, ExactMeshBoolean.Operations.Union, true, true, out wide);        // (compiles the path)
++            long bytes = Run(a, b, ExactMeshBoolean.Operations.Union, true, true, out wide);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, normal.Status);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, wide.Status);
++            Assert.True(normal.Result.TriangleCount > 300, $"{normal.Result.TriangleCount} triangles");
++            // every Orient and InCircle on constructed points by the last stage: the default mesh, triangle for triangle
++            Assert.Equal(Triangles(normal.Result), Triangles(wide.Result));
++#if NET
++            Assert.True(bytes < megabytes * 1048576L, $"{kind}: {bytes / 1048576.0:0.0} MB allocated with wide points and the filters off, bound {megabytes} MB");
++#else
++            Assert.True(bytes > 0 && megabytes > 0);
++#endif
++        }
++
++        [Theory]
++        [InlineData(ExactMeshBoolean.Operations.Intersection)]
++        [InlineData(ExactMeshBoolean.Operations.Difference)]
++        public void WidePoints_SameResult_OtherOperations(ExactMeshBoolean.Operations operation)
++        {
++            DMesh3 a = Input("sphere6"), b = ExactBooleanLimbSignsTests.Copy(a);
++            ExactMeshBoolean normal, wide;
++            Run(a, b, operation, false, false, out normal);
++            Run(a, b, operation, true, false, out wide);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, normal.Status);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, wide.Status);
++            Assert.Equal(Triangles(normal.Result), Triangles(wide.Result));
++            ResultChecks.AssertClosed(wide.Result);
++        }
++
++        // Under every similarity the wide stages give the default result of the same transformed input, and under the
++        // exact ones (the translations by integers and the 2^k scales) the result of the untransformed input.
++        [Theory]
++        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
++        public void WidePoints_SameResultUnderSimilarity(string name)
++        {
++            Similarity s = Similarity.ByName(name);
++            DMesh3 a = Input("sphere5"), b = ExactBooleanLimbSignsTests.Copy(a);
++            ExactMeshBoolean wide0, normal, wide;
++            Run(a, b, ExactMeshBoolean.Operations.Union, true, false, out wide0);
++            DMesh3 ta = Invariance.Transformed(a, s), tb = Invariance.Transformed(b, s);
++            Run(ta, tb, ExactMeshBoolean.Operations.Union, false, false, out normal);
++            Run(ta, tb, ExactMeshBoolean.Operations.Union, true, false, out wide);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, wide0.Status);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, normal.Status);
++            Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, wide.Status);
++            Assert.Equal(Triangles(normal.Result), Triangles(wide.Result));
++            ResultChecks.AssertClosed(wide.Result);
++            if (s.IsExact)
++                Assert.Equal("", Invariance.GeometricDifference(wide0.Result, Invariance.MappedBack(wide.Result, s)));
++        }
++
++        // Compute twice on one instance, and with the parallel loops serial: the same mesh.
++        [Fact]
++        public void WidePoints_ReusedInstance_AndSerial_SameResult()
++        {
++            DMesh3 a = Input("sphere6"), b = ExactBooleanLimbSignsTests.Copy(a);
++            var op = new ExactMeshBoolean(a, b, ExactMeshBoolean.Operations.Union) { FixedWidthPoints = false, DisableFilters = true };
++            Assert.True(op.Compute(), op.Error);
++            List<string> first = Triangles(op.Result);
++            Assert.True(op.Compute(), op.Error);
++            Assert.Equal(first, Triangles(op.Result));
++            for (int run = 0; run < 3; ++run) {
++                ExactMeshBoolean other;
++                Run(a, b, ExactMeshBoolean.Operations.Union, true, run == 0, out other);
++                Assert.Equal(ExactMeshBoolean.BooleanStatus.Success, other.Status);
++                Assert.Equal(first, Triangles(other.Result));
++            }
++        }
++    }
++}
+diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+index b149ee0..c6cc62a 100644
+--- a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
++++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
+@@ -15,18 +15,18 @@ namespace geometry3Sharp.Tests
+     public class ExactLimbSignsTests
+     {
+ #if NET
+-        static readonly bool StackLimbs = true;
++        internal static readonly bool StackLimbs = true;
+ #else
+-        static readonly bool StackLimbs = false;        // netstandard2.0: every call is the BigInteger expression
++        internal static readonly bool StackLimbs = false;        // netstandard2.0: every call is the BigInteger expression
+ #endif
+         // eight operands of this many limbs are the widest plane side on the stack
+-        const int Wide = ExactLimbSigns.MaxOperandLimbs / 8;
++        internal const int Wide = ExactLimbSigns.MaxOperandLimbs / 8;
+ 
+         // the limbs ExactLimbSigns counts for v: the bytes of its two's complement, rounded up
+-        static int Limbs(BigInteger v) { return (v.ToByteArray().Length + 7) / 8; }
++        internal static int Limbs(BigInteger v) { return (v.ToByteArray().Length + 7) / 8; }
+ 
+         // n limbs with every bit below the sign bit set
+-        static BigInteger Full(int n) { return (BigInteger.One << (64 * n - 1)) - 1; }
++        internal static BigInteger Full(int n) { return (BigInteger.One << (64 * n - 1)) - 1; }
+ 
+         // the path of a side or a dot: the stack while the operands take at most MaxOperandLimbs limbs in all, and then
+         // inside the derived need
+@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
+         }
+ 
+         // a value of exactly `bits` bits (0: zero) with a random sign; every eighth one at a limb boundary pattern
+-        static BigInteger Rand(Random r, int bits)
++        internal static BigInteger Rand(Random r, int bits)
+         {
+             if (bits <= 0) return BigInteger.Zero;
+             BigInteger v;
+@@ -75,7 +75,7 @@ namespace geometry3Sharp.Tests
+         }
+ 
+         // widths in bits: small, around the limb boundaries, the classification's sizes, up to `limbs` limbs and beyond
+-        static int Width(Random r, int limbs = Wide)
++        internal static int Width(Random r, int limbs = Wide)
+         {
+             switch (r.Next(8)) {
+                 case 0: return r.Next(0, 4);
+diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
+new file mode 100644
+index 0000000..85c85c3
+--- /dev/null
++++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
+@@ -0,0 +1,340 @@
++using System;
++using System.Collections.Generic;
++using System.Numerics;
++using g3;
++using Xunit;
++
++namespace geometry3Sharp.Tests
++{
++    /// <summary>
++    /// ExactLimbSigns.Orient2 and InCircle (the last stages of ExactMeshArrangement.Orient and InCircle, for points
++    /// beyond the fixed width): the signs equal reference determinants written here (the 3 x 3 expansion, and for the
++    /// in-circle test the 4 x 4 determinant of the lifted points, another formula than the kernel's), for operands of
++    /// every width up to and beyond the stack limit, in the three projections, with exact zeros (collinear and
++    /// cocircular points by construction) and values one unit off; the path of every call (stack limbs or the
++    /// BigInteger form) and its scratch use against the derived need.
++    /// </summary>
++    public class ExactLimbSignsTestsPlanar
++    {
++        static readonly int[][] Axes = { new[] { 1, 2 }, new[] { 2, 0 }, new[] { 0, 1 } };
++
++        static BigInteger Rand(Random r, int bits) { return ExactLimbSignsTests.Rand(r, bits); }
++        static int Limbs(BigInteger v) { return ExactLimbSignsTests.Limbs(v); }
++        static BigInteger Full(int n) { return ExactLimbSignsTests.Full(n); }
++        static bool StackLimbs { get { return ExactLimbSignsTests.StackLimbs; } }
++
++        // the limbs of the widest of the three entries of v that the determinants read, and their sum
++        static int Row(ExactPoint3 v, int i, int j) { return Math.Max(Limbs(v[i]), Math.Max(Limbs(v[j]), Limbs(v.W))); }
++        static int Sum(ExactPoint3 v, int i, int j) { return Limbs(v[i]) + Limbs(v[j]) + Limbs(v.W); }
++
++        // a point with the entries x, y in the axes i, j, z in the third one
++        static ExactPoint3 At(int i, int j, BigInteger x, BigInteger y, BigInteger z, BigInteger w)
++        {
++            var c = new BigInteger[3];
++            c[i] = x; c[j] = y; c[3 - i - j] = z;
++            return ExactPoint3.CreateUnreduced(c[0], c[1], c[2], w);
++        }
++
++        // the same point with another homogeneous factor
++        static ExactPoint3 Times(ExactPoint3 v, BigInteger k) { return ExactPoint3.CreateUnreduced(v.X * k, v.Y * k, v.Z * k, v.W * k); }
++
++        static ExactPoint3 Point(Random r, int limbs)
++        {
++            return ExactPoint3.CreateUnreduced(Rand(r, ExactLimbSignsTests.Width(r, limbs)), Rand(r, ExactLimbSignsTests.Width(r, limbs)), Rand(r, ExactLimbSignsTests.Width(r, limbs)),
++                BigInteger.Abs(Rand(r, Math.Max(1, ExactLimbSignsTests.Width(r, limbs)))));
++        }
++
++        // the reference of Orient2: the determinant of the rows (v[i], v[j], v.W), expanded along the third column
++        static int OrientBig(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
++        {
++            BigInteger det = a.W * (b[i] * c[j] - b[j] * c[i]) - b.W * (a[i] * c[j] - a[j] * c[i]) + c.W * (a[i] * b[j] - a[j] * b[i]);
++            return det.Sign;
++        }
++
++        // the reference of InCircle: the 4 x 4 determinant of the lifted points, rows (x w, y w, x^2 + y^2, w^2) =
++        // w^2 (x / w, y / w, |.|^2, 1); the kernel evaluates the 3 x 3 determinant of the differences to d instead
++        static int InCircleLifted(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
++        {
++            var m = new BigInteger[4, 4];
++            var v = new[] { p, q, r, d };
++            for (int k = 0; k < 4; ++k) {
++                m[k, 0] = v[k][i] * v[k].W; m[k, 1] = v[k][j] * v[k].W; m[k, 2] = v[k][i] * v[k][i] + v[k][j] * v[k][j]; m[k, 3] = v[k].W * v[k].W;
++            }
++            return ExactMeshArrangement.Det4(m).Sign;
++        }
++
++        static int OrientNeed(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j) { return 5 * Row(a, i, j) + 14 * (Row(b, i, j) + Row(c, i, j)) + 11; }
++
++        // the path of Orient2: the stack while operands and scratch space take at most MaxDeterminantLimbs limbs, and
++        // then inside the derived need; returns whether that is inside the limit
++        static bool CheckOrientPath(int used, ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j, string what)
++        {
++            bool onStack = used >= 0;
++            long limbs = Sum(a, i, j) + Sum(b, i, j) + Sum(c, i, j) + ExactLimbSigns.OrientScratch(Row(a, i, j), Row(b, i, j), Row(c, i, j));
++            bool stack = StackLimbs && limbs <= ExactLimbSigns.MaxDeterminantLimbs;
++            int need = OrientNeed(a, b, c, i, j);
++            Assert.True(onStack == stack && (stack ? (used >= 0 && used <= need) : used == -1), $"{what}: on the stack {onStack}, {used} scratch limbs, {limbs} limbs in all, need {need}");
++            return limbs <= ExactLimbSigns.MaxDeterminantLimbs;
++        }
++
++        static int InCircleNeed(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
++        {
++            int wd = Row(d, i, j);
++            return 27 * (Row(p, i, j) + wd) + 45 * (Row(q, i, j) + Row(r, i, j) + 2 * wd) + 99;
++        }
++
++        static bool CheckInCirclePath(int used, ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j, string what)
++        {
++            bool onStack = used >= 0;
++            int wd = Row(d, i, j);
++            long limbs = Sum(p, i, j) + Sum(q, i, j) + Sum(r, i, j) + Sum(d, i, j) + ExactLimbSigns.InCircleScratch(Row(p, i, j) + wd, Row(q, i, j) + wd, Row(r, i, j) + wd);
++            bool stack = StackLimbs && limbs <= ExactLimbSigns.MaxDeterminantLimbs;
++            int need = InCircleNeed(p, q, r, d, i, j);
++            Assert.True(onStack == stack && (stack ? (used >= 0 && used <= need) : used == -1), $"{what}: on the stack {onStack}, {used} scratch limbs, {limbs} limbs in all, need {need}");
++            return limbs <= ExactLimbSigns.MaxDeterminantLimbs;
++        }
++
++        static int Orient(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j) { return ExactLimbSigns.Orient2(a, b, c, i, j); }
++        static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j) { return ExactLimbSigns.InCircle(p, q, r, d, i, j); }
++
++        // The signs themselves, on points whose answer is known: a counter-clockwise triangle is positive, a point
++        // inside the circle of a counter-clockwise triangle is positive; in each projection, on both paths.
++        [Fact]
++        public void KnownSigns()
++        {
++            BigInteger one = BigInteger.One;
++            foreach (int[] ax in Axes) {
++                int i = ax[0], j = ax[1];
++                foreach (int w in new[] { 1, 7 }) {
++                    // (w: another homogeneous factor, so that the general rows are taken too)
++                    Func<int, int, ExactPoint3> at = (x, y) => Times(At(i, j, x, y, 5, one), w);
++                    ExactPoint3 a = at(1, 0), b = at(0, 1), c = at(-1, 0);
++                    foreach (bool big in new[] { false, true }) {
++                        Func<ExactPoint3, ExactPoint3, ExactPoint3, int> orient = (u, v, x) => big ? ExactLimbSigns.Orient2Big(u, v, x, i, j) : ExactLimbSigns.Orient2(u, v, x, i, j);
++                        Func<ExactPoint3, int> circle = x => big ? ExactLimbSigns.InCircleBig(a, b, c, x, i, j) : ExactLimbSigns.InCircle(a, b, c, x, i, j);
++                        Assert.Equal(1, orient(a, b, c));
++                        Assert.Equal(-1, orient(b, a, c));
++                        Assert.Equal(0, orient(a, at(0, 0), c));
++                        Assert.Equal(1, circle(at(0, 0)));
++                        Assert.Equal(0, circle(at(0, -1)));
++                        Assert.Equal(-1, circle(at(0, -2)));
++                        Assert.Equal(-1, big ? ExactLimbSigns.InCircleBig(b, a, c, at(0, 0), i, j) : ExactLimbSigns.InCircle(b, a, c, at(0, 0), i, j));
++                    }
++                }
++            }
++        }
++
++        [Fact]
++        public void Orient2_MatchesBigInteger()
++        {
++            var r = new Random(21);
++            int zeros = 0, nonzero = 0, fallback = 0, onStack = 0;
++            for (int n = 0; n < 6000; ++n) {
++                int i = Axes[n % 3][0], j = Axes[n % 3][1];
++                // (widths up to 110 limbs and 9 beyond: three rows of 101 limbs are the widest uniform ones on the stack)
++                ExactPoint3 a = Point(r, 110), b = Point(r, 110), c = Point(r, 110);
++                int kind = (n / 3) % 3;
++                if (kind != 0) {
++                    // c on the line through a and b (integer points), or one unit beside it; then other homogeneous factors
++                    a = ExactPoint3.CreateUnreduced(a.X, a.Y, a.Z, BigInteger.One); b = ExactPoint3.CreateUnreduced(b.X, b.Y, b.Z, BigInteger.One);
++                    BigInteger s = Rand(r, r.Next(0, 70));
++                    c = ExactPoint3.CreateUnreduced(a.X + s * (b.X - a.X) + (kind == 2 ? 1 : 0), a.Y + s * (b.Y - a.Y), a.Z + s * (b.Z - a.Z) + (kind == 2 ? 1 : 0), BigInteger.One);
++                    a = Times(a, BigInteger.Abs(Rand(r, r.Next(1, 130)))); b = Times(b, BigInteger.Abs(Rand(r, r.Next(1, 130)))); c = Times(c, BigInteger.Abs(Rand(r, r.Next(1, 130))));
++                }
++                int expected = OrientBig(a, b, c, i, j);
++                int used;
++                int sign = ExactLimbSigns.Orient2(a, b, c, i, j, out used);
++                if (CheckOrientPath(used, a, b, c, i, j, $"case {n}")) onStack++; else fallback++;
++                Assert.True(sign == expected, $"case {n}");
++                Assert.True(expected == ExactLimbSigns.Orient2Big(a, b, c, i, j), $"case {n}, the BigInteger form");
++                // two points exchanged: the opposite sign
++                Assert.True(-expected == Orient(b, a, c, i, j), $"case {n}, exchanged");
++                if (expected == 0) zeros++; else nonzero++;
++            }
++            Assert.True(zeros > 1500 && nonzero > 3000 && fallback > 150 && onStack > 3000, $"{zeros} zeros, {nonzero} others, {fallback} beyond the limit, {onStack} inside");
++        }
++
++        [Fact]
++        public void InCircle_MatchesBigInteger()
++        {
++            var r = new Random(22);
++            int zeros = 0, nonzero = 0, fallback = 0, onStack = 0;
++            for (int n = 0; n < 6000; ++n) {
++                int i = Axes[n % 3][0], j = Axes[n % 3][1];
++                // (widths up to 14 limbs and 9 beyond: four points of 17 limbs are the widest uniform ones on the stack)
++                ExactPoint3 p = Point(r, 14), q = Point(r, 14), s = Point(r, 14), d = Point(r, 14);
++                int kind = (n / 3) % 3;
++                if (kind != 0) {
++                    // four points of one circle (a point turned by quarter turns about an integer centre), or the fourth
++                    // one unit off it; then other homogeneous factors
++                    BigInteger cx = Rand(r, ExactLimbSignsTests.Width(r, 14)), cy = Rand(r, ExactLimbSignsTests.Width(r, 14)), u = Rand(r, r.Next(1, 500)), v = Rand(r, r.Next(1, 500));
++                    Func<BigInteger> z = () => Rand(r, r.Next(0, 300));
++                    Func<BigInteger> k = () => BigInteger.Abs(Rand(r, r.Next(1, 130)));
++                    p = Times(At(i, j, cx + u, cy + v, z(), BigInteger.One), k());
++                    q = Times(At(i, j, cx - v, cy + u, z(), BigInteger.One), k());
++                    s = Times(At(i, j, cx - u, cy - v, z(), BigInteger.One), k());
++                    d = Times(At(i, j, cx + v + (kind == 2 ? 1 : 0), cy - u, z(), BigInteger.One), k());
++                }
++                int expected = InCircleLifted(p, q, s, d, i, j);
++                int used;
++                int sign = ExactLimbSigns.InCircle(p, q, s, d, i, j, out used);
++                if (CheckInCirclePath(used, p, q, s, d, i, j, $"case {n}")) onStack++; else fallback++;
++                Assert.True(sign == expected, $"case {n}");
++                Assert.True(expected == ExactLimbSigns.InCircleBig(p, q, s, d, i, j), $"case {n}, the BigInteger form");
++                // two points of the triangle exchanged: the opposite sign
++                Assert.True(-expected == InCircle(q, p, s, d, i, j), $"case {n}, exchanged");
++                if (expected == 0) zeros++; else nonzero++;
++            }
++            Assert.True(zeros > 1500 && nonzero > 3000 && fallback > 300 && onStack > 3000, $"{zeros} zeros, {nonzero} others, {fallback} beyond the limit, {onStack} inside");
++        }
++
++        // a point whose entries in the axes i, j and W have the given limbs, with every bit below the sign bit set (the
++        // entry in the third axis, which the determinants do not read, is the widest of all)
++        static ExactPoint3 Wide(int i, int j, int x, int y, int w, int variant)
++        {
++            return At(i, j, (variant % 2 == 0) ? Full(x) - variant : -Full(x) + variant, Full(y) - 3 * variant, Full(600), Full(w) - 5 * variant);
++        }
++
++        // The limit is on the operands and the scratch space together, and the scratch space follows the rows.
++        [Fact]
++        public void Limits_AreOperandsAndScratch()
++        {
++            int used;
++            foreach (int[] ax in Axes) {
++                int i = ax[0], j = ax[1];
++                // Orient2, rows of 101 limbs (45 x 101 + 32 = 4577 limbs in all), the first row with one entry of 105
++                // (4605), and a second entry of it of 104 or 105 limbs: 4608 and 4609
++                foreach (int e in new[] { 104, 105 }) {
++                    ExactPoint3 a = Wide(i, j, 105, e, 101, 0), b = Wide(i, j, 101, 101, 101, 1), c = Wide(i, j, 101, 101, 101, 2);
++                    int sign = ExactLimbSigns.Orient2(a, b, c, i, j, out used);
++                    Assert.Equal(e == 104, CheckOrientPath(used, a, b, c, i, j, $"orient, {e}"));
++                    Assert.Equal(StackLimbs && e == 104, used >= 0);
++                    Assert.Equal(OrientBig(a, b, c, i, j), sign);
++                }
++                // one wide row in each position: [row, limbs, inside]
++                foreach (int[] w in new[] { new[] { 0, 400, 1 }, new[] { 0, 520, 0 }, new[] { 1, 200, 1 }, new[] { 1, 260, 0 }, new[] { 2, 200, 1 }, new[] { 2, 260, 0 } }) {
++                    var v = new ExactPoint3[3];
++                    for (int k = 0; k < 3; ++k) v[k] = (k == w[0]) ? Wide(i, j, w[1], w[1], w[1], k) : Wide(i, j, 1, 1, 1, k);
++                    int sign = ExactLimbSigns.Orient2(v[0], v[1], v[2], i, j, out used);
++                    Assert.Equal(w[2] == 1, CheckOrientPath(used, v[0], v[1], v[2], i, j, $"orient, row {w[0]} of {w[1]} limbs"));
++                    Assert.Equal(StackLimbs && w[2] == 1, used >= 0);
++                    Assert.Equal(OrientBig(v[0], v[1], v[2], i, j), sign);
++                }
++                // InCircle, points of 17 limbs with the first one (24, e, 17): 4608 limbs in all for e = 10, 4609 for 11
++                foreach (int e in new[] { 10, 11 }) {
++                    ExactPoint3 p = Wide(i, j, 24, e, 17, 0), q = Wide(i, j, 17, 17, 17, 1), r = Wide(i, j, 17, 17, 17, 2), d = Wide(i, j, 17, 17, 17, 3);
++                    int sign = ExactLimbSigns.InCircle(p, q, r, d, i, j, out used);
++                    Assert.Equal(e == 10, CheckInCirclePath(used, p, q, r, d, i, j, $"in-circle, {e}"));
++                    Assert.Equal(StackLimbs && e == 10, used >= 0);
++                    Assert.Equal(InCircleLifted(p, q, r, d, i, j), sign);
++                }
++                // one wide point in each position
++                foreach (int[] w in new[] { new[] { 0, 100, 1 }, new[] { 0, 140, 0 }, new[] { 1, 60, 1 }, new[] { 1, 90, 0 }, new[] { 2, 60, 1 }, new[] { 2, 90, 0 }, new[] { 3, 30, 1 }, new[] { 3, 36, 0 } }) {
++                    var v = new ExactPoint3[4];
++                    for (int k = 0; k < 4; ++k) v[k] = (k == w[0]) ? Wide(i, j, w[1], w[1], w[1], k) : Wide(i, j, 1, 1, 1, k);
++                    int sign = ExactLimbSigns.InCircle(v[0], v[1], v[2], v[3], i, j, out used);
++                    Assert.Equal(w[2] == 1, CheckInCirclePath(used, v[0], v[1], v[2], v[3], i, j, $"in-circle, point {w[0]} of {w[1]} limbs"));
++                    Assert.Equal(StackLimbs && w[2] == 1, used >= 0);
++                    Assert.Equal(InCircleLifted(v[0], v[1], v[2], v[3], i, j), sign);
++                }
++            }
++        }
++
++        // an entry of `limbs` limbs: random bits below the top one, which is set
++        static BigInteger Dense(Random r, int limbs)
++        {
++            byte[] bytes = new byte[8 * limbs + 1];
++            r.NextBytes(bytes);
++            bytes[8 * limbs] = 0; bytes[8 * limbs - 1] = (byte)(0x40 | (bytes[8 * limbs - 1] & 0x3F));
++            return r.Next(2) == 0 ? new BigInteger(bytes) : -new BigInteger(bytes);
++        }
++
++        // At the widest uniform operands on the stack, without a relation between them, a call takes nearly all of the
++        // derived need: the need is not padded.
++        [Fact]
++        public void LargestOperands_StayInsideTheDerivedScratchNeed()
++        {
++            var r = new Random(23);
++            for (int n = 0; n < 20; ++n) {
++                Func<int, ExactPoint3> point = limbs => ExactPoint3.CreateUnreduced(Dense(r, limbs), Dense(r, limbs), Dense(r, limbs), BigInteger.Abs(Dense(r, limbs)));
++                int used;
++                ExactPoint3 a = point(101), b = point(101), c = point(101);
++                int sign = ExactLimbSigns.Orient2(a, b, c, 1, 2, out used);
++                Assert.True(CheckOrientPath(used, a, b, c, 1, 2, $"orient {n}"));
++                Assert.Equal(33 * 101 + 11, OrientNeed(a, b, c, 1, 2));
++                Assert.Equal(OrientBig(a, b, c, 1, 2), sign);
++                if (StackLimbs) {
++                    Assert.True(used >= 33 * 101, $"orient {n}: {used} scratch limbs of {OrientNeed(a, b, c, 1, 2)}");
++                }
++                ExactPoint3 p = point(17), q = point(17), s = point(17), d = point(17);
++                sign = ExactLimbSigns.InCircle(p, q, s, d, 1, 2, out used);
++                Assert.True(CheckInCirclePath(used, p, q, s, d, 1, 2, $"in-circle {n}"));
++                Assert.Equal(117 * 34 + 99, InCircleNeed(p, q, s, d, 1, 2));
++                Assert.Equal(InCircleLifted(p, q, s, d, 1, 2), sign);
++                if (StackLimbs) {
++                    Assert.True(used >= 117 * 34, $"in-circle {n}: {used} scratch limbs of {InCircleNeed(p, q, s, d, 1, 2)}");
++                }
++            }
++        }
++
++        // Signs that do not depend on the frame: a common translation and a common factor 2^k of integer points, and
++        // another positive homogeneous factor of a point, keep the sign in each projection.
++        [Fact]
++        public void TranslationScaleAndHomogeneousFactor_KeepTheSign()
++        {
++            var r = new Random(24);
++            for (int n = 0; n < 3000; ++n) {
++                int i = Axes[n % 3][0], j = Axes[n % 3][1];
++                var v = new ExactPoint3[4];
++                for (int k = 0; k < 4; ++k) v[k] = ExactPoint3.CreateUnreduced(Rand(r, r.Next(1, 400)), Rand(r, r.Next(1, 400)), Rand(r, r.Next(1, 400)), BigInteger.One);
++                if (n % 2 == 1) {
++                    // (nearly cocircular and nearly collinear: the signs of small determinants)
++                    v[2] = ExactPoint3.CreateUnreduced(2 * v[1].X - v[0].X + r.Next(-1, 2), 2 * v[1].Y - v[0].Y, 2 * v[1].Z - v[0].Z + r.Next(-1, 2), BigInteger.One);
++                }
++                int orient = Orient(v[0], v[1], v[2], i, j), circle = InCircle(v[0], v[1], v[2], v[3], i, j);
++                BigInteger tx = Rand(r, r.Next(1, 600)), ty = Rand(r, r.Next(1, 600)), tz = Rand(r, r.Next(1, 600));
++                int shift = r.Next(1, 200);
++                var moved = new ExactPoint3[4]; var scaled = new ExactPoint3[4]; var other = new ExactPoint3[4];
++                for (int k = 0; k < 4; ++k) {
++                    moved[k] = ExactPoint3.CreateUnreduced(v[k].X + tx, v[k].Y + ty, v[k].Z + tz, BigInteger.One);
++                    scaled[k] = ExactPoint3.CreateUnreduced(v[k].X << shift, v[k].Y << shift, v[k].Z << shift, BigInteger.One);
++                    other[k] = Times(v[k], BigInteger.Abs(Rand(r, r.Next(1, 300))));
++                }
++                Assert.Equal(orient, Orient(moved[0], moved[1], moved[2], i, j));
++                Assert.Equal(orient, Orient(scaled[0], scaled[1], scaled[2], i, j));
++                Assert.Equal(orient, Orient(other[0], other[1], other[2], i, j));
++                Assert.Equal(circle, InCircle(moved[0], moved[1], moved[2], moved[3], i, j));
++                Assert.Equal(circle, InCircle(scaled[0], scaled[1], scaled[2], scaled[3], i, j));
++                Assert.Equal(circle, InCircle(other[0], other[1], other[2], other[3], i, j));
++            }
++        }
++
++#if NET
++        // On the stack: no allocation inside the limit (the BigInteger determinants allocate every temporary).
++        [Fact]
++        public void InsideTheLimit_NoAllocation()
++        {
++            var r = new Random(25);
++            var pts = new List<ExactPoint3[]>();
++            for (int n = 0; n < 200; ++n) {
++                var v = new ExactPoint3[4];
++                for (int k = 0; k < 4; ++k) v[k] = ExactPoint3.CreateUnreduced(Rand(r, r.Next(1, 700)), Rand(r, r.Next(1, 700)), Rand(r, r.Next(1, 700)), BigInteger.Abs(Rand(r, r.Next(1, 700))));
++                pts.Add(v);
++            }
++            long sum = 0, allocated = 0, big = 0;
++            for (int pass = 0; pass < 3; ++pass) {
++                long before = GC.GetAllocatedBytesForCurrentThread();
++                foreach (var v in pts) {
++                    int used;
++                    sum += ExactLimbSigns.Orient2(v[0], v[1], v[2], 0, 1, out used);
++                    if (used < 0) big++;
++                    sum += ExactLimbSigns.InCircle(v[0], v[1], v[2], v[3], 1, 2, out used);
++                    if (used < 0) big++;
++                }
++                allocated = GC.GetAllocatedBytesForCurrentThread() - before;
++            }
++            Assert.True(allocated == 0 && big == 0, $"{allocated} bytes allocated in {3 * pts.Count} calls of each, {big} of them in BigIntegers (sum {sum})");
++        }
++#endif
++    }
++}
+diff --git a/tests/mutation/README.md b/tests/mutation/README.md
+index e0c2690..a9c5ee6 100644
+--- a/tests/mutation/README.md
++++ b/tests/mutation/README.md
+@@ -270,7 +270,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
+ | `boolean-1` .. `boolean-4` | `mesh_ops/ExactMeshBoolean.cs`, split at `open_winding_per_patch`, `trace_clusters` and `front_winding` (since 12 November 2026 three parts: the 55928 tail-case stage, #633, put the open winding per patch and the carried rays before `front_winding` and nearly doubled the first part, 74.8k to 140.1k characters; it is split where that code begins, and the old `boolean-2` is `boolean-3`; the new `boolean-2` keeps the break threshold of `boolean-1` until its own full run gives a reason to change it. Since T5 PR 2, #675, four parts: the carry across input-triangle edges grew `boolean-2` from 67.8k to 100.0k characters; it is split at `trace_clusters`, 52.1k and 47.9k, the new `boolean-3` with `boolean-2`'s filter and threshold, and the old `boolean-3` is `boolean-4`) | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-3` also `ExactBooleanFilterTests` |
+ | `arrangement-1` .. `arrangement-4` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles`, `candidates` and `triangulate_touched` (since 8 November 2026 `arrangement-2` is three shards: on #403 it had 1375 mutants, its coverage pass took 71 min and the job was cancelled after 350 minutes, 272 of them testing; each part keeps the break threshold 72 until its own full runs give a reason to change it) | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
+ | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
+-| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
++| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages and the arrangement's last Orient and InCircle stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactLimbSignsTestsPlanar`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
+ | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92) | `GeneratedPredicatesIndirectTests` |
+ | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
+ | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
+diff --git a/tests/mutation/stryker-mesh-arrangement-2.json b/tests/mutation/stryker-mesh-arrangement-2.json
+index 1bf6e49..d064d71 100644
+--- a/tests/mutation/stryker-mesh-arrangement-2.json
++++ b/tests/mutation/stryker-mesh-arrangement-2.json
+@@ -6,9 +6,9 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshArrangement.cs{70960..113092}"
++      "**/mesh_ops/ExactMeshArrangement.cs{70960..112109}"
+     ],
+-    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
++    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactBooleanWidePointTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "ignore-methods": [
+       "*PredicateStats.*"
+     ],
+diff --git a/tests/mutation/stryker-mesh-arrangement-3.json b/tests/mutation/stryker-mesh-arrangement-3.json
+index 729c864..cae6787 100644
+--- a/tests/mutation/stryker-mesh-arrangement-3.json
++++ b/tests/mutation/stryker-mesh-arrangement-3.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshArrangement.cs{113092..134671}"
++      "**/mesh_ops/ExactMeshArrangement.cs{112109..133688}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-arrangement-4.json b/tests/mutation/stryker-mesh-arrangement-4.json
+index e7c25d5..2348249 100644
+--- a/tests/mutation/stryker-mesh-arrangement-4.json
++++ b/tests/mutation/stryker-mesh-arrangement-4.json
+@@ -6,7 +6,7 @@
+     ],
+     "target-framework": "net10.0",
+     "mutate": [
+-      "**/mesh_ops/ExactMeshArrangement.cs{134671..1000000}"
++      "**/mesh_ops/ExactMeshArrangement.cs{133688..1000000}"
+     ],
+     "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "ignore-methods": [
+-- 
+2.43.0
+
