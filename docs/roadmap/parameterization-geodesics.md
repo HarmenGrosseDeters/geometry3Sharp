@@ -28,9 +28,12 @@ Part of the [roadmap](../ROADMAP.md).
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
 - **Geodesic Bézier curves** (Phase 5 #1): paths, waypoints and loops are done; Bézier curves merged in #540 (done).
-- **Foldover-free maps** (Phase 5 #7, #374): open the paper's energy-decrease stop instead of epsilon <= 1e-6; the SLIM
-  quality target is not universally met; the torus global-overlap fallback remains. Local flip freedom does not close
-  the global-injectivity gap (cones are not guaranteed globally injective, eg on a torus).
+- **Foldover-free maps** (Phase 5 #7, #374; round-off 2026-11-12): the paper's energy-decrease stop is in (iterations
+  115 / 132 / 169 / 132 -> 28 / 41 / 54 / 16, quality within 0.1 % on all four fixtures, time about 2-6x less). The SLIM
+  gap is the fixed boundary, not the solver (with SLIM's boundary: disc 1.000, three peaks 1.083 x SLIM); documented.
+  The torus fallback is a proven limit: the fixed cone-cut boundary polygon crosses itself 4 times, so no map with it
+  is injective; no fix exists inside fixed-boundary untangling. Details in
+  [FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md#round-off-2026-11-12).
 - **P1 collapse** (issue-tracker follow-up): closed 2026-11-12 as a documented limitation
   ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices or spectral
   conformal; foldover-free maps are a lead ([platform.md](platform.md#release-when-its-done)).

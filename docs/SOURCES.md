@@ -252,7 +252,8 @@ Implemented from the papers, no code taken over.
 Implemented from V. Garanzha, I. Kaporin, L. Kudryavtseva, F. Protais, N. Ray and D. Sokolov,
 [*Foldover-free maps in 50 lines of code*, ACM TOG 40(4), 2021](https://arxiv.org/html/2102.03069v1),
 sections 2.2–2.3 (regularized shape/area objective and equation-6 epsilon schedule), section 4.1 and Appendix A
-(analytic gradient and modified Hessian). The implementation specializes the lifted convex Hessian to 2D,
+(analytic gradient and modified Hessian), Algorithm 1 line 11 (stop rule: all determinants positive and the energy
+decreases by less than 1e-3). The implementation specializes the lifted convex Hessian to 2D,
 uses the existing constrained sparse Cholesky solver and bounded Armijo backtracking. Normalization, result
 retention and validation are local integration choices. No authors' implementation, libigl, GPL/MPL or native
 AD code was read or ported. SLIM's publication and the previously MIT-checked TinyAD README were architectural
