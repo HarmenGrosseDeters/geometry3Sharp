@@ -1,0 +1,556 @@
+INFO: libFuzzer ignores flags that start with '--'
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 20261109
+INFO: Loaded 1 modules   (43 inline 8-bit counters): 43 [0x57238c953fb0, 0x57238c953fdb), 
+INFO: Loaded 1 PC tables (43 PCs): 43 [0x57238c953fe0,0x57238c954290), 
+INFO: 65536 Extra Counters
+INFO: -fork=3: fuzzing in separate process(s)
+INFO: -fork=3: 12 seed inputs, starting to fuzz in /tmp/libFuzzerTemp.FuzzWithFork126827.dir
+#15: cov: 124319 ft: 124319 corp: 12 exec/s: 7 oom/timeout/crash: 0/0/0 time: 3s job: 1 dft_time: 0
+==126827==WARNING: invalid path to external symbolizer!
+==126827==WARNING: Failed to use and restart external symbolizer!
+  NEW_FUNC: 0x57238c9202d0  (/opt/tools/libfuzzer-dotnet+0x6b2d0) (BuildId: 59810540a4b23ab59bef1ddbce96deda34c4baa4)
+#232: cov: 124321 ft: 174388 corp: 21 exec/s: 72 oom/timeout/crash: 0/0/0 time: 5s job: 2 dft_time: 0
+#369: cov: 124321 ft: 220795 corp: 64 exec/s: 34 oom/timeout/crash: 0/0/0 time: 7s job: 3 dft_time: 0
+#545: cov: 124321 ft: 234493 corp: 93 exec/s: 35 oom/timeout/crash: 0/0/0 time: 10s job: 4 dft_time: 0
+#1818: cov: 124321 ft: 248109 corp: 132 exec/s: 212 oom/timeout/crash: 0/0/0 time: 14s job: 5 dft_time: 0
+#2621: cov: 124321 ft: 261170 corp: 207 exec/s: 114 oom/timeout/crash: 0/0/0 time: 18s job: 6 dft_time: 0
+#2709: cov: 124321 ft: 266679 corp: 272 exec/s: 11 oom/timeout/crash: 0/0/0 time: 24s job: 7 dft_time: 0
+#2979: cov: 124321 ft: 272823 corp: 326 exec/s: 30 oom/timeout/crash: 0/0/0 time: 30s job: 8 dft_time: 0
+#3450: cov: 124321 ft: 284449 corp: 375 exec/s: 47 oom/timeout/crash: 0/0/0 time: 36s job: 9 dft_time: 0
+#3586: cov: 124321 ft: 294344 corp: 472 exec/s: 12 oom/timeout/crash: 0/0/0 time: 42s job: 10 dft_time: 0
+#3855: cov: 124321 ft: 302970 corp: 536 exec/s: 22 oom/timeout/crash: 0/0/0 time: 50s job: 11 dft_time: 0
+#4112: cov: 124321 ft: 306015 corp: 608 exec/s: 19 oom/timeout/crash: 0/0/0 time: 58s job: 12 dft_time: 0
+#4343: cov: 124321 ft: 307537 corp: 725 exec/s: 16 oom/timeout/crash: 0/0/0 time: 67s job: 13 dft_time: 0
+#4569: cov: 124321 ft: 310007 corp: 813 exec/s: 15 oom/timeout/crash: 0/0/0 time: 77s job: 14 dft_time: 0
+#4776: cov: 124321 ft: 314402 corp: 887 exec/s: 12 oom/timeout/crash: 0/0/0 time: 85s job: 15 dft_time: 0
+#5011: cov: 124321 ft: 315358 corp: 955 exec/s: 13 oom/timeout/crash: 0/0/0 time: 94s job: 16 dft_time: 0
+#5285: cov: 124321 ft: 318484 corp: 1019 exec/s: 15 oom/timeout/crash: 0/0/0 time: 104s job: 17 dft_time: 0
+#5523: cov: 124321 ft: 320102 corp: 1091 exec/s: 12 oom/timeout/crash: 0/0/0 time: 114s job: 18 dft_time: 0
+#5749: cov: 124321 ft: 321130 corp: 1167 exec/s: 11 oom/timeout/crash: 0/0/0 time: 123s job: 19 dft_time: 0
+#6070: cov: 124321 ft: 324316 corp: 1219 exec/s: 15 oom/timeout/crash: 0/0/0 time: 135s job: 20 dft_time: 0
+#6374: cov: 124321 ft: 326052 corp: 1279 exec/s: 13 oom/timeout/crash: 0/0/0 time: 145s job: 21 dft_time: 0
+#6478: cov: 124321 ft: 326977 corp: 1335 exec/s: 11 oom/timeout/crash: 0/0/0 time: 154s job: 23 dft_time: 0
+==127860== ERROR: libFuzzer: deadly signal
+#6711: cov: 124321 ft: 327879 corp: 1355 exec/s: 10 oom/timeout/crash: 0/0/1 time: 157s job: 22 dft_time: 0
+#6957: cov: 124321 ft: 329309 corp: 1400 exec/s: 9 oom/timeout/crash: 0/0/1 time: 179s job: 24 dft_time: 0
+#7248: cov: 124321 ft: 333163 corp: 1449 exec/s: 11 oom/timeout/crash: 0/0/1 time: 190s job: 25 dft_time: 0
+#7568: cov: 124321 ft: 335556 corp: 1505 exec/s: 11 oom/timeout/crash: 0/0/1 time: 200s job: 26 dft_time: 0
+#7757: cov: 124321 ft: 336286 corp: 1550 exec/s: 6 oom/timeout/crash: 0/0/1 time: 218s job: 27 dft_time: 0
+#8250: cov: 124321 ft: 337993 corp: 1602 exec/s: 17 oom/timeout/crash: 0/0/1 time: 230s job: 28 dft_time: 0
+#8614: cov: 124321 ft: 339440 corp: 1644 exec/s: 12 oom/timeout/crash: 0/0/1 time: 240s job: 29 dft_time: 0
+#8788: cov: 124321 ft: 340359 corp: 1684 exec/s: 11 oom/timeout/crash: 0/0/1 time: 254s job: 31 dft_time: 0
+==128253== ERROR: libFuzzer: deadly signal
+#9035: cov: 124321 ft: 340710 corp: 1704 exec/s: 7 oom/timeout/crash: 0/0/2 time: 261s job: 30 dft_time: 0
+#9325: cov: 124321 ft: 342197 corp: 1760 exec/s: 8 oom/timeout/crash: 0/0/2 time: 284s job: 32 dft_time: 0
+#9619: cov: 124321 ft: 343436 corp: 1807 exec/s: 8 oom/timeout/crash: 0/0/2 time: 296s job: 33 dft_time: 0
+#9954: cov: 124321 ft: 344594 corp: 1845 exec/s: 9 oom/timeout/crash: 0/0/2 time: 310s job: 34 dft_time: 0
+#10311: cov: 124321 ft: 345220 corp: 1881 exec/s: 9 oom/timeout/crash: 0/0/2 time: 332s job: 35 dft_time: 0
+#10556: cov: 124321 ft: 346469 corp: 1935 exec/s: 6 oom/timeout/crash: 0/0/2 time: 346s job: 36 dft_time: 0
+#10943: cov: 124321 ft: 347242 corp: 1974 exec/s: 10 oom/timeout/crash: 0/0/2 time: 360s job: 37 dft_time: 0
+#11220: cov: 124321 ft: 347861 corp: 2008 exec/s: 7 oom/timeout/crash: 0/0/2 time: 385s job: 38 dft_time: 0
+#11465: cov: 124321 ft: 349548 corp: 2064 exec/s: 6 oom/timeout/crash: 0/0/2 time: 401s job: 39 dft_time: 0
+#11807: cov: 124321 ft: 350144 corp: 2106 exec/s: 8 oom/timeout/crash: 0/0/2 time: 412s job: 40 dft_time: 0
+#11964: cov: 124321 ft: 351753 corp: 2152 exec/s: 6 oom/timeout/crash: 0/0/2 time: 437s job: 42 dft_time: 0
+==128802== ERROR: libFuzzer: deadly signal
+#12252: cov: 124321 ft: 352295 corp: 2178 exec/s: 6 oom/timeout/crash: 0/0/3 time: 446s job: 41 dft_time: 0
+#12561: cov: 124321 ft: 353896 corp: 2220 exec/s: 7 oom/timeout/crash: 0/0/3 time: 469s job: 43 dft_time: 0
+#12797: cov: 124321 ft: 354264 corp: 2257 exec/s: 7 oom/timeout/crash: 0/0/3 time: 489s job: 45 dft_time: 0
+==128954== ERROR: libFuzzer: deadly signal
+#13161: cov: 124321 ft: 354368 corp: 2276 exec/s: 8 oom/timeout/crash: 0/0/4 time: 496s job: 44 dft_time: 0
+#13509: cov: 124321 ft: 354769 corp: 2313 exec/s: 7 oom/timeout/crash: 0/0/4 time: 531s job: 46 dft_time: 0
+#13736: cov: 124321 ft: 355113 corp: 2345 exec/s: 4 oom/timeout/crash: 0/0/4 time: 544s job: 47 dft_time: 0
+#14094: cov: 124321 ft: 355548 corp: 2385 exec/s: 7 oom/timeout/crash: 0/0/4 time: 558s job: 48 dft_time: 0
+#14259: cov: 124321 ft: 355770 corp: 2422 exec/s: 7 oom/timeout/crash: 0/0/4 time: 580s job: 50 dft_time: 0
+==129258== ERROR: libFuzzer: deadly signal
+#14600: cov: 124321 ft: 356082 corp: 2433 exec/s: 6 oom/timeout/crash: 0/0/5 time: 593s job: 49 dft_time: 0
+#15126: cov: 124321 ft: 356524 corp: 2476 exec/s: 10 oom/timeout/crash: 0/0/5 time: 625s job: 51 dft_time: 0
+#15558: cov: 124321 ft: 356881 corp: 2505 exec/s: 8 oom/timeout/crash: 0/0/5 time: 639s job: 52 dft_time: 0
+#15934: cov: 124321 ft: 357112 corp: 2538 exec/s: 6 oom/timeout/crash: 0/0/5 time: 662s job: 53 dft_time: 0
+#16307: cov: 124321 ft: 357463 corp: 2585 exec/s: 6 oom/timeout/crash: 0/0/5 time: 691s job: 54 dft_time: 0
+#16708: cov: 124321 ft: 358048 corp: 2610 exec/s: 7 oom/timeout/crash: 0/0/5 time: 706s job: 55 dft_time: 0
+#17048: cov: 124321 ft: 358417 corp: 2642 exec/s: 5 oom/timeout/crash: 0/0/5 time: 734s job: 56 dft_time: 0
+#17418: cov: 124321 ft: 358755 corp: 2681 exec/s: 6 oom/timeout/crash: 0/0/5 time: 761s job: 57 dft_time: 0
+#17850: cov: 124321 ft: 359113 corp: 2724 exec/s: 7 oom/timeout/crash: 0/0/5 time: 777s job: 58 dft_time: 0
+#18150: cov: 124321 ft: 359574 corp: 2774 exec/s: 5 oom/timeout/crash: 0/0/5 time: 808s job: 59 dft_time: 0
+#18501: cov: 124321 ft: 359871 corp: 2806 exec/s: 5 oom/timeout/crash: 0/0/5 time: 834s job: 60 dft_time: 0
+#18819: cov: 124321 ft: 360315 corp: 2849 exec/s: 5 oom/timeout/crash: 0/0/5 time: 856s job: 61 dft_time: 0
+#19238: cov: 124321 ft: 361015 corp: 2887 exec/s: 6 oom/timeout/crash: 0/0/5 time: 884s job: 62 dft_time: 0
+#19523: cov: 124321 ft: 361600 corp: 2913 exec/s: 6 oom/timeout/crash: 0/0/5 time: 894s job: 63 dft_time: 0
+==129938== ERROR: libFuzzer: deadly signal
+#20001: cov: 124321 ft: 361888 corp: 2945 exec/s: 7 oom/timeout/crash: 0/0/6 time: 937s job: 64 dft_time: 0
+#20534: cov: 124321 ft: 362134 corp: 2968 exec/s: 8 oom/timeout/crash: 0/0/6 time: 960s job: 65 dft_time: 0
+#20946: cov: 124321 ft: 362411 corp: 2995 exec/s: 6 oom/timeout/crash: 0/0/6 time: 973s job: 66 dft_time: 0
+#21230: cov: 124321 ft: 363304 corp: 3026 exec/s: 6 oom/timeout/crash: 0/0/6 time: 995s job: 67 dft_time: 0
+==130153== ERROR: libFuzzer: deadly signal
+#21719: cov: 124321 ft: 363762 corp: 3043 exec/s: 7 oom/timeout/crash: 0/0/7 time: 1040s job: 68 dft_time: 0
+#22103: cov: 124321 ft: 363913 corp: 3064 exec/s: 5 oom/timeout/crash: 0/0/7 time: 1057s job: 69 dft_time: 0
+#22528: cov: 124321 ft: 364169 corp: 3102 exec/s: 5 oom/timeout/crash: 0/0/7 time: 1076s job: 70 dft_time: 0
+#22933: cov: 124321 ft: 364542 corp: 3139 exec/s: 5 oom/timeout/crash: 0/0/7 time: 1125s job: 71 dft_time: 0
+#23442: cov: 124321 ft: 364796 corp: 3175 exec/s: 6 oom/timeout/crash: 0/0/7 time: 1149s job: 72 dft_time: 0
+#23901: cov: 124322 ft: 364988 corp: 3216 exec/s: 6 oom/timeout/crash: 0/0/7 time: 1168s job: 73 dft_time: 0
+#24356: cov: 124322 ft: 365261 corp: 3240 exec/s: 6 oom/timeout/crash: 0/0/7 time: 1216s job: 74 dft_time: 0
+#24790: cov: 124322 ft: 365432 corp: 3275 exec/s: 5 oom/timeout/crash: 0/0/7 time: 1244s job: 75 dft_time: 0
+#25429: cov: 124322 ft: 365612 corp: 3296 exec/s: 8 oom/timeout/crash: 0/0/7 time: 1258s job: 76 dft_time: 0
+#25644: cov: 124322 ft: 366325 corp: 3319 exec/s: 7 oom/timeout/crash: 0/0/7 time: 1298s job: 79 dft_time: 0
+==130802== ERROR: libFuzzer: deadly signal
+#26205: cov: 124322 ft: 366746 corp: 3333 exec/s: 7 oom/timeout/crash: 0/0/8 time: 1310s job: 77 dft_time: 0
+#26754: cov: 124322 ft: 366906 corp: 3356 exec/s: 6 oom/timeout/crash: 0/0/8 time: 1334s job: 78 dft_time: 0
+#27202: cov: 124322 ft: 367090 corp: 3391 exec/s: 5 oom/timeout/crash: 0/0/8 time: 1385s job: 80 dft_time: 0
+#27630: cov: 124322 ft: 367251 corp: 3410 exec/s: 5 oom/timeout/crash: 0/0/8 time: 1404s job: 81 dft_time: 0
+#28105: cov: 124322 ft: 367462 corp: 3434 exec/s: 5 oom/timeout/crash: 0/0/8 time: 1432s job: 82 dft_time: 0
+#28589: cov: 124322 ft: 367660 corp: 3464 exec/s: 5 oom/timeout/crash: 0/0/8 time: 1481s job: 83 dft_time: 0
+#28971: cov: 124322 ft: 368101 corp: 3491 exec/s: 5 oom/timeout/crash: 0/0/8 time: 1493s job: 84 dft_time: 0
+==131073== ERROR: libFuzzer: deadly signal
+#29472: cov: 124322 ft: 368305 corp: 3518 exec/s: 5 oom/timeout/crash: 0/0/9 time: 1533s job: 85 dft_time: 0
+#29908: cov: 124322 ft: 368422 corp: 3535 exec/s: 7 oom/timeout/crash: 0/0/9 time: 1569s job: 87 dft_time: 0
+==131243== ERROR: libFuzzer: deadly signal
+#30413: cov: 124322 ft: 368702 corp: 3560 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1581s job: 86 dft_time: 0
+#30972: cov: 124322 ft: 368889 corp: 3581 exec/s: 6 oom/timeout/crash: 0/0/10 time: 1635s job: 88 dft_time: 0
+#31578: cov: 124322 ft: 369062 corp: 3604 exec/s: 6 oom/timeout/crash: 0/0/10 time: 1672s job: 89 dft_time: 0
+#32057: cov: 124322 ft: 369196 corp: 3631 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1689s job: 90 dft_time: 0
+#32579: cov: 124322 ft: 369239 corp: 3650 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1741s job: 91 dft_time: 0
+#33130: cov: 124322 ft: 369388 corp: 3674 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1782s job: 92 dft_time: 0
+#33746: cov: 124322 ft: 369624 corp: 3699 exec/s: 6 oom/timeout/crash: 0/0/10 time: 1800s job: 93 dft_time: 0
+#34222: cov: 124322 ft: 369891 corp: 3723 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1850s job: 94 dft_time: 0
+#34792: cov: 124322 ft: 369980 corp: 3751 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1889s job: 95 dft_time: 0
+#35233: cov: 124322 ft: 370171 corp: 3773 exec/s: 4 oom/timeout/crash: 0/0/10 time: 1909s job: 96 dft_time: 0
+#35765: cov: 124322 ft: 370304 corp: 3800 exec/s: 5 oom/timeout/crash: 0/0/10 time: 1963s job: 97 dft_time: 0
+#36272: cov: 124322 ft: 370395 corp: 3816 exec/s: 5 oom/timeout/crash: 0/0/10 time: 2000s job: 98 dft_time: 0
+#36834: cov: 124322 ft: 371481 corp: 3838 exec/s: 5 oom/timeout/crash: 0/0/10 time: 2020s job: 99 dft_time: 0
+#37381: cov: 124322 ft: 371636 corp: 3870 exec/s: 5 oom/timeout/crash: 0/0/10 time: 2078s job: 100 dft_time: 0
+#38115: cov: 124322 ft: 371821 corp: 3894 exec/s: 7 oom/timeout/crash: 0/0/10 time: 2121s job: 101 dft_time: 0
+#38561: cov: 124322 ft: 372020 corp: 3925 exec/s: 4 oom/timeout/crash: 0/0/10 time: 2138s job: 102 dft_time: 0
+==132088== ERROR: libFuzzer: deadly signal
+#39144: cov: 124322 ft: 372098 corp: 3943 exec/s: 5 oom/timeout/crash: 0/0/11 time: 2199s job: 103 dft_time: 0
+#39650: cov: 124322 ft: 372171 corp: 3961 exec/s: 4 oom/timeout/crash: 0/0/11 time: 2243s job: 104 dft_time: 0
+#40305: cov: 124322 ft: 372406 corp: 3981 exec/s: 6 oom/timeout/crash: 0/0/11 time: 2258s job: 105 dft_time: 0
+#40835: cov: 124322 ft: 372552 corp: 4020 exec/s: 4 oom/timeout/crash: 0/0/11 time: 2320s job: 106 dft_time: 0
+#41484: cov: 124322 ft: 372664 corp: 4039 exec/s: 6 oom/timeout/crash: 0/0/11 time: 2363s job: 107 dft_time: 0
+#42192: cov: 124322 ft: 372797 corp: 4060 exec/s: 6 oom/timeout/crash: 0/0/11 time: 2383s job: 108 dft_time: 0
+#42507: cov: 124322 ft: 373006 corp: 4079 exec/s: 5 oom/timeout/crash: 0/0/11 time: 2394s job: 109 dft_time: 0
+==132500== ERROR: libFuzzer: deadly signal
+#42976: cov: 124322 ft: 373068 corp: 4087 exec/s: 4 oom/timeout/crash: 0/0/12 time: 2484s job: 110 dft_time: 0
+#43491: cov: 124322 ft: 373236 corp: 4114 exec/s: 4 oom/timeout/crash: 0/0/12 time: 2506s job: 111 dft_time: 0
+#44114: cov: 124322 ft: 373351 corp: 4132 exec/s: 5 oom/timeout/crash: 0/0/12 time: 2520s job: 112 dft_time: 0
+#44823: cov: 124322 ft: 373435 corp: 4160 exec/s: 6 oom/timeout/crash: 0/0/12 time: 2616s job: 113 dft_time: 0
+#45448: cov: 124322 ft: 373573 corp: 4175 exec/s: 5 oom/timeout/crash: 0/0/12 time: 2635s job: 114 dft_time: 0
+#46017: cov: 124322 ft: 373733 corp: 4202 exec/s: 4 oom/timeout/crash: 0/0/12 time: 2651s job: 115 dft_time: 0
+#46528: cov: 124322 ft: 373908 corp: 4230 exec/s: 4 oom/timeout/crash: 0/0/12 time: 2744s job: 116 dft_time: 0
+#47119: cov: 124322 ft: 373994 corp: 4254 exec/s: 5 oom/timeout/crash: 0/0/12 time: 2770s job: 117 dft_time: 0
+#47721: cov: 124322 ft: 374123 corp: 4283 exec/s: 5 oom/timeout/crash: 0/0/12 time: 2792s job: 118 dft_time: 0
+#48346: cov: 124322 ft: 374343 corp: 4308 exec/s: 5 oom/timeout/crash: 0/0/12 time: 2883s job: 119 dft_time: 0
+#49040: cov: 124322 ft: 374571 corp: 4320 exec/s: 5 oom/timeout/crash: 0/0/12 time: 2913s job: 120 dft_time: 0
+#49644: cov: 124322 ft: 374763 corp: 4340 exec/s: 4 oom/timeout/crash: 0/0/12 time: 2928s job: 121 dft_time: 0
+#50347: cov: 124322 ft: 374857 corp: 4360 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3016s job: 122 dft_time: 0
+#50983: cov: 124322 ft: 374957 corp: 4383 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3049s job: 123 dft_time: 0
+#51661: cov: 124322 ft: 375075 corp: 4411 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3067s job: 124 dft_time: 0
+#52404: cov: 124322 ft: 375763 corp: 4427 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3159s job: 125 dft_time: 0
+#53040: cov: 124322 ft: 375854 corp: 4450 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3194s job: 126 dft_time: 0
+#53701: cov: 124322 ft: 376022 corp: 4464 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3208s job: 127 dft_time: 0
+#54290: cov: 124322 ft: 376226 corp: 4488 exec/s: 4 oom/timeout/crash: 0/0/12 time: 3305s job: 128 dft_time: 0
+#54976: cov: 124322 ft: 376438 corp: 4515 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3338s job: 129 dft_time: 0
+#55877: cov: 124322 ft: 376574 corp: 4533 exec/s: 6 oom/timeout/crash: 0/0/12 time: 3354s job: 130 dft_time: 0
+#56599: cov: 124322 ft: 376655 corp: 4559 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3451s job: 131 dft_time: 0
+#57296: cov: 124322 ft: 376716 corp: 4570 exec/s: 5 oom/timeout/crash: 0/0/12 time: 3483s job: 132 dft_time: 0
+#58316: cov: 124322 ft: 376850 corp: 4602 exec/s: 7 oom/timeout/crash: 0/0/12 time: 3500s job: 133 dft_time: 0
+#58601: cov: 124322 ft: 376911 corp: 4620 exec/s: 4 oom/timeout/crash: 0/0/12 time: 3560s job: 135 dft_time: 0
+==134042== ERROR: libFuzzer: deadly signal
+#59292: cov: 124322 ft: 377128 corp: 4629 exec/s: 5 oom/timeout/crash: 0/0/13 time: 3600s job: 134 dft_time: 0
+#59939: cov: 124322 ft: 377197 corp: 4650 exec/s: 4 oom/timeout/crash: 0/0/13 time: 3651s job: 136 dft_time: 0
+#60679: cov: 124322 ft: 377323 corp: 4662 exec/s: 5 oom/timeout/crash: 0/0/13 time: 3706s job: 137 dft_time: 0
+#61328: cov: 124322 ft: 377453 corp: 4675 exec/s: 4 oom/timeout/crash: 0/0/13 time: 3758s job: 138 dft_time: 0
+#61906: cov: 124322 ft: 377509 corp: 4686 exec/s: 4 oom/timeout/crash: 0/0/13 time: 3801s job: 139 dft_time: 0
+#62787: cov: 124322 ft: 377646 corp: 4699 exec/s: 6 oom/timeout/crash: 0/0/13 time: 3856s job: 140 dft_time: 0
+#63475: cov: 124322 ft: 378136 corp: 4716 exec/s: 4 oom/timeout/crash: 0/0/13 time: 3910s job: 141 dft_time: 0
+#64329: cov: 124322 ft: 378225 corp: 4738 exec/s: 5 oom/timeout/crash: 0/0/13 time: 3956s job: 142 dft_time: 0
+#65115: cov: 124322 ft: 378976 corp: 4754 exec/s: 5 oom/timeout/crash: 0/0/13 time: 4012s job: 143 dft_time: 0
+#66018: cov: 124322 ft: 379045 corp: 4777 exec/s: 6 oom/timeout/crash: 0/0/13 time: 4073s job: 144 dft_time: 0
+#66957: cov: 124322 ft: 379486 corp: 4791 exec/s: 6 oom/timeout/crash: 0/0/13 time: 4116s job: 145 dft_time: 0
+#67752: cov: 124322 ft: 379566 corp: 4804 exec/s: 5 oom/timeout/crash: 0/0/13 time: 4173s job: 146 dft_time: 0
+#68477: cov: 124322 ft: 379756 corp: 4817 exec/s: 4 oom/timeout/crash: 0/0/13 time: 4231s job: 147 dft_time: 0
+#69272: cov: 124322 ft: 379842 corp: 4833 exec/s: 5 oom/timeout/crash: 0/0/13 time: 4275s job: 148 dft_time: 0
+#70000: cov: 124322 ft: 379979 corp: 4848 exec/s: 4 oom/timeout/crash: 0/0/13 time: 4331s job: 149 dft_time: 0
+#70317: cov: 124322 ft: 380106 corp: 4869 exec/s: 5 oom/timeout/crash: 0/0/13 time: 4350s job: 151 dft_time: 0
+==135045== ERROR: libFuzzer: deadly signal
+#71079: cov: 124322 ft: 380236 corp: 4879 exec/s: 5 oom/timeout/crash: 0/0/14 time: 4395s job: 150 dft_time: 0
+#71828: cov: 124322 ft: 380640 corp: 4905 exec/s: 4 oom/timeout/crash: 0/0/14 time: 4503s job: 152 dft_time: 0
+#72603: cov: 124322 ft: 380689 corp: 4919 exec/s: 5 oom/timeout/crash: 0/0/14 time: 4518s job: 153 dft_time: 0
+#73388: cov: 124322 ft: 380758 corp: 4930 exec/s: 5 oom/timeout/crash: 0/0/14 time: 4568s job: 154 dft_time: 0
+#73696: cov: 124322 ft: 380857 corp: 4944 exec/s: 5 oom/timeout/crash: 0/0/14 time: 4578s job: 155 dft_time: 0
+==135297== ERROR: libFuzzer: deadly signal
+#74433: cov: 124322 ft: 380928 corp: 4951 exec/s: 4 oom/timeout/crash: 0/0/15 time: 4687s job: 156 dft_time: 0
+#75369: cov: 124322 ft: 381075 corp: 4972 exec/s: 5 oom/timeout/crash: 0/0/15 time: 4737s job: 157 dft_time: 0
+#76100: cov: 124322 ft: 381100 corp: 4984 exec/s: 4 oom/timeout/crash: 0/0/15 time: 4747s job: 158 dft_time: 0
+#76896: cov: 124322 ft: 381141 corp: 4995 exec/s: 4 oom/timeout/crash: 0/0/15 time: 4860s job: 159 dft_time: 0
+#77660: cov: 124322 ft: 381178 corp: 5005 exec/s: 4 oom/timeout/crash: 0/0/15 time: 4908s job: 160 dft_time: 0
+#78569: cov: 124322 ft: 381244 corp: 5021 exec/s: 5 oom/timeout/crash: 0/0/15 time: 4921s job: 161 dft_time: 0
+#79320: cov: 124322 ft: 381354 corp: 5044 exec/s: 4 oom/timeout/crash: 0/0/15 time: 5035s job: 162 dft_time: 0
+#80175: cov: 124322 ft: 381399 corp: 5057 exec/s: 5 oom/timeout/crash: 0/0/15 time: 5085s job: 163 dft_time: 0
+#80909: cov: 124322 ft: 381497 corp: 5072 exec/s: 4 oom/timeout/crash: 0/0/15 time: 5098s job: 164 dft_time: 0
+#81173: cov: 124322 ft: 381598 corp: 5093 exec/s: 5 oom/timeout/crash: 0/0/15 time: 5159s job: 167 dft_time: 0
+==136014== ERROR: libFuzzer: deadly signal
+#81989: cov: 124322 ft: 381940 corp: 5102 exec/s: 4 oom/timeout/crash: 0/0/16 time: 5216s job: 165 dft_time: 0
+#82785: cov: 124322 ft: 381986 corp: 5113 exec/s: 4 oom/timeout/crash: 0/0/16 time: 5264s job: 166 dft_time: 0
+#83750: cov: 124322 ft: 382033 corp: 5126 exec/s: 5 oom/timeout/crash: 0/0/16 time: 5333s job: 168 dft_time: 0
+#84609: cov: 124322 ft: 382077 corp: 5140 exec/s: 5 oom/timeout/crash: 0/0/16 time: 5399s job: 169 dft_time: 0
+#85135: cov: 124322 ft: 382226 corp: 5159 exec/s: 5 oom/timeout/crash: 0/0/16 time: 5446s job: 171 dft_time: 0
+==136269== ERROR: libFuzzer: deadly signal
+#86040: cov: 124322 ft: 382335 corp: 5169 exec/s: 5 oom/timeout/crash: 0/0/17 time: 5454s job: 170 dft_time: 0
+#86940: cov: 124322 ft: 382484 corp: 5192 exec/s: 5 oom/timeout/crash: 0/0/17 time: 5586s job: 172 dft_time: 0
+#87087: cov: 124322 ft: 382554 corp: 5203 exec/s: 6 oom/timeout/crash: 0/0/17 time: 5620s job: 175 dft_time: 0
+==136527== ERROR: libFuzzer: deadly signal
+#87957: cov: 124322 ft: 382657 corp: 5206 exec/s: 5 oom/timeout/crash: 0/0/18 time: 5628s job: 173 dft_time: 0
+#88844: cov: 124322 ft: 382789 corp: 5223 exec/s: 5 oom/timeout/crash: 0/0/18 time: 5643s job: 174 dft_time: 0
+#89833: cov: 124322 ft: 382879 corp: 5242 exec/s: 5 oom/timeout/crash: 0/0/18 time: 5799s job: 176 dft_time: 0
+#90664: cov: 124322 ft: 382954 corp: 5263 exec/s: 4 oom/timeout/crash: 0/0/18 time: 5820s job: 177 dft_time: 0
+#91374: cov: 124322 ft: 383149 corp: 5280 exec/s: 3 oom/timeout/crash: 0/0/18 time: 5838s job: 178 dft_time: 0
+#91613: cov: 124322 ft: 383164 corp: 5289 exec/s: 6 oom/timeout/crash: 0/0/18 time: 5869s job: 180 dft_time: 0
+==136823== ERROR: libFuzzer: deadly signal
+#92429: cov: 124322 ft: 383323 corp: 5294 exec/s: 4 oom/timeout/crash: 0/0/19 time: 5991s job: 179 dft_time: 0
+#93265: cov: 124322 ft: 383365 corp: 5308 exec/s: 4 oom/timeout/crash: 0/0/19 time: 6037s job: 181 dft_time: 0
+#94255: cov: 124322 ft: 383464 corp: 5324 exec/s: 5 oom/timeout/crash: 0/0/19 time: 6055s job: 182 dft_time: 0
+#95056: cov: 124322 ft: 383518 corp: 5338 exec/s: 4 oom/timeout/crash: 0/0/19 time: 6188s job: 183 dft_time: 0
+#95980: cov: 124322 ft: 383582 corp: 5355 exec/s: 4 oom/timeout/crash: 0/0/19 time: 6234s job: 184 dft_time: 0
+#96786: cov: 124322 ft: 383618 corp: 5366 exec/s: 4 oom/timeout/crash: 0/0/19 time: 6254s job: 185 dft_time: 0
+#97663: cov: 124322 ft: 383693 corp: 5381 exec/s: 4 oom/timeout/crash: 0/0/19 time: 6388s job: 186 dft_time: 0
+#98414: cov: 124322 ft: 383738 corp: 5394 exec/s: 5 oom/timeout/crash: 0/0/19 time: 6410s job: 188 dft_time: 0
+==137310== ERROR: libFuzzer: deadly signal
+#99256: cov: 124322 ft: 383788 corp: 5407 exec/s: 4 oom/timeout/crash: 0/0/20 time: 6434s job: 187 dft_time: 0
+#99605: cov: 124322 ft: 383827 corp: 5416 exec/s: 5 oom/timeout/crash: 0/0/20 time: 6486s job: 190 dft_time: 0
+==137444== ERROR: libFuzzer: deadly signal
+#100447: cov: 124322 ft: 383855 corp: 5426 exec/s: 4 oom/timeout/crash: 0/0/21 time: 6591s job: 189 dft_time: 0
+#101198: cov: 124322 ft: 383937 corp: 5446 exec/s: 3 oom/timeout/crash: 0/0/21 time: 6638s job: 191 dft_time: 0
+#102262: cov: 124322 ft: 383958 corp: 5455 exec/s: 5 oom/timeout/crash: 0/0/21 time: 6687s job: 192 dft_time: 0
+#103234: cov: 124322 ft: 384003 corp: 5462 exec/s: 5 oom/timeout/crash: 0/0/21 time: 6798s job: 193 dft_time: 0
+#104251: cov: 124322 ft: 384118 corp: 5475 exec/s: 5 oom/timeout/crash: 0/0/21 time: 6845s job: 194 dft_time: 0
+#105187: cov: 124322 ft: 384199 corp: 5494 exec/s: 4 oom/timeout/crash: 0/0/21 time: 6892s job: 195 dft_time: 0
+#105508: cov: 124322 ft: 384270 corp: 5511 exec/s: 6 oom/timeout/crash: 0/0/21 time: 6911s job: 197 dft_time: 0
+==137897== ERROR: libFuzzer: deadly signal
+#106458: cov: 124322 ft: 384315 corp: 5515 exec/s: 4 oom/timeout/crash: 0/0/22 time: 7008s job: 196 dft_time: 0
+#107340: cov: 124322 ft: 384382 corp: 5528 exec/s: 4 oom/timeout/crash: 0/0/22 time: 7106s job: 198 dft_time: 0
+#108278: cov: 124322 ft: 384427 corp: 5546 exec/s: 4 oom/timeout/crash: 0/0/22 time: 7121s job: 199 dft_time: 0
+#109200: cov: 124322 ft: 384509 corp: 5559 exec/s: 4 oom/timeout/crash: 0/0/22 time: 7221s job: 200 dft_time: 0
+#110296: cov: 124322 ft: 384523 corp: 5565 exec/s: 5 oom/timeout/crash: 0/0/22 time: 7323s job: 201 dft_time: 0
+#111322: cov: 124322 ft: 384588 corp: 5576 exec/s: 5 oom/timeout/crash: 0/0/22 time: 7336s job: 202 dft_time: 0
+#112432: cov: 124322 ft: 384752 corp: 5590 exec/s: 5 oom/timeout/crash: 0/0/22 time: 7434s job: 203 dft_time: 0
+#113076: cov: 124322 ft: 384782 corp: 5599 exec/s: 4 oom/timeout/crash: 0/0/22 time: 7464s job: 204 dft_time: 0
+==138361== ERROR: libFuzzer: deadly signal
+#114277: cov: 124322 ft: 384819 corp: 5608 exec/s: 5 oom/timeout/crash: 0/0/23 time: 7554s job: 205 dft_time: 0
+#115330: cov: 124322 ft: 384826 corp: 5613 exec/s: 5 oom/timeout/crash: 0/0/23 time: 7655s job: 206 dft_time: 0
+#116533: cov: 124322 ft: 384928 corp: 5627 exec/s: 5 oom/timeout/crash: 0/0/23 time: 7679s job: 207 dft_time: 0
+#116885: cov: 124322 ft: 384964 corp: 5639 exec/s: 7 oom/timeout/crash: 0/0/23 time: 7734s job: 210 dft_time: 0
+==138749== ERROR: libFuzzer: deadly signal
+#118005: cov: 124322 ft: 384995 corp: 5642 exec/s: 5 oom/timeout/crash: 0/0/24 time: 7774s job: 208 dft_time: 0
+#118973: cov: 124322 ft: 385035 corp: 5650 exec/s: 4 oom/timeout/crash: 0/0/24 time: 7879s job: 209 dft_time: 0
+#119969: cov: 124322 ft: 385176 corp: 5663 exec/s: 4 oom/timeout/crash: 0/0/24 time: 7949s job: 211 dft_time: 0
+#121152: cov: 124322 ft: 385222 corp: 5675 exec/s: 5 oom/timeout/crash: 0/0/24 time: 7997s job: 212 dft_time: 0
+#122258: cov: 124322 ft: 385259 corp: 5686 exec/s: 5 oom/timeout/crash: 0/0/24 time: 8104s job: 213 dft_time: 0
+#122962: cov: 124322 ft: 385290 corp: 5696 exec/s: 6 oom/timeout/crash: 0/0/24 time: 8122s job: 215 dft_time: 0
+==139100== ERROR: libFuzzer: deadly signal
+#123908: cov: 124322 ft: 385329 corp: 5711 exec/s: 4 oom/timeout/crash: 0/0/25 time: 8180s job: 214 dft_time: 0
+#124579: cov: 124322 ft: 385351 corp: 5722 exec/s: 5 oom/timeout/crash: 0/0/25 time: 8249s job: 216 dft_time: 0
+==139180== ERROR: libFuzzer: deadly signal
+#125523: cov: 124322 ft: 385400 corp: 5728 exec/s: 4 oom/timeout/crash: 0/0/26 time: 8348s job: 217 dft_time: 0
+#126669: cov: 124322 ft: 385528 corp: 5745 exec/s: 5 oom/timeout/crash: 0/0/26 time: 8413s job: 218 dft_time: 0
+#126992: cov: 124322 ft: 385650 corp: 5762 exec/s: 5 oom/timeout/crash: 0/0/26 time: 8426s job: 220 dft_time: 0
+==139439== ERROR: libFuzzer: deadly signal
+#127211: cov: 124322 ft: 385670 corp: 5768 exec/s: 5 oom/timeout/crash: 0/0/27 time: 8472s job: 222 dft_time: 0
+==139554== ERROR: libFuzzer: deadly signal
+#128224: cov: 124322 ft: 385691 corp: 5772 exec/s: 4 oom/timeout/crash: 0/0/28 time: 8476s job: 219 dft_time: 0
+#128364: cov: 124322 ft: 385725 corp: 5785 exec/s: 5 oom/timeout/crash: 0/0/28 time: 8500s job: 223 dft_time: 0
+==139612== ERROR: libFuzzer: deadly signal
+#129347: cov: 124322 ft: 385918 corp: 5789 exec/s: 4 oom/timeout/crash: 0/0/29 time: 8648s job: 221 dft_time: 0
+#130213: cov: 124322 ft: 385932 corp: 5798 exec/s: 3 oom/timeout/crash: 0/0/29 time: 8715s job: 224 dft_time: 0
+#131350: cov: 124322 ft: 386038 corp: 5816 exec/s: 5 oom/timeout/crash: 0/0/29 time: 8732s job: 225 dft_time: 0
+#132543: cov: 124322 ft: 386063 corp: 5822 exec/s: 5 oom/timeout/crash: 0/0/29 time: 8886s job: 226 dft_time: 0
+#133652: cov: 124322 ft: 386105 corp: 5837 exec/s: 4 oom/timeout/crash: 0/0/29 time: 8960s job: 227 dft_time: 0
+#134634: cov: 124322 ft: 386250 corp: 5854 exec/s: 4 oom/timeout/crash: 0/0/29 time: 8975s job: 228 dft_time: 0
+#135631: cov: 124322 ft: 386282 corp: 5860 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9128s job: 229 dft_time: 0
+#136856: cov: 124322 ft: 386322 corp: 5872 exec/s: 5 oom/timeout/crash: 0/0/29 time: 9206s job: 230 dft_time: 0
+#137853: cov: 124322 ft: 386356 corp: 5888 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9220s job: 231 dft_time: 0
+#138881: cov: 124322 ft: 386403 corp: 5902 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9374s job: 232 dft_time: 0
+#139963: cov: 124322 ft: 386431 corp: 5913 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9452s job: 233 dft_time: 0
+#141108: cov: 124322 ft: 386447 corp: 5920 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9470s job: 234 dft_time: 0
+#142162: cov: 124322 ft: 386470 corp: 5934 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9624s job: 235 dft_time: 0
+#143334: cov: 124322 ft: 386499 corp: 5946 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9699s job: 236 dft_time: 0
+#144555: cov: 124322 ft: 386515 corp: 5953 exec/s: 5 oom/timeout/crash: 0/0/29 time: 9719s job: 237 dft_time: 0
+#145742: cov: 124322 ft: 386555 corp: 5975 exec/s: 4 oom/timeout/crash: 0/0/29 time: 9875s job: 238 dft_time: 0
+#146563: cov: 124322 ft: 386669 corp: 5988 exec/s: 5 oom/timeout/crash: 0/0/29 time: 9898s job: 240 dft_time: 0
+==140723== ERROR: libFuzzer: deadly signal
+#147641: cov: 124322 ft: 386912 corp: 5995 exec/s: 4 oom/timeout/crash: 0/0/30 time: 9947s job: 239 dft_time: 0
+#148765: cov: 124322 ft: 386931 corp: 6003 exec/s: 4 oom/timeout/crash: 0/0/30 time: 10127s job: 241 dft_time: 0
+#150152: cov: 124322 ft: 387005 corp: 6015 exec/s: 5 oom/timeout/crash: 0/0/30 time: 10150s job: 242 dft_time: 0
+#151360: cov: 124322 ft: 387032 corp: 6023 exec/s: 4 oom/timeout/crash: 0/0/30 time: 10202s job: 243 dft_time: 0
+#152554: cov: 124322 ft: 387070 corp: 6039 exec/s: 4 oom/timeout/crash: 0/0/30 time: 10384s job: 244 dft_time: 0
+#154004: cov: 124322 ft: 387102 corp: 6048 exec/s: 5 oom/timeout/crash: 0/0/30 time: 10405s job: 245 dft_time: 0
+#154290: cov: 124322 ft: 387141 corp: 6057 exec/s: 5 oom/timeout/crash: 0/0/30 time: 10442s job: 247 dft_time: 0
+==141231== ERROR: libFuzzer: deadly signal
+#155347: cov: 124322 ft: 387183 corp: 6064 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10460s job: 246 dft_time: 0
+#156423: cov: 124322 ft: 387232 corp: 6074 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10664s job: 248 dft_time: 0
+#157495: cov: 124322 ft: 387311 corp: 6089 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10698s job: 249 dft_time: 0
+#158607: cov: 124322 ft: 387358 corp: 6098 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10723s job: 250 dft_time: 0
+#159720: cov: 124322 ft: 387383 corp: 6108 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10930s job: 251 dft_time: 0
+#160792: cov: 124322 ft: 387483 corp: 6121 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10963s job: 252 dft_time: 0
+#162049: cov: 124322 ft: 387495 corp: 6128 exec/s: 4 oom/timeout/crash: 0/0/31 time: 10993s job: 253 dft_time: 0
+#163098: cov: 124322 ft: 387524 corp: 6136 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11199s job: 254 dft_time: 0
+#164346: cov: 124322 ft: 387586 corp: 6157 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11232s job: 255 dft_time: 0
+#165416: cov: 124322 ft: 387767 corp: 6164 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11261s job: 256 dft_time: 0
+#166571: cov: 124322 ft: 387795 corp: 6178 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11471s job: 257 dft_time: 0
+#167650: cov: 124322 ft: 387810 corp: 6187 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11501s job: 258 dft_time: 0
+#168785: cov: 124322 ft: 387861 corp: 6199 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11533s job: 259 dft_time: 0
+#170095: cov: 124322 ft: 387889 corp: 6206 exec/s: 5 oom/timeout/crash: 0/0/31 time: 11743s job: 260 dft_time: 0
+#171145: cov: 124322 ft: 387911 corp: 6218 exec/s: 4 oom/timeout/crash: 0/0/31 time: 11753s job: 261 dft_time: 0
+==142208== ERROR: libFuzzer: deadly signal
+#172441: cov: 124322 ft: 387970 corp: 6227 exec/s: 4 oom/timeout/crash: 0/0/32 time: 11805s job: 262 dft_time: 0
+#173906: cov: 124322 ft: 388014 corp: 6240 exec/s: 5 oom/timeout/crash: 0/0/32 time: 12017s job: 263 dft_time: 0
+#175172: cov: 124322 ft: 388045 corp: 6250 exec/s: 4 oom/timeout/crash: 0/0/32 time: 12032s job: 264 dft_time: 0
+#176279: cov: 124322 ft: 388085 corp: 6263 exec/s: 4 oom/timeout/crash: 0/0/32 time: 12085s job: 265 dft_time: 0
+#177476: cov: 124322 ft: 388224 corp: 6279 exec/s: 4 oom/timeout/crash: 0/0/32 time: 12295s job: 266 dft_time: 0
+#178620: cov: 124322 ft: 388262 corp: 6289 exec/s: 4 oom/timeout/crash: 0/0/32 time: 12311s job: 267 dft_time: 0
+#178739: cov: 124322 ft: 388311 corp: 6310 exec/s: 5 oom/timeout/crash: 0/0/32 time: 12348s job: 270 dft_time: 0
+==142838== ERROR: libFuzzer: deadly signal
+#179864: cov: 124322 ft: 388330 corp: 6314 exec/s: 4 oom/timeout/crash: 0/0/33 time: 12371s job: 268 dft_time: 0
+#180892: cov: 124322 ft: 388403 corp: 6329 exec/s: 3 oom/timeout/crash: 0/0/33 time: 12578s job: 269 dft_time: 0
+#182314: cov: 124322 ft: 388441 corp: 6335 exec/s: 5 oom/timeout/crash: 0/0/33 time: 12622s job: 271 dft_time: 0
+#183419: cov: 124322 ft: 388490 corp: 6348 exec/s: 4 oom/timeout/crash: 0/0/33 time: 12657s job: 272 dft_time: 0
+#183885: cov: 124322 ft: 388500 corp: 6353 exec/s: 4 oom/timeout/crash: 0/0/33 time: 12731s job: 274 dft_time: 0
+==143105== ERROR: libFuzzer: deadly signal
+#185013: cov: 124322 ft: 388571 corp: 6358 exec/s: 4 oom/timeout/crash: 0/0/34 time: 12862s job: 273 dft_time: 0
+#186480: cov: 124322 ft: 388643 corp: 6372 exec/s: 5 oom/timeout/crash: 0/0/34 time: 12945s job: 275 dft_time: 0
+#186993: cov: 124322 ft: 388659 corp: 6377 exec/s: 5 oom/timeout/crash: 0/0/34 time: 12963s job: 277 dft_time: 0
+==143308== ERROR: libFuzzer: deadly signal
+#188222: cov: 124322 ft: 388685 corp: 6386 exec/s: 4 oom/timeout/crash: 0/0/35 time: 13016s job: 276 dft_time: 0
+#189342: cov: 124322 ft: 388714 corp: 6393 exec/s: 4 oom/timeout/crash: 0/0/35 time: 13234s job: 278 dft_time: 0
+#190748: cov: 124322 ft: 388749 corp: 6403 exec/s: 5 oom/timeout/crash: 0/0/35 time: 13248s job: 279 dft_time: 0
+#191993: cov: 124322 ft: 388838 corp: 6424 exec/s: 4 oom/timeout/crash: 0/0/35 time: 13308s job: 280 dft_time: 0
+#192346: cov: 124322 ft: 388890 corp: 6431 exec/s: 4 oom/timeout/crash: 0/0/35 time: 13390s job: 283 dft_time: 0
+==143718== ERROR: libFuzzer: deadly signal
+#193063: cov: 124322 ft: 388912 corp: 6436 exec/s: 4 oom/timeout/crash: 0/0/36 time: 13424s job: 282 dft_time: 0
+==143658== ERROR: libFuzzer: deadly signal
+#194219: cov: 124322 ft: 388959 corp: 6449 exec/s: 4 oom/timeout/crash: 0/0/37 time: 13527s job: 281 dft_time: 0
+#195305: cov: 124322 ft: 389206 corp: 6456 exec/s: 3 oom/timeout/crash: 0/0/37 time: 13680s job: 284 dft_time: 0
+#196465: cov: 124322 ft: 389228 corp: 6468 exec/s: 4 oom/timeout/crash: 0/0/37 time: 13720s job: 285 dft_time: 0
+#197852: cov: 124322 ft: 389305 corp: 6479 exec/s: 4 oom/timeout/crash: 0/0/37 time: 13824s job: 286 dft_time: 0
+#197956: cov: 124322 ft: 389426 corp: 6484 exec/s: 6 oom/timeout/crash: 0/0/37 time: 13850s job: 289 dft_time: 0
+==144146== ERROR: libFuzzer: deadly signal
+#199301: cov: 124322 ft: 389426 corp: 6484 exec/s: 4 oom/timeout/crash: 0/0/38 time: 13982s job: 287 dft_time: 0
+#200412: cov: 124322 ft: 389451 corp: 6497 exec/s: 3 oom/timeout/crash: 0/0/38 time: 14020s job: 288 dft_time: 0
+#200652: cov: 124322 ft: 389516 corp: 6507 exec/s: 5 oom/timeout/crash: 0/0/38 time: 14080s job: 292 dft_time: 0
+==144309== ERROR: libFuzzer: deadly signal
+#202009: cov: 124322 ft: 389651 corp: 6514 exec/s: 4 oom/timeout/crash: 0/0/39 time: 14141s job: 290 dft_time: 0
+#203117: cov: 124322 ft: 389669 corp: 6526 exec/s: 3 oom/timeout/crash: 0/0/39 time: 14288s job: 291 dft_time: 0
+#204028: cov: 124322 ft: 389696 corp: 6536 exec/s: 4 oom/timeout/crash: 0/0/39 time: 14304s job: 293 dft_time: 0
+==144371== ERROR: libFuzzer: deadly signal
+#204212: cov: 124322 ft: 389843 corp: 6546 exec/s: 5 oom/timeout/crash: 0/0/40 time: 14337s job: 295 dft_time: 0
+==144518== ERROR: libFuzzer: deadly signal
+#204512: cov: 124322 ft: 389852 corp: 6549 exec/s: 5 oom/timeout/crash: 0/0/41 time: 14369s job: 296 dft_time: 0
+==144566== ERROR: libFuzzer: deadly signal
+#205728: cov: 124322 ft: 389877 corp: 6554 exec/s: 4 oom/timeout/crash: 0/0/42 time: 14447s job: 294 dft_time: 0
+#206308: cov: 124322 ft: 390139 corp: 6565 exec/s: 4 oom/timeout/crash: 0/0/42 time: 14495s job: 298 dft_time: 0
+==144676== ERROR: libFuzzer: deadly signal
+#207479: cov: 124322 ft: 390175 corp: 6572 exec/s: 3 oom/timeout/crash: 0/0/43 time: 14638s job: 297 dft_time: 0
+#208649: cov: 124322 ft: 390188 corp: 6579 exec/s: 3 oom/timeout/crash: 0/0/43 time: 14761s job: 299 dft_time: 0
+#209893: cov: 124322 ft: 390216 corp: 6589 exec/s: 4 oom/timeout/crash: 0/0/43 time: 14804s job: 300 dft_time: 0
+#211378: cov: 124322 ft: 390232 corp: 6594 exec/s: 4 oom/timeout/crash: 0/0/43 time: 14949s job: 301 dft_time: 0
+#212740: cov: 124322 ft: 390311 corp: 6603 exec/s: 4 oom/timeout/crash: 0/0/43 time: 15072s job: 302 dft_time: 0
+#214103: cov: 124322 ft: 390323 corp: 6606 exec/s: 4 oom/timeout/crash: 0/0/43 time: 15115s job: 303 dft_time: 0
+#214321: cov: 124322 ft: 390333 corp: 6612 exec/s: 6 oom/timeout/crash: 0/0/43 time: 15122s job: 305 dft_time: 0
+==145223== ERROR: libFuzzer: deadly signal
+#215615: cov: 124322 ft: 390407 corp: 6617 exec/s: 4 oom/timeout/crash: 0/0/44 time: 15257s job: 304 dft_time: 0
+#216755: cov: 124322 ft: 390419 corp: 6623 exec/s: 3 oom/timeout/crash: 0/0/44 time: 15424s job: 306 dft_time: 0
+#218121: cov: 124322 ft: 390479 corp: 6633 exec/s: 4 oom/timeout/crash: 0/0/44 time: 15435s job: 307 dft_time: 0
+#219235: cov: 124322 ft: 390500 corp: 6641 exec/s: 3 oom/timeout/crash: 0/0/44 time: 15569s job: 308 dft_time: 0
+#220499: cov: 124322 ft: 390546 corp: 6649 exec/s: 4 oom/timeout/crash: 0/0/44 time: 15737s job: 309 dft_time: 0
+#221686: cov: 124322 ft: 390564 corp: 6654 exec/s: 3 oom/timeout/crash: 0/0/44 time: 15746s job: 310 dft_time: 0
+#222816: cov: 124322 ft: 390635 corp: 6668 exec/s: 3 oom/timeout/crash: 0/0/44 time: 15883s job: 311 dft_time: 0
+#223951: cov: 124322 ft: 390646 corp: 6675 exec/s: 3 oom/timeout/crash: 0/0/44 time: 16047s job: 312 dft_time: 0
+#225276: cov: 124322 ft: 390682 corp: 6684 exec/s: 4 oom/timeout/crash: 0/0/44 time: 16060s job: 313 dft_time: 0
+#226357: cov: 124322 ft: 390714 corp: 6691 exec/s: 3 oom/timeout/crash: 0/0/44 time: 16196s job: 314 dft_time: 0
+#227474: cov: 124322 ft: 390741 corp: 6700 exec/s: 3 oom/timeout/crash: 0/0/44 time: 16360s job: 315 dft_time: 0
+#228744: cov: 124322 ft: 390762 corp: 6706 exec/s: 4 oom/timeout/crash: 0/0/44 time: 16373s job: 316 dft_time: 0
+#230120: cov: 124322 ft: 390829 corp: 6711 exec/s: 4 oom/timeout/crash: 0/0/44 time: 16512s job: 317 dft_time: 0
+#231330: cov: 124322 ft: 390884 corp: 6719 exec/s: 4 oom/timeout/crash: 0/0/44 time: 16670s job: 318 dft_time: 0
+#232800: cov: 124322 ft: 390902 corp: 6725 exec/s: 4 oom/timeout/crash: 0/0/44 time: 16682s job: 319 dft_time: 0
+#233120: cov: 124322 ft: 391030 corp: 6739 exec/s: 5 oom/timeout/crash: 0/0/44 time: 16743s job: 321 dft_time: 0
+==146379== ERROR: libFuzzer: deadly signal
+#234256: cov: 124322 ft: 391039 corp: 6742 exec/s: 3 oom/timeout/crash: 0/0/45 time: 16827s job: 320 dft_time: 0
+#235469: cov: 124322 ft: 391067 corp: 6752 exec/s: 4 oom/timeout/crash: 0/0/45 time: 16996s job: 322 dft_time: 0
+#236795: cov: 124322 ft: 391076 corp: 6758 exec/s: 4 oom/timeout/crash: 0/0/45 time: 17048s job: 323 dft_time: 0
+#237956: cov: 124322 ft: 391110 corp: 6773 exec/s: 3 oom/timeout/crash: 0/0/45 time: 17139s job: 324 dft_time: 0
+#238774: cov: 124322 ft: 391115 corp: 6776 exec/s: 5 oom/timeout/crash: 0/0/45 time: 17161s job: 325 dft_time: 0
+==146652== ERROR: libFuzzer: deadly signal
+#239402: cov: 124322 ft: 391153 corp: 6779 exec/s: 5 oom/timeout/crash: 0/0/46 time: 17278s job: 328 dft_time: 0
+==146835== ERROR: libFuzzer: deadly signal
+#240492: cov: 124322 ft: 391177 corp: 6789 exec/s: 3 oom/timeout/crash: 0/0/47 time: 17360s job: 326 dft_time: 0
+#242136: cov: 124322 ft: 391214 corp: 6800 exec/s: 5 oom/timeout/crash: 0/0/47 time: 17451s job: 327 dft_time: 0
+#243396: cov: 124322 ft: 391256 corp: 6812 exec/s: 4 oom/timeout/crash: 0/0/47 time: 17587s job: 329 dft_time: 0
+#244678: cov: 124322 ft: 391282 corp: 6822 exec/s: 4 oom/timeout/crash: 0/0/47 time: 17674s job: 330 dft_time: 0
+#245842: cov: 124322 ft: 391369 corp: 6835 exec/s: 3 oom/timeout/crash: 0/0/47 time: 17762s job: 331 dft_time: 0
+#245959: cov: 124322 ft: 391395 corp: 6845 exec/s: 5 oom/timeout/crash: 0/0/47 time: 17797s job: 334 dft_time: 0
+==147279== ERROR: libFuzzer: deadly signal
+#247205: cov: 124322 ft: 391501 corp: 6847 exec/s: 4 oom/timeout/crash: 0/0/48 time: 17898s job: 332 dft_time: 0
+#248293: cov: 124322 ft: 391516 corp: 6852 exec/s: 3 oom/timeout/crash: 0/0/48 time: 17990s job: 333 dft_time: 0
+#249453: cov: 124322 ft: 391526 corp: 6859 exec/s: 3 oom/timeout/crash: 0/0/48 time: 18100s job: 335 dft_time: 0
+#250669: cov: 124322 ft: 391635 corp: 6869 exec/s: 4 oom/timeout/crash: 0/0/48 time: 18207s job: 336 dft_time: 0
+#251844: cov: 124322 ft: 391644 corp: 6873 exec/s: 4 oom/timeout/crash: 0/0/48 time: 18259s job: 337 dft_time: 0
+==147480== ERROR: libFuzzer: deadly signal
+#253159: cov: 124322 ft: 391681 corp: 6883 exec/s: 4 oom/timeout/crash: 0/0/49 time: 18411s job: 338 dft_time: 0
+#254283: cov: 124322 ft: 391707 corp: 6891 exec/s: 3 oom/timeout/crash: 0/0/49 time: 18517s job: 339 dft_time: 0
+#255698: cov: 124322 ft: 391722 corp: 6895 exec/s: 4 oom/timeout/crash: 0/0/49 time: 18570s job: 340 dft_time: 0
+#257094: cov: 124322 ft: 391952 corp: 6903 exec/s: 4 oom/timeout/crash: 0/0/49 time: 18723s job: 341 dft_time: 0
+#257819: cov: 124322 ft: 391983 corp: 6911 exec/s: 4 oom/timeout/crash: 0/0/49 time: 18736s job: 343 dft_time: 0
+==149712== ERROR: libFuzzer: deadly signal
+#259161: cov: 124322 ft: 392004 corp: 6917 exec/s: 4 oom/timeout/crash: 0/0/50 time: 18829s job: 342 dft_time: 0
+#260276: cov: 124322 ft: 392025 corp: 6928 exec/s: 4 oom/timeout/crash: 0/0/50 time: 18993s job: 344 dft_time: 0
+==149797== ERROR: libFuzzer: deadly signal
+#261605: cov: 124322 ft: 392099 corp: 6941 exec/s: 4 oom/timeout/crash: 0/0/51 time: 19044s job: 345 dft_time: 0
+#262905: cov: 124322 ft: 392143 corp: 6949 exec/s: 4 oom/timeout/crash: 0/0/51 time: 19139s job: 346 dft_time: 0
+#264093: cov: 124322 ft: 392157 corp: 6954 exec/s: 3 oom/timeout/crash: 0/0/51 time: 19308s job: 347 dft_time: 0
+#265316: cov: 124322 ft: 392170 corp: 6961 exec/s: 4 oom/timeout/crash: 0/0/51 time: 19356s job: 348 dft_time: 0
+#266579: cov: 124322 ft: 392198 corp: 6970 exec/s: 4 oom/timeout/crash: 0/0/51 time: 19449s job: 349 dft_time: 0
+#266781: cov: 124322 ft: 392297 corp: 6980 exec/s: 5 oom/timeout/crash: 0/0/51 time: 19499s job: 352 dft_time: 0
+==150362== ERROR: libFuzzer: deadly signal
+#267858: cov: 124322 ft: 392328 corp: 6984 exec/s: 3 oom/timeout/crash: 0/0/52 time: 19621s job: 350 dft_time: 0
+#269175: cov: 124322 ft: 392345 corp: 6991 exec/s: 4 oom/timeout/crash: 0/0/52 time: 19666s job: 351 dft_time: 0
+#270443: cov: 124322 ft: 392360 corp: 7001 exec/s: 4 oom/timeout/crash: 0/0/52 time: 19802s job: 353 dft_time: 0
+#271531: cov: 124322 ft: 392413 corp: 7010 exec/s: 3 oom/timeout/crash: 0/0/52 time: 19933s job: 354 dft_time: 0
+#272802: cov: 124322 ft: 392417 corp: 7013 exec/s: 4 oom/timeout/crash: 0/0/52 time: 19975s job: 355 dft_time: 0
+#273186: cov: 124322 ft: 392467 corp: 7021 exec/s: 5 oom/timeout/crash: 0/0/52 time: 20017s job: 357 dft_time: 0
+==150708== ERROR: libFuzzer: deadly signal
+#274298: cov: 124322 ft: 392475 corp: 7025 exec/s: 3 oom/timeout/crash: 0/0/53 time: 20112s job: 356 dft_time: 0
+#274447: cov: 124322 ft: 392581 corp: 7038 exec/s: 5 oom/timeout/crash: 0/0/53 time: 20149s job: 360 dft_time: 0
+==150890== ERROR: libFuzzer: deadly signal
+#275723: cov: 124322 ft: 392598 corp: 7040 exec/s: 4 oom/timeout/crash: 0/0/54 time: 20287s job: 358 dft_time: 0
+#277044: cov: 124322 ft: 392632 corp: 7046 exec/s: 4 oom/timeout/crash: 0/0/54 time: 20323s job: 359 dft_time: 0
+#278189: cov: 124322 ft: 392643 corp: 7053 exec/s: 3 oom/timeout/crash: 0/0/54 time: 20452s job: 361 dft_time: 0
+#279399: cov: 124322 ft: 392702 corp: 7060 exec/s: 4 oom/timeout/crash: 0/0/54 time: 20599s job: 362 dft_time: 0
+#280494: cov: 124322 ft: 392730 corp: 7066 exec/s: 3 oom/timeout/crash: 0/0/54 time: 20634s job: 363 dft_time: 0
+#281534: cov: 124322 ft: 392736 corp: 7071 exec/s: 3 oom/timeout/crash: 0/0/54 time: 20761s job: 364 dft_time: 0
+#282856: cov: 124322 ft: 392769 corp: 7076 exec/s: 4 oom/timeout/crash: 0/0/54 time: 20908s job: 365 dft_time: 0
+#284097: cov: 124322 ft: 392793 corp: 7083 exec/s: 4 oom/timeout/crash: 0/0/54 time: 20947s job: 366 dft_time: 0
+#284406: cov: 124322 ft: 392812 corp: 7090 exec/s: 6 oom/timeout/crash: 0/0/54 time: 21001s job: 369 dft_time: 0
+==151518== ERROR: libFuzzer: deadly signal
+#285602: cov: 124322 ft: 392884 corp: 7093 exec/s: 3 oom/timeout/crash: 0/0/55 time: 21077s job: 367 dft_time: 0
+#286791: cov: 124322 ft: 392892 corp: 7098 exec/s: 3 oom/timeout/crash: 0/0/55 time: 21218s job: 368 dft_time: 0
+#287642: cov: 124322 ft: 392912 corp: 7107 exec/s: 5 oom/timeout/crash: 0/0/55 time: 21245s job: 371 dft_time: 0
+==151645== ERROR: libFuzzer: deadly signal
+#287784: cov: 124322 ft: 392931 corp: 7114 exec/s: 5 oom/timeout/crash: 0/0/56 time: 21255s job: 372 dft_time: 0
+==151726== ERROR: libFuzzer: deadly signal
+#288940: cov: 124322 ft: 393139 corp: 7118 exec/s: 3 oom/timeout/crash: 0/0/57 time: 21304s job: 370 dft_time: 0
+#289997: cov: 124322 ft: 393182 corp: 7130 exec/s: 3 oom/timeout/crash: 0/0/57 time: 21554s job: 373 dft_time: 0
+#291471: cov: 124322 ft: 393189 corp: 7133 exec/s: 4 oom/timeout/crash: 0/0/57 time: 21562s job: 374 dft_time: 0
+#292764: cov: 124322 ft: 393208 corp: 7139 exec/s: 4 oom/timeout/crash: 0/0/57 time: 21617s job: 375 dft_time: 0
+#294086: cov: 124322 ft: 393223 corp: 7146 exec/s: 4 oom/timeout/crash: 0/0/57 time: 21864s job: 376 dft_time: 0
+#295304: cov: 124322 ft: 393304 corp: 7153 exec/s: 4 oom/timeout/crash: 0/0/57 time: 21874s job: 377 dft_time: 0
+#296569: cov: 124322 ft: 393316 corp: 7159 exec/s: 4 oom/timeout/crash: 0/0/57 time: 21929s job: 378 dft_time: 0
+#297735: cov: 124322 ft: 393332 corp: 7170 exec/s: 3 oom/timeout/crash: 0/0/57 time: 22175s job: 379 dft_time: 0
+#298905: cov: 124322 ft: 393350 corp: 7177 exec/s: 3 oom/timeout/crash: 0/0/57 time: 22187s job: 380 dft_time: 0
+#299169: cov: 124322 ft: 393377 corp: 7182 exec/s: 5 oom/timeout/crash: 0/0/57 time: 22236s job: 382 dft_time: 0
+==152458== ERROR: libFuzzer: deadly signal
+#300484: cov: 124322 ft: 393391 corp: 7185 exec/s: 4 oom/timeout/crash: 0/0/58 time: 22239s job: 381 dft_time: 0
+#301704: cov: 124322 ft: 393820 corp: 7197 exec/s: 4 oom/timeout/crash: 0/0/58 time: 22497s job: 383 dft_time: 0
+#302876: cov: 124322 ft: 393847 corp: 7203 exec/s: 3 oom/timeout/crash: 0/0/58 time: 22539s job: 384 dft_time: 0
+#304038: cov: 124322 ft: 393912 corp: 7214 exec/s: 3 oom/timeout/crash: 0/0/58 time: 22553s job: 385 dft_time: 0
+#304393: cov: 124322 ft: 393930 corp: 7219 exec/s: 6 oom/timeout/crash: 0/0/58 time: 22620s job: 388 dft_time: 0
+==152836== ERROR: libFuzzer: deadly signal
+#304739: cov: 124322 ft: 393937 corp: 7221 exec/s: 4 oom/timeout/crash: 0/0/59 time: 22623s job: 387 dft_time: 0
+==152785== ERROR: libFuzzer: deadly signal
+#305423: cov: 124322 ft: 393946 corp: 7225 exec/s: 4 oom/timeout/crash: 0/0/60 time: 22775s job: 390 dft_time: 0
+==152947== ERROR: libFuzzer: deadly signal
+#306638: cov: 124322 ft: 393980 corp: 7230 exec/s: 4 oom/timeout/crash: 0/0/61 time: 22808s job: 386 dft_time: 0
+#307606: cov: 124322 ft: 394002 corp: 7237 exec/s: 4 oom/timeout/crash: 0/0/61 time: 22836s job: 389 dft_time: 0
+==152899== ERROR: libFuzzer: deadly signal
+#308187: cov: 124322 ft: 394008 corp: 7241 exec/s: 4 oom/timeout/crash: 0/0/62 time: 22924s job: 391 dft_time: 0
+==153035== ERROR: libFuzzer: deadly signal
+#309295: cov: 124322 ft: 394018 corp: 7244 exec/s: 3 oom/timeout/crash: 0/0/63 time: 23121s job: 392 dft_time: 0
+#310396: cov: 124322 ft: 394024 corp: 7248 exec/s: 3 oom/timeout/crash: 0/0/63 time: 23146s job: 393 dft_time: 0
+#310537: cov: 124322 ft: 394041 corp: 7257 exec/s: 5 oom/timeout/crash: 0/0/63 time: 23159s job: 395 dft_time: 0
+==153310== ERROR: libFuzzer: deadly signal
+#311807: cov: 124322 ft: 394153 corp: 7259 exec/s: 4 oom/timeout/crash: 0/0/64 time: 23234s job: 394 dft_time: 0
+#312149: cov: 124322 ft: 394168 corp: 7263 exec/s: 5 oom/timeout/crash: 0/0/64 time: 23305s job: 398 dft_time: 0
+==153474== ERROR: libFuzzer: deadly signal
+#312994: cov: 124322 ft: 394205 corp: 7267 exec/s: 4 oom/timeout/crash: 0/0/65 time: 23356s job: 396 dft_time: 0
+==153364== ERROR: libFuzzer: deadly signal
+#314230: cov: 124322 ft: 394231 corp: 7273 exec/s: 4 oom/timeout/crash: 0/0/66 time: 23462s job: 397 dft_time: 0
+#314580: cov: 124322 ft: 394255 corp: 7281 exec/s: 4 oom/timeout/crash: 0/0/66 time: 23546s job: 401 dft_time: 0
+==153669== ERROR: libFuzzer: deadly signal
+#315686: cov: 124322 ft: 394285 corp: 7285 exec/s: 3 oom/timeout/crash: 0/0/67 time: 23610s job: 399 dft_time: 0
+#316835: cov: 124322 ft: 394306 corp: 7291 exec/s: 3 oom/timeout/crash: 0/0/67 time: 23664s job: 400 dft_time: 0
+#317167: cov: 124322 ft: 394316 corp: 7299 exec/s: 5 oom/timeout/crash: 0/0/67 time: 23736s job: 404 dft_time: 0
+==153865== ERROR: libFuzzer: deadly signal
+#317724: cov: 124322 ft: 394379 corp: 7304 exec/s: 5 oom/timeout/crash: 0/0/68 time: 23846s job: 405 dft_time: 0
+==153933== ERROR: libFuzzer: deadly signal
+#318891: cov: 124322 ft: 394420 corp: 7309 exec/s: 3 oom/timeout/crash: 0/0/69 time: 23850s job: 402 dft_time: 0
+#320193: cov: 124322 ft: 394434 corp: 7317 exec/s: 4 oom/timeout/crash: 0/0/69 time: 23920s job: 403 dft_time: 0
+#321463: cov: 124322 ft: 394446 corp: 7323 exec/s: 4 oom/timeout/crash: 0/0/69 time: 24152s job: 406 dft_time: 0
+#322684: cov: 124322 ft: 394467 corp: 7328 exec/s: 4 oom/timeout/crash: 0/0/69 time: 24162s job: 407 dft_time: 0
+#323768: cov: 124322 ft: 394514 corp: 7333 exec/s: 3 oom/timeout/crash: 0/0/69 time: 24231s job: 408 dft_time: 0
+#324781: cov: 124322 ft: 394539 corp: 7339 exec/s: 4 oom/timeout/crash: 0/0/69 time: 24395s job: 410 dft_time: 0
+==154278== ERROR: libFuzzer: deadly signal
+#325663: cov: 124322 ft: 394558 corp: 7344 exec/s: 5 oom/timeout/crash: 0/0/70 time: 24412s job: 411 dft_time: 0
+==154345== ERROR: libFuzzer: deadly signal
+#326824: cov: 124322 ft: 394571 corp: 7351 exec/s: 3 oom/timeout/crash: 0/0/71 time: 24461s job: 409 dft_time: 0
+#327339: cov: 124322 ft: 394701 corp: 7360 exec/s: 4 oom/timeout/crash: 0/0/71 time: 24525s job: 412 dft_time: 0
+==154436== ERROR: libFuzzer: deadly signal
+#328435: cov: 124322 ft: 394832 corp: 7364 exec/s: 3 oom/timeout/crash: 0/0/72 time: 24720s job: 413 dft_time: 0
+#329696: cov: 124322 ft: 394852 corp: 7372 exec/s: 4 oom/timeout/crash: 0/0/72 time: 24773s job: 414 dft_time: 0
+#331030: cov: 124322 ft: 394887 corp: 7377 exec/s: 4 oom/timeout/crash: 0/0/72 time: 24833s job: 415 dft_time: 0
+#332291: cov: 124322 ft: 394896 corp: 7384 exec/s: 4 oom/timeout/crash: 0/0/72 time: 25031s job: 416 dft_time: 0
+#333460: cov: 124322 ft: 394899 corp: 7387 exec/s: 3 oom/timeout/crash: 0/0/72 time: 25084s job: 417 dft_time: 0
+#334601: cov: 124322 ft: 394922 corp: 7395 exec/s: 3 oom/timeout/crash: 0/0/72 time: 25143s job: 418 dft_time: 0
+#335840: cov: 124322 ft: 394930 corp: 7399 exec/s: 4 oom/timeout/crash: 0/0/72 time: 25340s job: 419 dft_time: 0
+#337054: cov: 124322 ft: 394950 corp: 7404 exec/s: 4 oom/timeout/crash: 0/0/72 time: 25398s job: 420 dft_time: 0
+#338008: cov: 124322 ft: 394963 corp: 7409 exec/s: 3 oom/timeout/crash: 0/0/72 time: 25455s job: 421 dft_time: 0
+#339208: cov: 124322 ft: 394971 corp: 7415 exec/s: 3 oom/timeout/crash: 0/0/72 time: 25653s job: 422 dft_time: 0
+#340502: cov: 124322 ft: 394987 corp: 7424 exec/s: 4 oom/timeout/crash: 0/0/72 time: 25709s job: 423 dft_time: 0
+#341619: cov: 124322 ft: 395028 corp: 7430 exec/s: 3 oom/timeout/crash: 0/0/72 time: 25768s job: 424 dft_time: 0
+#342010: cov: 124322 ft: 395044 corp: 7439 exec/s: 5 oom/timeout/crash: 0/0/72 time: 25787s job: 426 dft_time: 0
+==155456== ERROR: libFuzzer: deadly signal
+#343212: cov: 124322 ft: 395055 corp: 7442 exec/s: 4 oom/timeout/crash: 0/0/73 time: 25961s job: 425 dft_time: 0
+==155373== ERROR: libFuzzer: deadly signal
+#344450: cov: 124322 ft: 395064 corp: 7448 exec/s: 4 oom/timeout/crash: 0/0/74 time: 26081s job: 427 dft_time: 0
+#345823: cov: 124322 ft: 395086 corp: 7453 exec/s: 4 oom/timeout/crash: 0/0/74 time: 26092s job: 428 dft_time: 0
+#346884: cov: 124322 ft: 395095 corp: 7457 exec/s: 4 oom/timeout/crash: 0/0/74 time: 26196s job: 429 dft_time: 0
+==155667== ERROR: libFuzzer: deadly signal
+#347238: cov: 124322 ft: 395124 corp: 7470 exec/s: 5 oom/timeout/crash: 0/0/75 time: 26274s job: 432 dft_time: 0
+==155870== ERROR: libFuzzer: deadly signal
+#348393: cov: 124322 ft: 395191 corp: 7474 exec/s: 3 oom/timeout/crash: 0/0/76 time: 26388s job: 430 dft_time: 0
+#349655: cov: 124322 ft: 395193 corp: 7476 exec/s: 4 oom/timeout/crash: 0/0/76 time: 26401s job: 431 dft_time: 0
+#350871: cov: 124322 ft: 395197 corp: 7478 exec/s: 4 oom/timeout/crash: 0/0/76 time: 26578s job: 433 dft_time: 0
+#352153: cov: 124322 ft: 395234 corp: 7487 exec/s: 4 oom/timeout/crash: 0/0/76 time: 26696s job: 434 dft_time: 0
+#353626: cov: 124322 ft: 395239 corp: 7490 exec/s: 4 oom/timeout/crash: 0/0/76 time: 26708s job: 435 dft_time: 0
+#354640: cov: 124322 ft: 395249 corp: 7497 exec/s: 3 oom/timeout/crash: 0/0/76 time: 26890s job: 436 dft_time: 0
+#356209: cov: 124322 ft: 395256 corp: 7503 exec/s: 5 oom/timeout/crash: 0/0/76 time: 27004s job: 437 dft_time: 0
+#357286: cov: 124322 ft: 395281 corp: 7508 exec/s: 3 oom/timeout/crash: 0/0/76 time: 27018s job: 438 dft_time: 0
+#358016: cov: 124322 ft: 395311 corp: 7514 exec/s: 4 oom/timeout/crash: 0/0/76 time: 27182s job: 441 dft_time: 0
+==156503== ERROR: libFuzzer: deadly signal
+#359281: cov: 124322 ft: 395350 corp: 7522 exec/s: 4 oom/timeout/crash: 0/0/77 time: 27201s job: 439 dft_time: 0
+#360352: cov: 124322 ft: 395362 corp: 7526 exec/s: 3 oom/timeout/crash: 0/0/77 time: 27313s job: 440 dft_time: 0
+#360698: cov: 124322 ft: 395377 corp: 7532 exec/s: 5 oom/timeout/crash: 0/0/77 time: 27394s job: 444 dft_time: 0
+==156723== ERROR: libFuzzer: deadly signal
+#361784: cov: 124322 ft: 395389 corp: 7535 exec/s: 3 oom/timeout/crash: 0/0/78 time: 27488s job: 442 dft_time: 0
+#362985: cov: 124322 ft: 395409 corp: 7545 exec/s: 3 oom/timeout/crash: 0/0/78 time: 27510s job: 443 dft_time: 0
+#364173: cov: 124322 ft: 395428 corp: 7554 exec/s: 3 oom/timeout/crash: 0/0/78 time: 27699s job: 445 dft_time: 0
+#364317: cov: 124322 ft: 395454 corp: 7563 exec/s: 5 oom/timeout/crash: 0/0/78 time: 27740s job: 448 dft_time: 0
+==157004== ERROR: libFuzzer: deadly signal
+#364503: cov: 124322 ft: 395491 corp: 7566 exec/s: 5 oom/timeout/crash: 0/0/79 time: 27778s job: 449 dft_time: 0
+==157058== ERROR: libFuzzer: deadly signal
+#365613: cov: 124322 ft: 395506 corp: 7569 exec/s: 3 oom/timeout/crash: 0/0/80 time: 27800s job: 446 dft_time: 0
+#366794: cov: 124322 ft: 395512 corp: 7574 exec/s: 3 oom/timeout/crash: 0/0/80 time: 27819s job: 447 dft_time: 0
+#368065: cov: 124322 ft: 395525 corp: 7580 exec/s: 4 oom/timeout/crash: 0/0/80 time: 28083s job: 450 dft_time: 0
+#369311: cov: 124322 ft: 395567 corp: 7585 exec/s: 4 oom/timeout/crash: 0/0/80 time: 28112s job: 451 dft_time: 0
+#370651: cov: 124322 ft: 395592 corp: 7589 exec/s: 4 oom/timeout/crash: 0/0/80 time: 28126s job: 452 dft_time: 0
+#371658: cov: 124322 ft: 395614 corp: 7595 exec/s: 4 oom/timeout/crash: 0/0/80 time: 28321s job: 453 dft_time: 0
+==157337== ERROR: libFuzzer: deadly signal
+#372004: cov: 124322 ft: 395654 corp: 7601 exec/s: 4 oom/timeout/crash: 0/0/81 time: 28402s job: 456 dft_time: 0
+==157531== ERROR: libFuzzer: deadly signal
+#373066: cov: 124322 ft: 395720 corp: 7602 exec/s: 3 oom/timeout/crash: 0/0/82 time: 28423s job: 454 dft_time: 0
+#374363: cov: 124322 ft: 395741 corp: 7612 exec/s: 4 oom/timeout/crash: 0/0/82 time: 28435s job: 455 dft_time: 0
+#375407: cov: 124322 ft: 395817 corp: 7626 exec/s: 4 oom/timeout/crash: 0/0/82 time: 28685s job: 459 dft_time: 0
+==157702== ERROR: libFuzzer: deadly signal
+#376647: cov: 124322 ft: 395844 corp: 7630 exec/s: 4 oom/timeout/crash: 0/0/83 time: 28706s job: 457 dft_time: 0
+#378000: cov: 124322 ft: 395861 corp: 7636 exec/s: 4 oom/timeout/crash: 0/0/83 time: 28737s job: 458 dft_time: 0
+#379284: cov: 124322 ft: 395865 corp: 7640 exec/s: 4 oom/timeout/crash: 0/0/83 time: 28993s job: 460 dft_time: 0
+INFO: fuzzed for 29001 seconds, wrapping up soon
+INFO: exiting: 0 time: 29002s
