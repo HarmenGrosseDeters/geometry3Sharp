@@ -767,6 +767,7 @@ Implemented from the published formulas and papers; no code taken from any libra
 |---|---|
 | Gyroid | A. H. Schoen, *Infinite periodic minimal surfaces without self-intersections*, NASA Technical Note D-5541, 1970 |
 | Schwarz P and D | H. A. Schwarz, *Gesammelte Mathematische Abhandlungen* (vol. 1), 1890 |
+| Lidinoid (discovery) and its nodal approximation | S. Lidin, S. Larsson, *Bonnet transformation of infinite periodic minimal surfaces with hexagonal symmetry*, J. Chem. Soc., Faraday Trans. 86 (1990) 769-775; the trigonometric form used is the one tabulated in Al-Ketan, Abu Al-Rub below (formula and citation to be checked by the reviewer) |
 | Neovius surface | E. R. Neovius, *Bestimmung zweier speciellen periodischen Minimalflaechen*, 1883 |
 | Nodal (trigonometric) approximations of P, G, D and I-WP | P. J. F. Gandy, S. Bardhan, A. L. Mackay, J. Klinowski, *Nodal surface approximations to the P, G, D and I-WP triply periodic minimal surfaces*, Chem. Phys. Lett. 336 (2001) 187-195; the Neovius form as in O. Al-Ketan, R. K. Abu Al-Rub below |
 | Sheet and skeletal ("solid network") lattices, level set offset, grading by a position dependent level | O. Al-Ketan, R. K. Abu Al-Rub, *Multifunctional mechanical metamaterials based on triply periodic minimal surface lattices*, Adv. Eng. Mater. 21 (2019) 1900524 |
