@@ -1212,3 +1212,15 @@ the D1 cohort: Thingi10K 837999 intersection and difference, 838003, 958469 and 
 - 838003 difference keeps one of its two degenerate triangles: it had used 97 % of its bound.
 - The search is not measurable in the time of the cohort operations (at most 1433 proposals in results of 40k to 285k
   triangles).
+
+**Acceptance on the cohort** (as built, #755; branch `runs/position-search-cohort`, `runs/ps/results/summary.md`; master
+1f3b6b7 against 36ff5bf): 3000 of the 5413 models of the D1 cohort (the 30 with an operation that is not clean in the
+D1 rows and a seeded sample of 2970 of the others), 9000 operations.
+- No operation newly unclean; 8743 clean after 8739, 52 unclean after 56 (the 4 of the table above; the other unclean
+  ones are rounding clean: contacts and bowties of the inputs).
+- 8993 operations are rounding clean on master: all with the same result hash. Of the 7 that are not, 5 change (4
+  clean, 838003 difference with one degenerate triangle instead of two), none with more defects.
+- `MaxDrift` never above `MaxLength`; its distribution is unchanged (0.9 quantile of `MaxDrift / MaxLength` 0.217,
+  135 against 136 operations above 0.9). 11 search moves in 6 operations; one of them in a component that is then
+  removed as tiny (the same result as on master).
+- Rounding time on single cores 683 s against 692 s in the sum.

@@ -226,8 +226,9 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   local frame one round: 8 of 35; J = 24 gains 1-3 at 2-2.5x the proposals); sizes smallest first, room / 128 up to room
   (owner 2026-11-12, reverses "largest first": 10 instead of 11 of 35, the same 4 of 5, the cohort's drift 2-16x lower,
   as fix_degenerate / fix_intersection and Milenkovic-Sacks); built in #755 (draft 2026-11-12: hash gate 263 / 263
-  identical, on the 33 rotated operations 28 identical, 2 newly clean, rounding +2.4 %); the D1 cohort acceptance run is
-  approved, cut to 3000 models (the 30 unclean ones and a seeded sample, about 2.2 h; `runs/position-search-cohort`);
+  identical, on the 33 rotated operations 28 identical, 2 newly clean, rounding +2.4 %); the D1 cohort acceptance run,
+  cut to 3000 models (the 30 unclean ones and a seeded sample; `runs/position-search-cohort`), is passed (2026-11-13: no
+  operation newly unclean, 8993 rounding-clean results identical, 4 newly clean, MaxDrift within the bound);
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
