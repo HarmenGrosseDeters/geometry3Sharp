@@ -70,6 +70,11 @@ namespace g3
             return ShortestDecimal.Format(v);
         }
 
+        // The name of the former .NET Framework path (first of G15, G16, G17 that the platform parser reads back), kept so that the
+        // tests of that path run on every framework: it is the shortest text now, as FormatDouble.
+        internal static string FormatDoubleByDigits(double v) { return FormatDouble(v); }
+        internal static string FormatFloatByDigits(float v) { return FormatFloat(v); }
+
         /// <summary> as <see cref="FormatDouble"/>, for float (at most 9 significant digits) </summary>
         public static string FormatFloat(float v)
         {

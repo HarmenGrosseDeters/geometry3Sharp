@@ -92,6 +92,18 @@ namespace geometry3Sharp.Tests
             Assert.Equal("-0", MeshIOUtil.FormatDouble(-0.0));
         }
 
+        // The path .NET Framework took (G15, G16, G17 and the platform parser), run on every framework: it wrote 15 digits for a
+        // subnormal, "4.94065645841247E-324" for the smallest, which is not the shortest text and differs from net10's
+        [Fact]
+        public void FormatDoubleByDigits_Subnormals_AreTheShortestText()
+        {
+            Assert.Equal("5E-324", MeshIOUtil.FormatDoubleByDigits(double.Epsilon));
+            Assert.Equal("-5E-324", MeshIOUtil.FormatDoubleByDigits(-double.Epsilon));
+            Assert.Equal("5E-320", MeshIOUtil.FormatDoubleByDigits(5e-320));
+            Assert.Equal("1E-45", MeshIOUtil.FormatFloatByDigits(float.Epsilon));
+            Assert.Equal("1E-310", MeshIOUtil.FormatDoubleByDigits(1e-310));
+        }
+
         [Fact]
         public void FormatDouble_ShortCasesStayShort()
         {
