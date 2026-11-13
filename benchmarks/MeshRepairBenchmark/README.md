@@ -1185,6 +1185,9 @@ The angle diagnostics of the result are in `AlphaWrapMinAngleDegrees`, `AlphaWra
 above 170 degrees is kept, and only these fields show it.
 
 Switches:
+- `BENCH_WRAP_FEATURES=1` (`wrappipe`): the sharp-feature pass (`AlphaWrapFeaturePass`, `MeshRobustRepair.AlphaWrapSharpFeatures`)
+  on the raw wrap before the simplification (off by default, as in the library); `features` = plane moves / crease snaps / splits / flips /
+  rejected, phase `wrap.features`.
 - `BENCH_WRAP_QUALITY=1`: turns the pass on (off by default, as in the library; in `wrappipe` mode it was on unless
   `BENCH_WRAP_QUALITY=0` until 2026-11-09).
 - `BENCH_WRAP_THREADS=n`: threads of the simplification's partitioned reduction (0, the default: the platform's; the

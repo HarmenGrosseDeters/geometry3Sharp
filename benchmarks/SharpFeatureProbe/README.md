@@ -62,3 +62,34 @@ Exact triangle-triangle tests (`ExactTriangleIntersection`) and nearest distance
 Raw wrap: 0 vertices < offset, 0 triangles cross the input (the class guarantee "the input is strictly inside" holds). Simplified wrap (A): T1 346k vertices, 1 below 0.5 offset (minimum 0.352),
 0 inside the input; 692k triangles, 247 cross the input exactly (all 20 meshes), 10 have a sample point inside the input's solid (3 meshes); procedural: 29 of 68.8k cross (6/6).
 The raw wrap's triangles already come within 0.007 offset of the input between their vertices (sagitta; 49k of 2.67M triangles have a sample < 0.5 offset), so a simplification within 0.5 offset can cross it.
+
+## Variant KR: the library's sharp-feature pass (2026-11-12, PR #736)
+
+`KR` runs `AlphaWrapFeaturePass` (`MeshRobustRepair.AlphaWrapSharpFeatures`, opt-in) on the raw wrap, then the pipeline's
+simplification with the input kept clear; every variant now also gets the sharp-feature study's class metric (`EdgeClass`,
+`ec_*`: the input's sharp edges by convex / concave, at the edge and on the offset surface's miter line; recall within 1 / 3
+offsets) and the exact count of result triangles crossing the input (`fin_cross_input`). The simplification of every variant
+keeps the input clear, as the library pipeline does since the contact fix.
+
+```
+dotnet run -c Release --project benchmarks/SharpFeatureProbe -- out.jsonl proc:all <T1 meshes> -- A,KR
+```
+
+Master 14a27e45 + the PR, one process, 4-core container, 300 / 3000, medians (rows: runs/alpha-wrap-3, aw3/features/kr_final.jsonl;
+the study's probe variant on the same run: aw3/features/t1.jsonl):
+
+| T1 (20) | A | KR | the study's probe K (same run) |
+|---|---:|---:|---:|
+| triangles / A | 1 | 0.722 | 0.721 |
+| clean, exact crossings of the input | 20/20, 0 | 20/20, 0 | 20/20, 0 |
+| pipeline time | 3.79 s | 5.06 s (pass 0.79 s) | |
+| angle min / p01 | 4.67 / 11.5 | 5.53 / 11.0 | 5.53 / 11.0 |
+| edge F 0.1 % | 0.61 | **0.875** | 0.876 |
+| crease normal at 2 offsets | 14.7 deg | **4.67 deg** | 4.63 deg |
+| concave crease on the miter line within 1 offset | 0.022 | **0.745** | 0.746 |
+| convex within 1 offset | 0.832 | 0.957 | 0.957 |
+
+Procedural solids (6): 6/6 clean, 0 crossings, 0.36x triangles, concave within 1 offset 0.016 -> 0.981, crease normal 5.8 -> 0.03
+deg, the same operation counts as the study's probe on every solid. What it cannot do (the study): creases of features smaller
+than alpha, corners (three planes).
+

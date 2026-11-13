@@ -589,6 +589,29 @@ public static partial class Program
                 if (p[d] != 0 && Math.Abs(p[d]) < limit)
                     return true;
         }
+        return HasTinyEdgeDifferences(m, limit);
+    }
+
+    /// <summary>
+    /// the upper end of the range of the scale claim (QA.md 2.5a: the reducers' range is nonzero coordinates 2^-200 .. 2^200, and the copy is 2^40
+    /// larger, so a mesh is judged up to 2^150): a mesh with a coordinate beyond 2^150 (a tiny shape far from the origin, normalized to a diagonal of
+    /// [1, 2) it has coordinates up to 2^1020) has a 2^40 copy that overflows to infinity, and the comparison of the two reductions means nothing.
+    /// Shared by the Reducer and the PartitionedReducer targets (the lower end is HasTinyComponents for the latter, a coordinate-only rule for the former)
+    /// </summary>
+    public static bool HasHugeCoordinates(DMesh3 m)
+    {
+        double limit = Pow2(150);
+        foreach (int v in m.VertexIndices()) {
+            Vector3d p = m.GetVertex(v);
+            for (int d = 0; d < 3; ++d)
+                if (Math.Abs(p[d]) > limit)
+                    return true;
+        }
+        return false;
+    }
+
+    static bool HasTinyEdgeDifferences(DMesh3 m, double limit)
+    {
         foreach (int e in m.EdgeIndices()) {
             Index2i ev = m.GetEdgeV(e);
             Vector3d a = m.GetVertex(ev.a), b = m.GetVertex(ev.b);
@@ -621,7 +644,8 @@ public static partial class Program
         double k = Pow2(40);
         DMesh3 big = new DMesh3(fine);
         foreach (int v in big.VertexIndices()) big.SetVertex(v, k * big.GetVertex(v));
-        DMesh3? scaled = HasTinyComponents(fine) ? null : Reduce(big, error * k * k, 4);
+        // the scale claim only inside the range (the 2^40 copy of a coordinate beyond 2^150 overflows, QA.md 2.5a, issue 794); the other claims are judged always
+        DMesh3? scaled = HasTinyComponents(fine) || HasHugeCoordinates(fine) ? null : Reduce(big, error * k * k, 4);
         CheckPartitionedReduction(what, fine.IsClosed(), fine, r1, r4, again, scaled, k);
     }
 
