@@ -3,6 +3,9 @@
 //   dotnet run -c Release --project benchmarks/TetMeshBenchmark -- insert [n ...]
 //   dotnet run -c Release --project benchmarks/TetMeshBenchmark -- wrap [relativeAlpha] [relativeOffset]   (procedural inputs)
 //   dotnet run -c Release --project benchmarks/TetMeshBenchmark -- file <mesh.obj|stl|off> [relativeAlpha] [relativeOffset]
+//   ... -- export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]     (the wrap's inside cells as a tet file)
+//   ... -- eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]       (exact validity, quality, deviation: TetFiles.Header)
+//   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -35,9 +38,22 @@ static class Program
             var w = new MeshAlphaWrap(StandardMeshReader.ReadMesh(args[1])) { RelativeAlpha = ra, RelativeOffset = ro };
             if (!w.Compute()) { Console.Error.WriteLine("wrap failed: " + w.Status); return 2; }
             TetFiles.Write(w.ExtractTetMesh(), args[2]);
-        } else if (mode == "eval") {            // eval <tet file .mesh|.msh> [name] [time_s] [threads]: quality of a tet mesh of another mesher
+        } else if (mode == "eval") {            // eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]: a tet mesh of another mesher
             Console.WriteLine(TetFiles.Header);
-            Console.WriteLine(TetFiles.Evaluate(args.Length > 2 ? args[2] : System.IO.Path.GetFileName(args[1]), args[1], args.Length > 3 ? args[3] : "", args.Length > 4 ? args[4] : ""));
+            Console.WriteLine(TetFiles.Evaluate(args.Length > 3 ? args[3] : System.IO.Path.GetFileName(args[1]), TetFiles.Read(args[1]),
+                StandardMeshReader.ReadMesh(args[2]), args.Length > 4 ? args[4] : "", args.Length > 5 ? args[5] : ""));
+        } else if (mode == "ours") {            // ours <mesh> [relativeAlpha] [relativeOffset]: the stage-0 path (wrap + inside cells), timed, same row as eval
+            double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;
+            DMesh3 input = StandardMeshReader.ReadMesh(args[1]);
+            string name = System.IO.Path.GetFileName(args[1]);
+            var sw = Stopwatch.StartNew();
+            var w = new MeshAlphaWrap(input) { RelativeAlpha = ra, RelativeOffset = ro };
+            bool ok = w.Compute();
+            TetMesh3 t = ok ? w.ExtractTetMesh() : null;
+            double secs = sw.Elapsed.TotalSeconds;
+            Console.WriteLine(TetFiles.Header);
+            // the wrap is serial (one thread); the evaluation is not timed
+            Console.WriteLine(t == null ? name + "," + secs.ToString("G6", Inv) + ",1,WRAP_" + w.Status : TetFiles.Evaluate(name, t, input, secs.ToString("G6", Inv), "1"));
         } else return 1;
         return 0;
     }

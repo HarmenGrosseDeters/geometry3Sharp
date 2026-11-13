@@ -90,32 +90,74 @@ static class TetFiles
         }
     }
 
-    public const string Header = "name,time_s,threads,tets,vertices,inverted_fixed,valid,re_worst,re_p5,re_median,re_gt2_share,mindih_worst,mindih_p1,mindih_p5,mindih_median,dih_lt10_share,dih_ge10_all";
+    public const string Header = "name,time_s,threads,tets,vertices,neg_tets,zero_tets,inverted,valid,boundary_tris,boundary_self_intersecting," +
+        "re_worst,re_p5,re_median,re_gt2_share,mindih_worst,mindih_p1,mindih_p5,mindih_median,dih_lt10_share,dih_ge10_all," +
+        "dev_out_max_rel,dev_out_mean_rel,dev_in_max_rel,dev_in_mean_rel";
 
-    /// <summary> one CSV row: tets of another mesher re-oriented to positive (counted), validity of the whole complex (boundary derived from the unmatched facets), quality </summary>
-    public static string Evaluate(string name, string tetFile, string timeS, string threads)
+    /// <summary>
+    /// one CSV row for a tet mesh (of another mesher or ours), exact checks only:
+    ///   - orientation by ExactPredicates.Orient3d: a file whose tets are all negative uses the other convention and is flipped
+    ///     as a whole; tets of the minority sign and zero-volume tets are counted as inverted (never re-oriented silently);
+    ///   - valid = no inverted tet, TetMeshQuality.NotValidReason null (facets matched, boundary from the unmatched facets a
+    ///     closed 2-manifold) and the boundary free of self-intersections (MeshRepairMetrics, exact), so that the positive
+    ///     tets cover the enclosed region exactly once (the degree argument of NotValidReason);
+    ///   - quality of every non-degenerate tet (minority tets flipped for the measure only);
+    ///   - surface deviation, vertex-sampled, relative to the input's bounding-box diagonal: out = boundary vertices to the
+    ///     input surface, in = input vertices to the boundary (both unsigned; lower bounds of the one-sided Hausdorff distances).
+    /// </summary>
+    public static string Evaluate(string name, TetMesh3 t, DMesh3 input, string timeS, string threads)
     {
-        TetMesh3 t = Read(tetFile);
-        int fixedCount = 0;
+        int pos = 0, neg = 0, zero = 0;
+        var sign = new int[t.Tets.Count];
         for (int i = 0; i < t.Tets.Count; ++i) {
             Index4i q = t.Tets[i];
-            if (ExactPredicates.Orient3d(t.Vertices[q.a], t.Vertices[q.b], t.Vertices[q.c], t.Vertices[q.d]) < 0) { t.Tets[i] = new Index4i(q.b, q.a, q.c, q.d); fixedCount++; }
+            sign[i] = Math.Sign(ExactPredicates.Orient3d(t.Vertices[q.a], t.Vertices[q.b], t.Vertices[q.c], t.Vertices[q.d]));
+            if (sign[i] > 0) pos++; else if (sign[i] < 0) neg++; else zero++;
+        }
+        bool flipAll = neg > pos;
+        int inverted = (flipAll ? pos : neg) + zero;
+        var oriented = new TetMesh3();
+        oriented.Vertices.AddRange(t.Vertices);
+        for (int i = 0; i < t.Tets.Count; ++i) {
+            Index4i q = t.Tets[i];
+            oriented.Tets.Add(flipAll ? new Index4i(q.b, q.a, q.c, q.d) : q);
         }
         var faces = new HashSet<(int, int, int)>();
         Func<int, int, int, (int, int, int)> canon = (a, b, c) => a <= b && a <= c ? (a, b, c) : b <= a && b <= c ? (b, c, a) : (c, a, b);
-        foreach (Index4i q in t.Tets)
+        foreach (Index4i q in oriented.Tets)
             for (int i = 0; i < 4; ++i)
                 faces.Add(canon(q[Delaunay3.FacetIndices[i, 0]], q[Delaunay3.FacetIndices[i, 1]], q[Delaunay3.FacetIndices[i, 2]]));
         foreach (var f in faces)
-            if (!faces.Contains(canon(f.Item1, f.Item3, f.Item2))) t.BoundaryTriangles.Add(new Index3i(f.Item1, f.Item2, f.Item3));
+            if (!faces.Contains(canon(f.Item1, f.Item3, f.Item2))) oriented.BoundaryTriangles.Add(new Index3i(f.Item1, f.Item2, f.Item3));
         // vertices no tet uses (surface-only points of the file) are left alone: the check is on the tets
-        string bad = TetMeshQuality.NotValidReason(t);
-        TetQualityStatistics q0 = TetMeshQuality.Measure(t);
+        string bad = inverted > 0 ? inverted + " inverted or degenerate tets" : TetMeshQuality.NotValidReason(oriented);
+        DMesh3 boundary = oriented.ToSurfaceMesh();
+        bool selfIntersecting = MeshRepairMetrics.HasSelfIntersections(boundary);
+        if (bad == null && selfIntersecting) bad = "the boundary intersects itself";
+
+        var measured = new TetMesh3();
+        measured.Vertices.AddRange(t.Vertices);
+        for (int i = 0; i < t.Tets.Count; ++i) {
+            Index4i q = t.Tets[i];
+            measured.Tets.Add(sign[i] < 0 ? new Index4i(q.b, q.a, q.c, q.d) : q);
+        }
+        TetQualityStatistics q0 = TetMeshQuality.Measure(measured);
         int n = Math.Max(1, t.Tets.Count);
         string F(double x) => x.ToString("G6", Inv);
-        return string.Join(",", name, timeS, threads, t.Tets.Count, t.Vertices.Count, fixedCount, bad == null ? "yes" : bad.Replace(",", ";"),
+
+        double diag = input.CachedBounds.DiagonalLength;
+        string dev = ",,,";
+        if (input.TriangleCount > 0 && boundary.TriangleCount > 0) {
+            var outDev = new MeshDeviation(boundary, input) { Sign = MeshDeviation.Signs.Unsigned };
+            var inDev = new MeshDeviation(input, boundary) { Sign = MeshDeviation.Signs.Unsigned };
+            outDev.Compute(); inDev.Compute();
+            dev = string.Join(",", F(outDev.VertexStatistics.MaxAbsolute / diag), F(outDev.VertexStatistics.MeanAbsolute / diag),
+                F(inDev.VertexStatistics.MaxAbsolute / diag), F(inDev.VertexStatistics.MeanAbsolute / diag));
+        }
+        return string.Join(",", name, timeS, threads, t.Tets.Count, t.Vertices.Count, flipAll ? pos : neg, zero, inverted,
+            bad == null ? "yes" : bad.Replace(",", ";"), boundary.TriangleCount, selfIntersecting ? "yes" : "no",
             F(q0.RadiusEdge.Worst), F(q0.RadiusEdge.Worst5Percent), F(q0.RadiusEdge.Median), F(q0.RadiusEdgeAbove2 / (double)n),
             F(q0.MinDihedral.Worst), F(q0.MinDihedral.Worst1Percent), F(q0.MinDihedral.Worst5Percent), F(q0.MinDihedral.Median),
-            F(q0.MinDihedralBelow10 / (double)n), q0.MinDihedral.Worst >= 10 ? "yes" : "no");
+            F(q0.MinDihedralBelow10 / (double)n), q0.MinDihedral.Worst >= 10 ? "yes" : "no", dev);
     }
 }
