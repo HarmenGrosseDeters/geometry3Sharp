@@ -398,7 +398,7 @@ relative on the ridge, 6% on the plane: inner intervals rarely contain a vertex 
 
 **Decision (coordinator, 2026-11-13):** the certified interval version is a **test oracle for meshes up to about 10^4
 vertices** (decision 2's role); the 10^5 targets move to a later public class and are no longer a gate-3 criterion; no
-structural redesign of the flat-region ties without a new decision. Before any library code, A7 and the replacement of
+structural redesign of the flat-region ties without a new decision: it is an **open item, not started**. Before any library code, A7 and the replacement of
 the grazing rule (Appendix A.5) are reviewed; A8 is withdrawn.
 
 ## 7. Test plan (repo style)
@@ -527,7 +527,8 @@ Revised after the review of 2026-11-13 (must-fixes M1, M2 and should-fixes S1-S9
   (|u x v| > 0 for a non-degenerate triangle), so it does not contain the origin, and the set of directions of a
   convex box not containing the origin is an arc whose ends are attained at corners; within (0, pi) there is no branch
   cut. (S3: the first draft argued by monotonicity in each argument, which is false in y.)
-- Fact F (MMP 1987, (m) for the boundary case): a shortest path from S to x is a polyline that is straight inside
+- Fact F (MMP 1987 [m]: MMP itself was not read; the statement is as Surazhsky et al. 2005, section 3.1, cite it,
+  including the parabolic vertices, read 2026-11-13): a shortest path from S to x is a polyline that is straight inside
   every face and across every edge (straight in the unfolding of two adjacent faces), and passes through a vertex other
   than its ends only if the vertex is a boundary vertex or has angle sum **>= 2 pi** (S1: a flat vertex, angle sum
   exactly 2 pi, can lie on a shortest path).
@@ -694,7 +695,12 @@ skip and A8); it was exact on every test mesh, but that is a measurement, not th
   coverage. Ties are resolved only by subsumption (b's disk contains w's, sigma_b contains sigma_w, the outer pieces
   inside b's: then L_b <= L_w pointwise and b's propagation covers w's rays) or by merging into a pending window (A6).
   In the A7 setting the prototype needed almost no tie drops (0 on every test mesh, 8 on the 317 x 317 terrain).
-- **A9 (VTP's pruning in interval form).** Qin et al. 2016, Proposition A.1, prove eight observations (a)-(h): with
+  Cost of withdrawing A8, measured on the 317 x 317 terrain (net10 Release, same prototype, tie slack 0 against
+  1e-12): 1320225 instead of 1320199 windows (+26), 21.5 s instead of 20.5 s (within the run-to-run variation), and a
+  much tighter enclosure (largest relative width 4.0e-8 instead of 2.5e-5, since the F Delta_max debt is gone). Drops
+  allowed from now on: certified dominance (A4), subsumption (disk contains disk, sigma_b contains sigma_w) and A6
+  merging.
+- **A9 (VTP's pruning in interval form), a proof sketch, unreviewed.** Qin et al. 2016, Proposition A.1, prove eight observations (a)-(h): with
   windows w0, w1, sources p, q and pseudo-source distances sigma0, sigma1 in one plane, w1 is redundant if a strict
   inequality between two path lengths holds at one constructed point, eg (a): where the line pK meets the upper ray of
   w1 at K, if sigma0 + |pK| < sigma1 + |qK|. The observations are statements about real geometry. Restated: a rule
