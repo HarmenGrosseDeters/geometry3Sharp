@@ -91,23 +91,25 @@ arithmetic job and the selection job that is 14, which leaves 6 of the account's
 ### Narrowed test sets
 
 A shard needs only the tests that kill its mutants. [narrow_tests.py](narrow_tests.py) turns the report of a full run
-(`killedBy` / `coveredBy` of every mutant) into a filter file `test-filters/<config name>.json` (kept tests, plus the
-config's filter and `mutate` and the content hashes of the mutated files and of the test files it was made from):
+(`killedBy` / `coveredBy` of every mutant) into a filter file `test-filters/<config name>.json` (kept tests, plus a hash of
+the config and the content hashes of the mutated files and of the test files it was made from):
 
 ```
 python3 narrow_tests.py make --report mutation-report.json --config stryker-mesh-rounding-2.json \
     [--durations full-run.trx] -o test-filters/stryker-mesh-rounding-2.json
 ```
 
-The kept set is a greedy cover with one recorded killer of every killed or timed-out mutant (a sole killer is always
-kept; with `--durations` the cover prefers cheap tests). Survivors lose no kill by this: a mutant that no test kills stays
+The kept set is a greedy cover with one recorded killer of every killed mutant (a sole killer is always kept; with
+`--durations` the cover prefers cheap tests). Stryker records no killer for a timed-out mutant (`killedBy` is empty, only
+`coveredBy`), so `--timeouts all` (default) keeps every covering test of such a mutant (nothing can be lost, the saving is
+small on shards with many timeouts) and `--timeouts one` keeps one covering test per mutant (larger saving, a timeout can
+turn into a survivor if that test does not hang: the check is the unfiltered run). Survivors lose no kill by this: a mutant that no test kills stays
 unkilled, and a survivor whose covering tests were all dropped becomes `NoCoverage`, which the score counts the same.
 `make` writes nothing when the estimated saving of the mutant runs is below 20 % (`--min-saving`): such a shard keeps its
 full filter. In the full run (`full()` of [run_stryker.sh](run_stryker.sh), which is also the run without a baseline of a
 `source` shard) the script calls `narrow_tests.py apply`: with a current filter file Stryker gets the exact list of kept
 tests as `test-case-filter` (`FullyQualifiedName=...|...`), so the coverage capture and every survivor / timeout run
-execute those tests only; the job summary says `narrowed: N of M tests`. **Current** means: the config's `test-case-filter`
-and `mutate` are unchanged, every mutated file and every test file with a test in the report has its content from the report
+execute those tests only; the job summary says `narrowed: N of M tests`. **Current** means: the config (but `thresholds`, `reporters`, `concurrency`) is unchanged, every mutated file and every test file with a test in the report has its content from the report
 (line breaks and BOM aside), and no other test file mentions a class name of the filter. Anything else (stale, no file,
 unreadable) runs the config as it is and the summary says why (`full: mutated file changed: ...`). Incremental runs and
 `--since` runs keep the config's filter.
@@ -115,7 +117,7 @@ unreadable) runs the config as it is and the summary says why (`full: mutated fi
 Make the filter only from a report of a run with the FULL filter (`G3_FULL_TESTS=1`, or the fallback above): the
 `killedBy` of a narrowed run names kept tests only, so a filter made from it could never grow. A narrowed run is
 therefore a repeat of an earlier result for unchanged code, not a new one; **the unfiltered full run on master is the
-check of record** (code that the mutated files call is not in the guard: a change there can make a kept test stop killing a
+check of record** (code that the mutated files call, test helpers and data files without a test of their own, and test files linked from outside the test project are not in the guard: a change there can make a kept test stop killing a
 mutant that a dropped test still kills). Measured on the stored reports of 2026-11-09 to 12 (test times of the master
 full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
 `G3_TEST_FILTERS=<dir>` reads the filter files from another directory (default `test-filters/`). Tests:

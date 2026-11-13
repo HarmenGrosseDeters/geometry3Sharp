@@ -90,9 +90,51 @@ class Make(Dir):
         flt, _ = self.make(ms)
         self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Two"])
 
-    def test_timeouts_count_as_kills(self):
+    def test_a_timeout_with_a_recorded_killer_needs_it(self):
         flt, _ = self.make(self.BIG + [mutant(20, "Timeout", "d", "abcd")])
         self.assertIn("N.BTests.Four", flt["kept"])
+
+    def test_a_timeout_without_a_recorded_killer_keeps_every_covering_test_by_default(self):
+        # Stryker's report has an empty killedBy for every timeout: which covering test hung is unknown
+        flt, _ = self.make(self.BIG + [mutant(20, "Timeout", (), "bcd")], min_saving=0.0)
+        self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Two", "N.BTests.Four", "N.BTests.Three"])
+        self.assertEqual(flt["timeouts"], "all")
+
+    def test_timeouts_one_keeps_one_covering_test_for_all_the_timeouts_it_can(self):
+        ms = self.BIG + [mutant(20, "Timeout", (), "bcd"), mutant(21, "Timeout", (), "abd")]
+        flt, _ = self.make(ms, timeouts="one")
+        self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Two"])  # Two covers both timeouts
+        self.assertEqual(flt["timeouts"], "one")
+
+    def test_a_timeout_without_coverage_data_asks_for_nothing(self):
+        flt, _ = self.make(self.BIG + [mutant(20, "Timeout")])
+        self.assertEqual(flt["kept"], ["N.ATests.One"])
+
+    def test_theory_rows_become_their_method_once(self):
+        tests = dict(TESTS, b=(TESTF, 'N.ATests.Row(x: 1, s: "a|b")'), e=(TESTF, 'N.ATests.Row(x: 2, s: "c")'))
+        rp = os.path.join(self.tmp.name, "r.json")
+        json.dump(report(Make.BIG + [mutant(20, "Killed", "be", "abe")], tests), open(rp, "w"))
+        flt, _ = nt.make(rp, self.config)
+        self.assertEqual(flt["kept"], ["N.ATests.One", "N.ATests.Row"])
+
+    def test_a_test_file_or_a_mutated_file_alone_outside_the_project_root_makes_no_filter(self):
+        for group, fix in [("testFiles", None), ("files", None)]:
+            rep_ = report(Make.BIG, TESTS)
+            rep_[group] = {"/elsewhere/" + k.rsplit("/", 1)[1]: v for k, v in rep_[group].items()}
+            rp = os.path.join(self.tmp.name, "r.json")
+            json.dump(rep_, open(rp, "w"))
+            flt, msg = nt.make(rp, self.config)
+            self.assertIsNone(flt, group)
+            self.assertIn("test file outside" if group == "testFiles" else "mutated file outside", msg)
+
+    def test_a_file_outside_the_project_root_makes_no_filter(self):
+        rp = os.path.join(self.tmp.name, "r.json")
+        rep_ = report(Make.BIG, TESTS)
+        rep_["projectRoot"] = ROOT + "/sub"
+        json.dump(rep_, open(rp, "w"))
+        flt, msg = nt.make(rp, self.config)
+        self.assertIsNone(flt)
+        self.assertIn("outside the project root", msg)
 
     def test_survivors_and_uncovered_mutants_need_no_test(self):
         flt, _ = self.make(self.BIG + [mutant(20, "Survived", (), "bcd"), mutant(21, "NoCoverage"),
@@ -177,12 +219,19 @@ class Apply(Dir):
         want = (config or CONFIG)["stryker-config"]
         self.assertEqual(cfg["test-case-filter"], want["test-case-filter"])
 
-    def test_a_changed_filter_or_mutate_of_the_config_is_stale(self):
-        for key, value, needle in [("test-case-filter", "FullyQualifiedName~ATests", "test-case-filter"),
-                                   ("mutate", ["**/mesh_ops/Lib.cs{0..98}"], "mutate")]:
+    def test_a_changed_key_of_the_config_that_decides_mutants_or_tests_is_stale(self):
+        for key, value in [("test-case-filter", "FullyQualifiedName~ATests"),
+                           ("mutate", ["**/mesh_ops/Lib.cs{0..98}"]),
+                           ("ignore-methods", ["*Stats.*"]), ("mutation-level", "Complete"),
+                           ("target-framework", "net8.0")]:
             cfg = json.loads(json.dumps(CONFIG))
             cfg["stryker-config"][key] = value
-            self.assertFull(self.current(), needle, cfg)
+            self.assertFull(self.current(), "the config changed", cfg)
+
+    def test_the_reporting_keys_of_the_config_do_not_make_it_stale(self):
+        cfg = json.loads(json.dumps(CONFIG))
+        cfg["stryker-config"].update({"thresholds": {"break": 1}, "reporters": ["json"], "concurrency": 7})
+        self.assertTrue(self.apply(self.current(), cfg)[0].startswith("narrowed"))
 
     def test_a_changed_mutated_file_is_stale(self):
         flt = self.current()
@@ -222,11 +271,23 @@ class Apply(Dir):
         self.assertTrue(self.apply(flt)[0].startswith("narrowed"))
 
     def test_a_missing_or_broken_filter_file_is_full(self):
-        self.assertFull(None, "no usable filter file")
+        self.assertFull(None, "no filter file")
         fp = os.path.join(self.tmp.name, "f.json")
-        open(fp, "w").write("{broken")
-        msg = nt.apply(self.config, fp, self.repo, os.path.join(self.tmp.name, "o.json"))
-        self.assertTrue(msg.startswith("full: no usable filter file"), msg)
+        out = os.path.join(self.tmp.name, "o.json")
+        flt = self.current()
+        for text in ["{broken", "[]", "null", json.dumps(dict(flt, kept=[1, 2])), json.dumps(dict(flt, mutated_files=[1])),
+                     json.dumps(dict(flt, test_files="x"))]:
+            open(fp, "w").write(text)
+            msg = nt.apply(self.config, fp, self.repo, out)
+            self.assertTrue(msg.startswith("full: "), (text, msg))
+            self.assertEqual(json.load(open(out))["stryker-config"]["test-case-filter"],
+                             CONFIG["stryker-config"]["test-case-filter"])
+
+    def test_vstest_operators_in_a_kept_name_are_escaped(self):
+        flt = dict(self.current(), kept=["N.C.M(a: 1)", "N.C.O"])
+        msg, cfg = self.apply(flt)
+        self.assertEqual(cfg["test-case-filter"], "FullyQualifiedName=N.C.M\\(a: 1\\)|FullyQualifiedName=N.C.O")
+        self.assertEqual(nt.vstest_escape("a\\b(c)&d|e=f!g~h"), "a\\\\b\\(c\\)\\&d\\|e\\=f\\!g\\~h")
 
     def test_another_format_or_an_empty_kept_list_is_full(self):
         flt = self.current()
@@ -273,8 +334,7 @@ class RunStryker(unittest.TestCase):
         self.cfg_path = os.path.join(t, "stryker-test.json")
         json.dump(self.config, open(self.cfg_path, "w"))
         src = os.path.join(HERE, "narrow_tests.py")
-        self.flt = {"format": nt.FORMAT, "config_filter": nt.digest(self.config["stryker-config"]["test-case-filter"]),
-                    "config_mutate": nt.digest_json(["x"]), "terms": [term], "kept": ["N.C.M"], "tests_in_report": 3,
+        self.flt = {"format": nt.FORMAT, "config": nt.config_hash(self.config["stryker-config"]), "terms": [term], "kept": ["N.C.M"], "tests_in_report": 3,
                     "mutated_files": {"tests/mutation/narrow_tests.py": nt.digest(nt.read_text(src))}, "test_files": {}}
         self.flt_path = os.path.join(t, "filters", "stryker-test.json")
 
@@ -298,9 +358,9 @@ class RunStryker(unittest.TestCase):
     def test_no_filter_file_a_stale_one_and_G3_FULL_TESTS_run_the_config_as_it_is(self):
         self.assertEqual(self.run_script(), self.full_filter())
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "summary.md")))  # no filter file: nothing to say
-        json.dump(dict(self.flt, config_mutate="stale"), open(self.flt_path, "w"))
+        json.dump(dict(self.flt, config="stale"), open(self.flt_path, "w"))
         self.assertEqual(self.run_script(), self.full_filter())
-        self.assertIn("full: mutate of the config changed", open(os.path.join(self.tmp.name, "summary.md")).read())
+        self.assertIn("full: the config changed", open(os.path.join(self.tmp.name, "summary.md")).read())
         json.dump(self.flt, open(self.flt_path, "w"))
         self.assertEqual(self.run_script(G3_FULL_TESTS="1"), self.full_filter())
 
