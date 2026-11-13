@@ -22,8 +22,11 @@ Part of the [roadmap](../ROADMAP.md).
   enclosure of the polyhedral distance by window propagation in interval arithmetic. Role (coordinator, 2026-11-13): a
   **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Gates 2 and 3
   measured on throwaway probes (exact on every test mesh; the 10^5 terrain 18.8 s and the aligned ridge 81 x 81 16 s in
-  the interval version); before library code the claims A7 and A9 are reviewed (A8 withdrawn). Option C (a Lipschitz
-  lower bound for the heat field) dropped.
+  the interval version); A7 reviewed, A8 withdrawn, A9's observations (b)-(h) not reviewed. Option C (a Lipschitz
+  lower bound for the heat field) dropped. **The oracle is in the library** (internal `ExactMeshGeodesicDistance`, A1-A6,
+  flat vertices as pseudo-sources): about 10^4 vertices on terrain, about 10^3 on exactly flat or aligned input (then
+  `WindowLimit`). Open: A7 with duplicate control (GEODESICS.md 6b), the flat-tie redesign, the heat-method tests against
+  the oracle.
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).

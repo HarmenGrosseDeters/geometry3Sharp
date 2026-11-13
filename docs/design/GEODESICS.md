@@ -401,6 +401,50 @@ vertices** (decision 2's role); the 10^5 targets move to a later public class an
 structural redesign of the flat-region ties without a new decision: it is an **open item, not started**. Before any library code, A7 and the replacement of
 the grazing rule (Appendix A.5) are reviewed; A8 is withdrawn.
 
+## 6b. The test oracle in the library (2026-11-13)
+
+`mesh_ops/ExactMeshGeodesicDistance.cs`, **internal**, serial, under the exact-code rules (the `mesh_ops/ExactMesh*`
+pattern of `.editorconfig`: a deliberate `Math.FusedMultiplyAdd` fails the build with RS0030 and G3E0003). It implements
+A1-A6, subsumption and the terminal windows (M1); flat vertices are pseudo-sources (S1 / A5); **A7 is not shipped**.
+`ExactInterval` got division and square root (correctly rounded in IEEE 754 on every target; tests at the subnormal and
+overflow edges). Corner angles for the pseudo-source test use `CoreMath.Atan2` (documented as correctly rounded, at most
+half a spacing; widened by two spacings). The direction error of A.2 uses the bound 2 asin z <= 2 z / sqrt(1 - z^2)
+instead of `Math.Asin`, so no libm function enters and the bits are the same on every platform
+(`tools/DeterminismHarness` case `geodesic.exact`). On a window limit or a too-wide position the result arrays are
+NaN.
+
+**Why A7 is not shipped (an open item: A7 with duplicate control).** The constructive continuation windows of A7 are
+sound (reviewed), but on exactly flat regions they duplicate the ordinary windows: the ordinary windows already carry
+the rays through flat vertices, and the continuation windows carry the same origin with the same true position, so their
+distance functions are equal. Neither A6 (it needs a pending partner) nor certified dominance (equal functions) removes
+such duplicates, and a per-vertex dedup of the continuations (a canonical frame per vertex and subsumption of their
+disks) does not catch the duplicates of the ordinary windows. Measured: a 5 x 5 plane reached the limit of 100000
+windows with 112616 continuation windows. A7 needs a duplicate-control design (for example subsumption of a continuation
+by the ordinary windows on its edge side, or emitting continuations only where no ordinary window can carry the ray)
+before it is built.
+
+**Measured reach** (net10 Release, this container; S1 setting; 0 enclosure violations against the plain-double
+reference that emits from every flat vertex):
+
+| mesh | vertices | time | windows per edge | largest (Upper - Lower) / max(1, d) | Lower gap to the reference |
+|---|---|---|---|---|---|
+| plane 41 x 41 | 1681 | 3.3 s | 17 | 1.3e-2 | 9.5e-9 |
+| terrain 41 x 41 | 1681 | 0.5 s | 3.9 | 5.7e-9 | 5.7e-9 |
+| saddle 41 x 41 | 1681 | 2.1 s | 13 | 9.5e-9 | 9.5e-9 |
+| aligned ridge 21 x 21 | 441 | 1.2 s | 10 | 6.3e-3 | 8e-9 |
+| aligned ridge 31 x 31 | 961 | 1.6 s | 17 | | |
+| terrain 101 x 101 | 10201 | 4.0 s | 4.3 | | |
+| plane 101 x 101 | 10201 | window limit | | | |
+| aligned ridge 41 x 41 | 1681 | window limit | | | |
+
+So the oracle reaches about 10^4 vertices on terrain-like input, but only about 10^3 on exactly flat or exactly aligned
+input: **short of the 10^4-vertex target of the plan** on those. Beyond, `Compute` returns `WindowLimit` with NaN arrays
+(the clean way out; a test pins it on the aligned 41 x 41 ridge). The default `MaxWindows` is 300000, which keeps a
+`Compute` below about 20 s (the plane 101 x 101 took 116 s to reach the former limit of 2 million).
+**Looseness:** Upper is up to about 1.3% above the distance on flat regions (inner intervals rarely contain a vertex
+certainly; the edge paths then bound it); Lower is within about 1e-8 relative (the re-emission margins of A5 add up
+along chains of flat pseudo-sources). Tests assert the enclosure and a width bound per mesh, never equality.
+
 ## 7. Test plan (repo style)
 
 ### 7.1 Analytic oracles for the polyhedral distance
@@ -668,7 +712,8 @@ Found while building the gate-3 prototype. A7 and A9 are proposed claims for the
 The prototype implemented an earlier form (an angle-sum stand-in for flatness, the implicit closure below, a sliver
 skip and A8); it was exact on every test mesh, but that is a measurement, not the argument.
 
-- **A7 (exactly flat vertices need not be pseudo-sources), constructive form.** S1 / A5 make every vertex that is not
+- **A7 (exactly flat vertices need not be pseudo-sources), constructive form.** (Reviewed; **not shipped**: the
+  continuation windows duplicate the ordinary windows on flat regions, section 6b; an open item.) S1 / A5 make every vertex that is not
   certainly convex a pseudo-source; an enclosed angle sum of exactly 2 pi is never certainly below 2 pi, so every flat
   vertex would emit (on the aligned ridge in plain doubles: 281 s instead of 5 s). Proposed instead:
   *Exact flatness test* (decides angle sum = 2 pi exactly, without angles; all predicates exact, on the double
