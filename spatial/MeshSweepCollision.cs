@@ -162,45 +162,37 @@ namespace g3
             }
             long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            // In batches of jobs (bounded memory): (1) each job's candidate pairs, in parallel over the jobs; (2) the
-            // pairs, in parallel over the pairs (so that expensive pairs that cluster in one job still spread over the
-            // cores); (3) the results recorded per job, in order.
+            // In batches of about BatchPairs candidate pairs (bounded memory; the batches depend only on the input):
+            // (1) the jobs' candidate pairs, in parallel over the jobs; (2) the pairs, in parallel over the pairs (so that
+            // expensive pairs that cluster in one job still spread over the cores); (3) the results recorded per job, in
+            // order.
             var outputs = new JobOutput[jobs.Count];
-            var batchPairs = new List<PairRef>[BatchJobs];
-            for (int b0 = 0; b0 < jobs.Count; b0 += BatchJobs) {
-                int nb = Math.Min(BatchJobs, jobs.Count - b0);
-                Action<int, Worker> collect = (jj, w) => {
-                    Job job = jobs[b0 + jj];
-                    var list = new List<PairRef>();
-                    if (job.Kind == JobKind.VertexTriangle) {
-                        DMesh3 vm = job.OfA ? meshA : meshB, tm = job.OfA ? meshB : meshA;
-                        Vector3d[] ve = job.OfA ? endA : endB;
-                        Prepared tri = job.OfA ? triB : triA;
-                        int[] verts = job.OfA ? vertsA : vertsB;
-                        if (tri.Tree != null)
-                            for (int k = job.Start; k < job.End; ++k)
-                                vertex_against(verts[k], vm, ve, tm, tri, job.OfA, half, w, list);
-                    } else if (job.Kind == JobKind.EdgeEdge) {
-                        if (edgB.Tree != null)
-                            for (int k = job.Start; k < job.End; ++k)
-                                edge_against(edgesA[k], edgB, half, w, list);
-                    } else
-                        self_edges(selfTasks[job.Start], edgB, w, list);
-                    batchPairs[jj] = list;
-                };
-                if (parallel && nb > 1)
-                    gParallel.ForRange(nb, () => new Worker(), collect);
-                else {
-                    var w = new Worker();
-                    for (int jj = 0; jj < nb; ++jj)
-                        collect(jj, w);
+            var jobPairs = new List<PairRef>[jobs.Count];
+            for (int b0 = 0; b0 < jobs.Count; ) {
+                // (1) candidates of groups of jobs (parallel over a group's jobs) until the batch holds BatchPairs pairs
+                int b1 = b0;
+                long held = 0;
+                while (b1 < jobs.Count && held < BatchPairs) {
+                    int g0 = b1, ng = Math.Min(BatchJobs, jobs.Count - b1);
+                    Action<int, Worker> collect = (jj, w) => { jobPairs[g0 + jj] = job_candidates(jobs[g0 + jj], vertsA, vertsB, edgesA, selfTasks, triA, triB, edgB, half, w); };
+                    if (parallel && ng > 1)
+                        gParallel.ForRange(ng, () => new Worker(), collect);
+                    else {
+                        var w = new Worker();
+                        for (int jj = 0; jj < ng; ++jj)
+                            collect(jj, w);
+                    }
+                    for (int jj = 0; jj < ng; ++jj)
+                        held += jobPairs[g0 + jj].Count;
+                    b1 += ng;
                 }
-                var offsets = new int[nb + 1];
-                for (int jj = 0; jj < nb; ++jj)
-                    offsets[jj + 1] = checked(offsets[jj] + batchPairs[jj].Count);
-                var flat = new PairRef[offsets[nb]];
-                for (int jj = 0; jj < nb; ++jj)
-                    batchPairs[jj].CopyTo(flat, offsets[jj]);
+                // (2) the batch's pairs, in parallel over the pairs
+                var offsets = new int[b1 - b0 + 1];
+                for (int jj = b0; jj < b1; ++jj)
+                    offsets[jj - b0 + 1] = checked(offsets[jj - b0] + jobPairs[jj].Count);
+                var flat = new PairRef[offsets[b1 - b0]];
+                for (int jj = b0; jj < b1; ++jj)
+                    jobPairs[jj].CopyTo(flat, offsets[jj - b0]);
                 var results = new CcdResult[flat.Length];
                 Action<int, CcdSolver> solve = (k, solver) => { results[k] = solve_pair(flat[k], solver); };
                 if (parallel && flat.Length > 1)
@@ -210,13 +202,15 @@ namespace g3
                     for (int k = 0; k < flat.Length; ++k)
                         solve(k, solver);
                 }
-                for (int jj = 0; jj < nb; ++jj) {
+                // (3) the results recorded per job, in order
+                for (int jj = b0; jj < b1; ++jj) {
                     var o = new JobOutput();
-                    for (int k = offsets[jj]; k < offsets[jj + 1]; ++k)
+                    for (int k = offsets[jj - b0]; k < offsets[jj - b0 + 1]; ++k)
                         record(o, flat[k], results[k]);
-                    outputs[b0 + jj] = o;
-                    batchPairs[jj] = null;
+                    outputs[jj] = o;
+                    jobPairs[jj] = null;
                 }
+                b0 = b1;
             }
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
             BroadPhaseSeconds = (t1 - t0) / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -385,8 +379,32 @@ namespace g3
             return p;
         }
 
-        // jobs per batch: the batch's candidate pairs live at the same time
+        // jobs per group of the candidate search, and the candidate pairs per batch (they live at the same time, with
+        // their results: about 64 bytes each)
         const int BatchJobs = 64;
+        internal int BatchPairs = 1 << 21;
+
+        // the candidate pairs of one job
+        List<PairRef> job_candidates(Job job, int[] vertsA, int[] vertsB, int[] edgesA, List<Index2i> selfTasks,
+                                 Prepared triA, Prepared triB, Prepared edgB, double half, Worker w)
+        {
+            var list = new List<PairRef>();
+            if (job.Kind == JobKind.VertexTriangle) {
+                DMesh3 vm = job.OfA ? meshA : meshB, tm = job.OfA ? meshB : meshA;
+                Vector3d[] ve = job.OfA ? endA : endB;
+                Prepared tri = job.OfA ? triB : triA;
+                int[] verts = job.OfA ? vertsA : vertsB;
+                if (tri.Tree != null)
+                    for (int k = job.Start; k < job.End; ++k)
+                        vertex_against(verts[k], vm, ve, tm, tri, job.OfA, half, w, list);
+            } else if (job.Kind == JobKind.EdgeEdge) {
+                if (edgB.Tree != null)
+                    for (int k = job.Start; k < job.End; ++k)
+                        edge_against(edgesA[k], edgB, half, w, list);
+            } else
+                self_edges(selfTasks[job.Start], edgB, w, list);
+            return list;
+        }
 
         // a candidate pair: the kind, the first primitive (of mesh A or B) and the second (of the other mesh, or of A for
         // a self sweep)
