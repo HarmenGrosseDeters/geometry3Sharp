@@ -567,6 +567,13 @@ in stage 2; (3) Li-Teng placement, no exudation; (4) steps 1-3 now, step 4 after
 
 ### 14.9 Surface refinement round (2026-11-13, coordinator go: "2D Delaunay refinement per patch with the 3D facet check and undo")
 
+**Decision (coordinator, 2026-11-13): option (a) below, target kept.** The target p01 >= 10 degrees and min >= 1 degree moves
+from the end of stage 1 to the end of stage 2; the measured stage-1 values stand as they are: p01 >= 10 on 16 of 40, min >= 1 on
+23 of 40, median p01 9.3, median min 1.18 degrees. Stage 2 (flips + smoothing, Klingner and Shewchuk 2007 from the paper only,
+boundary vertices sliding on the wrap surface) keeps the surface invariants exactly (closed, manifold, intersection-free, input
+strictly inside: an exact check per move, undo on failure), is measured on the 40-mesh subset after every lever, and is its
+own PR after this one.
+
 Building blocks searched first: `QualityMesh2` / `DelaunayKernel2` / `ConstrainedDelaunayMesh2` are planar (one plane, their own 2D
 kernel) and do not apply to a curved wrap surface as a whole; the wrap itself has a surface quality refinement on the offset
 surface (`MeshAlphaWrap.RefineMinAngleDegrees`, Chew 1993 / Boissonnat-Oudot 2005), now passed through as
