@@ -42,3 +42,16 @@ run "the accumulators not cleared" $G 'sb.Append("            for (int i = 0; i 
 run "Orient3d call site: arguments swapped" $E 'return DoublePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);' 'return DoublePredicates.Orient3d(b.x, b.y, b.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);'
 run "Orient2d call site: sign" $E 'return DoublePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);' 'return -DoublePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);'
 run "InCircle call site: back to zero" $E 'return DoublePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);' 'return 0;'
+# ---- the real mutants that the Stryker marks of the equivalent ones switch off with them (same mutator, same statement):
+# pinned here (review of PR 1)
+run "pinned: exponent field shifted left" $G 'sb.Append("            long top = bits >> 52;\n");' 'sb.Append("            long top = bits << 52;\n");'
+run "pinned: hidden bit with &=" $G 'sb.Append("                f |= 1UL << 52;\n");' 'sb.Append("                f &= 1UL << 52;\n");'
+run "pinned: sign test reversed" $G 'sb.Append("            if (bits < 0)\n                neg |= 1UL << i;\n");' 'sb.Append("            if (bits >= 0)\n                neg |= 1UL << i;\n");'
+run "pinned: sign bit with &=" $G 'sb.Append("            if (bits < 0)\n                neg |= 1UL << i;\n");' 'sb.Append("            if (bits < 0)\n                neg &= 1UL << i;\n");'
+run "pinned: comparison reversed" $G 'return (p[i] > q[i]) ? 1 : -1;' 'return (p[i] < q[i]) ? 1 : -1;'
+run "pinned: sign bits shifted left" $G '$"s{inv(k)} = neg >> i{inv(k)}"' '$"s{inv(k)} = neg << i{inv(k)}"'
+run "pinned: passed bits shifted left" $G '$"c{inv(k)} = r{inv(k)} >> (64 - s)"' '$"c{inv(k)} = r{inv(k)} << (64 - s)"'
+# ---- the checks against a write outside an accumulator
+run "the monomial's bound not checked" $G 'sb.Append($"            if (w + {inv(d + 1)} > (uint)limbs)\n");' 'sb.Append($"            if (w + {inv(d + 1)} > (uint)limbs + 1000)\n");'
+run "the monomial's bound one limb late" $G 'sb.Append($"            if (w + {inv(d + 1)} > (uint)limbs)\n");' 'sb.Append($"            if (w + {inv(d)} > (uint)limbs)\n");'
+run "the carry's bound not checked" $G 'sb.Append("                if (k >= (uint)limbs)\n");' 'sb.Append("                if (k >= (uint)limbs + 1000)\n");'
