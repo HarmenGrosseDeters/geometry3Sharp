@@ -45,7 +45,8 @@ namespace geometry3Sharp.Tests
             var strict = new FoldoverFreeParameterization(m, uv) { EnergyDecreaseTolerance = 0 }.Compute();
             Assert.True(strict.Succeeded, strict.Error);
             Assert.True(strict.Converged, strict.Error);
-            Assert.True(strict.Iterations < 200, "stopped by the iteration limit: " + strict.Iterations);
+            // Measured 31 (normal 28); with the guard coupled to the option the run goes on to the epsilon floor (166).
+            Assert.True(strict.Iterations <= 60, "tolerance 0 must keep the Newton exit at a negligible regularization, not the epsilon floor: " + strict.Iterations);
             Assert.True(strict.Iterations > normal.Iterations);
             Assert.True(strict.Distortion.SymmetricDirichlet <= normal.Distortion.SymmetricDirichlet * 1.001);
         }
