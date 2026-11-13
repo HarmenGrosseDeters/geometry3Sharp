@@ -237,11 +237,11 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Compute_RetriesTheGridWhenASampleLiesOnTheLevel_AndIsInvariant()
+        public void Compute_SnapsNodesOnTheLevelInsteadOfRetrying_AndIsInvariant()
         {
             // The first grid is the lattice grid moved down by half a cube. The box [h/2, L + h/2]^3 has its faces on the planes of
-            // those nodes: samples of the box distance are exactly 0 there (a sample on the level or a sliver), so the first
-            // grid must be rejected and a later shift succeed.
+            // those nodes: samples of the box distance are exactly 0 there, a sample on the level. Such values are snapped inside
+            // (the sliver guard), so the first grid works: no retry, under every similarity (the guard is 2^-8 cube, scale exact).
             TpmsLattice reference = null;
             foreach (Similarity s in Similarity.All()) {
                 var lattice = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.5, 16, 1);
@@ -251,13 +251,67 @@ namespace geometry3Sharp.Tests
                 lattice.Rotation = s.Rotation;
                 lattice.Compute();
                 Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
-                Assert.True(lattice.GridShiftsUsed > 0, "the on-level grid must have been rejected: " + s.Name);
+                Assert.Equal(0, lattice.GridShiftsUsed);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
                 if (reference == null) { reference = lattice; continue; }
-                Assert.Equal(reference.GridShiftsUsed, lattice.GridShiftsUsed);
                 if (s.IsExact)
                     Assert.Equal("", Invariance.Difference(reference.Mesh, Invariance.MappedBack(lattice.Mesh, s)));
             }
+        }
+
+        [Fact]
+        public void Compute_RetriesTheGridWhenTheFirstOneIsRejected_AndIsInvariant()
+        {
+            // The retry path itself (the guard makes a real on-level sample rare): an internal hook rejects the first attempt; the
+            // shifts are defined in the lattice frame, so every similarity uses the same one and the 2^k scales stay bit for bit.
+            TpmsLattice reference = null;
+            foreach (Similarity s in Similarity.All()) {
+                var lattice = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.5, 16, 1);
+                lattice.CellSize = s.Scale * L;
+                lattice.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * s.Scale);
+                lattice.Origin = s.Apply(Vector3d.Zero);
+                lattice.Rotation = s.Rotation;
+                lattice.RejectAttempt = a => a < 2;
+                lattice.Compute();
+                Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+                Assert.Equal(2, lattice.GridShiftsUsed);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
+                if (reference == null) { reference = lattice; continue; }
+                if (s.IsExact)
+                    Assert.Equal("", Invariance.Difference(reference.Mesh, Invariance.MappedBack(lattice.Mesh, s)));
+            }
+        }
+
+        [Fact]
+        public void SliverGuard_MovesNearLevelValuesDownAndOnlyThose()
+        {
+            // pins the direction (down: the solid only grows, so the enclosure survives) and the range of the guard
+            const double iso = 0.25, snap = 0.01;
+            Assert.Equal(iso - snap, TpmsLattice.SliverGuard(iso, iso, snap));                // on the level
+            Assert.Equal(iso - snap, TpmsLattice.SliverGuard(iso + 0.5 * snap, iso, snap));   // slightly outside
+            Assert.Equal(iso - snap, TpmsLattice.SliverGuard(iso - 0.5 * snap, iso, snap));   // slightly inside
+            Assert.Equal(iso + 2 * snap, TpmsLattice.SliverGuard(iso + 2 * snap, iso, snap)); // far values unchanged
+            Assert.Equal(iso - 2 * snap, TpmsLattice.SliverGuard(iso - 2 * snap, iso, snap));
+            Assert.Equal(iso, TpmsLattice.SliverGuard(iso, iso, 0));                          // off: untouched
+            foreach (double v in new[] { -1.0, 0.0, iso - 0.02, iso + 0.02, 3.0 })
+                Assert.True(TpmsLattice.SliverGuard(v, iso, snap) <= v + 1.5 * snap && TpmsLattice.SliverGuard(v, iso, snap) <= Math.Max(v, iso - snap));
+        }
+
+        [Fact]
+        public void Compute_LargeLatticeWithAPositionDependentLevelHasNoSlivers()
+        {
+            // Found by a large graded lattice: with a level that varies continuously the node values are generic, and on a 4^3 box at
+            // 16 cubes per period (360 k nodes) a few nodes lie within rounding of the level. Their crossings sit at cube corners and
+            // make degenerate triangles; no grid shift avoids all of them. The sliver guard does. This exact case failed with
+            // "degenerate triangles" on all four grids before.
+            var lattice = new TpmsLattice {
+                Type = TpmsType.Gyroid, Style = TpmsStyle.Sheet, CellSize = L, Divisions = 16, VolumeFraction = 0.317,
+                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(4, 4, 4)),
+                VolumeFractionAt = p => 0.317 + 0.05 * Math.Sin(p.x + 2 * p.y)
+            };
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
         }
 
         [Fact]

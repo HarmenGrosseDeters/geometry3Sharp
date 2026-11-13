@@ -230,6 +230,14 @@ namespace g3
             });
         }
 
+        // The sliver guard of the field (see FieldFunction.Value): a value within snap of the level iso counts as inside. Only ever down:
+        // the solid becomes a superset, so the enclosure survives. Internal for the tests that pin the direction and the range.
+        internal static double SliverGuard(double value, double iso, double snap)
+        {
+            if (snap > 0 && Math.Abs(value - iso) < snap) return iso - snap;
+            return value;
+        }
+
         // ================= the field =================
 
         sealed class FieldFunction : ImplicitFunction3d
@@ -238,11 +246,23 @@ namespace g3
             public double K;                  // 2 pi / L
             public double Level;              // c (constant fraction)
             public double InvLipschitz;       // 1 / Lw
+            public double Iso, Snap;          // the contouring level and the sliver guard: a value within Snap of Iso is moved to Iso - Snap
             public bool UseBox; public Vector3d Center, Half;
             public Func<Vector3d, double> LevelAt;    // grading: local position -> level
             public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
 
             public double Value(ref Vector3d p)
+            {
+                double v = Raw(ref p);
+                // Sliver guard: a node whose value is within rounding of the level makes a crossing at a cube corner and so degenerate
+                // triangles (found: large lattices with a position dependent level or a graded cell size). Values within Snap of the
+                // level count as inside, with Snap = 2^-8 cube: every crossing is then at least 2^-8 of an edge from a node, so no
+                // triangle is smaller than about 1e-5 cube^2. The surface moves by less than 2 Snap, and only down, which keeps the
+                // solid a superset (the enclosure survives).
+                return SliverGuard(v, Iso, Snap);
+            }
+
+            double Raw(ref Vector3d p)
             {
                 double f = Evaluate(Type, K * p.x, K * p.y, K * p.z);
                 double c = LevelAt != null ? LevelAt(p) : Level;
@@ -402,7 +422,7 @@ namespace g3
 
             IsoValueUsed = isoValue;
             var field = new FieldFunction {
-                Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt,
+                Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt, Iso = isoValue, Snap = h / 256,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
                 DomainTree = tree, DomainBounds = box
             };

@@ -120,6 +120,14 @@ solid and the result is closed.
   triangles only. The shift moves only the grid, not the lattice phase; with `Enclosure` only the dyadic shifts 0.5, 0.25, 0.75, 0.125 are used and a shift whose grid is not exactly representable is skipped (review finding); `ContouringFailed` if all four fail
   (`GridShiftsUsed` reports the attempt). Found by the tests: Neovius with a box on grid planes gave a sliver at a box
   edge on the unshifted grid.
+- **Sliver guard** (bugfix after #750, found by a large graded lattice): with a level that varies continuously (`VolumeFractionAt`, a
+  graded cell size) the node values are generic, and on a lattice of a few hundred thousand nodes a few lie within rounding of the
+  level; their crossings sit at cube corners and give degenerate triangles that no grid shift avoids (a constant lattice on its own
+  grid has a small discrete set of node values and was not hit). The field therefore treats a value within `h / 256` of the level as
+  inside (moved to `iso - h / 256`, `TpmsLattice.SliverGuard`): every crossing is then at least 2^-8 of an edge from its node and no
+  triangle is smaller than about 1e-5 cube^2. The surface moves by less than `2 h / 256` and only outward, so the solid is a superset
+  and the `Enclosure` guarantee survives. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
+  retries are rare and remain for what the guard cannot see.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).
 - Alternative for an exact cut: the user builds the lattice on a bounding box and intersects with
