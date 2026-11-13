@@ -31,7 +31,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 | The PR changes | Runs | Fails below `break`? |
 |---|---|---|
 | a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
-| the config | the whole shard | yes |
+| the config | the whole shard; an edit that only moves the spans of `mutate` (offsets after a source edit, a resplit) runs incrementally, as a mutated file | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
 | `.config/dotnet-tools.json` | every config in full | yes |
 | the workflow | every config in full if the edit touches a line that can change how a shard runs; an edit that stays in the regions below runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
@@ -44,20 +44,27 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 
 Every full run stores its JSON report as the baseline of its config in the Actions cache
 ([baseline.py](baseline.py) `store`: only the files with tested mutants, keyed by relative paths; cache key
-`mutation-baseline-<config>-<hash of the config, the tools and `BASELINE_FORMAT`>-<run id>`). A PR that changes a mutated file restores
+`mutation-baseline-<config>-<hash of the tools and `BASELINE_FORMAT`>-<run id>`; the report holds the run's config as
+`g3-config`). A PR that changes a mutated file restores
 the newest baseline of its config: its own from an earlier full run of the PR, else the one of its base branch (on
 master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
 
 1. `plan`: a line diff of each mutated file against its source in the baseline report gives the changed lines; the run
    config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
-   so split shards stay split).
+   so split shards stay split). The baseline is used only if its `g3-config` equals the config up to the spans of
+   `mutate` (the same files in the same order, every other key equal); else the shard runs in full. The baseline's
+   spans are carried over the line diff: a part of the config's span that they do not cover (a resplit moved a
+   boundary) runs too, and a span boundary on a changed line runs the shard in full.
 2. Stryker runs that config with `--break-at 0`: it mutates only the changed lines.
-3. `merge`: the shard's score is the run's mutants plus the baseline's mutants that touch no changed line, with
+3. `merge`: the shard's score is the run's mutants plus the baseline's mutants that touch no changed line and now lie in
+   the config's span, with
    Stryker's formula (killed and timeouts over killed, timeouts, survived and no coverage); below the config's break
    threshold the job fails. The job summary shows the counts.
 
-A changed config, a new Stryker version or a bump of `BASELINE_FORMAT` changes the cache key, so a
-baseline of another config or format is never used; without a baseline the shard runs in full and stores one. (The
+A new Stryker version or a bump of `BASELINE_FORMAT` changes the cache key, and `plan` rejects a baseline of another
+config (its `g3-config`), so a baseline of another config or format is never used; without a baseline the shard runs in
+full and stores one. (Format 2, 2026-11-13: the config moved from the key into the report, so that an edit that only
+moves spans keeps the baseline.) (The
 baseline's results can still be out of date for other reasons: see the limits.)
 
 **`BASELINE_FORMAT`** ([the file](BASELINE_FORMAT), an integer) stands in the cache key for the scripts: the key used to
@@ -286,10 +293,10 @@ Things to know:
   a method start. Every shard of a file has the same test filter and break threshold unless its own full runs give a
   reason to change them.
   **Any edit before a split point moves every later offset**, so after a larger change to the file the test fails
-  until the offsets are moved back to their methods, and every shard of that file whose config changed then runs in
-  full (the baseline of a changed config is not used): with 4 parts, one edit near the top of
-  `ExactMeshArrangement.cs` or `PolyhedralEnvelope.cs` costs three or four full shard runs and loses the incremental
-  mode for them. So keep the number of parts small, and choose the cut points with
+  until the offsets are moved back to their methods. Since 2026-11-13 such an edit of the configs (only the spans move)
+  runs those shards incrementally (`select_shards.config_edit_moves_only_spans`, `incremental.plan`); before, every
+  shard of the file ran in full. Still keep the number of parts small (each repeats the build and coverage overhead),
+  and choose the cut points with
   [suggest_split.py](suggest_split.py) from the report of a full run (below).
 - **`suggest_split.py`** (a manual tool, nothing in CI runs it; tested by `test_suggest_split.py`):
   `python3 suggest_split.py <report> mesh_ops/File.cs --parts 3` or `--target-minutes 150`. The report is the JSON

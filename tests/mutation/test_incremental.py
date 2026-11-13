@@ -23,8 +23,13 @@ def mutant(line, status, end_line=None):
             "location": {"start": {"line": line, "column": 5}, "end": {"line": end_line or line, "column": 9}}}
 
 
-def report(source, mutants, key="/w/repo/A.cs"):
-    return {"projectRoot": "/w/repo", "files": {key: {"language": "cs", "source": source, "mutants": mutants}}}
+# the config of PlanAndMerge; a baseline holds the config of its run (baseline.py store)
+CONFIG = {"mutate": ["**/A.cs"], "thresholds": {"break": 50}, "since": {"target": "x"}, "baseline": {"provider": "disk"}}
+
+
+def report(source, mutants, key="/w/repo/A.cs", config=CONFIG):
+    return {"projectRoot": "/w/repo", "files": {key: {"language": "cs", "source": source, "mutants": mutants}},
+            "g3-config": config}
 
 
 class Pure(unittest.TestCase):
@@ -129,8 +134,7 @@ class PlanAndMerge(unittest.TestCase):
         self.root = self.dir.name
         with open(os.path.join(self.root, "A.cs"), "w") as f:
             f.write(NEW)
-        self.config = {"mutate": ["**/A.cs"], "thresholds": {"break": 50}, "since": {"target": "x"},
-                       "baseline": {"provider": "disk"}}
+        self.config = dict(CONFIG)
         self.baseline = report(OLD, [mutant(2, "Killed"), mutant(3, "Killed"), mutant(3, "Survived"),
                                      mutant(4, "Survived"), mutant(1, "Killed", 8), mutant(2, "Ignored")])
 
@@ -171,12 +175,12 @@ class PlanAndMerge(unittest.TestCase):
         self.assertIsNotNone(inc.plan(self.config, report(OLD, [mutant(2, "NoCoverage")]), self.root))
 
     def test_plan_and_merge_read_only_these_baseline_fields(self):
-        # What a stored baseline must hold for plan and merge: per file `source` and `mutants` with `status` and the
-        # `location` lines. If this fails after a change, plan or merge reads another field: old baselines in the cache lack
+        # What a stored baseline must hold for plan and merge: the run's config (`g3-config`) and per file `source` and
+        # `mutants` with `status` and the `location` lines (and columns, where given). If this fails after a change, plan or merge reads another field: old baselines in the cache lack
         # it, so bump tests/mutation/BASELINE_FORMAT (README, Baseline).
         minimal = {"files": {"A.cs": {"source": OLD, "mutants": [
             {"status": "Killed", "location": {"start": {"line": 3}, "end": {"line": 3}}},
-            {"status": "Survived", "location": {"start": {"line": 4}, "end": {"line": 4}}}]}}}
+            {"status": "Survived", "location": {"start": {"line": 4}, "end": {"line": 4}}}]}}, "g3-config": CONFIG}
         mutate, files = inc.plan(self.config, minimal, self.root)
         self.assertEqual(2, len(mutate))
         run = {"files": {"A.cs": {"mutants": [{"status": "Killed"}]}}}
@@ -212,6 +216,64 @@ class PlanAndMerge(unittest.TestCase):
         self.assertEqual((1, 1), c["baseline"])          # f (killed) and h (survived) kept
         self.assertEqual(3, c["replaced"])               # the two old g mutants and the class mutant
         self.assertEqual((1, 1), inc.merge(self.config, self.baseline, None, self.root)["baseline"])
+
+    def spans(self, old_span, new_span, new_text=OLD, mutants=None):
+        # a baseline of OLD with the span old_span, the file now new_text, the config with new_span
+        with open(os.path.join(self.root, "A.cs"), "w") as f:
+            f.write(new_text)
+        old_cfg = dict(CONFIG, mutate=["**/A.cs{%d..%d}" % old_span])
+        bl = report(OLD, mutants or [mutant(4, "Killed"), mutant(5, "Survived"), mutant(6, "Killed")], config=old_cfg)
+        return dict(CONFIG, mutate=["**/A.cs{%d..%d}" % new_span]), bl
+
+    def test_a_shifted_span_is_carried_over_the_line_diff(self):
+        # a line inserted above the shard's part of the file moves its offsets: nothing of the shard changed, nothing runs,
+        # and the baseline counts as before
+        new = OLD.replace("class A {\n", "class A {\n    int z() { return 1; }\n")
+        h, h2 = OLD.index("    int h"), new.index("    int h")
+        cfg, bl = self.spans((h, len(OLD)), (h2, len(new)), new)
+        mutate, _ = inc.plan(cfg, bl, self.root)
+        self.assertEqual([], mutate)
+        self.assertEqual({"run": (0, 0), "baseline": (2, 1), "replaced": 0}, inc.merge(cfg, bl, None, self.root))
+
+    def test_a_boundary_moved_up_runs_what_it_adds(self):
+        # a resplit gives this shard the line g as well (it was in the shard before): only g runs
+        g, h = OLD.index("    int g"), OLD.index("    int h")
+        cfg, bl = self.spans((h, len(OLD)), (g, len(OLD)))
+        mutate, _ = inc.plan(cfg, bl, self.root)
+        self.assertEqual([(g, h)], [inc.parse_mutate(m)[1] for m in mutate])
+        run = report(OLD, [mutant(3, "Survived")])
+        self.assertEqual({"run": (0, 1), "baseline": (2, 1), "replaced": 0}, inc.merge(cfg, bl, run, self.root))
+
+    def test_a_boundary_moved_down_drops_what_left_the_shard(self):
+        # the line h now belongs to the shard before: its baseline mutant no longer counts here, nothing runs
+        i = OLD.index("    int i")
+        cfg, bl = self.spans((OLD.index("    int h"), len(OLD)), (i, len(OLD)))
+        self.assertEqual([], inc.plan(cfg, bl, self.root)[0])
+        self.assertEqual({"run": (0, 0), "baseline": (1, 1), "replaced": 0}, inc.merge(cfg, bl, None, self.root))
+
+    def test_a_boundary_on_a_changed_line_runs_in_full(self):
+        g = OLD.index("    int g")
+        cfg, bl = self.spans((g + 4, len(OLD)), (NEW.index("    int g") + 4, len(NEW)), NEW)
+        self.assertIsNone(inc.plan(cfg, bl, self.root))
+
+    def test_a_baseline_of_another_config_or_without_one_runs_in_full(self):
+        self.assertIsNotNone(inc.plan(self.config, self.baseline, self.root))
+        for other in (dict(CONFIG, thresholds={"break": 60}), dict(CONFIG, mutate=["**/B.cs"]),
+                      dict(CONFIG, mutate=["**/A.cs", "**/A.cs"]), dict(CONFIG, **{"test-case-filter": "x"})):
+            self.assertIsNone(inc.plan(self.config, dict(self.baseline, **{"g3-config": other}), self.root), other)
+        bl = dict(self.baseline)
+        del bl["g3-config"]
+        self.assertIsNone(inc.plan(self.config, bl, self.root))
+
+    def test_map_offset(self):
+        new = OLD.replace("class A {\n", "class A {\n\n")
+        lmap = inc.line_map(OLD, new)
+        h = OLD.index("    int h")
+        self.assertEqual(h + 1, inc.map_offset(OLD, new, lmap, h))
+        self.assertEqual(h + 5, inc.map_offset(OLD, new, lmap, h + 4))
+        self.assertEqual((0, len(new)), (inc.map_offset(OLD, new, lmap, 0), inc.map_offset(OLD, new, lmap, len(OLD))))
+        self.assertIsNone(inc.map_offset(OLD, NEW, inc.line_map(OLD, NEW), OLD.index("    int g") + 2))
+        self.assertEqual(OLD.index("    int h") + 4, inc.mutant_offset(OLD, mutant(4, "Killed")))
 
     def cli(self, *args):
         env = dict(os.environ, REPO_ROOT=self.root, GITHUB_OUTPUT=os.path.join(self.root, "gh"))
@@ -273,8 +335,9 @@ class RunStryker(unittest.TestCase):
             os.makedirs(work)
             with open(os.path.join(root, "A.cs"), "w") as f:
                 f.write(source)
+            config = {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}
             with open(os.path.join(work, "stryker-x.json"), "w") as f:
-                json.dump({"stryker-config": {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}}, f)
+                json.dump({"stryker-config": config}, f)
             bindir = os.path.join(d, "bin")
             os.makedirs(bindir)
             run_report = json.dumps(report(NEW, [mutant(3, "Killed")]))
@@ -293,7 +356,7 @@ class RunStryker(unittest.TestCase):
             if with_baseline:
                 os.makedirs(os.path.join(work, "baseline"))
                 with open(os.path.join(work, "baseline", "stryker-report.json"), "w") as f:
-                    json.dump(report(OLD, [mutant(2, "Killed"), mutant(3, "Killed")]), f)
+                    json.dump(report(OLD, [mutant(2, "Killed"), mutant(3, "Killed")], config=config), f)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE=mode, BASE="abc123",
                        REPO_ROOT=root, GITHUB_STEP_SUMMARY=os.path.join(d, "summary"))
             env.pop("GITHUB_OUTPUT", None)
@@ -374,8 +437,9 @@ class RunStryker(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             work = os.path.join(d, "repo", "tests", "mutation")
             os.makedirs(work)
+            config = {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}
             with open(os.path.join(work, "stryker-x.json"), "w") as f:
-                json.dump({"stryker-config": {"mutate": ["**/A.cs"], "thresholds": {"break": 0}}}, f)
+                json.dump({"stryker-config": config}, f)
             bindir = os.path.join(d, "bin")
             os.makedirs(bindir)
             with open(os.path.join(bindir, "dotnet"), "w") as f:

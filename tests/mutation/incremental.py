@@ -24,6 +24,7 @@ run (Stryker mutates only mutants inside the spans) nor taken from the baseline 
 until the next full run. A baseline result is reused even if a test or another file changed in the same PR; the weekly
 full run is the check of record.
 """
+import bisect
 import difflib
 import json
 import os
@@ -123,6 +124,52 @@ def touches(mutant, old_ranges):
     return False
 
 
+def line_map(old_text, new_text):
+    """old line -> new line for the lines the line diff pairs as equal (0-based)"""
+    old, new = old_text.split("\n"), new_text.split("\n")
+    m = {}
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                m[i1 + k] = j1 + k
+    return m
+
+
+def map_offset(old_text, new_text, lmap, x):
+    """the character offset in the new text of offset x of the old text, or None when its line changed; the start and
+    the end of the text map to the start and the end"""
+    if x <= 0:
+        return 0
+    if x >= len(old_text):
+        return len(new_text)
+    ostarts = line_starts(old_text)
+    line = bisect.bisect_right(ostarts, x) - 1
+    if line not in lmap:
+        return None
+    return line_starts(new_text)[lmap[line]] + (x - ostarts[line])
+
+
+def mutant_offset(text, mutant):
+    """the character offset of a mutant's start (Stryker's lines and columns are 1-based)"""
+    start = mutant["location"]["start"]
+    return line_starts(text)[start["line"] - 1] + start.get("column", 1) - 1
+
+
+def without_spans(config):
+    """the config with the spans of its `mutate` entries removed: what must be equal for a baseline to be reused"""
+    return dict(config, mutate=[parse_mutate(e)[0] for e in config.get("mutate", [])])
+
+
+def merged(spans):
+    out = []
+    for s, e in sorted(spans):
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
 def baseline_file(report, path):
     """the file entry of the baseline report for a repository-relative path (keys may be absolute or relative)"""
     for key, f in report.get("files", {}).items():
@@ -161,11 +208,20 @@ def load_json(path):
 
 
 def plan(config, baseline, repo_root):
-    """(run mutate entries, per file: (path, new ranges, old ranges)) or None when the baseline cannot be used"""
+    """(run mutate entries, per file: (path, new ranges, old ranges)) or None when the baseline cannot be used.
+    The baseline holds the config of its run (`g3-config`, baseline.py store). It is used only if that config equals
+    this one up to the spans of `mutate` (same files in the same order): a source edit moves the character offsets of
+    the spans, and a resplit moves the boundaries between the shards of a file. The part of this config's span that
+    the baseline's span, carried over the line diff, does not cover runs too (its mutants were in another shard); a
+    span boundary on a changed line runs the config in full."""
+    stored = baseline.get("g3-config")
+    if stored is None or without_spans(stored) != without_spans(config):
+        return None
     entries = [parse_mutate(e) for e in config["mutate"]]
+    old_spans = [parse_mutate(e)[1] for e in stored["mutate"]]
     mutate, files = [], []
     scored = 0
-    for path, span in entries:
+    for (path, span), old_span in zip(entries, old_spans):
         bf = baseline_file(baseline, path)
         full = os.path.join(repo_root, path)
         if bf is None or "source" not in bf or not os.path.isfile(full):
@@ -174,11 +230,19 @@ def plan(config, baseline, repo_root):
         # (Stryker reads the file like File.ReadAllText: without a byte order mark, as read_text, but with every
         # character of the line breaks; the spans are character offsets, so a file with \r runs in full)
         new_text = read_text(full)
-        if "\r" in new_text or "\r" in bf["source"]:
+        old_text = bf["source"]
+        if "\r" in new_text or "\r" in old_text:
             return None
-        new_ranges, old_ranges = changes(bf["source"], new_text)
+        new_ranges, old_ranges = changes(old_text, new_text)
         files.append((path, new_ranges, old_ranges))
-        for s, e in spans_of(new_text, new_ranges, span):
+        na, nb = span if span is not None else (0, len(new_text))
+        oa, ob = old_span if old_span is not None else (0, len(old_text))
+        lmap = line_map(old_text, new_text)
+        ma, mb = map_offset(old_text, new_text, lmap, oa), map_offset(old_text, new_text, lmap, ob)
+        if ma is None or mb is None:
+            return None
+        spans = spans_of(new_text, new_ranges, span) + [(s, e) for s, e in ((na, min(nb, ma)), (max(na, mb), nb)) if s < e]
+        for s, e in merged(spans):
             mutate.append("**/%s{%d..%d}" % (path, s, e))
     if not scored:
         return None                     # a baseline without a mutant that counts gives no score to combine: run in full
@@ -194,12 +258,19 @@ def merge(config, baseline, run_report, repo_root):
         # (as in plan, which ran in full for a file with \r)
         new_text = read_text(os.path.join(repo_root, path))
         new_ranges, old_ranges = changes(bf["source"], new_text)
+        # (a baseline mutant that lies outside this config's span now belongs to another shard: not counted here)
+        na, nb = span if span is not None else (0, len(new_text))
+        lmap = line_map(bf["source"], new_text)
         for m in bf.get("mutants", []):
             if m.get("status") not in COUNTED:
                 continue
             if touches(m, old_ranges):
                 left_out += 1
-            else:
+                continue
+            x = map_offset(bf["source"], new_text, lmap, mutant_offset(bf["source"], m))
+            if x is None:
+                left_out += 1
+            elif na <= x < nb:
                 kept.append(m)
         if run_report is not None:
             rf = baseline_file(run_report, path)
