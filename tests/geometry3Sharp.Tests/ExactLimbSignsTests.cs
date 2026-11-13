@@ -50,7 +50,7 @@ namespace geometry3Sharp.Tests
         public void PlaneSide_MatchesBigInteger()
         {
             var r = new Random(11);
-            int zeros = 0, wide = 0;
+            int zeros = 0, wide = 0, decidedByD = 0;
             for (int i = 0; i < 30000; ++i) {
                 BigInteger a = Rand(r, Width(r)), b = Rand(r, Width(r)), c = Rand(r, Width(r)), x = Rand(r, Width(r)), y = Rand(r, Width(r)), z = Rand(r, Width(r));
                 BigInteger w = Rand(r, Width(r)), d = Rand(r, Width(r));
@@ -59,10 +59,13 @@ namespace geometry3Sharp.Tests
                 else if (kind == 2) { w = BigInteger.One; d = a * x + b * y + c * z + (r.Next(2) == 0 ? 1 : -1); }    // one unit off it
                 int expected = (a * x + b * y + c * z - d * w).Sign;
                 Assert.True(expected == ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w), $"case {i}");
+                // the integer point (W = 1): in half of these cases D decides the sign against A X + B Y + C Z
+                Assert.True((a * x + b * y + c * z - d).Sign == ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z), $"case {i}, integer point");
+                if ((a * x + b * y + c * z - d).Sign != (a * x + b * y + c * z).Sign) decidedByD++;
                 if (expected == 0) zeros++;
                 if (ExactPoint3.BitLength(a) > 64 * ExactLimbSigns.MaxLimbs) wide++;
             }
-            Assert.True(zeros > 5000 && wide > 1000, $"{zeros} zeros, {wide} wide");
+            Assert.True(zeros > 5000 && wide > 1000 && decidedByD > 5000, $"{zeros} zeros, {wide} wide, {decidedByD} decided by D");
         }
 
         [Fact]
@@ -120,6 +123,7 @@ namespace geometry3Sharp.Tests
             BigInteger big = (BigInteger.One << (64 * ExactLimbSigns.MaxLimbs - 1)) - 1;      // MaxLimbs limbs with its sign bit
             Assert.Equal((big * big + big * big + big * big - big * -big).Sign, ExactLimbSigns.PlaneSide(big, big, big, big, big, big, big, -big));
             Assert.Equal(1, ExactLimbSigns.Dot(big, big, big, big, big, big));
+            Assert.Equal(1, ExactLimbSigns.PlaneSide(big, big, big, -big, big, big, big));
             var p = ExactPoint3.CreateUnreduced(big, -big, big, big);
             var q = ExactPoint3.CreateUnreduced(-big, big, big - 1, big);
             var s = ExactPoint3.CreateUnreduced(big, big - 2, -big, big - 3);
@@ -179,6 +183,7 @@ namespace geometry3Sharp.Tests
                     var v = cases[i];
                     sum += ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
                     sum += ExactLimbSigns.Dot(v[0], v[1], v[2], v[4], v[5], v[6]);
+                    sum += ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
                     sum += ExactLimbSigns.Det4(pts[i][0], pts[i][1], pts[i][2], pts[i][3]);
                 }
                 allocated = GC.GetAllocatedBytesForCurrentThread() - before;

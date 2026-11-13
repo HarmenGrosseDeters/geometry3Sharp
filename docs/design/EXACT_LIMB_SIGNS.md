@@ -26,7 +26,8 @@ stack arena, and only the sign leaves. The integers are the same, so the signs a
 - `load`: `BigInteger.TryWriteBytes` (two's complement, little endian) into `limbs_of(v)` limbs, sign-extended; a
   negative value is negated in place (invert, add one) to its magnitude. `limbs_of(v)` is the byte count of the two's
   complement rounded up to limbs, so the write always fits.
-- `PlaneSide`, `Dot`: the products and sums in the order of the expression.
+- `PlaneSide` (with `W`, and for an integer point, `W = 1`: the far point of a ray), `Dot`: the products and sums in
+  the order of the expression.
 - `Det4`: the expansion along the first row with 3 x 3 minors, as `ExactMeshArrangement.Det4`.
 - Scratch space, in limbs, for operands of at most `w` limbs (`FixedArena` never frees; `Take` throws when it is
   exhausted, so an error here is an exception, not a write outside the buffer):

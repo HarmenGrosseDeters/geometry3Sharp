@@ -18,6 +18,13 @@ namespace geometry3Sharp.Tests
         internal static DMesh3 Shape(string kind)
         {
             DMesh3 m;
+            if (kind.EndsWith(" away")) {
+                // away from the origin: the planes' offsets D are large against the normals, so the side of a ray's far
+                // point depends on D (near the origin n . R alone has its sign)
+                m = Shape(kind.Substring(0, kind.Length - 5));
+                MeshTransforms.Translate(m, new Vector3d(1000, 2000, -1500));
+                return m;
+            }
             if (kind.StartsWith("sheets")) {
                 int n = int.Parse(kind.Substring(6));
                 var r = new Random(9);
@@ -85,6 +92,7 @@ namespace geometry3Sharp.Tests
         [InlineData("sheets3", 40)]
         [InlineData("sheets4", 80)]
         [InlineData("open", 100)]
+        [InlineData("sheets3 away", 40)]
         public void FiltersOff_SameResult_WithoutBigIntegerSigns(string kind, int megabytes)
         {
             DMesh3 a = Shape(kind), b = Copy(a);

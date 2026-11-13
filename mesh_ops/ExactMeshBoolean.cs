@@ -3225,7 +3225,7 @@ namespace g3
                     sides++;
                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
                     if (sr == 2) {
-                        sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z, BigInteger.One);
+                        sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z);
                         exactSides++;
                     }
                     if (sr == 0) { degenerate = true; return; }

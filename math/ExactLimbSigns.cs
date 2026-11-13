@@ -7,7 +7,7 @@ namespace g3
 {
     /// <summary>
     /// Signs of small integer expressions on BigInteger operands, evaluated on stack limbs with FixedArith instead of
-    /// BigInteger temporaries: the plane side A X + B Y + C Z - D W, the dot of two integer vectors and the 4 x 4
+    /// BigInteger temporaries: the plane side A X + B Y + C Z - D W (and with W = 1), the dot of two integer vectors and the 4 x 4
     /// determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification). The operands
     /// are copied into sign-magnitude limbs per call (no allocation), the arithmetic is the library's FixedArith, so
     /// the value is the same integer and the sign the same as the BigInteger expression's. Operands wider than
@@ -83,6 +83,37 @@ namespace g3
             }
 #endif
             return (a * x + b * y + c * z - d * w).Sign;
+        }
+
+        /// <summary> the sign of a x + b y + c z - d: the plane side of the integer point (x, y, z), W = 1 </summary>
+        [MethodImpl(JitHints.Optimize)]
+#if NET
+        [SkipLocalsInit]
+#endif
+        internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z)
+        {
+#if NET
+            int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
+            int total = na + nb + nc + nd + nx + ny + nz;
+            if (total <= 7 * MaxLimbs) {
+                ulong* buf = stackalloc ulong[total];
+                int scratch = 4 * total + 16;
+                ulong* sc = stackalloc ulong[scratch];
+                var ar = new FixedArena(sc, scratch);
+                ulong* p = buf;
+                FixedInt fa = load(a, p, na); p += na;
+                FixedInt fb = load(b, p, nb); p += nb;
+                FixedInt fc = load(c, p, nc); p += nc;
+                FixedInt fd = load(d, p, nd); p += nd;
+                FixedInt fx = load(x, p, nx); p += nx;
+                FixedInt fy = load(y, p, ny); p += ny;
+                FixedInt fz = load(z, p, nz);
+                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
+                s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
+                return FixedArith.Sub(s, fd, ref ar).Sign;
+            }
+#endif
+            return (a * x + b * y + c * z - d).Sign;
         }
 
         /// <summary> the sign of a x + b y + c z </summary>
