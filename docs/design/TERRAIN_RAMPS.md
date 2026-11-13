@@ -1,6 +1,6 @@
 # Design note: ramps as design geometry (terrain item 2)
 
-Status: **proposal, owner decision pending** (2026-11-12; the coordinator routes the three questions at the end to the owner). Nothing is built. Proposed answers: the path is the inner edge, R1 is cut only with access ramps ending at daylight, one constant grade per ramp.
+Status: **owner decision 2026-11-13: yes to all three proposals** (below). R1 is planned as its own PR after #752, #757 and #761; nothing is built yet.
 
 ## Goal
 
@@ -92,7 +92,14 @@ inclined level instead of a horizontal one:
   vertex and enters the budget like the toe heights).
 - Estimate: about the size of terrain 1b (#285).
 
-## Questions for the owner
+## Owner decisions (2026-11-13)
+
+1. The path is the road's **inner edge** (crest side), not its centreline: the width is guaranteed outwards.
+2. R1 is a **pure cut ramp up to the daylight line**: an access ramp ends where the road meets the terrain on the catch
+   line; no fill embankments in R1.
+3. **One constant grade per ramp.**
+
+## Questions for the owner (answered above)
 
 1. Is the path the road's inner edge (crest side, as proposed: the width is then guaranteed outward), or its
    centreline?

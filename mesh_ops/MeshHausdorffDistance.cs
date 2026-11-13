@@ -76,49 +76,131 @@ namespace gs
         }
 
 
-        // (2^500: the largest extent whose squares, and sums of a few of them, stay finite)
-        const double MaxExtent = 3.273390607896142E+150;
+        // extents in [2^-32, 2^65) are measured as given; outside, on copies scaled by a power of two (exact) to an extent in [1, 2).
+        // (below: the bounds' absolute thresholds, eg 1e-12 for two triangle centroids in TriangleDeviationBounds, changed the
+        // subdivisions from extents of about 2^-40; above: squared lengths stay far from overflow)
+        const int MinPlainExponent = -32, MaxPlainExponent = 64;
 
         /// <summary>
-        /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN,
-        /// if either mesh has no triangles or a non-finite vertex, or if the extent of both meshes together exceeds 2^500 (about 3e150:
-        /// the distance queries square it); also returns false if cancelled.
-        /// Returns true otherwise, even if not Converged (check Converged).
+        /// Compute LowerBound / UpperBound (and WorstPoint). Returns false, with LowerBound = UpperBound = NaN (the other outputs
+        /// are then not defined),
+        /// if either mesh has no triangles or a non-finite vertex, or if the distance exceeds double.MaxValue (meshes near
+        /// opposite ends of the double range); also returns false if cancelled. Returns true otherwise, even if not Converged
+        /// (check Converged). Vertices no triangle uses are ignored (also for the size of the meshes).
+        /// Meshes with an extent outside [2^-32, 2^65) are measured on copies scaled by an exact power of two (the squared lengths
+        /// of the distance queries would overflow or underflow at their own scale), so the result at 2^k times the meshes is
+        /// 2^k times the result, bit for bit; SpatialA / SpatialB are then not used (nor set).
         /// </summary>
         public bool Compute()
         {
             LowerBound = UpperBound = double.NaN; Converged = false; Subdivisions = 0;
             if (MeshA.TriangleCount == 0 || MeshB.TriangleCount == 0 || finite(MeshA) == false || finite(MeshB) == false)
                 return false;
-            if (SpatialA == null && Symmetric) SpatialA = new DMeshAABBTree3(MeshA, true);
-            if (SpatialB == null) SpatialB = new DMeshAABBTree3(MeshB, true);
-            AxisAlignedBox3d bounds = MeshA.CachedBounds;
-            bounds.Contain(MeshB.CachedBounds);
-            // the distance queries square lengths of the meshes' extent: beyond 2^500 (about 3e150) they overflow, the nearest-triangle
-            // search finds no triangle and the query threw a NullReferenceException (at extents from about 1e155; large coordinates
-            // with a small extent are fine). Refused instead, as non-finite coordinates are
-            double extent = Math.Max(bounds.Max.x - bounds.Min.x, Math.Max(bounds.Max.y - bounds.Min.y, bounds.Max.z - bounds.Min.z));
-            if (!(extent <= MaxExtent))
-                return false;
-            double tol = (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength;
+            // (the vertices used by triangles: a far isolated vertex would set the scale, and the triangles, scaled by it, underflowed)
+            AxisAlignedBox3d bounds = used_bounds(MeshA);
+            bounds.Contain(used_bounds(MeshB));
+            // the distance queries square lengths of the meshes' extent: beyond about 2^500 they overflowed (the nearest-triangle
+            // search found no triangle and threw; from about 1e120 the upper bound was double.MaxValue), below about 2^-500 they
+            // underflowed (a distance of 1e-202 was measured as 0). Such meshes are measured on copies scaled by 2^-e (#731)
+            // (the extent is the largest span Max - Min; where that overflows, twice the half span, which is exact there. Halving
+            // every span would round a span of 2^-1074 to 0; review of #735)
+            int e = int.MinValue;
+            for (int k = 0; k < 3; ++k) {
+                double span = bounds.Max[k] - bounds.Min[k];
+                if (double.IsInfinity(span)) e = Math.Max(e, exponent(0.5 * bounds.Max[k] - 0.5 * bounds.Min[k]) + 1);
+                else if (span > 0) e = Math.Max(e, exponent(span));
+            }
+            if (e == int.MinValue) e = 0;      // (the extent is in [2^e, 2^(e+1)); a single point stays as it is)
+            if (e >= MinPlainExponent && e <= MaxPlainExponent)
+                return compute(MeshA, MeshB, SpatialA, SpatialB, (Tolerance > 0) ? Tolerance : RelativeTolerance * bounds.DiagonalLength,
+                    0, Vector3d.Zero, true);
+
+            // an axis along which both meshes are flat is moved to 0 (exact, and distances are the same): its coordinate may be far
+            // larger than the extent and overflow when scaled. Along every other axis a coordinate is less than 2^54 times the axis'
+            // span (the span is at least half an ulp of it), so the scaled coordinates stay below about 2^55
+            Vector3d shift = Vector3d.Zero;
+            for (int k = 0; k < 3; ++k) if (bounds.Min[k] == bounds.Max[k]) shift[k] = bounds.Min[k];
+            DMesh3 a = scaled(MeshA, shift, -e), b = scaled(MeshB, shift, -e);
+            // (an absolute tolerance scaled with the meshes; below the subnormal range it is 0, as RelativeTolerance would be)
+            double tol = (Tolerance > 0) ? pow2(Tolerance, -e) : RelativeTolerance * new AxisAlignedBox3d(pow2(bounds.Min - shift, -e), pow2(bounds.Max - shift, -e)).DiagonalLength;
+            return compute(a, b, Symmetric ? new DMeshAABBTree3(a, true) : null, new DMeshAABBTree3(b, true), tol, e, shift, false);
+        }
+
+        bool compute(DMesh3 meshA, DMesh3 meshB, DMeshAABBTree3 spatialA, DMeshAABBTree3 spatialB, double tol, int e, Vector3d shift, bool keepSpatial)
+        {
+            if (spatialA == null && Symmetric) spatialA = new DMeshAABBTree3(meshA, true);
+            if (spatialB == null) spatialB = new DMeshAABBTree3(meshB, true);
+            if (keepSpatial) { SpatialA = spatialA; SpatialB = spatialB; }
 
             Subdivisions = 0;
-            var ab = new OneSided(MeshA, SpatialB, tol, 0, this);
+            var ab = new OneSided(meshA, spatialB, tol, 0, this);
             ab.Run();
-            LowerBound = ab.Lower; UpperBound = ab.Upper; Converged = ab.Converged;
-            WorstPoint = ab.Worst; WorstPointClosest = ab.WorstClosest; WorstPointOnB = false;
+            double lower = ab.Lower, upper = ab.Upper;
+            Converged = ab.Converged;
+            Vector3d worst = ab.Worst, worstClosest = ab.WorstClosest; WorstPointOnB = false;
             if (Symmetric && CancelF() == false) {
-                var ba = new OneSided(MeshB, SpatialA, tol, ab.Lower, this);
+                var ba = new OneSided(meshB, spatialA, tol, ab.Lower, this);
                 ba.Run();
                 Converged = Converged && ba.Converged;
-                if (ba.Lower > LowerBound) {
-                    LowerBound = ba.Lower;
-                    WorstPoint = ba.Worst; WorstPointClosest = ba.WorstClosest; WorstPointOnB = true;
+                if (ba.Lower > lower) {
+                    lower = ba.Lower;
+                    worst = ba.Worst; worstClosest = ba.WorstClosest; WorstPointOnB = true;
                 }
-                UpperBound = Math.Max(UpperBound, ba.Upper);
+                upper = Math.Max(upper, ba.Upper);
             }
-            UpperBound = Math.Max(UpperBound, LowerBound);
+            upper = Math.Max(upper, lower);
+            // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue). A distance beyond MaxValue
+            // (meshes near opposite ends of the double range) has no bounds in doubles: refused, the outputs NaN
+            double lo = pow2(lower, e), up = (upper == double.MaxValue) ? double.MaxValue : pow2(upper, e);
+            // (a subnormal result may round: outward then, the lower bound down, the upper bound up; review of #735)
+            if (pow2(lo, -e) != lower) lo = Math.Max(0, ExactInterval.Down(lo));
+            if (up != double.MaxValue && !double.IsInfinity(up) && pow2(up, -e) != upper) up = ExactInterval.Up(up);
+            if (double.IsInfinity(lo) || double.IsInfinity(up)) {
+                Converged = false;
+                return false;
+            }
+            LowerBound = lo; UpperBound = up;
+            WorstPoint = pow2(worst, e); WorstPointClosest = pow2(worstClosest, e);
+            // (along a flat axis every point, the closest point on a triangle in that plane too, has the axis' coordinate)
+            for (int k = 0; k < 3; ++k)
+                if (shift[k] != 0) { WorstPoint[k] = shift[k]; WorstPointClosest[k] = shift[k]; }
             return CancelF() == false;
+        }
+
+        // floor(log2(x)) for a finite x > 0 (subnormal too)
+        static int exponent(double x)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(x);
+            int biased = (int)((bits >> 52) & 0x7FF);
+            if (biased == 0) return exponent(x * 18014398509481984.0) - 54;     // (2^54)
+            return biased - 1023;
+        }
+
+        // x 2^n, exact unless the result leaves the normal range (in two factors: 2^n alone may not be representable; a subnormal
+        // result may round twice, for values below about 2^-485 of the extent, which do not decide a bound)
+        static double pow2(double x, int n)
+        {
+            int h = n / 2;
+            return x * BitConverter.Int64BitsToDouble((long)(h + 1023) << 52) * BitConverter.Int64BitsToDouble((long)(n - h + 1023) << 52);
+        }
+        static Vector3d pow2(Vector3d v, int n) => new Vector3d(pow2(v.x, n), pow2(v.y, n), pow2(v.z, n));
+
+        // (v - shift) 2^n; vertices no triangle uses at 0 (they may be far away or not finite)
+        static DMesh3 scaled(DMesh3 mesh, Vector3d shift, int n)
+        {
+            var copy = new DMesh3(mesh, false, MeshComponents.None);
+            foreach (int vid in copy.VertexIndices())
+                copy.SetVertex(vid, (copy.GetVtxEdgeCount(vid) > 0) ? pow2(copy.GetVertex(vid) - shift, n) : Vector3d.Zero);
+            return copy;
+        }
+
+        // bounds of the vertices used by triangles
+        static AxisAlignedBox3d used_bounds(DMesh3 mesh)
+        {
+            AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
+            foreach (int vid in mesh.VertexIndices())
+                if (mesh.GetVtxEdgeCount(vid) > 0) box.Contain(mesh.GetVertex(vid));
+            return box;
         }
 
 

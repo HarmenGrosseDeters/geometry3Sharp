@@ -173,7 +173,6 @@ namespace geometry3Sharp.Tests
             var rand = new Random(3);
             for (int i = 0; i < 200; ++i) {
                 var q = new Vector3d(rand.NextDouble() * 3 - 1, rand.NextDouble() * 3 - 1, rand.NextDouble() * 3 - 1);
-                double tol = 1e-12;
                 foreach (TpmsType t in Enum.GetValues(typeof(TpmsType))) {
                     double f = F(t, q);
                     Assert.Equal(f, F(t, q + new Vector3d(L, 0, 0)), 9);

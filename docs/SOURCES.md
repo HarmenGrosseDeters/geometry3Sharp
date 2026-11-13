@@ -648,11 +648,19 @@ not read). `MeshBatchQueries` (merged in #448) runs the existing single queries 
 | Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
 | Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
 
-## Tetrahedral meshing (design only, `docs/design/TET_MESHING.md`; no code yet)
+## Tetrahedral meshing (`MeshTetrahedralization`, `Delaunay3.RefinementSupport`, `docs/design/TET_MESHING.md`)
 
 Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.
+fTetWild is run as a black box only (`.github/workflows/tet-compare.yml`; README build steps and `--help`, no source read).
 
-| Topic | Source |
+| Implemented (stage 1) | Source |
+|---|---|
+| Circumcentre insertion for tets above a radius-edge bound and a size bound, refinement order by a queue | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 (DelTetPLC) |
+| The floor (no point closer than a fixed distance, so the vertices are a packing and the refinement terminates) | the separation argument of L. P. Chew 1993 and J. Ruppert 1995 (as in the alpha wrap's own refinement, above) |
+| Sliver-avoiding point choice: a point near the circumcentre whose new tets have no sliver | X.-Y. Li, S.-H. Teng, *Generating well-shaped Delaunay meshes in 3D*, SODA 2001 (fixed candidate directions here instead of random points) |
+| The fixed surface (insertions whose cavity reaches the surface undone, on exact labels), peeling of boundary slivers (a 2-2 surface flip) with the exact input test | the library's own; the input test uses `ExactTriangleIntersection` (Devillers and Guigue 2002, above) |
+
+| Read for the design |  |
 |---|---|
 | Delaunay refinement of tetrahedra (radius-edge bound, encroachment) | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 |
 | Constrained Delaunay tetrahedralization, existence and recovery | J. R. Shewchuk, *A condition guaranteeing the existence of higher-dimensional constrained Delaunay triangulations*, SoCG 1998; *Updating and constructing constrained Delaunay and constrained regular triangulations by flips*, SoCG 2003; H. Si, K. Gärtner, *Meshing piecewise linear complexes by constrained Delaunay tetrahedralizations*, IMR 2005; H. Si, *TetGen*, ACM TOMS 41(2), 2015; M. Diazzi, D. Panozzo, A. Vaxman, M. Attene, *Constrained Delaunay tetrahedrization: a robust and practical approach*, ACM TOG 2023 (abstract read) |
@@ -690,7 +698,6 @@ Own implementation of the informal format (one point per line, optional normals)
 column rule (values 4-6 are normals when there are six or more; further columns are ignored) is our decision, documented at
 the reader. The PLY point cloud path is the existing `PLYReader` / `PLYWriter`.
 
-
 ## Point cloud normals (`PointCloudNormals`, design note `docs/design/POINT_CLOUD_RECONSTRUCTION.md`)
 
 Implemented from the papers below; no code of any of them was read.
@@ -703,7 +710,6 @@ Implemented from the papers below; no code of any of them was read.
 | Spacing and noise estimates, alpha rule | own, measured on procedural torus and sphere samplings (design note section 4, `PointCloudNormalsTests`) |
 | k-nearest neighbours | a k-d tree with median splits and bounded-distance pruning; textbook method (J. L. Bentley, Multidimensional binary search trees used for associative searching, CACM 1975, from memory), own code |
 
-
 ## Point cloud surface (`PointCloudSurface`, step C1 of the design note)
 
 | Part | Source |
@@ -713,7 +719,6 @@ Implemented from the papers below; no code of any of them was read.
 | Local area of a point from the distance to its 8th neighbour (pi d^2 / 9) | own; a common density estimate, measured against a constant area in the design note (non-uniform sampling: 147 components with a constant area, 1 with the local area) |
 | Blending the winding number field into the signed distance of the alpha wrap where there is no data | own construction (smoothstep over half the data radius), measured in the design note |
 | Marching cubes | the library's `MarchingCubes` |
-
 
 ## Correctly rounded sin, cos, atan2, exp, log (`math/CoreMath`, internal; C1 of `docs/design/DETERMINISM.md`)
 
@@ -764,6 +769,18 @@ Implemented from the published formulas and papers; no code taken from any libra
 | Sheet and skeletal ("solid network") lattices, level set offset, grading by a position dependent level | O. Al-Ketan, R. K. Abu Al-Rub, *Multifunctional mechanical metamaterials based on triply periodic minimal surface lattices*, Adv. Eng. Mater. 21 (2019) 1900524 |
 | Marching cubes | W. E. Lorensen, H. E. Cline, *Marching cubes: a high resolution 3D surface construction algorithm*, SIGGRAPH 1987 |
 | Enclosure of the exact solid by the contoured one (level pad, 1-Lipschitz field) | A. Jacobson, *A Sharp Conservative Offset for Marching Cubes*, arXiv:2609.13430 (see [design/CONSERVATIVE_MC_AUDIT.md](design/CONSERVATIVE_MC_AUDIT.md)) |
+
+## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
+
+Implemented from the paper; no code of the reference implementation was read or ported (its MIT licence would allow it).
+
+| Part | Source |
+|---|---|
+| Inclusion-based root finding over (t, u, v): the corner hull of a multilinear F, bisection, minimum separation, the earliest-time search | B. Wang, Z. Ferguson, T. Schneider, X. Jiang, M. Attene, D. Panozzo, *A Large-scale Benchmark and an Inclusion-based Algorithm for Continuous Collision Detection*, ACM TOG 40(5), art. 188, 2021, [doi:10.1145/3460775](https://doi.org/10.1145/3460775) (reference code Tight-Inclusion, MIT, not read) |
+| Interval root finding as the fallback path | J. Snyder, *Interval analysis for computer graphics*, SIGGRAPH 1992; S. Redon, A. Kheddar, S. Coquillart, *Fast continuous collision detection between rigid bodies*, Eurographics 2002 |
+| Separating directions (triangle normal, edge cross product) | the classical separating-axis directions of CCD culling (eg R. Bridson, R. Fedkiw, J. Anderson, *Robust treatment of collisions, contact and friction for cloth animation*, SIGGRAPH 2002); the test itself is own (any direction, dot products in `ExactInterval`) |
+| The filter bound B1, the clipping of vertex-triangle boxes to the triangle, the dive-then-tighten search and its time-of-impact argument | own (docs/design/CCD.md sections 6 and 10) |
+| Benchmark data | the sample of the ToI dataset of D. Belgrod, Z. Ferguson et al., *Time of Impact Dataset for Continuous Collision Detection and a Scalable Conservative Algorithm*, arXiv:2112.06300; [Sample-Scalable-CCD-Data](https://github.com/Continuous-Collision-Detection/Sample-Scalable-CCD-Data), Apache-2.0, fetched at run time by `benchmarks/CcdBenchmark/fetch_sample.sh` (pinned commit, SHA-256 per file), never committed |
 
 ## Mesh offset (`MeshOffset`, planned; design note [design/MESH_OFFSET.md](design/MESH_OFFSET.md))
 
