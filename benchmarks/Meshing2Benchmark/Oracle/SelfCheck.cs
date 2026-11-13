@@ -1520,6 +1520,30 @@ namespace Meshing2Acceptance
                 else
                     must(what, report.GlobalDelaunayChecked && hiddenReported != excused && (report.O11GlobalExcused > 0) == excused, "report: " + report);
             }
+            // 7b'. the gap band of O11 (MESHING2D_DECISIONS: points within the tolerance merged, beyond twice it kept, either in between;
+            //     #864): B's far end moved to (12, 8 + d), its piece to (10, 8 + 6 d / 8), the triangle and the hidden vertex to x = 7 (the
+            //     piece's end then lies beyond the tolerance of A, so A is not one of its own lines). With d between the tolerance (half the tube, 1/32) and the
+            //     tube (1/16) the mesher may keep A and B as two chains, so the piece is O11-unsplittable and the hidden vertex excused (before,
+            //     the coincidence test used the tube, called A and B nearly coincident lines and judged it: a false NotDelaunayGlobal on
+            //     projected octahedra); with d below the tolerance A and B are nearly coincident lines, which the mesher merges into pieces of
+            //     both and splits, so separate pieces are judged
+            foreach (var (d, excused, what) in new[] {
+                (3.0 / 64, true, "O11-unsplittable: the other line's far end in the gap band (1.5 tolerances from the piece's own line) is excused"),
+                (1.0 / 64, false, "O11-unsplittable: the other line's far end within the tolerance (nearly coincident lines, merged by O11) is judged") }) {
+                var xy = new List<double> { 0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8, 12, 8 + d, 10, 8 + 6 * d / 8, 6.75, 8.125, 7.25, 8.125, 7, 8.25,
+                    7, 8, 6.5, 7.5, 7.5, 7.5 };
+                var input = Points(xy.ToArray());
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(4, 6));
+                input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 8, 9, 10 }, new[] { 11, 12, 13 } });
+                o.Subsegments.Add(new SubsegmentOutput(4, 7)); o.Subsegments.Add(new SubsegmentOutput(7, 6));
+                o.Subsegments.Add(new SubsegmentOutput(4, 11)); o.Subsegments.Add(new SubsegmentOutput(11, 5));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) });
+                bool hiddenReported = report.ToString().Contains("vertex 11 inside the circumcircle of 8 9 10");
+                must(what, report.GlobalDelaunayChecked && hiddenReported != excused && (report.O11GlobalExcused > 0) == excused, "report: " + report);
+            }
             // 7c. the angle bound at the same piece: a flat triangle above B (base angles 3.6 degrees) whose circumcentre lies behind the
             //     piece is excused; judged with the piece's end outside the tube, with B alone, moved right by 1.5 (its circumcentre then lies
             //     behind B's next piece), and with an explicit tolerance
@@ -1547,7 +1571,9 @@ namespace Meshing2Acceptance
             //     the concentric-shell points from either end) lies within half the tube (the mesher's tolerance) of A', the piece has an own
             //     constraint, and A' meets it in at most one point. Judged:
             //     - a tube of 1/64 (the midpoint outside half of it); B alone; the edge not a subsegment; an explicit tolerance;
-            //     - A' only from 4.4 to 5.1, 0.04 and 0.02 below B: wholly within B's tube, nearly coincident with it (the mesher merges);
+            //     - A' only from 4.4 to 5.1, 0.03 and 0.0225 below B: within the tolerance of B, nearly coincident with it (the mesher merges);
+            //       excused with its ends 0.04 and 0.02 below B, one of them in the gap band between the tolerance and the tube, where the
+            //       mesher may keep the lines apart (#864; before, the coincidence test used the tube and judged it);
             //     - A' from 3 to 12 crossing B under the piece at 3.6 degrees: both piece ends lie within the tolerance of A', so the mesher
             //       makes the piece one of A' too and splits it (second review);
             //     - slope 1/16: the split points lie within the tube but not within half of it;
@@ -1556,7 +1582,7 @@ namespace Meshing2Acceptance
             //       (1 + 2^-9) of the tolerance from it: within the margin of ownership, so A' counts as the piece's own;
             //     - a piece of 1.4 at slope 0.035: the midpoint lies within half the tube, the shell point nearer B's far end does not;
             //     - A' alone: the piece lies on no constraint;
-            //     - B only from 4.4 to 5.1, wholly within the tube of A' (merged into it);
+            //     - B only from 4.4 to 5.1, within the tube of A', its far end in the gap band: excused (either, #864);
             //     - the long piece again with the shared edge met from the other side first (the oracle takes the piece's ends in the
             //       other order: the shell point outside half the tube is then the one from the first end).
             //     Excused also: B reaching 2^23 away with the piece's end 2^-30 off it, more than 16 ulps of the end, less than of B's far
@@ -1569,7 +1595,8 @@ namespace Meshing2Acceptance
                 (16, false, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: the same without the other constraint is judged (local)", 4.0, 0.0, false),
                 (16, true, true, false, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: an unconstrained edge there is judged (local)", 4.0, 0.0, false),
                 (16, true, true, true, 1.0 / 1024, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: the same with an explicit tolerance is judged (local)", 4.0, 0.0, false),
-                (16, true, true, true, 0.0, 4.4, B(4.4) - 0.04, 5.1, B(5.1) - 0.02, M, 4.5, 5.0, false, false, "O11-unsplittable: a short constraint wholly within the tube of the piece's own is judged (merged, O11)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.4, B(4.4) - 0.04, 5.1, B(5.1) - 0.02, M, 4.5, 5.0, false, true, "O11-unsplittable: a short constraint within the tube of the piece's own, one end in the gap band, is excused (either, #864)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.4, B(4.4) - 0.03, 5.1, B(5.1) - 0.0225, M, 4.5, 5.0, false, false, "O11-unsplittable: a short constraint within the tolerance of the piece's own is judged (merged, O11)", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 3.0, B(3) - 0.109375, 12.0, B(12) + 0.453125, M, 4.5, 5.0, false, false, "O11-unsplittable: a constraint crossing the piece's own at a tiny angle, both ends within the tolerance, is its own (judged)", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 1.0 / 16, 4.5, 5.0, false, false, "O11-unsplittable: split points within the tube but not within half of it are judged", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 4.25, 8.026190524253007, 12.0, 8.103690524253008, 0.0, 4.5, 5.0, false, false, "O11-unsplittable: a split point a hair inside the tolerance is judged (the mesher decides in doubles)", 4.0, 0.0, false),
@@ -1577,7 +1604,7 @@ namespace Meshing2Acceptance
                 (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 0.035, 4.125, 5.525, false, false, "O11-unsplittable: a shell point outside half the tube is judged, the midpoint inside it", 4.0, 0.0, false),
                 (16, true, false, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: a piece on no input constraint is judged", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, true, true, "O11-unsplittable: a piece off its own long constraint by its rounding is excused", 4.0, 0.0, false),
-                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: a short own constraint wholly within the tube of another is judged (merged, O11)", 4.4, 0.7, false),
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, true, "O11-unsplittable: a short own constraint within the tube of another, one end in the gap band, is excused (either, #864)", 4.4, 0.7, false),
                 (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 0.035, 4.125, 5.525, false, false, "O11-unsplittable: the same shell case with the piece's ends in the other order is judged", 4.0, 0.0, true) }) {
                 double big = farB ? 1 << 24 : 16;
                 double bl = bLen == 0 ? (farB ? 1 << 23 : 8) : bLen;

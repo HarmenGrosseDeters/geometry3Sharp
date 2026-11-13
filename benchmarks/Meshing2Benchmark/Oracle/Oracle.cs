@@ -702,25 +702,27 @@ namespace Meshing2Acceptance
                     if (ownIds.Contains(k) || (!MayBeNear(k, ia) && !MayBeNear(k, ib))) continue;
                     var c = sources[k];
                     if (!candidates.All(p => Exact.Dist2ToSegment(c.a, c.b, p) <= half2)) continue;
-                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b))) continue;
+                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b, ownTol2))) continue;
                     return true;
                 }
                 return false;
             }
 
-            /// <summary> the ends of each segment that lie within the tube of the other are more than one point (nearly coincident lines).
-            /// (With the tube, floor included: below about 2^-1034 the floored tube counts more lines as nearly coincident than the mesher's
-            /// tolerance would, so fewer pieces are excused, never more: strict, and harmless.) </summary>
-            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d)
+            /// <summary> the ends of each segment that lie within the mesher's tolerance (a hair more: within2) of the other are more than
+            /// one point (nearly coincident lines, which O11 merges). The tolerance, not the tube: between the two the spec allows either
+            /// (MESHING2D_DECISIONS, the gap band: merged below the tolerance, kept beyond twice it), so lines that the mesher may keep apart
+            /// are not called coincident; with the tube the oracle withheld the O11 excuse from such pieces and judged the mesher's refusal
+            /// (#864: two constraints of a projected octahedron at 0.88 degrees, their far ends 1.65 tolerances apart) </summary>
+            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d, Q within2)
             {
                 var near = new List<Pt>();
-                if (Exact.Dist2ToSegment(c, d, a) <= tube2) near.Add(a);
-                if (Exact.Dist2ToSegment(c, d, b) <= tube2) near.Add(b);
-                if (Exact.Dist2ToSegment(a, b, c) <= tube2) near.Add(c);
-                if (Exact.Dist2ToSegment(a, b, d) <= tube2) near.Add(d);
+                if (Exact.Dist2ToSegment(c, d, a) <= within2) near.Add(a);
+                if (Exact.Dist2ToSegment(c, d, b) <= within2) near.Add(b);
+                if (Exact.Dist2ToSegment(a, b, c) <= within2) near.Add(c);
+                if (Exact.Dist2ToSegment(a, b, d) <= within2) near.Add(d);
                 for (int i = 0; i < near.Count; ++i)
                     for (int j = i + 1; j < near.Count; ++j)
-                        if (Exact.Len2(near[i], near[j]) > tube2) return true;
+                        if (Exact.Len2(near[i], near[j]) > within2) return true;
                 return false;
             }
 
