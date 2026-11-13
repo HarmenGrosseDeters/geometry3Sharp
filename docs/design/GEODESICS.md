@@ -723,8 +723,10 @@ skip and A8); it was exact on every test mesh, but that is a measurement, not th
   Cost of withdrawing A8, measured on the 317 x 317 terrain (net10 Release, same prototype, tie slack 0 against
   1e-12): 1320225 instead of 1320199 windows (+26), 21.5 s instead of 20.5 s (within the run-to-run variation), and a
   much tighter enclosure (largest relative width 4.0e-8 instead of 2.5e-5, since the F Delta_max debt is gone). Drops
-  allowed from now on: certified dominance (A4), subsumption (disk contains disk, sigma_b contains sigma_w) and A6
-  merging.
+  allowed from now on: certified dominance (A4); subsumption, which needs all three of the certified disk containment
+  |c_w - c_b| + r_w <= r_b (left side rounded upwards), sigma_b containing sigma_w, and w's outer pieces lying inside
+  b's outer interval (exact comparisons); and A6 merging. An accepted A9 rule would be a **fourth** kind of drop: it is
+  lemma-based (a VTP observation), not an instance of A4, and is used only after its own review.
 - **A9 (VTP's pruning in interval form), a proof sketch, unreviewed.** Qin et al. 2016, Proposition A.1, prove eight observations (a)-(h): with
   windows w0, w1, sources p, q and pseudo-source distances sigma0, sigma1 in one plane, w1 is redundant if a strict
   inequality between two path lengths holds at one constructed point, eg (a): where the line pK meets the upper ray of
