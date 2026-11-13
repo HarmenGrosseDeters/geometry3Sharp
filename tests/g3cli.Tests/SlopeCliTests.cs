@@ -321,6 +321,10 @@ namespace g3cli.Tests
             AssertError(exit, r, ResultCodes.InvalidArguments, "target_heights");
             (exit, r) = Run("slope", t, toes, o, "--tolerance", "0.05", "--slope", "steep:1");
             AssertError(exit, r, ResultCodes.InvalidArguments, "kind");
+            (exit, r) = Run("slope", t, toes, o, "--tolerance", "0.05", "--max-fan-directions", "15");
+            AssertError(exit, r, ResultCodes.InvalidArguments, "max_fan_directions");
+            (exit, r) = Run("slope", t, toes, o, "--tolerance", "0.05", "--max-fan-directions", "4097");
+            AssertError(exit, r, ResultCodes.InvalidArguments, "max_fan_directions");
             (exit, r) = Run("slope", t, toes, m.Path_("err.xyz"), "--tolerance", "0.05");
             AssertError(exit, r, ResultCodes.UnknownFormat);
             (exit, r) = Run("slope", m.Path_("missing.obj"), toes, o, "--tolerance", "0.05");
@@ -350,6 +354,11 @@ namespace g3cli.Tests
             (exit, r) = Run("slope", t, toes, o, "--tolerance", "1e-12");
             AssertError(exit, r, ResultCodes.InvalidArguments, "Tolerance");
             Assert.Equal("invalid_input", S(r["design_status"]));
+            // a tolerance whose cone facets need more than max_fan_directions (#808): a parameter too, the message names one that fits
+            (exit, r) = Run("slope", t, toes, o, "--tolerance", "0.01", "--max-fan-directions", "16");
+            AssertError(exit, r, ResultCodes.InvalidArguments, "cone facets");
+            Assert.Equal("invalid_input", S(r["design_status"]));
+            Assert.False(File.Exists(o));
             // a terrain that is not a height field under the slope (a loose triangle over the pit): read_error, also inline
             var folded = Terrain(Vector3d.Zero);
             int a = folded.AppendVertex(new Vector3d(-12, -2, 6)), b = folded.AppendVertex(new Vector3d(-6, -2, 6)), c = folded.AppendVertex(new Vector3d(-9, 3, 6));

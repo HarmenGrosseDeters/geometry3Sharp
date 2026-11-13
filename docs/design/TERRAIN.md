@@ -331,6 +331,20 @@ differ, eg 1:1 and 1:1.5).
 
   The reach D_max is (max terrain z − min toe z) / s_build,min + `Tolerance` / s for cut, and
   (max toe z − min terrain z) / s_build,min + `Tolerance` / s for fill.
+- **Bound on the facets (#808, 2026-11-13).** The facet angle comes from the facet share, so a `Tolerance` just above the
+  numerical margins asked for any number of facets: the 7-gon pit of 11 m took 39 s at 1089 facets per turn, and at the
+  smallest valid `Tolerance` θ rounded to 0 (2π/θ infinite, cast to `int.MaxValue`, `int.MinValue` on .NET Framework).
+  The insertion of the planar map grows faster than linearly in the facets (measured, linux x64: the 7-gon 2.3 s at 316,
+  11.8 s at 732; a wavy 48-gon of 150 m, 130 m high, 4.9 s at 179, 8.2 s at 257, 13.1 s at 363, 26.9 s at 512). So
+  `MaxFanDirections` (default 512, in [16, 4096]) bounds the facets per turn. A `Tolerance` that needs more is refused with
+  `InvalidInput`, and the message names a `Tolerance` from which the facets fit. That one is the fixed point of the budget:
+  with a cap from the terrain (no `HeightLimit`) the cap is the terrain's height plus `Tolerance`, so D0 and the margins
+  grow with it. With `Direction = Auto` it fits both runs (the fill's facets are checked without a build when the cut
+  refuses). A later raise of the cap, where the region reaches it, can need more; that build names its own. The rounds of
+  `RequiredCatchLineAccuracy` take the named `Tolerance` when the smaller one they want is refused, if it is still
+  smaller. The default keeps every existing design and holds a toe of 500 m reach at slope 1 from about 2.3 cm (1 cm
+  needs 781 facets); the 48-gon above fits from about 6 mm and takes 27 s there, the cost of the construction (the
+  parked slope-envelope lever, roadmap/terrain.md), not of the bound.
 - **`Tolerance` is an explicit input** (decided, 2.5): the maximum vertical deviation of the conservative surface
   from the exact R1 surface, in the units of the data. 1 cm is a sensible start for data in metres, but there is
   no library default. `Compute()` rejects a missing value (`InvalidInput`). It bounds heights only, not the
@@ -365,7 +379,8 @@ This function f_k(x) = min over t of z(t) + s·|x − p(t)| is **convex**, becau
 (x, t) and the minimum over t of a jointly convex function is convex. So f_k is the supremum of its tangent
 planes. The conservative polyhedral version F_k keeps finitely many of them: both strip planes and tangent planes
 of the end cones, spaced by an angle θ within the cone-facet share of the tolerance (D_max = 500 m, s = 1, 1 cm:
-θ = 0.72°, 125 facets for a 90° corner). Then
+θ = 0.72°, 125 facets for a 90° corner, by the error s·D·(1 − cos(θ/2)) of this section; the implementation counts
+3/4 θ and 1.1 D, 781 facets per turn, above the default bound `MaxFanDirections` of 5.1). Then
 
     S̃(x) = min over pieces k of  F_k(x),   F_k = max over j of P_kj,   |∇P_kj| ≤ s_k
 
