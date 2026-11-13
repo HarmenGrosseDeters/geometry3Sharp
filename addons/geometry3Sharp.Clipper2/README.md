@@ -30,8 +30,11 @@ if (!free.Ok)
   package fixes it in its copy of the sources (FINDINGS item 5,
   [tools/MeshFuzzPilot/FINDINGS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/tools/MeshFuzzPilot/FINDINGS.md)).
   Through this package, 1000 random pairs of 16-gons on that lattice in every operation and fill rule gave 43 wrong areas
-  before the fix and 0 after. Still open (rare, listed there and in issue #756): an Intersection case in the same cleanup and
-  a Union case on the default grid, both wrong before and after.
+  before the fix and 0 after. A second fix in the same output cleanup (#756) keeps a twist removal from flipping a ring.
+  Still open (rare, listed there): an Intersection case in that cleanup and a Union case on the default grid.
+- API checks: the package has no `PackageValidationBaselineVersion` yet (owner 2026-11-13: the first published version of
+  this package becomes the baseline). Until a version is published, a PR that changes the public API lists the breaks from a
+  local strict validation against master's pack (as #851 did for 2.0).
 - Upstream status: the Clipper2 repository (AngusJohnson/Clipper2) was archived on 2026-10-28. Clipper2 continues as a
   C++ only library at [PolyClipping/Clipper2](https://github.com/PolyClipping/Clipper2) (maintainer Seth Hillibrand);
   translations to other languages are left to third parties, so the C# package 2.0.0 this adapter uses is frozen and the

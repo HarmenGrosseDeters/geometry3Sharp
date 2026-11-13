@@ -29,6 +29,9 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
   - FINDINGS item 5 (2026-11-12, PR 2 of the vendoring): `Clipper.Engine.cs`, `DoSplitOp` drops a split-off triangle of
     the other area sign only if it does not lie inside the rest of the path (new `TriangleInsidePath`); before, such a
     hole touching its path at a vertex was dropped and filled. Marked "geometry3Sharp change" in the source.
+  - #756 (2026-11-13): `Clipper.Engine.cs`, `FixSelfIntersects` takes its "micro self-intersection" branch only if the
+    inserted vertex does not flip the ring's orientation (new `MicroFixKeepsOrientation`; otherwise `DoSplitOp`).
+    Upstream's later removal of that branch (`4da1564`, issue #1067) is not adopted (owner 2026-11-13).
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the
