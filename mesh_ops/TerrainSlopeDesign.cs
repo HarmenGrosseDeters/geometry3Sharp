@@ -1127,7 +1127,8 @@ namespace gs
             // the band merge (TERRAIN.md 5.4, "Repair of the band") within the facet share's slack: the facets need
             // s D (1 - cos(3/4 theta)) at the rounded angle, at most their share; the rest takes the band merge's part
             // below S̃, 4 sMax (r + l + e_xy). A lower bound of the slack: 1 - cos is exact (Sterbenz, cos >= cos(3 pi / 32)
-            // > 1/2); Math.Cos is counted as off by up to 2^-49 (8 ulps of 1); each product and the difference are
+            // > 1/2); the cosine is counted as off by up to 2^-49 (8 ulps of 1; CoreMath.Cos is correctly rounded, within
+            // 2^-54 here, the rest is margin, kept from the time of Math.Cos); each product and the difference are
             // rounded outwards. It scales with 2^k bit for bit (scale-free factor, exact power-of-two scaling of the rest)
             double oneMinusCos = ExactInterval.Up((1 - CoreMath.Cos(0.75 * theta)) + CoreMath.Ldexp(1, -49));
             double facetNeed = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(sMax * 1.1) * D0) * oneMinusCos);

@@ -65,10 +65,11 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void WithinTwoUlpsOfMathAcos_UniformAndNearTheEnds_AndDecreasing()
+        public void WithinThreeUlpsOfMathAcos_UniformAndNearTheEnds()
         {
-            // the distance to the platform's Math.Acos (itself within an ulp of the true value on the platforms we run on):
-            // at most 2 ulps here; measured on glibc x64: 1 ulp at worst, 60501 of the 816000 arguments differ. Sweeps: uniform in [-1, 1], and at distances 2^-k from -1, 0, 1
+            // the distance to the platform's Math.Acos. AcosByAtan2 is within about 1.6 ulps of the true value by derivation
+            // and a platform's acos within 1, so 3 is the bound that holds everywhere; measured on glibc x64: 1 ulp at
+            // worst, 60501 of the 816000 arguments differ. Sweeps: uniform in [-1, 1], and at distances 2^-k from -1, 0, 1
             ulong s = 12345;
             long worst = 0, differ = 0, count = 0;
             double worstAt = 0;
@@ -87,16 +88,33 @@ namespace geometry3Sharp.Tests
                     check(1 - d); check(-1 + d); check(d); check(-d);
                 }
             output.WriteLine($"{count} arguments, {differ} differ from Math.Acos, worst {worst} ulp at {worstAt:R}");
-            Assert.True(worst <= 2, $"{worst} ulps from Math.Acos at {worstAt:R}");
-            // not increasing along a fine grid, also across the ends
+            Assert.True(worst <= 3, $"{worst} ulps from Math.Acos at {worstAt:R}");
+            Assert.True(differ > 0 && differ < count / 4, $"{differ} of {count} differ");      // (composed, so not Math.Acos itself; and close to it)
+        }
+
+        [Fact]
+        public void DecreasingWithinTwoUlps_AndNotMonotoneInTheLastUlp()
+        {
+            // over neighbouring doubles the result never rises by more than 2 ulps, and over steps of 1e-5 never at all
+            ulong s = 99;
+            for (int i = 0; i < 200000; ++i) {
+                double c = (Next(ref s) >> 11) * (1.0 / 9007199254740992.0) * 2 - 1;
+                double up = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(c) + (c >= 0 ? 1 : -1));     // the next double above c
+                if (!(up <= 1)) continue;
+                double a = CoreMath.AcosByAtan2(c), b = CoreMath.AcosByAtan2(up);
+                Assert.True(b <= a || Ulps(a, b) <= 2, $"acos rises by {Ulps(a, b)} ulps at {c:R}");
+            }
             double prev = double.PositiveInfinity;
             for (int i = 0; i <= 200000; ++i) {
-                double c = -1 + i * (2.0 / 200000);
-                if (c > 1) c = 1;
+                double c = Math.Min(1, -1 + i * (2.0 / 200000));
                 double a = CoreMath.AcosByAtan2(c);
                 Assert.True(a <= prev, $"acos increases at {c:R}");
                 prev = a;
             }
+            // the documented pair: one ulp up in c, one ulp up in the result (1 + c and 1 - c round at different arguments)
+            double c0 = 0.23144537602828275, c1 = BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(c0) + 1);
+            Assert.Equal(1.3372331895174001, CoreMath.AcosByAtan2(c0));
+            Assert.Equal(1.3372331895174003, CoreMath.AcosByAtan2(c1));
         }
     }
 }

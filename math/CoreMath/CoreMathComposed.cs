@@ -13,8 +13,12 @@ namespace g3.CoreMathPort
         /// CoreMathComposedTests (816000 arguments, uniform and at distances 2^-k from -1, 0 and 1; not correctly
         /// rounded: 60501 of them, 7.4 %, differ from Math.Acos by one ulp; the test allows 2 for other platforms). The domain is that of Math.Acos: NaN for NaN and
         /// for |c| &gt; 1, 0 for 1, pi (Math.PI) for -1, pi / 2 for 0. The factor that is small near an end, 1 - c near 1 and 1 + c near -1, is exact
-        /// there (Sterbenz, |c| &gt;= 1/2), so the result keeps its relative accuracy where 1 - c * c would cancel. A correctly rounded Acos (a port from CORE-MATH) can replace it later; the
-        /// tests bound what would change.
+        /// there (Sterbenz, |c| &gt;= 1/2), so the result keeps its relative accuracy where 1 - c * c would cancel. By derivation
+        /// the result is within about 1.6 ulps of the true value (the roundings of 1 + c, the product and the square
+        /// root, then half an ulp of Atan2), and it is not monotone in the last ulp for |c| &lt; 1/2 (1 + c and 1 - c
+        /// round at different arguments: 0.23144537602828275 and the next double give 1.3372331895174001 and
+        /// 1.3372331895174003): do not use it where the order of two results of neighbouring arguments decides. A
+        /// correctly rounded Acos (a port from CORE-MATH) can replace it later; the tests bound what would change.
         /// </summary>
         internal static double AcosByAtan2(double c)
         {
