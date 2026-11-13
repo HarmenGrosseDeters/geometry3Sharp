@@ -1209,7 +1209,9 @@ namespace gs
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
             // (a ramp's road is built flatter than its grade and its outer edge wider than Width: the road and the wall above
             // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins")
-            double rampShare = ramp_share(delta, sMin, sMax);
+            double rampShare = ramp_share(delta, sMin, exy);
+            if (RampGradeTooSmall >= 0)
+                return ramp_problem(Statuses.InvalidInput, RampGradeTooSmall, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
             UsedRampShare = rampShare;
             double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
             double facetShare = Tolerance - withoutRamps - rampShare;

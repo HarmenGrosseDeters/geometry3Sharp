@@ -551,28 +551,50 @@ namespace geometry3Sharp.Tests
             Assert.Contains("the ramp is too long or too wide for Tolerance", d.Message);
         }
 
-        // the ramp's share, pinned against an independent computation: (g - gb) L + sMax 2 delta W x the outer corners' miter
-        // factor (1 / cos(turn / 2) at a bend away from the road), up to the roundings (n + 1) ulp; and the snap budget
-        // includes it
-        [Fact]
-        public void RampShare_IsPinned_WithTheMiterAtBends()
+        // the ramp's share, pinned part by part against an independent computation: the road (g - gb) L with the roundings
+        // (n + 1) (ulp(2 max|z|) + g ulp(L)), the wall 2 delta W s x the outer corners' miter factor (1 / cos(turn / 2) at a
+        // bend away from the road) with the wall's slope s (not the gentlest slope of the design: a second, gentler toe),
+        // the XY rounding of the corners (positive), and their sum
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void RampShare_IsPinned_WithTheMiterAtBends(bool bend, bool gentleToe)
         {
-            foreach (bool bend in new[] { false, true }) {
-                var d = bend ? AroundCorner() : Straight();
-                Assert.True(d.Compute(), d.Message);
-                SlopeRamp r = d.Ramps[0];
-                double delta = d.UsedSlopeMargin, s = d.Pieces.Where(p => p.Kind != SlopePiece.Kinds.Road).Min(p => p.Spec.S), g = r.Grade.S;
-                double L = 0;
-                for (int i = 0; i + 1 < r.Path.Count; ++i) L += r.Path[i].Distance(r.Path[i + 1]);
-                double miter = 1;
-                if (bend) {
-                    Vector2d u0 = (r.Path[1] - r.Path[0]).Normalized, u1 = (r.Path[2] - r.Path[1]).Normalized;
-                    miter = 1 / Math.Cos(0.5 * Math.Acos(u0.Dot(u1)));
-                    Assert.True(miter > 1.25, $"{miter}");
-                }
-                double expected = (g - (g - 0.5 * delta * s)) * L + 2 * delta * r.Width * s * miter;
-                Assert.InRange(d.UsedRampShare, expected * (1 - 1e-9), expected * (1 + 1e-7) + 1e-12);
+            var d = bend ? AroundCorner() : Straight();
+            if (gentleToe)
+                d.Toes.Add(SlopeToe.Constant(TerrainSlopeDesignTests.Square(5, 0, new Vector2d(150, 0)), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(3)));
+            Assert.True(d.Compute(), d.Message);
+            SlopeRamp r = d.Ramps[0];
+            double delta = d.UsedSlopeMargin, sWall = SlopeSpec.Ratio(1).S, sMin = gentleToe ? SlopeSpec.Ratio(3).S : sWall, g = r.Grade.S;
+            double L = 0, z = 0, maxZ = 0;
+            for (int i = 0; i + 1 < r.Path.Count; ++i) { double li = r.Path[i].Distance(r.Path[i + 1]); L += li; z += g * li; maxZ = Math.Max(maxZ, z); }
+            double miter = 1;
+            if (bend) {
+                Vector2d u0 = (r.Path[1] - r.Path[0]).Normalized, u1 = (r.Path[2] - r.Path[1]).Normalized;
+                miter = 1 / Math.Cos(0.5 * Math.Acos(u0.Dot(u1)));
+                Assert.True(miter > 1.25, $"{miter}");
             }
+            Func<double, double> ulp = (x) => ExactInterval.Up(x) - x;
+            double rounding = (r.Path.Count + 1) * (ulp(2 * maxZ) + g * ulp(L));
+            Assert.InRange(d.RampShareRounding, rounding * (1 - 1e-9), rounding * (1 + 1e-6));
+            double road = (g - (g - 0.5 * delta * sMin)) * L + rounding, width = 2 * delta * r.Width * sWall * miter;
+            Assert.InRange(d.RampShareRoad, road * (1 - 1e-9), road * (1 + 1e-7));
+            Assert.InRange(d.RampShareWidth, width * (1 - 1e-9), width * (1 + 1e-7));
+            Assert.True(d.RampShareXY > 0 && d.RampShareXY < 1e-6 * width, $"{d.RampShareXY}");
+            Assert.InRange(d.UsedRampShare, road + width + d.RampShareXY, (road + width + d.RampShareXY) * (1 + 1e-7));
+        }
+
+        [Fact]
+        public void TinyGrade_IsReportedBeforeTheBudget()
+        {
+            // the grade (1e-6) is not above twice the road margin (1e-6): reported as such, also when Tolerance is far too small
+            var d = Straight(1e-4);
+            d.Tolerance = 1e-9;
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
+            Assert.Contains("the grade is too small for the slope margin", d.Message);
+            Assert.Contains(new Index2i(0, -1), d.RampProblems);
         }
 
         [Fact]
