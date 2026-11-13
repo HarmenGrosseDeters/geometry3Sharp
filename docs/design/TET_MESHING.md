@@ -1,7 +1,8 @@
 # Tetrahedral meshing: "any input -> valid tet mesh" (design, no library code)
 
-**Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500;
-stage 1 waits for the fTetWild comparison and sharp features, owner 2026-11-09).
+**Status:** design for the owner's decision (Phase 5 priority 3, owner 2026-11-08 / 2026-11-09), tier L. Written before any build; stage 0 is built since (#487, hand-over #500).
+Stage 1 prerequisites (owner go 2026-11-13): the fTetWild black-box comparison (section 12), the sharp-feature check of #736
+(section 13) and the stage-1 plan with its owner decisions (section 14); stage 1 is not built yet.
 Licence rules: TetGen (AGPL), fTetWild / TetWild (MPL), libigl (MPL), the CDT of Diazzi et al. (GPL / LGPL) were used as
 **papers only**; no CGAL, Triangle or Triangle.NET code was read. Numbers marked *planning* are estimates, not
 measurements (no .NET SDK was installed in this session, so nothing was run); stage 0 below measures them first.
@@ -371,3 +372,152 @@ probably not worth building.
    agreed but not yet added.
 3. Sliver strategy for stage 2 (flips + smoothing recommended) and the dihedral target (10 degrees assumed).
 4. Whether option (d) lattice stuffing (1-2 weeks, guaranteed dihedral bound) is worth building first for implicit domains.
+
+## 13. Sharp features: does the Alpha Wrap 3.0 feature pass (#736) give the surfaces stage 1 needs? (2026-11-13)
+
+`AlphaWrapFeaturePass` (draft #736) works on the raw wrap **as a surface mesh** (`DMesh3`): it moves vertices onto the offset
+surface's planes and creases, splits edges at crease points and flips edges onto creases, every operation checked exactly
+(no self-intersection, no contact with the input, angle floors 10 / 150 degrees). On its own metrics it does what stage 1 wants
+from a CAD-like surface (T1, 20 meshes: concave creases on the miter line within one offset 0.02 -> 0.75, crease normal error
+14.7 -> 4.7 degrees; procedural solids: concave 0.016 -> 0.981; benchmarks/SharpFeatureProbe README, variant KR).
+
+But it **breaks the property stage 0 and the plan of 5.1 rest on**: the result is no longer a union of facets of the wrap's
+`Delaunay3`, and in general not even of the Delaunay tetrahedralization of its own vertices. Local probe (branch
+`claude/aw3-feature-pass` at 018ab24, not committed: a fresh `Delaunay3` of the surface's vertices, then counting the surface
+triangles and edges that are not Delaunay facets / edges; the probe's six procedural solids):
+
+| relative alpha 20 / offset 200 | raw wrap | after the feature pass |
+|---|---|---|
+| surface triangles that are not Delaunay facets | 0 of 934 .. 1298 (all six) | **3.8 .. 7.5 %** (40 .. 91 per solid) |
+| surface edges that are not Delaunay edges | 0 | 1.3 .. 2.8 % |
+| smallest interior surface dihedral | 59 .. 93 degrees | **21 .. 90** (vnotch 20.9, lshape 42, octant 49) |
+| surface edges with a dihedral below 90 degrees | 0 .. 4 | 13 .. 50 |
+| smallest triangle angle | 12 .. 16 degrees | 10.0 .. 11.4 (the pass's floor) |
+
+At relative alpha 60 / offset 600 the share of missing facets is 1.5 .. 2.3 %, missing edges 0.5 .. 0.8 %, and the smallest
+dihedral drops to 11.6 degrees (octant) and 16.1 (vnotch): the pass restores exactly the acute creases the wrap had rounded off.
+
+Answer: **the feature pass gives the right boundary, but not in the form stage 1 can mesh directly.** The inside cells of the
+wrap are a valid tet mesh of the *rounded* surface only. A tet mesh of the *featured* surface needs a boundary recovery step:
+the featured surface is a clean PLC (closed, 2-manifold, intersection-free, triangle angles >= 10 degrees, vertex spacing from
+the wrap), but 2-8 % of its triangles are missing from its Delaunay tetrahedralization and its dihedral angles go down to
+12-21 degrees, so Shewchuk's 90-degree condition fails at exactly the features we want. Section 14 plans this as conforming
+Delaunay refinement with a fallback to the rounded surface. Not measured yet: the same counts on the Thingi10K T1 meshes (first
+task of stage 1, once #736 has merged).
+
+## 14. Stage 1 plan (2026-11-13, for the owner's decision; no code yet)
+
+### 14.1 Scope
+
+Stage 1 = **Delaunay refinement of the interior with a radius-edge bound, size control, a sliver step, and the boundary either
+the rounded wrap (S1-R) or the featured wrap (S1-F, conforming recovery)**, both through the same refinement core. Flip and
+smoothing improvement (stage 2 of section 9) stays a separate step; section 14.5 says why the 10-degree target needs it.
+
+Sources (papers only): J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey,
+J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 (the algorithm DelTetPLC for PLCs, its insertion-radius proof, and the
+chapters on small input angles and on sliver exudation); X.-Y. Li, S.-H. Teng, *Generating well-shaped Delaunay meshes in 3D*,
+SODA 2001 (sliver-avoiding point placement); S.-W. Cheng, T. K. Dey, H. Edelsbrunner, M. A. Facello, S.-H. Teng, *Sliver
+exudation*, J. ACM 2000; A. Rand, N. Walkington, *Collars and intestines: practical conforming Delaunay refinement*, IMR 2009,
+and D. Cohen-Steiner, É. Colin de Verdière, M. Yvinec, *Conforming Delaunay triangulations in 3D*, SoCG 2002 (conforming
+recovery with acute input angles). TetGen (AGPL), the CDT of Diazzi et al. (GPL / LGPL) and fTetWild (MPL) are paper / black
+box only. Building blocks searched (section 2 and since): `Delaunay3` (insert, locate, exact predicates; no undo, no labels),
+`QualityMesh2` (2D queue discipline, concentric shells, encroachment rules, the oracle / fuzz harness), `TetMesh3`,
+`TetMeshQuality`, `TetOracle`; nothing for 3D refinement or tet improvement exists.
+
+### 14.2 Algorithm (DelTetPLC with a floor)
+
+State: one `Delaunay3` holding the wrap's (S1-R) or the featured surface's (S1-F) vertices; the boundary as **subsegments**
+(surface edges whose two triangles meet at a dihedral off 180 degrees by more than `FeatureAngle`, default 20 degrees, plus all
+edges in S1-F recovery) and **subfacets** (surface triangles, split in their plane); cell labels inside / outside, derived by a
+flood fill from the box corners that never crosses a subfacet once every subfacet is a Delaunay facet.
+
+Queue order (Shewchuk 1998; CDS 2012):
+1. an **encroached subsegment** (a vertex inside its diametral ball, or the subsegment missing from the triangulation) is split,
+   at its midpoint, or by the concentric-shell rule (split at a power-of-two distance from a shared endpoint, as `QualityMesh2`
+   does in 2D) when its endpoint is shared with another subsegment at an angle below 90 degrees;
+2. an **encroached or missing subfacet** gets the circumcentre of the subfacet (in its plane); if that point encroaches a
+   subsegment, it is not inserted and the subsegment is split instead;
+3. a **bad inside tet** (radius-edge > rho = 2, or circumradius above the size field) gets a point near its circumcentre (14.4);
+   if it encroaches a subsegment or subfacet, it is not inserted and those are split instead.
+
+Insertion is in queue order with the previous cell as the locate hint and the queue keyed by a coarse spatial key, so that
+insertions stay coherent (stage 0: random order costs up to 5x per point).
+
+**Rounding.** Midpoints and facet circumcentres are rounded to doubles, off the exact segment / plane by an ulp. The tets stay
+exactly valid regardless (every cell of `Delaunay3` is exactly positive); what the rounding can change is the boundary. Rule (as
+5.2): after the insertion, the two halves of a split subsegment and the new subfacets must be Delaunay edges / facets (an exact
+`IsFacet` query); if not, the insertion is undone (cavity snapshot, new in `Delaunay3`) and the element is marked unsplittable
+(counted). The output's boundary is the recovered surface; its distance to the S1-R / S1-F surface is asserted <= 2^-40 of the
+diagonal in the tests, and the boundary is checked exactly for self-intersection (as the evaluator of section 12 does).
+
+### 14.3 Termination
+
+- **Without acute angles** (S1-R on smooth inputs; section 10: all procedural wraps have surface dihedrals >= 86 degrees):
+  DelTetPLC's insertion-radius argument (CDS 2012) gives termination for rho > 2 and every new vertex at distance >= c * lfs(p),
+  so the output size is O(integral of lfs^-3) and all inside tets meet rho.
+- **With acute angles** (real wraps: 1 % of edges below 90 degrees, down to 12 degrees; S1-F: down to 11.6 degrees), the
+  theorem does not apply. The **floor** makes termination unconditional: no point is inserted closer than `h_min` to an existing
+  vertex (`Delaunay3.Insert(minSeparation)`), with `h_min = MinFeatureFactor * min(Offset, Alpha - Offset)` (the wrap's own
+  vertex separation, section 2) and in S1-F also bounded by the featured surface's shortest edge times a factor. All vertices
+  then lie in a bounded domain with pairwise distance >= `h_min`, so their number is at most
+  vol(domain grown by h_min / 2) / vol(ball of radius h_min / 2): **every run terminates.** The price: a bad tet whose point is
+  refused by the floor stays (`UnrefinedBadTets`, counted per mesh), and the radius-edge bound holds for all other tets.
+- **Recovery cannot be left half done** (a missing subfacet means no valid boundary). S1-F therefore has its own budget: if a
+  subsegment or subfacet is still missing when the floor refuses its split (or after `MaxRecoverySteiner` points), S1-F stops and
+  the mesh is produced by S1-R instead (status `FeatureRecoveryFailed`, counted). So **validity stays 100 %** by construction:
+  S1-R always succeeds (its boundary is conforming from the start, recovery is never needed), and S1-F is only returned when its
+  recovery finished. A guaranteed S1-F needs protecting balls and weighted Delaunay (CDS 2012, small-angle chapter;
+  Cohen-Steiner et al. 2002) or collars (Rand and Walkington 2009): not in stage 1; the fallback rate on the corpus decides
+  whether it is worth it.
+
+### 14.4 Slivers in stage 1
+
+A radius-edge bound does not exclude slivers. Three options, papers only:
+
+| | Li-Teng point placement (recommended for stage 1) | Sliver exudation | Flips + smoothing (stage 2, kept) |
+|---|---|---|---|
+| Idea | insert not the circumcentre but one of a few candidate points in a ball of radius delta * R around it, the first whose new tets contain no sliver | weights on the vertices so that slivers leave the weighted Delaunay triangulation | 2-3 / 3-2 / 4-4 flips, edge removal, vertex smoothing (Klingner and Shewchuk 2007) |
+| Guarantee | a constant sliver bound (tiny in the proof), termination kept (the insertion radius shrinks by a constant factor) | a proven constant bound (tiny), in practice a few degrees | none; best practical results |
+| Library cost | none new: `Delaunay3` + `TetMeshQuality.Measure` on the would-be cavity; deterministic candidates (a fixed point set scaled by R, no random numbers: 2^k invariant) | weighted `Delaunay3` and a power predicate in the exact code (new generated predicate, review of the bound) | non-Delaunay mesh operations, `Orient3d` only |
+| Fit | same kernel, same termination argument, cheap | large; also the boundary must stay protected (zero weights) | needed for >= 10 degrees anyway (14.5) |
+
+Recommendation: Li-Teng placement in stage 1, no exudation; flips + smoothing remain stage 2.
+
+### 14.5 Targets for stage 1 (from the owner targets: 100 % valid, min dihedral >= 10 degrees, time in fTetWild's order)
+
+- **Valid: 100 %** (40 / 40 Thingi10K subset and the procedural corpus incl. sharp concave inputs), by construction (14.3) and
+  checked by the independent oracle and the evaluator of section 12.
+- **Radius-edge <= 2** for all inside tets except `UnrefinedBadTets`; target 0 of those on the procedural set, reported on
+  Thingi10K.
+- **Dihedral**: stage 1 alone is not expected to reach 10 degrees on every tet: Delaunay refinement with a radius-edge bound
+  leaves slivers near 0 degrees, and point placement lifts the tail to a few degrees in the literature, not 10. The stage-1 target
+  is therefore p01 >= 10 degrees and min >= 1 degree per mesh (to calibrate on the subset); **min >= 10 degrees on every tet is the
+  stage-2 target** (flips + smoothing), against fTetWild's measured values in section 12.
+- **Time**: refinement <= 25 us per output tet single-threaded (T5); end to end (wrap + refinement) in the order of fTetWild's
+  time on the same runner (section 12).
+- Boundary: S1-R = the wrap's surface, S1-F = the feature pass's surface, both up to the rounding of 14.2; surface deviation
+  reported both ways as in section 12.
+
+### 14.6 Steps (one PR, one commit per step, stage 1 of section 9)
+
+1. `Delaunay3` additions (additive): per-cell labels, `IsFacet`, cavity snapshot and undo; unit and fuzz tests (undo restores
+   bit for bit, `Validate(true)` after random insert / undo sequences).
+2. Refinement core on S1-R: queue, encroachment, floor, rounding rule with undo, size field, `MeshTetrahedralization` with
+   `Counts` (`UnrefinedBadTets`, `unsplittable`, insertions per rule); tests of 6 / 7 (validity oracle, radius-edge, reuse,
+   `Similarity.All()` bit for bit, determinism; mutants: no encroachment check, no floor, no undo, wrong queue order).
+3. Li-Teng placement (14.4) with a switch for the A/B in the benchmark.
+4. S1-F: recovery of the featured surface (needs #736 merged), the fallback to S1-R, counts on the procedural sharp solids and
+   on T1; the corpus gets the sharp concave inputs of 11 (slot, notch, re-entrant corners).
+5. Benchmark: `TetMeshBenchmark` mode for the refined mesh, the comparison workflow of section 12 with a variant `stage1`; before /
+   after numbers in its README.
+
+Estimate: steps 1-3 about 2 weeks (as section 9), step 4 about 1 week more, large model for 2 and 4 (termination, rounding).
+
+### 14.7 Owner decisions needed (stage 1)
+
+1. **Boundary**: S1-F with fallback to S1-R (recommended; sharp features where recovery succeeds, rounded otherwise, validity
+   unaffected) or S1-R only (simpler, features rounded as in stage 0)?
+2. **Dihedral target**: 10 degrees on every tet as the stage-2 target, stage 1 with p01 >= 10 / min >= 1 degree (recommended,
+   14.5), against the fTetWild numbers of section 12.
+3. **Sliver step**: Li-Teng placement in stage 1, no exudation (recommended, 14.4).
+4. **Order**: stage 1 starts with steps 1-3 now; step 4 after #736 has merged.
