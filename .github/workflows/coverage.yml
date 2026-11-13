@@ -12,7 +12,6 @@ on:
       - '.github/workflows/coverage.yml'
       - 'tools/changed_line_coverage.py'
       - 'tools/coverage/**'
-      - 'tools/tia_map.py'
   schedule:
     - cron: '41 3 * * *'
   workflow_dispatch:
@@ -31,10 +30,6 @@ concurrency:
   # (a new push cancels the run of a pull request; a nightly run is never cancelled by a manual one)
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The map jobs at the end (tia-map, tia-replay) are the measurement step of docs/design/TEST_IMPACT_ANALYSIS.md (owner
-# decisions 2026-11-13: extend this workflow, linux only, nightly map). They run each test class of the core suite alone under
-# coverlet and replay the last 50 merges against the map; they select no test and gate nothing. Their findings are the step
-# summary and the artifact tia-replay.
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -143,66 +138,3 @@ jobs:
         with:
           name: coverage-reports
           path: test-results/
-
-  # Per-class coverage map (tools/tia_map.py collect): one dotnet test per class, so a class costs the vstest start-up (about
-  # 15 s) on top of its coverage run. Four shards by class (round robin). A crashed test host is retried twice.
-  tia-map:
-    runs-on: ubuntu-latest
-    timeout-minutes: 170
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - name: Test the tool
-        run: python3 -m unittest discover -s tools -p 'test_tia_map.py' -v
-      - name: Build
-        run: dotnet build tests/geometry3Sharp.Tests -c Release -f net10.0
-      - name: Collect the map of this shard
-        # Nightly tests are not part of the map (they run in nightly.yml only), the Slow tier is
-        run: |
-          dotnet test tests/geometry3Sharp.Tests -c Release -f net10.0 --no-build --list-tests --filter "Category!=Nightly" > list.txt
-          python3 tools/tia_map.py collect --out tia-map --shard ${{ matrix.shard }}/4 --list-file list.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: tia-map-${{ matrix.shard }}
-          path: tia-map/*.json
-          if-no-files-found: warn
-
-  tia-replay:
-    needs: tia-map
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-          fetch-depth: 0
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: tia-map-*
-          path: tia-map
-          merge-multiple: true
-      - name: Replay the last 50 merges against the map
-        run: |
-          # (a pull request run checks out the merge commit of the PR: the history to replay starts at its first parent)
-          START=HEAD
-          [ "${{ github.event_name }}" = pull_request ] && START=HEAD^1
-          ls tia-map/*.json | wc -l
-          python3 tools/tia_map.py replay --map tia-map --merges 50 --from "$START" --json tia-replay.json --summary tia-replay.md
-          { echo '### Test impact analysis: replay of the last 50 merges'; cat tia-replay.md; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: tia-replay
-          path: |
-            tia-replay.json
-            tia-replay.md
