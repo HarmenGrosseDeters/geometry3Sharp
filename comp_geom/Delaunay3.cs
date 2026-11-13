@@ -299,8 +299,9 @@ namespace g3
         /// Undoes the last successful Insert (RefinementSupport; only directly after it, at most once): the cavity's cells come
         /// back with their ids, vertices, neighbours, stamps and labels, the new vertex and cells are removed, and the cell id
         /// allocation and the point location's random state are as before the insertion (so the same insertion again gives the
-        /// same cells and ids). Lists passed to Insert as removed / added are not changed. False if there
-        /// is nothing to undo.
+        /// same cells and ids). Not restored: the stamps of the ids the undone insertion took from the free list stay incremented
+        /// (stamps only mark staleness, so a cell id reused later just has a higher stamp). Lists passed to Insert as removed /
+        /// added are not changed. False if there is nothing to undo.
         /// </summary>
         public bool UndoLastInsert()
         {

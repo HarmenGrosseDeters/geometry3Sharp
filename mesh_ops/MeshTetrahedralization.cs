@@ -9,11 +9,14 @@ namespace gs
     /// Tetrahedral mesh of any input (docs/design/TET_MESHING.md section 14, stage 1): the alpha wrap (MeshAlphaWrap), whose inside
     /// cells are already a valid tet mesh of the wrap surface, refined inside by Delaunay refinement (Shewchuk, "Tetrahedral mesh
     /// generation by Delaunay refinement", SoCG 1998; Cheng, Dey, Shewchuk, "Delaunay Mesh Generation", 2012): a bad inside tet
-    /// (radius-edge ratio above MaxRadiusEdgeRatio, or circumradius above TargetEdgeLength) gets its circumcentre.
+    /// (radius-edge ratio above MaxRadiusEdgeRatio, or circumradius above MaxCircumradius) gets its circumcentre.
     ///
-    /// The boundary is the wrap surface, exactly (same vertices, same triangles): a point is kept only if every cell its insertion
-    /// removes is inside, otherwise the insertion is undone (Delaunay3.UndoLastInsert) and counted (refused_surface). Then no surface
-    /// facet lies inside the cavity, so every surface facet stays a facet, and the new cells are inside; the test is on exact labels.
+    /// The surface is fixed during the refinement: a point is kept only if every cell its insertion removes is inside, otherwise the
+    /// insertion is undone (Delaunay3.UndoLastInsert) and counted (refused_surface). Then no surface facet lies inside the cavity, so
+    /// every surface facet stays a facet, and the new cells are inside; the test is on exact labels. With PeelBoundarySlivers = false
+    /// the boundary is therefore the wrap surface exactly (same vertices, same triangles). With peeling (the default) it is the wrap
+    /// surface after 2-2 flips of peeled boundary slivers: the same vertices (all the wrap's), still closed, 2-manifold and
+    /// intersection-free, touching no input triangle (exact), moved inwards by at most the heights of the peeled slivers.
     /// Every tet is exactly positively oriented (Delaunay3). The price: a bad tet whose circumcentre lies beyond the surface, or
     /// whose cavity would reach it, stays (counted in unrefined_bad_tets); the surface's own quality bounds those tets.
     ///
@@ -30,8 +33,8 @@ namespace gs
         public double RelativeAlpha = 20, RelativeOffset = 600;
         /// <summary> radius-edge bound rho (> 2 for the termination argument without the floor) </summary>
         public double MaxRadiusEdgeRatio = 2;
-        /// <summary> size bound: tets with a larger circumradius are refined; 0 = none (the mesh is graded by the surface) </summary>
-        public double TargetEdgeLength = 0;
+        /// <summary> size bound: tets whose circumradius is larger than this are refined; 0 = none (the mesh is graded by the surface) </summary>
+        public double MaxCircumradius = 0;
         /// <summary>
         /// sliver step (Li and Teng 2001): tets with a smallest dihedral angle below this (degrees) are refined too, and a new point
         /// is chosen among candidates near the circumcentre so that its new tets have no dihedral angle below it; 0 = off
@@ -68,7 +71,10 @@ namespace gs
 
         public TetStatus Status;
         public MeshAlphaWrap.WrapStatus WrapStatus;
-        /// <summary> the wrap of the last Compute(); its Result is the boundary of Result, triangle by triangle </summary>
+        /// <summary>
+        /// the wrap of the last Compute(); its Result is the boundary of Result triangle by triangle if PeelBoundarySlivers is false
+        /// (with peeling: the same vertices, some triangles flipped; see the class summary)
+        /// </summary>
         public MeshAlphaWrap Wrap;
         public TetMesh3 Result;
         /// <summary> tet_splits (inserted points), refused_floor, refused_surface (undone: the cavity reached the surface), unrefined_bad_tets </summary>
@@ -99,7 +105,7 @@ namespace gs
             dt.RefinementSupport = true;
             foreach (int c in dt.CellIndices())
                 dt.SetCellLabel(c, wrap.IsInsideCell(c) ? 1 : 0);
-            var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, TargetEdgeLength, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
+            var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, MaxCircumradius, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
                 Input = PeelBoundarySlivers ? Mesh : null };
             TetStatus st = r.Run();
             Status = st;

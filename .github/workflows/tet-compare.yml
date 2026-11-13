@@ -5,7 +5,8 @@ name: Tet mesher comparison
 # from its README build steps; its source is never read, copied or ported, and its output files are deleted after our evaluator
 # has read them. Only our own CSVs and summary are published (data branch runs/tet-meshing, never merged). Thingi10K meshes are
 # fetched at run time and never committed.
-# Default 4 shards, fTetWild at 4 threads only (runner load, coordinator 2026-11-13). Runs on demand, or on a push to the branch below whose head commit message contains [tet-compare].
+# Default 4 shards, fTetWild at 4 threads only (runner load, coordinator 2026-11-13). Runs on demand only (workflow_dispatch; ask the
+# coordinator first, runner budget).
 on:
   workflow_dispatch:
     inputs:
@@ -21,8 +22,6 @@ on:
       ft_threads:
         description: fTetWild thread counts to run, space separated (eg "4" or "4 1")
         default: '4'
-  push:
-    branches: [claude/tet-stage1-plan]
 
 env:
   DOTNET_NOLOGO: true
@@ -39,7 +38,6 @@ permissions:
 
 jobs:
   build-ftetwild:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[tet-compare]')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:

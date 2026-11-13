@@ -256,7 +256,7 @@ namespace geometry3Sharp.Tests
         public void SizeBound_GivesMoreAndSmallerTets()
         {
             var a = Make(Sphere(1, 5)); Assert.True(a.Compute());
-            var b = Make(Sphere(1, 5)); b.TargetEdgeLength = 0.15; Assert.True(b.Compute());
+            var b = Make(Sphere(1, 5)); b.MaxCircumradius = 0.15; Assert.True(b.Compute());
             Assert.True(b.Result.Tets.Count > 2 * a.Result.Tets.Count, a.Result.Tets.Count + " / " + b.Result.Tets.Count);
             Assert.Null(TetOracle.Check(b.Result, null));
             int large = 0;

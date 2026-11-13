@@ -148,7 +148,7 @@ domains.
 
 Shewchuk 1998 with these changes:
 
-- **Bad tet**: radius-edge ratio > ρ (default 2) or circumradius > local size. Size: `TargetEdgeLength` (default
+- **Bad tet**: radius-edge ratio > ρ (default 2) or circumradius > local size. Size: `TargetEdgeLength` (built as `MaxCircumradius`, a bound on the circumradius; default
   the median wrap edge length) with grading from the boundary (`SizeFunction`, as `QualityMesh2.SizeFunction`).
 - **Insert** the circumcentre p of the worst bad tet. If p lies in the diametral ball of a boundary facet f (it
   encroaches f), insert the circumcentre of f instead (the usual facet split), and likewise for the diametral
@@ -532,7 +532,7 @@ in stage 2; (3) Li-Teng placement, no exudation; (4) steps 1-3 now, step 4 after
   `Delaunay3RefinementSupportTests` (fuzz against a twin triangulation and brute-force stars; 9 hand mutants killed, one
   equivalent removed by simplifying the undo).
 - **Steps 2-3** (`MeshTetrahedralization`): **the surface is kept fixed** instead of the encroachment splits of 14.2. A point is
-  kept only if every cell its insertion removes is inside (exact, on labels), otherwise it is undone. So the boundary is the
+  kept only if every cell its insertion removes is inside (exact, on labels), otherwise it is undone. So (before the peeling of 14.9) the boundary is the
   wrap's surface triangle by triangle (no rounding at all, T2 exact) and validity holds by construction. Reason: the splits of
   14.2 were built and tried first; on curved wrap surfaces the midpoint splits cascaded (missing edges between near-coplanar
   triangles, flips did not settle them) into the floor on 6 of 8 procedural inputs (`RecoveryFailed`), even with the floor at
