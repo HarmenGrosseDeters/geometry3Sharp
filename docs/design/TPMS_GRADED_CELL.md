@@ -1,6 +1,6 @@
 # TpmsLattice: graded cell size (#816)
 
-Status: **design, awaiting coordinator approval.** Tier L light (an extension of a merged module with a changed proof
+Status: **approved by the coordinator 2026-11-13 with decision 2 narrowed (below); implemented.** Tier L light (an extension of a merged module with a changed proof
 obligation): this note, then one PR from master. Builds on [TPMS_LATTICE.md](TPMS_LATTICE.md) (#750).
 
 Goal: a lattice whose period varies with position (small cells where the part is loaded, large cells elsewhere),
@@ -19,38 +19,38 @@ fraction can be graded (`VolumeFractionAt`).
   this; it is a property of the method, not of the implementation. Others (the nTop-style tools, `MSLattice`) expose
   exactly a position dependent phase or an "effective cell size" field.
 
-## 2. API (additive; two new members of `TpmsLattice`)
+## 2. API (additive; three new members of `TpmsLattice`, one new class)
 
 ```cs
-public Func<Vector3d, Vector3d> PhaseMap;      // local position -> phase in periods (null: x / CellSize, the constant lattice)
-public double PhaseJacobianBound;               // an upper bound of the operator norm of the Jacobian of PhaseMap, in periods per length
+public Func<Vector3d, Vector3d> PhaseMap;   // general: local position -> phase in periods (null: x / CellSize); no Enclosure
+public TpmsPhaseGrade Grade;                // a library-derived Jacobian bound (TpmsLattice.LinearGrade): the only graded form with Enclosure
+public double MinLocalCellSize;             // output: 1 / the largest sampled phase gradient, with a map or a grade
+public static TpmsPhaseGrade LinearGrade(int axis, double z0, double period0, double z1, double period1, double transverseHalfExtent);
+public sealed class TpmsPhaseGrade { Map, JacobianBound, Axis, TransverseHalfExtent }
 ```
 
-- `PhaseMap` replaces `x / CellSize`; the field is `f(2 pi PhaseMap(x))`, so periodicity in phase space is exact. Called from
-  several threads: pure and thread-safe, finite everywhere in the grid, else `ContouringFailed` (as for a NaN level).
-- `CellSize` stays the nominal period of the grid (the cube is `CellSize / Divisions`): the user sets it to the **smallest**
-  local period so that every cell is resolved (the rule wall >= 2 cubes now refers to the smallest cell). `Compute` samples
-  the map on the grid and reports the smallest local period it saw (`MinLocalCellSize`, a report) and refuses (`InvalidOptions`)
-  a grid whose cube is larger than 1/4 of that measured period, so an unresolved grading is not silently meshed.
-- Helper `TpmsLattice.LinearGrade(int axis, double z0, double period0, double z1, double period1, out double jacobianBound)`:
-  the period varies linearly along one axis (exact integral phase along it, transverse phase scaled by the local period).
-  Another helper is easy to add; the general delegate covers the rest.
+- The field is `f(2 pi Map(x))`, so periodicity in phase space is exact. A map must be pure, thread-safe and finite on the grid
+  (`InvalidOptions` otherwise, and when it is constant on the domain). Set `PhaseMap` or `Grade`, not both.
+- `CellSize` stays the nominal period of the grid (the cube is `CellSize / Divisions`): the user sets it to the **smallest** local
+  period. `Compute` samples the map on a 9^3 set of points of the domain, reports the smallest local period it saw
+  (`MinLocalCellSize`) and refuses (`InvalidOptions`) a grid whose cube is larger than a quarter of it.
+- `LinearGrade`: the period varies linearly along one axis, the phase along it is the exact integral `ln(period(z) / period0) / slope`,
+  the transverse phase is the coordinate over the local period. It derives the Jacobian bound itself
+  (`sqrt(3 / Lmin^2 + 2 (e |slope| / Lmin^2)^2)`, the Frobenius norm, with `e` the transverse half extent) and the library checks that the
+  domain lies within that extent (`InvalidOptions` if not). `WallThickness` is not defined with a map or a grade.
 
-## 3. What stays guaranteed, what moves to the user
+## 3. What stays guaranteed, what is not
 
-- **Always, checked at runtime on the result** (unchanged): `NotCleanReason == ""` plus the exact self-intersection check.
-  Grading changes only the field, not the contouring or the certificate, so this holds for any phase map.
-- **Volume fraction**: the quantile table is per unit period, so the local fraction is the target where the phase map is locally a
-  similarity (the usual case); where the cells are distorted the local fraction deviates by the distortion. Documented, and the
-  tests measure it for the linear grade.
-- **Enclosure**: the field `f(2 pi psi(x))` is Lipschitz with `Lf * 2 pi * J`, `J` the Jacobian bound. With a **user supplied**
-  `PhaseJacobianBound` (a proof obligation the library cannot check; we add a sampled check that refuses a bound that the sampled
-  Jacobian exceeds, which can refute a wrong bound but never prove one) the existing recipe applies unchanged with `Lw = Lf 2 pi J`.
-  The price is a larger pad, since `J >= 1 / smallest period`, so the enclosure is looser than for a constant lattice
-  where the period is the smallest one; and a field that is dyadic-exactly evaluable is required only as before (the phase
-  rounding bound is the one place that grows: `eNorm`'s phase term is `4 u` times the phase magnitude in periods over `J s`; the
-  PR recomputes it and refuses when it exceeds `2^-30`).
-  Without a bound, `Enclosure` with a `PhaseMap` is `InvalidOptions` (no silent unproven claim).
+- **Always, checked at runtime on the result** (unchanged): `NotCleanReason == ""` plus the exact self-intersection check. Grading
+  changes only the field, so this holds for any map.
+- **Volume fraction**: the quantile table is per unit period, so the local fraction is the target where the map is locally a
+  similarity (tested above z = 3 of the linear grade, where the period is constant); where the cells are distorted it deviates.
+- **Enclosure**: with a `Grade` the field is Lipschitz with `Lf 2 pi J`, `J` the derived bound, and the recipe applies unchanged
+  with `Lw = Lf 2 pi J` (the phase rounding term of the error bound becomes `4 u |phase| / (J s)`, checked against `2^-30`;
+  this assumes the map is evaluated to a relative error of `4 u`, the same assumption as for `Math.Sin` and `Math.Cos`). A general
+  `PhaseMap` with `Enclosure` is `InvalidOptions` (owner / coordinator decision 2026-11-13: a user-supplied bound is a certificate
+  the library cannot check). A user-bound path can be a follow-up if someone needs it. The sampled Jacobian check that the first
+  draft of this note had as a runtime refutation is a test of the helper's derived bound instead.
 
 ## 4. Resolution and cost
 
@@ -71,8 +71,8 @@ An adaptive grid (coarser where the cells are large) is a different, larger feat
   too-small supplied bound is refused by the sampled check on a case where it is wrong.
 - Benchmark: the graded field costs one delegate call per sample on top of the constant field; the benchmark README gets one row.
 
-## 6. Decisions needed
+## 6. Decisions (coordinator, 2026-11-13)
 
-1. A general `PhaseMap` delegate plus `LinearGrade` helper (recommended), or helpers only (less to prove, less general).
-2. `Enclosure` with a user supplied Jacobian bound and a sampled refutation check (recommended), or no `Enclosure` with grading in this PR.
-3. The distortion of the cells for a general grade is documented, not corrected (no 3D gradient phase exists); accepted?
+1. A general `PhaseMap` delegate plus the `LinearGrade` helper: yes.
+2. `Enclosure` only where the library derives the bound (`Grade`); a general `PhaseMap` with `Enclosure` is `InvalidOptions`.
+3. The distortion of a general grade is documented, not corrected; the tests check the local fraction only where the map is a similarity.

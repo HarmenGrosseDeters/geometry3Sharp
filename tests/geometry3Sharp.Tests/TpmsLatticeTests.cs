@@ -371,8 +371,7 @@ namespace geometry3Sharp.Tests
                 Type = type, Style = style, CellSize = L, Divisions = divisions, VolumeFraction = fraction,
                 Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 3))
             };
-            lattice.PhaseMap = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1, out double bound);
-            lattice.PhaseJacobianBound = bound;
+            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1);
             return lattice;
         }
 
@@ -450,8 +449,7 @@ namespace geometry3Sharp.Tests
                 var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.Sheet, 0.3, 12);
                 lattice.CellSize = s.Scale * L;
                 lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0) * s.Scale, new Vector3d(1, 1, 3) * s.Scale);
-                lattice.PhaseMap = TpmsLattice.LinearGrade(2, 0, s.Scale, 3 * s.Scale, 2 * s.Scale, s.Scale, out double bound);
-                lattice.PhaseJacobianBound = bound;
+                lattice.Grade = TpmsLattice.LinearGrade(2, 0, s.Scale, 3 * s.Scale, 2 * s.Scale, s.Scale);
                 lattice.Origin = s.Apply(Vector3d.Zero);
                 lattice.Rotation = s.Rotation;
                 lattice.Compute();
@@ -490,28 +488,84 @@ namespace geometry3Sharp.Tests
                 Assert.Null(lattice.Mesh);
                 Assert.NotEqual("", lattice.Message);
             }
-            Expect(l => l.WallThickness = 0.05, TpmsStatus.InvalidOptions);
-            Expect(l => { l.Enclosure = true; l.PhaseJacobianBound = 0; }, TpmsStatus.InvalidOptions);
-            Expect(l => l.PhaseJacobianBound = double.NaN, TpmsStatus.InvalidOptions);
-            Expect(l => l.PhaseJacobianBound = 0.5, TpmsStatus.InvalidOptions);          // refuted by the sampled gradient
-            Expect(l => l.PhaseMap = p => new Vector3d(double.NaN, 0, 0), TpmsStatus.InvalidOptions);
-            Expect(l => l.PhaseMap = p => new Vector3d(1, 2, 3), TpmsStatus.InvalidOptions);   // constant
+            Expect(l => l.WallThickness = 0.05, TpmsStatus.InvalidOptions);                       // with a Grade
+            Expect(l => l.PhaseMap = l.Grade.Map, TpmsStatus.InvalidOptions);                     // both PhaseMap and Grade
+            Expect(l => { var g = l.Grade; l.Grade = null; l.PhaseMap = g.Map; l.Enclosure = true; }, TpmsStatus.InvalidOptions);   // Enclosure needs a Grade
+            Expect(l => { var g = l.Grade; l.Grade = null; l.PhaseMap = g.Map; l.WallThickness = 0.05; }, TpmsStatus.InvalidOptions);
+            Expect(l => l.Box = new AxisAlignedBox3d(new Vector3d(-1.5, -1, 0), new Vector3d(1, 1, 3)), TpmsStatus.InvalidOptions);  // leaves the extent
+            Expect(l => { l.Grade = null; l.PhaseMap = p => new Vector3d(double.NaN, 0, 0); }, TpmsStatus.InvalidOptions);
+            Expect(l => { l.Grade = null; l.PhaseMap = p => new Vector3d(1, 2, 3); }, TpmsStatus.InvalidOptions);   // constant
             Expect(l => l.Divisions = 4, TpmsStatus.InvalidOptions);                     // the cube is not a quarter of the smallest period
             Expect(l => l.CellSize = 8, TpmsStatus.InvalidOptions);
         }
 
         [Fact]
-        public void Graded_EnclosureUsesTheSuppliedBoundAndContainsTheExactLattice()
+        public void Graded_GeneralPhaseMapWorksWithoutEnclosure()
+        {
+            // the same grade as a plain delegate: a clean lattice (the Jacobian is only estimated for the units of the clip)
+            var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.35, 16);
+            var map = lattice.Grade.Map;
+            lattice.Grade = null;
+            lattice.PhaseMap = map;
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
+        }
+
+        [Fact]
+        public void Graded_LinearGradeBoundDominatesTheSampledJacobian()
+        {
+            // The library derives the bound: check it against the Jacobian sampled by central differences, in random directions, within
+            // the transverse extent (the sampled operator norm can only refute a too small bound, it is the test of the derivation).
+            foreach (var (p0, p1, ext) in new[] { (1.0, 2.0, 1.0), (2.0, 1.0, 3.0), (1.0, 1.0, 5.0), (1.0, 4.0, 0.5), (1.0, 4.0, 3.0), (3.0, 1.0, 3.0) }) {
+                TpmsPhaseGrade grade = TpmsLattice.LinearGrade(1, -0.5, p0, 2.5, p1, ext);
+                var rand = new Random(53);
+                double max = 0;
+                const double e = 1e-6;
+                for (int i = 0; i < 4000; ++i) {
+                    var q = new Vector3d((rand.NextDouble() * 2 - 1) * ext, -1 + 4 * rand.NextDouble(), (rand.NextDouble() * 2 - 1) * ext);
+                    var v = new Vector3d(rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1, rand.NextDouble() * 2 - 1).Normalized;
+                    max = Math.Max(max, (grade.Map(q + e * v) - grade.Map(q - e * v)).Length / (2 * e));
+                }
+                Assert.True(max <= grade.JacobianBound, "sampled Jacobian " + max + " above the bound " + grade.JacobianBound);
+                Assert.True(grade.JacobianBound <= 2.5 * max, "bound " + grade.JacobianBound + " far above the sampled " + max);
+            }
+        }
+
+        [Fact]
+        public void Graded_LocalFractionIsTheTargetWhereTheMapIsASimilarity()
+        {
+            // The period is constant (2) above z = 3: there the phase map is a similarity and the local volume fraction is the
+            // target (elsewhere the cells are distorted, see the design note). One period of 2 in x, y and z is sampled.
+            var lattice = new TpmsLattice {
+                Type = TpmsType.Gyroid, Style = TpmsStyle.SkeletalLow, CellSize = L, Divisions = 16, VolumeFraction = 0.35,
+                Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 6)),
+                Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1)
+            };
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+            var tree = new DMeshAABBTree3(lattice.Mesh, true);
+            var rand = new Random(61);
+            int inside = 0, n = 6000;
+            for (int i = 0; i < n; ++i) {
+                var q = new Vector3d(-0.98 + 1.96 * rand.NextDouble(), -0.98 + 1.96 * rand.NextDouble(), 3.5 + 2.0 * rand.NextDouble());
+                if (tree.IsInside(q)) ++inside;
+            }
+            Assert.InRange((double)inside / n, 0.35 - 0.06, 0.35 + 0.06);
+        }
+
+        [Fact]
+        public void Graded_EnclosureUsesTheDerivedBoundAndContainsTheExactLattice()
         {
             var lattice = MakeGraded(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3, 16);
             lattice.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 2));
-            lattice.PhaseMap = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1, out double bound);
-            lattice.PhaseJacobianBound = bound;
+            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, 3, 2, 1);
+            double bound = lattice.Grade.JacobianBound;
             lattice.Enclosure = true;
             lattice.Compute();
             Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
-            // the normalising Lipschitz bound is exactly Lf 2 pi J with the supplied J
+            // the normalising Lipschitz bound is exactly Lf 2 pi J with the derived J
             Assert.Equal(TpmsLattice.GradientBound(TpmsType.Gyroid) * 2 * Math.PI * bound, lattice.LipschitzBoundUsed, 9);
             double h = L / 16, lw = lattice.LipschitzBoundUsed;
             double level = TpmsLattice.LevelForFraction(TpmsLattice.QuantileTable(TpmsType.Gyroid, TpmsStyle.SkeletalLow), 0.3);
