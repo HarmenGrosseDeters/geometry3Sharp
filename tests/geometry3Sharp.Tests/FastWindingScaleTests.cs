@@ -121,13 +121,12 @@ namespace geometry3Sharp.Tests
         }
 
         [Theory]
-        [InlineData(4.5)]
         [InlineData(5.0)]
         [InlineData(6.0)]
         public void AboveTheUpperRange_ExactSumNotAWrongExpansion(double distance)
         {
-            // a unit sphere scaled by 2^202, queries on a shell at distance * 2^202 from its centre: every box is about
-            // 2^204.1 .. 2^204.6 away, where 4 pi d^5 overflows. The gate (d^5 <= 2^1019) leaves the expansion out there and
+            // a unit sphere scaled by 2^202, queries on a shell at distance * 2^202 from its centre (5 or more: a margin over
+            // the gate's 3.48 * 2^202 for the nearest box): every box is about 2^204.2 .. 2^204.6 away, where 4 pi d^5 overflows. The gate (d^5 <= 2^1019) leaves the expansion out there and
             // the value is the exact sum; with d^5 <= MaxValue the second-order term lost its d (x) d part (finite, 18 %
             // off: about 5e-4 here; numerics review of #744). At unit scale the same queries use the expansion
             double s = BitConverter.Int64BitsToDouble((long)(1023 + 202) << 52);
