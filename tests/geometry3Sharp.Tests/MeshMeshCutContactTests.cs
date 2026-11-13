@@ -114,7 +114,7 @@ namespace geometry3Sharp.Tests
         static DMesh3 Scaled(DMesh3 m, int e)
         {
             var c = new DMesh3(m);
-            foreach (int v in c.VertexIndices()) { Vector3d p = c.GetVertex(v); c.SetVertex(v, new Vector3d(Math.ScaleB(p.x, e), Math.ScaleB(p.y, e), Math.ScaleB(p.z, e))); }
+            foreach (int v in c.VertexIndices()) { Vector3d p = c.GetVertex(v); c.SetVertex(v, new Vector3d(p.x * Math.Pow(2, e), p.y * Math.Pow(2, e), p.z * Math.Pow(2, e))); }
             return c;
         }
 
@@ -256,7 +256,7 @@ namespace geometry3Sharp.Tests
             yield return new object[] { "degenerate segments on a line, apart", Tri(new Vector3d(0, 0, 0), new Vector3d(0.5, 0, 0), new Vector3d(1, 0, 0)),
                 Tri(new Vector3d(2, 0, 0), new Vector3d(2.5, 0, 0), new Vector3d(3, 0, 0)) };
             // one ulp above the plane inside the target triangle: no contact (the cut mesh is above, nothing is zero)
-            yield return new object[] { "one ulp above", Flat(), Tri(new Vector3d(1, 1, Math.BitIncrement(0.0)), new Vector3d(5, 5, 1), new Vector3d(6, 0.5, 1)) };
+            yield return new object[] { "one ulp above", Flat(), Tri(new Vector3d(1, 1, BitConverter.Int64BitsToDouble(1)), new Vector3d(5, 5, 1), new Vector3d(6, 0.5, 1)) };
         }
 
         [Theory]
