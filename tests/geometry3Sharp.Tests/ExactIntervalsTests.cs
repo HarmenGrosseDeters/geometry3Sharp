@@ -55,6 +55,135 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // q encloses a / b (b != 0): checked exactly as lo * b <= a <= hi * b for b > 0 (reversed for b < 0)
+        static bool EnclosesQuotient(ExactInterval q, double a, double b)
+        {
+            ExactDyadic da = ExactDyadic.Of(a), db = ExactDyadic.Of(b);
+            int sb = b > 0 ? 1 : -1;
+            bool lo = double.IsNegativeInfinity(q.Lo) || sb * ExactDyadic.Compare(ExactDyadic.Of(q.Lo) * db, da) <= 0;
+            bool hi = double.IsPositiveInfinity(q.Hi) || sb * ExactDyadic.Compare(ExactDyadic.Of(q.Hi) * db, da) >= 0;
+            return lo && hi;
+        }
+
+        // r encloses sqrt(a) (a >= 0): lo >= 0 and lo^2 <= a <= hi^2, exactly
+        static bool EnclosesRoot(ExactInterval r, double a)
+        {
+            ExactDyadic da = ExactDyadic.Of(a), lo = ExactDyadic.Of(r.Lo);
+            bool hi = double.IsPositiveInfinity(r.Hi) || ExactDyadic.Compare(ExactDyadic.Of(r.Hi) * ExactDyadic.Of(r.Hi), da) >= 0;
+            return r.Lo >= 0 && ExactDyadic.Compare(lo * lo, da) <= 0 && hi;
+        }
+
+        [Fact]
+        public void Interval_Division_AndSqrt_EncloseTheExactResult()
+        {
+            var rnd = new Random(2);
+            for (int i = 0; i < 20000; ++i) {
+                double a = Rand(rnd), b = Rand(rnd);
+                if (b == 0) continue;
+                ExactInterval q = ExactInterval.Of(a) / ExactInterval.Of(b);
+                Assert.True(EnclosesQuotient(q, a, b), $"{a:R} / {b:R} -> [{q.Lo:R}, {q.Hi:R}]");
+                double m = Math.Abs(a);
+                ExactInterval r = ExactInterval.Sqrt(ExactInterval.Of(m));
+                Assert.True(EnclosesRoot(r, m), $"sqrt {m:R} -> [{r.Lo:R}, {r.Hi:R}]");
+            }
+        }
+
+        [Theory]
+        [InlineData(double.Epsilon, 3.0)]          // subnormal quotient
+        [InlineData(double.Epsilon, 0.5)]          // twice the smallest subnormal
+        [InlineData(2.2250738585072014E-308, 7.0)] // from the smallest normal into the subnormals
+        [InlineData(1e308, 1e-308)]                // overflows to infinity
+        [InlineData(double.MaxValue, 0.5)]
+        [InlineData(-double.MaxValue, 0.25)]
+        [InlineData(1.0, double.MaxValue)]         // underflows to a subnormal
+        [InlineData(1e-300, 1e300)]                // underflows to 0
+        public void Interval_Division_AtSubnormalAndOverflowEdges(double a, double b)
+        {
+            ExactInterval q = ExactInterval.Of(a) / ExactInterval.Of(b);
+            Assert.True(EnclosesQuotient(q, a, b), $"[{q.Lo:R}, {q.Hi:R}]");
+            Assert.True(q.Lo <= q.Hi);
+        }
+
+        [Theory]
+        [InlineData(double.Epsilon)]
+        [InlineData(3 * double.Epsilon)]
+        [InlineData(2.2250738585072014E-308)]
+        [InlineData(double.MaxValue)]
+        [InlineData(2.0)]
+        [InlineData(0.0)]
+        public void Interval_Sqrt_AtSubnormalAndOverflowEdges(double a)
+        {
+            ExactInterval r = ExactInterval.Sqrt(ExactInterval.Of(a));
+            Assert.True(EnclosesRoot(r, a), $"[{r.Lo:R}, {r.Hi:R}]");
+            Assert.True(r.Hi - r.Lo <= 4 * (ExactInterval.Up(r.Hi) - r.Hi) + double.Epsilon, "tight: at most a few spacings");
+        }
+
+        [Fact]
+        public void Interval_Division_ByAnIntervalContainingZero_IsTheWholeLine_AndSqrtOfNegativeToo()
+        {
+            ExactInterval q = ExactInterval.Of(1) / new ExactInterval(-1, 1);
+            Assert.True(double.IsNegativeInfinity(q.Lo) && double.IsPositiveInfinity(q.Hi));
+            ExactInterval q0 = ExactInterval.Of(1) / ExactInterval.Of(0);
+            Assert.True(double.IsNegativeInfinity(q0.Lo) && double.IsPositiveInfinity(q0.Hi));
+            ExactInterval r = ExactInterval.Sqrt(new ExactInterval(-2, -1));
+            Assert.True(double.IsNegativeInfinity(r.Lo) && double.IsPositiveInfinity(r.Hi));
+            // a partly negative argument: the root of its non-negative part
+            ExactInterval r2 = ExactInterval.Sqrt(new ExactInterval(-1, 4));
+            Assert.Equal(0, r2.Lo);
+            Assert.True(r2.Hi >= 2 && r2.Hi <= ExactInterval.Up(2));
+        }
+
+        // a random interval: wide, negative, mixed sign, a point, or with an infinite end
+        static ExactInterval RandInterval(Random rnd)
+        {
+            double a = Rand(rnd), b = Rand(rnd);
+            switch (rnd.Next(6)) {
+                case 0: return new ExactInterval(double.NegativeInfinity, Math.Max(a, b));
+                case 1: return new ExactInterval(Math.Min(a, b), double.PositiveInfinity);
+                case 2: return new ExactInterval(-Math.Abs(a), Math.Abs(b));                 // mixed sign
+                case 3: return new ExactInterval(-Math.Max(Math.Abs(a), Math.Abs(b)), -Math.Min(Math.Abs(a), Math.Abs(b)));   // negative
+                case 4: return ExactInterval.Of(a);
+                default: return new ExactInterval(Math.Min(a, b), Math.Max(a, b));
+            }
+        }
+
+        // members of iv for a brute force: both (finite) ends, 0 if inside, and points spread over it; an infinite end is
+        // represented by +-MaxValue and its neighbours
+        static double[] Members(ExactInterval iv, Random rnd)
+        {
+            double lo = double.IsNegativeInfinity(iv.Lo) ? -double.MaxValue : iv.Lo, hi = double.IsPositiveInfinity(iv.Hi) ? double.MaxValue : iv.Hi;
+            var m = new System.Collections.Generic.List<double> { lo, hi, ExactInterval.Up(lo), ExactInterval.Down(hi) };
+            if (lo <= 0 && hi >= 0) { m.Add(0); m.Add(double.Epsilon); m.Add(-double.Epsilon); }
+            for (int k = 0; k < 6; ++k) { double t = rnd.NextDouble(); m.Add(lo * t + hi * (1 - t)); m.Add(0.5 * lo + 0.5 * hi); }
+            return m.FindAll(x => x >= lo && x <= hi && !double.IsNaN(x)).ToArray();
+        }
+
+        [Fact]
+        public void Interval_Division_AndSqrt_OfWideMixedNegativeAndInfiniteIntervals_EncloseEveryMember()
+        {
+            var rnd = new Random(3);
+            for (int i = 0; i < 3000; ++i) {
+                ExactInterval A = RandInterval(rnd), B = RandInterval(rnd);
+                ExactInterval q = A / B, r = ExactInterval.Sqrt(A);
+                Assert.True(q.Lo <= q.Hi && r.Lo <= r.Hi);
+                foreach (double y in Members(B, rnd)) {
+                    if (y == 0) continue;
+                    foreach (double x in Members(A, rnd))
+                        Assert.True(EnclosesQuotient(q, x, y), $"[{A.Lo:R}, {A.Hi:R}] / [{B.Lo:R}, {B.Hi:R}] -> [{q.Lo:R}, {q.Hi:R}] misses {x:R} / {y:R}");
+                }
+                foreach (double x in Members(A, rnd))
+                    if (x >= 0) Assert.True(EnclosesRoot(r, x), $"sqrt [{A.Lo:R}, {A.Hi:R}] -> [{r.Lo:R}, {r.Hi:R}] misses sqrt {x:R}");
+            }
+            // infinite ends stay infinite
+            Assert.True(double.IsPositiveInfinity((new ExactInterval(1, double.PositiveInfinity) / new ExactInterval(2, 3)).Hi));
+            Assert.True(double.IsNegativeInfinity((new ExactInterval(double.NegativeInfinity, -1) / new ExactInterval(2, 3)).Lo));
+            Assert.True(double.IsNegativeInfinity((new ExactInterval(1, double.PositiveInfinity) / new ExactInterval(-3, -2)).Lo));
+            Assert.True(double.IsPositiveInfinity(ExactInterval.Sqrt(new ExactInterval(-5, double.PositiveInfinity)).Hi));
+            // infinity / infinity is NaN at a corner: the whole line, never a NaN end
+            ExactInterval n = new ExactInterval(1, double.PositiveInfinity) / new ExactInterval(1, double.PositiveInfinity);
+            Assert.True(double.IsNegativeInfinity(n.Lo) && double.IsPositiveInfinity(n.Hi));
+        }
+
         [Fact]
         public void Dyadic_RoundTripsDoubles()
         {

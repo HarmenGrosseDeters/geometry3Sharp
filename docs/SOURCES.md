@@ -142,6 +142,19 @@ Implemented from the papers, no code taken over. Read for the design (what the e
 The exact output coordinates (`ResultExactVertices`) are the rational points of the arrangement mapped back from the
 integer grid (`ExactMeshArrangement.ToInputExact`).
 
+## Certified exact geodesic distance (`ExactMeshGeodesicDistance`, internal test oracle)
+
+Implemented from the papers and the own claims of [docs/design/GEODESICS.md](design/GEODESICS.md) (Appendix A); no code
+taken over (Kirsanov's `geodesic`, geometry-central, CGAL were not read).
+
+| Part | Source |
+|---|---|
+| Window propagation ("continuous Dijkstra"): windows on edges with an unfolded pseudo-source and its distance, propagation across faces, saddle and boundary vertices as pseudo-sources | J. S. B. Mitchell, D. M. Mount, C. H. Papadimitriou, *The discrete geodesic problem*, SIAM J. Comput. 16(4), 647-668, 1987 (not read: the host returned 404; the statements as cited by Surazhsky et al.) |
+| The practical form: windows on an edge cut against each other, a priority queue by window distance, which vertices a shortest path can pass through (boundary, saddle, parabolic) | V. Surazhsky, T. Surazhsky, D. Kirsanov, S. J. Gortler, H. Hoppe, *Fast exact and approximate geodesics on meshes*, ACM TOG 24(3), 553-560, 2005 (read 2026-11-13) |
+| Certified enclosure: outer and inner intervals, one-sided pruning certified over whole pieces, terminal windows, disks under rigid frame changes, subsumption, merging, re-emission with a margin | own (GEODESICS.md Appendix A, claims A1-A6, reviewed 2026-11-13) |
+| Interval arithmetic with one-spacing widening (division and square root added) | R. E. Moore, *Interval Analysis*, Prentice-Hall 1966; IEEE 754 correct rounding of +, -, *, / and sqrt |
+| Corner angles by the correctly rounded atan2 | CORE-MATH (CoreMathSharp port), see "Correctly rounded sin, cos, atan2, exp, log" below |
+
 ## Intrinsic triangulations and geodesics (`IntrinsicTriangulation`, `VectorHeatMethod`, `MeshGeodesicDistance`)
 
 Implemented from the papers, no code taken over (geometry-central, MIT, was not used as a source).

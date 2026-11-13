@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 CONFIGS = load_configs()
 RO = ["rounding-%d" % i for i in range(1, 9)]
 ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
-                                                "terrain-arith", "terrain-kernel", "terrain-overlay"}
+                                                "terrain-arith", "terrain-kernel", "terrain-overlay", "geodesic-1", "geodesic-2"}
 
 
 def run(*changed):
