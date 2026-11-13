@@ -1,6 +1,7 @@
 # Exact Boolean 3.0: a hierarchical Antipodal boundary sum (lever 1)
 
-Status: design note for review (T3a, 2026-11-13). No code yet. It builds on the safe norms and the run scale of #719
+Status: design note (T3a, 2026-11-13). The numerics review (exact-numbers study) confirmed the three claims, with
+the corrections made here. Its check script is review767/identity.py on runs/exact-numbers. No code yet. It builds on the safe norms and the run scale of #719
 (#759) and on option (A) (#766). Source of the lever: the boolean extreme-runtime study (#734,
 `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`, lever 1; probe `benchmarks/ExtremeBooleans/probe_boundary_sum.py`).
 
@@ -49,8 +50,10 @@ Let a hierarchical evaluation give `w_h` with a certified bound `B_h`, so that t
 - The full sum's `w` is within its `bound` ≤ 1e-6 of w*, so `|w - h| > 1e-6 >= bound`. The full sum therefore does
   not snap.
 - Both w and w_h lie on the same side of h as w*. So `ceil(w - 1/2) = ceil(w_h - 1/2)`, and the threshold is the same.
-- No other half-integer lies between w and w_h either. Their distance is at most `B_h + 1e-6`, which is far below
-  1/2 for the B_h we accept (section 4).
+- No other half-integer lies between w and w_h either. The condition |w_h − h| > B_h + 2e-6 caps B_h itself, since h
+  is the nearest half-integer, so no further limit on B_h is needed.
+- B_h must bound |w_h − w*| with all roundings included, not only the truncation of the far field: every atan2, the
+  normalisations, the dipole products, the stored c, r, va and A_abs, and the summation (section 3).
 
 Then:
 - **Where the claim applies:** the threshold is that of `w_h`, and the margin is `rem = |w_h - h| - B_h - 2e-6`. This
@@ -76,9 +79,12 @@ the time differ.
 
 ## 3. The sum over a cluster
 
-The boundary segments (`BoundarySegments`, pairs a → b) are ordered into chains, head to tail, as in the probe. A
-closed loop is one chain whose end meets its start. Each chain gets a binary tree over its segment range, so that a
-node is a contiguous run a_0 → a_1 → … → a_k.
+The boundary segments (`BoundarySegments`, pairs a → b) are ordered into chains, head to tail, as in the probe.
+- A chain keeps every segment's a → b direction.
+- A vertex with several outgoing segments starts another chain.
+- A closed loop is one chain whose end meets its start.
+
+Each chain gets a binary tree over its segment range, so that a node is a contiguous run a_0 → a_1 → … → a_k.
 
 For each node, the tree stores, in the mesh's scaled grid units (FarPoints.Shift of #759):
 - the centre c, the mean of its points;
@@ -95,21 +101,30 @@ of the spherical triangle (A, B, x1). For the unit vectors A_i from p to a_i:
 
   Σ_{i<k} S(A_i, A_{i+1}) = S(A_0, A_k) + Ω(a_0 … a_k),
 
-where Ω is the signed solid angle of the closed polygon a_0 … a_k a_0 seen from p. This holds exactly, not modulo 4π,
-when x1 and −x1 both lie outside the cap of the node's ball seen from p, with margin. That is the cone test: with
-u = (c − p)/d, d = |c − p| > r, and sin α = r/d,
+where Ω is the signed solid angle of the closed polygon a_0 … a_k a_0 seen from p.
 
-  |x1 · u| < cos α − ε.
+**When it holds.** The identity holds exactly, not modulo 4π, when −x1 (= x0, the ray's direction) lies outside the
+cap of the node's ball seen from p, with margin. The x1 side does not matter.
+- Why: the two fans, the chain's triangles and the chord's triangle plus the polygon, have the same boundary. Their
+  covering numbers of the sphere therefore differ by a constant. The principal values of S jump where a fan's covering
+  of −x1 changes. Both are 0 at −x1 when −x1 is outside the cap, so the constant is 0.
+- Numerical check of the review (numerics, #767), on 600k random chains:
+  - −x1 inside the cap: 22266 of 111499 cases are off by whole turns;
+  - x1 inside the cap: 0 are off.
+- The study's probe tested the x1 side and left −x1 free. That explains its 0–0.3 % jumps.
 
-Then:
-- Every A_i lies in the cap.
-- No spherical triangle (A_i, A_{i+1}, x1) has an antipodal pair, so each principal value S is the triangle's true
-  signed area.
-- The fan of triangles from x1 over the polygon covers the polygon(A_0 … A_k) and the triangle (A_0, A_k, x1) with the
-  orientations of the identity, because x1 is not inside the polygon, which lies in the cap.
+**The cone test**, with u = (c − p)/d, d = |c − p| > r, and sin α = r/d:
 
-This is the step the review should check. The probe found 0–0.3 % whole-turn jumps at θ ≤ 0.25 with only the
-one-sided test (the ray x0 = −x1 missing the cone). The two-sided test above is what the argument needs.
+  −x1 · u < cos α − ε.
+
+The margin ε:
+- It covers the roundings of u and of x1·u, with r rounded up and d rounded down.
+- It also exceeds the angle sqrt(2·tol) at which today's "ray through the segment" test (`|num| <= tol && den <= tol`)
+  can fire. So such a segment is never inside an accepted node.
+- tol is the code's `16 (ea + eb + 1e-15 + directionError)`. For the node it is bounded by
+  `16 (2 · 2.3e-16 (pm + M) / (d − r) + pointError terms + 1e-15 + directionError)`, where M is the node's largest L1
+  norm of a point (stored).
+- The implementation gives ε as such an expression, and the review checks it.
 
 **The solid angle of the closed polygon.**
 - Ω is the flux of f(q) = (q − p)/|q − p|³ through any surface spanning the polygon that does not pass through p. The
@@ -122,8 +137,9 @@ one-sided test (the ray x0 = −x1 missing the cone). The two-sided test above i
 
 - In winding-number units, the node contributes `(S(A_0, A_k) + Ω_1)/(4π)` with the error
   `E = A_abs · 2r / ((d − r)³ · 4π) + rounding`.
-- At r/d = 0.25 and A_abs ≈ r², E ≈ 2.4e-3 · (r²/d²) per node. This is far above 1e-6, which is why section 2 never
-  uses w_h for a snap.
+- With A_abs ≈ r², E ≈ (2/(4π)) (r/d)³ / (1 − r/d)³ · (d/r) · (r/d)² = 0.094 (r/d)² at r/d = 0.25, that is 5.9e-3
+  winding units per node. This is far above 1e-6, which is why section 2 never uses w_h for a snap. The size of E only
+  sets the expected fallback share.
 
 **Accepting a node.** A node is accepted if both:
 - r/d < θ, with θ = 0.25 as the starting value (the probe's error at 0.25 was at most 3.4e-4 on 117959);
@@ -155,9 +171,12 @@ The three callers of `antipodal_value` change as follows:
 - If the share is too large, that is not a correctness issue. It only means the speed-up is smaller. A second, finer
   pass (θ/2) before the full sum is an option for the PR to measure.
 
-**Determinism.** The trees are built once per open mesh, serially, before the parallel tracing, as
-`antipodal_segments` and the projections are today. Queries only read them. The order of the traversal is fixed. So
-parallel runs give the same results as serial ones, and repeated runs give the same results, bit for bit.
+**Determinism.**
+- The trees are built once per open mesh, serially, before the parallel tracing, as `antipodal_segments` and the
+  projections are today. Queries only read them, and the order of the traversal is fixed.
+- The ray sequence is per piece: the far point of an attempt is a hash of Seed, the piece and the attempt
+  (`front_crossings`). No shared generator state shifts with the number of rays rejected elsewhere.
+- So parallel runs give the same results as serial ones, and repeated runs give the same results, bit for bit.
 
 **Invariance.**
 - All tests compare ratios of distances (r/d, the cone test) and errors relative to the coordinates.
@@ -177,12 +196,12 @@ serial.
   - Inputs: random chains (closed loops, open chains, zig-zags), random p and x1, including x1 at the edge of the cone
     test.
   - The hierarchical value must be within B_h of the full sum, whenever it is used.
-  - With the cone test reduced to one side, the whole-turn jumps of the probe must appear. This is the mutation that
-    shows the test matters.
+  - Without the −x1 side of the cone test, the whole-turn jumps must appear. This is the mutation that shows the test
+    matters. A test on the x1 side alone changes no value, so a mutant dropping it would rightly survive.
 - **Unit tests of the bound.** Ω of a planar polygon against the exact flux, at d/r from 1.5 to 100. The remainder must
   stay below A_abs · 2r/(d − r)³.
 - **Mutations:**
-  - drop the cone test;
+  - drop the cone test (its −x1 side);
   - drop the remainder term E;
   - drop the HANDOVER on a failed leaf;
   - use w_h for the snap.
@@ -192,8 +211,8 @@ serial.
 
 ## 6. Open points for the review
 
-1. The identity of section 3 under the two-sided cone test, including the margin ε for the rounding of u, x1 and
-   cos α.
+1. The margin ε of the cone test in the code: the roundings, and the sqrt(2·tol) term. The identity itself and the
+   remainder bound were confirmed by the numerics review.
 2. The rounding bounds of the stored node quantities and of the dipole term, in the scaled grid.
 3. Whether L2's carry margin from w_h (smaller than today) loses more carried pieces than the hierarchy saves. The PR
    measures it; the decisions are unaffected either way.
