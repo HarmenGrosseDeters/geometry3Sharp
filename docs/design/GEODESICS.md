@@ -545,11 +545,19 @@ A **window** w lives on one side of an edge e and carries:
   to the source, L the edge length), eg +-1e-8 after a few steps at d = 5, then unbounded. A box carried through
   rotated frames grows by up to sqrt 2 per face (the wrapping effect). A disk does not: a rigid motion, a reflection
   included, maps a disk onto a disk of the same radius. Per frame change (from edge e to edge e' of the face beyond,
-  e' with ends P, Q whose positions are intervals of width w_P, w_Q in the frame of e): the new centre is computed in
-  doubles, c' = R (c - p) with p the midpoint of P and R the rotation (and reflection, so that the old face lies on
-  y < 0) taking the midpoint direction of PQ to +x; then r' = (r + w_P + |c - p| alpha + 16 (ulp terms)) (1 + 1e-15),
-  alpha = (w_P + w_Q + 8 ulp(|PQ|)) / |PQ| (the direction error). So r grows additively by about (|c| + L) 1e-15 per
-  step, not multiplicatively. Measured on long bumpy strips (250, 1000 and 4000 x 3 vertices, unit spacing): the
+  e' with ends P, Q whose positions are interval boxes in the frame of e): the new centre is computed in doubles,
+  c' = R (c - p) with p, q the midpoints of the boxes and R the rotation (and reflection, so that the old face lies on
+  y < 0) taking the direction of q - p to +x. With delta_P, delta_Q the half diagonals of the two boxes (the true
+  P*, Q* lie within delta_P, delta_Q of p, q), the direction error is at most
+  alpha = 2 asin((delta_P + delta_Q) / (2 (|PQ| - delta_P - delta_Q))) (plus the rounding of the direction, 8 ulp(|PQ|) /
+  |PQ|), which needs delta_P + delta_Q < |PQ| (else the step fails with a status); its first-order form
+  (delta_P + delta_Q) / |PQ| may be used only with a margin for delta_P + delta_Q << |PQ|. Then
+  r' = r + delta_P + (|c - p| + delta_P + r) alpha + 16 (ulp terms), every term rounded upwards: the true image of s*
+  differs from c' by at most r (the old radius, preserved by the motion), delta_P (the shifted origin), the rotation
+  error alpha acting on |s* - P*| <= |c - p| + delta_P + r, and the rounding of the computed centre. (The review wrote
+  (|c - p| + delta_P) alpha; the r alpha term is added here since r is not negligible against |c - p| in general.) (Review of #807, S3: the first form lacked the cross term alpha delta_P and used box widths; the prototype's
+  widths were conservative but its cross term was missing.) So r grows additively by about (|c| + L) 1e-15 per step,
+  not multiplicatively. Measured on long bumpy strips (250, 1000 and 4000 x 3 vertices, unit spacing): the
   radius relative to the distance rises to 1.2e-12 and then stays there up to 4000 edge lengths (by distance, log2
   buckets: 4e-14, 8e-14, 1.4e-13, 2.5e-13, 5e-13, 1e-12, 1.1e-12, 1.2e-12, then 1.2e-12 to the end);
 - an outer interval O(w) and an inner interval I(w) of e (parameter intervals, clipped to e; I may be empty);
@@ -663,21 +671,36 @@ skip and A8); it was exact on every test mesh, but that is a measurement, not th
 - **A7 (exactly flat vertices need not be pseudo-sources), constructive form.** S1 / A5 make every vertex that is not
   certainly convex a pseudo-source; an enclosed angle sum of exactly 2 pi is never certainly below 2 pi, so every flat
   vertex would emit (on the aligned ridge in plain doubles: 281 s instead of 5 s). Proposed instead:
-  *Exact flatness test* (decides angle sum = 2 pi exactly, without angles): an interior vertex p is exactly flat if
-  (i) its fan is coplanar (every neighbour on the plane of p and two non-collinear neighbours: `Orient3d` = 0, exact) and
-  its projection into that plane winds once around p (exact `Orient2d` of consecutive neighbours, all of one sign), or
-  (ii) the fan consists of two coplanar halves separated by two fan edges that are collinear through p (`Orient3d` = 0
-  for each half, the two separating neighbours collinear with p, exact), each half winding by exactly pi. Any other
-  vertex that is not certainly convex stays a pseudo-source (S1).
+  *Exact flatness test* (decides angle sum = 2 pi exactly, without angles; all predicates exact, on the double
+  coordinates). Let n_0, ..., n_{k-1} be p's neighbours in fan order (n_k = n_0), at an interior vertex.
+  (i) *Coplanar fan:* every neighbour lies on the plane through p and two non-collinear neighbours (`Orient3d` = 0);
+  project onto a coordinate plane on which that plane projects regularly (a plane whose `Orient2d` of p and the two
+  neighbours is non-zero). Require every consecutive sector to turn the same way, `Orient2d(p, n_i, n_{i+1}) > 0` (each
+  sector angle in (0, pi)), and count the **winding**: with the reference ray from p through n_0, count the sectors i
+  that reach or pass the ray, ie `Orient2d(p, n_i, n_0) > 0` and (`Orient2d(p, n_0, n_{i+1}) > 0`, or n_{i+1} on the
+  ray: `Orient2d(p, n_0, n_{i+1}) = 0` with n_{i+1} - p in the direction of n_0 - p), the last sector (back to n_0)
+  included. The angle sum is 2 pi times that count; require exactly 1. One sign alone does not suffice (review of
+  #807, M1): eight sectors of 90 degrees turn the same way and wrap twice (4 pi, a saddle).
+  (ii) *Straight fold:* two neighbours a = n_0 and b = n_j lie on a line through p on opposite sides (`Orient3d` and
+  `Orient2d` collinearity exact, and (a - p).(b - p) < 0, exact); each half (n_0, ..., n_j and n_j, ..., n_k) is
+  coplanar with the line ab, and within its own plane every intermediate neighbour lies strictly on one side of the
+  line ab (constant non-zero sign of `Orient2d` against the fold line) with all consecutive sectors turning the same
+  way. Then each half goes from ray pa to ray pb without crossing the fold line, ie spans exactly pi, and the total is
+  2 pi.
+  Any other vertex that is not certainly convex stays a pseudo-source (S1).
   *Continuation window.* When a window's ray through an exactly flat vertex p is possible (p lies in the outer
   interval's image, ie the split point or an edge end of the window's propagation is uncertain about p), unfold p's fan
   into the plane of the current face: by flatness the unfolding is single-valued (going around either side gives the
-  same positions). The straight continuation of the ray from the disk (c, r) through p lies in one fan face F_k (or on
-  a fan edge, then both neighbouring faces); create, on the edge of F_k opposite p, a window with the same origin and
-  sigma, its disk transformed into that edge's frame, outer = the outward-rounded image of the cone from the disk
-  through p (the rays from all points of the disk through p), inner empty.
-  *Proof sketch.* By Fact F a shortest path gamma passes through p only as a straight line in the flat unfolding of
-  p's fan; its piece before p is carried by a window w whose outer image contains p (A3), its unfolded origin s* lies
+  same positions). The straight continuations of the rays from the disk (c, r) through p form a cone with apex p; with
+  outward rounding it can meet the sectors of several fan faces (review of #807, S1). Create, in **every** fan face
+  whose sector the outward-rounded cone meets, a window on the edge opposite p with the same origin and sigma, its disk
+  transformed into that edge's frame, outer = the outward-rounded image of the cone in that face, inner empty.
+  *Proof sketch.* A shortest path gamma through an interior vertex p with angle sum exactly 2 pi is straight in the flat
+  unfolding of p's fan (review of #807, S2; Fact F is the context, MMP [m]): the two branches of gamma at p split the
+  fan into two sides whose angles sum to 2 pi; if one side had an angle below pi, that side unfolds into a planar
+  sector of angle below pi, and two points of gamma near p, one on each branch, are joined by a chord inside that
+  sector which is strictly shorter than the path through p, contradicting gamma being shortest; so both sides are at
+  least pi, hence exactly pi, and gamma is a straight line through p in the unfolding; its piece before p is carried by a window w whose outer image contains p (A3), its unfolded origin s* lies
   in w's disk, and its continuation beyond p is the ray from s* through p, which lies in the cone and so hits the edge
   opposite p in F_k inside the continuation window's outer interval; the lower bound there is at most d by the same
   triangle-inequality argument as A3. So A3's chain continues past p without emission from p. Windows that pass p on
@@ -694,6 +717,8 @@ skip and A8); it was exact on every test mesh, but that is a measurement, not th
   path "b to y_i, then along gamma" is carried by no window. The face count bounds the number of drops, not this loss of
   coverage. Ties are resolved only by subsumption (b's disk contains w's, sigma_b contains sigma_w, the outer pieces
   inside b's: then L_b <= L_w pointwise and b's propagation covers w's rays) or by merging into a pending window (A6).
+  The subsumption drop is certified: |c_w - c_b| + r_w <= r_b with the left side rounded upwards, and the containments
+  sigma_b- <= sigma_w-, sigma_w+ <= sigma_b+, b.o0 <= piece start, piece end <= b.o1 as exact comparisons of doubles.
   In the A7 setting the prototype needed almost no tie drops (0 on every test mesh, 8 on the 317 x 317 terrain).
   Cost of withdrawing A8, measured on the 317 x 317 terrain (net10 Release, same prototype, tie slack 0 against
   1e-12): 1320225 instead of 1320199 windows (+26), 21.5 s instead of 20.5 s (within the run-to-run variation), and a
@@ -708,9 +733,22 @@ skip and A8); it was exact on every test mesh, but that is a measurement, not th
   order of points along an edge, a point lying on a segment's extension) is certified for all positions in the disks
   and all sigma in their intervals, by outward-rounded evaluation, and (2) the strict inequality holds between the upper
   enclosure of the left side and the lower enclosure of the right side. Then it holds for the true positions, and the
-  real-valued observation applies to them. Two conditions for soundness in our setting: the observation must be about
-  w1's true unfolded source, which lies in its disk (A1, A.2), and the removed set must be w1's outer interval (A4's
-  requirement that removal is justified over the whole removed piece is met by the observation itself, which concludes
-  redundancy of the whole (sub-)window). Each of the eight observations used gets its own line in the code PR with this
-  check; none is used before the review.
+  real-valued observation applies to them. Conditions for soundness in our setting (review of #807, M2):
+  *The dominating side must be realised geometry.* Its path length is enclosed with sigma0+ and over w0's whole disk
+  (so it bounds the path from the witness s0* of A1), and every precondition about w0's rays (where a ray of w0 meets
+  an edge, a line or another ray) is certified on w0's **inner** interval I(w0), not on O(w0): only rays through I(w0)
+  are real surface paths. *The dominated side* is enclosed with sigma1- and over w1's whole disk. That is enough: the
+  windows on a chain of A3 come from the final emission of their origin, so sigma1- <= d(o1) <= sigma1+ (A5), and a
+  window of an earlier (stale) emission lies on no chain, so removing it is harmless. The removed set is w1's outer
+  interval (or the named sub-window of it), which meets A4's whole-piece requirement because the observation concludes
+  redundancy of the whole (sub-)window.
+  *Template for each observation used* (one claim each, reviewed before use): the observation's statement; its
+  geometric preconditions written as predicates over the disks, with w0's rays restricted to I(w0); the inequality as
+  (left side)+ over w0's disk with sigma0+ < (right side)- over w1's disk with sigma1-; the removed set.
+  *Observation (a), written out:* K is constructed on the upper ray of w1 (the ray from w1's source through w1's upper
+  end); preconditions: for every q in w1's disk, K lies on that ray (beyond the edge, in the face where the observation
+  is applied), and the segment from w0's source to K is a ray of w0 through a point of I(w0) for every p in w0's disk
+  (the point where it crosses w0's edge lies in I(w0), certified), so p -> K is a real path for the witness; inequality:
+  (sigma0 + |pK|)+ over w0's disk < (sigma1 + |qK|)- over w1's disk. Observations (b)-(h) each need their written
+  interval form under this rule in their own reviewed claim before use; none is used before then.
 
