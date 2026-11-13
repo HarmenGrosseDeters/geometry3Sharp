@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 // Reducer.MaxDeviationTwoSided (docs/design/BOUNDED_SIMPLIFICATION.md): the one-sided MaxDeviation reduction (A) against the
-// two-sided one (B), reduced as far as the checks allow, at 0.001 and 0.003 of the bounding-box diagonal. Rounds alternate
+// two-sided one (B), reduced as far as the checks allow, at 0.001 and 0.003 of the bounding-box diagonal; then the same
+// for FastCollapsePass (edges below 0.05 of the diagonal, 5 rounds) at 0.003 and 0.01. Rounds alternate
 // A and B; the times are medians. The Hausdorff distances are certified upper bounds (lower bounds in brackets) of
 // MeshHausdorffDistance at a tolerance of 0.01 eps, in units of eps. Procedural meshes; further meshes (eg Thingi10K,
 // fetched at run time, never committed) can be given as file arguments.
@@ -75,5 +76,34 @@ static class TwoSided
             }
         ratios.Sort();
         Console.WriteLine($"time B / A: median {ratios[ratios.Count / 2]:F2}x, max {ratios[ratios.Count - 1]:F2}x");
+
+        // FastCollapsePass (midpoint collapses of edges shorter than 0.05 of the diagonal, 5 rounds), the same A / B
+        Console.WriteLine();
+        Console.WriteLine("FastCollapsePass, edges below 0.05 of the diagonal, 5 rounds:");
+        Console.WriteLine("| mesh | triangles | eps / diag | A: triangles, ms | B: triangles, ms | time B / A | A: h(M,S) / eps (lower) | B: h(M,S) / eps | B: h(S,M) / eps |");
+        Console.WriteLine("|---|---|---|---|---|---|---|---|---|");
+        foreach (var (name, input) in cases)
+            foreach (double rel in new[] { 3e-3, 1e-2 }) {
+                double diag = input.CachedBounds.DiagonalLength, eps = rel * diag, len = 0.05 * diag;
+                new Reducer(new DMesh3(input)) { MaxDeviation = eps, MaxDeviationTwoSided = true }.FastCollapsePass(len, 1);  // warm-up
+                var ta = new List<double>(); var tb = new List<double>();
+                DMesh3 ma = null, mb = null;
+                for (int k = 0; k < rounds; ++k) {
+                    ma = new DMesh3(input);
+                    var sw = Stopwatch.StartNew();
+                    new Reducer(ma) { MaxDeviation = eps }.FastCollapsePass(len, 5);
+                    ta.Add(sw.Elapsed.TotalMilliseconds);
+                    mb = new DMesh3(input);
+                    sw.Restart();
+                    new Reducer(mb) { MaxDeviation = eps, MaxDeviationTwoSided = true }.FastCollapsePass(len, 5);
+                    tb.Add(sw.Elapsed.TotalMilliseconds);
+                }
+                ta.Sort(); tb.Sort();
+                double a = ta[ta.Count / 2], b = tb[tb.Count / 2];
+                var (aUp, aLow) = Hausdorff(input, ma, eps);
+                var (bUp, _) = Hausdorff(input, mb, eps);
+                var (bFwd, _) = Hausdorff(mb, input, eps);
+                Console.WriteLine($"| {name} | {input.TriangleCount} | {rel:0.###} | {ma.TriangleCount}, {a:F0} | {mb.TriangleCount}, {b:F0} | {b / a:F2}x | {aUp:F3} ({aLow:F3}) | {bUp:F3} | {bFwd:F3} |");
+            }
     }
 }

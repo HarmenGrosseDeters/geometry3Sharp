@@ -92,8 +92,9 @@ namespace g3
         /// and result is at most MaxDeviation; thin input features (eg a spike) are then kept. Every input triangle keeps
         /// the few output triangles it is certified against, and a collapse re-certifies only the input triangles that
         /// depend on its one-ring (bounds of TriangleDeviationBounds' kind, floating point; docs/design/BOUNDED_SIMPLIFICATION.md).
-        /// Costs about 1.4x the time of a MaxDeviation reduction (median, benchmarks/ReducerBenchmark README, "twosided"). Off by default.
-        /// Throws InvalidOperationException where the bound cannot be kept: in FastCollapsePass, with a ProjectionTarget
+        /// Costs about 1.4x the time of a MaxDeviation reduction (median, benchmarks/ReducerBenchmark README, "twosided"; up to
+        /// 1.7x there, up to 2.5x in FastCollapsePass). Off by default.
+        /// Applies to FastCollapsePass as well. Throws InvalidOperationException where the bound cannot be kept: with a ProjectionTarget
         /// projected after the reduction (ProjectionMode AfterRefinement), with a reference from SetDeviationReference or
         /// from an earlier reduction without this option, after MaxDeviation changed, or after the mesh was changed outside
         /// the Reducer between two reductions (also by a subclass in OnEdgeCollapse, or by a reduction with the option off).
@@ -369,7 +370,7 @@ namespace g3
         /// <summary>
         /// Quick pass without quadrics: collapse interior (non-boundary) edges shorter than fMinEdgeLength to
         /// their midpoint, iterating over all edges up to nRounds times (stops early when nothing collapses).
-        /// Constraints, flip checks, MaxDeviation and PreventSelfIntersections still apply. Pass
+        /// Constraints, flip checks, MaxDeviation (with MaxDeviationTwoSided) and PreventSelfIntersections still apply. Pass
         /// MeshIsClosedHint = true to skip the boundary scan for a closed mesh. A NaN length accepts no collapses.
         /// </summary>
         public virtual void FastCollapsePass(double fMinEdgeLength, int nRounds = 1, bool MeshIsClosedHint = false)
@@ -377,8 +378,6 @@ namespace g3
             if (mesh.TriangleCount == 0)    // badness if we don't catch this...
                 return;
 
-            if (two_sided_active)
-                throw new InvalidOperationException("Reducer.MaxDeviationTwoSided is not supported by FastCollapsePass");
             MinEdgeLength = fMinEdgeLength;
             double min_sqr = MinEdgeLength * MinEdgeLength;
             ensure_deviation_reference();

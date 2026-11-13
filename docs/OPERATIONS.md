@@ -304,8 +304,8 @@ attributes and does not keep the boundary shape; [REDUCER_REMESHER_20.md](design
 checked with certified distance bounds (`TriangleDeviationBounds`). It is one-sided: thin input features (a spike, the
 rim of an open mesh) can still be cut off. `Reducer.MaxDeviationTwoSided` (opt-in) also keeps every point of the input
 within the tolerance of the result, so the two-sided Hausdorff distance is at most `MaxDeviation`; about 1.4x the time of
-the one-sided check, a few more triangles ([BOUNDED_SIMPLIFICATION.md](design/BOUNDED_SIMPLIFICATION.md)). It refuses
-(InvalidOperationException) `FastCollapsePass`, a projection after the reduction, an explicit `SetDeviationReference`
+the one-sided check, a few more triangles ([BOUNDED_SIMPLIFICATION.md](design/BOUNDED_SIMPLIFICATION.md)). It applies to
+`FastCollapsePass` too, and refuses (InvalidOperationException) a projection after the reduction, an explicit `SetDeviationReference`
 and a mesh changed outside the Reducer between reductions.
 
 `Reducer.ReduceToMaxQuadricError(maxError)` keeps float queue ordering, but checks the actual collapse position's
