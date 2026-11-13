@@ -251,10 +251,44 @@ class PlanAndMerge(unittest.TestCase):
         self.assertEqual([], inc.plan(cfg, bl, self.root)[0])
         self.assertEqual({"run": (0, 0), "baseline": (1, 1), "replaced": 0}, inc.merge(cfg, bl, None, self.root))
 
-    def test_a_boundary_on_a_changed_line_runs_in_full(self):
-        g = OLD.index("    int g")
-        cfg, bl = self.spans((g + 4, len(OLD)), (NEW.index("    int g") + 4, len(NEW)), NEW)
-        self.assertIsNone(inc.plan(cfg, bl, self.root))
+    def test_a_boundary_on_a_changed_line_moves_to_the_start_of_the_change(self):
+        # the boundary sits inside g, which changed: the changed line runs anyway, so the shard runs incrementally,
+        # from the start of g on, and keeps the baseline of h, i and j
+        g, g2 = OLD.index("    int g"), NEW.index("    int g")
+        cfg, bl = self.spans((g + 4, len(OLD)), (g + 4, len(NEW)), NEW)
+        mutate, _ = inc.plan(cfg, bl, self.root)
+        spans = [inc.parse_mutate(m)[1] for m in mutate]
+        self.assertEqual(g + 4, spans[0][0])                         # the changed line g, cut to the new span
+        self.assertEqual(NEW.index("    int h"), spans[0][1])
+        self.assertEqual((2, 1), inc.merge(cfg, bl, None, self.root)["baseline"])
+
+    def test_a_source_edit_on_the_boundary_line_with_the_config_unchanged_runs_incrementally(self):
+        # the review case: twenty one-line methods, the boundary at the start of f10, f10's body edited
+        old = "".join("    int f%d() { return %d; }\n" % (k, k) for k in range(20))
+        new = old.replace("return 10;", "return 11;")
+        b = old.index("    int f10")
+        with open(os.path.join(self.root, "A.cs"), "w") as f:
+            f.write(new)
+        cfg = dict(CONFIG, mutate=["**/A.cs{%d..%d}" % (b, len(old))])
+        bl = {"projectRoot": "/w/repo", "g3-config": cfg, "files": {"/w/repo/A.cs": {
+            "language": "cs", "source": old, "mutants": [mutant(11, "Killed"), mutant(12, "Killed"), mutant(13, "Survived")]}}}
+        mutate, _ = inc.plan(cfg, bl, self.root)
+        self.assertEqual([(b, new.index("    int f11"))], [inc.parse_mutate(m)[1] for m in mutate])
+        self.assertEqual({"run": (0, 0), "baseline": (1, 1), "replaced": 1}, inc.merge(cfg, bl, None, self.root))
+
+    def test_a_baseline_mutant_that_now_crosses_the_span_end_is_not_counted(self):
+        # the span now ends inside the class mutant's lines: a full run would not mutate it, so it is not kept
+        i = OLD.index("    int i")
+        cfg, bl = self.spans((0, len(OLD)), (0, i), mutants=[mutant(2, "Killed"), mutant(1, "Survived", 8)])
+        self.assertEqual({"run": (0, 0), "baseline": (1, 0), "replaced": 0}, inc.merge(cfg, bl, None, self.root))
+
+    def test_map_boundary(self):
+        lmap = inc.line_map(OLD, NEW)
+        new_ranges, old_ranges = inc.changes(OLD, NEW)
+        h = OLD.index("    int h")
+        self.assertEqual(NEW.index("    int h"), inc.map_boundary(OLD, NEW, lmap, old_ranges, new_ranges, h))
+        self.assertEqual(NEW.index("    int g"),
+                         inc.map_boundary(OLD, NEW, lmap, old_ranges, new_ranges, OLD.index("    int g") + 7))
 
     def test_a_baseline_of_another_config_or_without_one_runs_in_full(self):
         self.assertIsNotNone(inc.plan(self.config, self.baseline, self.root))

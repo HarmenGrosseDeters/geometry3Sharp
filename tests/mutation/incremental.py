@@ -149,15 +149,32 @@ def map_offset(old_text, new_text, lmap, x):
     return line_starts(new_text)[lmap[line]] + (x - ostarts[line])
 
 
-def mutant_offset(text, mutant):
-    """the character offset of a mutant's start (Stryker's lines and columns are 1-based)"""
-    start = mutant["location"]["start"]
-    return line_starts(text)[start["line"] - 1] + start.get("column", 1) - 1
+def map_boundary(old_text, new_text, lmap, old_ranges, new_ranges, x):
+    """the offset in the new text of a span boundary x of the old text. On an unchanged line as map_offset; on a changed
+    line the start of that change's new lines: those lines run anyway (spans_of) and the baseline mutants on them are
+    dropped (touches), so where the boundary falls inside the change counts nothing twice and leaves nothing out.
+    None if the line lies in no change (cannot happen for a line map and changes of the same two texts)."""
+    y = map_offset(old_text, new_text, lmap, x)
+    if y is not None:
+        return y
+    line = bisect.bisect_right(line_starts(old_text), x) - 1
+    starts = line_starts(new_text)
+    for (a, b), (j1, _) in zip(old_ranges, new_ranges):
+        if a <= line < b:
+            return starts[j1] if j1 < len(starts) else len(new_text)
+    return None
+
+
+def mutant_offset(text, mutant, end=False):
+    """the character offset of a mutant's start, or of its end with end=True (Stryker's lines and columns are 1-based)"""
+    at = mutant["location"]["end" if end else "start"]
+    return line_starts(text)[at["line"] - 1] + at.get("column", 1) - 1
 
 
 def without_spans(config):
-    """the config with the spans of its `mutate` entries removed: what must be equal for a baseline to be reused"""
-    return dict(config, mutate=[parse_mutate(e)[0] for e in config.get("mutate", [])])
+    """the config with the spans of its `mutate` entries removed: what must be equal for a baseline to be reused (the
+    glob as written, so a change of its prefix such as `**/` is a change of the config)"""
+    return dict(config, mutate=[_SPAN.match(e).group("glob") for e in config.get("mutate", [])])
 
 
 def merged(spans):
@@ -213,7 +230,7 @@ def plan(config, baseline, repo_root):
     this one up to the spans of `mutate` (same files in the same order): a source edit moves the character offsets of
     the spans, and a resplit moves the boundaries between the shards of a file. The part of this config's span that
     the baseline's span, carried over the line diff, does not cover runs too (its mutants were in another shard); a
-    span boundary on a changed line runs the config in full."""
+    span boundary on a changed line moves to the start of that change (map_boundary)."""
     stored = baseline.get("g3-config")
     if stored is None or without_spans(stored) != without_spans(config):
         return None
@@ -238,7 +255,8 @@ def plan(config, baseline, repo_root):
         na, nb = span if span is not None else (0, len(new_text))
         oa, ob = old_span if old_span is not None else (0, len(old_text))
         lmap = line_map(old_text, new_text)
-        ma, mb = map_offset(old_text, new_text, lmap, oa), map_offset(old_text, new_text, lmap, ob)
+        ma = map_boundary(old_text, new_text, lmap, old_ranges, new_ranges, oa)
+        mb = map_boundary(old_text, new_text, lmap, old_ranges, new_ranges, ob)
         if ma is None or mb is None:
             return None
         spans = spans_of(new_text, new_ranges, span) + [(s, e) for s, e in ((na, min(nb, ma)), (max(na, mb), nb)) if s < e]
@@ -267,10 +285,13 @@ def merge(config, baseline, run_report, repo_root):
             if touches(m, old_ranges):
                 left_out += 1
                 continue
+            # (Stryker mutates a mutant only if a span holds all of it: one that now crosses a boundary of the span
+            # belongs to no shard and is not counted, as in a full run)
             x = map_offset(bf["source"], new_text, lmap, mutant_offset(bf["source"], m))
-            if x is None:
+            y = map_offset(bf["source"], new_text, lmap, mutant_offset(bf["source"], m, end=True))
+            if x is None or y is None:
                 left_out += 1
-            elif na <= x < nb:
+            elif na <= x and y <= nb:
                 kept.append(m)
         if run_report is not None:
             rf = baseline_file(run_report, path)

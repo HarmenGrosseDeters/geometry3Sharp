@@ -101,6 +101,7 @@ class SelectShards(unittest.TestCase):
                     cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/C.cs"]),
                     cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"], thresholds={"break": 71}),
                     cfg(["**/mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"], **{"test-case-filter": "FullyQualifiedName~U"}),
+                    cfg(["mesh_ops/A.cs{0..100}", "**/mesh_ops/B.cs"]),
                     "{", "[]", json.dumps({"other": {}})):
             self.assertFalse(config_edit_moves_only_spans(old, new), new)
 

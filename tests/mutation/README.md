@@ -54,7 +54,7 @@ master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.
    so split shards stay split). The baseline is used only if its `g3-config` equals the config up to the spans of
    `mutate` (the same files in the same order, every other key equal); else the shard runs in full. The baseline's
    spans are carried over the line diff: a part of the config's span that they do not cover (a resplit moved a
-   boundary) runs too, and a span boundary on a changed line runs the shard in full.
+   boundary) runs too; a span boundary on a changed line moves to the start of that change, whose lines run anyway.
 2. Stryker runs that config with `--break-at 0`: it mutates only the changed lines.
 3. `merge`: the shard's score is the run's mutants plus the baseline's mutants that touch no changed line and now lie in
    the config's span, with
@@ -153,6 +153,10 @@ Limits:
 - A mutant that reaches beyond the changed lines (a statement or block around a changed line) is neither run (Stryker
   mutates only mutants inside the spans) nor taken from the baseline (its code changed): it is left out until the next
   full run. The summary counts the baseline mutants on changed lines.
+- Likewise at a moved span boundary: Stryker mutates only mutants that lie wholly inside a span, so a mutant that crosses
+  the old boundary (a block around it) was in neither shard's baseline and is not in the added part either; it is left
+  out until the next full run (rare: the boundaries sit between members, except a few such as the envelope split at a
+  local function). A baseline mutant that now crosses the span is not counted, as in a full run.
 - A baseline result is reused even if a test or another file changed in the same PR: a test the PR weakens or removes
   keeps its kills, and a change in a called file is not seen. So a PR that changes a mutated file and weakens its
   tests can pass where a full run would fail. The weekly full run is the check of record, and the review checks test

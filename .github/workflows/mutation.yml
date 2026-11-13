@@ -11,7 +11,8 @@ name: Mutation tests
 # lines, the other mutants keep their results from the last full run (the baseline, kept in the Actions cache), and the
 # shard fails when the combined score drops below the break threshold of its config; without a cached baseline it runs
 # in full. A shard whose config
-# or tools changed runs in full. A shard of which only tests changed runs with --since and only reports. Every full run
+# or tools changed runs in full, except a config edit that only moves the spans of `mutate`: that shard runs
+# incrementally too. A shard of which only tests changed runs with --since and only reports. Every full run
 # stores its report as the baseline. The reports list the surviving mutants.
 
 on:
