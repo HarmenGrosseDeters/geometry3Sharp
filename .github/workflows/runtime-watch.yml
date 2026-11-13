@@ -5,12 +5,11 @@ name: Runtime watch
 # 1 s above it, anything over 20 s (owner 2026-11-12: a potential defect), a failed or timed-out case. Isolated runs (one process per
 # run), median of the repeats, machine recorded. Thingi10K meshes are fetched here at run time and never committed; no PR-tier test
 # fetches from the network. The history is one JSON file on the data branch `runs/runtime-watch` (docs/QA.md, "Runtime watch").
-# On demand for now (inputs: a case subset, no history update); the daily schedule (03:47 UTC, after the nightly job) is commented out
-# until the owner approves the run time.
+# Daily at 01:17 UTC (owner 2026-11-13; a full run is about 1 h typical, about 4 h in the worst case; the schedule only takes effect on
+# master), and on demand (inputs: a case subset, no history update).
 on:
-  # schedule: enable after owner approval (a full run is about 1 h typical, about 4 h in the worst case: a recurring budget decision)
-  # schedule:
-  #   - cron: '47 3 * * *'
+  schedule:
+    - cron: '17 1 * * *'
   workflow_dispatch:
     inputs:
       only:

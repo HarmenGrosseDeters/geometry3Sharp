@@ -59,6 +59,10 @@ Part of the [roadmap](../ROADMAP.md).
   included; an issue, not only a backlog line; the ratchet lists such tests separately, #685). **Owner 2026-11-12:** the 5 s / 10 s rule is judged on the
   isolated re-run time of the flagged tests (#685 changes CLAUDE.md and docs/QA.md with it); the 20 s rule above
   covers what hides behind load in the full run.
+  **Owner 2026-11-12/13, runtime watch (#726):** `runtime-watch.yml` times a fixed list of known extreme Exact Boolean and Alpha Wrap
+  cases in isolation (`tools/runtime-watch/cases.json`, docs/QA.md 3.3) and reports regressions (> 1.3x the rolling median and > 1 s) and
+  anything over 20 s in one tracking issue; daily at 01:17 UTC from the merge (owner 2026-11-13), about 1 h typical, about 4 h worst case.
+  Peers add cases as `cases.json` entries; a regression goes to the owning session.
   **Owner 2026-11-12, Terrain Slope rows in the rotated/1e-3/utm frame:** no library change (a first-δ shortcut was
   approved, then withdrawn: the formula gives no fraction, so it would be a constant tuned on one design; TERRAIN.md
   5.8.1 states the limit, `LocalFrame` is the remedy). Rows of that frame at or under 10 s alone get Slow with the

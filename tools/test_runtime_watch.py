@@ -174,6 +174,29 @@ class CaseList(unittest.TestCase):
         self.assertTrue(rw.expand("{dll:Foo}", "/w", {}, "/r").endswith(os.path.join("Foo", "bin", "Release", "net10.0", "Foo.dll")))
 
 
+class WorkflowFile(unittest.TestCase):
+    """The workflow's trigger and concurrency contract (owner 2026-11-13: daily at 01:17 UTC, a running run is never cancelled)."""
+
+    def setUp(self):
+        with open(os.path.join(HERE, "..", ".github", "workflows", "runtime-watch.yml"), encoding="utf-8") as f:
+            self.text = f.read()
+        self.lines = [l for l in self.text.splitlines() if not l.lstrip().startswith("#")]
+
+    def test_daily_schedule_and_dispatch(self):
+        code = "\n".join(self.lines)
+        self.assertIn("- cron: '17 1 * * *'", code)
+        self.assertIn("workflow_dispatch:", code)
+
+    def test_running_run_is_not_cancelled(self):
+        code = "\n".join(self.lines)
+        self.assertIn("group: runtime-watch", code)
+        self.assertIn("cancel-in-progress: false", code)
+        self.assertNotIn("cancel-in-progress: true", code)
+
+    def test_not_a_pull_request_workflow(self):
+        self.assertNotIn("pull_request", "\n".join(self.lines))
+
+
 class TimeReading(unittest.TestCase):
     def test_json_ms_last_line(self):
         self.assertEqual(rw.read_time('log\n{"ms": 1500, "ok": true}\n', "ms", 9.0), 1.5)

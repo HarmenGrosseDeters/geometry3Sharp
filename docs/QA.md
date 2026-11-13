@@ -705,8 +705,8 @@ suite-wide concurrency change; it does not eliminate noise from unrelated proces
 ### 3.3 Runtime watch (extreme cases, nightly)
 
 `.github/workflows/runtime-watch.yml` times a fixed list of known extreme cases of the Exact Boolean and the Alpha Wrap
-on master (on demand; the daily schedule is commented out in the workflow until the owner approves the run time: about 1 h typical, about 4 h
-if every case hits its timeout) (`tools/runtime-watch/cases.json`, run by `tools/runtime_watch.py`). Owner decision 2026-11-12: it
+daily at 01:17 UTC on master (owner 2026-11-13) and on demand (a full run is about 1 h typical, about 4 h
+if every case hits its timeout; a run under way is never cancelled by the next trigger) (`tools/runtime-watch/cases.json`, run by `tools/runtime_watch.py`). Owner decision 2026-11-12: it
 watches the tail, not the median. Each case is one process per run (isolated, never two cases at once), a few repeats,
 the median counts; the machine (CPU, cores, memory, dotnet) is recorded. Procedural cases run directly; Thingi10K meshes
 are fetched at run time by the nightly job only (never committed, never fetched by a PR-tier test).
