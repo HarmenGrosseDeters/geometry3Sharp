@@ -52,8 +52,10 @@ The midpoint is `m_k = fl(0.5 s)`. Halving is exact unless the result is subnorm
 smallest subnormal, 2^-1075.
 
 The exact error of the component is m_k − (a_k + b_k)/2 = (m_k − s/2) − r/2. Two parts are bounded:
-- **The halving of s.** |m_k − s/2| ≤ 2^-1075 if s ≠ 0 and |m_k| < 2^-1022, and 0 otherwise. The code adds one smallest
-  subnormal, 2^-1074. This also covers m_k = 0 for a tiny s.
+- **The halving of s.** |m_k − s/2| ≤ 2^-1075 if 0 < |s| < 2^-1021, and 0 otherwise. The code adds one smallest subnormal,
+  2^-1074, under that condition on the sum. This also covers m_k = 0 for a tiny s. The condition must be on s, not on m_k:
+  for the largest double below 2^-1021, the half 2^-1022 − 2^-1075 is a tie that rounds up to the normal 2^-1022 (numerics
+  review of #819, F1: a_k = 4.4501477170144023E-308, b_k = 0).
 - **|r|/2.** It is computed as `fl(0.5·|r|)`, which is exact unless the result is subnormal, i.e. |r| < 2^-1021. Then the
   code adds 2^-1074 as well.
 
@@ -63,7 +65,8 @@ moduli (L1 ≥ L2, no squares, which would underflow): err = `up(e_0 + e_1 + e_2
 `up(x) = max(fl(x·(1 + 4.5e-16)), next double above x)` for x > 0. It is above the exact result of up to two roundings that
 produced x:
 - **Normal x.** Each rounding is relative, at most 2^-53. Since (1 + 2^-53)^2 < 1 + 2.3e-16, the product
-  x·(1 + 4.5e-16), rounded to nearest, which is at least x·(1 + 3.4e-16), is above the exact value.
+  x·(1 + 4.5e-16) is above the exact value. The factor is the double 1 + 2^-51, and the product rounded to nearest is at
+  least x·(1 + 3.33e-16).
 - **Subnormal x.** Addition is exact there. A halving rounds by at most half the smallest subnormal, so one ulp up covers it.
 - **Mixed.** A subnormal halving error of 2^-1075 inside a normal sum is below x·2.2e-16 for x ≥ 2^-1022.
 
@@ -74,16 +77,26 @@ m* = (a* + b*)/2 is a point of the exact sub-triangle. Then
 
 |m − m*| ≤ |m − (a + b)/2| + |(a + b)/2 − (a* + b*)/2| ≤ err + (off(a) + off(b))/2.
 
-The code computes `off(m) = up(0.5·(off(a) + off(b)) + err)`. This has two roundings, a sum and a halving, the halving exact
-for normal values, plus the final `up`, which covers both. The input vertices have off = 0.
+The code computes `off(m) = up(0.5·(off(a) + off(b)) + err)`. It has two roundings, the two sums. The halving rounds only
+if its result is subnormal, and then the first sum was exact. The final `up` covers both. A positive input whose result
+rounds to 0 gives the smallest subnormal instead; Midpoint and MidOff never produce such inputs, since their allowances
+are 0 or at least 2^-1073 (N3). The input vertices have off = 0.
 
 **c3. Upper bound of a triangle (U0).** Let T be the rounded triangle with corners p_i, and T* the exact sub-triangle with
 corners p_i*. Every point x* = Σ λ_i p_i* of T* is within Σ λ_i |p_i − p_i*| ≤ max_i off(p_i) of x = Σ λ_i p_i ∈ T. So
 d(x*, B) ≤ d(x, B) + max off ≤ u(T) + max off, where u(T) is the bound computed for T. The code returns
 `up(u + max off)` when off > 0.
 
-u(T) is evaluated in floating point, as before (`TriangleDeviationBounds`). This is the model U0, stated in the API doc:
-certified up to the floating-point evaluation of the distance queries, about 2^-50 of the coordinates. #742 (U2) removes
+u(T) is evaluated in floating point, as before (`TriangleDeviationBounds`), on distances from `DistPoint3Triangle3`.
+
+**How large that is (numerics review of #819, F2).** The squared distance there is a quadratic form whose terms cancel down
+to d². Its absolute error is about 2^-53 E²/d for a point at distance d from a triangle of size E, more exactly |V0 − P|,
+whatever the offset of the coordinates. Measured over triangles of size about 1: 1.2e-15 at d = 0.1, 9.8e-14 at 1e-3,
+1.0e-10 at 1e-6, and 1.4e-8 at 1e-9, where 70 % of the float distances were exactly 0. So the error is at most about
+2^-26 E, near d = 0.
+
+This is the model U0, stated in the API doc:
+certified up to the floating-point evaluation of the distance queries, about 2^-53 E^2 / d for a distance d to a triangle of size E, at most about 2^-26 E (E: the nearest target triangle's size). #742 (U2) removes
 that caveat.
 
 **c4. The certified lower bound (L).**
@@ -99,6 +112,11 @@ that caveat.
 - The second direction is pruned against the first direction's computed `Lower`. The first direction's `Upper` is at
   least that value, so every pruned triangle (bound ≤ prune) stays bounded by the reported upper bound.
 - `Converged` is set to false if the certified lower bound is below the computed one and the gap exceeds `tol`.
+- **The scale-down copies.** From an extent of 2^65 the copies round coordinates below 2^(e − 1022), the subnormal range of
+  the copies, to the nearest subnormal (numerics review N5). The certified lower bound still holds:
+  - its Down steps leave at least about 2^-592 (copy units) below the copy's exact distance;
+  - such a rounding moves a distance by less than 2^-1073.
+  So the bound stays below the exact distance of the original meshes.
 
 ## 3. `CertifiedPointMeshDistance` (exact point-to-mesh distance, lower bound)
 **Pass 1.** For every triangle, a lower bound of the squared distance to its bounding box. Per axis, the gap below the box

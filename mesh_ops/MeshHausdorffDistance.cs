@@ -62,8 +62,7 @@ namespace gs
 
         // outputs
         /// <summary> output: interval that contains the exact Hausdorff distance (NaN if Compute() failed on its inputs): LowerBound
-        /// certified, rounding included; UpperBound up to the floating-point evaluation of the distance queries, about 2^-50 of the
-        /// coordinates (see Compute) </summary>
+        /// certified, rounding included; UpperBound up to the floating-point evaluation of the distance queries (see Compute) </summary>
         public double LowerBound, UpperBound;
         /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF, or if
         /// the subdivision points' rounding keeps the gap open); the upper bound, and so the gap, up to the floating-point evaluation of
@@ -104,7 +103,7 @@ namespace gs
         /// exact shift (subdivision points would round off the triangles). SpatialA / SpatialB are then not used (nor set).
         /// LowerBound is certified, rounding included: never above the exact distance (the worst point's distance is re-evaluated
         /// exactly, less the rounding of the point; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md). UpperBound is certified up to the
-        /// floating-point evaluation of the distance queries, about 2^-50 of the coordinates (the rounding of subdivision points
+        /// floating-point evaluation of the distance queries, about 2^-53 E^2 / d for a distance d to a triangle of size E, at most about 2^-26 E (E: the nearest target triangle's size) (the rounding of subdivision points
         /// is included; #742 would certify it fully).
         /// </summary>
         public bool Compute()
@@ -464,8 +463,9 @@ namespace gs
     {
         // below x by more than the rounding error of up to two operations whose exact result is x (as Up); 0 for x <= 0
         internal static double Down(double x) => (x > 0) ? Math.Max(0, Math.Min(x * (1 - 4.5e-16), ExactInterval.Down(x))) : 0;
-        // above x by more than the rounding error of up to two operations whose exact result is x: relatively for a normal x,
-        // by one ulp for a subnormal one (whose roundings are absolute, at most half the smallest subnormal each)
+        // above x by more than the rounding error of up to two operations whose exact result is x: relatively for a normal x (the
+        // factor is the double 1 + 2^-51, the rounded product at least x (1 + 3.33e-16)), by one ulp for a subnormal one (whose
+        // roundings are absolute, at most half the smallest subnormal each)
         internal static double Up(double x) => (x > 0) ? Math.Max(x * (1 + 4.5e-16), ExactInterval.Up(x)) : x;
 
         // the midpoint of a and b in doubles, and an upper bound of its distance from the exact midpoint (TwoSum per component:
@@ -479,11 +479,15 @@ namespace gs
             for (int k = 0; k < 3; ++k) {
                 double x = a[k], y = b[k], sum = x + y, bb = sum - x, r = (x - (sum - bb)) + (y - bb);
                 m[k] = 0.5 * sum;
+                // (an overflowing sum, only measured as given at coordinates near MaxValue: no bound, the point is unusable)
+                if (double.IsInfinity(sum) || double.IsNaN(r)) { err = double.PositiveInfinity; return m; }
                 // |r| / 2, plus one smallest subnormal where halving may round (a subnormal r or a subnormal midpoint: by at most
                 // half of it each)
                 double ek = 0.5 * Math.Abs(r);
                 if (r != 0 && Math.Abs(r) < 2 * MinNormal) ek += Tiny;
-                if (sum != 0 && Math.Abs(m[k]) < MinNormal) ek += Tiny;
+                // (the halving of s rounds only if 0 < |s| < 2^-1021: tested on the sum, not on the midpoint, since the half of the
+                // largest double below 2^-1021 is a tie that rounds up to the normal 2^-1022; numerics review of #819, F1)
+                if (sum != 0 && Math.Abs(sum) < 2 * MinNormal) ek += Tiny;
                 e1 += ek;
             }
             err = (e1 > 0) ? Up(e1) : 0;
@@ -504,7 +508,10 @@ namespace gs
         internal static double MidOff(double oa, double ob, double err)
         {
             double o = 0.5 * (oa + ob) + err;
-            return (o > 0) ? Up(o) : 0;
+            // (a positive input whose half rounds to 0, eg 2^-1074: the smallest subnormal instead; not reached from Midpoint, whose
+            // allowances are 0 or at least 2^-1073; numerics review N3)
+            if (o > 0) return Up(o);
+            return (oa > 0 || ob > 0 || err > 0) ? 4.9406564584124654E-324 : 0;
         }
     }
 }

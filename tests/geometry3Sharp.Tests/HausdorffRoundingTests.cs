@@ -43,6 +43,9 @@ namespace geometry3Sharp.Tests
             { 1.3 * Math.Pow(2, 52), 1.3 * Math.Pow(2, 52) + 1 },   // ulp 1: the midpoint rounds by 0.5
             { 1e308, 0.7e308 },
             { 1, 1e-300 },
+            // the largest double below 2^-1021 against 0: its half is a tie that rounds up to the normal 2^-1022 (the halving rounded,
+            // though the midpoint is normal; numerics review of #819, F1)
+            { 4.4501477170144023E-308, 0 },
         };
 
         [Theory]
@@ -116,6 +119,7 @@ namespace geometry3Sharp.Tests
             Assert.True(HausdorffRounding.MidOff(3 * U, 0, 0) >= 1.5 * U);       // (a subnormal halving)
             Assert.True(HausdorffRounding.MidOff(1e-300, 3e-300, 1e-310) > 2e-300);
             Assert.Equal(0, HausdorffRounding.MidOff(0, 0, 0));
+            Assert.True(HausdorffRounding.MidOff(U, 0, 0) > 0);                    // (half of 2^-1074 rounds to 0; N3)
         }
 
         [Fact]
