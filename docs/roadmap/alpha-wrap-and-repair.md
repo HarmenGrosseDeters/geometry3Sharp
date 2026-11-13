@@ -170,6 +170,12 @@ How others solve it: Ju et al. 2002 (DC), Schaefer et al. 2007 (manifold DC), Ko
 
 **Wrap contact bugfix (2026-11-09, coordinator decision: the wrap's promise is "input inside").** Audit with exact triangle-triangle tests (benchmarks/SharpFeatureProbe variant G, PR #498), 20 T1 meshes + 6 procedural solids: the raw wrap never touches the input (0 of 2.67M triangles); the simplified wrap (certified within 0.5 offset of the wrap, not of the input) had 247 of 692,674 triangles (all 20 meshes) and 29 of 68.8k (6/6) crossing a convex crease of the input (deepest sample 0.068 offset inside it, 71 triangles with a point inside the solid), the quality pass (off by default) 30 more on 6 of 18 meshes. Fix: `Reducer.KeepClearOf` (an exact test of the new triangles against the input's tree, shared by the PartitionedReduction slabs) and the same check in `AlphaWrapQualityPass.accept`; `SimplifyAlphaWrap` and the quality pass pass the wrap's input. After: 0 crossings everywhere, triangles -0.01 %, vertices unchanged (minimum 0.352 offset, 1 vertex of 346k below 0.5), pipeline time +3.8 % summed over the 20 T1 meshes (paired median +0.8 %). Test: `AlphaWrapNoContactTests`.
 
+**Reducer two-sided deviation bound (coordinator 2026-11-13, #785 study, #791 build):** `Reducer.MaxDeviationTwoSided`
+(opt-in, default off) keeps the input within `MaxDeviation` of the result as well, by per-input-triangle dependency sets
+([BOUNDED_SIMPLIFICATION.md](../design/BOUNDED_SIMPLIFICATION.md)). `ReducerBenchmark twosided`, 18 cases: 1.41x the
+one-sided time at the median (max 1.65x); the one-sided reduction violates the reverse direction in 12 of 18 (up to
+0.28 eps), the two-sided one in none. Follow-up: `FastCollapsePass` support (#792).
+
 **Reducer scale-safe quadrics (owner 2026-11-11: documented, on demand only):** after #614 (flip test scales the edges
 outside [1e-70, 1e70]) the `Reducer` reduces a sphere from 1e-300 to 1e307. A residual limit remains (FINDINGS item 6,
 #618): a mesh with nonzero coordinates or coordinate differences about 1e-280 of its extent or smaller is not reduced
