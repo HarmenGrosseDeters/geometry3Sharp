@@ -112,6 +112,12 @@ cavity search 45 % (about 38 filtered InSphere per insertion, no exact fallback;
 chains (same pairing, same hashes) saved 15 % of the linking: <= about 1.02x. Probe patches: `runs/alpha-wrap-3`,
 `aw3/l3b_l2/`. With these, target (b) (about 1.25x) is out of reach of the bit-identical levers (about 1.13-1.15x);
 the gap and the round-based parallel carving (B) go to the owner.
+**Lever 6 K (#736, owner decision 2026-11-12):** the sharp-feature pass of the sharp-feature study (variant K, runs/sharp-features)
+as `AlphaWrapFeaturePass`, opt-in (`MeshRobustRepair.AlphaWrapSharpFeatures`) between the wrap and the simplification; every
+operation exactly checked (no self-intersection, no contact with the input, no input in the swept tetrahedra, vertices >= 0.9 offset,
+angle floors). T1 (20): edge F 0.61 -> 0.875, crease normal 14.7 -> 4.67 deg, concave within 1 offset 0.02 -> 0.75, 20/20 clean, 0
+crossings, 0.72x triangles, 3.8 -> 5.1 s; the study's acceptance rows met. Default on or off after the 800 run; corners and split
+retries are follow-ups.
 **Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
 come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681 (merged
 2026-11-12), in this order (step (1) started on master 2026-11-12):
