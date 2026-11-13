@@ -102,11 +102,20 @@ Part of the [roadmap](../ROADMAP.md).
      topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
      `WindingContouring` a certified repair path.
-     Study (Fable, draft #749): the stage-0 isotopy proof holds for clean closed meshes (piecewise linear); class S
-     (non-PL level sets, TPMS) is not proved yet. Decision (owner 2026-11-13): option A, implement now: stages 1-2, an
-     exact topology certificate for clean closed meshes and refinement driven by it (its own session, tier L). Options B
-     (interval implicits / TPMS) and C (broken inputs): attempt the proof first (docs only, in the #749 note); build
-     them only once the proof is complete and independently reviewed. B and C run alongside and do not delay A.
+     Study done 2026-11-12 ([design/CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md), measurement
+     `benchmarks/ContouringTopology`, #749): today's topology is wrong for every feature below about 1.5 cells
+     (implicit shapes, 1920 runs) and on 4 of 14 clean lever-6 meshes at one cell size at least (7 of 42 runs; 0 of
+     18 on the procedural solids), without a signal; no published method covers winding-number fields.
+     Decision (owner 2026-11-13): option A, implement now: stages 1-2, an exact topology certificate for clean closed
+     meshes and refinement driven by it (its own session, tier L). Options B (interval implicits / TPMS) and C (broken
+     inputs): attempt the proof first (docs only, in the #749 note); build them only once the proof is complete and
+     independently reviewed. B and C run alongside and do not delay A.
+     Proofs (2026-11-13, section 7 of the note, each independently reviewed): the isotopy proof for clean closed
+     meshes (Theorems 1-3); B: Theorem 5 covers level sets that are not piecewise linear under interval tests (its
+     citations of Brown 1960 / 1962 and Clarke 1983 are from memory, to be checked before SOURCES.md); C: only a
+     partial statement is provable (inside the certified cells the result differs from the level set by a
+     deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
+     yet; no cell at a defect edge can be certified.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
@@ -114,8 +123,7 @@ Part of the [roadmap](../ROADMAP.md).
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request.
-     Open platform item found on the way: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the digits with the platform parser (net48: not always
-     correctly rounded; a subnormal could lose digits).
+     Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
@@ -131,7 +139,10 @@ Part of the [roadmap](../ROADMAP.md).
      (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
      the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
      ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 started
-     (owner 2026-11-12: own session; library and short prior-art check, design note, then build).
+     (owner 2026-11-12: own session; library and short prior-art check, design note, then build). Stage 1 built in #741
+     (2026-11-12, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
+     `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
+     oracle).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).

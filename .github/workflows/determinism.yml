@@ -43,6 +43,9 @@ jobs:
         with:
           name: traces-linux
           path: out
+      # (after the upload: a difference fails this job, and the traces are still there for the comparison's diagnosis)
+      - name: Schedule adversary (gParallel's loops backwards and in seeded permutations)
+        run: dotnet tools/DeterminismHarness/bin/Release/net10.0/DeterminismHarness.dll adversary --seeds 5
 
   # arm64: the same harness on a GitHub-hosted Linux arm64 runner, compared with the x64 traces in `compare`. macOS arm64 is
   # opt-in (workflow_dispatch input `macos`): its runners queue for a long time and the job was cancelled in the queue.
@@ -107,6 +110,9 @@ jobs:
         with:
           name: traces-windows
           path: out
+      - name: Schedule adversary on net48
+        shell: bash
+        run: tools/DeterminismHarness/bin/Release/net48/DeterminismHarness.exe adversary --seeds 3
 
   compare:
     needs: [linux, windows, arm64]

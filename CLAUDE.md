@@ -93,8 +93,9 @@ Draft PRs and spikes: before a push, build the library for all targets (net10.0,
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
 is marked ready for review; the CI of every push runs it on GitHub anyway.
 
-CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the library tests without the tests tagged
-`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length), a PR that is ready for review and master run
+CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the Linux library tests without the tests tagged
+`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length) and skips the Windows / net48 jobs (so build the net48 test
+project locally before the push), a PR that is ready for review and master run
 all of them; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
 (`tools/ci_scope.py`). Locally: `dotnet test ... --filter "Category!=Slow"` for the quick set.
 
