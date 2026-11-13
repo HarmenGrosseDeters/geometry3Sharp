@@ -421,7 +421,12 @@ Files: `intersection/ContinuousCollision.cs` (`CcdStatus`, `CcdOptions`, `CcdRes
   bound's value at the time, so the reported times would depend on the schedule. Each pair is solved independently;
   `EarliestTimeOfImpact` is the min of the pairs' times, `Contacts` (CollectAll false) the pairs with
   `TimeOfImpact <= EarliestNearContactTime`. Also new: `EarliestNearContactTime`, `SetEndPositions`.
-- The self sweep's edge pairs come from `Query` per edge (each pair once by id), not `SelfPairs`.
+- The zero values of the status enums prove nothing: `CcdStatus.InvalidInput` is first (a `default(CcdResult)`), and
+  `MeshSweepStatus.NotComputed` is new (a sweep before `Compute`). `SetEndPositions(endA)` keeps B's end positions.
+- Review fixes (code review of #793): an iteration limit whose remaining boxes all start after `TimeLimit` returns
+  `NoCollision` (it had returned `IterationLimit` with a time after `TimeLimit`, which the sweep took as a proof up to
+  that time); the broad phase's half separation is rounded up (`0.5 ms` underflows for `ms = 2^-1074`); a constant image
+  has width 0 (so `Tolerance = 0` is met).
 
 ### 10.2 Bound B1 as derived (for the review)
 
@@ -478,3 +483,6 @@ cores (minimum separation 0), 2.1 s (0.01).
 - The bound is absolute (`M`): at UTM coordinates of a millimetre scene the time of impact moves by up to e / speed
   (the invariance test allows 256 rounding units).
 - One degenerate edge-edge query of the sample (cloth-funnel) takes 0.27 s (775 689 boxes); to look at.
+- Performance left for later (code review of #793): the broad phase runs serially; with `CollectAll = false` every
+  candidate pair still runs its tightening, also those the reduction drops (a first pass without tightening, then
+  tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the result and save time).

@@ -156,6 +156,31 @@ namespace geometry3Sharp.Tests
             Assert.Equal(CcdStatus.NoCollision, Run(vertexThrough(2, 2), new CcdOptions { MaxIterations = 3 }).Status);
         }
 
+        // review #793: an iteration limit whose remaining boxes all start after TimeLimit has proven [0, TimeLimit]
+        [Fact]
+        public void IterationLimit_AfterTheTimeLimitIsNoCollision()
+        {
+            Query q = VFq(V(0.2, 0.2, 1), A, B, C, V(0.2, 0.2, -0.5), A, B, C);    // contact at t = 2/3
+            for (int max = 1; max <= 60; ++max) {
+                var r = Run(q, new CcdOptions { MaxIterations = max, TimeLimit = 0.4 });
+                Assert.True(r.Status == CcdStatus.NoCollision || (r.Status == CcdStatus.IterationLimit && r.TimeOfImpact <= 0.4),
+                    $"max {max}: {r.Status} at {r.TimeOfImpact:R}");
+            }
+            Assert.Equal(CcdStatus.NoCollision, Run(q, new CcdOptions { MaxIterations = 2, TimeLimit = 0.4 }).Status);
+        }
+
+        // review #793: a default result proves nothing; a constant image meets a tolerance of 0
+        [Fact]
+        public void DefaultResult_AndZeroTolerance()
+        {
+            Assert.Equal(CcdStatus.InvalidInput, default(CcdResult).Status);
+            Vector3d p = V(0.5, 0.25, 0.125);
+            var r = Run(EEq(p, p, p, p, p, p, p, p), new CcdOptions { Tolerance = 0 });
+            Assert.Equal(CcdStatus.Collision, r.Status);
+            Assert.Equal(0, r.TimeOfImpact);
+            Assert.True(r.Iterations <= 2, $"{r.Iterations} iterations");
+        }
+
         [Fact]
         public void InvalidInput()
         {

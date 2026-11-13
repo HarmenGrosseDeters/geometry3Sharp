@@ -7,6 +7,11 @@ namespace g3
     /// <summary> Outcome of a continuous collision query (ContinuousCollision) </summary>
     public enum CcdStatus
     {
+        /// <summary>
+        /// a non-finite coordinate or an invalid option; nothing is proven (the zero value, so that a default CcdResult
+        /// proves nothing)
+        /// </summary>
+        InvalidInput,
         /// <summary> proven: the primitives stay farther apart than MinSeparation for every t in [0, TimeLimit] </summary>
         NoCollision,
         /// <summary>
@@ -18,9 +23,7 @@ namespace g3
         /// MaxIterations boxes were evaluated before a near contact was found: treat as a collision at TimeOfImpact
         /// (there is no contact on [0, TimeOfImpact)), but nothing is known about the distance after it
         /// </summary>
-        IterationLimit,
-        /// <summary> a non-finite coordinate or an invalid option; nothing is proven </summary>
-        InvalidInput
+        IterationLimit
     }
 
     /// <summary> Options of a continuous collision query </summary>
@@ -82,7 +85,10 @@ namespace g3
         /// ToleranceReached) of each other (TimeOfImpact &lt;= NearContactTime); +infinity otherwise
         /// </summary>
         public double NearContactTime;
-        /// <summary> an upper bound of the width (per coordinate) of the reported box's image </summary>
+        /// <summary>
+        /// an upper bound of the width (per coordinate) of the reported box's computed corner values; the width of the
+        /// exact image is at most ToleranceReached + 2 ErrorBound
+        /// </summary>
         public double ToleranceReached;
         /// <summary> the largest bound of the evaluation error that was used (0 on the interval path) </summary>
         public double ErrorBound;
@@ -199,6 +205,7 @@ namespace g3
             if (double.IsNaN(delta))
                 delta = o.RelativeTolerance * extent();
             ms = o.MinSeparation;
+            timeLimit = o.TimeLimit;
             maxIterations = o.MaxIterations;
             iterations = 0;
             prepare_filter();
@@ -290,7 +297,7 @@ namespace g3
         }
 
         bool vf;
-        double delta, ms, errorBound;
+        double delta, ms, errorBound, timeLimit;
         int maxIterations, iterations;
 
         bool limit_reached() { return maxIterations > 0 && iterations >= maxIterations; }
@@ -338,7 +345,9 @@ namespace g3
                 // (intervals; threshold = ms); NaN bounds never discard: the comparisons are false
                 if (lo > threshold || hi < -threshold)
                     return true;
-                width = Math.Max(width, ExactInterval.Up(hi - lo));
+                // (hi - lo is exact when 0, so a constant image has width 0 and meets a tolerance of 0)
+                double w = hi - lo;
+                width = Math.Max(width, w == 0 ? 0 : ExactInterval.Up(w));
             }
             return separated_by_normals(ref b);
         }
@@ -430,6 +439,14 @@ namespace g3
         {
             if (haveNear)
                 return finish(ref r, Math.Min(toi, near.t0), ref near, nearWidth);
+            // every box left starts after TimeLimit: [0, TimeLimit] is proven
+            if (toi > timeLimit) {
+                r.Status = CcdStatus.NoCollision;
+                r.TimeOfImpact = double.PositiveInfinity;
+                r.Iterations = iterations;
+                r.ErrorBound = errorBound;
+                return r;
+            }
             r.Status = CcdStatus.IterationLimit;
             r.TimeOfImpact = toi;
             r.Iterations = iterations;

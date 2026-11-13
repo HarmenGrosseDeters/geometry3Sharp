@@ -195,6 +195,33 @@ namespace geometry3Sharp.Tests
             Assert.Equal(run(false, false, false), run(true, false, false));
         }
 
+        // review #793: the smallest minimum separation still widens the broad phase's boxes
+        [Fact]
+        public void TinyMinSeparation_ReachesTheNarrowPhase()
+        {
+            var a = new DMesh3();
+            a.AppendVertex(new Vector3d(0.25, 0.25, double.Epsilon));
+            var b = new DMesh3();
+            int v0 = b.AppendVertex(Vector3d.Zero), v1 = b.AppendVertex(new Vector3d(1, 0, 0)), v2 = b.AppendVertex(new Vector3d(0, 1, 0));
+            b.AppendTriangle(v0, v1, v2);
+            var sweep = new MeshSweepCollision(a, moved(a, x => x), b, moved(b, x => x)) { Options = new CcdOptions { MinSeparation = double.Epsilon } };
+            Assert.Equal(MeshSweepStatus.Collision, sweep.Compute());
+            var none = new MeshSweepCollision(a, moved(a, x => x), b, moved(b, x => x));
+            Assert.Equal(MeshSweepStatus.NoCollision, none.Compute());
+        }
+
+        // review #793: an uncomputed sweep proves nothing; SetEndPositions without endB keeps B's
+        [Fact]
+        public void NotComputed_AndSetEndPositionsKeepsB()
+        {
+            DMesh3 a = box(new Vector3d(-0.5, 0, 0), 1), b = box(new Vector3d(0.75, 0.25, 0.125), 1);
+            var sweep = new MeshSweepCollision(a, moved(a, x => x), b, moved(b, x => x));
+            Assert.Equal(MeshSweepStatus.NotComputed, sweep.Status);
+            Assert.Equal(MeshSweepStatus.NoCollision, sweep.Compute());
+            sweep.SetEndPositions(moved(a, x => x + new Vector3d(0.5, 0, 0)));
+            Assert.Equal(MeshSweepStatus.Collision, sweep.Compute());
+        }
+
         [Fact]
         public void InvalidInput()
         {

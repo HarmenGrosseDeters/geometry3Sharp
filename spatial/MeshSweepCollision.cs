@@ -7,6 +7,8 @@ namespace g3
     /// <summary> Outcome of a MeshSweepCollision </summary>
     public enum MeshSweepStatus
     {
+        /// <summary> Compute has not run (the zero value, so that an uncomputed sweep proves nothing) </summary>
+        NotComputed,
         /// <summary> proven: no two primitives come closer than MinSeparation in [0, TimeLimit] </summary>
         NoCollision,
         /// <summary> some pair may touch: EarliestTimeOfImpact is a lower bound of the first contact, EarliestNearContactTime a time of a near contact </summary>
@@ -96,11 +98,15 @@ namespace g3
             this.meshA = meshA; this.endA = endA; this.meshB = meshB; this.endB = endB; self = false;
         }
 
-        /// <summary> replace the end positions (eg the next time step); then call Compute again </summary>
+        /// <summary>
+        /// replace the end positions (eg the next time step); then call Compute again. endB null keeps B's end positions
+        /// (for a self sweep it is not used)
+        /// </summary>
         public void SetEndPositions(Vector3d[] endA, Vector3d[] endB = null)
         {
             this.endA = endA;
-            this.endB = self ? endA : endB;
+            if (self) this.endB = endA;
+            else if (endB != null) this.endB = endB;
         }
 
         struct Pair
@@ -124,7 +130,8 @@ namespace g3
             if (finite(meshA, endA) == false || (self == false && finite(meshB, endB) == false))
                 return Status;
 
-            double half = 0.5 * Options.MinSeparation;
+            // half the minimum separation, rounded up (0.5 ms underflows to 0 for ms = 2^-1074)
+            double half = Options.MinSeparation > 0 ? ExactInterval.Up(0.5 * Options.MinSeparation) : 0;
             var pairs = new List<Pair>();
             // vertices of A against the triangles of B (and, for A against B, the vertices of B against the triangles of A)
             vertex_triangle(meshA, endA, meshB, endB, true, half, pairs);
@@ -272,22 +279,32 @@ namespace g3
             if (eidsB.Count == 0)
                 return;
             var tree = new TriangleBoxTree(boxesB);
-            var found = new List<int>();
+            if (self) {
+                // each overlapping pair of different edges once (SelfPairs), in id order; edges sharing a vertex skipped
+                var found = new List<Index2i>();
+                foreach (Index2i task in tree.SelfPairTasks(1))
+                    tree.SelfPairs(task, found);
+                var keyed = new List<Index2i>(found.Count);
+                foreach (Index2i k in found) {
+                    int x = eidsB[k.a], y = eidsB[k.b];
+                    keyed.Add(x < y ? new Index2i(x, y) : new Index2i(y, x));
+                }
+                keyed.Sort((p, q) => p.a != q.a ? p.a.CompareTo(q.a) : p.b.CompareTo(q.b));
+                foreach (Index2i k in keyed) {
+                    Index2i ea = meshA.GetEdgeV(k.a), eb = meshA.GetEdgeV(k.b);
+                    if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b) continue;
+                    pairs.Add(new Pair { Kind = SweepContactKind.EdgeEdge, First = k.a, Second = k.b, FirstOfMeshA = true });
+                }
+                return;
+            }
+            var hits = new List<int>();
             foreach (int eid in meshA.EdgeIndices()) {
                 Index2i ea = meshA.GetEdgeV(eid);
-                found.Clear();
-                tree.Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), found);
-                found.Sort();
-                foreach (int k in found) {
-                    int other = eidsB[k];
-                    if (self) {
-                        // each unordered pair once, and not with itself or an edge sharing a vertex
-                        if (other <= eid) continue;
-                        Index2i eb = meshB.GetEdgeV(other);
-                        if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b) continue;
-                    }
-                    pairs.Add(new Pair { Kind = SweepContactKind.EdgeEdge, First = eid, Second = other, FirstOfMeshA = true });
-                }
+                hits.Clear();
+                tree.Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), hits);
+                hits.Sort();
+                foreach (int k in hits)
+                    pairs.Add(new Pair { Kind = SweepContactKind.EdgeEdge, First = eid, Second = eidsB[k], FirstOfMeshA = true });
             }
         }
     }
