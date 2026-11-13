@@ -159,7 +159,7 @@ near-right ones.
 - **The result:** u = min(u0, u1, u2), each +∞ where it cannot be bounded.
 - **No patch bound (owner, 2026-11-13; review M3).** `patch_bound` carries an estimated slack, not a derived one, so it
   can push u below the true maximum. Under `Certified` it is skipped in code, whatever `PatchBound` says
-  (`CertifiedUpper_IgnoresThePatchBound`). Its certification is a follow-up issue.
+  (`CertifiedUpper_IgnoresThePatchBound`). Its certification is the follow-up #848.
 - **Corner distances:** `OneSided.query` computes U_i as B1 of each point to the triangle the tree search returns. Any
   triangle gives an upper bound of d(x, B), and B2 reuses U_i only for that triangle. The float `dist` keeps feeding the
   computed `Lower`, which L certifies (#738).
@@ -248,12 +248,14 @@ prototype. That bound is new and needs its own review.
 
 Mutation: section 11.
 
-## 11. Mutation (local, 22 mutants of the new code, against the new tests)
+## 11. Mutation (local, 27 mutants of the new code, against the new tests)
 
-18 are killed, 4 survive: 3 explained below, and the fourth equivalent (the last paragraph).
+22 are killed, 5 survive: 4 explained below, and the fifth equivalent (the last paragraph). The second bound review's
+mutants are among them: the parents' off with one end only (either end), and the cut-point rounding with one side only
+(either side), killed by `CutPoint_Off_CoversBothParents` and the shifted points of `CutRounding_CoversTheExactError`.
 
 **Surviving:**
-- **`Up` after `Math.Sqrt` in B1 dropped.** S's enclosure is widened by at least a step above the exact square, which
+- **`Up` after `Math.Sqrt` in B1 dropped, or flipped to `Down`** (two mutants). S's enclosure is widened by at least a step above the exact square, which
   nearly always covers sqrt's half-step rounding. A kill needs both at their extremes at once. The Up stays: the proof
   needs it.
 - **The non-acute test on `Lo` instead of `Hi`.** The mutant takes an undecided, near-right triangle for a right one and
@@ -266,7 +268,9 @@ Mutation: section 11.
 **Killed** (each named in the PR):
 - B1's enclosure end, the clamp's Down and its Sterbenz threshold, the edge length's end;
 - B5's l/√3, the circumradius denominator, and the cut-point rounding;
-- the NaN rejection of the clip, the cut points' off and their parents' off in it, a zero vertex into both pieces, B2's off;
+- the NaN rejection of the clip, the cut points' off, their parents' off in it (dropped, or one end only), a zero vertex into
+  both pieces, B2's off;
+- the cut-point rounding taken on one side of the enclosure only (either side);
 - the witness's adopted side j; the single-triangle maximum; u1's longer edge; u2's covering radius;
 - the corner distances (`OneSided.query`), and `max`'s NaN rule.
 

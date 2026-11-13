@@ -54,6 +54,7 @@ namespace gs
             return (r > 0 && !double.IsInfinity(r)) ? r : (r > 0 ? double.MaxValue : 0);
         }
 
+        // (a test helper in the library: the tests compare certified upper bounds with the exact distance through it)
         /// <summary> (tests) is u at least the exact distance from p to the triangles of mesh? Exact, over all triangles (true for no
         /// triangle only if u is +infinity) </summary>
         internal static bool AtLeastDistance(DMesh3 mesh, Vector3d p, double u)

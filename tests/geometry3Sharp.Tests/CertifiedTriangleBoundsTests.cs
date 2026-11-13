@@ -127,15 +127,57 @@ namespace geometry3Sharp.Tests
                 for (int i = 0; i < 400; ++i) {
                     Vector3d a = new Vector3d(R(rnd, e), R(rnd, e), R(rnd, e)), b = a + new Vector3d(R(rnd, e - rnd.Next(0, 40)), R(rnd, e), R(rnd, e));
                     double lambda = (i % 7 == 0) ? 1 : (i % 11 == 0) ? 0 : rnd.NextDouble();
-                    Vector3d x = a + lambda * (b - a);
+                    Vector3d x0 = a + lambda * (b - a);
+                    // the stored point as computed, and moved a few ulps up and down per component (the allowance must hold on
+                    // both sides of the enclosure, not only for a point near its middle)
+                    int shift = (i % 3 == 0) ? 0 : (i % 3 == 1) ? 4 : -4;
+                    Vector3d x = x0;
+                    for (int k = 0; k < 3; ++k) {
+                        double v = x0[k];
+                        for (int s = 0; s < Math.Abs(shift); ++s) v = shift > 0 ? ExactInterval.Up(v) : ExactInterval.Down(v);
+                        x[k] = v;
+                    }
                     double rho = CertifiedTriangleBounds.CutRounding(a, b, lambda, x);
                     ExactDyadic sum = D(0);
                     for (int k = 0; k < 3; ++k) {
                         ExactDyadic err = D(x[k]) - (D(a[k]) + D(lambda) * (D(b[k]) - D(a[k])));
                         sum = sum + (err.Sign < 0 ? -err : err);
                     }
-                    Assert.True(ExactDyadic.Compare(sum, D(rho)) <= 0, $"e {e}: rho {rho:R}");
+                    Assert.True(ExactDyadic.Compare(sum, D(rho)) <= 0, $"e {e} shift {shift}: rho {rho:R}");
                 }
+        }
+
+        /// <summary> B3: a cut point stands for the exact point at the same parameter between its parents' exact points, which are within
+        /// their off of the stored ones: its off covers (1 - lambda) off_a + lambda off_b, with the large off at either end </summary>
+        [Fact]
+        public void CutPoint_Off_CoversBothParents()
+        {
+            var rnd = new Random(37);
+            for (int it = 0; it < 400; ++it) {
+                var piece = new TriangleDeviationBounds.Piece(3);
+                double big = 1e-3 * (1 + rnd.NextDouble());
+                // (off 0 at one corner of the cut edges, a large off at the other; which end alternates)
+                bool first = it % 2 == 0;
+                piece.Add(new Vector3d(0, 0, 0), first ? big : 0);
+                piece.Add(new Vector3d(1, 0, 0), first ? 0 : big);
+                piece.Add(new Vector3d(0, 1, 0), first ? 0 : big);
+                double[] dist = { -(0.1 + rnd.NextDouble()), 0.1 + rnd.NextDouble(), 0.1 + rnd.NextDouble() };
+                TriangleDeviationBounds.split(piece, dist, out var pos, out var neg);
+                int cuts = 0;
+                for (int k = 0; k < 3; ++k) {
+                    int k1 = (k + 1) % 3;
+                    double da = dist[k], db = dist[k1];
+                    if (!((da > 0 && db < 0) || (da < 0 && db > 0))) continue;
+                    double lambda = da / (da - db);
+                    Vector3d c = piece.P[k] + lambda * (piece.P[k1] - piece.P[k]);
+                    int j = pos.P.IndexOf(c);
+                    Assert.True(j >= 0 && neg.P.Contains(c));
+                    ExactDyadic need = (D(1) - D(lambda)) * D(piece.Off[k]) + D(lambda) * D(piece.Off[k1]);
+                    Assert.True(ExactDyadic.Compare(D(pos.Off[j]), need) >= 0, $"it {it}: off {pos.Off[j]:R} for lambda {lambda:R}");
+                    cuts++;
+                }
+                Assert.Equal(2, cuts);
+            }
         }
 
         /// <summary> B3: the two pieces of the certified clip cover the piece: random triangles and planes, planes through or near a
