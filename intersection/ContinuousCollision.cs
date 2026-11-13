@@ -54,7 +54,7 @@ namespace g3
         /// discarded. Near contacts with a minimum separation whose front is not axis-aligned can need many boxes, since
         /// a box is discarded only when one coordinate separates it.
         /// </summary>
-        public int MaxTighteningIterations = 4096;
+        public int MaxTighteningIterations = 1024;
 
         internal bool IsValid()
         {
@@ -340,7 +340,75 @@ namespace g3
                     return true;
                 width = Math.Max(width, ExactInterval.Up(hi - lo));
             }
+            return separated_by_normals(ref b);
+        }
+
+        // The axes separate the hull of the corner values from the cube [-ms, ms]^3 only when one coordinate does; an
+        // approach that is not axis-aligned then needs many small boxes. So the box is also tested along the
+        // classical separating directions: the triangle's normal (b - a) x (c - a) (vertex-triangle) or the edges'
+        // cross product (b - a) x (d - c) (edge-edge), at t0 and at t1. For any vector n, n . y <= ms |n|_1 on the
+        // cube, and n . y is linear, so if n . F > ms |n|_1 at every vertex of the hull (or < -ms |n|_1 at every
+        // one), the hull misses the cube. n needs no accuracy (any vector is valid): the dot products are evaluated in
+        // outward-rounded intervals over the corner values' enclosures ([F - e, F + e] on the filter path, the
+        // intervals on the interval path), so the test needs no further error bound.
+        bool separated_by_normals(ref Box b)
+        {
+            for (int kt = 0; kt < 2; ++kt) {
+                double t = kt == 0 ? b.t0 : b.t1;
+                double nx, ny, nz;
+                normal(t, out nx, out ny, out nz);
+                if (nx == 0 && ny == 0 && nz == 0 || double.IsNaN(nx + ny + nz) || double.IsInfinity(nx + ny + nz))
+                    continue;
+                // ms |n|_1, rounded up
+                ExactInterval bound = ExactInterval.Of(ms) * (ExactInterval.Of(Math.Abs(nx)) + ExactInterval.Of(Math.Abs(ny)) + ExactInterval.Of(Math.Abs(nz)));
+                double limit = bound.Hi;
+                bool allAbove = true, allBelow = true;
+                for (int k = 0; k < 8 + 2 * extraCount && (allAbove || allBelow); ++k) {
+                    ExactInterval d;
+                    if (k < 8) {
+                        if ((insideMask & (1 << (k >> 1))) == 0)
+                            continue;
+                        d = dot(nx, ny, nz, k, false);
+                    } else
+                        d = dot(nx, ny, nz, k - 8, true);
+                    if ((d.Lo > limit) == false) allAbove = false;
+                    if ((d.Hi < -limit) == false) allBelow = false;
+                }
+                if (allAbove || allBelow)
+                    return true;
+            }
             return false;
+        }
+
+        // the exact n . F at a corner (or crossing point) lies in the result
+        ExactInterval dot(double nx, double ny, double nz, int k, bool extra)
+        {
+            ExactInterval sum = ExactInterval.Of(0);
+            for (int axis = 0; axis < 3; ++axis) {
+                double lo = extra ? extraLo[4 * axis + k] : cornerLo[8 * axis + k];
+                double hi = extra ? extraHi[4 * axis + k] : cornerHi[8 * axis + k];
+                ExactInterval f = useFilter ? new ExactInterval(lo, hi) - new ExactInterval(-errors[axis], errors[axis])
+                                            : new ExactInterval(lo, hi);
+                sum = sum + ExactInterval.Of(axis == 0 ? nx : axis == 1 ? ny : nz) * f;
+            }
+            return sum;
+        }
+
+        // the point i at time t on the axis (for the separating directions only)
+        double at(int i, int axis, double t) { return start[3 * i + axis] + t * (end[3 * i + axis] - start[3 * i + axis]); }
+
+        // the separating direction at time t (any accuracy will do)
+        void normal(double t, out double nx, out double ny, out double nz)
+        {
+            double ax, ay, az, bx, by, bz;
+            if (vf) {
+                ax = at(2, 0, t) - at(1, 0, t); ay = at(2, 1, t) - at(1, 1, t); az = at(2, 2, t) - at(1, 2, t);
+                bx = at(3, 0, t) - at(1, 0, t); by = at(3, 1, t) - at(1, 1, t); bz = at(3, 2, t) - at(1, 2, t);
+            } else {
+                ax = at(1, 0, t) - at(0, 0, t); ay = at(1, 1, t) - at(0, 1, t); az = at(1, 2, t) - at(0, 2, t);
+                bx = at(3, 0, t) - at(2, 0, t); by = at(3, 1, t) - at(2, 1, t); bz = at(3, 2, t) - at(2, 2, t);
+            }
+            nx = ay * bz - az * by; ny = az * bx - ax * bz; nz = ax * by - ay * bx;
         }
 
         // the time of impact is a lower bound; the near box gives NearContactTime (its start: its corner (t0, u0, v0) is
