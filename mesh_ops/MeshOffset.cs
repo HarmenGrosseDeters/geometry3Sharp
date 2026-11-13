@@ -15,8 +15,10 @@ namespace gs
     ///
     /// Guarantees and reports (see the design note, section 6):
     ///   - closed and 2-manifold (manifold dual contouring with face vertices, DualContouring), checked: Status Failed otherwise;
-    ///   - SelfIntersectionFree: the result has no self-intersections, decided exactly by DualContouring (options A and B of
-    ///     docs/design/DC_INTERSECTION_FREE.md and its exact check of the remaining triangles);
+    ///   - SelfIntersectionFree (reported, like BandCertified): true if the result has no self-intersections, decided exactly
+    ///     by DualContouring (options A and B of docs/design/DC_INTERSECTION_FREE.md and its exact check of the remaining
+    ///     triangles); false if its repair could not remove every intersection (not seen in the tests and the benchmark), with
+    ///     Status still Success;
     ///   - the band (one side, proven): every point x of the result has |sd(x) - Distance| &lt;= BandDeviation. The bound comes from
     ///     the band certificate (CertifyBand): sd is 1-Lipschitz, so on a triangle within r of a point c it is within r of sd(c),
     ///     and sd(c) is enclosed by interval arithmetic (ExactInterval) on the input's doubles; triangles whose bound exceeds the
@@ -24,7 +26,12 @@ namespace gs
     ///     The other side (every point of the offset surface near the result) and the topology are measured, not proven, in this
     ///     stage (stage A2: the topology certificate);
     ///   - scale-free: the input is processed as a copy scaled by a power of two to an extent in [1, 2); grid and tolerances are
-    ///     relative to |Distance|, so 2^k times the input and the distance gives 2^k times the result, bit for bit.
+    ///     relative to |Distance|, so 2^k times the input and the distance gives 2^k times the result, bit for bit. At the ends
+    ///     of the supported extent [2^-900, 2^900] the scaling can round coordinates that are tiny against the extent into the
+    ///     subnormal range (by at most 2^-1075 of the extent, about 2^-175 absolute at the limit), the input on the way in and
+    ///     the result on the way out; the band and the bit identity then hold for that perturbed mesh.
+    ///
+    /// Only the vertices of triangles are used: isolated vertices (in bounds, finiteness and the grid) are ignored.
     ///
     /// Input: a closed, consistently outward oriented mesh without self-intersections (the sign of sd comes from the exact
     /// ray-crossing parity of DMeshAABBTree3.IsInside, which is only meaningful for such meshes; repair others first, eg with
@@ -75,7 +82,11 @@ namespace gs
         public double BandTolerance = 0;
         /// <summary> how often a result triangle is split (into 4) for the band certificate before its bound is taken as it is </summary>
         public int MaxBandSplitDepth = 6;
-        /// <summary> refuse a grid with more nodes than this (GridTooLarge); 8 bytes per node plus the contouring </summary>
+        /// <summary>
+        /// refuse a grid with more nodes than this (GridTooLarge). About 17 bytes per node are alive together (distance, field,
+        /// side) plus the contouring's cells: about 1.1 GB at the default 64 million. Grids above 2^28 nodes (2 GB of doubles, the
+        /// array limit of net48 without gcAllowVeryLargeObjects) or above 2^31 nodes along an axis are always refused.
+        /// </summary>
         public long MaxGridNodes = 64000000;
         public bool UseParallel = true;
         public Func<bool> CancelF = () => false;
@@ -108,6 +119,7 @@ namespace gs
 
         public bool Compute()
         {
+            ResultStatus = Status.Failed;   // until a check below says otherwise (also if a call throws)
             Result = null; SelfIntersectionFree = false; BandCertified = false; BandDeviation = double.PositiveInfinity;
             UncertifiedTriangles = 0; UsedCellSize = 0; NonManifoldTriangles = 0; PhaseMilliseconds = new Dictionary<string, long>();
             var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -125,14 +137,19 @@ namespace gs
                     return fail(Status.InvalidParameters);
             } else if (!(RelativeCellSize > 0 && RelativeCellSize <= 0.5))
                 return fail(Status.InvalidParameters);
-            foreach (int v in Mesh.VertexIndices()) {
-                Vector3d p = Mesh.GetVertex(v);
-                if (!MathUtil.IsFinite(p.x) || !MathUtil.IsFinite(p.y) || !MathUtil.IsFinite(p.z))
-                    return fail(Status.InvalidInput);
+            // the vertices of triangles only (isolated vertices are ignored)
+            AxisAlignedBox3d box0 = AxisAlignedBox3d.Empty;
+            foreach (int t in Mesh.TriangleIndices()) {
+                Index3i tv = Mesh.GetTriangle(t);
+                for (int q = 0; q < 3; ++q) {
+                    Vector3d p = Mesh.GetVertex(tv[q]);
+                    if (!MathUtil.IsFinite(p.x) || !MathUtil.IsFinite(p.y) || !MathUtil.IsFinite(p.z))
+                        return fail(Status.InvalidInput);
+                    box0.Contain(p);
+                }
             }
             if (Mesh.IsClosed() == false)
                 return fail(Status.NotClosed);
-            AxisAlignedBox3d box0 = Mesh.CachedBounds;
             double extent = Math.Max(box0.MaxDim, Math.Abs(d));
             if (!(extent >= Math.Pow(2, -900) && extent <= Math.Pow(2, 900)))
                 return fail(Status.InvalidInput);
@@ -141,6 +158,8 @@ namespace gs
             int k = -Exponent(extent);
             double s = Pow2(k), sInv = Pow2(-k);
             DMesh3 mesh = new DMesh3(Mesh, false, MeshComponents.None);
+            foreach (int v in mesh.VertexIndices().Where(v => mesh.GetVtxEdgeCount(v) == 0).ToList())
+                mesh.RemoveVertex(v);   // isolated: not used (it may be far away or not finite)
             foreach (int v in mesh.VertexIndices())
                 mesh.SetVertex(v, s * mesh.GetVertex(v));
             d *= s;
@@ -156,12 +175,12 @@ namespace gs
             if (CancelF()) return fail(Status.Cancelled);
 
             // the grid: the box of the input, the offset and two cells, shifted by an odd fraction of a cell
-            AxisAlignedBox3d box = mesh.CachedBounds;
+            AxisAlignedBox3d box = new AxisAlignedBox3d(s * box0.Min, s * box0.Max);   // exact: a power of two
             double margin = Math.Max(d, 0) + 2 * h;
             Vector3d origin = box.Min - margin * Vector3d.One - h * GridShift;
             Vector3d far = box.Max + margin * Vector3d.One;
             double nxd = Math.Ceiling((far.x - origin.x) / h) + 1, nyd = Math.Ceiling((far.y - origin.y) / h) + 1, nzd = Math.Ceiling((far.z - origin.z) / h) + 1;
-            if (!(nxd * nyd * nzd <= MaxGridNodes))
+            if (!(nxd * nyd * nzd <= MaxGridNodes) || !(nxd * nyd * nzd <= (1 << 28)) || !(Math.Max(nxd, Math.Max(nyd, nzd)) <= int.MaxValue))
                 return fail(Status.GridTooLarge);
             int nx = (int)nxd, ny = (int)nyd, nz = (int)nzd;
             long nodeCount = (long)nx * ny * nz;
@@ -368,11 +387,13 @@ namespace gs
             else for (int i = 0; i < tris.Length; ++i) one(i);
             double m = 0;
             uncertified = 0;
+            bool nan = false;
             for (int i = 0; i < tris.Length; ++i) {
-                if (!(dev[i] <= m)) m = dev[i];   // NaN propagates as a failure (m becomes NaN, then stays above any tolerance below)
+                if (double.IsNaN(dev[i])) nan = true;      // (not expected: triangle_deviation maps NaN to infinity)
+                else if (dev[i] > m) m = dev[i];
                 if (bad[i]) uncertified++;
             }
-            return double.IsNaN(m) ? double.PositiveInfinity : m;
+            return nan ? double.PositiveInfinity : m;
         }
 
         // the exact point sum_i l_i v_i (barycentric l exact dyadic doubles summing to 1) as an interval box

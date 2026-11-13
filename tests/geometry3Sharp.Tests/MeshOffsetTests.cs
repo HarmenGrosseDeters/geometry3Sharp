@@ -344,6 +344,61 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void IsolatedVertices_AreIgnored()
+        {
+            // a unit box plus an isolated vertex far away, or one that is not finite: the same result as the box alone
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            MeshOffset r0 = Run(box, 0.1);
+            AssertGood(r0);
+            foreach (Vector3d extra in new[] { new Vector3d(1000, 0, 0), new Vector3d(double.NaN, 0, 0) }) {
+                var m = new DMesh3(box);
+                m.AppendVertex(extra);
+                MeshOffset r = Run(m, 0.1);
+                Assert.Equal(MeshOffset.Status.Success, r.ResultStatus);
+                Assert.Equal("", Invariance.Difference(r0.Result, r.Result));
+                Assert.Equal(r0.BandDeviation, r.BandDeviation);
+            }
+        }
+
+        [Fact]
+        public void Reuse_AThrowingCall_LeavesNoSuccess()
+        {
+            DMesh3 box = Box(Vector3d.Zero, Vector3d.One);
+            var o = new MeshOffset(box, 0.1);
+            Assert.True(o.Compute());
+            o.CancelF = () => throw new InvalidOperationException("cancel test");
+            Assert.Throws<InvalidOperationException>(() => o.Compute());
+            Assert.NotEqual(MeshOffset.Status.Success, o.ResultStatus);
+            Assert.Null(o.Result);
+        }
+
+        [Fact]
+        public void ExtentLimits_InsideBitIdentical_OutsideRefused()
+        {
+            // the supported extent is [2^-900, 2^900]: near both ends the result is the unit result scaled, bit for bit
+            DMesh3 box = Box(Vector3d.Zero, new Vector3d(1, 1.5, 0.75));
+            Action<MeshOffset> coarse = x => x.RelativeCellSize = 0.5;
+            MeshOffset r0 = Run(new DMesh3(box), 0.25, coarse);
+            AssertGood(r0);
+            foreach (int shift in new[] { -899, 898 }) {
+                var c = new DMesh3(box);
+                double sc = Math.Pow(2, shift);
+                foreach (int v in c.VertexIndices()) c.SetVertex(v, sc * c.GetVertex(v));
+                MeshOffset r = Run(c, 0.25 * sc, coarse);
+                Assert.Equal(MeshOffset.Status.Success, r.ResultStatus);
+                var back = new DMesh3(r.Result);
+                foreach (int v in back.VertexIndices()) back.SetVertex(v, back.GetVertex(v) / sc);
+                Assert.Equal("", Invariance.Difference(r0.Result, back));
+            }
+            foreach (int shift in new[] { -902, 901 }) {
+                var c = new DMesh3(box);
+                double sc = Math.Pow(2, shift);
+                foreach (int v in c.VertexIndices()) c.SetVertex(v, sc * c.GetVertex(v));
+                Assert.Equal(MeshOffset.Status.InvalidInput, Run(c, 0.25 * sc, coarse).ResultStatus);
+            }
+        }
+
+        [Fact]
         public void InvalidInputs_AreRefused()
         {
             DMesh3 box = Box(Vector3d.Zero, Vector3d.One);

@@ -1,7 +1,7 @@
 # Robust mesh offsetting with guarantees (study)
 
 Status: **study; decided 2026-11-13** (coordinator, under the owner's autonomy mandate; section 9): option A.
-**Stage A1 implemented** (`gs.MeshOffset`, section 10); A2 waits for the reviewed enclosure proof. No library code changed. One
+**Stage A1 implemented** (`gs.MeshOffset`, section 10); A2 waits for the reviewed enclosure proof. The study's
 throwaway probe was run locally (public API only, not committed; section 5); its numbers are quoted with the command.
 
 ## 1. Question
