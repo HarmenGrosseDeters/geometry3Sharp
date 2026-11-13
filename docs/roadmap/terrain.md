@@ -42,11 +42,13 @@ berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a conc
   realization (TERRAIN.md 5.5). (2) `Direction = Auto` at a toe corner: the certificate's step rule is now per slope triangle
   (one capsule cannot hold the slivers along two toe segments). Both examples certify; the campaign no longer lets either
   class pass. The 48-gon clipped-sliver design certifies at the first margin (2 → 1 attempts).
-- **Ramps as design geometry** (path, width, grade; access ramps into pits).
+- **Ramps as design geometry** (path, width, grade; access ramps into pits). Design note [TERRAIN_RAMPS.md](../design/TERRAIN_RAMPS.md) (2026-11-12): proposal, owner decision
+  pending (three questions), not built.
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
-- **Sector polygons, exterior distance on demand.**
+- **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13): proposal, owner
+  decision pending (order, attribution, ε-approximation), not built.
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
