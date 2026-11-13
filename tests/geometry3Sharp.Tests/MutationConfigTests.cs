@@ -19,6 +19,7 @@ namespace geometry3Sharp.Tests
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "PatchOpen open_winding_per_patch(", "List<int>[] trace_clusters(", "int front_winding(" },
             ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
+            ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },
         };
 
         static string RepoRoot()
