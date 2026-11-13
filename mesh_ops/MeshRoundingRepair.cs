@@ -157,7 +157,7 @@ namespace g3
         /// ExactMeshBoolean.RoundingMaxPairTests and MeshRobustRepair.RoundingMaxPairTests pass it through
         /// </summary>
         public long MaxPairTests = 5000000;
-        /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests </summary>
+        /// <summary> the repair stopped at MaxEvaluationsPerDefect or MaxPairTests: from there on no edit is proposed (see SmallestRejectedDrift) </summary>
         public bool EvaluationLimitReached;
         /// <summary> remove closed components that are tiny or thin and keep a degenerate triangle or were edited (see class comment) </summary>
         public bool RemoveTinyComponents = true;
@@ -201,7 +201,11 @@ namespace g3
         /// <summary>
         /// the smallest drift that a proposed edit rejected by the bound would have needed (infinity if none was
         /// rejected): how large the bound would have to be for that edit (StrictRounding of ExactMeshBoolean reports it).
-        /// Edits that are not proposed (contractions of edges longer than the bound, longer moves) are not counted
+        /// Edits that are not proposed (contractions of edges longer than the bound, longer moves) are not counted. Where
+        /// the repair stopped at its effort limit (EvaluationLimitReached), no edit is proposed after the limit: the
+        /// value is then the smallest over the edits proposed before it, at least the smallest a rejected edit of a
+        /// repair without the limit would have needed (before, the passes went on proposing past the limit only to
+        /// find that value, most of the time of such a repair; the mesh is the same)
         /// </summary>
         public double SmallestRejectedDrift;
         /// <summary> the centroid of a defect left after the repair (a degenerate triangle, else an intersecting one) </summary>
@@ -356,8 +360,7 @@ namespace g3
         HashSet<int> pairsStale = new HashSet<int>();
 
         // for tests: Apply on this thread checks the incremental intersecting pairs against a full search, and the
-        // canonical ids against the dictionary (InvalidOperationException if they differ), and proposes the moves past
-        // the evaluation limit in full (as before the shortcut in try_move: the same SmallestRejectedDrift), and compares every
+        // canonical ids against the dictionary (InvalidOperationException if they differ), and compares every
         // decision of the projection filter in intersects with the exact test
         [ThreadStatic] internal static bool CheckOnThisThread;
         bool check;
@@ -375,10 +378,15 @@ namespace g3
         internal long SkippedExactQueries;
         // for tests: the searches of intersecting_pairs in the last Apply (full, incremental, none: the mesh unchanged)
         internal int FullPairSearches, IncrementalPairSearches, UnchangedPairSearches;
-        // for tests: moves past the evaluation limit whose drift try_move computed directly, in the last Apply
-        internal long MovesPastTheLimit;
-        // for tests: such moves are not counted in SmallestRejectedDrift (to show that they set it)
-        internal bool SkipMovesPastTheLimit;
+        // for tests: the passes go on proposing edits past the effort limit, as before the stop (every one is rejected at
+        // the limit, so the mesh is the same; only SmallestRejectedDrift can be smaller)
+        internal bool ProposePastTheLimit;
+        // for tests: the proposals within the bound that reached improves after the limit, in the last Apply (0 with the stop)
+        internal long ProposalsPastTheLimit;
+        // the effort limit is reached: improves rejects every edit from here on (evaluations and pairTests only grow), so
+        // no edit is proposed any more (the proposals, 20 to 26 million moves on rotated Thingi10K results that reach the
+        // limit, were up to three quarters of the rounding time, docs/design/SNAP_ROUNDING_3D.md section 5.5)
+        bool stopped { get { return EvaluationLimitReached && ProposePastTheLimit == false; } }
         // for tests (with CheckOnThisThread): the pair tests of the last Apply, and those the projection filter decided
         // (each compared with the exact test), and the threads they ran on
         internal long PairTestsChecked, FilterDecisions;
@@ -501,7 +509,7 @@ namespace g3
             DirtyTreeBuilds = 0;
             MaxPendingScanned = 0;
             FullPairSearches = IncrementalPairSearches = UnchangedPairSearches = 0;
-            MovesPastTheLimit = 0;
+            ProposalsPastTheLimit = 0;
             PairTestsChecked = FilterDecisions = 0;
             checkedThreads.Clear();
             if (Script != null) {
@@ -572,6 +580,9 @@ namespace g3
                     if (Mesh.IsTriangle(t) == false || is_bad(t) == false)
                         continue;
                     Index3i tv = Mesh.GetTriangle(t);
+                    // (at the effort limit no edit is accepted any more, see stopped)
+                    if (stopped)
+                        break;
                     if ((retry == null || retry.Contains(tv.a) || retry.Contains(tv.b) || retry.Contains(tv.c)))
                         fix_degenerate(t);
                 }
@@ -579,9 +590,12 @@ namespace g3
                 if (pairs.Count > 0) {
                     if (Collapses + Flips + Moves + Zips > edits)
                         pairs = intersecting_pairs();
-                    foreach (Index2i p in pairs)
+                    foreach (Index2i p in pairs) {
+                        if (stopped)
+                            break;
                         if (Mesh.IsTriangle(p.a) && Mesh.IsTriangle(p.b) && intersects(p.a, p.b))
                             fix_intersection(p.a, p.b);
+                    }
                     pairs = intersecting_pairs();
                 }
                 bad = degenerate_triangles();
@@ -1147,19 +1161,6 @@ namespace g3
             return most;
         }
 
-        // the bound of moving v to p: the largest bound of v's triangles and ghosts with v at p (what improves computes
-        // for the move, from the mesh instead of the proposal)
-        double move_bound(int v, Vector3d p)
-        {
-            double most = ghosts_bound(v, v, -1, p);
-            foreach (int t in Mesh.VtxTrianglesItr(v)) {
-                Index3i tv = Mesh.GetTriangle(t);
-                most = Math.Max(most, triangle_bound(t, tv.a == v ? p : Mesh.GetVertex(tv.a), tv.b == v ? p : Mesh.GetVertex(tv.b),
-                    tv.c == v ? p : Mesh.GetVertex(tv.c)));
-            }
-            return most;
-        }
-
         // the drift of the proposed edit (removed, added; movedV, movedPos, vanishing), see the class comment. A
         // displacement edit (a vertex is moved: try_move, try_collapse): the largest bound of the triangles that keep
         // their reference (each added triangle is the removed one it comes from, corner for corner), of the triangles
@@ -1261,6 +1262,9 @@ namespace g3
                 return false;
             if (Script != null)
                 return true;
+            // (for tests: a proposal within the bound that arrives after the limit; none with the stop)
+            if (EvaluationLimitReached)
+                ProposalsPastTheLimit++;
             if (++evaluations > maxEvaluations || pairTests > MaxPairTests) {
                 EvaluationLimitReached = true;
                 return false;
@@ -1666,7 +1670,7 @@ namespace g3
         bool try_collapse(int a, int b, Vector3d p)
         {
             int eid = Mesh.FindEdge(a, b);
-            if (eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
+            if (stopped || eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
                 return false;
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(a)) {
@@ -1712,7 +1716,7 @@ namespace g3
 
         bool try_flip(int eid)
         {
-            if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+            if (stopped || Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
                 return false;
             // as DMesh3.FlipEdge: edge a -> b in t0 = (a, b, c), t1 has d; afterwards t0 = (c, d, b), t1 = (d, c, a)
             Index2i ev = Mesh.GetEdgeV(eid), et = Mesh.GetEdgeT(eid);
@@ -1771,7 +1775,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         bool try_zip(int eid)
         {
-            if (Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+            if (stopped || Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
                 return false;
             Index2i ev = Mesh.GetEdgeV(eid), et = Mesh.GetEdgeT(eid);
             int a = ev.a, b = ev.b;
@@ -2389,7 +2393,7 @@ namespace g3
         bool try_slide(int v, double s)
         {
             Vector3d p;
-            if (Mesh.IsBowtieVertex(v) || inputBoundary.TryGetValue(v, out p) == false)
+            if (stopped || Mesh.IsBowtieVertex(v) || inputBoundary.TryGetValue(v, out p) == false)
                 return false;
             int before;
             bool slid = slidTowards.TryGetValue(v, out before);
@@ -2418,14 +2422,8 @@ namespace g3
         {
             if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
                 return false;
-            if (EvaluationLimitReached && check == false) {
-                // (past the limit improves rejects every move: only the smallest rejected drift is left, the same as
-                // improves finds)
-                MovesPastTheLimit++;
-                if (SkipMovesPastTheLimit == false)
-                    within_bound(move_bound(v, p), maxLength_of(v));
+            if (stopped)
                 return false;
-            }
             begin_edit();
             foreach (int t in Mesh.VtxTrianglesItr(v)) {
                 removed.Add(t);

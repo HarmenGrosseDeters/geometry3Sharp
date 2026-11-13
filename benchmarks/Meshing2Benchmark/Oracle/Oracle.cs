@@ -71,6 +71,29 @@ namespace Meshing2Acceptance
 
         static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
+        /// <summary>
+        /// GridUnsplittable's band (#723): for the pixel index km along the larger axis of a piece (y if steep, else x), the range of
+        /// pixel indices along the other axis, within o0..o1, that holds every pixel centre whose distance from the line through
+        /// (fax, fay) with direction (fdx, fdy) is at most fw in doubles (the filter of GridUnsplittable), with two pixels of margin for
+        /// the rounding of the line's coordinate and reach. The full range where that rounding is not small against a pixel: no line
+        /// (fdx = fdy = 0), a coordinate or reach that is not finite, or an end farther than 2^40 pixels from the origin (beyond about
+        /// 2^50 pixels the doubles no longer separate neighbouring pixels, and the margin would not be enough; review of #724).
+        /// </summary>
+        public static (Q From, Q To) GridBandRow(Q km, bool steep, double fax, double fay, double fdx, double fdy, double fw, Q pixel, Q o0, Q o1)
+        {
+            double flen = Math.Sqrt(fdx * fdx + fdy * fdy);
+            if (!(flen > 0)) return (o0, o1);
+            double far = Math.Max(Math.Max(Math.Abs(fax), Math.Abs(fay)), Math.Max(Math.Abs(fax + fdx), Math.Abs(fay + fdy)));
+            if (!(far / fw <= 1099511627776.0)) return (o0, o1);   // (2^40 pixels; also NaN)
+            km.Bounds(out double im, out _);
+            double major = im * fw, slope = steep ? fdx / fdy : fdy / fdx;
+            double other = steep ? fax + (major - fay) * slope : fay + (major - fax) * slope;
+            double reach = fw * flen / Math.Abs(steep ? fdy : fdx);
+            if (double.IsNaN(other) || double.IsInfinity(other) || double.IsNaN(reach) || double.IsInfinity(reach)) return (o0, o1);
+            Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = System.Numerics.BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+            return (Q.Max(o0, Index(Q.FromDouble(other - reach)) - 2), Q.Min(o1, Index(Q.FromDouble(other + reach)) + 2));
+        }
+
         public static OracleReport Check(Mesh2Input input, Mesh2Output o, OracleExpect e)
         {
             if (ForceReference && !e.Reference) e = e.WithReference();
@@ -792,12 +815,23 @@ namespace Meshing2Acceptance
                 SnapHot();
                 // its input constraints: those whose envelope holds both ends (a hull domain's hull edges too: on the grid the mesher
                 // snap-rounds them with the segments, option C, and splits their pieces as it splits a segment's; Q17)
+                // (an end of the constraint that snaps to the piece's end pixel counts as in it: a decimal pixel width is not exact in
+                // doubles, so an input point on its pixel's border may lie a hair outside the square around the rounded centre k w and lose
+                // the constraint it ends; #728: point 4 of the Rhein-Erft tile, 4.7e-12 outside, left the piece 4-195 with no own
+                // constraint, judged splittable, and its encroachment was not excused. Only such an end: a hair wider for every constraint
+                // would also take in a constraint that runs along the pixel border beside the piece without ending there; review of #730)
+                bool SnapsTo(Pt x, Pt p) => Index(x.Qx) == Index(p.Qx) && Index(x.Qy) == Index(p.Qy);
+                bool Holds((Pt a, Pt b) s, Pt p) => InEnvelopeOf(s.a, s.b, p, half) || SnapsTo(s.a, p) || SnapsTo(s.b, p);
                 var own = sources.Select(s => (s.a, s.b)).Concat(domain.IsHull ? domain.Edges() : Enumerable.Empty<(Pt a, Pt b)>())
-                    .Where(s => InEnvelopeOf(s.a, s.b, pa, half) && InEnvelopeOf(s.a, s.b, pb, half)).ToList();
+                    .Where(s => Holds(s, pa) && Holds(s, pb)).ToList();
                 if (own.Count == 0) return false;
                 Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
                 Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
-                if ((kx1 - kx0) * (ky1 - ky0) > new Q(1 << 16, 1)) return false;   // (too long to enumerate: judged as splittable)
+                // (a piece longer than 2^18 pixels along its larger axis is not enumerated and judged splittable: the band of such a piece
+                // costs seconds, which a run of many fine-pixel pieces would multiply; #723: the limit was 2^16 pixels of the piece's box,
+                // which a diagonal piece of 600 x 400 pixels exceeded, so a piece that no split point could split was taken as splittable
+                // and its triangle's circumcentre behind it not excused)
+                if (Q.Max(kx1 - kx0, ky1 - ky0) > new Q(1 << 18, 1)) return false;
                 // only what lies near the piece can block a split point: a constraint crossing its pixel or the new edges, a vertex whose
                 // pixel they cross (boxes three pixels wider in doubles, generous to the hair of a decimal pixel; every test below stays
                 // exact): the hull pieces of a domain judged here too made the whole lists per candidate too slow on the Herne tiles
@@ -838,8 +872,18 @@ namespace Meshing2Acceptance
                 s0.a.Bounds(false, out double fax, out _); s0.a.Bounds(true, out double fay, out _);
                 s0.b.Bounds(false, out double fbx, out _); s0.b.Bounds(true, out double fby, out _);
                 double fdx = fbx - fax, fdy = fby - fay, flen = Math.Sqrt(fdx * fdx + fdy * fdy), fw = input.SnapTolerance;
-                for (Q kx = kx0; kx <= kx1; kx = kx + 1)
-                    for (Q ky = ky0; ky <= ky1; ky = ky + 1) {
+                // the pixels of the box that may pass the filter: along the larger axis, the band of the other axis within the filter's
+                // distance of the line and a pixel more (the filter below still decides, so the pixels tested are those of the whole box)
+                bool steep = Math.Abs(fdy) > Math.Abs(fdx);
+                IEnumerable<(Q kx, Q ky)> Band()
+                {
+                    Q m0 = steep ? ky0 : kx0, m1 = steep ? ky1 : kx1, o0 = steep ? kx0 : ky0, o1 = steep ? kx1 : ky1;
+                    for (Q km = m0; km <= m1; km = km + 1) {
+                        var (from, to) = GridBandRow(km, steep, fax, fay, fdx, fdy, fw, pixel, o0, o1);
+                        for (Q ko = from; ko <= to; ko = ko + 1) yield return steep ? (ko, km) : (km, ko);
+                    }
+                }
+                foreach (var (kx, ky) in Band()) {
                         if (flen > 0) {
                             kx.Bounds(out double ix, out _); ky.Bounds(out double iy, out _);
                             double cx = ix * fw, cy = iy * fw;

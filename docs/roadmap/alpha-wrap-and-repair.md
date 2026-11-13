@@ -123,6 +123,28 @@ built) on the 20 tail meshes plus about 30 random ones at the same alpha / offse
 min / p01 angle, certified Hausdorff; (3) the (B) probe on the tail meshes: a guarantee note, a round simulation
 (independent-set sizes per round, late rounds especially) and a serial-round prototype for quality against master, with the
 projected tail time on 4 and 16 cores. No PR for (B) before the owner has the results.
+Status 2026-11-12: (1) done (`aw3/f800/TAIL-REPORT.md`: 99.2 % within budget, time linear in the raw size); (2) done
+(`aw3/cgal/cmp50.txt`, master 14a27e45, CGAL 5.6 black box, CGAL single-threaded, ours 4 threads on 4 cores): tail 20 raw
+wrap median 19.8 s / max 54.9 s vs CGAL 84.7 / 204.7 s (pipeline with simplify + certify 28.5 / 66.5 s), random 30 raw
+3.5 / 10.9 s vs 18.8 / 97.3 s; guarantees 50/50 both, certified Hausdorff equal, raw triangles 5-10 % fewer, raw p01
+angle 20.9° vs CGAL 21.6° (tail) and 20.1° (random), global min angle 0.72° vs 1.89° (860049). The tail is the resolution
+for both; (3) the (B) round simulation is next.
+A second black-box competitor (alecjacobson/alpha-wrap, MIT by its README, claims about 2x CGAL): not now (owner
+2026-11-12); building and running such a tool is acceptable in principle once its licence is verified as permissive, but
+only with a concrete question the CGAL comparison cannot answer.
+(B) serial-round probe done (`aw3/B/`, master 14a27e45): round sizes stay ~100 to the end (ceiling 3.9x on 4 cores,
+14.8x on 16), quality equal except order-sensitive min angles, not bit-identical with master; but the main carve is only
+45-60 % of the time, so 40118 goes 67 s to 40 s (4 cores) / 21 s (16). Not built for now (owner 2026-11-12): the lever
+choice (size budget, alpha per component, (B), the serial rest phases) waits for the performance study's ranking.
+Lever choice (owner 2026-11-12, after the performance study's final report, `aw3study/REPORT.md` on
+runs/alpha-wrap-3-fable, master 1230482): the tail is size, not pathology (unit costs rise with size, 80 % serial). Built:
+(B) together with parallel trial passes (pinch / manifold, 18 % of the serial time), projected tail max 69 s to about
+10-12 s on 16 cores, output bits change, resolution does not; a raw-size budget (about 300k raw triangles) as an opt-in
+parameter, off by default (it closes lattice cavities: 40118 wrap-to-input 0.46 to 20.7 % of the diagonal), which is the
+only lever under 20 s on 4 cores (13 s with (B)). Alpha relative to the largest component is dropped (slower on 3 tail
+meshes). #692 (185k raw triangles from 144) goes to the AW3 session as a diagnosis (alpha for tiny inputs or the test
+input); #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) has its own session (cause: two absolute thresholds in `DMeshAABBTree3.FastWindingNumber`, the area / normal epsilon and the padded box test, so tiny triangles in the unit frame make every query brute force; owner 2026-11-12: option A, both made scale-relative, 62 s -> 2-2.5 s, FWN bit-identical under 2^k scaling, values on tiny-triangle meshes move to the documented approximation); the
+simplification sometimes not applied (175914, 51909 at diag / 245) is a defect check for the AW3 session.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
