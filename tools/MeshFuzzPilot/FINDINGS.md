@@ -239,7 +239,12 @@ Open, gated or outside the domain (none has a procedural reproduction inside the
   with a dynamic range of 1e-130 and below inside the case (outside the range). The in-range class is a cut mesh that touches the target (vertices exactly on a
   face plane): **#856** (the same case at 2^108 .. 2^120 gives 14, 14, ... , an exception at 2^113, then 20 triangles; no contact gives 12 at every scale).
   The class is in the target's domain, so the target keeps reporting it until `MeshMeshCut` handles touching input or the domain excludes contact (owner).
-- **`insert-polygon`, `trim-loop`**: see the entry added when their runs (30 minutes each) finished.
+- **`insert-polygon`** (30 minutes): 1 947 artifacts, **untriaged** (triage is a separate step). 120 sampled: 71 "the interior triangles cover X, the polygon Y",
+  25 `find_cut_paths: how did this possibly happen?!?`, 9 `ArgumentOutOfRangeException` (index), 9 "triangles are selected or not against the centroid
+  test", 2 `ConvexHull2: vertex is not finite`, 1 area change. Of 400 classified by the ratio of the smallest to the largest nonzero coordinate, most are far outside the
+  range (below 1e-130); the in-range ones (ratio above 1e-6) that were looked at have a thin outer polygon (a hull of width about 0.06 against a length of 0.65) with grid
+  triangles whose centroid is within 1e-4 of the polygon's edge; they are likely the absolute tolerance of the insertion (`SpatialEpsilon`), not a new class.
+- **`trim-loop`** (30 minutes, about 45 000 executions with coverage guidance): no finding.
 
 ## Judgement notes
 
