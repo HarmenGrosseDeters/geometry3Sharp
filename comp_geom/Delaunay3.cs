@@ -800,6 +800,11 @@ namespace g3
         {
             if (plan.Result != InsertResult.Inserted)
                 throw new InvalidOperationException("Delaunay3: plan is not an insertion");
+            // (the round insertion keeps no labels, incident cells or undo record: RefinementSupport is for a serial refiner,
+            // eg MeshTetrahedralization on a Clone of the wrap's triangulation)
+            if (support)
+                throw new InvalidOperationException("Delaunay3: round insertion with RefinementSupport on");
+            undoValid = false;
             plan.Vertex = vertices.Count;
             vertices.Add(plan.P);
             int nb = plan.Cells.Count, nt = plan.Cavity.Count;

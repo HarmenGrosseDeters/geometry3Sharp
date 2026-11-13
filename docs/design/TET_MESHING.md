@@ -188,7 +188,7 @@ above. Vertex removal is not needed for MVP (ODT smoothing would want it).
 | T1 | Validity | `NotValidReason(tets)` empty: all tets exactly positive, every interior facet shared by two tets, boundary facets = a closed 2-manifold, volume of tets = volume of the boundary surface | 100 % of the procedural corpus, exact |
 | T2 | Boundary fidelity | tet boundary equals the wrap surface as a point set (Hausdorff, `MeshDeviation`); to the input: <= `UsedOffset + UsedAlpha` plus the wrap's own guarantee | <= 2^-40 of the diagonal to the wrap; input as the wrap |
 | T3 | Radius-edge | max over tets, excluding the counted floor tets | <= ρ = 2, `UnrefinedBadTets` = 0 on smooth procedural inputs |
-| T4 | Dihedral angles | min / max dihedral (stage 2 for the tail) | stage 1: reported only; stage 2: min >= 10 degrees on sphere / torus / ellipsoid wraps, >= 5 degrees on the mechanical set |
+| T4 | Dihedral angles | min / max dihedral (stage 2 for the tail) | stage 1: reported only (with the round carving of #774 the box wrap gives 9.28 degrees after peeling, before 10.0; the stage 1 test pins >= 9.0); stage 2: min >= 10 degrees on sphere / torus / ellipsoid wraps, >= 5 degrees on the mechanical set |
 | T5 | Speed (excluding the wrap) | refinement + improvement, single thread | <= 25 us per output tet; 100k tets <= 3 s |
 | T6 | Determinism | bit-identical result under `Similarity.All()` (2^k scales), repeated runs, serial = parallel if a parallel path exists | exact equality of vertex and tet lists up to the transform |
 | T7 | Size control | element count follows `TargetEdgeLength` | count within a factor 2 of volume / (0.12 h^3) on a cube |

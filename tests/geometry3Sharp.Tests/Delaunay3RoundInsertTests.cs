@@ -199,6 +199,31 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // the round insertion does not keep RefinementSupport's bookkeeping (labels, incident cells, undo): refused with it on;
+        // a Clone after round insertions is the same triangulation and accepts serial insertions with the support on
+        [Fact]
+        public void RoundInsert_RefusedWithRefinementSupport_CloneAfterwardsWorks()
+        {
+            var dt = new Delaunay3(Box());
+            var plan = new Delaunay3.InsertPlan();
+            foreach (Vector3d p in Points(6, 200, false)) {
+                dt.PlanInsert(p, -1, 1e-12, plan, 3);
+                if (plan.Result != Delaunay3.InsertResult.Inserted) continue;
+                dt.AssignInsertIds(plan);
+                dt.ApplyInsert(plan);
+            }
+            Assert.Null(dt.Validate(true));
+            var copy = dt.Clone();
+            Assert.Equal(Cells(dt), Cells(copy));
+            copy.RefinementSupport = true;
+            Assert.Equal(Delaunay3.InsertResult.Inserted, copy.Insert(new Vector3d(5.01, 4.99, 5.02), -1, 1e-12, out _));
+            Assert.Null(copy.Validate(true));
+            dt.RefinementSupport = true;
+            dt.PlanInsert(new Vector3d(4.01, 3.99, 4.02), -1, 1e-12, plan, 3);
+            Assert.Equal(Delaunay3.InsertResult.Inserted, plan.Result);
+            Assert.Throws<InvalidOperationException>(() => dt.AssignInsertIds(plan));
+        }
+
         // PlanInsert writes nothing: the triangulation, its walk state and the result of a later Insert are unchanged
         [Fact]
         public void PlanInsert_ChangesNothing()
