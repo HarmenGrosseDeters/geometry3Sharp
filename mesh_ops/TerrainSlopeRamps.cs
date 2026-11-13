@@ -76,6 +76,9 @@ namespace gs
             public SlopeRamp R;
             public List<Vector2d> P;
             public double Sigma, Z0, G, Length;
+            // (the budget: the path's length summed rounded up, the highest |z| of the road, the outer corners' largest
+            // distance factor (a miter at a bend: 1 / cos(turn / 2), rounded up; 1 without bends))
+            public double LengthUp, MaxAbsZ, MiterFactor = 1;
             public double[] L, Extend;
             public SlopeSpec Wall;
         }
@@ -186,11 +189,20 @@ namespace gs
                 var ri = new RampIn() { Index = r, R = ramp, P = P, Sigma = sigma, Z0 = z0, G = ramp.Grade.S, L = L, Wall = wall, Extend = new double[n - 1] };
                 for (int i = 0; i + 1 < n; ++i) ri.Extend[i] = Math.Max(dist[i], dist[i + 1]);
                 ri.Length = L.Sum();
+                ri.LengthUp = 0;
+                foreach (double li in L) ri.LengthUp = ExactInterval.Up(ri.LengthUp + li);
+                for (int k = 1; k + 1 < n; ++k)
+                    if (ExactPredicates.Orient2d(P[k - 1], P[k], P[k + 1]) * sigma < 0) {
+                        // |miter(n0, n1, 1)| = sqrt(2 / (1 + n0 . n1)), n0 . n1 = u0 . u1 (computed, so 1e-9 to spare)
+                        double c = u[k - 1].Dot(u[k]);
+                        ri.MiterFactor = Math.Max(ri.MiterFactor, ExactInterval.Up(Math.Sqrt(2 / (1 + c)) * (1 + 1e-9)));
+                    }
                 rampsIn.Add(ri);
                 // the pieces, at the specified grade (each build lowers it by its margin)
                 var z = new double[n];
                 z[0] = z0;
                 for (int i = 0; i + 1 < n; ++i) z[i + 1] = z[i] + ri.G * L[i];
+                ri.MaxAbsZ = z.Max(x => Math.Abs(x));
                 Action<int, bool, Vector3d, Vector3d> add = (seg, bend, a, b) => {
                     pieces.Add(new InPiece() { Toe = ramp.Toe, Segment = seg, Kind = 1, Ramp = r, Bend = bend, Spec = ramp.Grade, S = wall.S, A = a, B = b,
                                                Unit = new RampUnit() { Seg = seg, Bend = bend } });
@@ -217,20 +229,33 @@ namespace gs
         // delta sMin / 4; the exact check decides, and a failure raises delta
         internal static double RoadMargin(double delta, double sMin) { return 0.5 * delta * sMin; }
 
-        // the ramps' share of the tolerance budget: the road at the grade g - RoadMargin lies below its specified heights
-        // by at most RoadMargin times the path's length, and the wall above the outer edge at Width (1 + 2 delta) by at most
-        // sMax 2 delta Width (rounded up)
-        double ramp_share(double delta, double sMin, double sMax)
+        // the ramps' share of the tolerance budget (TERRAIN_RAMPS.md, "Margins"), the largest over the ramps of
+        // - the road below its specified heights: the built grade gb = g - RoadMargin is lower by g - gb (exact: Sterbenz, as
+        //   gb > g / 2 is checked) over the path's length (summed rounded up), plus (n + 1) x (ulp(2 max|z|) + g ulp(L)) for
+        //   the roundings of the vertex heights along the path and of the segment lengths;
+        // - the wall above the outer edge, built at Width (1 + 2 delta): it stands 2 delta Width further back, at a miter
+        //   corner 2 delta Width / cos(turn / 2), so at most sMax x that lower.
+        // Each product rounded up, the sum too; RampShareRoad and RampShareWidth are the parts of the largest
+        internal double ramp_share(double delta, double sMin, double sMax)
         {
-            double m = 0, w = 0;
+            RampShareRoad = RampShareWidth = 0;
             if (rampsIn == null || Ramps == null || Ramps.Count == 0) return 0;
-            foreach (RampIn ri in rampsIn) { m = Math.Max(m, ri.Length); w = Math.Max(w, ri.R.Width); }
-            double grade = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(RoadMargin(delta, sMin)) * ExactInterval.Up(m * (1 + 1e-12))) * 1.01);
-            // (and the outer edge at Width (1 + 2 delta): the wall above it stands 2 delta Width further back, at most
-            // sMax x that lower than the wall of the specified road)
-            double widen = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(2 * delta * w) * sMax) * 1.01);
-            return ExactInterval.Up(grade + widen);
+            double best = 0;
+            foreach (RampIn ri in rampsIn) {
+                double gb = ri.G - RoadMargin(delta, sMin), gm = ri.G - gb;
+                int n = ri.P.Count;
+                double ulpZ = ExactInterval.Up(2 * ri.MaxAbsZ) - 2 * ri.MaxAbsZ, ulpL = ExactInterval.Up(ri.LengthUp) - ri.LengthUp;
+                double rounding = ExactInterval.Up((n + 1) * ExactInterval.Up(ulpZ + ExactInterval.Up(ri.G * ulpL)));
+                double road = ExactInterval.Up(ExactInterval.Up(gm * ri.LengthUp) + rounding);
+                double width = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(2 * delta * ri.R.Width) * sMax) * ri.MiterFactor);
+                double share = ExactInterval.Up(road + width);
+                if (share > best) { best = share; RampShareRoad = road; RampShareWidth = width; }
+            }
+            return best;
         }
+
+        /// <summary> tests: the parts of the last build's ramp share (the road's grade margin, the outer edge's widening) </summary>
+        internal double RampShareRoad, RampShareWidth;
 
         // the box of the toes grown by the ramps' road polygons (with room for the margins): the domain and the
         // numerical resolution cover the walls above the roads

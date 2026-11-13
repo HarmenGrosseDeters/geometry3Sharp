@@ -548,7 +548,45 @@ namespace geometry3Sharp.Tests
             d.Tolerance = 3e-5;
             Assert.False(d.Compute());
             Assert.Equal(TerrainSlopeDesign.Statuses.InvalidInput, d.Status);
-            Assert.Contains("the ramp is too long for Tolerance", d.Message);
+            Assert.Contains("the ramp is too long or too wide for Tolerance", d.Message);
+        }
+
+        // the ramp's share, pinned against an independent computation: (g - gb) L + sMax 2 delta W x the outer corners' miter
+        // factor (1 / cos(turn / 2) at a bend away from the road), up to the roundings (n + 1) ulp; and the snap budget
+        // includes it
+        [Fact]
+        public void RampShare_IsPinned_WithTheMiterAtBends()
+        {
+            foreach (bool bend in new[] { false, true }) {
+                var d = bend ? AroundCorner() : Straight();
+                Assert.True(d.Compute(), d.Message);
+                SlopeRamp r = d.Ramps[0];
+                double delta = d.UsedSlopeMargin, s = d.Pieces.Where(p => p.Kind != SlopePiece.Kinds.Road).Min(p => p.Spec.S), g = r.Grade.S;
+                double L = 0;
+                for (int i = 0; i + 1 < r.Path.Count; ++i) L += r.Path[i].Distance(r.Path[i + 1]);
+                double miter = 1;
+                if (bend) {
+                    Vector2d u0 = (r.Path[1] - r.Path[0]).Normalized, u1 = (r.Path[2] - r.Path[1]).Normalized;
+                    miter = 1 / Math.Cos(0.5 * Math.Acos(u0.Dot(u1)));
+                    Assert.True(miter > 1.25, $"{miter}");
+                }
+                double expected = (g - (g - 0.5 * delta * s)) * L + 2 * delta * r.Width * s * miter;
+                Assert.InRange(d.UsedRampShare, expected * (1 - 1e-9), expected * (1 + 1e-7) + 1e-12);
+            }
+        }
+
+        [Fact]
+        public void SnapBudget_IncludesTheRampShare()
+        {
+            var start = new Vector2d(-30, -40);
+            var toe = SlopeToe.Constant(PitWithStart(40, 0, start), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var ramp = new SlopeRamp() { Toe = 0, Path = new List<Vector2d>() { start, new Vector2d(35, -47) }, Grade = SlopeSpec.Percent(10), Width = 5, Side = SlopeToe.Sides.Right };
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-90, -90, 90, 90), 18, 18, (x, y) => 5);
+            var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe>() { toe }, Ramps = new List<SlopeRamp>() { ramp }, Terrain = terrain, Tolerance = 0.05, BuildComposite = true };
+            Assert.True(d.Compute(), d.Message);
+            Assert.True(d.UsedRampShare > 0);
+            Assert.True(d.SnapRampPart >= d.UsedRampShare * (1 - 1e-12), $"{d.SnapRampPart} < {d.UsedRampShare}");
+            Assert.True(d.SnapBudget >= d.SnapRampPart);
         }
 
         [Fact]

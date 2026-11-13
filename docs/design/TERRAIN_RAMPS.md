@@ -193,14 +193,16 @@ So the ramp's pieces go into the same envelope as the toe's:
   of its height and of its XY times g (< sMin), so a triangle with altitudes of at least MinFeatureSize is steeper than
   its plane by at most about δ sMin / 4. The exact check decides; a failure raises δ like any slope failure.
 - New budget term (**bound review**), `ramp_share`, subtracted from the facet share and part of the snap certificate's
-  budget, the sum (rounded up) of
-  - the road below its specified heights by at most RoadMargin x the path's length:
-    Up(Up(Up(RoadMargin) x Up(L (1 + 1e-12))) x 1.01);
-  - the wall above the outer edge, built at Width (1 + 2δ), standing 2δ Width further back than the specified one, so
-    at most sMax 2δ Width lower: Up(Up(Up(2δ W) x sMax) x 1.01) (found by the independent review: without it a wide
-    road with a large margin was certified up to 2 x Tolerance below its specified wall).
-  When the slope's margins leave room but the ramp's share does not: `InvalidInput`, "the ramp is too long for
-  Tolerance". `UsedRoadMargin` reports the margin used.
+  budget: the largest over the ramps of the sum (each product and the sum rounded up) of
+  - the road below its specified heights: the built grade gb = g − RoadMargin is lower by g − gb (exact: Sterbenz, as
+    gb > g / 2 is checked) over the path's length L (summed rounded up), plus (n + 1) (ulp(2 max|z|) + g ulp(L)) for the
+    roundings of the vertex heights along the path and of the segment lengths;
+  - the wall above the outer edge, built at Width (1 + 2δ): it stands 2δ Width further back, at a miter corner of a bend
+    2δ Width / cos(turn / 2) (the largest over the ramp's outer corners, rounded up), so at most sMax times that lower
+    (found by the independent reviews: without it a wide road with a large margin was certified up to 2 x Tolerance
+    below its specified wall, and without the miter factor up to 39 % of the term at a sharp bend was not counted).
+  When only the ramp's share does not fit: `InvalidInput`, "the ramp is too long or too wide for Tolerance", with both
+  parts. `UsedRoadMargin` reports the margin used.
 - The outer edge is built at Width (1 + 2δ); the width oracle's nominal polygons run from Width δ / 2 to Width
   (1 + 3δ / 2) and end Width δ inside each segment, so no rounding of a boundary they share with the road decides it.
 - The road's z at the path's vertices: z_{i+1} = z_i + g_b L_i in doubles (rounded once per vertex); the polygon

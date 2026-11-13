@@ -1207,17 +1207,17 @@ namespace gs
             // (on a terrain, Tolerance / 4 is reserved for the move of the composite's catch points, which its certificate
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
-            // (a ramp's road is built at the grade g - delta sMin / 2 and its outer edge at Width (1 + 2 delta): the road and
-            // the wall above it lie below the specified ones by at most that times its length and sMax 2 delta Width,
-            // TERRAIN_RAMPS.md, "Margins")
+            // (a ramp's road is built flatter than its grade and its outer edge wider than Width: the road and the wall above
+            // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins")
             double rampShare = ramp_share(delta, sMin, sMax);
-            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare - rampShare;
-            if (!(facetShare > 0) && rampShare > 0 && !(facetShare + rampShare > 0))
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3})");
-            if (!(facetShare > 0) && rampShare > 0)
-                return fail(Statuses.InvalidInput, $"the ramp is too long for Tolerance {Tolerance}: its road margin takes {rampShare:G3} of it (TERRAIN_RAMPS.md, \"Margins\"); the numerical margins are {lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3}");
-            if (!(facetShare > 0))
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare + rampShare:G3})");
+            UsedRampShare = rampShare;
+            double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
+            double facetShare = Tolerance - withoutRamps - rampShare;
+            if (!(facetShare > 0)) {
+                if (rampShare > 0 && Tolerance - withoutRamps > 0)
+                    return fail(Statuses.InvalidInput, $"the ramp is too long or too wide for Tolerance {Tolerance}: its share is {rampShare:G3} (the road's grade margin {RampShareRoad:G3}, the outer edge's widening {RampShareWidth:G3}; TERRAIN_RAMPS.md, \"Margins\"), the numerical margins without it {withoutRamps:G3}");
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({withoutRamps + rampShare:G3})");
+            }
             // toe segments below the feature size at the largest margin (1e-3) cannot be realized
             double minFeatureMax = 2 * (8 * exy + 4 * eeval / sMin) / 1e-3;
             foreach (var pc in pieces)
@@ -1242,7 +1242,8 @@ namespace gs
             double facetSlack = ExactInterval.Down(facetShare - facetNeed);
             {
                 double deltaTerm = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(delta * sMax) * 1.1) * D0);
-                snapBase = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lambdaBound + deltaTerm) + mergeShare) + facetNeed) + rampShare);
+                snapBaseWithoutRamps = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lambdaBound + deltaTerm) + mergeShare) + facetNeed);
+                snapBase = ExactInterval.Up(snapBaseWithoutRamps + rampShare);
                 snapSMax = sMax; snapExy = exy; snapMergeRadius = mergeRadius;
             }
             double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
@@ -1684,6 +1685,9 @@ namespace gs
         // computes it, the sum rounded up
         // (set by build: the terms that do not depend on the realization)
         double snapBase, snapSMax, snapExy, snapMergeRadius;
+        /// <summary> tests: the snap budget's base without the ramps' share, and the share of the last build </summary>
+        internal double snapBaseWithoutRamps, UsedRampShare;
+        internal double SnapRampPart { get { return snapBase - snapBaseWithoutRamps; } }
         double budget_without_snap()
         {
             double band = BandMerges > 0 ? ExactInterval.Up(4 * snapSMax * ExactInterval.Up(ExactInterval.Up(snapMergeRadius + MaxMergeDistance) + snapExy)) : 0;
