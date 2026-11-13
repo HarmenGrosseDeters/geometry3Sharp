@@ -4,6 +4,17 @@
 subclass in a scratch project, not committed; its algorithm is given in section 5.1 so it can be rebuilt). Decisions for
 the owner are in section 10.
 
+Result in short:
+- The library already proves, per collapse, the output side: `h(S, M) <= ε` (`Reducer.MaxDeviation`), closed and
+  manifold (link condition), no self-intersections (`PreventSelfIntersections`, exact). Missing is `h(M, S) <= ε`.
+- Today's one-sided reduction violates `h(M, S) <= ε` in 12 of 18 measured cases (procedural and Thingi10K), by up to
+  0.28 ε (proven by the lower bound of `MeshHausdorffDistance`).
+- Recommended: **O1**, per input triangle a small set of output triangles it is certified against, re-checked only when
+  a collapse touches one of them (Klein et al. 1996's correspondence idea with the library's Sacht-Jacobson bounds). The
+  bound is global and proven by induction from local checks. In the probe it fixes all 18 cases, costs 0-7 % more
+  triangles (+72 % on the worst violator) and 2.4-8.2x the time of today's one-sided reduction with a naive check; a
+  library version should reach about 2x (section 8).
+
 ## 1. Question
 
 A simplification (decimation) whose output `S` is guaranteed to be within a given ε of the input `M` in the
@@ -101,7 +112,7 @@ Keep for every input triangle `T` a small set `D(T)` of current output triangle 
   (a dozen input triangles against about 10 output triangles) and the bound is global.
 - **The per-triangle certificate** is the same family as `IsWithin`: for a single target triangle the distance is
   convex, so the maximum over `T` is at a corner; else the covering bound (largest corner distance plus the longest
-  edge); else subdivide `T` into 4 up to a depth limit; reject if a corner is farther than ε from every candidate.
+  edge, a safe covering radius); else subdivide `T` into 4 up to a depth limit; reject if a corner is farther than ε from every candidate.
   In the library it would be a variant of `TriangleDeviationBounds.UpperBound` over a candidate list instead of a tree.
 - **Composition:** together with `MaxDeviation` (h(S, M) <= ε) it gives `H(S, M) <= ε`. Closed / manifold come from the
   collapse's link condition, freedom from self-intersections from `PreventSelfIntersections` (each proven per collapse
@@ -167,7 +178,14 @@ bound above ε is a proven violation. Machine: the cloud container, 4 cores, one
 Bumpy sphere (`Sphere3Generator_NormalizedCube`, EdgeVertices 40, radial bumps), spiky sphere (EdgeVertices 60, three
 narrow spikes of height 0.3), terrain 80 x 80 (open, hills and ripples), as in `benchmarks/ReducerBenchmark`.
 
-RESULTS_PROCEDURAL
+| mesh | input triangles | ε / diagonal | plain QEM (ms) | A: triangles, ms, h(S,M)/ε, h(M,S)/ε (lower bound) | B: triangles, ms, of which reverse check ms, h(S,M)/ε, h(M,S)/ε | B: collapses rejected by the reverse check / done, input checks per checked collapse, largest D(T) | time B / A |
+|---|---|---|---|---|---|---|---|
+| bumpy sphere | 18252 | 0.001 | 62 | 1706, 3545, 1.008, 1.011 (**1.001**) | 1706, 14964, 11844, 1.008, 1.009 | 2681 / 8273, 25.2, 9 | 4.2x |
+| bumpy sphere | 18252 | 0.003 | 50 | 518, 1802, 1.003, 1.007 (0.997) | 518, 5712, 3605, 1.003, 1.007 | 812 / 8867, 35.9, 8 | 3.2x |
+| spiky sphere | 41772 | 0.001 | 104 | 1252, 5782, 1.009, 1.009 (1.000) | 1252, 24960, 18084, 1.009, 1.009 | 1931 / 20260, 37.6, 9 | 4.3x |
+| spiky sphere | 41772 | 0.003 | 107 | 432, 3430, 1.009, 1.024 (**1.017**) | 434, 10403, 5967, 1.009, 1.008 | 672 / 20669, 43.1, 6 | 3.0x |
+| terrain 80 | 12800 | 0.001 | 28 | 2941, 1339, 1.008, 1.176 (**1.167**) | 2940, 7941, 6367, 1.008, 1.009 | 4798 / 5008, 13.8, 10 | 5.9x |
+| terrain 80 | 12800 | 0.003 | 37 | 932, 1020, 1.002, 1.109 (**1.099**) | 936, 2850, 1684, 1.002, 1.009 | 1444 / 6043, 22.5, 7 | 2.8x |
 
 ### 5.3 Thingi10K (fetched at run time, not committed)
 
@@ -175,11 +193,38 @@ Six models drawn with seed 731 from the Thingi10K metadata (revision `2d5d3b2f`,
 among the closed, edge- and vertex-manifold, single-component meshes with 5k-20k faces and no self-intersections,
 duplicated or degenerate faces: IDs 1036464, 51011, 894833, 472201, 1436278, 60516.
 
-RESULTS_THINGI
+| mesh | input triangles | ε / diagonal | plain QEM (ms) | A: triangles, ms, h(S,M)/ε, h(M,S)/ε (lower bound) | B: triangles, ms, of which reverse check ms, h(S,M)/ε, h(M,S)/ε | B: collapses rejected by the reverse check / done, input checks per checked collapse, largest D(T) | time B / A |
+|---|---|---|---|---|---|---|---|
+| 1036464 | 7068 | 0.001 | 28 | 940, 1311, 1.009, 1.077 (**1.068**) | 954, 4545, 3520, 1.009, 0.998 | 1543 / 3057, 20.6, 13 | 3.5x |
+| 1036464 | 7068 | 0.003 | 17 | 390, 626, 1.004, 1.008 (0.998) | 394, 2138, 1424, 1.004, 1.008 | 584 / 3337, 29.8, 13 | 3.4x |
+| 1436278 | 18610 | 0.001 | 60 | 532, 3554, 1.004, 1.288 (**1.279**) | 914, 28643, 25020, 1.001, 1.006 | 1167 / 8848, 86.3, 18 | 8.1x |
+| 1436278 | 18610 | 0.003 | 58 | 318, 1862, 0.999, 1.007 (0.998) | 320, 14312, 12089, 0.999, 1.007 | 332 / 9145, 113.0, 11 | 7.7x |
+| 472201 | 5572 | 0.001 | 13 | 346, 1179, 1.004, 1.010 (**1.003**) | 370, 2874, 1846, 1.003, 1.010 | 707 / 2601, 28.2, 8 | 2.4x |
+| 472201 | 5572 | 0.003 | 13 | 182, 643, 1.009, 1.041 (**1.033**) | 186, 2342, 1674, 1.009, 0.980 | 287 / 2693, 33.0, 5 | 3.6x |
+| 51011 | 8656 | 0.001 | 21 | 1764, 1586, 1.004, 1.017 (**1.008**) | 1772, 4049, 2501, 1.004, 1.008 | 2705 / 3442, 16.0, 8 | 2.6x |
+| 51011 | 8656 | 0.003 | 22 | 902, 936, 0.998, 1.047 (**1.037**) | 908, 2268, 1249, 0.998, 1.005 | 1359 / 3874, 23.2, 11 | 2.4x |
+| 60516 | 14628 | 0.001 | 33 | 1652, 1732, 1.009, 1.126 (**1.116**) | 1676, 14222, 12194, 1.009, 1.010 | 2558 / 6476, 24.5, 23 | 8.2x |
+| 60516 | 14628 | 0.003 | 39 | 1000, 1143, 1.007, 1.150 (**1.141**) | 1010, 4676, 3442, 1.007, 0.992 | 1449 / 6809, 32.7, 16 | 4.1x |
 
 ### 5.4 Reading
 
-READING
+Bold: a lower bound above ε, so a **proven** violation of `h(M, S) <= ε` by today's one-sided reduction.
+
+- **The one-sided bound is not two-sided in practice.** Today's `MaxDeviation` reduction violates `h(M, S) <= ε` in
+  12 of 18 cases (4 of 6 procedural, 8 of 12 Thingi10K), by up to 0.28 ε (1436278 at 0.001; terrain 0.17 ε at its open
+  rim). The forward direction stays within ε everywhere (upper bounds <= 1.009 ε, the oracle's tolerance is 0.01 ε).
+- **O1 closes it.** B's `h(M, S)` upper bound is <= 1.010 ε in all 18 cases (consistent with <= ε at the oracle's
+  tolerance), its `h(S, M)` unchanged.
+- **Collapses lost:** few. B's final triangle count is within 0-1 % of A on the procedural meshes and 0.6-7 % on
+  Thingi10K, except 1436278 at 0.001 (532 -> 914, +72 %), the case where A cut 0.28 ε deep: the extra triangles are
+  what the bound costs there. The "rejected" counts are larger (B rejects 10-50 % of its checked collapses) because a
+  rejected edge comes back after its neighbours change, and because the probe checks before the base's own guards.
+- **Time:** B takes 2.4-8.2x A's time; the reverse check is 55-87 % of B, and B minus the check is about A's time.
+  The worst factors are on 1436278 and 60516, where 86-113 and 25-33 input triangles are checked per collapse
+  (their inputs are dense under smooth regions). A itself is 15-60x the plain QEM reduction (the known cost of
+  `IsWithin`).
+- **Sets stay small:** the largest `D(T)` is 5-23 output triangles; the probe's candidates are the new ring plus the
+  old set (about 10-30 triangles).
 
 ## 6. Guarantees: proven vs measured
 
@@ -216,26 +261,29 @@ section 5 shows it on the spiky sphere and the terrain.
 - **Determinism:** the check is serial per collapse; if its per-input checks run in parallel (as `IsWithin` does per
   triangle), parallel equals serial bit for bit (the decision is an AND of independent answers, and the sets are
   sorted before they are stored), repeated runs equal.
-- **Mutation:** mutants that drop `D(T) \ R` from the candidates (unsound: accepts too much? no, rejects more; must be
-  killed by an acceptance count test), that skip the update of the inverse map (unsound: a later collapse misses an
-  affected input; killed by the guarantee test on the spiky sphere), that check only `N` and not the old sets, that
-  use the corners only (no subdivision), and that keep the old `D(T)` after an accepted collapse.
+- **Mutation:** the unsound mutants must be killed by the guarantee tests: skipping the update of the inverse map (a
+  later collapse misses an affected input), keeping the old `D(T)` after an accepted collapse (stale geometry), testing
+  the corners only (no subdivision, no covering term), `<` / `<=` swaps against ε. The over-strict ones by a count test
+  (triangles reached on a fixed case): dropping `D(T) \ R` from the candidates, a smaller depth limit.
 - **Oracle:** O2 (the a posteriori `MeshHausdorffDistance`) is the oracle; a brute-force test on small meshes compares
   the sets against a full recomputation of `h(T, S)` per input triangle after every collapse.
 - **Time:** every test under 5 s (meshes of 2k-10k triangles); the probe's cases above 5 s go to the benchmark.
 
 ## 8. Upper bound / cost estimate
 
-- From the probe: B costs CHECK_FACTOR the time of A (one-sided), of which CHECK_SHARE is the reverse check; A itself
+- From the probe: B costs 2.4-8.2x the time of A (one-sided), of which 55-87 % is the reverse check; A itself
   costs 15-60x the plain QEM reduction (the `IsWithin` checks, as measured before: 90-98 % of the time).
 - The probe's check is naive: it runs before the base's cheaper rejections, allocates per check, recomputes every
   corner distance per subdivision level, and does not share corners between the affected inputs (neighbouring input
   triangles share them). Expected gains of a library version: run it last (after flip, fold, deviation,
   self-intersection) — the probe's own counts say how many checked collapses were rejected by the base anyway —;
   share corner distances per collapse; a carried margin per input triangle (skip the check if the moved vertex moved
-  less than `ε - U(T)`, as the D1 reference rule and the carried-bound spike of ENVELOPE.md §6 do). A realistic target
-  is the reverse check at or below the cost of the forward check, i.e. B at about 1.5-2x A.
-- Number of collapses lost: section 5 (final triangle counts of A and B).
+  less than `ε - U(T)`, as the D1 reference rule and the carried-bound spike of ENVELOPE.md §6 do).
+- Upper bound of the gain: the non-check part of B is about A's time, so even a free reverse check gives B = A; a
+  reverse check as costly as the forward one (the same kind of bound on a similar number of triangles) gives about
+  1.9x A. Target for the library version: B <= 2x A at the median of the 18 cases, <= 3x at the worst (1436278).
+  Above that, the stop rule: measure first which of the three savings above carries it.
+- Collapses lost: 0-7 % more triangles, +72 % where the one-sided reduction violated the bound most (section 5.4).
 
 ## 9. Risks
 
