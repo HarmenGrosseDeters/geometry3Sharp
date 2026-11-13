@@ -964,6 +964,7 @@ namespace geometry3Sharp.Tests
         const double WrapAlpha692 = 120, WrapOffset692 = 1200;
         const int SolidifyResolution692 = 16;
 
+        // Slow: three Applies (wrap, simplify) and a Hausdorff bound on the 12 plates, about 8 s alone even reduced (issue #692)
         [Trait("Category", "Slow")]
         [Fact]
         public void SolidifyNotClean_AlphaWrapped()
