@@ -228,6 +228,22 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Query3d_Camera_IsAToolArgument()
+        {
+            var server = Server();
+            string depth = m.Path_("mcp_depth.pgm");
+            JsonObject r = Handle(server, Call(1, "query3d", new JsonObject() { ["input"] = m.Cube, ["camera"] = "-5,0,0;0,0,0;90;16;16", ["depth_output"] = depth }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            var sc = r["result"]["structuredContent"];
+            Assert.Equal(16, I(sc["rays"]["hits"]));
+            Assert.Equal(16, I(sc["depth_image"]["hits"]));
+            Assert.Equal("P2", System.IO.File.ReadAllLines(depth)[0]);
+            r = Handle(server, Call(2, "query3d", new JsonObject() { ["input"] = m.Cube, ["camera"] = "-5,0,0;0,0,0;0;16;16" }));
+            Assert.True(B(r["result"]["isError"]));
+            Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));
+        }
+
+        [Fact]
         public void Hull2d_IsATool()
         {
             var server = Server();

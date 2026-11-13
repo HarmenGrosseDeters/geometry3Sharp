@@ -77,14 +77,14 @@ Part of the [roadmap](../ROADMAP.md).
   7 rounding parts with the 8-term filter (known times 145-294 min), the 19-term filter at most on rounding-7, plus the
   touched non-rounding shards. A kill signal of the 19-term tests on all parts would need ~11 rounding parts (owner
   decision, not needed for the gate).
-- **CLI / MCP update (owner 2026-11-08; in progress, Sonnet session started 2026-11-12):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
+- **CLI / MCP update (owner 2026-11-08; Sonnet session started 2026-11-12; done with #707):** starts after the Meshing2D bundle and the Exact Boolean 2.0 and
   Alpha Wrap 2.0 milestones. A Sonnet session (not Haiku: each command is public surface) first lists the public
   operations `g3cli` does not expose (analysis blocks, fidelity metrics, geodesics, MarchingCubes `LinearEdges` /
   conservative enclosure, 2D booleans via the Clipper2 addon, the new repair / boolean options and result codes) with
   proposed command names, options and result JSON for the owner; then small PRs with `g3cli.Tests` and docs.
   Step 1 (2026-11-12): the list is [design/CLI_MCP_UPDATE.md](../design/CLI_MCP_UPDATE.md), approved by the owner 2026-11-12 (decisions in its
   section 11); PRs A (`repair` options and result fields, #662), B (`query3d` output file, `--inside auto`, JSON lists, `--normalize`, #665), C (`polygon_solids`, #667)
-  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702, `query3d --camera` #707) are in review; G without `voxelize` as in its section 10.
+  and D (`polygon2d` line ops, #669) are merged; E (`curvature`, `fidelity` / `geodesic` options, #672) is merged; F (`offset`, #689) and G (`hull2d` #690, Minkowski ops #702) are merged; `query3d --camera` (#707) is the last PR (in review); G is without `voxelize` as in its section 10 (dropped by the owner).
 - **Related:** [OPERATIONS.md](../OPERATIONS.md), [QA.md](../QA.md), [UPSTREAM_CHANGES.md](../UPSTREAM_CHANGES.md),
   [ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md), [design/DAP_BUGFIX_AUDIT.md](../design/DAP_BUGFIX_AUDIT.md),
   [tools/g3cli](../../tools/g3cli/README.md).
