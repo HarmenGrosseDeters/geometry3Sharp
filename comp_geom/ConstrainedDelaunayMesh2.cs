@@ -259,6 +259,9 @@ namespace g3
             /// Points within the automatic tolerance of an earlier point are merged into it (spec O11, Q14): they get its coordinates
             /// for the triangulation, so the kernel maps them to it as exact duplicates; their slots keep their own coordinates
             /// (D17). A point merges only into a point that merged into nothing, so no chain moves anything farther than the tolerance.
+            /// An exact duplicate of an earlier point takes that point's coordinates as they are then: identical inputs map to one vertex,
+            /// also when the earlier one merged into a third point (a merged point is not in the cells, so the duplicate found another point
+            /// within the tolerance, and the two inputs mapped differently; #863)
             /// </summary>
             void MergeNearPoints(double[] x, double[] y)
             {
@@ -268,7 +271,12 @@ namespace g3
                 var cells = new Dictionary<long, List<int>>(PairKeys.Comparer);
                 long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xffffffff);
                 int merged = 0;
+                var first = new Dictionary<(double, double), int>();
                 for (int i = 0; i < n; ++i) {
+                    // (keyed by the input coordinates, before any merge moved them: -0 and 0 are one key, as the kernel's duplicate test)
+                    var at = (x[i] == 0 ? 0.0 : x[i], y[i] == 0 ? 0.0 : y[i]);
+                    if (first.TryGetValue(at, out int twin)) { x[i] = x[twin]; y[i] = y[twin]; continue; }
+                    first.Add(at, i);
                     double sx = Scaled(x[i] - ox), sy = Scaled(y[i] - oy);
                     long cx = (long)Math.Floor(sx / cell), cy = (long)Math.Floor(sy / cell);
                     int into = -1;
