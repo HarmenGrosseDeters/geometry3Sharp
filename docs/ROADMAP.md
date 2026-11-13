@@ -153,8 +153,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   Steiner-limit bugfix #664 (#666, merged 2026-11-12, fec3b2a9); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
   (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
   session (owner exception 2026-11-12, as in stage 6b): done 2026-11-12, stage 6b-4 on master `01a7e71`, no (A) finding, no
-  rewrite needed. SplitSegment speed: dropped after its upper-bound check (27 % of refinement, 2026-11-13); next a
-  SplitTriangle breakdown (measurement). The oracle leftovers need corpus inputs that are not in the repository. [meshing2d.md](roadmap/meshing2d.md#open)
+  rewrite needed. SplitSegment speed: deferred after its upper-bound check (27 % of refinement, about 7 % realistic gain,
+  2026-11-13); next a SplitTriangle breakdown (measurement), then one speed PR for both. The oracle leftovers need corpus inputs that are not in the repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4 merged (#670), L1 merged (#681, 2026-11-12), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report (in progress, started 2026-11-12), a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667, D #669
   E #672, F #689 and G (`hull2d` #690, Minkowski #702) merged; the last PR #707 (`query3d --camera`) in review; `voxelize` dropped). [research.md](roadmap/research.md#open)

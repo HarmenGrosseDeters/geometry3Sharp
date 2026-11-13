@@ -45,15 +45,16 @@ script for the tiles 371800_5710600, 373600_5709000 and 381000_5710400 (UTM 32N,
 today by `corpus/fetch.py`. No GEOS- or CGAL-derived data. This unblocks the Herne items below; run-A outputs (produced by
 the fork) and stmlf stay blocked.
 
-- **SplitSegment speed: dropped (upper-bound check, 2026-11-13).** On cq 373600 q30 (the Herne input from #722's script,
+- **SplitSegment speed: deferred, not dropped (upper-bound check, 2026-11-13).** On cq 373600 q30 (the Herne input from #722's script,
   master 9a74dafe, three runs, net10.0 Release) the mesh takes 3.8 s, of which refinement is 3.1-3.3 s.
   - SplitSegment is 0.83-0.98 s of that, about 27 %: 29232 calls, 28962 splits.
   - Within SplitSegment: GridSplitPoint 0.49-0.62 s (about 65 % of it), Collect after the split 0.15-0.20 s, and
     Unconstrain + RestoreDelaunay + InsertPoint + InsertPiece together about 0.12 s.
   - The roadmap's earlier "3.4 s of 7.3 s" is out of date: refinement got faster after #384.
   - Removing SplitSegment entirely would save at most 22 % of the mesh time; halving GridSplitPoint, realistically,
-    about 7 %. Neither reaches the <= 2x fork target (2.7x after #384), so no SplitSegment speed PR (coordinator,
-    2026-11-13).
+    about 7 %. Neither reaches the <= 2x fork target (2.7x after #384) alone, but about 7 % is still a measurable gain
+    (owner, 2026-11-13). It is taken up together with the SplitTriangle measurement below: one speed PR for both, if
+    that measurement shows a gain worth its code, built with a benchmark row.
 - **SplitTriangle upper-bound check (open, measurement only).** SplitTriangle takes 1.71-1.83 s of the 3.2 s refinement
   (53637 calls), including the segment splits it triggers. It is the larger target if speed is still wanted. The next
   step is its own breakdown (circumcentre and off-centre choice, grid checks, insertion, Collect), measured on the
@@ -260,7 +261,7 @@ Order: (1) one boundary index for coverage and conformity, (2) a source index an
 
 Left for a later pick-up: 373600 q30 delaunay 9.8 s = local test 1.9 + witness 0.9 + pass on the ~4400 remaining needles 7.5 (2.6 M in-circle hits, almost all merge-zone excused: ExcusedOffSegment 3.2, GridUnsplittable memo 3.1); corpus segments and conformity.
 
-Next mesher speed item outside grading: was SplitSegment; dropped after its upper-bound check (2026-11-13: 27 % of 3.2 s refinement, at most 22 % of the mesh; see Open). Next: a SplitTriangle breakdown, measurement only.
+Next mesher speed item outside grading: a SplitTriangle breakdown (measurement only), then one speed PR for SplitTriangle and SplitSegment (a GridSplitPoint cache, about 7 % of the mesh; 2026-11-13: SplitSegment is 27 % of 3.2 s refinement, at most 22 % of the mesh; see Open).
 
 Oracle on large foreign outputs (reference run 2026-11-05: fork / triangle.c outputs of 200k-400k triangles with 170k-230k below the bound did not finish in 600 s): the quality phase hung in `CircumcentreBehindO11Unsplittable` → `Behind`, a scan of every subsegment per bad triangle (about 7 per second, about 9 h); fixed in #387 (the constructed point enters the subsegment grid by its interval; an unrefined 44k-triangle mesh at M3: quality 52 s -> 5 s, report identical).
 
