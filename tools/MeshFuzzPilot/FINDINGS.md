@@ -174,7 +174,7 @@ Done in #577: options from raw bytes; the 2^16 cut-offs removed for the mesher (
 judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
 every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
 `ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
-of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`; `MeshCommand.cs` and `TrianglePolyFormat.cs` are
+of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` (and, before its 2.0, `Clipper2Lib.dll`); `MeshCommand.cs` and `TrianglePolyFormat.cs` are
 no longer compiled. Not done: the oracle and the adapter of the mesher are not instrumented (the oracle judges, the mesher is `geometry3Sharp.dll`).
 
 ## T13 libFuzzer campaign (2026-11-11): 17 targets, 10 minutes each, 2 fork jobs

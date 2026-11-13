@@ -12,9 +12,8 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
 - Files: `Clipper.Core.cs`, `Clipper.Engine.cs`, `Clipper.Minkowski.cs`, `Clipper.Offset.cs`, `Clipper.RectClip.cs`,
   `Clipper.Triangulation.cs` (only because `Clipper.cs` refers to it; unused), `Clipper.cs`, `HashCode.cs` (its own
   MIT / BSD-2 notices for the .NET and xxHash code it contains), `PooledList.cs`.
-- Changes, mechanical only, so that these types never clash with the `Clipper2` package (which the public API of
-  `geometry3Sharp.Clipper2` still uses for `Point64`, `Path64`, `Paths64`, `ClipType`, `FillRule`, `JoinType` and
-  `EndType`):
+- Changes, mechanical only, so that these types never clash with the `Clipper2` package in code that references both
+  (and with the public enums of `geometry3Sharp.Clipper2`, which have the same names):
   1. `namespace Clipper2Lib` → `namespace g3.Clipper2.Vendored`;
   2. top-level types `public` → `internal` (members unchanged).
 
