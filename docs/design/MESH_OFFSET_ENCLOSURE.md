@@ -1,7 +1,9 @@
 # The distance-field enclosure for the offset topology certificate (stage A2, proof first)
 
-Status: **written proof, not reviewed.** It is for the fresh-session review the coordinator routes (decision 2 of
-[MESH_OFFSET.md](MESH_OFFSET.md), section 9, 2026-11-13). A2 is built only after this review. No code.
+Status: **written proof, reviewed 2026-11-13** (fresh session, routed by the coordinator, on head d659949): Theorem E
+and the sign reduction sound, (S2') accepted, Theorem O holds with the hypotheses added below; no must-fix. The review
+findings are worked in (premises from A1 in section 1.1, the decidable form of Theorem O, the conditions of (S2'), the
+answers in section 9). Decision 2 of [MESH_OFFSET.md](MESH_OFFSET.md), section 9: A2 may now be built. No code.
 
 Context: stage A1 (`gs.MeshOffset`, #799) contours F = d - sd with dual contouring and proves one side of the band.
 A2 adds the topology certificate: class S of the contouring certificate, Theorem 5 of `docs/design/CONTOURING_TOPOLOGY.md`
@@ -28,13 +30,39 @@ outward, no self-intersections). T is its set of triangles, each a compact conve
 ## 1. Setting
 
 Cells are the closed boxes of the grid (uniform, or the two-level grid of #749 section 7.1), and edges and faces are
-cells of lower dimension. The grid has cell size h with h <= |d| / 2, as in A1. A cell (box, face or edge) X is called
-**clear** if
+cells of lower dimension. The grid has cell size h with h <= |d| / 2, as in A1; for a coarse cell of the two-level
+grid, h below means its own (coarse) size. A cell (box, face or edge) X is called **clear** if X is disjoint from M,
+i.e.
 
-    inf over X of u  >  0,
+    inf over X of u  >  0   (the whole closed cell, not only its corners or centre).
 
-i.e. X does not meet M. This is checked by intervals: u(c) - r(X) > 0, with the A1 bounds of u at a point c of X and
-r(X) an upper bound of the distance from c to the corners of X.
+This matters beyond the interior: the generalized gradient at a point of the boundary of X is a limit of gradients at
+nearby points, some outside X, and Lemma 2 needs those points off M too (the open set where the formula holds must
+contain X). It is checked by an A1 interval bound: uLo(c) - r(X) > 0, with uLo(c) the lower bound of u at a point c
+and r(X) an upper bound of the distance from c to every point of X (to its exact corners; X is convex).
+
+### 1.1 Premises from A1 (proved there, used here)
+
+Every number of the certificate other than the exact signs of section 3 comes from the A1 bounds (`gs.MeshOffset`,
+#799; design note [MESH_OFFSET.md](MESH_OFFSET.md) section 10, code `MeshOffset.signed_distance_bounds`):
+
+- (P1) **uLo(c) <= dist(c, M) <= uHi(c)** for a double point c: uHi is the distance to an explicit point of the nearest
+  triangle (`triangle_upper`), uLo the minimum of the support bounds over a superset of the triangles that can be that
+  close (`triangle_lower`); both in `ExactInterval` arithmetic (one ulp per operation). Tests:
+  `DistanceBounds_EncloseTheDistance_Tightly` and the mutants of A1 (a 1.2x lower bound, a 0.8x upper bound).
+- (P2) **C(X) is a proven superset of {t : dist(X, t) <= U(X)}**: the tree traversal descends into every box whose
+  lower distance bound (`box_lower_sq`: interval differences, Down-rounded squares, minus 8 ulps of the coordinates)
+  is at most U(X)^2 rounded up, and the tree's boxes are padded by 2^-40 of the root's magnitude
+  (`DMeshAABBTree3.ComputeBoxPadding`) against the rounding of their centre / extent form. For a cell X (not a point)
+  A2 runs the same traversal, with the same rounding rules, on the distance between the box of X and the tree's boxes;
+  that variant is new code of A2 and gets the tests of P1's kind.
+- (P3) **s(X), the side of the input**, from the exact crossing parity (`DMeshAABBTree3.IsInside`) at a point of X that
+  is provably off M (P1), valid for clean closed M.
+
+**Interval bounds versus exact signs.** (S0), "clear", the separating segment of (S2) and the proofs that a cell is
+zero-free (section 4) are A1 interval bounds, not exact signs: they are proofs, but their precision (how close to the
+level set or to M they can decide) is that of A1, a premise of the certificate. A bound that cannot decide makes the
+cell uncertified (refined, then listed), never certified. Only the direction tests of section 3 are exact signs.
 
 **Lemma 0.** Every cell that meets L is clear. Every point of such a cell has u > |d| - diam(X) >= |d| - sqrt(3) h > 0.
 
@@ -131,7 +159,10 @@ The same holds with "< 0". With the sign -s(X) of Theorem E, "a · g has one sig
   On a face with four crossings, it also needs a segment in the face that separates the crossings two and two and on
   which F has no zero. This is checked with the value bounds of A1 on the segment: interval bounds of u at points of
   the segment, together with the Lipschitz bound, by subdivision.
-- **(S3)**: a direction d with d · (z_i - p_j) > 0 for all corners and candidates. d is chosen in double (eg the
+- **(S3)**: a direction d with d · (z_i - p_j) > 0 for all corners and candidates. (S3) asks for d · g > 0 for all g in
+  G(X) = -s co D(X); if instead -s d passes the test, that is d · g < 0 on G, and -d is a valid direction for (S3)
+  as well (Theorem 4 needs only some direction along which L is a graph), so the test is run for d and the sign is
+  not a condition. d is chosen in double (eg the
   normalized sum of n_t(c) over the candidates, or the mean direction from the nearest points). Each sign is that of
   sum over k of d_k (z_ik - p_jk), a dot product of doubles with differences of doubles. It is decided exactly by an
   interval filter plus the exact dyadic stage (ExactDyadic). This is the only place where exact arithmetic beyond
@@ -139,38 +170,50 @@ The same holds with "< 0". With the sign -s(X) of Theorem E, "a · g has one sig
   (S3) also needs either one circle of L on the cell's boundary, or separating surfaces. The circles are those of the
   certified pattern on the faces. With more than one, the cell is refined (A2 does not test separating surfaces).
 - **(S0)**: F has no zero at the node. This holds if |d| < uLo(node) or |d| > uHi(node), with the interval bounds of
-  A1 and the sign s from the exact parity.
+  A1 and the sign s from the exact parity (P1, P3): an interval bound, not an exact sign (section 1.1).
 
 So **every test of the certificate is a comparison of doubles, a sign of an exact dot product, or an interval bound
-of A1.** No error constant is derived by hand.
+of A1** (P1-P3). No error constant is derived by hand.
 
 The candidate set C(X) may be larger than needed. That makes the tests harder to pass, never wrong.
 
 ## 4. What it proves for `MeshOffset`
 
-**Theorem O.** Let the result D of `MeshOffset` satisfy the mesh-side hypotheses (H1)-(H4) of Theorem 2 of the #749
-note (section 7.3: vertices strictly inside their cells, face and edge vertices of option B strictly inside their
-faces and edges, no self-intersection, manifold).
+**Theorem O.** Let D be the **raw dual contouring output** of `MeshOffset` (any later repair, collapse, flip or
+simplification of D voids (1) and (2) below; the band certificate of A1 alone survives such edits, since it is re-run
+on the final mesh). Assume:
 
-Let D's node signs be the true signs of F, which (S0) proves. Let the face rule D used on every face with four
-sign-changing edges agree with the pairing that (S2) certifies for L.
+- (H) the mesh-side hypotheses (H1)-(H4) of Theorem 2 of the #749 note (section 7.3: cell vertices strictly inside
+  their cells, face and edge vertices of option B strictly inside their faces and edges, no self-intersection,
+  manifold), **and option B's implementation facts (i)-(iii) of #749 section 7.3**, exactly as #749 states them (they are not
+  restated here, so that the two texts cannot drift apart);
+- (N) D's node signs are the true signs of F at the nodes, proved by (S0);
+- (P) the face rule D used on every face with four sign-changing edges agrees with the pairing (S2)'s separating
+  segment certifies for L. The face rule is read as data from the A1 contouring (the hook of #749 section 7.6 item 1:
+  `DualContouring` exposes its face decisions; A2 adds that accessor, internal, if A1 does not have it);
+- (Z) **every cell of the grid** is one of: certified ((S0)-(S3) with G of Theorem E, and clear); or proven zero-free
+  by an A1 enclosure that excludes 0 (|d| < uLo(c) - r(X) or |d| > uHi(c) + r(X), with the side s(X) constant on X by
+  P3, i.e. F has one sign on the whole cell); or **listed** (uncertified). This is Theorem 5's decidable form; A2
+  proves the zero-free cells exactly so, cell by cell (most of the grid, far from L, passes it at once);
+- the outer layer of cells is zero-free with F < 0 (the grid margin of A1 is 2h beyond the offset).
 
-Let every cell that L meets be clear and certified ((S0)-(S3) with G of Theorem E), and let the outer layer of cells
-have F < 0 proven (the grid margin of A1 is 2h beyond the offset).
-
-Then:
+Then, if no cell is listed:
 
 1. L is a closed surface, and D is ambient isotopic to L (Theorem 5 and Theorem 1 of #749).
-2. Every point of L is within diam(c) of D, for the cell c it lies in. With the band certificate of A1, the band is
-   proven on both sides.
+2. Every point y of L is within diam(c) of D, for the cell c, fine or coarse, that contains y. With the band
+   certificate of A1, the band is proven on both sides.
 
-*Proof.* (1): Theorem 5 of #749 needs exactly an enclosure G(X) of the generalized gradients over each such X with
-the interface properties, and (S0)-(S3). Theorem E and section 3 provide these. Theorem 2 of #749 makes D compatible
-with the pattern its node signs and face rule define. The hypotheses here make that pattern equal to L's: the same
-sign-changing edges by (S0) and (E), and the same pairing on 4-crossing faces. Theorem 1 then gives the isotopy.
+If cells are listed, the statement is Theorem 1b's partial one (#749 section 7.7): D and L agree outside the listed
+cells in the sense stated there.
 
-(2): a point y of L lies in a cell c that L meets. By (C), L ∩ c consists of disks whose boundary circles run over
-sign-changing edges of c. So c has a sign-changing edge, and D has a vertex of c's patch inside c (H1). Hence
+*Proof.* (1): the cells that L meets are certified (a zero-free cell does not meet L, and none is listed). Theorem 5
+of #749 needs exactly an enclosure G(X) of the generalized gradients over each such X with the interface properties,
+and (S0)-(S3). Theorem E and section 3 provide these. Theorem 2 of #749 with (H) makes D compatible with the pattern
+its node signs and face rule define. (N) and (P) make that pattern equal to L's: the same sign-changing edges by (N)
+and (E), and the same pairing on 4-crossing faces by (P). Theorem 1 then gives the isotopy.
+
+(2): y lies in a cell c that L meets, which is certified. By (C), L ∩ c consists of disks whose boundary circles run
+over sign-changing edges of c. So c has a sign-changing edge, and D has a vertex of c's patch inside c (H1). Hence
 dist(y, D) <= diam(c). ∎
 
 What Theorem O does not need: anything about the triangle quality (issue #800), or that the input has a feature size.
@@ -193,12 +236,20 @@ What Theorem O does not need: anything about the triangle quality (issue #800), 
     one sign.
   
   This is a limit of the axis form of (S2), not of the offset. Section 6 proposes the relaxation.
-- **Clear fails** only within sqrt(3) h of M. By Lemma 0 no cell that L meets is there.
+- **Concave corners of the offset (three or more sheets).** Where three or more sheets meet (eg the offset of a
+  re-entrant corner of a box, the octant), the active directions at the corner point can surround the face's normal
+  so that no in-plane direction has one sign on all of their projections: (S2') fails there for every refinement, and
+  (F) can be genuinely false in the corner's face (L can meet the face in a set that is not a union of graph arcs
+  over one line). These cells are listed, next to the touching sheets. Planned: a measurement of how many corner cells
+  remain listed on the procedural CAD solids (octant, slot) at the refinement limit, in the A2 spike.
+- **Clear fails** only within sqrt(3) h of M (h the cell's own size). By Lemma 0 no cell that L meets is there.
 
-## 6. Proposed relaxation of (S2) (for the review)
+## 6. The relaxation (S2') of (S2) (accepted)
 
 **(S2')**: on a face, either F has no zero on the face, or there is a direction a **in the plane of the face** (not
 necessarily an axis) with a · g of one sign on G(face). The four-crossing separation condition is unchanged.
+**a lies exactly in the face plane**: its component along the face's axis normal is set to exactly 0 in double (the
+other two components are any doubles), so a · n = 0 holds exactly, as the proof needs.
 
 Claim: Theorem 5's proof holds with (S2') in place of (S2).
 - Lemma 5.1 of #749 is already stated for any direction u and convex U.
@@ -208,12 +259,15 @@ Claim: Theorem 5's proof holds with (S2') in place of (S2).
   That is again a 1-manifold without closed curves.
 - At an edge point, Lemma 5.2 uses (S1), not (S2), so nothing changes there.
 
-Gain: (S2') fails only where the projections of n1 and n2 into the face plane are antiparallel, a non-generic case,
-so creases certify after refinement. With section 3, the test is again a set of exact dot-product signs, a · (z_i - p_j)
+Gain, stated correctly: (S2') needs the projections into the face plane of **all** candidate directions (all of
+D(face)) to lie in an open half-plane. At a crease with two sheets that fails only where the two projections are
+antiparallel, a non-generic case, so creases certify after refinement (the candidates of other sheets drop out). At a
+concave corner where three or more sheets meet, the projections can surround the origin and (S2') fails for every
+refinement; (F) can be false there (section 5). Corner cells are listed. With section 3, the test is again a set of exact dot-product signs, a · (z_i - p_j)
 with a in double, decided exactly.
 
-**This is the one step that changes a reviewed theorem. The review should accept or refuse it.** If it is refused,
-A2 uses (S2) and reports the crease cells of section 5.
+**Accepted by the review (2026-11-13).** It changes the reviewed text of #749 section 7.8 in three sentences; the exact
+wording is in section 10, for the #749 note.
 
 ## 7. A2 test plan (repo style)
 
@@ -227,6 +281,8 @@ A2 uses (S2) and reports the crease cells of section 5.
   - Compare with >= instead of > in (S1).
   - Use the face rule of DC without the pairing check.
   - Skip (S0) at a node placed on L (a grid shift that puts a node on a box's offset plane).
+  - In (S2'), an a with a nonzero component along the face normal (a constructed face where that a passes but no
+    in-plane one does, so the cell must stay uncertified).
 - **Invariance** over `Similarity.All()`. The 2^k scales give the same certified cells bit for bit: the tests are
   comparisons and exact signs on scaled doubles.
 - **Reuse; determinism** (parallel equals serial; the refinement order is deterministic).
@@ -243,17 +299,30 @@ triangles. Estimate: the same order as the band certificate, which is about half
 costs 1.3-2x of A1 before refinement. Not measured: the A2 spike measures the share of the tests first (AGENT_WORKFLOW
 section 3, upper bound before a spike).
 
-## 9. Questions for the reviewer
+## 9. Questions for the reviewer, and the answers (review 2026-11-13)
 
-1. Lemma 2: is the inclusion ∂(min u_t) ⊆ co{∇u_t : active} correctly derived from Clarke's max rule, with the
-   inactive pieces dropped by continuity?
-2. Theorem E covers the generalized gradients at points of X only. As read here, #749's Lemma 5.2 needs no more: it
-   takes the gradients at the boundary point p, which lie in G(face) or G(edge), and extends their sign to a ball
-   around p by upper semicontinuity at p. Lemma 5.1 needs G(cell) on the cell. Please confirm that no enclosure beyond
-   X is needed. If it is, compute C and the corners for X grown by a margin m > 0 (any m works).
-3. Section 3: is the reduction to corners exact for the face and edge cases, where X has 4 or 2 corners?
-4. Theorem O: are the hypotheses on the face rule and the node signs enough to make D's pattern equal to L's? (S0) and
-   (E) give the edges, (S2)'s separation gives the pairing.
-5. Section 6: does (S2') keep Theorem 5's proof?
-6. The second band side (Theorem O (2)): is diam(c) right for the two-level grid with face vertices, or does the bound
-   need the coarse cell?
+1. Lemma 2 (the inclusion from Clarke's max rule, inactive pieces dropped by continuity): **yes**.
+2. No enclosure beyond X is needed: **confirmed**. Upper semicontinuity of ∂F at the boundary point and the
+   1-Lipschitz bound suffice (Lemma 5.2 of #749).
+3. The reduction to corners for faces (4 corners) and edges (2): **yes** (the Minkowski difference of a segment or a
+   rectangle and a triangle is the hull of the corner differences).
+4. The hypotheses on the face rule and the node signs make D's pattern equal to L's: **yes**, with (H) extended by
+   option B's facts (i)-(iii) (Theorem O as now stated).
+5. (S2') keeps Theorem 5's proof: **accepted**, with a exactly in the face plane (section 6).
+6. The second band side: **diam(c)** with c the cell, fine or coarse, that contains y.
+
+## 10. The wording change for #749 section 7.8 (for the contouring-certificate note)
+
+`docs/design/CONTOURING_TOPOLOGY.md` is not on master yet (it is on the #749 branch, where the contouring-certificate
+session works). The three sentences to change, so that the reviewed text and A2 match, minimal:
+
+- Lemma 5.2, interior of a face. Now: "If p is in the interior of a face with outward normal n, let a be the axis of
+  (S2) and s that sign; take u = -s a - eps n and u' = s a - eps n." New: "If p is in the interior of a face with
+  outward normal n, let a be the direction of (S2) (an axis, or any direction with a . n = 0, (S2')) and s that sign;
+  take u = -s a - eps n and u' = s a - eps n (a . n = 0)."
+- Lemma 5.2, the arc sentence. Now: "In a face: by (S2) a graph over the other axis." and "(along the monotone axis of
+  (S2) in a face, ...)". New: "In a face: by (S2) a graph over the line of the face orthogonal to a." and "(along a in
+  a face, ...)".
+- Theorem 5, (F). Now: "(F): by (S2) and Lemma 5.1 in the plane of the face, L in the face is a graph over an axis".
+  New: "(F): by (S2) and Lemma 5.1 in the plane of the face (Lebourg along a), L in the face is a graph over the line of
+  the face orthogonal to a".
