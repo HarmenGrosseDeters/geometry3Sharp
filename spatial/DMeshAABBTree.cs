@@ -1476,7 +1476,13 @@ namespace g3
         /// (Barill et al. 2018, Fast Winding Numbers). Same conventions as WindingNumber(p) (1 inside,
         /// 0 outside for a closed outward-oriented mesh), but the result is approximate (errors of a few
         /// percent up to about 0.1 are normal); accuracy is controlled by FWNBeta and FWNApproxOrder. The cache is built on the first call
-        /// (thread-safe). Much faster than WindingNumber for many queries on large meshes.
+        /// (thread-safe). Much faster than WindingNumber for many queries on large meshes. Scale-free: the expansion of a box
+        /// is used by its centre and radius only (no absolute tolerance), so scaling the mesh and p by a power of two gives
+        /// the same value bit for bit, also for tiny parts or parts far from the origin, as long as the areas (squares of the
+        /// edge lengths) and the terms of the expansion (up to the fifth power of the distance) stay in the normal range:
+        /// part sizes and query distances between about 2^-200 (6e-61) and 2^200. Outside that the expansion of a box is
+        /// not used where its fifth power of the distance leaves the normal range (exact sums: right, but slow), and the
+        /// cache's own sums can lose the last bits.
         /// </summary>
         public virtual double FastWindingNumber(Vector3d p)
         {
@@ -1520,8 +1526,7 @@ namespace g3
 
                     // if we have winding cache, we can more efficiently compute contribution of all triangles
                     // below this box. Otherwise, recursively descend tree.
-                    bool contained = box_contains(iChild1, p);
-                    if (contained == false && can_use_fast_winding_cache(iChild1, ref p))
+                    if (use_fast_winding_expansion(iChild1, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild1, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild1, p);
@@ -1530,14 +1535,12 @@ namespace g3
                     iChild1 = iChild1 - 1;
                     int iChild2 = index_list[idx + 1] - 1;
 
-                    bool contained1 = box_contains(iChild1, p);
-                    if (contained1 == false && can_use_fast_winding_cache(iChild1, ref p))
+                    if (use_fast_winding_expansion(iChild1, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild1, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild1, p);
 
-                    bool contained2 = box_contains(iChild2, p);
-                    if (contained2 == false && can_use_fast_winding_cache(iChild2, ref p))
+                    if (use_fast_winding_expansion(iChild2, ref p))
                         branch_sum += evaluate_box_fast_winding_cache(iChild2, ref p);
                     else
                         branch_sum += branch_fast_winding_num(iChild2, p);
@@ -1545,6 +1548,53 @@ namespace g3
             }
 
             return branch_sum;
+        }
+
+        // the gate of the far-field expansion of a child box (branch_fast_winding_num and the test hook below)
+        // (with FWNBeta below sqrt(3) the padded box as before: there the box test still matters, and the padding keeps a
+        // point on a triangle inside the boxes above it under rounding, as callers that subtract the exact terms of the
+        // triangles a point lies on rely on, eg ExactMeshBoolean.front_generalized_winding; from sqrt(3) on the centre and
+        // radius exclude those boxes already, see box_contains_unpadded)
+        bool use_fast_winding_expansion(int iBox, ref Vector3d p)
+        {
+            bool contained = FWNBeta >= 1.7320508075688772 ? box_contains_unpadded(iBox, p) : box_contains(iBox, p);
+            return contained == false && can_use_fast_winding_cache(iBox, ref p);
+        }
+
+        /// <summary> Test hook: the number of triangles FastWindingNumber(p) sums exactly (the rest by expansions); the cache must have been built by a FastWindingNumber call. </summary>
+        internal int FastWindingExactTriangleCount(Vector3d p)
+        {
+            return fast_winding_exact(root_index, ref p, null);
+        }
+        /// <summary> Test hook: the triangles FastWindingNumber(p) sums exactly, added to into (as FastWindingExactTriangleCount). </summary>
+        internal void FastWindingExactTriangles(Vector3d p, List<int> into)
+        {
+            fast_winding_exact(root_index, ref p, into);
+        }
+        int fast_winding_exact(int iBox, ref Vector3d p, List<int> into)
+        {
+            int idx = box_to_index[iBox];
+            if (idx < triangles_end) {
+                int n = index_list[idx];
+                if (into != null)
+                    for (int i = 1; i <= n; ++i)
+                        into.Add(index_list[idx + i]);
+                return n;
+            }
+            int iChild1 = index_list[idx], count = 0;
+            if (iChild1 < 0) {
+                iChild1 = (-iChild1) - 1;
+                if (use_fast_winding_expansion(iChild1, ref p) == false)
+                    count += fast_winding_exact(iChild1, ref p, into);
+            } else {
+                iChild1 = iChild1 - 1;
+                int iChild2 = index_list[idx + 1] - 1;
+                if (use_fast_winding_expansion(iChild1, ref p) == false)
+                    count += fast_winding_exact(iChild1, ref p, into);
+                if (use_fast_winding_expansion(iChild2, ref p) == false)
+                    count += fast_winding_exact(iChild2, ref p, into);
+            }
+            return count;
         }
 
 
@@ -1581,8 +1631,11 @@ namespace g3
             // (seems to be no benefit to doing this...is holdover from tree-decomposition FWN code)
             int WINDING_CACHE_THRESH = 1;
 
-            //MeshTriInfoCache triCache = null;
-            MeshTriInfoCache triCache = new MeshTriInfoCache(mesh);
+            // (scale-free areas: with the absolute epsilon of GetTriInfo every triangle of a part with edges below about
+            // 1e-8 had area 0, so the centre of every box of it was 0/0 and its expansion never used: a part of size 1e-7
+            // in a unit frame, eg two spheres next to a part 1e8 away, made every query an exact sum over all their
+            // triangles, #693)
+            MeshTriInfoCache triCache = new MeshTriInfoCache(mesh, true);
 
             // the corners of the leaf triangles, in the order of index_list (contiguous for the leaf loop)
             fast_winding_leaf_vertices = new Vector3d[3 * triangles_end];
@@ -1752,8 +1805,22 @@ namespace g3
             ref FWNInfo cacheInfo = ref FastWindingCache[iBox];
 
             double dist_qp = cacheInfo.Center.Distance(ref q);
-            if (dist_qp > FWNBeta * cacheInfo.R)
-                return true;
+            // (a slack of the coordinates' rounding beside beta R, 2^-48 of their magnitude (exact under 2^k): a point on a
+            // triangle is within R of the centre in exact arithmetic, but the stored corners, centre and the query carry
+            // rounding of a few units in the last place of the coordinates, which for a part whose size is near that
+            // resolution (a sphere of radius 3e-4 at 1e12, collapsed onto a few grid points) let a box above the
+            // triangle a point lies on take the expansion; the padded box of before kept those exact)
+            Vector3d cc = cacheInfo.Center;
+            double magnitude = Math.Max(Math.Abs(q.x), Math.Max(Math.Abs(q.y), Math.Abs(q.z)))
+                + Math.Max(Math.Abs(cc.x), Math.Max(Math.Abs(cc.y), Math.Abs(cc.z)));
+            if (dist_qp > FWNBeta * cacheInfo.R + 3.552713678800501e-15 * magnitude) {
+                // (the expansion divides by the fifth power of the distance (times 4 pi): only where that is a normal double,
+                // ie distances from about 2^-204 to 2^203.8. Below, it underflowed to 0 or a subnormal and the value was
+                // NaN, infinite or wrong (a sphere of size 2^-210: NaN for every query); above 2^1019, 4 pi d^5 overflows
+                // and the second-order term lost its d (x) d part (finite, 18 % off); the exact sum is right there)
+                double d2 = dist_qp * dist_qp, d5 = d2 * d2 * dist_qp;
+                return d5 >= 2.2250738585072014e-308 && d5 <= 5.617791046444737e306;
+            }
 
             return false;
         }
@@ -2633,6 +2700,23 @@ namespace g3
             return box.DistanceSquared(p);
         }
 
+
+        // the stored (tight) box, without box_eps: the gate of the far-field expansion in branch_fast_winding_num. The
+        // padding (2^-40 of the mesh's distance from the origin) is there so that queries never miss a triangle; here it
+        // only decides whether the expansion of a box may be used, which its centre and radius decide already: R is the
+        // largest distance from the stored centre (whatever its rounding) to a vertex, so the tight box lies in the cube of half size R around it
+        // and every point of it is within sqrt(3) R; with FWNBeta >= sqrt(3) (default 2) a point at more than FWNBeta R
+        // is outside the tight box, up to the rounding of the stored box (the margin (2 - sqrt(3)) R = 0.27 R absorbs it).
+        // For a smaller FWNBeta the test still matters, and the padded box is used as before. Padded, the boxes of a small
+        // part far from the origin (a part of size 1 at 1e12: a padding of 1.8) contained the queries near them, and
+        // the expansion was not used (#693).
+        bool box_contains_unpadded(int iBox, Vector3d p)
+        {
+            Vector3d c = box_centers[iBox];
+            Vector3d e = box_extents[iBox];
+            AxisAlignedBox3d box = new AxisAlignedBox3d(ref c, e.x, e.y, e.z);
+            return box.Contains(p);
+        }
 
         protected bool box_contains(int iBox, Vector3d p)
         {

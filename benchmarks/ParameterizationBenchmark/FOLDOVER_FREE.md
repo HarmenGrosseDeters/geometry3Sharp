@@ -172,3 +172,61 @@ waiting and a long owner-decision pause; it must NOT be reported as active imple
 was not separately metered. Implementation/targeted checks occurred before the waiting phase; the continuation
 classified baseline failures and publishes the explicitly authorized draft, without extending optimizer scope.
 The original one-short-session gate was not retroactively declared passed.
+
+## Round-off 2026-11-12
+
+Three open items, measured on Linux net10.0 with `dotnet run --project benchmarks/ParameterizationBenchmark -c Release -- foldover`
+(raw output: [perf/foldover-free.txt](perf/foldover-free.txt); the "before" column is the run on master 1f3b6b7 and
+equals the table above). Times are single runs, observational.
+
+### 1. Stop rule (Algorithm 1, line 11)
+
+Before, the loop ended on a vanishing Newton decrement *and* epsilon <= 1e-6, so the energy was stationary after a few
+iterations (torus: from iteration ~13 on) while epsilon shrank by >= 10 % per iteration down to 1e-6. Now it stops when
+no triangle is invalid and an iteration lowers F by less than `EnergyDecreaseTolerance` (1e-3, the paper's value),
+both energies at that iteration's epsilon. The final flip-free iterate is still returned; `Converged` is true on all fixtures.
+
+The bare paper rule is **not enough**: with it alone the annulus stops at the first flip-free map (iteration 14,
+epsilon 0.26, min det 2.9e-3, symmetric Dirichlet **686.97** instead of 7.46; three peaks 17.15), because F(., epsilon)
+is nearly flat there although the unregularized energy is far from converged. Added guard: the rule only fires when
+F(x, 0) <= (1 + tol) F(x, epsilon) (for positive determinants F(x, epsilon) <= F(x, 0)), i.e. when the regularization
+is negligible. This is our addition, not the paper's. The guard uses its own fixed tolerance (1e-3), independent of the option. It also replaces the old absolute `epsilon <= 1e-6` condition of the Newton-decrement exit, so runs where the energy stop never fires (`EnergyDecreaseTolerance` 0) change too: they now end once the regularization is negligible instead of at an absolute epsilon.
+
+| Fixture | Iterations before -> after | Symmetric Dirichlet before -> after | ms before -> after |
+|---|---:|---:|---:|
+| Folded Tutte disc | 115 -> 28 | 5.223873 -> 5.223853 | 46 -> 16 |
+| LSCM annulus | 132 -> 41 | 7.462999 -> 7.466767 (+0.05 %) | 35 -> 10 |
+| LSCM three peaks | 169 -> 54 | 16.262757 -> 16.246811 | 629 -> 241 |
+| Torus cone cut (valid start) | 132 -> 16 | 4.054945 -> 4.055168 (+0.005 %) | 294 -> 49 |
+
+### 2. SLIM quality target: a boundary effect, not a solver effect
+
+Ratio to free-boundary SLIM: disc 1.306, three peaks 2.36, torus 1.012. Attribution on the three-peaks case:
+
+| Run | Symmetric Dirichlet | x SLIM (6.8949) |
+|---|---:|---:|
+| LSCM start, LSCM boundary fixed (the benchmark row) | 16.2468 | 2.36 |
+| same, `EnergyDecreaseTolerance` 0 and 2000 iterations (no stop effect) | 16.2628 | 2.36 |
+| LSCM interior, SLIM boundary fixed | 7.4649 | 1.083 |
+| SLIM map as start (already valid), SLIM boundary fixed | 7.3035 | 1.059 |
+
+(The tolerance-0 and SLIM-map-start rows come from a one-off probe, not from the committed command; the other rows are in the perf file.) On the folded disc the SLIM boundary gives 4.000000000009 (ratio 1.000000000002). So (a) the stop rule is not the cause,
+(b) the gap is the prescribed boundary: LSCM's boundary is itself conformal-stretched, and a fixed boundary cannot
+beat the free-boundary optimum; with the same boundary the target (<= 10 %) is met on the disc and on three peaks (1.083).
+(c) A residual 4-6 % remains on three peaks even from SLIM's own map: the energy (Garanzha's shape/area energy) is
+not symmetric Dirichlet. This is a real property of the method, not fixable by weighting inside the paper's energy.
+The annulus has no SLIM reference (InvalidTopology). Nothing to fix in scope; the benchmark now prints
+`FoldoverFree-SLIM-boundary` rows and the ratio.
+
+### 3. Torus global-overlap fallback: a limit of fixed-boundary untangling
+
+The cone-cut torus has one boundary loop of 432 edges. Its UV polygon, which this operation must keep bit for bit,
+has **4 proper self-crossings**, and **all 8 overlapping triangle pairs touch the boundary** (`torus-boundary` line in the
+raw output, test `TorusCut_LocalSuccessDoesNotClaimGlobalInjectivity`). A locally injective map of a disc is globally
+injective iff its boundary curve is simple; with a self-crossing boundary no interior placement can be injective.
+SLIM's own free boundary also leaves 8 pairs here. The counterfactual fallback count stays 1 -> 1. The paper (3.3) names the
+same distinction (inversion freedom is not injectivity). A fix needs a different boundary (cutting or cone placement),
+which is outside fixed-boundary untangling and has no paper-backed method in Garanzha et al.; not implemented.
+
+Tests: `StopRule_*` (fail on base by iteration count), `FoldoverFreeToleranceTests` (own file: uses the new option). Hand mutants (killed, 2 tests each):
+guard `return true` (annulus, three peaks), stop replaced by `epsilon <= 1e-6` (tolerance test, three peaks).
