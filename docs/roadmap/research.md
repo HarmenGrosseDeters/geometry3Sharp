@@ -260,7 +260,17 @@ in the tool project.
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
-- Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
+- Sparse SDF grids (OpenVDB-like): a CPU structure for large distance-field and contouring grids (callers: MeshOffset,
+  alpha wrap, TPMS, contouring; the gain is memory first). Layout from the papers, not from code: Museth 2013 *VDB:
+  High-Resolution Sparse Volumes with Dynamic Topology* (shallow fixed-depth tree, bit-masked nodes) and Museth 2021
+  *NanoVDB: A GPU-Friendly and Portable VDB Data Structure* (pointer-free, one contiguous block, index offsets instead of
+  pointers). Licence of OpenVDB / NanoVDB code to check before anyone reads it. Existing building blocks: `DSparseGrid3`,
+  `BiGrid3`, the sparse mode of `DualContouring`, the exact Boolean's octree. When: once a caller needs it, after an
+  upper-bound measurement (memory and time of the dense grid in that caller). Not for us (owner question 2026-11-13):
+  GPU kernels (netstandard2.0 without a GPU dependency; bit-for-bit determinism), the jump flooding algorithm
+  (approximate distances, no certified bound), neural SDFs (Instant-NGP, Neuralangelo, NeuS: training-dependent, no
+  guarantee).
+- SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
 - Batch ray / point queries against a mesh or BVH (owner idea 2026-11-02): a separate batch API (eg `IntersectBatch(ReadOnlySpan<Ray3d>, ...)`, `IsInsideBatch(points)`), existing API unchanged. Only the floating-point filter of the exact ray-triangle test (Q2/Q3) runs SIMD (`Vector256` / `Vector512`) over the triangles of a BVH leaf or a ray packet; the rare cases inside the bound stay scalar on `Orient3d` + SoS, so results stay exact. No FMA and no cross-lane reduction, so SIMD equals the scalar path bit for bit (tested); netstandard2.0 keeps the scalar path. Prior art: Embree (Apache 2.0; Woop et al. 2013 watertight test over SIMD packets). When: after the Q2/Q3 prefilter, once a real caller needs throughput; upper bound first (the filter's share of the query time). Note the `Orient3d` SIMD spike above gave about 2 %; the difference here is a batch of independent tests per call. Also here: a coarser per-triangle bound (max-norms instead of permanents; new derivation and review) and per-ray reuse of the ray's second point, the two levers left after Q2/Q3 (single-triangle `Intersects` 2.5-4× base with the shared `Orient3d` filter; tree queries +5-30 %, repair total +0.9 %)
 - AI bridges as a separate package (ONNX Runtime): project 2D segmentation masks (SAM, DINO) from several views onto face selections, texture reprojection via ExpMap
 
