@@ -66,6 +66,8 @@ Part of the [roadmap](../ROADMAP.md).
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
      is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
      first, then 2-3 days with an Opus-level review of the bounds.
+     Stage 1 note (2026-11-13, for the owner's decision): [design/CCD.md](../design/CCD.md) (Tight-Inclusion MIT,
+     implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -231,6 +233,12 @@ in the tool project.
   closed manifold for any input but rounds off features. Its bottleneck, the exact union of many convex bodies, is our
   exact Boolean kernel; the EMBER early-out ideas would apply. Before building: a patent check (authors partly at
   Tencent LightSpeed Studios) and a comparison with Zint 2023. Not scheduled (budget; owner 2026-11-05)
+  Study 2026-11-13 ([design/MESH_OFFSET.md](../design/MESH_OFFSET.md)): Euclidean offset / inset with guarantees;
+  recommends certified contouring of the distance field (class S of the #749 certificate plus a Lipschitz band
+  certificate), the alpha wrap as the fallback for broken inputs, the exact polytope Minkowski sum as a test oracle
+  only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
+  A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
+  the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
