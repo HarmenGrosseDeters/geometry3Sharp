@@ -6,7 +6,7 @@
 //   ... -- export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]     (the wrap's inside cells as a tet file)
 //   ... -- eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]       (exact validity, quality, deviation: TetFiles.Header)
 //   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
-//   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset]                  (stage 1, MeshTetrahedralization; refine_s = total - a separate wrap)
+//   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]   (stage 1; refine_s = total - a separate wrap)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -64,10 +64,13 @@ static class Program
             foreach (var kv in inputs) {
                 var sw = Stopwatch.StartNew();
                 var wrap = new MeshAlphaWrap(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                if (args.Length > 5) wrap.RefineMinAngleDegrees = double.Parse(args[5], Inv);
                 wrap.Compute();
                 double wrapS = sw.Elapsed.TotalSeconds;
                 sw.Restart();
                 var tm = new MeshTetrahedralization(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                if (args.Length > 4) tm.MaxSteinerPoints = int.Parse(args[4], Inv);
+                if (args.Length > 5) tm.SurfaceMinAngleDegrees = double.Parse(args[5], Inv);
                 tm.Compute();
                 double totalS = sw.Elapsed.TotalSeconds;
                 if (tm.Result == null) { Console.WriteLine(kv.Key + "," + tm.Status + "," + string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value))); continue; }

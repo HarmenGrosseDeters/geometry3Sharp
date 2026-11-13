@@ -564,3 +564,47 @@ in stage 2; (3) Li-Teng placement, no exudation; (4) steps 1-3 now, step 4 after
   (p01 >= 10 on 2 of 40, min >= 1 on 5 of 40) because of the tets on the fixed wrap surface, whose triangles reach 1.3 degrees
   (10.1). The next step for both S1-R and S1-F is therefore a surface refinement that keeps the conformity (a 2D Delaunay
   refinement per surface patch with the 3D facet check and undo), before or together with step 4.
+
+### 14.9 Surface refinement round (2026-11-13, coordinator go: "2D Delaunay refinement per patch with the 3D facet check and undo")
+
+Building blocks searched first: `QualityMesh2` / `DelaunayKernel2` / `ConstrainedDelaunayMesh2` are planar (one plane, their own 2D
+kernel) and do not apply to a curved wrap surface as a whole; the wrap itself has a surface quality refinement on the offset
+surface (`MeshAlphaWrap.RefineMinAngleDegrees`, Chew 1993 / Boissonnat-Oudot 2005), now passed through as
+`SurfaceMinAngleDegrees`. Tried, in this order (procedural set, alpha 20 / offset 600):
+
+1. **In-plane surface splits** (circumcentre of a surface triangle in its plane, else the midpoint of its longest edge), each kept
+   only if afterwards no other surface triangle is cut and every new surface triangle is a facet (3D check, undo): runs away.
+   A point in the plane of a curved surface's triangle makes flat tets with its neighbours, whose circumcentres lie beyond the
+   surface again; after 20000 points the sphere n=6 had 68 % bad tets. Rejected (kept out of the code).
+2. **A higher wrap surface angle** (`SurfaceMinAngleDegrees` 25 / 30 instead of 15): more tets and more bad ones on every input
+   but the fine spheres. Kept at 15.
+3. **Peeling boundary slivers** (built, `PeelBoundarySlivers`, default on): the bad tets left are almost all on the surface
+   (Thingi10K: 8.6k with no surface facet but at least two surface vertices, 11.0k with one, 1.2k with two surface facets after
+   peeling). A bad inside tet with exactly two surface facets is moved outside, a 2-2 flip of the surface onto its other two
+   facets, if the new surface edge is not a surface edge yet (else the surface would stop being a manifold) and the tet shares
+   no point with any input triangle (exact: `ExactTriangleIntersection` with its faces, and a vertex-inside test). The surface
+   stays closed, 2-manifold, intersection-free (the new facets lie inside the removed cell) and around the input; it moves inward
+   by at most the sliver's height (its fourth vertex's distance to the opposite surface facet, a convexity bound). The boundary
+   keeps only wrap vertices. A final sweep repeats peeling until nothing changes. Tests: postcondition "no peelable bad tet
+   left", the exact input test (unit cases incl. a triangle through one face only), the edge rule against a brute-force check
+   on random labels, a thin torus where 157 peels are refused for the input; hand mutants all killed.
+
+Thingi10K subset again (rows: `benchmarks/TetMeshBenchmark/results/thingi10k-subset-stage1-peel-2026-11-13.csv`):
+
+| Measure (40 meshes) | stage 1 fixed surface (14.8) | with peeling |
+|---|---|---|
+| valid (exact), boundary closed / no self-intersection | 40 / 40 | 40 / 40, 40 / 40 |
+| p01 dihedral >= 10 degrees | 2 of 40 (median 5.2) | **16 of 40** (median 9.3) |
+| smallest dihedral >= 1 degree | 5 of 40 (median 0.35) | **23 of 40** (median 1.18) |
+| dihedral below 10 degrees, median share | 2.5 % | 1.3 % |
+| time wrap + refinement, median / max | 0.41 s / 8.8 s | 0.49 s / 10.3 s |
+| peels / refused for the input / refused for the edge | | 5412 / 6181 / 225 (attempts, the sweep repeats them) |
+
+**The stage-1 target (p01 >= 10, min >= 1 on every mesh) is still missed** (16 and 23 of 40). What is left are tets with one or
+no surface facet that touch the surface with an edge or a vertex; neither peeling (it would move the surface by a whole tet) nor
+interior points (their cavities reach the surface) removes them. Options for the owner, before stage 2: (a) take stage 2's
+flips + smoothing now, with the boundary vertices allowed to slide on the wrap surface (the classical answer for boundary
+slivers; Klingner and Shewchuk 2007); (b) surface points on the offset surface instead of in the triangles' planes (the wrap's
+own refinement rule, run on request from the tet refinement: a restricted-Delaunay surface mesher in the manner of
+Boissonnat-Oudot, more work in `MeshAlphaWrap`); (c) relax the stage-1 target to the measured values and meet 10 degrees in
+stage 2 only.

@@ -38,6 +38,18 @@ namespace gs
         /// (plain circumcentres)
         /// </summary>
         public double SliverDihedralDegrees = 10;
+        /// <summary>
+        /// the wrap's surface quality refinement (MeshAlphaWrap.RefineMinAngleDegrees: points on the offset surface for facets with a
+        /// smaller angle, Chew 1993, Boissonnat and Oudot 2005). The surface is fixed during the tet refinement, so its triangles
+        /// bound the tets on it: a larger value gives better boundary tets.
+        /// </summary>
+        public double SurfaceMinAngleDegrees = 15;
+        /// <summary>
+        /// peel boundary slivers: a bad inside tet with exactly two surface facets is moved outside (a 2-2 flip of the surface onto
+        /// its other two facets) if the new surface edge is not a surface edge yet and the tet touches no input triangle (exact).
+        /// The surface stays closed, 2-manifold, intersection-free and around the input; it moves inwards by the sliver's height.
+        /// </summary>
+        public bool PeelBoundarySlivers = true;
         /// <summary> the floor in units of the wrap's vertex separation min(Offset, Alpha - Offset) </summary>
         public double MinFeatureFactor = 0.125;
         /// <summary> stop (status PointLimitReached, result still valid) after this many inserted points </summary>
@@ -72,7 +84,8 @@ namespace gs
         {
             Result = null;
             Counts = new Dictionary<string, long>();
-            var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF };
+            var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF,
+                RefineMinAngleDegrees = SurfaceMinAngleDegrees };
             bool ok = wrap.Compute();
             Wrap = wrap;
             WrapStatus = wrap.Status;
@@ -86,7 +99,8 @@ namespace gs
             dt.RefinementSupport = true;
             foreach (int c in dt.CellIndices())
                 dt.SetCellLabel(c, wrap.IsInsideCell(c) ? 1 : 0);
-            var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, TargetEdgeLength, SliverDihedralDegrees, MaxSteinerPoints, CancelF);
+            var r = new Refiner(dt, UsedFloor, MaxRadiusEdgeRatio, TargetEdgeLength, SliverDihedralDegrees, MaxSteinerPoints, CancelF) {
+                Input = PeelBoundarySlivers ? Mesh : null };
             TetStatus st = r.Run();
             Status = st;
             if (st == TetStatus.Cancelled) {
@@ -122,7 +136,7 @@ namespace gs
                 this.dt = dt; this.floor = floor; this.rho = rho; this.size = size; this.sliver = sliver; this.maxPoints = maxPoints;
                 this.cancel = cancel ?? (() => false);
                 firstSteiner = dt.VertexCount;
-                foreach (string k in new[] { "tet_splits", "refused_floor", "refused_surface", "trial_insertions", "sliver_free_choice" })
+                foreach (string k in new[] { "tet_splits", "refused_floor", "refused_surface", "trial_insertions", "sliver_free_choice", "peeled", "peeled_in_sweep", "peel_refused_input", "peel_refused_edge" })
                     Counts[k] = 0;
                 foreach (int c in dt.CellIndices())
                     if (dt.CellLabel(c) == 1) tetQueue.Enqueue((c, dt.CellStamp(c)));
@@ -139,7 +153,8 @@ namespace gs
                     if (!dt.IsCell(c) || dt.CellStamp(c) != st || dt.CellLabel(c) != 1 || !is_bad(c)) continue;
                     split_tet(c);
                 }
-                return TetStatus.Success;
+                if (Input != null) peel_sweep();
+                return cancel() ? TetStatus.Cancelled : TetStatus.Success;
             }
 
             internal bool is_bad(int c)
@@ -219,7 +234,92 @@ namespace gs
                     dt.UndoLastInsert();
                 }
                 if (best >= 0 && try_insert(candidates[best], c, out _)) { accept(best > 0); return; }
+                if (Input != null && try_peel(c)) return;
                 inc(anySurface ? "refused_surface" : "refused_floor");
+            }
+
+            /// <summary> (peeling) the input the surface must keep enclosing; null = no peeling </summary>
+            internal DMesh3 Input;
+            DMeshAABBTree3 inputTree;
+
+            /// <summary> (tests) TryPeel of cell c: true if it was moved outside </summary>
+            internal bool TryPeel(int c) { return try_peel(c); }
+
+            // after the queue: peel the remaining bad inside tets with two surface facets until none can be (a peel exposes
+            // neighbours, which can become peelable in turn)
+            void peel_sweep()
+            {
+                bool changed = true;
+                while (changed && !cancel()) {
+                    changed = false;
+                    foreach (int c in dt.CellIndices())
+                        if (dt.CellLabel(c) == 1 && is_bad(c) && try_peel(c)) { changed = true; inc("peeled_in_sweep"); }
+                }
+            }
+
+            bool try_peel(int c)
+            {
+                int i1 = -1, i2 = -1, nsurf = 0;
+                for (int i = 0; i < 4; ++i) {
+                    int nb = dt.Neighbour(c, i);
+                    if (nb < 0 || dt.CellLabel(nb) != 1) { nsurf++; if (i1 < 0) i1 = i; else i2 = i; }
+                }
+                if (nsurf != 2) return false;
+                int p = dt.CellVertex(c, i1), q = dt.CellVertex(c, i2);
+                // the new surface edge (p, q) must not be on the surface already (else three or four surface facets around it)
+                dt.IncidentCells(p, peelStar);
+                foreach (int k in peelStar) {
+                    if (dt.VertexIndexIn(k, q) < 0) continue;
+                    for (int i = 0; i < 4; ++i) {
+                        int w = dt.CellVertex(k, i);
+                        if (w == p || w == q) continue;          // facet opposite w contains p and q
+                        int nb = dt.Neighbour(k, i);
+                        int lk = k == c ? 0 : dt.CellLabel(k), ln = nb < 0 ? 0 : nb == c ? 0 : dt.CellLabel(nb);
+                        if (k == c || nb == c) continue;         // c's own facets around (p, q) become surface or vanish
+                        if (lk != ln) { inc("peel_refused_edge"); return false; }
+                    }
+                }
+                Index4i t = dt.GetCell(c);
+                if (Input.TriangleCount > 0 && inputTree == null) inputTree = new DMeshAABBTree3(Input, true);
+                if (inputTree != null && TetTouchesMesh(inputTree, dt.GetVertex(t.a), dt.GetVertex(t.b), dt.GetVertex(t.c), dt.GetVertex(t.d))) {
+                    inc("peel_refused_input"); return false;
+                }
+                dt.SetCellLabel(c, 0);
+                inc("peeled");
+                return true;
+            }
+            readonly List<int> peelStar = new List<int>();
+
+            /// <summary>
+            /// does the closed tet (a, b, c, d) share a point with a triangle of the tree's mesh? Exact: a triangle meets one of the
+            /// four faces (ExactTriangleIntersection, degenerate triangles as segments), or, meeting none, lies inside (one vertex in
+            /// the closed tet). Only reads the tree.
+            /// </summary>
+            internal static bool TetTouchesMesh(DMeshAABBTree3 tree, Vector3d a, Vector3d b, Vector3d c, Vector3d d)
+            {
+                DMesh3 mesh = tree.Mesh;
+                var box = new AxisAlignedBox3d(a); box.Contain(b); box.Contain(c); box.Contain(d);
+                Triangle3d[] faces = { new Triangle3d(b, c, d), new Triangle3d(a, d, c), new Triangle3d(a, b, d), new Triangle3d(a, c, b) };
+                bool hit = false;
+                Func<AxisAlignedBox3d, bool> touch = (bx) => bx.Min.x <= box.Max.x && bx.Max.x >= box.Min.x && bx.Min.y <= box.Max.y && bx.Max.y >= box.Min.y
+                    && bx.Min.z <= box.Max.z && bx.Max.z >= box.Min.z;
+                int o = ExactPredicates.Orient3d(a, b, c, d);
+                tree.DoTraversal(new DMeshAABBTree3.TreeTraversal() {
+                    NextBoxDF = (bx, depth) => !hit && touch(bx),
+                    NextTriangleF = (tid) => {
+                        if (hit) return;
+                        Index3i it = mesh.GetTriangle(tid);
+                        var T = new Triangle3d(mesh.GetVertex(it.a), mesh.GetVertex(it.b), mesh.GetVertex(it.c));
+                        var tb = new AxisAlignedBox3d(T.V0); tb.Contain(T.V1); tb.Contain(T.V2);
+                        if (!touch(tb)) return;
+                        for (int k = 0; k < 4 && !hit; ++k)
+                            if (ExactTriangleIntersection.Intersects(ref faces[k], ref T)) hit = true;
+                        // inside: on the side of each face where its opposite vertex is (Orient3d(face, opposite) = -o)
+                        if (!hit && o != 0 && ExactPredicates.Orient3d(b, c, d, T.V0) * o <= 0 && ExactPredicates.Orient3d(a, d, c, T.V0) * o <= 0
+                            && ExactPredicates.Orient3d(a, b, d, T.V0) * o <= 0 && ExactPredicates.Orient3d(a, c, b, T.V0) * o <= 0) hit = true;
+                    }
+                });
+                return hit;
             }
 
             void accept(bool moved)
@@ -240,6 +340,10 @@ namespace gs
                         int k = 0;
                         for (int i = 0; i < 4; ++i) if (dt.CellVertex(c, i) < firstSteiner) k++;
                         byWrapVertices[k]++;
+                        int f = 0;
+                        for (int i = 0; i < 4; ++i) { int nb = dt.Neighbour(c, i); if (nb < 0 || dt.CellLabel(nb) != 1) f++; }
+                        string key = "bad_with_" + f + "_surface_facets";
+                        Counts[key] = (Counts.TryGetValue(key, out long x) ? x : 0) + 1;
                     }
                 for (int k = 0; k <= 4; ++k) Counts["bad_with_" + k + "_wrap_vertices"] = byWrapVertices[k];
                 return n;
