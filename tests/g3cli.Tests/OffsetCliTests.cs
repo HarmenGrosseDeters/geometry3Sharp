@@ -198,6 +198,8 @@ namespace g3cli.Tests
             Assert.True(B(r["band_certified"]));
             Assert.InRange(D(r["band_deviation"]), 0, 0.05 + 1e-12);           // half a cell
             Assert.True(B(r["self_intersection_free"]));
+            Assert.Equal(0, I(r["uncertified_triangles"]));
+            Assert.Empty(r["warnings"].AsArray());
             Assert.True(B(r["mesh"]["closed"]));
             Assert.InRange(D(r["mesh"]["volume"]), 0.99 * RoundedBoxVolume(0.5), 1.01 * RoundedBoxVolume(0.5));
             Assert.Null(r["root_mode"]);
@@ -240,6 +242,54 @@ namespace g3cli.Tests
             Assert.False(File.Exists(never));
             var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_ok.obj"), "--distance", "0.5", "--cell-size", "0.1", "--max-cells", "200000", "--method", "mesh_offset", "--compact");
             Assert.Equal(0, e2);
+        }
+
+        [Fact]
+        public void MeshOffset_ParallelOrNot_AndPowerOfTwoScales_GiveTheSameMesh()
+        {
+            // parallel and serial write the same file; the cube scaled by 2^k (distance and cell with it) gives the vertices times 2^k, bit for bit
+            string pPath = m.Path_("mo_p.obj"), sPath = m.Path_("mo_s.obj");
+            var (e1, a) = Run("offset", m.Cube, pPath, "--distance", "0.5", "--cell-size", "0.125", "--method", "mesh_offset", "--compact");
+            var (e2, b) = Run("offset", m.Cube, sPath, "--distance", "0.5", "--cell-size", "0.125", "--method", "mesh_offset", "--no-parallel", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0, e2);
+            Assert.Equal(File.ReadAllText(pPath), File.ReadAllText(sPath));
+            Assert.Equal(D(a["band_deviation"]), D(b["band_deviation"]));
+            DMesh3 baseMesh = StandardMeshReader.ReadMesh(pPath);
+            foreach (int k in new[] { -3, 4 }) {
+                double s = Math.Pow(2, k);
+                DMesh3 cube = StandardMeshReader.ReadMesh(m.Cube);
+                MeshTransforms.Scale(cube, s, s, s);
+                string scaled = m.Path_($"mo_cube_{k}.obj"), outPath = m.Path_($"mo_k{k}.obj");
+                Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(scaled, cube, WriteOptions.Defaults).code);
+                var (e3, c) = Run("offset", scaled, outPath, "--distance", (0.5 * s).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    "--cell-size", (0.125 * s).ToString("R", System.Globalization.CultureInfo.InvariantCulture), "--method", "mesh_offset", "--compact");
+                Assert.Equal(0, e3);
+                Assert.Equal(D(a["band_deviation"]) * s, D(c["band_deviation"]));
+                DMesh3 sm = StandardMeshReader.ReadMesh(outPath);
+                Assert.Equal(baseMesh.VertexCount, sm.VertexCount);
+                Assert.Equal(baseMesh.TriangleCount, sm.TriangleCount);
+                foreach (int vid in baseMesh.VertexIndices())
+                    Assert.Equal(baseMesh.GetVertex(vid) * s, sm.GetVertex(vid));
+            }
+        }
+
+        [Fact]
+        public void MeshOffset_Binary_And_EmptyInset()
+        {
+            string bin = m.Path_("mo_bin.stl"), ascii = m.Path_("mo_ascii.stl");
+            var (e1, _) = Run("offset", m.Cube, bin, "--distance", "0.5", "--cell-size", "0.25", "--method", "mesh_offset", "--compact");
+            var (e2, _) = Run("offset", m.Cube, ascii, "--distance", "0.5", "--cell-size", "0.25", "--method", "mesh_offset", "--binary=false", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0, e2);
+            Assert.StartsWith("solid", File.ReadAllText(ascii));
+            Assert.NotEqual(File.ReadAllBytes(bin).Length, File.ReadAllBytes(ascii).Length);
+            // an inset deeper than the half thickness of the cube [-1, 1]^3 leaves nothing
+            string never = m.Path_("mo_empty.obj");
+            var (e3, r3) = Run("offset", m.Cube, never, "--distance=-1.5", "--cell-size", "0.25", "--method", "mesh_offset", "--compact");
+            AssertError(e3, r3, "operation_failed");
+            Assert.Equal("empty", S(r3["offset_status"]));
+            Assert.False(File.Exists(never));
         }
 
         [Fact]
