@@ -352,6 +352,27 @@ namespace geometry3Sharp.Tests
             Assert.Equal(TpmsStatus.Cancelled, cancelled.Status);
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Compute_CancelsInTheMiddleOfTheContouring(bool parallel)
+        {
+            // CancelF is polled by the contouring itself: it answers false for the first calls and then true. The status is
+            // Cancelled, no mesh is exposed, and the contouring was asked many times (it ran, it did not stop before it started).
+            int calls = 0;
+            var lattice = Make(TpmsType.Gyroid, TpmsStyle.Sheet, 0.3, 16, 2);
+            lattice.ParallelCompute = parallel;
+            lattice.CancelF = () => System.Threading.Interlocked.Increment(ref calls) > 40;
+            lattice.Compute();
+            Assert.Equal(TpmsStatus.Cancelled, lattice.Status);
+            Assert.Null(lattice.Mesh);
+            Assert.True(calls > 40, "the contouring did not poll CancelF: " + calls);
+            // the same lattice without cancelling is fine (state is not left behind)
+            lattice.CancelF = () => false;
+            lattice.Compute();
+            Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
+        }
+
         static DMesh3 Sphere(double radius, Vector3d center)
         {
             var gen = new Sphere3Generator_NormalizedCube { Radius = radius, EdgeVertices = 16 };
