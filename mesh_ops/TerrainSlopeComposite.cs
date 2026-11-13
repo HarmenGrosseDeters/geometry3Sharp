@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -774,7 +775,7 @@ namespace gs
             if (ok1 && p2.At(p, out z2)) {
                 ExactInterval df = z1 - z2;
                 double scale = Math.Max(Math.Max(Math.Abs(z1.Lo), Math.Abs(z1.Hi)), Math.Max(Math.Abs(z2.Lo), Math.Abs(z2.Hi)));
-                if (df.Hi - df.Lo <= scale * Math.Pow(2, -30)) return up ? df.Hi : df.Lo;
+                if (df.Hi - df.Lo <= scale * CoreMath.Ldexp(1, -30)) return up ? df.Hi : df.Lo;
             }
             ExactDyadic n1, d1, n2, d2;
             plane_at(p1.A, p1.B, p1.C, p, out n1, out d1);
@@ -1086,7 +1087,7 @@ namespace gs
             }
             // (the largest move, rounded up: a move of a point by d moves the triangles' edges at it by at most d)
             double maxMove = 0;
-            foreach (double d in moved.Values) maxMove = Math.Max(maxMove, ExactInterval.Up(ExactInterval.Up(d) * (1 + Math.Pow(2, -50))));
+            foreach (double d in moved.Values) maxMove = Math.Max(maxMove, ExactInterval.Up(ExactInterval.Up(d) * (1 + CoreMath.Ldexp(1, -50))));
             SnapTriangles = tris.ToList(); SnapStep = maxMove;
             // (the terrain triangles of the overlays, those where the slope surfaces are: of both runs in a mixed one)
             var terrain = Partner == null ? new SurfaceIndex(B, O.TerrainTree, O.TerrainTreeTris)

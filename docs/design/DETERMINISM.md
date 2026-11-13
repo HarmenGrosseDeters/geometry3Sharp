@@ -179,7 +179,12 @@ identity** (first the geodesic family: `IntrinsicTriangulation*`, `IntrinsicComm
 `MeshGeodesicDistance`, `MeshGeodesicPath`, `MeshGeodesicBezier` and `SparseCholesky.LogAdd`), not as a global replacement of
 `System.Math` (cost 1.5 to 4 times per call, more with the software FMA on net48; no gain in accuracy that matters to
 geometry tolerances). It is extended to further code only when the determinism harness shows a real difference that the
-result depends on, with a harness case and benchmark numbers. Files using `CoreMath` may not call the `System.Math`
+result depends on, with a harness case and benchmark numbers. Second user (2026-11-13, issue #802): the terrain slope
+design (`mesh_ops/TerrainSlope*.cs`), whose result differed in 20 of 15302 values between the Windows CRT of .NET and the
+others on a libm-free input (the `Cos / Sin` of the fan directions); its `Cos`, `Sin`, `Atan2` are `CoreMath`'s, its two
+`Acos` are `CoreMath.AcosByAtan2` (composed from `Atan2` and `Sqrt`: the same bits everywhere, within 1 ulp of `Math.Acos`,
+not correctly rounded), its powers of two `CoreMath.Ldexp`; harness cases `terrain.slope-design*`, no measurable change of
+the run time (1.39 s against 1.40 s, median of 5, pit at tolerance 0.001). Files using `CoreMath` may not call the `System.Math`
 transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
 tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.
 

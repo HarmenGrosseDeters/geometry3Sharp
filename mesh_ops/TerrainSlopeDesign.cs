@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -1119,7 +1120,7 @@ namespace gs
             // a direction is at most 3/4 theta from its nearest tangent plane (the grid is theta, and a grid direction
             // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
             double c = 1 - facetShare / (sMax * 1.1 * D0);
-            double theta = (c > Math.Cos(3 * Math.PI / 32)) ? Math.Acos(c) / 0.75 : Math.PI / 8;
+            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? CoreMath.AcosByAtan2(c) / 0.75 : Math.PI / 8;
             int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
             theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
@@ -1128,7 +1129,7 @@ namespace gs
             // below S̃, 4 sMax (r + l + e_xy). A lower bound of the slack: 1 - cos is exact (Sterbenz, cos >= cos(3 pi / 32)
             // > 1/2); Math.Cos is counted as off by up to 2^-49 (8 ulps of 1); each product and the difference are
             // rounded outwards. It scales with 2^k bit for bit (scale-free factor, exact power-of-two scaling of the rest)
-            double oneMinusCos = ExactInterval.Up((1 - Math.Cos(0.75 * theta)) + Math.Pow(2, -49));
+            double oneMinusCos = ExactInterval.Up((1 - CoreMath.Cos(0.75 * theta)) + CoreMath.Ldexp(1, -49));
             double facetNeed = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(sMax * 1.1) * D0) * oneMinusCos);
             double facetSlack = ExactInterval.Down(facetShare - facetNeed);
             {
@@ -1139,7 +1140,7 @@ namespace gs
             double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
             UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
-            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
+            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
 
             // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
             // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
@@ -1709,7 +1710,7 @@ namespace gs
                     if (Slope.IsNotSteeper(A, B, Q, sb)) {
                         pc.Strip.Add(kernel.AddPlane(A, B, Q));
                         Vector2d G = g * u + sign * gn * n;
-                        var sr = new StripRef() { Piece = pc, P = A, Q = B, R = Q, Angle = Math.Atan2(G.y, G.x) };
+                        var sr = new StripRef() { Piece = pc, P = A, Q = B, R = Q, Angle = CoreMath.Atan2(G.y, G.x) };
                         foreach (Vector3d apex in new[] { A, B }) {
                             List<StripRef> l;
                             if (stripsAt.TryGetValue(apex, out l) == false) { l = new List<StripRef>(); stripsAt[apex] = l; }
@@ -1717,7 +1718,7 @@ namespace gs
                         }
                         break;
                     }
-                    rise *= 1 - 1e-12 * Math.Pow(2, tries);     // (doubling steps: any rounding of Q is covered)
+                    rise *= 1 - 1e-12 * CoreMath.Ldexp(1, tries);     // (doubling steps: any rounding of Q is covered)
                     if (tries > 60) throw new InvalidOperationException("TerrainSlopeDesign: strip plane");
                 }
             }
@@ -1738,12 +1739,12 @@ namespace gs
             Vector3d A = pc.A1, B = pc.B1;
             double dx = B.x - A.x, dy = B.y - A.y, L = Math.Sqrt(dx * dx + dy * dy);
             double g = (B.z - A.z) / L;
-            double phiU = Math.Atan2(dy, dx);
-            double betaB = Math.Acos(Math.Max(-1, Math.Min(1, g / pc.Sb)));
+            double phiU = CoreMath.Atan2(dy, dx);
+            double betaB = CoreMath.AcosByAtan2(Math.Max(-1, Math.Min(1, g / pc.Sb)));
             var sb = SlopeSpec.Rise(pc.Sb);
             fans(kernel, pc, B, A, phiU, betaB, theta, nTheta, rFan, sb, stripsAt[B], pc.FanB, pc.AngB);
             fans(kernel, pc, A, B, phiU + Math.PI, Math.PI - betaB, theta, nTheta, rFan, sb, stripsAt[A], pc.FanA, pc.AngA);
-            pc.Slb *= Math.Cos(2 * theta) * (1 - 1e-6);
+            pc.Slb *= CoreMath.Cos(2 * theta) * (1 - 1e-6);
         }
 
         static void fans(ExactSlopeKernel kernel, InPiece pc, Vector3d apex, Vector3d other, double center, double half,
@@ -1768,7 +1769,7 @@ namespace gs
                     }
                     continue;
                 }
-                Vector2d d = new Vector2d(Math.Cos(a), Math.Sin(a));
+                Vector2d d = new Vector2d(CoreMath.Cos(a), CoreMath.Sin(a));
                 double rise = pc.Sb * R;
                 Vector3d p1 = new Vector3d(apex.x - d.y * R, apex.y + d.x * R, apex.z);
                 for (int tries = 0; tries < 60; ++tries) {
@@ -1780,7 +1781,7 @@ namespace gs
                         }
                         break;
                     }
-                    rise *= 1 - 1e-12 * Math.Pow(2, tries);     // (doubling steps: any rounding of Q is covered)
+                    rise *= 1 - 1e-12 * CoreMath.Ldexp(1, tries);     // (doubling steps: any rounding of Q is covered)
                 }
             }
         }
