@@ -43,11 +43,11 @@ namespace geometry3Sharp.Tests
 
         // each lever raises the 1 %-worst angle: the gates by the empty ball refine the obtuse facets the circumradius let
         // through, the quality refinement the remaining poor facets (cylinder: 16.0 -> 18.3 -> 22.2 degrees; a random soup
-        // with pinches: 7.5 -> 8.3 -> 15.2)
+        // with pinches: 7.5 -> 8.3 -> 15.2; the cylinder 21.0 with the round-based carving of lever (B), whose order differs)
         [Fact]
         public void Levers_RaiseTheWorstAngles()
         {
-            foreach (var (name, m, before, after) in new[] { ("cylinder", Cylinder(), 17.0, 21.0), ("soup", AlphaWrapTests.RandomSoup(42), 8.0, 13.0) }) {
+            foreach (var (name, m, before, after) in new[] { ("cylinder", Cylinder(), 17.0, 20.5), ("soup", AlphaWrapTests.RandomSoup(42), 8.0, 13.0) }) {
                 MeshAlphaWrap old = Wrap(m, 60, 600, false, 0), ball = Wrap(m, 60, 600, true, 0), both = Wrap(m, 60, 600, true, 15);
                 Assert.True(P01(old.Result) < before, $"{name}: {P01(old.Result)}");
                 Assert.True(P01(ball.Result) > P01(old.Result), $"{name}: {P01(ball.Result)} vs {P01(old.Result)}");

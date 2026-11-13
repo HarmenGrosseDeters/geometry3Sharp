@@ -42,7 +42,7 @@ namespace geometry3Sharp.Tests
 
         sealed class Coverage
         {
-            public int FewerNewCells, FreedIdReused, OuterTwice, SharedVertex, SharedEdge, Grown, Rejected, Rounds, Kept;
+            public int FewerNewCells, FreedIdReused, OuterTwice, SharedVertex, SharedEdge, Cospherical, Rejected, Rounds, Kept;
         }
 
         static List<Vector3d> Points(int seed, int n, bool lattice)
@@ -51,8 +51,9 @@ namespace geometry3Sharp.Tests
             var pts = new List<Vector3d>();
             for (int k = 0; k < n; ++k) {
                 if (lattice) {
-                    // cospherical and coplanar groups (lattice points): the star-shape growth and cavities with interior edges
-                    pts.Add(new Vector3d(0.5 + rnd.Next(1, 12), 0.5 + rnd.Next(1, 12), 0.5 + rnd.Next(1, 12)) * 0.75);
+                    // cospherical and coplanar groups (integer lattice points, also on the box's mid planes): the star-shape
+                    // growth, cavities with interior edges, repeated points
+                    pts.Add(new Vector3d(rnd.Next(1, 10), rnd.Next(1, 10), rnd.Next(1, 10)));
                 } else {
                     pts.Add(new Vector3d(0.5 + 9 * rnd.NextDouble(), 0.5 + 9 * rnd.NextDouble(), 0.5 + 9 * rnd.NextDouble()));
                 }
@@ -116,8 +117,12 @@ namespace geometry3Sharp.Tests
                             es.Add(u < w ? ((long)u << 32) | (uint)w : ((long)w << 32) | (uint)u);
                     if (es.Overlaps(keptEdges)) cov.SharedEdge++;
                     keptEdges.UnionWith(es);
-                    // (the conflict region grown beyond the cells whose circumsphere contains the point strictly)
-                    if (pl.Cavity.Any(c => dt.InCircumsphere(c, pl.P) <= 0)) cov.Grown++;
+                    // (cospherical: a cell next to the cavity with the point on its circumsphere. The star-shape growth of
+                    // Insert cannot occur in an exact Delaunay triangulation: a point in the plane of a boundary facet is inside
+                    // both circumspheres of the facet's cells or inside neither, as both meet that plane in the facet's
+                    // circumcircle; it is not counted here)
+                    var cavitySet = new HashSet<int>(pl.Cavity);
+                    if (pl.Reads.Any(c => !cavitySet.Contains(c) && dt.InCircumsphere(c, pl.P) == 0)) cov.Cospherical++;
                 }
                 // ids serially in order, then the writes in parallel
                 var freed = new HashSet<int>();
@@ -156,7 +161,7 @@ namespace geometry3Sharp.Tests
             Assert.True(cov.SharedVertex > 0 && cov.SharedEdge > 0, $"kept cavities sharing a vertex {cov.SharedVertex}, an edge {cov.SharedEdge}");
             Assert.True(cov.OuterTwice > 0, "an outer neighbour adjacent to two cavity cells");
             if (lattice) {
-                Assert.True(cov.Grown > 0, "star-shape growth in a round");
+                Assert.True(cov.Cospherical > 0, "a cospherical neighbour of a kept cavity");
                 Assert.True(cov.Rejected > 0, "points on vertices (rejected)");
             }
         }

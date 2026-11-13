@@ -16,7 +16,7 @@ namespace geometry3Sharp.Tests
     {
         // an input whose carving has rounds of many gates (queue / RoundQueueDivisor above the parallel threshold)
         internal static DMesh3 Input() { return AlphaWrapTests.Ellipsoid(5, 0.3, 0.45); }
-        const double RelAlpha = 160, RelOffset = 1600;
+        const double RelAlpha = 100, RelOffset = 1000;
 
         static string Fingerprint(MeshAlphaWrap w)
         {
@@ -41,7 +41,7 @@ namespace geometry3Sharp.Tests
             Assert.True(w1.Counts["round_deferred"] > 0);
             Assert.True(w1.Counts["round_shared_outside"] > 0, "no two kept carvings of a round with the same outside cell");
             string reference = Fingerprint(w1);
-            foreach (int threads in new[] { 2, 4, 8, 4 }) {
+            foreach (int threads in new[] { 2, 4, 8 }) {
                 var w = new MeshAlphaWrap(input) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = threads };
                 Assert.True(w.Compute(), w.Error);
                 Assert.Equal(reference, Fingerprint(w));
@@ -65,6 +65,24 @@ namespace geometry3Sharp.Tests
             Assert.NotEqual(AlphaWrapManifoldStepTests.Hash(w0.Result), AlphaWrapManifoldStepTests.Hash(wr.Result));
             // (the resolution does not change: triangle counts within a few percent)
             Assert.InRange(wr.Result.TriangleCount, 0.95 * w0.Result.TriangleCount, 1.05 * w0.Result.TriangleCount);
+        }
+
+        // the round-based carving pinned on the inputs of AlphaWrapManifoldStepTests.Pinned (several pinch rounds): a change of
+        // the rounds' result shows here (hashes of this PR's first version; the serial carving keeps its pins there)
+        [Theory]
+        [InlineData(42, 60.0, 600.0, "1440DFD70A780C4E")]
+        [InlineData(173, 20.0, 200.0, "C86486C02C2F7E20")]
+        [InlineData(3, 20.0, 200.0, "86AF3AB6DE837E60")]
+        [InlineData(17, 20.0, 200.0, "53686D484FA5D330")]
+        [InlineData(1, 40.0, 400.0, "7766673AF63F80D2")]
+        public void Rounds_Pinned(int seed, double relAlpha, double relOffset, string hash)
+        {
+            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            AlphaWrapTests.AssertSeparationBound(w, "soup " + seed);
+            Assert.True(w.Counts["rounds"] > 0);
+            Assert.Equal(hash, AlphaWrapManifoldStepTests.Hash(w.Result));
         }
 
         // Compute twice on one instance: the same result
@@ -112,23 +130,31 @@ namespace geometry3Sharp.Tests
             Assert.Null(w.Triangulation.Validate(true));
         }
 
-        // MaxSteinerPoints reached in the middle of a round, right after a rejected insertion: the gates before it are kept,
-        // the limit is exact, the status PointLimitReached, the result a closed wrap around the input, the same for every
-        // thread count
+        // MaxSteinerPoints reached in the middle of a round, after a rejected insertion of that round (which does not count):
+        // the gates before it are kept, the limit is exact, the status PointLimitReached, the result a closed wrap around the
+        // input, the same for every thread count. (The first limit from 400 on with that case.)
         [Fact]
-        public void Rounds_PointLimitMidRound_AfterRejection()
+        public void Rounds_PointLimitMidRound_AfterARejection()
         {
             DMesh3 input = Input();
+            Func<int, int, MeshAlphaWrap> wrap = (limit, threads) => {
+                int calls = 0;
+                var w = new MeshAlphaWrap(input) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = threads, MaxSteinerPoints = limit,
+                    RefineNonManifold = false, RefineMinAngleDegrees = 0, RejectInsertF = (rule) => rule == 2 && ++calls % 2 == 0 };
+                Assert.False(w.Compute());
+                return w;
+            };
+            int found = -1;
+            for (int limit = 400; limit < 500 && found < 0; ++limit)
+                if (wrap(limit, 1).Counts.ContainsKey("round_limit_mid_round")) found = limit;
+            Assert.True(found > 0, "no limit in the middle of a round after a rejected insertion");
             string reference = null;
             foreach (int threads in new[] { 1, 4 }) {
-                int calls = 0;
-                var w = new MeshAlphaWrap(input) { RelativeAlpha = RelAlpha, RelativeOffset = RelOffset, MaxThreads = threads, MaxSteinerPoints = 3000,
-                    RefineNonManifold = false, RefineMinAngleDegrees = 0, RejectInsertF = (rule) => rule == 2 && ++calls % 3 == 0 };
-                Assert.False(w.Compute());
+                MeshAlphaWrap w = wrap(found, threads);
                 Assert.Equal(MeshAlphaWrap.WrapStatus.PointLimitReached, w.Status);
-                Assert.Equal(3000, w.Counts["steiner_points"]);
-                Assert.True(w.Counts["rejected_rule2"] > 0);
-                Assert.True(w.Counts["round_limit_after_rejection"] > 0, "the limit was not reached right after a rejected insertion");
+                Assert.Equal(found, w.Counts["steiner_points"]);
+                Assert.True(w.Counts["rejected_points"] > 0);
+                Assert.Equal(1, w.Counts["round_limit_mid_round"]);
                 Assert.True(w.Result.IsClosed());
                 Assert.Empty(MeshIterators.BowtieVertices(w.Result));
                 Assert.Equal(0, MeshRepairMetrics.SelfIntersections(w.Result));

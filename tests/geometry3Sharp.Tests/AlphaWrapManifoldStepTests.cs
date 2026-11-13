@@ -15,7 +15,8 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class AlphaWrapManifoldStepTests
     {
-        // (seed, alpha, offset) -> SHA-256 prefix of the result before lever 4 (master 2947179 + #651)
+        // (seed, alpha, offset) -> SHA-256 prefix of the result before lever 4 (master 2947179 + #651), with the serial carving
+        // (RoundWindow = 0; the round-based carving of lever (B) has its own pins, AlphaWrapRoundsTests.Rounds_Pinned)
         public static IEnumerable<object[]> Pinned()
         {
             yield return new object[] { 42, 60.0, 600.0, "6AF040F54B9CC48B" };
@@ -45,7 +46,7 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Pinned))]
         public void ManifoldStep_BitIdenticalToBefore(int seed, double relAlpha, double relOffset, string hash)
         {
-            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = relAlpha, RelativeOffset = relOffset };
+            var w = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(seed)) { RelativeAlpha = relAlpha, RelativeOffset = relOffset, RoundWindow = 0 };
             Assert.True(w.Compute(), w.Error);
             Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
             // (the inputs exercise the trials: several pinch rounds, so stars are rebuilt after insertions and reused without)
@@ -132,9 +133,9 @@ namespace geometry3Sharp.Tests
             Assert.True(w.Compute(), w.Error);
             Assert.Equal(first, Hash(w.Result));
             // (and on another instance after a different input: no state carried between instances either)
-            var other = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(17)) { RelativeAlpha = 20, RelativeOffset = 200 };
+            var other = new MeshAlphaWrap(AlphaWrapTests.RandomSoup(17)) { RelativeAlpha = 20, RelativeOffset = 200, RoundWindow = 0 };
             Assert.True(other.Compute(), other.Error);
-            Assert.Equal("614F77D53A96BA60", Hash(other.Result));        // (soup 17's pinned hash)
+            Assert.Equal("614F77D53A96BA60", Hash(other.Result));        // (soup 17's pinned hash, serial carving)
             Assert.Equal(first, Hash(new MeshAlphaWrap(AlphaWrapTests.RandomSoup(3)) { RelativeAlpha = 20, RelativeOffset = 200 }.ComputeAndGet()));
         }
 

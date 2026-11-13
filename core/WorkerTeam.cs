@@ -5,30 +5,35 @@ using System.Threading;
 namespace g3
 {
     /// <summary>
-    /// A fixed team of worker threads for many short parallel loops in a row (the rounds of MeshAlphaWrap's carving:
-    /// tens of thousands of loops of a few hundred items each, where waking thread-pool workers for every
-    /// Parallel.For left half of the threads idle). For(count, body) runs body(i) for every i in [0, count) on the
-    /// calling thread and the workers, which take the indices in small contiguous chunks (neighbouring items often share cache lines); between loops the workers spin for a short
-    /// while, then block. The bodies must be independent of each other (each writes only its own data), so which
-    /// thread runs an index does not change the result. An exception of a body is rethrown on the calling thread after
-    /// the loop (the first one taken). Not reentrant; one caller thread at a time. Dispose ends the workers.
+    /// A fixed team of worker threads for many short parallel loops in a row (the rounds of MeshAlphaWrap's carving: tens
+    /// of thousands of loops of a few hundred items each, where waking thread-pool workers for every Parallel.For left
+    /// half of the threads idle). For(count, body) runs body(i) for every i in [0, count): the calling thread and the
+    /// workers take the indices in small contiguous chunks, and the call returns when every index is done. A worker that
+    /// comes late (descheduled, eg when other computations run at the same time) finds no work and does not hold the loop
+    /// up: the caller waits only for chunks that were taken. Between loops the workers spin for a short while, then block.
+    /// The bodies must be independent of each other (each writes only its own data), so which thread runs an index does not
+    /// change the result. An exception of a body is rethrown on the calling thread after the loop (the first one taken;
+    /// the remaining chunks are skipped). Not reentrant; one caller thread at a time. Dispose ends the workers.
     /// </summary>
     internal sealed class WorkerTeam : IDisposable
     {
+        sealed class Loop
+        {
+            public Action<int> Body;
+            public int Count, Chunk;
+            public int Next;        // next index to take
+            public int Done;        // indices done (or skipped after an exception)
+            public Exception Error;
+        }
+
         readonly Thread[] workers;
         readonly object gate = new object();
-        // the current loop
-        Action<int> body;
-        int count;
-        int next;           // next index to take
-        int pending;        // workers still in the current loop
-        int generation;     // incremented for each loop
+        Loop current;
         int sleepers;
         volatile bool disposed;
-        Exception error;
 
-        /// <summary> spin iterations of a worker between loops before it blocks </summary>
-        const int SpinLimit = 2000;
+        /// <summary> spin iterations of a worker between loops before it yields, and before it blocks </summary>
+        const int SpinLimit = 2000, YieldLimit = 50;
 
         /// <summary> threads: the team's size including the caller (at least 1; 1 = no workers, plain loops) </summary>
         public WorkerTeam(int threads)
@@ -43,73 +48,71 @@ namespace g3
 
         public int Threads { get; }
 
-        public void For(int n, Action<int> f)
+        public void For(int n, Action<int> body)
         {
             if (disposed) throw new ObjectDisposedException(nameof(WorkerTeam));
             if (workers.Length == 0 || n <= 1) {
-                for (int i = 0; i < n; ++i) f(i);
+                for (int i = 0; i < n; ++i) body(i);
                 return;
             }
-            body = f;
-            count = n;
-            error = null;
-            Volatile.Write(ref next, 0);
-            Volatile.Write(ref pending, workers.Length);
-            Interlocked.Increment(ref generation);
+            var loop = new Loop() { Body = body, Count = n, Chunk = Math.Max(1, n / (8 * Threads)) };
+            Volatile.Write(ref current, loop);
             if (Volatile.Read(ref sleepers) > 0)
                 lock (gate) Monitor.PulseAll(gate);
-            run();
-            // (busy wait: the workers finish within microseconds; SpinWait.SpinOnce would sleep for a millisecond)
-            while (Volatile.Read(ref pending) > 0)
-                Thread.SpinWait(4);
-            body = null;
-            Exception e = error;
+            run(loop);
+            int spins = 0;
+            while (Volatile.Read(ref loop.Done) < n) {
+                // (a chunk taken by a worker that is still running it; yield the core if that takes long)
+                if (++spins < SpinLimit) Thread.SpinWait(8);
+                else Thread.Yield();
+            }
+            Exception e = loop.Error;
             if (e != null)
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e).Throw();
         }
 
-        void run()
+        static void run(Loop loop)
         {
-            Action<int> f = body;
-            int n = count;
-            int chunk = Math.Max(1, n / (8 * Threads));
+            int n = loop.Count, chunk = loop.Chunk;
             while (true) {
-                int i0 = Interlocked.Add(ref next, chunk) - chunk;
+                int i0 = Interlocked.Add(ref loop.Next, chunk) - chunk;
                 if (i0 >= n) return;
                 int i1 = Math.Min(n, i0 + chunk);
                 try {
-                    for (int i = i0; i < i1; ++i) f(i);
+                    if (Volatile.Read(ref loop.Error) == null)
+                        for (int i = i0; i < i1; ++i) loop.Body(i);
                 } catch (Exception e) {
-                    Interlocked.CompareExchange(ref error, e, null);
-                    // (the remaining indices are skipped)
-                    Volatile.Write(ref next, n);
-                    return;
+                    Interlocked.CompareExchange(ref loop.Error, e, null);
                 }
+                Interlocked.Add(ref loop.Done, i1 - i0);
             }
         }
 
         void work()
         {
-            int seen = 0;
+            Loop seen = null;
             while (true) {
                 int spins = 0;
-                while (Volatile.Read(ref generation) == seen && !disposed) {
-                    if (++spins < SpinLimit) {
+                Loop loop;
+                while ((loop = Volatile.Read(ref current)) == seen && !disposed) {
+                    ++spins;
+                    if (spins < SpinLimit) {
                         Thread.SpinWait(20);
-                        continue;
+                    } else if (spins < SpinLimit + YieldLimit) {
+                        Thread.Yield();
+                    } else {
+                        lock (gate) {
+                            Interlocked.Increment(ref sleepers);
+                            if (Volatile.Read(ref current) == seen && !disposed)
+                                Monitor.Wait(gate);
+                            Interlocked.Decrement(ref sleepers);
+                        }
+                        spins = 0;
                     }
-                    lock (gate) {
-                        Interlocked.Increment(ref sleepers);
-                        if (Volatile.Read(ref generation) == seen && !disposed)
-                            Monitor.Wait(gate);
-                        Interlocked.Decrement(ref sleepers);
-                    }
-                    spins = 0;
                 }
                 if (disposed) return;
-                seen = Volatile.Read(ref generation);
-                run();
-                Interlocked.Decrement(ref pending);
+                seen = loop;
+                run(loop);
             }
         }
 

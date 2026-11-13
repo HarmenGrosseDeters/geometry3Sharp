@@ -17,9 +17,11 @@ serial (study, section 2a: queries, Delaunay and bookkeeping a third each).
 
 1. **Pop** (serial): up to W gates from the heap, in heap order (W = min(RoundWindow, max(1, queue size /
    RoundQueueDivisor)): a function of the state, section 5). Gates that are stale by
-   the existing stamp / label test are dropped as today (they count towards W). The first non-stale gate is admitted
-   unconditionally; after it, the heap top is peeked and popped only if its key is at least `RoundKeyBand` times the first
-   gate's key (section 3; a NaN key never passes the comparison, so it only enters a round as its first gate).
+   the existing stamp / label test are dropped as today (they count towards W). A gate whose inside cell c already has a gate in
+   the round is deferred without an evaluation: after the first gate of c, c is carved or replaced in almost every case,
+   so the second would be deferred after its evaluation anyway (deferring is always allowed: it only changes the queue
+   order). (A key band, admitting a gate only while
+   its key is at least a fraction of the round's first key, was measured and dropped: section 5.)
 2. **Evaluate** (parallel, read only): for every gate of the round, against the triangulation as it is at the start of
    the round: the Phi(f) re-check, the dual edge, rule 1, the touch test, rule 2, and for a gate that inserts a point p
    the conflict region of p (the cavity: the cells whose circumsphere strictly contains p, grown to be star-shaped as in
@@ -104,9 +106,9 @@ with the reason it does not depend on the order (paper notes section 2):
 angle), the 2.0 angle floors of the quality refinement, and the Hausdorff distances. Largest-Phi-first is a heuristic for
 quality, as in Delaunay refinement. The probe (W 256, serial rounds, the six tail meshes) changed raw triangles by
 -0.04 .. +0.15 %, p01 by -0.06 .. +13 degrees, and the raw min angle by -0.11 .. +2.5 degrees with one mesh worse
-(860049 1.29 -> 1.18, 679615 9.62 -> 7.33); W 1024 was worse (40118 5.01 -> 2.94). Mitigation built in: a **key band**
-(a gate enters a round only if its key is at least `RoundKeyBand` times the round's first key, so a round never mixes
-the largest facets with much smaller ones), measured against W (section 5). The gate for the merge is the owner's:
+(860049 1.29 -> 1.18, 679615 9.62 -> 7.33); W 1024 was worse (40118 5.01 -> 2.94). The build (section 5) measured a
+key band (a gate enters a round only while its key is at least 0.5 times the round's first key) against none: no
+quality gain, more time, so it was dropped. The gate for the merge is the owner's:
 guarantees 800 / 800, p01 and min angle of the final output not worse than master on the 800 run.
 
 ## 4. Determinism: the result does not depend on the thread count
@@ -173,16 +175,25 @@ Compatibility: `RoundWindow = 0` keeps master's serial loop and its output bit f
 section 5); the round loop with W > 0 changes the output bits against master, not the resolution (alpha, offset and the
 size criterion are the same).
 
-## 5. Choices for the build (recommendation first)
+## 5. Choices of the build (measured on 4 cores, `BENCH_REPAIR=wrappipe`)
 
-1. W: fixed 256 (probe: 3.94x / 14.9x round ceilings on 4 / 16 cores, +12 % re-evaluations); 1024 was worse on quality.
-   Measured again with the key band; never derived from the core count.
-2. Key band: 0.5 as a start, measured on the tail 20 and a normal stratum (quality against master, time).
-3. All calls of `refine_and_carve` (main carve, pinch refinement, quality refinement) use the round loop: one code path.
-   If the quality refinement's angle floors move, those calls fall back to W = 0 (serial), decided by the measurement.
-4. API: `MeshAlphaWrap.MaxThreads` (0 = all cores, 1 = serial reference), as `PartitionedReduction`; the round window as
-   an internal setting (tests use W = 0 for master's order). No public break (API validation against 1.0.324).
-5. The parallel trial passes (pinch / manifold, second PR) are whole-label passes (`cells_moved_by_manifold_step`:
+1. W = min(256, max(1, queue size / 64)): 256 as in the probe; the divisor keeps rounds small while the front is small
+   (small inputs carve almost in the serial order, at no cost: they gain nothing from threads), never derived from the
+   core count. Divisor 64 against 1 on three normal meshes: carve 1.80 / 2.51 / 2.55 s against 1.95 / 2.59 / 2.68 s.
+2. No key band: 0.5 against none on 5 meshes (two tail, three normal): final p01 equal within 0.1 degrees either way,
+   carve time 5-10 % higher.
+3. Rounds in the main carving only; the carving after the pinch and quality points stays serial (a few percent of the
+   wrap's time). Rounds there too changed nothing on the test inputs that differ from master (the main carving's order
+   decides), so the simpler choice keeps those phases as they were.
+4. API: `MeshAlphaWrap.MaxThreads` (0 = all cores, 1 = one thread), as `PartitionedReduction`; the round window an internal
+   setting (`RoundWindow = 0`: the serial loop, master's result bit for bit). No public break.
+5. Threads: a fixed team (`core/WorkerTeam.cs`) for the round's parallel phases, not `Parallel.For`. A round is a few
+   hundred gates of 1-20 microseconds; with `Parallel.For` per phase only about 2 of 4 threads were busy (the evaluation
+   ran at 1.5x on 4 threads). The team's workers spin between loops for a short while, then yield and block; the caller
+   takes chunks too and waits only for chunks that were taken, so a descheduled worker (other computations at the same
+   time, eg a parallel test run) does not hold a round up. Indices go in contiguous chunks: one index at a time made
+   neighbouring gate objects share cache lines across threads.
+6. The parallel trial passes (pinch / manifold, second PR) are whole-label passes (`cells_moved_by_manifold_step`:
    pocket removal, manifold step on a copy, stars): they are deterministic functions of the labels, so the parallel
    version must reproduce the serial result bit for bit (per-chunk results merged in a fixed chunk order); no guarantee
    changes and no output change.
@@ -200,9 +211,13 @@ size criterion are the same).
 - Result checks on success paths: closed, manifold, no self-intersections, input strictly inside, vertices on the offset
   surface.
 - Round edge cases: an insertion with F < T whose freed id another gate reuses in the same round; an outer neighbour
-  adjacent to two cavity cells; two kept cavities sharing an edge / a vertex; cospherical growth in a round (lattice
-  points); `MaxSteinerPoints` reached mid-round right after a rejected insertion; the parallel push reaching an outside
-  cell shared by two gates. The determinism case within 5 s (or `Slow` with a reason).
+  adjacent to two cavity cells; two kept cavities sharing an edge / a vertex; cospherical neighbours of a kept cavity
+  (lattice points; the star-shape growth of `Insert` itself cannot occur in an exact Delaunay triangulation: a point in
+  the plane of a boundary facet is inside both circumspheres of the facet's cells or inside neither, as both meet the
+  plane in the facet's circumcircle; 0 of 3200 insertions on lattices); `MaxSteinerPoints` reached in the middle of a
+  round after a rejected insertion of that round ("right after" is not reachable: the limit check comes before the
+  rejection, so the rejected insertion would itself reach the limit); kept carvings sharing their outside cell (the
+  parallel push reads it from two gates). The determinism case within 5 s.
 - Mutation checks: drop a cell from a read set, skip the deferral, push gates before the apply, use the shared walk
   state: the determinism or serialization tests must fail.
 - Numbers: tail 20 and a normal stratum on 4 cores (16 if available), and the 800 run on the runner as the gate.
