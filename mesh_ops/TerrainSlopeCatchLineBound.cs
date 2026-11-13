@@ -24,16 +24,20 @@ namespace gs
         /// per catch line of the overlay, per segment, the bound (without the snap's move); 'without' gets the boxes of
         /// the band pieces with no segment within MaxSteps
         /// </summary>
-        internal static List<List<double>> Compute(SlopeTerrainOverlay o, double tolerance, double terrainUncertainty, List<AxisAlignedBox2d> without)
+        internal static List<List<double>> Compute(SlopeTerrainOverlay o, double tolerance, double terrainUncertainty, double ez,
+                                                   List<AxisAlignedBox2d> without, out double slack)
         {
             DMesh3 A = o.Slope, B = o.Terrain;
             int dir = o.Dir;
-            // the band, rounded outwards, with a slack of 8 ulps of the heights for the realized heights' own rounding (S̃ is
-            // below S up to the rounding of its stored z, half an ulp)
+            // the band, rounded outwards, with a slack on both sides for the realization error of the stored surface: a stored
+            // height is within e_z = 2 sMax e_xy + e_eval of its plane's exact value at the rounded XY (TERRAIN.md 5.4; the
+            // budget certifies S̃ against S with exact planes, and at creases near the toe the stored mesh can be off by it),
+            // plus 8 ulps of the heights. Powers of two and ulps only: 2^k scales it bit for bit
             double zmax = 0;
             foreach (Vector3d v in A.Vertices()) zmax = Math.Max(zmax, Math.Abs(v.z));
-            double slack = 8 * (ExactInterval.Up(zmax) - zmax);
-            double lo = -ExactInterval.Up(ExactInterval.Up(tolerance + terrainUncertainty) + slack), hi = ExactInterval.Up(terrainUncertainty + slack);
+            slack = ExactInterval.Up(ez + 8 * (ExactInterval.Up(zmax) - zmax));
+            double lo, hi;
+            Band(tolerance, terrainUncertainty, slack, out lo, out hi);
             var result = new List<List<double>>();
             foreach (CatchLine l in o.CatchLines) {
                 var u = new List<double>();
@@ -49,9 +53,14 @@ namespace gs
                     if (segOf.TryGetValue(o.CatchFaces[li][i], out s) == false) segOf[o.CatchFaces[li][i]] = s = new List<Index2i>();
                     s.Add(new Index2i(li, i));
                 }
-            // the band piece of each face, as corner points of boxes (null: no band there)
+            // the faces the true catch line can be in: it bounds the true region, connected to the toe through {D <= 0}, and
+            // D <= 0 implies D̃ <= hi; so the faces reached from the computed region through faces where D̃ <= hi somewhere
+            // (sharing an overlay vertex: a closed set can connect through a point). A band ring elsewhere, eg around a hill
+            // the cone passes under (TERRAIN.md 5.5, "Region"), is cut off by faces with D̃ > hi, where D > 0: not the line
+            var reach = reachable(o, dir, hi);
+            // the band piece of each face, as corner points of boxes (null: no band there, or not reachable)
             var corners = new List<Vector2d>[o.Faces.Count];
-            for (int fi = 0; fi < o.Faces.Count; ++fi) corners[fi] = piece(o, fi, dir, lo, hi);
+            for (int fi = 0; fi < o.Faces.Count; ++fi) corners[fi] = reach[fi] ? piece(o, fi, dir, lo, hi) : null;
             // each piece to its best segment, breadth first over band faces through shared overlay edges
             for (int fi = 0; fi < o.Faces.Count; ++fi) {
                 if (corners[fi] == null) continue;
@@ -93,6 +102,61 @@ namespace gs
             return result;
         }
 
+        /// <summary>
+        /// the band [lo, hi] of D̃ for the true line (TERRAIN.md 5.5): lo = -(Tolerance + εT + slack), hi = εT + slack, rounded
+        /// outwards (D = D̃ + (S - S̃) + (T̃ - T) with 0 &lt;= S - S̃ &lt;= Tolerance up to the slack, |T̃ - T| &lt;= εT)
+        /// </summary>
+        internal static void Band(double tolerance, double terrainUncertainty, double slack, out double lo, out double hi)
+        {
+            lo = -ExactInterval.Up(ExactInterval.Up(tolerance + terrainUncertainty) + slack);
+            hi = ExactInterval.Up(terrainUncertainty + slack);
+        }
+
+        // the faces reached from the region's faces through faces where D̃ <= hi somewhere (interval lower bounds at their
+        // vertices; a face whose planes are not decided counts as such), over shared overlay vertices
+        static bool[] reachable(SlopeTerrainOverlay o, int dir, double hi)
+        {
+            int n = o.Faces.Count;
+            var low = new bool[n];
+            var facesAt = new Dictionary<long, List<int>>(EdgeKeyComparer.Instance);
+            for (int fi = 0; fi < n; ++fi) {
+                var f = o.Faces[fi];
+                Index3i ta = o.Slope.GetTriangle(f.TA), tb = o.Terrain.GetTriangle(f.TB);
+                Plane pa = Plane.Of(o.Slope.GetVertex(ta.a), o.Slope.GetVertex(ta.b), o.Slope.GetVertex(ta.c));
+                Plane pb = Plane.Of(o.Terrain.GetVertex(tb.a), o.Terrain.GetVertex(tb.b), o.Terrain.GetVertex(tb.c));
+                bool any = pa.Ok == false || pb.Ok == false;
+                foreach (var oe in f.Edges)
+                    foreach (long k in new[] { oe.P, oe.Q }) {
+                        List<int> l;
+                        if (facesAt.TryGetValue(k, out l) == false) facesAt[k] = l = new List<int>();
+                        if (l.Count == 0 || l[l.Count - 1] != fi) l.Add(fi);
+                        if (any == false) {
+                            IBox b = vertex_box(o, k);
+                            ExactInterval d = pa.At(b) - pb.At(b);
+                            if ((dir > 0 ? d.Lo : -d.Hi) <= hi) any = true;
+                        }
+                    }
+                low[fi] = any;
+            }
+            var reach = new bool[n];
+            var queue = new Queue<int>();
+            for (int fi = 0; fi < n; ++fi) if (o.Faces[fi].Region) { reach[fi] = true; queue.Enqueue(fi); }
+            while (queue.Count > 0) {
+                int fi = queue.Dequeue();
+                foreach (var oe in o.Faces[fi].Edges)
+                    foreach (long k in new[] { oe.P, oe.Q })
+                        foreach (int g in facesAt[k])
+                            if (reach[g] == false && low[g]) { reach[g] = true; queue.Enqueue(g); }
+            }
+            return reach;
+        }
+
+        /// <summary> tests: the corners of boxes that hold face fi's part of the band [lo, hi] (null if it is empty for sure) </summary>
+        internal static List<Vector2d> Piece(SlopeTerrainOverlay o, int fi, double lo, double hi) { return piece(o, fi, o.Dir, lo, hi); }
+
+        /// <summary> tests: whether the intervals decide the plane through a, b, c (its nz away from 0) </summary>
+        internal static bool PlaneDecided(Vector3d a, Vector3d b, Vector3d c) { return Plane.Of(a, b, c).Ok; }
+
         // the corners of boxes that hold the face's part of the band (null if the part is empty for sure)
         static List<Vector2d> piece(SlopeTerrainOverlay o, int fi, int dir, double lo, double hi)
         {
@@ -101,7 +165,12 @@ namespace gs
             Index3i ta = A.GetTriangle(f.TA), tb = B.GetTriangle(f.TB);
             Plane pa = Plane.Of(A.GetVertex(ta.a), A.GetVertex(ta.b), A.GetVertex(ta.c));
             Plane pb = Plane.Of(B.GetVertex(tb.a), B.GetVertex(tb.b), B.GetVertex(tb.c));
-            if (pa.Ok == false || pb.Ok == false) return null;
+            // (a plane not decided by the intervals, a sliver with nz near 0: the whole face, all its vertices' boxes)
+            if (pa.Ok == false || pb.Ok == false) {
+                var all = new List<Vector2d>();
+                foreach (var oe in f.Edges) { add_corners(all, vertex_box(o, oe.P)); add_corners(all, vertex_box(o, oe.Q)); }
+                return all.Count > 0 ? all : null;
+            }
             // D̃ on a box: dir (S̃ - T̃), each an interval
             Func<IBox, ExactInterval> dOf = (bx) => {
                 ExactInterval d = pa.At(bx) - pb.At(bx);

@@ -405,6 +405,7 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            partnerSnapMove = 0; CatchLineBandSlack = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
@@ -577,6 +578,7 @@ namespace gs
             UsedSlopeMargin = Math.Max(c.UsedSlopeMargin, f.UsedSlopeMargin);
             UsedToeLowering = Math.Max(c.UsedToeLowering, f.UsedToeLowering);
             UsedMinFeatureSize = Math.Max(c.UsedMinFeatureSize, f.UsedMinFeatureSize);
+            CatchLineBandSlack = Math.Max(c.CatchLineBandSlack, f.CatchLineBandSlack);
             FacetAngle = Math.Max(c.FacetAngle, f.FacetAngle);
             MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips;
             MergeLambdaRequired = Math.Max(c.MergeLambdaRequired, f.MergeLambdaRequired);
@@ -596,7 +598,7 @@ namespace gs
                 CopyTerrain = CompositeKind == CompositeKinds.Full,
                 Partner = new SlopeComposite(f.lastOverlay, Pieces.Count, f.UsedMinFeatureSize, CancelF) { GroupOffset = nc },
                 SegmentOfGroup = Pieces.Select(p => ((long)p.Toe << 20) + p.Segment).ToArray(),
-                PartnerSnapRadius = 1e-4 * toeBox.DiagonalLength
+                PartnerSnapRadius = partnerSnapMove = 1e-4 * toeBox.DiagonalLength
             };
             if (comp.Build() == false)
                 return fail(Statuses.CompositeFailed, "composite: " + comp.Problem);
@@ -813,7 +815,9 @@ namespace gs
                     if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
                     if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
                     // (the proven bound plus the snap's move, rounded up)
-                    double pu = i < l.ProvenBand.Count ? ExactInterval.Up(l.ProvenBand[i] + UsedMinFeatureSize) : double.PositiveInfinity;
+                    // (the snap's move: MinFeatureSize, and at a toe crossing of a mixed run the partner snap's radius)
+                    double move = Math.Max(UsedMinFeatureSize, partnerSnapMove);
+                    double pu = i < l.ProvenBand.Count ? ExactInterval.Up(l.ProvenBand[i] + move) : double.PositiveInfinity;
                     l.ProvenUncertainty.Add(pu);
                     if (required && !(pu <= RequiredCatchLineAccuracy)) {
                         // the Tolerance that meets it here (with 10 % to spare), if any: the band, and so the bound, shrinks with
@@ -1072,6 +1076,8 @@ namespace gs
             double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
+            // (the realization error of a stored height, TERRAIN.md 5.4: the slack of the catch-line bound's band, 5.5)
+            lastEz = ExactInterval.Up(ExactInterval.Up(2 * sMax * exy) + eeval);
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false)
                 return fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             // the bound of the toe lowering for triangles with altitudes of at least MinFeatureSize (plan, departure 1);
@@ -1419,7 +1425,7 @@ namespace gs
             }
             // the proven bound of each segment (without the snap's move, added with the estimate's), TERRAIN.md 5.5
             {
-                var proven = SlopeCatchLineBound.Compute(overlay, Tolerance, Math.Max(0, TerrainVerticalUncertainty), br.BandWithoutLine);
+                var proven = SlopeCatchLineBound.Compute(overlay, Tolerance, Math.Max(0, TerrainVerticalUncertainty), lastEz, br.BandWithoutLine, out CatchLineBandSlack);
                 for (int li = 0; li < overlay.CatchLines.Count; ++li) overlay.CatchLines[li].ProvenBand.AddRange(proven[li]);
             }
             overlay.Integrate(pieces.Count, out br.Volumes, out br.PlanAreas, out br.SlopeAreas);
@@ -1630,6 +1636,12 @@ namespace gs
         /// copy of the rest of the terrain; false: after the whole composite (the reference: the same results)
         /// </summary>
         internal bool EarlyRegionCheck = true;
+        // the last build's realization error of a stored height, 2 sMax e_xy + e_eval rounded up (TERRAIN.md 5.4)
+        double lastEz;
+        /// <summary> diagnostics of the last overlay: the slack of the catch-line bound's band on each side (TERRAIN.md 5.5) </summary>
+        internal double CatchLineBandSlack;
+        // with Direction Auto and a composite: the partner snap's radius at a toe crossing (a catch point's largest move there)
+        double partnerSnapMove;
         /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
         internal int SkippedTerrainCopies;
         /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>

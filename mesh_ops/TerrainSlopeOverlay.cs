@@ -39,7 +39,8 @@ namespace gs
         /// per segment, a proven bound of the horizontal uncertainty (TERRAIN.md 5.5, "The proven bound"): every point of the
         /// true catch line {S - T = 0} within the slope surface's footprint lies within ProvenUncertainty[i] of some
         /// segment i, given that the realized slope surface is within Tolerance of the exact one and the terrain within
-        /// TerrainVerticalUncertainty of the true one (TerrainSlopeDesign: plus MinFeatureSize, the snap's move). 0 for a
+        /// TerrainVerticalUncertainty of the true one (TerrainSlopeDesign: plus the composite snap's move, MinFeatureSize, and with
+        /// Direction Auto at least the partner snap's radius at a toe crossing). The snap's move only for a
         /// segment no band piece is nearest to; the places where the band has no segment nearby are
         /// TerrainSlopeDesign.CatchLineBandWithoutLine
         /// </summary>

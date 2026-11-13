@@ -149,6 +149,7 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"{n} band points, {d.CatchLineBandWithoutLine.Count} boxes without a line");
         }
 
+        [Trait("Category", "Slow")]   // (the design in up to four rounds: the refinement of RequiredCatchLineAccuracy)
         [Fact]
         public void RequiredAccuracy_UsesTheProvenBound()
         {
@@ -159,6 +160,130 @@ namespace geometry3Sharp.Tests
             Assert.True(d.Compute(), d.Status + " " + d.Message);
             Assert.True(d.UsedTolerance < 0.05, $"{d.UsedTolerance}");
             Assert.All(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => Assert.True(u <= 0.15, $"{u}"));
+        }
+
+        // the behaviour change (2026-11-13): the estimate reaches 0.3 m on the nearly parallel side with the terrain's own
+        // 0.04 m (its floor 0.04 / 0.2 = 0.2 m, the estimate met at a smaller Tolerance, which succeeded before), but the proven
+        // bound cannot (the band's own width over the gradient, assigned per piece, stays above 0.3 m): CatchLineAccuracyNotReached
+        // instead of a Success that claimed an accuracy the result did not have
+        [Trait("Category", "Slow")]   // (the design three times: the refinement rounds of RequiredCatchLineAccuracy)
+        [Fact]
+        public void RequiredAccuracy_TheEstimateWouldPass_TheProvenBoundDoesNot()
+        {
+            var d = Pit(1, 3, 0.8);
+            d.RequiredCatchLineAccuracy = 0.3; d.TerrainVerticalUncertainty = 0.04;
+            Assert.False(d.Compute());
+            Assert.Equal(TerrainSlopeDesign.Statuses.CatchLineAccuracyNotReached, d.Status);
+            Assert.Equal(TerrainSlopeDesign.StatusKinds.NotCertified, d.StatusKind);
+            // (the estimate alone would have been met: every segment's estimate at most 0.3; the proven bound is not)
+            Assert.All(d.CatchLines.SelectMany(l => l.Uncertainty), u => Assert.True(u <= 0.3, $"{u}"));
+            Assert.Contains(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => u > 0.3);
+        }
+
+        // numerics review F1: the band's slack holds the realization error of a stored height, 2 s e_xy + e_eval (TERRAIN.md
+        // 5.4), on both sides. At UTM e_xy alone is about 1e-9 m, against 1e-13 m of 8 ulps of the heights
+        [Fact]
+        public void BandSlack_HoldsTheRealizationErrorAtUtm()
+        {
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(5.6e6 - 60, 3.5e5 - 60, 5.6e6 + 60, 3.5e5 + 60), 24, 24, (x, y) => 126);
+            var toe = SlopeToe.Constant(TerrainSlopeCatchLineTests.Ngon(8, 10, 120, new Vector2d(5.6e6, 3.5e5), 0.1), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var d = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = 0.05 };
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            // (a lower bound of the design's e_xy: the ulp of the largest output coordinate, which is below its maxXY)
+            double m = d.SlopeSurface.Vertices().Max(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)));
+            double exy = ExactInterval.Up(m) - m;
+            Assert.True(d.CatchLineBandSlack >= 2 * 1 * exy * (1 - 1e-6), $"slack {d.CatchLineBandSlack} below 2 s e_xy {2 * exy}");
+            Assert.True(d.CatchLines.SelectMany(l => l.ProvenUncertainty).Max() >= d.Tolerance * (1 - 1e-6));
+        }
+
+        // numerics review F2: a face whose plane the intervals do not decide (a terrain sliver, nz within its rounding) is
+        // not dropped: its part of the band is all of it, the boxes of all its vertices
+        [Fact]
+        public void UndecidedPlane_TheWholeFaceCounts()
+        {
+            // (a sliver at mixed magnitudes, found by search: Orient2d decides it, the interval normal does not)
+            var rnd = new Random(11);
+            Vector3d b0 = default(Vector3d), b1 = default(Vector3d), b2 = default(Vector3d);
+            bool found = false;
+            for (int k = 0; k < 100000 && found == false; ++k) {
+                b0 = new Vector3d(0.1 + rnd.NextDouble(), 0.3 + rnd.NextDouble(), 1.7);
+                b1 = new Vector3d(1e8 + 0.3 + rnd.NextDouble(), 0.3 + 1e-8 * rnd.NextDouble(), 2.9);
+                double t = 0.5 + 0.25 * rnd.NextDouble();
+                b2 = new Vector3d(b0.x + t * (b1.x - b0.x), b0.y + t * (b1.y - b0.y), 2.3);
+                int o2 = ExactPredicates.Orient2d(b0.xy, b1.xy, b2.xy);
+                if (o2 == 0) continue;
+                if (o2 < 0) { var x = b1; b1 = b2; b2 = x; }
+                found = SlopeCatchLineBound.PlaneDecided(b0, b1, b2) == false;
+            }
+            Assert.True(found);
+            var terrain = new DMesh3(false, false, false, true);
+            terrain.AppendTriangle(terrain.AppendVertex(b0), terrain.AppendVertex(b1), terrain.AppendVertex(b2));
+            var slope = new DMesh3(false, false, false, true);
+            int s0 = slope.AppendVertex(new Vector3d(-10, -10, 2)), s1 = slope.AppendVertex(new Vector3d(3e8, -10, 2)), s2 = slope.AppendVertex(new Vector3d(-10, 3e8, 2));
+            slope.SetTriangleGroup(slope.AppendTriangle(s0, s1, s2), 0);
+            var o = new SlopeTerrainOverlay(slope, terrain, false, new Dictionary<int, int>(), null);
+            Assert.True(o.Compute(), o.Problem);
+            var f = Assert.Single(o.Faces);
+            List<Vector2d> cs = SlopeCatchLineBound.Piece(o, 0, -1, 1);
+            Assert.NotNull(cs);
+            var box = AxisAlignedBox2d.Empty;
+            foreach (Vector2d c in cs) box.Contain(c);
+            foreach (Vector3d v in new[] { b0, b1, b2 })
+                Assert.True(v.x >= box.Min.x && v.x <= box.Max.x && v.y >= box.Min.y && v.y <= box.Max.y, $"{v.xy} outside {box}");
+        }
+
+        // numerics review F3: Direction Auto with a composite moves a toe crossing's catch points by up to the partner snap's
+        // radius, 1e-4 of the toes' size: the proven bound holds it
+        [Fact]
+        public void Auto_TheBoundHoldsThePartnerSnap()
+        {
+            var d = TerrainSlopeMixedTests.Make(0.3, 0, 0.4, TerrainSlopeDesign.Directions.Auto, Similarity.Identity);
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var p in d.Toes[0].Points) toeBox.Contain(p.xy);
+            double snap = 1e-4 * toeBox.DiagonalLength;
+            Assert.True(snap > d.UsedMinFeatureSize);
+            Assert.NotEmpty(d.CatchLines);
+            Assert.All(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => Assert.True(u >= snap, $"{u} below the partner snap {snap}"));
+        }
+
+        // the side of the band (review M4, M5): one slope triangle at z = 0 over one terrain triangle z = 0.1 x. Cut:
+        // D̃ = S̃ - T̃ = -0.1 x, the band [lo, hi] = [-0.05, 0.01] is x in [-0.1, 0.5]; fill (mirrored): D̃ = T̃ - S̃ = 0.1 x, x in
+        // [-0.5, 0.1]. And the band's limits: Tolerance and εT on the low side, εT on the high side, the slack on both
+        [Theory]
+        [InlineData(false, -0.1, 0.5)]
+        [InlineData(true, -0.5, 0.1)]
+        public void Piece_IsOnTheRightSide(bool fill, double x0, double x1)
+        {
+            var slope = new DMesh3(false, false, false, true);
+            slope.SetTriangleGroup(slope.AppendTriangle(slope.AppendVertex(new Vector3d(-10, -10, 0)), slope.AppendVertex(new Vector3d(10, -10, 0)), slope.AppendVertex(new Vector3d(0, 10, 0))), 0);
+            var terrain = new DMesh3(false, false, false, true);
+            terrain.AppendTriangle(terrain.AppendVertex(new Vector3d(-20, -20, -2)), terrain.AppendVertex(new Vector3d(20, -20, 2)), terrain.AppendVertex(new Vector3d(0, 20, 0)));
+            var o = new SlopeTerrainOverlay(slope, terrain, fill, new Dictionary<int, int>(), null);
+            Assert.True(o.Compute(), o.Problem);
+            var f = Assert.Single(o.Faces);
+            List<Vector2d> cs = SlopeCatchLineBound.Piece(o, 0, -0.05, 0.01);
+            double mn = cs.Min(c => c.x), mx = cs.Max(c => c.x);
+            Assert.InRange(mn, x0 - 1e-9, x0 + 1e-9);
+            Assert.InRange(mx, x1 - 1e-9, x1 + 1e-9);
+            double lo, hi;
+            SlopeCatchLineBound.Band(0.05, 0.01, 0.001, out lo, out hi);
+            Assert.True(lo <= -0.061 && lo > -0.0611 && hi >= 0.011 && hi < 0.0111, $"{lo} {hi}");
+        }
+
+        // review finding 1: a hill behind the pit that the cone passes under (a component of D̃ < 0 not connected to the toe,
+        // TERRAIN.md 5.5) is not the catch line: its band ring is cut off by faces with D̃ above the band, where D > 0. Before
+        // the fix it was reported without a line, and RequiredCatchLineAccuracy failed where master succeeds
+        [Fact]
+        public void HillBehindThePit_IsNotACatchLine()
+        {
+            var terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-80, -80, 80, 80), 64, 64,
+                (x, y) => 6 + 40 * Math.Max(0, 1 - Math.Sqrt((x - 40) * (x - 40) + y * y) / 8));
+            var toe = SlopeToe.Constant(TerrainSlopeDesignTests.Square(8, 0), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1));
+            var d = new TerrainSlopeDesign() { Toes = { toe }, Terrain = terrain, Tolerance = 0.05, HeightLimit = 80, RequiredCatchLineAccuracy = 2 };
+            Assert.True(d.Compute(), d.Status + " " + d.Message);
+            Assert.Empty(d.CatchLineBandWithoutLine);
+            Assert.Equal(0.05, d.UsedTolerance);
         }
 
         [Fact]
