@@ -66,6 +66,8 @@ Part of the [roadmap](../ROADMAP.md).
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
      is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
      first, then 2-3 days with an Opus-level review of the bounds.
+     Stage 1 note (2026-11-13, for the owner's decision): [design/CCD.md](../design/CCD.md) (Tight-Inclusion MIT,
+     implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
