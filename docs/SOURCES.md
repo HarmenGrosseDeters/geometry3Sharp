@@ -648,11 +648,19 @@ not read). `MeshBatchQueries` (merged in #448) runs the existing single queries 
 | Watertight ray-triangle test | S. Woop, C. Benthin, I. Wald, *Watertight Ray/Triangle Intersection*, JCGT 2(1), 2013 (the library's exact test is a different, `Orient3d`-based decision) |
 | Fast winding numbers | G. Barill, N. G. Dickson, R. Schmidt, D. I. W. Levin, A. Jacobson, *Fast Winding Numbers for Soups and Clouds*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201337](https://doi.org/10.1145/3197517.3201337) |
 
-## Tetrahedral meshing (design only, `docs/design/TET_MESHING.md`; no code yet)
+## Tetrahedral meshing (`MeshTetrahedralization`, `Delaunay3.RefinementSupport`, `docs/design/TET_MESHING.md`)
 
 Papers only: TetGen (AGPL), fTetWild / TetWild (MPL), the CDT of Diazzi et al. (GPL / LGPL), CGAL (GPL) are not to be read or ported.
+fTetWild is run as a black box only (`.github/workflows/tet-compare.yml`; README build steps and `--help`, no source read).
 
-| Topic | Source |
+| Implemented (stage 1) | Source |
+|---|---|
+| Circumcentre insertion for tets above a radius-edge bound and a size bound, refinement order by a queue | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 (DelTetPLC) |
+| The floor (no point closer than a fixed distance, so the vertices are a packing and the refinement terminates) | the separation argument of L. P. Chew 1993 and J. Ruppert 1995 (as in the alpha wrap's own refinement, above) |
+| Sliver-avoiding point choice: a point near the circumcentre whose new tets have no sliver | X.-Y. Li, S.-H. Teng, *Generating well-shaped Delaunay meshes in 3D*, SODA 2001 (fixed candidate directions here instead of random points) |
+| The fixed surface (insertions whose cavity reaches the surface undone, on exact labels), peeling of boundary slivers (a 2-2 surface flip) with the exact input test | the library's own; the input test uses `ExactTriangleIntersection` (Devillers and Guigue 2002, above) |
+
+| Read for the design |  |
 |---|---|
 | Delaunay refinement of tetrahedra (radius-edge bound, encroachment) | J. R. Shewchuk, *Tetrahedral mesh generation by Delaunay refinement*, SoCG 1998; S.-W. Cheng, T. K. Dey, J. R. Shewchuk, *Delaunay Mesh Generation*, CRC 2012 |
 | Constrained Delaunay tetrahedralization, existence and recovery | J. R. Shewchuk, *A condition guaranteeing the existence of higher-dimensional constrained Delaunay triangulations*, SoCG 1998; *Updating and constructing constrained Delaunay and constrained regular triangulations by flips*, SoCG 2003; H. Si, K. Gärtner, *Meshing piecewise linear complexes by constrained Delaunay tetrahedralizations*, IMR 2005; H. Si, *TetGen*, ACM TOMS 41(2), 2015; M. Diazzi, D. Panozzo, A. Vaxman, M. Attene, *Constrained Delaunay tetrahedrization: a robust and practical approach*, ACM TOG 2023 (abstract read) |
