@@ -140,8 +140,8 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData(1.0)]
-        [InlineData(0x1p-40)]
-        [InlineData(0x1p40)]
+        [InlineData(9.094947017729282e-13)]   // 2^-40
+        [InlineData(1099511627776.0)]         // 2^40
         public void CollapseFold_NewFoldRejected(double scale)
         {
             // U at 80 degrees to T; after the collapse 111 degrees

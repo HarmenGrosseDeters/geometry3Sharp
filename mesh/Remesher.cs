@@ -1075,11 +1075,15 @@ namespace g3 {
         // So: collapsing edge [a,b] (triangles t0, t1) to vKeep at newPos is rejected if two edge-adjacent triangles of
         // the result, at least one of them changed, face more than 90 degrees apart (faces_against) while the same two
         // triangles did not before; a fold the mesh already has is not blocked (the passes may still repair it). Pairs
-        // with a flat triangle before or after are skipped (no orientation; collapse_creates_flat rejects new flat ones).
+        // with a flat triangle before or after are skipped (no orientation; collapse_creates_flat rejects new flat ones),
+        // and so are pairs across an edge with two feature vertices (a crease may be sharper than 90 degrees; folds at
+        // feature curves are collapse_creates_feature_fold's).
         // The sign of a dot product of cross products in floating point: no absolute threshold, so 2^k scaling gives the
         // same decisions.
         internal bool collapse_creates_fold(int a, int b, int vKeep, Vector3d newPos, int t0, int t1)
         {
+            if (is_feature_vertex(a) || is_feature_vertex(b))
+                return false;       // (at feature curves collapse_creates_feature_fold applies)
             foldRing.Clear();
             mesh.GetVtxTriangles(a, foldRing, false);
             mesh.GetVtxTriangles(b, foldRing, false);
@@ -1088,10 +1092,14 @@ namespace g3 {
             foldMapped.Clear();
             foreach (int tid in foldRing)
                 foldMapped.Add(map_collapsed(mesh.GetTriangle(tid), a, b, vKeep));
+            bool keepFeature = is_feature_vertex(a) || is_feature_vertex(b);
             for (int i = 0; i < foldRing.Count; ++i) {
                 Index3i m = foldMapped[i];
                 for (int j = 0; j < 3; ++j) {
                     int u = m[j], v = m[(j + 1) % 3];
+                    // an edge on a feature curve (both ends feature vertices) may be a sharp crease: not a fold
+                    if ((u == vKeep ? keepFeature : is_feature_vertex(u)) && (v == vKeep ? keepFeature : is_feature_vertex(v)))
+                        continue;
                     if (u != vKeep && v != vKeep) {
                         // an edge of the link: across it lies the same triangle as before
                         int eid = mesh.FindEdge(u, v);
@@ -1137,14 +1145,15 @@ namespace g3 {
             Vector3d q0 = mesh.GetVertex(oq.a), q1 = mesh.GetVertex(oq.b), q2 = mesh.GetVertex(oq.c);
             Vector3d n0 = mapped_vertex(mp.a, vKeep, newPos), n1 = mapped_vertex(mp.b, vKeep, newPos), n2 = mapped_vertex(mp.c, vKeep, newPos);
             Vector3d m0 = mapped_vertex(mq.a, vKeep, newPos), m1 = mapped_vertex(mq.b, vKeep, newPos), m2 = mapped_vertex(mq.c, vKeep, newPos);
-            if (TriangleQuality(ref n0, ref n1, ref n2) < DegenerateFlipQuality || TriangleQuality(ref m0, ref m1, ref m2) < DegenerateFlipQuality
-                || TriangleQuality(ref p0, ref p1, ref p2) < DegenerateFlipQuality || TriangleQuality(ref q0, ref q1, ref q2) < DegenerateFlipQuality)
-                return false;
             Vector3d nNew = (n1 - n0).Cross(n2 - n0), mNew = (m1 - m0).Cross(m2 - m0);
             if (!(nNew.Dot(mNew) < 0))
                 return false;
             Vector3d nOld = (p1 - p0).Cross(p2 - p0), mOld = (q1 - q0).Cross(q2 - q0);
-            return !(nOld.Dot(mOld) < 0);
+            if (nOld.Dot(mOld) < 0)
+                return false;
+            // (the flat test last: it is the expensive part, and only a candidate fold needs it)
+            return TriangleQuality(ref n0, ref n1, ref n2) >= DegenerateFlipQuality && TriangleQuality(ref m0, ref m1, ref m2) >= DegenerateFlipQuality
+                && TriangleQuality(ref p0, ref p1, ref p2) >= DegenerateFlipQuality && TriangleQuality(ref q0, ref q1, ref q2) >= DegenerateFlipQuality;
         }
 
         int feature_count(Index3i t) => (is_feature_vertex(t.a) ? 1 : 0) + (is_feature_vertex(t.b) ? 1 : 0) + (is_feature_vertex(t.c) ? 1 : 0);
