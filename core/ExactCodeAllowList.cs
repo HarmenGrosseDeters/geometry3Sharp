@@ -56,5 +56,6 @@ using System.Diagnostics.CodeAnalysis;
 // the bins, the grid); each writes the reasons of its own cell indices. No floating-point value crosses threads: a cell's
 // reason is a function of the geometry of the cell, its faces and their edges alone (the exact tests on the triangles of L
 // that meet them), so faces and edges tested twice on chunk borders give the same records; the integer test counters are
-// summed serially in chunk order. Parallel equals serial bit for bit (ContouringTopologyCertificateTests, WindingContouringCertificateTests)
+// summed serially in chunk order (diagnostic counts: border faces and edges are counted twice, so they depend on the
+// chunking; the reasons do not). Parallel equals serial bit for bit (ContouringTopologyCertificateTests, WindingContouringCertificateTests)
 [assembly: SuppressMessage("Reliability", "G3E0002", Scope = "member", Target = "~M:g3.ContouringTopologyCertificate.Cells(System.Collections.Generic.IList{System.Collections.Generic.KeyValuePair{g3.Vector3i,System.Int32}},System.Collections.Generic.IList{System.Boolean},System.Boolean,System.Int32)~g3.ContouringCertificateReason[]", Justification = "reviewed: per-chunk workers, per-index writes, no floating-point reduction")]

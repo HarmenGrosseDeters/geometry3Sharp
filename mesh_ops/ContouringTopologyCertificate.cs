@@ -135,7 +135,10 @@ namespace g3
         readonly long[] binKeys;
         readonly int[] binStart, binTris;
 
-        /// <summary> (tests, benchmark) exact segment-triangle and segment-face tests after the box rejection </summary>
+        /// <summary>
+        /// (tests, benchmark) exact segment-triangle and segment-face tests after the box rejection; diagnostic only: on the
+        /// parallel path the faces and edges on chunk borders are counted twice, so the counts depend on the chunking
+        /// </summary>
         internal long SegmentTriangleTests, SegmentFaceTests;
 
         /// <param name="mesh"> closed, manifold, no self-intersections, no triangle of zero area (CleanLevelSetMesh) </param>
@@ -255,8 +258,10 @@ namespace g3
         /// chunks, each tested by a worker with its own tables (the faces and edges on the borders between chunks are
         /// tested twice). The same reasons as the serial loop, bit for bit: a face's or an edge's record, and so a cell's
         /// reason, is a function of its geometry alone (the triangles of L that meet it, from any superset; the first
-        /// reason by a fixed priority), not of which cell tested it first. The grid's methods must be thread-safe (read
-        /// only) for the parallel path.
+        /// reason by a fixed priority), not of which cell tested it first. The grid's methods must be thread-safe for the
+        /// parallel path: read only, or (DualContouring's node values, filled on first use in a concurrent table) a
+        /// field evaluator that is itself thread-safe, as DualContouring with ParallelCompute already requires of
+        /// NodeValueF (WindingContouring's winding-number trees are read only after their construction).
         /// </summary>
         /// <param name="minChunk"> the fewest cells per chunk (tests: small, to get many chunks from a small input) </param>
         public ContouringCertificateReason[] Cells(IList<KeyValuePair<Vector3i, int>> cells, IList<bool> contourCell, bool parallel, int minChunk = 2048)
@@ -395,7 +400,9 @@ namespace g3
         //     the two operands, u (|A| + |B|) <= 6 u M (plus O(u^2 M));
         //   so the exact projections are apart if the computed ones are by more than 22 u M + 6 eta + O(u^2 M), which
         //   2 err = 24 u M + 8 eta (err itself rounded: at least 24 u M (1 - 2u) + 8 eta) exceeds.
-        // A projection that overflows (products finite, their sum not) keeps the triangle, as does a normal that does.
+        // A projection that overflows (products finite, their sum not) keeps the triangle, as does a normal that does. (No
+        // touching triangle was found that this guard saves, in tests and in the review's search at the overflow threshold;
+        // it keeps the soundness independent of how the rounding of the computed sums falls there.)
         internal static bool may_meet_box(Vector3d a, Vector3d b, Vector3d c, Vector3d lo, Vector3d hi)
         {
             for (int k = 0; k < 3; ++k)
