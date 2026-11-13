@@ -42,15 +42,17 @@ namespace DeterminismHarness
         // else a seeded permutation)
         static readonly PropertyInfo OrderField = typeof(g3.gParallel).GetProperty("SerialOrderOnThisThread", BindingFlags.NonPublic | BindingFlags.Static);
 
-        // one case on its own thread (large stack), serial or not, with the loop order
-        static Trace RunCase(Case c, bool serial, int order, out Exception error)
+        // one case on its own thread (large stack), with the library's serial switch and loop order. caseSerial is what the
+        // case gets: true also turns the per-class parallel flags off (Remesher, DualContouring, MarchingCubes), which
+        // takes their plain loops instead of gParallel's
+        static Trace RunCase(Case c, bool serial, int order, out Exception error, bool? caseSerial = null)
         {
             Trace trace = null; Exception err = null;
             var thread = new Thread(() => {
                 try {
                     if (SerialField != null) SerialField.SetValue(null, serial);
                     if (OrderField != null) OrderField.SetValue(null, order);
-                    trace = c.Run(serial);
+                    trace = c.Run(caseSerial ?? serial);
                 } catch (Exception e) { err = e; }
             }, 256 * 1024 * 1024);
             thread.Start(); thread.Join();
@@ -65,17 +67,19 @@ namespace DeterminismHarness
         {
             string filter = Arg(args, "--filter");
             int seeds = int.Parse(Arg(args, "--seeds") ?? "3", CultureInfo.InvariantCulture);
-            if (OrderField == null) { Console.Error.WriteLine("gParallel.SerialOrderOnThisThread not found"); return 2; }
+            if (OrderField == null || SerialField == null) { Console.Error.WriteLine("gParallel.SerialOnThisThread / SerialOrderOnThisThread not found"); return 2; }
             var orders = new List<int>() { -1 };
             for (int s = 1; s <= seeds; ++s) orders.Add(s);
             int differ = 0, same = 0, failed = 0;
             foreach (Case c in Cases.All()) {
                 if (filter != null && c.Name.IndexOf(filter, StringComparison.Ordinal) < 0) continue;
-                Trace reference = RunCase(c, true, 0, out Exception error);
+                // (the per-class parallel flags stay on, so that those classes go through gParallel's loops, which the switch
+                // runs serially in the order under test)
+                Trace reference = RunCase(c, true, 0, out Exception error, false);
                 if (error != null) { Console.WriteLine(c.Name + "\tERROR\t" + error.GetType().Name + ": " + error.Message.Replace('\n', ' ')); failed++; continue; }
                 string verdict = null;
                 foreach (int order in orders) {
-                    Trace t = RunCase(c, true, order, out error);
+                    Trace t = RunCase(c, true, order, out error, false);
                     string name = (order == -1) ? "backwards" : "seed " + order;
                     if (error != null) { verdict = name + ": " + error.GetType().Name + ": " + error.Message.Replace('\n', ' '); break; }
                     int k = 0, m = Math.Min(t.Values.Count, reference.Values.Count);
@@ -100,6 +104,7 @@ namespace DeterminismHarness
             string filter = Arg(args, "--filter");
             int order = int.Parse(Arg(args, "--order") ?? "0", CultureInfo.InvariantCulture);
             bool serial = args.Contains("--serial") || order != 0;
+            if (order != 0 && OrderField == null) { Console.Error.WriteLine("gParallel.SerialOrderOnThisThread not found"); return 2; }
             Directory.CreateDirectory(outDir);
             var summary = new StringBuilder();
             string runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
@@ -109,7 +114,7 @@ namespace DeterminismHarness
             Console.Write(summary.ToString());
             foreach (Case c in Cases.All()) {
                 if (filter != null && c.Name.IndexOf(filter, StringComparison.Ordinal) < 0) continue;
-                Trace trace = RunCase(c, serial, order, out Exception error);
+                Trace trace = RunCase(c, serial, order, out Exception error, (order != 0) ? false : (bool?)null);
                 string line;
                 if (error != null) line = c.Name + "\tERROR\t" + error.GetType().Name + ": " + error.Message.Replace('\n', ' ');
                 else {

@@ -21,7 +21,13 @@ namespace g3
         public static void ForEach<T>( IEnumerable<T> source, Action<T> body )
         {
             if (SerialOnThisThread) {
-                // (tests: one after the other on the calling thread, in the order of SerialOrderOnThisThread)
+                // (tests: one after the other on the calling thread, in the order of SerialOrderOnThisThread; the
+                // source is copied only for another order than its own)
+                if (serialOrderSeed == 0) {
+                    foreach (T v in source)
+                        body(v);
+                    return;
+                }
                 var items = new List<T>(source);
                 int[] order = serial_order(items.Count);
                 for (int k = 0; k < items.Count; ++k)
@@ -37,7 +43,8 @@ namespace g3
 
 
         /// <summary>
-        /// for tests: ForRange runs its items one after the other on the calling thread (parallel == serial checks)
+        /// for tests: ForRange, ForEach (and so BlockStartEnd, Evaluate) run their items one after the other on the
+        /// calling thread (parallel == serial checks)
         /// </summary>
         [ThreadStatic] internal static bool SerialOnThisThread;
 
@@ -53,7 +60,11 @@ namespace g3
             set {
                 // (setting it starts the sequence of permutations anew, so that two runs with one seed see the same orders)
                 serialOrderSeed = value;
-                serialOrderState = unchecked((ulong)value * 0x9E3779B97F4A7C15UL);
+                // (the seed mixed once, so that the sequences of neighbouring seeds are unrelated)
+                ulong z = unchecked((ulong)value * 0x9E3779B97F4A7C15UL);
+                z = unchecked((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL);
+                z = unchecked((z ^ (z >> 27)) * 0x94D049BB133111EBUL);
+                serialOrderState = z ^ (z >> 31);
             }
         }
         [ThreadStatic] static ulong serialOrderState;

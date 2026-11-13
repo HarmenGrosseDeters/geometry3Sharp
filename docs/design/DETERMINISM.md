@@ -110,7 +110,10 @@ double. Float code (`Vector3f`, `MeshLocalParam`, glTF) is where x86 would show.
 
 **C5. Parallel reduction order, thread count.** No difference found (section 2). The library's own parallel loops write
 disjoint outputs; reductions go through `PartitionedReduction` and the exact code forbids parallel loops without an entry
-in the allow list. Not covered: loops not switchable by `gParallel.SerialOnThisThread`, other core counts on Windows.
+in the allow list. Not covered: loops not switchable by `gParallel.SerialOnThisThread` (since #786 only those that call
+`Parallel.For` directly: `PartitionedReduction`, `TerrainGridTin`, the 2D quadtrees, `SafeCollections`), other core counts
+on Windows. The schedule adversary of #786 (`adversary`, `OrderAdversaryTests`) runs every `gParallel` loop backwards and in
+seeded permutations: no case changes.
 
 **C6. FMA and JIT contraction.** No difference: x64 RyuJIT (net10) and the .NET Framework JIT do not fuse `a * b + c`
 (`probe.arith-chain` identical on all four configurations, 256 chains of 64 steps each).

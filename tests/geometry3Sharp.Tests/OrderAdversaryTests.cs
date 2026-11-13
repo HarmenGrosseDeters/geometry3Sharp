@@ -112,12 +112,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void WithoutSerial_TheOrderHasNoEffect_AndEveryItemRunsOnce()
+        public void WithoutSerial_TheLoopStaysParallel_AndEveryItemRunsOnce()
         {
-            // the order belongs to the serial switch; a parallel loop ignores it
+            // the order belongs to the serial switch; without it a loop is parallel as before
             gParallel.SerialOrderOnThisThread = -1;
             try {
                 Assert.False(gParallel.SerialOnThisThread);
+                if (Environment.ProcessorCount >= 2) {
+                    // items wait until two threads are inside: a serial loop would never get there
+                    foreach (bool forEach in new[] { false, true }) {
+                        var threads = new HashSet<int>();
+                        using (var two = new System.Threading.ManualResetEventSlim(false)) {
+                            Action<int> body = (i) => {
+                                lock (threads) { threads.Add(Environment.CurrentManagedThreadId); if (threads.Count >= 2) two.Set(); }
+                                two.Wait(2000);
+                            };
+                            if (forEach) gParallel.ForEach(Enumerable.Range(0, 64), body); else gParallel.ForRange(64, body);
+                        }
+                        Assert.True(threads.Count >= 2, forEach ? "ForEach ran on one thread" : "ForRange ran on one thread");
+                    }
+                }
                 var hits = new int[1000];
                 gParallel.ForRange(hits.Length, (i) => System.Threading.Interlocked.Increment(ref hits[i]));
                 Assert.All(hits, h => Assert.Equal(1, h));
@@ -132,7 +146,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TheAdversaryDetects_ASharedAppend_ACounterId_AndAFloatingPointReduction()
         {
-            // the three schedule dependences of DETERMINISM_PROOF.md (R12, R13), each caught by every order
+            // the three schedule dependences of DETERMINISM_PROOF.md (R12, R13), each caught by each of these orders (a
+            // floating-point sum can come out the same under some permutation; not under these)
             double[] values = Enumerable.Range(0, 300).Select(i => 1.0 / (i + 1) * ((i % 3 == 0) ? 1e10 : 1)).ToArray();
             Func<string> append = () => { var s = new List<int>(); gParallel.ForRange(40, (i) => { lock (s) s.Add(i); }); return string.Join(",", s); };
             Func<string> ids = () => {
