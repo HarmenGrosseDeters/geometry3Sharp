@@ -1,4 +1,4 @@
-From 558c494c77fb47c4f57c02d3511d6d3dc8972a5b Mon Sep 17 00:00:00 2001
+From e1386da574f7dc0c01b027844ac0f2a0d422a160 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 12 Nov 2026 22:55:20 +0000
 Subject: [PATCH 2/2] ExactPredicates: generated kernels instead of BigInteger
@@ -174,10 +174,10 @@ index 54aba1f..436a001 100644
  nicht); Dekker-Splitting mit `2^27+1` ist exakt, solange nichts über-/unterläuft – dafür sorgt `InRange`.
  
 diff --git a/docs/roadmap/exact-boolean.md b/docs/roadmap/exact-boolean.md
-index bae3f4d..c0f85d1 100644
+index cbb104f..eccc0b4 100644
 --- a/docs/roadmap/exact-boolean.md
 +++ b/docs/roadmap/exact-boolean.md
-@@ -407,6 +407,11 @@ Open:
+@@ -409,6 +409,11 @@ Open:
    bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
    the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
    filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
@@ -186,9 +186,9 @@ index bae3f4d..c0f85d1 100644
 +  class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
 +  shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
 +  (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
- - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
-   coordinates stay open, not scheduled.
- - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility
+ - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
+   its tail (4 cores, median of 5, alternating A/B, hashes equal):
+   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
 diff --git a/math/ExactPredicates.cs b/math/ExactPredicates.cs
 index 3c17379..4a52834 100644
 --- a/math/ExactPredicates.cs

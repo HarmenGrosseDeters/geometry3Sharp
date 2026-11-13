@@ -34,7 +34,8 @@ API: no public change (`dotnet pack` validates against 1.0.324).
 
 ### Measured
 
-4-core cloud container, .NET SDK 10.0.115, Release, workstation GC. Before = master a7693fd, after = this branch.
+4-core cloud container, .NET SDK 10.0.115, Release, workstation GC. Before = master a7693fd, after = this branch on that
+base (the branch is now rebased onto 2058cd5; nothing between the two touches the exact stage).
 Details and commands: `docs/design/EXACT_FALLBACK_MONOMIALS.md` section 5; the study's rows are on branch
 `runs/exact-numbers` (`REPORT.md`).
 
@@ -71,7 +72,7 @@ Per call through the public predicates, `benchmarks/PredicateComparison span 200
 ### Tests
 
 `GeneratedDoublePredicatesTests` (the generator and the kernels) and `ExactPredicatesBeyondRangeTests` (through the
-library's existing entry points only, so that they also build against the base library), 17 cases:
+library's existing entry points only, so that they also build against the base library), 14 test methods:
 
 - the checked-in file and the table of the design note equal the generator's output;
 - the limb rule with exact integers for every exponent span 0..2045 (no overflow of an accumulator, every limb a
@@ -82,6 +83,10 @@ library's existing entry points only, so that they also build against the base l
   bit set at both ends of the exponent range;
 - the helper of one monomial (`add2` / `add3` / `add4`) against BigInteger on accumulators with runs of all-ones limbs
   (carries past the monomial's own limbs) and full mantissas (carries of the product chain);
+- the run-time check of the accumulator's bound (`AddHelpers_ThrowOutsideTheAccumulator`): one limb too few for a
+  monomial, a carry out of the top limb and an offset below the accumulator each throw `InvalidOperationException`
+  with the message of the check that fired, and canary limbs below, between and above the two accumulators are
+  unchanged;
 - through the public predicates; no allocation on the fallback (`ExactPredicatesBeyondRangeTests`; fails on master: 1.4
   to 4.6 KB per call);
 - NaN and infinity throw as before; all coordinates zero;
@@ -91,32 +96,40 @@ library's existing entry points only, so that they also build against the base l
   operation's allocation, 43 MB against 1.9 GB on master (a bound on allocation, not on time, so it does not depend on
   the machine; measured on the calling thread with the parallel loops serial, so tests running beside it do not count).
 
-Hand mutants, each applied to the generator (kernels regenerated) or to a call site, all 17 killed by the tests above
-(rerun on the final generator; two of them, one limb less and the exponent base not subtracted, fail a test and then
-end the test host, because they write outside the accumulators):
-a monomial dropped; a monomial's sign flipped; one limb less; the shift's carried bits off by one; the top limb of the
-shift dropped; the exponent base not subtracted; the carry of an addition dropped; the carry beyond the monomial
-dropped; the mantissa signs ignored; the hidden bit not set; the subnormal exponent; a product limb's carry dropped;
-the comparison from the low limb; the accumulators not cleared; and at the call sites swapped arguments, a flipped sign
-and a constant result. (Two of them survived the first version of the tests, which only compared signs; the helper
-test was added for them.)
+Hand mutants (27), each applied to the generator (kernels regenerated) or to a call site, all killed by the tests above
+on the final generator (script and output: branch `runs/exact-numbers`, `pr1/hand_mutants.sh`):
+- the kernels: a monomial dropped; a monomial's sign flipped; one limb less; the shift's carried bits off by one; the top
+  limb of the shift dropped; the exponent base not subtracted; the carry of an addition dropped; the carry beyond the
+  monomial dropped; the mantissa signs ignored; the hidden bit not set; the subnormal exponent; a product limb's carry
+  dropped; the comparison from the low limb; the accumulators not cleared;
+- the call sites: swapped arguments, a flipped sign, a constant result;
+- the real mutants that the Stryker marks below switch off together with the equivalent ones (review): the exponent
+  field shifted left, the hidden bit with `&=`, the sign test reversed, the sign bit with `&=`, the comparison
+  reversed, the sign bits shifted left, the passed bits shifted left;
+- the run-time check: the monomial's bound not checked, checked one limb late, the carry's bound not checked.
+(Two of the first group survived the first version of the tests, which only compared signs; the helper test was added
+for them. With the run-time check, "one limb less" and "the exponent base not subtracted" fail tests with the check's
+exception; before it they ended the test host.)
 
 No reuse or determinism test: the kernels are static functions without state or a parallel path.
 
 Mutation: `math/Generated/DoublePredicates.cs` joins the shard `mesh-generated`; the predicates shard
-(`stryker-config.json`) runs the new tests for the three changed call sites. Local Stryker run over the new file alone
-(2026-11-13): 464 mutants, 398 killed, 66 timeouts (a mutant that writes outside an accumulator ends the test host),
-none survived. A first run scored 91.2 % (442 killed, 46 timeouts, 47 survived of 535): one survivor was the exception
-text (now asserted), the other 46 change no result. The generator now writes those operations as statements of their
-own and marks them with the reason (`tests/mutation/README.md`): 61 marked mutants, 38 that change no result (`>>`
-against `>>>` on unsigned operands, comparisons at an equality that cannot occur, `|=` against `^=` on a clear bit, a
-carry only tested against 0, more limbs than needed, the early return for a zero factor) and 23 real ones of the same
-mutator on the same statements (19 shift directions, 2 `|=` to `&=`, 2 comparison directions), which the first run
-killed. The early return for a zero factor is marked as memory safety, not as equivalent: without it a zero is added
-at an offset that can lie outside the accumulator.
+(`stryker-config.json`) runs the new tests for the three changed call sites. Local Stryker runs over the new file alone
+(2026-11-13):
+- first run: 91.2 % (442 killed, 46 timeouts, 47 survived of 535). One survivor was an exception text (now asserted), the
+  other 46 change no result;
+- the generator now writes those operations as statements of their own and marks them with the reason
+  (`tests/mutation/README.md`);
+- final run, with the run-time check: 518 mutants, 506 killed, 12 timeouts, none survived. 52 marked: 29 that change no
+  result (`>>` against `>>>` on unsigned operands, comparisons at an equality that cannot occur, `|=` against `^=`
+  on a clear bit, a carry only tested against 0, more limbs than needed) and 23 real ones of the same mutator on the
+  same statements (19 shift directions, 2 `|=` to `&=`, 2 comparison directions), which the first run killed and
+  which the hand mutants above pin. The early return for a zero factor needs no mark any more: without it a zero at
+  an offset below the accumulator now throws, and the tests kill those mutants.
 
-The per-call numbers above were measured before that restructuring; 7 alternating runs of the benchmark with the kernels
-before and after it differ by -3 % to +6 % per row, inside the run-to-run range of the machine (about 10 %).
+The per-call numbers above were measured before the restructuring and the run-time check. Alternating runs of the
+benchmark (7 each): restructured against before -3 % to +6 % per row, with the check against without -8.5 % to +7.9 %,
+no trend, inside the run-to-run range of the machine (about 10 %).
 
 ### Review notes (exact code)
 
@@ -124,17 +137,23 @@ before and after it differ by -3 % to +6 % per row, inside the run-to-run range 
   `tools/PredicateCompiler/Monomials.cs`, design note section 3) and that the generated code implements it: the
   product chain (no carry out: a product of k + 1 mantissas is below 2^(53 (k + 1))), the shift into d + 1 limbs, the
   add with carry, the carry loop (ends inside the accumulator by the bound), the clear, the comparison.
+- The bound is also checked at run time (review, coordinator's decision): one unsigned compare per monomial
+  (`w + d + 1 > limbs`) and one per step of the carry loop, an `InvalidOperationException` instead of a write outside
+  the stack buffer. An offset below the accumulator is caught by the same compare.
 - The three formulas of `doubles.spec` against the BigInteger determinants of `ExactPredicates` (the differential
   tests are the check; the expansions are in the spec's comments).
 - `stackalloc` of `2 L(s)` limbs, at most 2.1 KB; on netstandard2.0 the 64 x 64 multiply is
   `FixedArith.MulHighPortable` and the kernels do not use `Span`.
-- Local CI on the branch, 4-core cloud container. On the final commits: library tests net10.0 11484 passed, 0 failed,
-  2 skipped (18 m 51 s); `dotnet pack` with the API validation against 1.0.324; the net48 build of the library tests;
-  the builds of `benchmarks/PredicateComparison` and `tools/PredicateCompiler`; `tools/new_tests_on_base.py
-  --require-failing`: exit 0, 2 of the 13 new test methods fail on the base (`ExactPredicatesBeyondRangeTests`), the
-  other 11 do not compile there by design (they test the generator and the generated class). On the commits before the
-  generated helpers were restructured for the mutation run (same library code otherwise): g3cli tests 475 passed, the
-  package smoke test, Clipper2 tests 72 passed with its pack, smoke test and net48 build, and every other benchmark
-  project; CI repeats them.
+- Local CI, the full list of CLAUDE.md on this head (e1386da, on master 2058cd5), 4-core cloud container, every step
+  with exit code 0: library tests net10.0 11510 passed, 0 failed, 2 skipped (20 m 32 s); g3cli tests 514 passed;
+  `dotnet pack` with the API validation against 1.0.324 and the package smoke test; the net48 build of the library
+  tests; Clipper2 tests 72 passed, its pack, smoke test and net48 build; the 31 benchmark projects and
+  `tools/PredicateCompiler` build. `tools/new_tests_on_base.py --require-failing`: exit 0, 2 of the 14 new test
+  methods fail on the base (`ExactPredicatesBeyondRangeTests`), the other 12 do not compile there by design (they
+  test the generator and the generated class).
 
 Closes #711.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm

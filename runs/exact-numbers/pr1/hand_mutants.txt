@@ -1,17 +1,27 @@
-killed   a monomial dropped: Failed!  - Failed:     8, Passed:     5, Skipped:     0, Total:    13, Duration: 2 s - geometry3Sharp.Tests.dll (net10.0)
-killed   a monomial's sign flipped: Failed!  - Failed:     8, Passed:     5, Skipped:     0, Total:    13, Duration: 2 s - geometry3Sharp.Tests.dll (net10.0)
-killed   one limb less: a test fails ([FAIL] ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants), then the test host crashes (the stack is overwritten); rerun by hand
-killed   the shift's carried bits off by one: Failed!  - Failed:     5, Passed:     8, Skipped:     0, Total:    13, Duration: 1 s - geometry3Sharp.Tests.dll (net10.0)
-killed   the top limb of the shift dropped: Failed!  - Failed:     7, Passed:     6, Skipped:     0, Total:    13, Duration: 473 ms - geometry3Sharp.Tests.dll (net10.0)
-killed   the exponent base not subtracted: a test fails ([FAIL], the same), then the test host crashes; rerun by hand
-killed   the carry of an addition dropped: Failed!  - Failed:     2, Passed:    11, Skipped:     0, Total:    13, Duration: 1 s - geometry3Sharp.Tests.dll (net10.0)
-killed   the carry beyond the monomial dropped: Failed!  - Failed:     1, Passed:    12, Skipped:     0, Total:    13, Duration: 1 s - geometry3Sharp.Tests.dll (net10.0)
-killed   the mantissa signs ignored: Failed!  - Failed:     9, Passed:     4, Skipped:     0, Total:    13, Duration: 134 ms - geometry3Sharp.Tests.dll (net10.0)
-killed   the hidden bit not set: Failed!  - Failed:     7, Passed:     6, Skipped:     0, Total:    13, Duration: 2 s - geometry3Sharp.Tests.dll (net10.0)
-killed   subnormal exponent: Failed!  - Failed:     1, Passed:    12, Skipped:     0, Total:    13, Duration: 3 s - geometry3Sharp.Tests.dll (net10.0)
-killed   a product limb's carry dropped: Failed!  - Failed:     1, Passed:    12, Skipped:     0, Total:    13, Duration: 2 s - geometry3Sharp.Tests.dll (net10.0)
-killed   the comparison from the low limb: Failed!  - Failed:     8, Passed:     5, Skipped:     0, Total:    13, Duration: 2 s - geometry3Sharp.Tests.dll (net10.0)
-killed   the accumulators not cleared: Failed!  - Failed:     8, Passed:     5, Skipped:     0, Total:    13, Duration: 2 s - geometry3Sharp.Tests.dll (net10.0)
-killed   Orient3d call site: arguments swapped: Failed!  - Failed:     1, Passed:    12, Skipped:     0, Total:    13, Duration: 3 s - geometry3Sharp.Tests.dll (net10.0)
-killed   Orient2d call site: sign: Failed!  - Failed:     1, Passed:    12, Skipped:     0, Total:    13, Duration: 3 s - geometry3Sharp.Tests.dll (net10.0)
-killed   InCircle call site: back to zero: Failed!  - Failed:     1, Passed:    12, Skipped:     0, Total:    13, Duration: 3 s - geometry3Sharp.Tests.dll (net10.0)
+killed   a monomial dropped: [xUnit.net 00:00:04.48]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   a monomial's sign flipped: [xUnit.net 00:00:04.25]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   one limb less: [xUnit.net 00:00:04.27]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   the shift's carried bits off by one: [xUnit.net 00:00:04.23]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FA
+killed   the top limb of the shift dropped: [xUnit.net 00:00:04.60]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL
+killed   the exponent base not subtracted: [xUnit.net 00:00:03.96]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   the carry of an addition dropped: [xUnit.net 00:00:04.51]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.Kernels_MatchTheBigIntegerDeterminants(cls: "extremes", count: 6000) [FAIL]
+killed   the mantissa signs ignored: [xUnit.net 00:00:04.54]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   the hidden bit not set: [xUnit.net 00:00:04.15]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   subnormal exponent: [xUnit.net 00:00:04.55]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.Kernels_MatchTheBigIntegerDeterminants(cls: "extremes", count: 6000) [FAIL]
+killed   a product limb's carry dropped: [xUnit.net 00:00:05.87]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.AddHelpers_MatchBigInteger [FAIL]
+killed   the comparison from the low limb: [xUnit.net 00:00:04.20]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   the accumulators not cleared: [xUnit.net 00:00:04.10]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   Orient3d call site: arguments swapped: [xUnit.net 00:00:04.14]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [
+killed   Orient2d call site: sign: [xUnit.net 00:00:04.07]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   InCircle call site: back to zero: [xUnit.net 00:00:04.27]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   pinned: exponent field shifted left: [xUnit.net 00:00:03.97]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FA
+killed   pinned: hidden bit with &=: [xUnit.net 00:00:04.40]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   pinned: sign test reversed: [xUnit.net 00:00:04.22]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   pinned: sign bit with &=: [xUnit.net 00:00:04.00]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   pinned: comparison reversed: [xUnit.net 00:00:04.27]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   pinned: sign bits shifted left: [xUnit.net 00:00:04.19]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   pinned: passed bits shifted left: [xUnit.net 00:00:04.29]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.ExactPredicates_BeyondTheExpansionRange_MatchTheBigIntegerDeterminants [FAIL]
+killed   the monomial's bound not checked: [xUnit.net 00:00:07.77]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.AddHelpers_ThrowOutsideTheAccumulator [FAIL]
+killed   the monomial's bound one limb late: [xUnit.net 00:00:07.42]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.AddHelpers_ThrowOutsideTheAccumulator [FAIL]
+killed   the carry's bound not checked: [xUnit.net 00:00:07.88]     geometry3Sharp.Tests.GeneratedDoublePredicatesTests.AddHelpers_ThrowOutsideTheAccumulator [FAIL]
+killed   the carry beyond the monomial dropped: rerun alone after the pattern was updated (AddHelpers_MatchBigInteger fails)

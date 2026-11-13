@@ -32,7 +32,7 @@ run "the shift's carried bits off by one" $G '$"c{inv(k)} = r{inv(k)} >> (64 - s
 run "the top limb of the shift dropped" $G 'sb.Append($"                t{inv(d)} = c{inv(d - 1)};\n            }}\n");' 'sb.Append($"                t{inv(d)} = 0;\n            }}\n");'
 run "the exponent base not subtracted" $G '.Select(k => $"e[i{inv(k)}]")) + " - b);\n");' '.Select(k => $"e[i{inv(k)}]")) + " - b + 64);\n");'
 run "the carry of an addition dropped" $G 'sb.Append("            hi += (x < carry) ? 1UL : 0UL;\n");' 'sb.Append("            hi += 0UL;\n");'
-run "the carry beyond the monomial dropped" $G 'sb.Append("                a[k] += 1;\n");' 'sb.Append("                a[k] += 0;\n");'
+run "the carry beyond the monomial dropped" $G 'sb.Append("                *c += 1;\n");' 'sb.Append("                *c += 0;\n");'
 run "the mantissa signs ignored" $G '.Select(k => $"s{inv(k)}")) + ") & 1) != 0) != minus;\n");' '.Select(k => $"s{inv(k)}")) + ") & 0) != 0) != minus;\n");'
 run "the hidden bit not set" $G 'sb.Append("                f |= 1UL << 52;\n");' 'sb.Append("                f |= 0UL;\n");'
 run "subnormal exponent" $G 'sb.Append("            if (ex == 0)\n                ex = 1;\n            else' 'sb.Append("            if (ex == 0)\n                ex = 0;\n            else'

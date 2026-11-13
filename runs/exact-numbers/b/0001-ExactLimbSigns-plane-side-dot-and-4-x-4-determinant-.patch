@@ -1,8 +1,8 @@
 From 36ed2e1783199b2bd213da9cc3e2f1740f326109 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 13 Nov 2026 03:47:30 +0000
-Subject: [PATCH] ExactLimbSigns: plane side, dot and 4 x 4 determinant signs
- on stack limbs (WIP, local)
+Subject: [PATCH 1/2] ExactLimbSigns: plane side, dot and 4 x 4 determinant
+ signs on stack limbs (WIP, local)
 
 The kernels of candidate B of the exact-number study and their tests; the call sites in
 ExactMeshBoolean follow after #759 and #766.

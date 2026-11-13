@@ -192,7 +192,7 @@
 | math\/FastWindingMath.cs                          | N\/A    | 0      | 0        | 0       | 0           | 200     | 4              | 0              | 0              | 0                | 204           |
 | math\/FixedPoint3.cs                              | N\/A    | 0      | 0        | 0       | 0           | 561     | 22             | 0              | 0              | 0                | 583           |
 | math\/Frame3f.cs                                  | N\/A    | 0      | 0        | 0       | 0           | 173     | 23             | 0              | 0              | 0                | 196           |
-| math\/Generated\/DoublePredicates.cs              | 100.00% | 398    | 0        | 66      | 0           | 70      | 28             | 0              | 464            | 0                | 562           |
+| math\/Generated\/DoublePredicates.cs              | 100.00% | 506    | 0        | 12      | 0           | 61      | 28             | 0              | 518            | 0                | 607           |
 | math\/Generated\/IndirectPredicates.cs            | N\/A    | 0      | 0        | 0       | 0           | 1472    | 0              | 0              | 0              | 0                | 1472          |
 | math\/IndexTypes.cs                               | N\/A    | 0      | 0        | 0       | 0           | 366     | 10             | 0              | 0              | 0                | 376           |
 | math\/IndexUtil.cs                                | N\/A    | 0      | 0        | 0       | 0           | 373     | 9              | 0              | 0              | 0                | 382           |
