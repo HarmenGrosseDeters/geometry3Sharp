@@ -434,13 +434,13 @@ namespace gs
                 List<CatchLine> previous = null;
                 double previousTolerance = Tolerance;
                 for (int round = 0; ; ++round) {
-                    Status = compute();
+                    Status = compute_named();
                     // (a smaller Tolerance refused for its cone facets (MaxFanDirections): the smallest that fits, if it is
                     // still smaller than the previous round's, in the same round)
                     if (round > 0 && Status == Statuses.InvalidInput && FanTolerance > 0 && FanTolerance < previousTolerance) {
                         Tolerance = FanTolerance; UsedTolerance = FanTolerance; FanTolerance = 0;
                         IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
-                        Status = compute();
+                        Status = compute_named();
                     }
                     if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                         // (a smaller Tolerance that fails, eg below the numerical margins: the accuracy is not reached;
@@ -525,6 +525,38 @@ namespace gs
         internal SlopeTerrainOverlay lastOverlay;
         List<InPiece> lastPieces;
 
+        /// <summary>
+        /// compute, and for a refusal of the facets (#808) the named Tolerance as a fixed point of the whole run up to the facet
+        /// check: with a cap from the terrain the cap's estimate (CapEstimateRounds) grows with the Tolerance by more than the
+        /// shift that build's search counts, so the run is repeated at the named Tolerance, only up to the check, until its
+        /// facets fit (Direction Auto: in compute_auto, over both runs)
+        /// </summary>
+        Statuses compute_named()
+        {
+            Statuses st = compute();
+            if (st != Statuses.InvalidInput || !(FanTolerance > 0) || fanCheckOnly || Direction == Directions.Auto)
+                return st;
+            string head = Message.Substring(0, Message.IndexOf(FacetsFitFrom));
+            double given = Tolerance, t = FanTolerance;
+            int attempts0 = Attempts, capRounds0 = CapRounds;
+            bool fits = false;
+            fanCheckOnly = true;
+            try {
+                for (int k = 0; k < 16; ++k) {
+                    Tolerance = t; FanTolerance = 0;
+                    Statuses s = compute();
+                    if (s == Statuses.InvalidInput && Message == FacetsChecked) { fits = true; break; }
+                    if (!(s == Statuses.InvalidInput && FanTolerance > t)) break;
+                    t = FanTolerance;
+                }
+            } finally {
+                fanCheckOnly = false; Tolerance = given; Attempts = attempts0; CapRounds = capRounds0;
+            }
+            FanTolerance = fits ? t : 0;
+            ToeProblems = new List<Index2i>();
+            return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+        }
+
         // a run of one direction with this one's inputs (Direction Auto)
         TerrainSlopeDesign run_of(Directions dir)
         {
@@ -575,13 +607,26 @@ namespace gs
                     // Tolerance named fits both runs; a refusal of the fill comes after a cut that fits, and a larger
                     // Tolerance has fewer facets)
                     if (r == c && r.Status == Statuses.InvalidInput && r.FanTolerance > 0) {
-                        var probe = run_of(Directions.Fill);
-                        probe.Tolerance = r.FanTolerance; probe.fanCheckOnly = true;
-                        probe.Compute();
-                        if (probe.FanTolerance > r.FanTolerance) {
-                            FanTolerance = probe.FanTolerance;
-                            return fail(r.Status, "cut: " + r.Message + $"; the fill's facets fit from Tolerance {FanTolerance:R}");
+                        // (the cut's facets refused: the Tolerance named fits both runs, each checked only up to its facets,
+                        // the larger need taken until both fit; a refusal of the fill comes after a cut that fits)
+                        double t = r.FanTolerance;
+                        bool fits = false;
+                        for (int k = 0; k < 16 && !fits; ++k) {
+                            fits = true;
+                            foreach (Directions dir in new[] { Directions.Cut, Directions.Fill }) {
+                                var probe = run_of(dir);
+                                probe.Tolerance = t; probe.fanCheckOnly = true;
+                                probe.Compute();
+                                if (probe.Status == Statuses.InvalidInput && probe.Message == FacetsChecked) continue;
+                                fits = false;
+                                t = (probe.Status == Statuses.InvalidInput && probe.FanTolerance > t) ? probe.FanTolerance : double.NaN;
+                                break;
+                            }
+                            if (double.IsNaN(t)) break;
                         }
+                        FanTolerance = fits ? t : 0;
+                        string head = r.Message.Substring(0, r.Message.IndexOf(FacetsFitFrom));
+                        return fail(r.Status, "cut: " + head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
                     }
                     return fail(r.Status, (r == c ? "cut: " : "fill: ") + r.Message);
                 }
@@ -978,9 +1023,12 @@ namespace gs
                 checkCancel();
                 BuildResult br;
                 Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br, regionNeedles);
-                if (attempt > 0 && st == Statuses.InvalidInput)
-                    return fail(Statuses.SlopeViolation, certFail != null ? certFail + "; a larger margin does not fit into Tolerance"
-                                                       : $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
+                if (attempt > 0 && st == Statuses.InvalidInput) {
+                    // (a larger margin whose facets need more than MaxFanDirections: said so, with the Tolerance they fit from)
+                    string why = FanTolerance > 0 ? $"; a larger margin needs more than {MaxFanDirections} cone facets per turn (they fit from Tolerance {FanTolerance:R})"
+                                                  : "; a larger margin does not fit into Tolerance";
+                    return fail(Statuses.SlopeViolation, (certFail ?? $"{ProblemTriangles.Count} triangles failed the exact check") + why);
+                }
                 if (st != Statuses.SlopeViolation) {
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
@@ -1187,14 +1235,19 @@ namespace gs
                 // reaches it, may need more: that build names its own)
                 double margins = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare;
                 double t = (margins + sMax * 1.1 * D0 * (1 - Math.Cos(0.75 * 2 * Math.PI / MaxFanDirections))) / (Terrain != null ? 0.75 : 1);
-                for (int i = 0; i < 400 && fan_directions_at(pieces, capShiftsWithTolerance ? H - Tolerance + t : H, delta, t) < 0; ++i)
+                bool fits = false;
+                for (int i = 0; i < 400 && MathUtil.IsFinite(t); ++i) {
+                    if (fan_directions_at(pieces, capShiftsWithTolerance ? H - Tolerance + t : H, delta, t) >= 0) { fits = true; break; }
                     t *= 1 + Math.Pow(2, -30 + i / 8);
-                FanTolerance = t;
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn " +
-                                                   $"(the numerical margins are {margins + snapShare:G3}); the facets fit from Tolerance {t:R}");
+                }
+                // (none: with a cap from the terrain the facet share over the facets' scale tends to about
+                // 0.75 sMin (1 - δ) / (1.1 sMax) - δ as t grows, which slopes far apart keep below what the bound needs)
+                FanTolerance = fits ? t : 0;
+                string head = $"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn (the numerical margins are {margins + snapShare:G3})";
+                return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
             }
             if (fanCheckOnly)
-                return fail(Statuses.InvalidInput, "only the facets were checked");
+                return fail(Statuses.InvalidInput, FacetsChecked);
             double theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
             // the band merge (TERRAIN.md 5.4, "Repair of the band") within the facet share's slack: the facets need
@@ -1747,19 +1800,18 @@ namespace gs
         internal int RegionNeedles, RegionNeedleHits;
         /// <summary>
         /// diagnostics of an InvalidInput for too many cone facets: the tolerance its message names, from which the facets fit
-        /// (at the margin of that build; 0 otherwise)
+        /// (at the margin of that build; a SlopeViolation after a raised margin names one too); 0 otherwise, also when no
+        /// Tolerance fits within MaxFanDirections
         /// </summary>
         internal double FanTolerance;
-        // (Direction Auto: a run that only checks its facets, FanTolerance, and stops before the planes)
+        // (a run that only checks its facets, FanTolerance, and stops before the planes: the search of the named Tolerance)
         bool fanCheckOnly;
+        const string FacetsChecked = "only the facets were checked";
+        const string FacetsFitFrom = "; the facets fit from Tolerance ";
+        const string NoFit = "; no Tolerance fits within MaxFanDirections (slopes far apart need more facets): raise it";
         // (the cap of the builds is the terrain's height plus Tolerance: no HeightLimit)
         bool capShiftsWithTolerance;
 
-        /// <summary>
-        /// the number of cone facets per turn for a facet share and the facets' scale sMax 1.1 D0 (TERRAIN.md 5.1): a direction is
-        /// at most 3/4 theta from its nearest tangent plane, so the facet error is s D (1 - cos(3/4 theta)); -1 if more than
-        /// max are needed (also when theta rounds to 0, where 2 pi / theta is infinite: #808)
-        /// </summary>
         /// <summary>
         /// the facets per turn of a build at the cap H (internal frame: fill mirrored), margin delta and Tolerance t, by the
         /// budget of build (TERRAIN.md 5.1; -1: more than MaxFanDirections, or no facet share). The same expressions as build,
@@ -1785,6 +1837,11 @@ namespace gs
             return FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
         }
 
+        /// <summary>
+        /// the number of cone facets per turn for a facet share and the facets' scale sMax 1.1 D0 (TERRAIN.md 5.1): a direction is
+        /// at most 3/4 theta from its nearest tangent plane, so the facet error is s D (1 - cos(3/4 theta)); -1 if more than
+        /// max are needed (also when theta rounds to 0, where 2 pi / theta is infinite: #808)
+        /// </summary>
         internal static int FanDirections(double facetShare, double scale, int max)
         {
             if (!(facetShare > 0)) return -1;

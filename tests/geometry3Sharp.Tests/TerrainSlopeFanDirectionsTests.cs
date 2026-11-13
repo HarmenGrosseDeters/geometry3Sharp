@@ -19,14 +19,15 @@ namespace geometry3Sharp.Tests
             new Vector3d(11, 1, 0), new Vector3d(7, 8.5, 0), new Vector3d(-2, 10.75, 0), new Vector3d(-10, 5, 0),
             new Vector3d(-9.5, -5.25, 0), new Vector3d(-2.5, -11, 0), new Vector3d(6.75, -8, 0) };
 
-        // the pit without a terrain (slope 1:1.5 up to 8), with a deadline: a run past it is cancelled (Status Cancelled)
+        // the pit without a terrain (slope 1:1.5 up to 8), with a deadline from the first poll: a run past it is cancelled
+        // (Status Cancelled)
         internal static TerrainSlopeDesign Pit(double tol, double seconds = 2)
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            System.Diagnostics.Stopwatch sw = null;
             return new TerrainSlopeDesign() {
                 Toes = { SlopeToe.Constant(SevenGon(), true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(1.5)) },
                 Direction = TerrainSlopeDesign.Directions.Cut, HeightLimit = 8, Tolerance = tol,
-                CancelF = () => sw.Elapsed.TotalSeconds > seconds
+                CancelF = () => (sw ?? (sw = System.Diagnostics.Stopwatch.StartNew())).Elapsed.TotalSeconds > seconds
             };
         }
 
