@@ -443,8 +443,9 @@ the exact S it would not be. The guarantee is stated for the attribution rule (2
 
 **The composite.** With a terrain the composite is within `Tolerance` of the clamp max(S_fill, min(T, S_cut))
 except within m of the toe, lateral-limit and cap steps, whose position shifts by m. Here m is the catch points' move:
-below `MinFeatureSize` in a single run, and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing
-of a mixed run. It is certified per composite (5.5).
+below 2 × `MinFeatureSize` in a single run (a snap to a slope vertex, then a merge with a representative: each below
+`MinFeatureSize`, and they can add up), and up to max(`MinFeatureSize`, 1e-4 × the toes' size) more at a toe crossing of
+a mixed run. The certificate measures the moves made, so it holds whatever they are (5.5).
 
 **Realization and margin** (a new error bound, to be checked in the review that CLAUDE.md requires):
 
@@ -831,9 +832,10 @@ documentation says so.
        that segment's end. On the pit tests it is 1.5 (flat terrain) to 1.8 (gradient 0.2) times the estimate. A finer
        assignment (pieces split along the line) is a later refinement, if a use case needs it.
     5. *The bound of a segment.* U(σ) = the largest bound of the pieces assigned to σ (0 if none), plus the largest
-       move of a catch point by the composite's snap (5.5): `MinFeatureSize` in a single run; with `Auto` and a
-       composite `MinFeatureSize` plus the partner snap's radius max(`MinFeatureSize`, 1e-4 of the toes' size), as the
-       partner snap moves a point already moved by its own snap (the two add, as 5.5 says). **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
+       move of a catch point by the composite, measured (`SlopeComposite.MaxCatchMove`): from the overlay's catch point
+       to its final position, over both composites of a mixed run, rounded up; 0 without a composite. It covers the own
+       snap and the merge, which can add up to almost 2 × `MinFeatureSize` (numerics re-check H1: a point snapped to the
+       end of a short slope edge and merged to its other end), the nudge onto the slope side, and the partner snap. **Claim:** every point of the true catch line in the footprint lies within U(σ) of some computed
        segment σ.
     6. *Pieces without a segment.* A band piece with no computed segment within its steps is a place where the
        slope and the terrain come within the band without the computed line there: a possible contact away from the
@@ -931,9 +933,9 @@ documentation says so.
       triangles at p1 only, then any triangle whose box met a swept one: the first missed some, the second took the
       fans around the far end u, up to 8 × the triangles and 16 % of the octagon's run.)
     - **What is certified.** |z − c| ≤ `Tolerance` except within m of the toe, lateral-limit and cap steps, whose
-      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move: below `MinFeatureSize` in
-      a single run (snap and merge, no chains). In a mixed run the partner snap at a toe crossing adds up to
-      max(`MinFeatureSize`, 1e-4 × the toes' size).
+      position shifts by m (the API doc of `Tolerance` says so). Here m is the largest move, measured: below
+      2 × `MinFeatureSize` in a single run (a snap, then a merge, each below `MinFeatureSize`; no chains). In a mixed run
+      the partner snap at a toe crossing adds up to max(`MinFeatureSize`, 1e-4 × the toes' size).
     - **A mixed run** does not raise δ when its certificate fails, since each run raised its own: it fails with
       `SlopeViolation`.
     - **Tests.** `TerrainSlopeSnapBoundTests` has one synthetic case per candidate class where that class alone holds

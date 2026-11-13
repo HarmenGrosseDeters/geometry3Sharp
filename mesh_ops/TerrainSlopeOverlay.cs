@@ -41,8 +41,8 @@ namespace gs
         /// mirrored for fill; level-set pieces not connected to it, eg around a hill the cone passes under, are not part of
         /// it) within the slope surface's footprint lies within ProvenUncertainty[i] of some
         /// segment i, given that the realized slope surface is within Tolerance of the exact one and the terrain within
-        /// TerrainVerticalUncertainty of the true one (TerrainSlopeDesign: plus the composite snap's move, MinFeatureSize, and with
-        /// Direction Auto plus the partner snap's radius at a toe crossing, which moves a point after its own snap). The snap's move only for a
+        /// TerrainVerticalUncertainty of the true one (TerrainSlopeDesign: plus the composite's largest move of a catch point,
+        /// measured: its own snap and merge, the nudge, and with Direction Auto the partner snap). Only that move for a
         /// segment no band piece is nearest to; the places where the band has no segment nearby are
         /// TerrainSlopeDesign.CatchLineBandWithoutLine
         /// </summary>

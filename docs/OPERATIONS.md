@@ -556,7 +556,7 @@ if (design.Status != TerrainSlopeDesign.Statuses.Success && design.Status != Ter
   instead of returning a violating surface.
 - **Within `Tolerance`.** The composite is within `Tolerance` of the clamp of the terrain and the slope (cut below
   the terrain, fill above it), except near the steps at the toe, the lateral limits and the cap, where the move of the
-  catch points shifts the step: within `UsedMinFeatureSize` in a single run, up to 1e-4 × the toes' size more at a
+  catch points shifts the step: within 2 × `UsedMinFeatureSize` in a single run, up to 1e-4 × the toes' size more at a
   toe crossing with `Direction` Auto. That is certified per composite: a
   composite whose catch points moved it too far fails with `SlopeViolation` (the message names the catch point).
 - **Catch-line accuracy.** Per segment `CatchLine.Uncertainty`, a local estimate ((`Tolerance` + `TerrainVerticalUncertainty`) /

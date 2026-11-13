@@ -238,7 +238,8 @@ namespace gs
         /// required: the largest vertical deviation below the exact cone envelope (data units). With a Terrain and
         /// BuildComposite, the composite is within Tolerance of the clamp of the terrain and the envelope
         /// (max(S_fill, min(T, S_cut))) except within m of the steps at the toe, the lateral limits and the cap, whose
-        /// position shifts by m: m is the largest move of a catch point, below UsedMinFeatureSize in a single run (with
+        /// position shifts by m: m is the largest move of a catch point, below 2 UsedMinFeatureSize in a single run (a snap,
+        /// then a merge; with
         /// Direction Auto, the snap at a toe crossing adds up to max(UsedMinFeatureSize, 1e-4 x the toes' size)); a
         /// composite that cannot be certified so fails with SlopeViolation (docs/design/TERRAIN.md 5.5)
         /// </summary>
@@ -405,7 +406,7 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
-            partnerSnapMove = 0; CatchLineBandSlack = 0;
+            CatchMove = 0; CatchLineBandSlack = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
@@ -598,7 +599,7 @@ namespace gs
                 CopyTerrain = CompositeKind == CompositeKinds.Full,
                 Partner = new SlopeComposite(f.lastOverlay, Pieces.Count, f.UsedMinFeatureSize, CancelF) { GroupOffset = nc },
                 SegmentOfGroup = Pieces.Select(p => ((long)p.Toe << 20) + p.Segment).ToArray(),
-                PartnerSnapRadius = partnerSnapMove = 1e-4 * toeBox.DiagonalLength
+                PartnerSnapRadius = 1e-4 * toeBox.DiagonalLength
             };
             if (comp.Build() == false)
                 return fail(Statuses.CompositeFailed, "composite: " + comp.Problem);
@@ -625,6 +626,7 @@ namespace gs
             {
                 double budget = Math.Max(c.SnapBudget, f.SnapBudget);
                 double dev = comp.SnapDeviation();
+                CatchMove = CatchLineMove(comp, UsedMinFeatureSize);
                 SnapBudget = budget; SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 if (!(ExactInterval.Up(budget + dev) <= Tolerance))
                     return fail(Statuses.SlopeViolation, cert_message(comp, dev, budget));
@@ -815,11 +817,11 @@ namespace gs
                     if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
                     if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
                     // (the proven bound plus the snap's move, rounded up)
-                    // (the snap's move: MinFeatureSize; at a toe crossing of a mixed run the partner snap then moves a point
-                    // already moved by its own snap (SlopeComposite.snap_partner starts from catchAt) by up to its radius
-                    // max(MinFeatureSize, 1e-4 of the toes' size): the sum)
-                    double move = partnerSnapMove > 0 ? ExactInterval.Up(UsedMinFeatureSize + Math.Max(UsedMinFeatureSize, partnerSnapMove)) : UsedMinFeatureSize;
-                    double pu = i < l.ProvenBand.Count ? ExactInterval.Up(l.ProvenBand[i] + move) : double.PositiveInfinity;
+                    // (the composite's largest move of a catch point, measured: its own snap and merge, which can add up to almost
+                    // 2 MinFeatureSize, the nudge, and in a mixed run the partner snap; 0 without a composite, which moves none)
+                    double move = CatchMove;
+                    // (rounded up; 0 stays 0, which scales with 2^k)
+                    double pu = i < l.ProvenBand.Count ? (l.ProvenBand[i] + move == 0 ? 0 : ExactInterval.Up(l.ProvenBand[i] + move)) : double.PositiveInfinity;
                     l.ProvenUncertainty.Add(pu);
                     if (required && !(pu <= RequiredCatchLineAccuracy)) {
                         // the Tolerance that meets it here (with 10 % to spare), if any: the band, and so the bound, shrinks with
@@ -1498,6 +1500,7 @@ namespace gs
                 // of the deviation that the catch points' moves made, within Tolerance; else a larger margin δ, whose
                 // smaller MinFeatureSize moves them less
                 double dev = comp.SnapDeviation();
+                CatchMove = CatchLineMove(comp, UsedMinFeatureSize);
                 SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 phase("certificate");
                 if (!(ExactInterval.Up(SnapBudget + dev) <= Tolerance)) {
@@ -1642,8 +1645,18 @@ namespace gs
         double lastEz;
         /// <summary> diagnostics of the last overlay: the slack of the catch-line bound's band on each side (TERRAIN.md 5.5) </summary>
         internal double CatchLineBandSlack;
-        // with Direction Auto and a composite: the partner snap's radius at a toe crossing (a catch point's largest move there)
-        double partnerSnapMove;
+        /// <summary>
+        /// diagnostics of the last composite: the largest XY move of a catch point from the overlay's catch line to the composite
+        /// (SlopeComposite.MaxCatchMove; 0 without a composite), added to the proven catch-line bound
+        /// </summary>
+        internal double CatchMove;
+
+        /// <summary>
+        /// the move of the catch points the proven catch-line bound adds (TERRAIN.md 5.5): measured on the composite, as the own
+        /// snap and the merge can add up to almost 2 MinFeatureSize (not bounded by MinFeatureSize, the bound before the
+        /// numerics review)
+        /// </summary>
+        internal static double CatchLineMove(SlopeComposite comp, double minFeature) { return comp.MaxCatchMove(); }
         /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
         internal int SkippedTerrainCopies;
         /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>

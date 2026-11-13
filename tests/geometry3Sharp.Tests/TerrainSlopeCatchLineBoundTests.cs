@@ -104,8 +104,8 @@ namespace geometry3Sharp.Tests
             output.WriteLine($"proven {l.ProvenUncertainty.Min():G4} .. {umax:G4}, estimate {l.Uncertainty.Max():G4}, MinFeatureSize {d.UsedMinFeatureSize:G3}");
             Assert.True(umax >= d.Tolerance * (1 - 1e-6), $"{umax}");
             Assert.True(umax <= 2 * d.Tolerance + d.UsedMinFeatureSize, $"{umax}");
-            // (every segment's bound at least the snap's move, MinFeatureSize)
-            Assert.All(l.ProvenUncertainty, u => Assert.True(u >= d.UsedMinFeatureSize));
+            // (no composite: no catch point moved)
+            Assert.Equal(0, d.CatchMove);
             Assert.Empty(d.CatchLineBandWithoutLine);
             Assert.True(AssertBandCovered(d, 4000, 1e-9) > 100);
         }
@@ -232,8 +232,9 @@ namespace geometry3Sharp.Tests
                 Assert.True(v.x >= box.Min.x && v.x <= box.Max.x && v.y >= box.Min.y && v.y <= box.Max.y, $"{v.xy} outside {box}");
         }
 
-        // numerics review F3: Direction Auto with a composite moves a toe crossing's catch points by up to the partner snap's
-        // radius, 1e-4 of the toes' size, after its own snap: the proven bound holds both
+        // numerics review F3 / H1: Direction Auto with a composite moves a toe crossing's catch points (the partner snap, up to
+        // 1e-4 of the toes' size, after their own snap): the bound adds the move measured, and each catch-line point has a
+        // composite vertex within it (an independent check of the measurement)
         [Fact]
         public void Auto_TheBoundHoldsThePartnerSnap()
         {
@@ -244,8 +245,13 @@ namespace geometry3Sharp.Tests
             double snap = 1e-4 * toeBox.DiagonalLength;
             Assert.True(snap > d.UsedMinFeatureSize);
             Assert.NotEmpty(d.CatchLines);
-            // (the partner snap moves a point already moved by its own snap: both add)
-            Assert.All(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => Assert.True(u >= snap + d.UsedMinFeatureSize, $"{u} below the snaps {snap} + {d.UsedMinFeatureSize}"));
+            // (the bound adds the composite's measured move of the catch points, the partner snap's included)
+            Assert.True(d.CatchMove > 0 && d.CatchMove <= 2 * d.UsedMinFeatureSize + snap, $"{d.CatchMove}");
+            Assert.All(d.CatchLines.SelectMany(l => l.ProvenUncertainty), u => Assert.True(u >= d.CatchMove, $"{u} below the measured move {d.CatchMove}"));
+            var cv = d.Composite.Vertices().Select(v => v.xy).ToList();
+            foreach (var l in d.CatchLines)
+                foreach (var p in l.Points)
+                    Assert.True(cv.Min(q => q.Distance(p.xy)) <= d.CatchMove * (1 + 1e-9) + 1e-300, $"{p} has no composite vertex within {d.CatchMove}");
         }
 
         // the side of the band (review M4, M5): one slope triangle at z = 0 over one terrain triangle z = 0.1 x. Cut:
@@ -303,6 +309,36 @@ namespace geometry3Sharp.Tests
             Assert.Contains(d.CatchLineBandWithoutLine, b => b.Max.x >= 8 - 1e-9 && b.Min.x <= 8 + 1e-9 && b.Min.y < 8 && b.Max.y > -8);
             // (nothing reported far from that side: the west is 8 below the toe)
             Assert.DoesNotContain(d.CatchLineBandWithoutLine, b => b.Max.x < 0);
+        }
+
+        // numerics re-check H1: the composite's own snap and its merge add up. A slope triangle (0, 0), (0.9, 0), (5, 10) at z 0
+        // with its edge v1 v2 (0.9 < MinFeatureSize 1) the toe, obtuse at v2; a terrain of two planar triangles whose zero line
+        // runs from Q (0.05, 0) on the toe through P (1.05, 0.55) on the terrain's diagonal to S on the edge v1 v3. Q snaps to v1;
+        // P, 0.57 from v2, snaps to v2 and then merges into Q's representative at v1, 0.9 away: P moves 1.19 in all, more than
+        // MinFeatureSize, the old bound of the move. The measured move (MaxCatchMove) holds it
+        [Fact]
+        public void SnapAndMerge_MoveMoreThanMinFeatureSize_TheMeasuredMoveHoldsIt()
+        {
+            var slope = new DMesh3(false, false, false, true);
+            int v1 = slope.AppendVertex(new Vector3d(0, 0, 0)), v2 = slope.AppendVertex(new Vector3d(0.9, 0, 0)), v3 = slope.AppendVertex(new Vector3d(5, 10, 0));
+            slope.SetTriangleGroup(slope.AppendTriangle(v1, v2, v3), 0);
+            var terrain = new DMesh3(false, false, false, true);
+            int a = terrain.AppendVertex(new Vector3d(2, -5, -1)), b = terrain.AppendVertex(new Vector3d(12, -5, -6.077720207253886));
+            int c = terrain.AppendVertex(new Vector3d(-1.8, 17.2, 3)), dd = terrain.AppendVertex(new Vector3d(-8, 15, 3.1992589543021825));
+            terrain.AppendTriangle(a, b, c); terrain.AppendTriangle(a, c, dd);
+            var kinds = new Dictionary<int, int>();
+            foreach (int e in slope.BoundaryEdgeIndices()) kinds[e] = SlopeTerrainOverlay.KindOther;
+            kinds[slope.FindEdge(v1, v2)] = SlopeTerrainOverlay.KindToe;
+            var o = new SlopeTerrainOverlay(slope, terrain, false, kinds, null);
+            Assert.True(o.Compute(), o.Problem);
+            Assert.Contains(o.Faces, f => f.Region);
+            var comp = new SlopeComposite(o, 1, 1.0, null);
+            Assert.True(comp.Build(), comp.Problem);
+            double move = comp.MaxCatchMove();
+            output.WriteLine($"measured move {move:R}");
+            Assert.True(move > 1.0 && move >= 1.18 && move < 1.19, $"{move}");
+            // (the design's move for the bound: at least P's whole move |P - v1| = 1.1853, not MinFeatureSize)
+            Assert.True(TerrainSlopeDesign.CatchLineMove(comp, 1.0) >= Math.Sqrt(1.05 * 1.05 + 0.55 * 0.55));
         }
 
         [Fact]
