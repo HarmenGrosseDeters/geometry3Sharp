@@ -513,7 +513,7 @@ Recommendation: Li-Teng placement in stage 1, no exudation; flips + smoothing re
 
 Estimate: steps 1-3 about 2 weeks (as section 9), step 4 about 1 week more, large model for 2 and 4 (termination, rounding).
 
-### 14.7 Owner decisions needed (stage 1)
+### 14.7 Owner decisions (stage 1; decided 2026-11-13, go on all four, relayed by the coordinator)
 
 1. **Boundary**: S1-F with fallback to S1-R (recommended; sharp features where recovery succeeds, rounded otherwise, validity
    unaffected) or S1-R only (simpler, features rounded as in stage 0)?
@@ -521,3 +521,6 @@ Estimate: steps 1-3 about 2 weeks (as section 9), step 4 about 1 week more, larg
    14.5), against the fTetWild numbers of section 12.
 3. **Sliver step**: Li-Teng placement in stage 1, no exudation (recommended, 14.4).
 4. **Order**: stage 1 starts with steps 1-3 now; step 4 after #736 has merged.
+
+Decided: (1) S1-F with fallback to S1-R; (2) stage 1 targets p01 >= 10 degrees and min >= 1 degree, 10 degrees on every tet
+in stage 2; (3) Li-Teng placement, no exudation; (4) steps 1-3 now, step 4 after #736.
