@@ -702,25 +702,29 @@ namespace Meshing2Acceptance
                     if (ownIds.Contains(k) || (!MayBeNear(k, ia) && !MayBeNear(k, ib))) continue;
                     var c = sources[k];
                     if (!candidates.All(p => Exact.Dist2ToSegment(c.a, c.b, p) <= half2)) continue;
-                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b))) continue;
+                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b, ownTol2, tube2))) continue;
                     return true;
                 }
                 return false;
             }
 
-            /// <summary> the ends of each segment that lie within the tube of the other are more than one point (nearly coincident lines).
-            /// (With the tube, floor included: below about 2^-1034 the floored tube counts more lines as nearly coincident than the mesher's
-            /// tolerance would, so fewer pieces are excused, never more: strict, and harmless.) </summary>
-            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d)
+            /// <summary> the ends of each segment that lie near the other (within near2: the mesher's tolerance and a hair) are more than one
+            /// point apart (by more than apart2: the tube): nearly coincident lines, which O11 merges and splits. Both thresholds keep the gap
+            /// band of MESHING2D_DECISIONS (merged below the tolerance, kept beyond twice it, either in between) on the mesher's side: an end
+            /// between the tolerance and the tube of the other line, and two near ends between the tolerance and the tube apart (which the
+            /// mesher may merge into one vertex), call no lines coincident, so the excuse is given there whichever the mesher did (#864: with
+            /// the tube for nearness the oracle judged two constraints of a projected octahedron whose far ends lie 1.65 tolerances apart).
+            /// The hair on near2 (2^-7) widens coincidence only, so it can withhold an excuse, never give one wrongly </summary>
+            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d, Q near2, Q apart2)
             {
                 var near = new List<Pt>();
-                if (Exact.Dist2ToSegment(c, d, a) <= tube2) near.Add(a);
-                if (Exact.Dist2ToSegment(c, d, b) <= tube2) near.Add(b);
-                if (Exact.Dist2ToSegment(a, b, c) <= tube2) near.Add(c);
-                if (Exact.Dist2ToSegment(a, b, d) <= tube2) near.Add(d);
+                if (Exact.Dist2ToSegment(c, d, a) <= near2) near.Add(a);
+                if (Exact.Dist2ToSegment(c, d, b) <= near2) near.Add(b);
+                if (Exact.Dist2ToSegment(a, b, c) <= near2) near.Add(c);
+                if (Exact.Dist2ToSegment(a, b, d) <= near2) near.Add(d);
                 for (int i = 0; i < near.Count; ++i)
                     for (int j = i + 1; j < near.Count; ++j)
-                        if (Exact.Len2(near[i], near[j]) > tube2) return true;
+                        if (Exact.Len2(near[i], near[j]) > apart2) return true;
                 return false;
             }
 
