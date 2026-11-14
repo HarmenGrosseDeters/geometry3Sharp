@@ -243,14 +243,14 @@ namespace geometry3Sharp.Tests
 
         // ---------------------------------------------------------------- input coordinates beyond a double's sum
 
-        static DMesh3 Sphere(Vector3d c, double r, int ev)
+        internal static DMesh3 Sphere(Vector3d c, double r, int ev)
         {
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = r, EdgeVertices = ev }.Generate().MakeDMesh();
             MeshTransforms.Translate(m, c);
             return m;
         }
 
-        static DMesh3 OpenSphere(Vector3d c, double r, int ev, Vector3d dir, double cut)
+        internal static DMesh3 OpenSphere(Vector3d c, double r, int ev, Vector3d dir, double cut)
         {
             DMesh3 m = Sphere(c, r, ev);
             foreach (int t in m.TriangleIndices().ToList())
@@ -259,42 +259,12 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static DMesh3 ScaledAndMoved(DMesh3 m, double scale, Vector3d offset)
+        internal static DMesh3 ScaledAndMoved(DMesh3 m, double scale, Vector3d offset)
         {
             DMesh3 r = new DMesh3(m);
             foreach (int v in r.VertexIndices().ToList())
                 r.SetVertex(v, r.GetVertex(v) * scale + offset);
             return r;
-        }
-
-        [Fact]
-        public void InputCoordinatesWhoseSumOverflows_PatchWindingLeavesTheOpenMeshesToTheirOwnPath()
-        {
-            // the closed meshes' box query of patch_winding at coordinates near 1e308: the centroid's pad is infinite, so
-            // the query box contains every box, also the empty boxes that stand for the open meshes. Those are evaluated
-            // per piece (open_winding), not here: before the fix the Antipodal mesh got a fast winding number in the
-            // patch's winding, and its tree was built lazily inside the parallel loop (a race on the dictionary,
-            // NullReferenceException in Dictionary.Insert on net48). Serial, so the race cannot hide the stored tree
-            DMesh3 a = Sphere(Vector3d.Zero, 16, 5), b = OpenSphere(new Vector3d(4.8, 6.4, 8), 11.2, 6, new Vector3d(0, 0, 1), 0.7);
-            double f = Math.Pow(2.0, 1000), offset = 1.0e308;
-            var o = new Vector3d(offset, offset, offset);
-            DMesh3 A = ScaledAndMoved(a, f, o), B = ScaledAndMoved(b, f, o);
-            foreach (bool traced in new[] { true, false }) {
-                var big = new ExactMeshBoolean(A, B, Ops.Union) { AllowOpenMeshes = true, TracedOpenWinding = traced, PerPatchOpenWinding = traced };
-                gParallel.SerialOnThisThread = true;
-                try {
-                    Assert.True(big.Compute(), big.Error);
-                } finally {
-                    gParallel.SerialOnThisThread = false;
-                }
-                Assert.True(big.OpenBoundarySegments[1] > 0, "the open mesh takes the Antipodal path");
-                Assert.Null(big.StoredWindingTree(1));
-                Assert.True(Invariance.AllFinite(big.Result) && big.Result.TriangleCount > 0);
-                // (the same classification as at the unit scale, mapped: the open mesh counted once, by its own path)
-                var unit = new ExactMeshBoolean(a, b, Ops.Union) { AllowOpenMeshes = true, TracedOpenWinding = traced, PerPatchOpenWinding = traced };
-                Assert.True(unit.Compute(), unit.Error);
-                Assert.Equal(unit.Result.TriangleCount, big.Result.TriangleCount);
-            }
         }
 
         [Fact]

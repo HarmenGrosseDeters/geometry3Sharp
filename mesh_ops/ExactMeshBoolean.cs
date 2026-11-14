@@ -3635,17 +3635,16 @@ namespace g3
 
         readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
 
-        // the tree of an open mesh for its fast winding numbers (classify builds them before its parallel loops; built here
-        // when first needed otherwise, under the lock: a caller in a parallel loop must not race on the dictionary)
+        // the tree of an open mesh for its fast winding numbers: classify builds one for every open mesh off the Antipodal
+        // path before its parallel loops, which only read here (#882: a lazy build inside them raced on the dictionary).
+        // Asking for any other mesh's tree is a defect of the caller
         [MethodImpl(JitHints.Optimize)]
         DMeshAABBTree3 winding_tree(int mesh)
         {
-            lock (windingTrees) {
-                DMeshAABBTree3 tree;
-                if (windingTrees.TryGetValue(mesh, out tree) == false)
-                    windingTrees[mesh] = tree = new_winding_tree(mesh);
-                return tree;
-            }
+            DMeshAABBTree3 tree;
+            if (windingTrees.TryGetValue(mesh, out tree) == false)
+                throw new InvalidOperationException("ExactMeshBoolean: no fast-winding tree was built for open mesh " + mesh);
+            return tree;
         }
 
         // the stored winding tree of an open mesh after Compute, null if none (FastWindingParallelBuildTests)

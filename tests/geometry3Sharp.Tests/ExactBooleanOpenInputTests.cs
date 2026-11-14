@@ -194,5 +194,67 @@ namespace geometry3Sharp.Tests
                 }
             }
         }
+
+        // ---------------------------------------------------------------- input coordinates beyond a double's sum (#882)
+
+        static (DMesh3, DMesh3, DMesh3, DMesh3) OverflowingInputs()
+        {
+            DMesh3 a = CoverageRound3Tests.Sphere(Vector3d.Zero, 16, 5);
+            DMesh3 b = CoverageRound3Tests.OpenSphere(new Vector3d(4.8, 6.4, 8), 11.2, 6, new Vector3d(0, 0, 1), 0.7);
+            double f = Math.Pow(2.0, 1000), offset = 1.0e308;
+            var o = new Vector3d(offset, offset, offset);
+            return (a, b, CoverageRound3Tests.ScaledAndMoved(a, f, o), CoverageRound3Tests.ScaledAndMoved(b, f, o));
+        }
+
+        static ExactMeshBoolean Overflowing(DMesh3 a, DMesh3 b, bool traced, bool serial)
+        {
+            var s = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), g3.ExactMeshBoolean.Operations.Union) {
+                AllowOpenMeshes = true, TracedOpenWinding = traced, PerPatchOpenWinding = traced };
+            gParallel.SerialOnThisThread = serial;
+            try {
+                Assert.True(s.Compute(), s.Error);
+            } finally {
+                gParallel.SerialOnThisThread = false;
+            }
+            return s;
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void InputCoordinatesWhoseSumOverflows_PatchWindingLeavesTheOpenMeshesToTheirOwnPath(bool traced)
+        {
+            // the closed meshes' box query of patch_winding at coordinates near 1e308: the centroid's pad is infinite, so
+            // the query box contains every box, also the empty boxes that stand for the open meshes. Those are evaluated
+            // per piece (open_winding), not there: before the fix the Antipodal mesh got a fast winding number in the
+            // patch's winding, its tree built lazily inside the parallel loop (a race on the dictionary,
+            // NullReferenceException in Dictionary.Insert on net48); winding_tree now only reads prebuilt trees
+            (DMesh3 a, DMesh3 b, DMesh3 A, DMesh3 B) = OverflowingInputs();
+            ExactMeshBoolean big = Overflowing(A, B, traced, true);
+            Assert.True(big.OpenBoundarySegments[1] > 0, "the open mesh takes the Antipodal path");
+            Assert.Null(big.StoredWindingTree(1));
+            Assert.True(Invariance.AllFinite(big.Result) && big.Result.TriangleCount > 0);
+            // (the same classification as at the unit scale: the open mesh counted once, by its own path)
+            ExactMeshBoolean unit = Overflowing(a, b, traced, true);
+            Assert.Equal(unit.Result.TriangleCount, big.Result.TriangleCount);
+        }
+
+        [Fact]
+        public void InputCoordinatesWhoseSumOverflows_ParallelEqualsSerial_RepeatedReused()
+        {
+            // the parallel patch and piece loops at that scale (where the race was): the serial result, bit for bit, the
+            // same counts, and again on the same instance
+            (DMesh3 a, DMesh3 b, DMesh3 A, DMesh3 B) = OverflowingInputs();
+            ExactMeshBoolean serial = Overflowing(A, B, true, true);
+            var parallel = new ExactMeshBoolean(new DMesh3(A), new DMesh3(B), g3.ExactMeshBoolean.Operations.Union) {
+                AllowOpenMeshes = true, TracedOpenWinding = true, PerPatchOpenWinding = true };
+            for (int run = 0; run < 3; ++run) {
+                Assert.True(parallel.Compute(), parallel.Error);
+                Assert.Equal("", Invariance.Difference(serial.Result, parallel.Result));
+                foreach (string c in new[] { "pieces", "l2_traced", "l2_carried", "l2_direct", "l2_cross_steps", "l2_cross_fallbacks", "antipodal_undecided" })
+                    Assert.Equal(serial.Counts[c], parallel.Counts[c]);
+                Assert.Null(parallel.StoredWindingTree(1));
+            }
+        }
     }
 }
