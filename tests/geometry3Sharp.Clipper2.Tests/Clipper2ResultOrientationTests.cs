@@ -1,5 +1,10 @@
 using System.Linq;
 using Clipper2Lib;
+// the addon's enums (since 2.0 its own types; Clipper2Lib has the same names)
+using ClipType = g3.Clipper2.ClipType;
+using EndType = g3.Clipper2.EndType;
+using FillRule = g3.Clipper2.FillRule;
+using JoinType = g3.Clipper2.JoinType;
 using g3;
 using g3.Clipper2;
 using Xunit;
@@ -79,7 +84,7 @@ namespace geometry3Sharp.Clipper2.Tests
             Polygon2d b = Ring(-0.29687499999992895, -0.29687499999992895, 0.703125000000071, -0.29687499999992895, -0.29687499999992895, 0.703125000000071);
             Clipper2Result r = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { a }, new[] { b });
             AssertOriented(r);
-            Paths64 flat = Clipper.Union(new Paths64 { r.Frame.ToPath64(a) }, new Paths64 { r.Frame.ToPath64(b) }, FillRule.NonZero);
+            Paths64 flat = Clipper.Union(new Paths64 { r.Frame.ToPath64(a) }, new Paths64 { r.Frame.ToPath64(b) }, Clipper2Lib.FillRule.NonZero);
             double expected = flat.Sum(p => Clipper.Area(p)) / (r.Frame.Scale * r.Frame.Scale);
             Assert.Equal(expected, r.Area, 9);
         }
@@ -109,7 +114,7 @@ namespace geometry3Sharp.Clipper2.Tests
                 0.12860107421690586, 0.21827584060420596, 0.19110107421690586, 0.15577584060420596, 0.19110107421690586);
             Clipper2Result r = Clipper2Polygons.BooleanPaths(ClipType.Union, new[] { a }, new[] { b });
             AssertOriented(r);
-            Paths64 flat = Clipper.Union(new Paths64 { r.Frame.ToPath64(a) }, new Paths64 { r.Frame.ToPath64(b) }, FillRule.NonZero);
+            Paths64 flat = Clipper.Union(new Paths64 { r.Frame.ToPath64(a) }, new Paths64 { r.Frame.ToPath64(b) }, Clipper2Lib.FillRule.NonZero);
             Assert.Equal(flat.Sum(p => Clipper.Area(p)) / (r.Frame.Scale * r.Frame.Scale), r.Area, 9);
             Assert.Contains(r.Polygons, g => g.Holes.Count > 0);
         }
