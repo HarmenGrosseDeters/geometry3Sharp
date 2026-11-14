@@ -1225,8 +1225,8 @@ namespace g3
                     var src = arr.Triangles[ot.Source];
                     foreach (int ti in stack[i]) {
                         var U = arr.Triangles[ti];
-                        BigInteger dot = src.NX * U.NX + src.NY * U.NY + src.NZ * U.NZ;
-                        add(U.Mesh, (dot.Sign > 0) ? 1 : -1);
+                        int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
+                        add(U.Mesh, (dot > 0) ? 1 : -1);
                     }
                 }
                 bool inBack = inside(winding, touched);
@@ -2139,7 +2139,8 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         double carry_bound(int p, int q, Center cp, Center cq, double[] boxes, bool[] hasBox, int[] loc, BoundaryBound b, ClusterBound cb = null)
         {
-            var box = new double[6];
+            // (lever 4: one box per thread, every entry written below; gradient_bound only reads it)
+            double[] box = carryBox ?? (carryBox = new double[6]);
             piece_box(p, boxes, hasBox, loc);
             piece_box(q, boxes, hasBox, loc);
             for (int k = 0; k < 3; ++k) {
@@ -2155,6 +2156,8 @@ namespace g3
                 return double.PositiveInfinity;
             return gradient_bound(box, b, cb) * length;
         }
+
+        [ThreadStatic] static double[] carryBox;
 
         // the box of piece i (grid coordinates, the corners' approximations widened by their error bounds), cached
         void piece_box(int i, double[] boxes, bool[] hasBox, int[] loc)
@@ -2269,9 +2272,8 @@ namespace g3
                 System.Threading.Interlocked.CompareExchange(ref all[f], new SegmentProjection(antipodalSegments[m], antipodalFar[m].Grid[f]), null);
                 pr = all[f];
             }
-            var corners = new Vector3d[v.Length - 1];
-            Array.Copy(v, corners, corners.Length);
-            return pierce_prefilter(v, antipodalSegments[m], gl, pr.Query(corners));
+            // (the corners without the far point, v's last entry)
+            return pierce_prefilter(v, antipodalSegments[m], gl, pr.Query(v, v.Length - 1));
         }
         void prepare_projections(int m)
         {
@@ -2552,14 +2554,16 @@ namespace g3
             }
 
             /// <summary> the segments (indices s, ascending) whose projected box meets that of the points v; null: all </summary>
-            public int[] Query(IList<Vector3d> v)
+            public int[] Query(Vector3d[] v) { return Query(v, v.Length); }
+            // (the first count points of v: lever 4, the caller's array without a copy)
+            public int[] Query(Vector3d[] v, int count)
             {
                 if (Valid == false)
                     return null;
                 double ax = double.PositiveInfinity, ay = double.PositiveInfinity, bx = double.NegativeInfinity, by = double.NegativeInfinity;
-                foreach (Vector3d x in v) {
+                for (int k = 0; k < count; ++k) {
                     double px, py, pe;
-                    if (Project(x, out px, out py, out pe) == false)
+                    if (Project(v[k], out px, out py, out pe) == false)
                         return null;
                     ax = Math.Min(ax, px - pe); ay = Math.Min(ay, py - pe);
                     bx = Math.Max(bx, px + pe); by = Math.Max(by, py + pe);
@@ -2708,6 +2712,7 @@ namespace g3
 
             readonly Vector3d od;           // the origin as doubles
             public Vector3d Origin { get { return od; } }
+            readonly bool odIsExact;        // od is the origin exactly (lever 4: Corner's fast path)
             readonly double odError;        // their absolute error (0 where they are exact)
 
             public LocalFrame(ExactMeshBoolean b, ExactMeshArrangement.InputTriangle triangle)
@@ -2720,6 +2725,8 @@ namespace g3
                     throw new InvalidOperationException("ExactMeshBoolean: the origin of a local frame is not a grid point");
                 ox = o.X; oy = o.Y; oz = o.Z;
                 od = new Vector3d((double)ox, (double)oy, (double)oz);
+                Vector3d oe;
+                odIsExact = FixedPoint3.DoubleOf(o, out oe) && oe.x == od.x && oe.y == od.y && oe.z == od.z;
                 odError = 0;
                 for (int k = 0; k < 3; ++k)
                     odError = Math.Max(odError, 2.3e-16 * Math.Abs(od[k]));
@@ -2756,8 +2763,39 @@ namespace g3
             {
                 Vector3d v;
                 if (corners.TryGetValue(id, out v) == false)
-                    corners[id] = v = Point(b.arr.Exact(id));
+                    corners[id] = v = corner_point(id);
                 return v;
+            }
+
+            // Point(Exact(id)), without the exact point where the point and the origin are integers with double
+            // coordinates and each difference is a double (lever 4): then that double is Point's value, the exact
+            // difference, which ToDouble gives on every runtime (a value with at most 53 significant bits)
+            [MethodImpl(JitHints.Optimize)]
+            internal Vector3d corner_point(int id)
+            {
+                Vector3d d;
+                if (odIsExact && b.arr.TryExactDouble(id, out d)) {
+                    double x, y, z;
+                    if (exact_difference(d.x, od.x, out x) && exact_difference(d.y, od.y, out y) && exact_difference(d.z, od.z, out z))
+                        return new Vector3d(grid_coord_of(x), grid_coord_of(y), grid_coord_of(z));
+                }
+                return Point(b.arr.Exact(id));
+            }
+
+            // a - b, true iff the double is the exact difference (TwoSum's error term is 0; a, b finite)
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static bool exact_difference(double a, double b, out double s)
+            {
+                s = a - b;
+                double bv = a - s, av = s + bv;
+                return double.IsInfinity(s) == false && (a - av) + (bv - b) == 0;
+            }
+
+            // grid_coord of an exact double: NaN for a nonzero value below TinyCoordinate
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal static double grid_coord_of(double r)
+            {
+                return (r != 0 && !(Math.Abs(r) >= TinyCoordinate)) ? double.NaN : r;
             }
 
             // the far point f of mesh m (key 2 m + 1 + 4 f... as a long), the end k of a boundary segment of mesh m
@@ -2898,7 +2936,7 @@ namespace g3
             }
 
             // f(triangle) for each candidate of the segment p-q (grid coordinates, each within error of the exact point)
-            public void Query(Vector3d p, Vector3d q, double error, Action<int> f)
+            public void Query<TV>(Vector3d p, Vector3d q, double error, ref TV f) where TV : struct, TriangleBoxTree.IIndexVisitor
             {
                 if (tri.Length == 0)
                     return;
@@ -2914,9 +2952,109 @@ namespace g3
                             if (stamp[k] == query || box[4 * k] > bx || box[4 * k + 2] < ax || box[4 * k + 1] > by || box[4 * k + 3] < ay)
                                 continue;
                             stamp[k] = query;
-                            f(tri[k]);
+                            f.Visit(tri[k]);
                         }
                     }
+            }
+        }
+
+        // carried_crossings' test of one candidate triangle (lever 4: a struct, so that a call allocates no closure and no
+        // delegates; the same tests in the same order as the lambda it replaces)
+        struct CrossVisit : TriangleBoxTree.IIndexVisitor
+        {
+            public ExactMeshBoolean B;
+            public ExactMeshArrangement.InputTriangle Sp, Sq;
+            public int SrcP, SrcQ;
+            public Func<int, int, int> InteriorSide;
+            public bool Prefilter;          // the box tree's candidates (no crossing grid): the plane prefilter first
+            public Vector3d Xp, Xq, Gp, Gq;
+            public double Ap, Aq, Lp, Lq;
+            public LocalFrame Frame;
+            public Center Cp, Cq;
+            public int Crossings;
+            public bool Degenerate;
+            // (the box tree's queries: k indexes Tris, degenerate triangles are skipped, Found counts the others)
+            public List<int> Tris;
+            public long Found;
+
+            [MethodImpl(JitHints.Optimize)]
+            public void Visit(int k)
+            {
+                if (Tris == null) {
+                    visit(k);
+                    return;
+                }
+                if (B.arr.Triangles[Tris[k]].Degenerate)
+                    return;
+                ++Found;
+                visit(Tris[k]);
+            }
+
+            [MethodImpl(JitHints.Optimize)]
+            void visit(int ui)
+            {
+                if (Degenerate) return;
+                if (SrcP != SrcQ && (ui == SrcP || ui == SrcQ)) {
+                    // (T5: the pieces' own input triangles, met by a step between them where they are triangles of M. The
+                    // centroid in U lies in its plane; the other's side of that plane is that of its triangle's interior.
+                    // Where that is decided, the segment meets U's plane only at the end in U, an interior point of U:
+                    // a crossing exactly where the displaced ends lie on different sides, as the general test finds it)
+                    int a0 = ui == SrcP ? 0 : InteriorSide(ui, SrcP), b0 = ui == SrcQ ? 0 : InteriorSide(ui, SrcQ);
+                    if (a0 != 2 && b0 != 2) {
+                        // (an end in U's plane: the side its own piece's normal points to, as in the general test; both
+                        // in the plane on different sides, a flap folded onto U with the opposite orientation (review of
+                        // #675): degenerate)
+                        // (lever 4: each sign only where own_triangle_crossing reads it, an end in U's plane; on stack limbs)
+                        var U0 = B.arr.Triangles[ui];
+                        int own = own_triangle_crossing(a0, b0,
+                            a0 != 0 ? 0 : ExactLimbSigns.Dot(Sp.NX, Sp.NY, Sp.NZ, U0.NX, U0.NY, U0.NZ),
+                            b0 != 0 ? 0 : ExactLimbSigns.Dot(Sq.NX, Sq.NY, Sq.NZ, U0.NX, U0.NY, U0.NZ));
+                        if (own == 2)
+                            Degenerate = true;
+                        else
+                            Crossings += own;
+                        return;
+                    }
+                }
+                if (Prefilter) {
+                    // (T5: the box tree's candidates around the step's corners, most with both centroids strictly on one
+                    // side of their plane: no crossing and no degenerate case, decided on the grid approximations with
+                    // their absolute errors before the corners are converted into the frame)
+                    double[] pa = B.arr.Triangles[ui].PlaneApprox;
+                    int sa = plane_side_abs(pa, Xp, Ap);
+                    if (sa != 2 && sa == plane_side_abs(pa, Xq, Aq))
+                        return;
+                }
+                var U = B.arr.Triangles[ui];
+                int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
+                Vector3d d0 = Frame.Corner(c0), d1 = Frame.Corner(c1), d2 = Frame.Corner(c2);
+                double e0 = LocalFrame.PointError(d0), e1 = LocalFrame.PointError(d1), e2 = LocalFrame.PointError(d2);
+                int a = B.local_side(U, ui, SrcP, InteriorSide, Cp, ref d0, ref d1, ref d2, ref Gp, e0, e1, e2, Lp),
+                    b = B.local_side(U, ui, SrcQ, InteriorSide, Cq, ref d0, ref d1, ref d2, ref Gq, e0, e1, e2, Lq);
+                // (a centroid in the plane: the side its piece's front points to)
+                int ae = a != 0 ? a : ExactLimbSigns.Dot(Sp.NX, Sp.NY, Sp.NZ, U.NX, U.NY, U.NZ);
+                int be = b != 0 ? b : ExactLimbSigns.Dot(Sq.NX, Sq.NY, Sq.NZ, U.NX, U.NY, U.NZ);
+                if (ae == 0 || be == 0) { Degenerate = true; return; }
+                if (ae == be) return;
+                // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
+                // determined here)
+                if (a == 0 && b == 0) { Degenerate = true; return; }
+                int o0 = B.DisableFilters ? 2 : orient3d_filtered_err(ref Gp, ref Gq, ref d0, ref d1, Lp, Lq, e0, e1);
+                int o1 = B.DisableFilters ? 2 : orient3d_filtered_err(ref Gp, ref Gq, ref d1, ref d2, Lp, Lq, e1, e2);
+                int o2 = B.DisableFilters ? 2 : orient3d_filtered_err(ref Gp, ref Gq, ref d2, ref d0, Lp, Lq, e2, e0);
+                if (o0 == 2 || o1 == 2 || o2 == 2) {
+                    ExactPoint3 x0 = B.arr.Exact(c0), x1 = B.arr.Exact(c1), x2 = B.arr.Exact(c2);
+                    if (o0 == 2) o0 = orient3d_exact(Cp.P, Cq.P, x0, x1);
+                    if (o1 == 2) o1 = orient3d_exact(Cp.P, Cq.P, x1, x2);
+                    if (o2 == 2) o2 = orient3d_exact(Cp.P, Cq.P, x2, x0);
+                }
+                if (o0 == 0 || o1 == 0 || o2 == 0) {
+                    if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
+                        Degenerate = true;
+                    return;
+                }
+                if (o0 == o1 && o1 == o2)
+                    Crossings += be;
             }
         }
 
@@ -2945,73 +3083,13 @@ namespace g3
             Vector3d xp = cp.Approx(out ap), xq = cq.Approx(out aq);
             if (double.IsNaN(gp.x + gp.y + gp.z + gq.x + gq.y + gq.z))
                 return false;
-            int crossings = 0;
-            bool degenerate = false;
             int srcP = arr.Output[p].Source, srcQ = arr.Output[q].Source;
-            Action<int> visit = (ui) => {
-                if (degenerate) return;
-                if (srcP != srcQ && (ui == srcP || ui == srcQ)) {
-                    // (T5: the pieces' own input triangles, met by a step between them where they are triangles of M. The
-                    // centroid in U lies in its plane; the other's side of that plane is that of its triangle's interior.
-                    // Where that is decided, the segment meets U's plane only at the end in U, an interior point of U:
-                    // a crossing exactly where the displaced ends lie on different sides, as the general test finds it)
-                    int a0 = ui == srcP ? 0 : interiorSide(ui, srcP), b0 = ui == srcQ ? 0 : interiorSide(ui, srcQ);
-                    if (a0 != 2 && b0 != 2) {
-                        // (an end in U's plane: the side its own piece's normal points to, as in the general test; both
-                        // in the plane on different sides, a flap folded onto U with the opposite orientation (review of
-                        // #675): degenerate)
-                        var U0 = arr.Triangles[ui];
-                        int own = own_triangle_crossing(a0, b0, (sp.NX * U0.NX + sp.NY * U0.NY + sp.NZ * U0.NZ).Sign,
-                            (sq.NX * U0.NX + sq.NY * U0.NY + sq.NZ * U0.NZ).Sign);
-                        if (own == 2)
-                            degenerate = true;
-                        else
-                            crossings += own;
-                        return;
-                    }
-                }
-                if (grid == null) {
-                    // (T5: the box tree's candidates around the step's corners, most with both centroids strictly on one
-                    // side of their plane: no crossing and no degenerate case, decided on the grid approximations with
-                    // their absolute errors before the corners are converted into the frame)
-                    double[] pa = arr.Triangles[ui].PlaneApprox;
-                    int sa = plane_side_abs(pa, xp, ap);
-                    if (sa != 2 && sa == plane_side_abs(pa, xq, aq))
-                        return;
-                }
-                var U = arr.Triangles[ui];
-                int c0 = U.Corners[0], c1 = U.Corners[1], c2 = U.Corners[2];
-                Vector3d d0 = frame.Corner(c0), d1 = frame.Corner(c1), d2 = frame.Corner(c2);
-                double e0 = LocalFrame.PointError(d0), e1 = LocalFrame.PointError(d1), e2 = LocalFrame.PointError(d2);
-                int a = local_side(U, ui, srcP, interiorSide, cp, ref d0, ref d1, ref d2, ref gp, e0, e1, e2, lp),
-                    b = local_side(U, ui, srcQ, interiorSide, cq, ref d0, ref d1, ref d2, ref gq, e0, e1, e2, lq);
-                // (a centroid in the plane: the side its piece's front points to)
-                int ae = a != 0 ? a : ExactLimbSigns.Dot(sp.NX, sp.NY, sp.NZ, U.NX, U.NY, U.NZ);
-                int be = b != 0 ? b : ExactLimbSigns.Dot(sq.NX, sq.NY, sq.NZ, U.NX, U.NY, U.NZ);
-                if (ae == 0 || be == 0) { degenerate = true; return; }
-                if (ae == be) return;
-                // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
-                // determined here)
-                if (a == 0 && b == 0) { degenerate = true; return; }
-                int o0 = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref d0, ref d1, lp, lq, e0, e1);
-                int o1 = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref d1, ref d2, lp, lq, e1, e2);
-                int o2 = DisableFilters ? 2 : orient3d_filtered_err(ref gp, ref gq, ref d2, ref d0, lp, lq, e2, e0);
-                if (o0 == 2 || o1 == 2 || o2 == 2) {
-                    ExactPoint3 x0 = arr.Exact(c0), x1 = arr.Exact(c1), x2 = arr.Exact(c2);
-                    if (o0 == 2) o0 = orient3d_exact(cp.P, cq.P, x0, x1);
-                    if (o1 == 2) o1 = orient3d_exact(cp.P, cq.P, x1, x2);
-                    if (o2 == 2) o2 = orient3d_exact(cp.P, cq.P, x2, x0);
-                }
-                if (o0 == 0 || o1 == 0 || o2 == 0) {
-                    if ((o0 >= 0 && o1 >= 0 && o2 >= 0) || (o0 <= 0 && o1 <= 0 && o2 <= 0))
-                        degenerate = true;
-                    return;
-                }
-                if (o0 == o1 && o1 == o2)
-                    crossings += be;
+            var v = new CrossVisit {
+                B = this, Sp = sp, Sq = sq, SrcP = srcP, SrcQ = srcQ, InteriorSide = interiorSide, Prefilter = grid == null,
+                Xp = xp, Xq = xq, Ap = ap, Aq = aq, Gp = gp, Gq = gq, Lp = lp, Lq = lq, Frame = frame, Cp = cp, Cq = cq
             };
             if (grid != null)
-                grid.Query(xp, xq, Math.Max(ap, aq), visit);
+                grid.Query(xp, xq, Math.Max(ap, aq), ref v);
             else {
                 // (T5, a step between two input triangles: every triangle of M that meets the segment, from M's box tree in
                 // input coordinates; design note 4.1)
@@ -3019,17 +3097,12 @@ namespace g3
                 double pad;
                 if (input_segment(xp, ap, xq, aq, out ip, out iq, out pad) == false)
                     return false;
-                List<int> tris = arr.MeshTriangles[m];
-                long found = 0;
-                arr.Trees[m].QuerySegment(ip, iq, pad, (k) => {
-                    var U = arr.Triangles[tris[k]];
-                    if (U.Degenerate)
-                        return;
-                    ++found;
-                    visit(tris[k]);
-                });
-                System.Threading.Interlocked.Add(ref treeCandidates, found);
+                v.Tris = arr.MeshTriangles[m];
+                arr.Trees[m].QuerySegment(ip, iq, pad, ref v);
+                System.Threading.Interlocked.Add(ref treeCandidates, v.Found);
             }
+            int crossings = v.Crossings;
+            bool degenerate = v.Degenerate;
             if (degenerate)
                 return false;
             // the boundary segments piercing the triangle (p, q, R)
@@ -3677,8 +3750,8 @@ namespace g3
                     continue;
                 Index3i t = m.GetTriangle(U.Tid);
                 w -= MathUtil.TriSolidAngle(m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), ref pv) / MathUtil.FourPI;
-                BigInteger dot = src.NX * U.NX + src.NY * U.NY + src.NZ * U.NZ;
-                w -= (dot.Sign > 0) ? 0.5 : -0.5;
+                int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
+                w -= (dot > 0) ? 0.5 : -0.5;
             }
             return w;
         }
