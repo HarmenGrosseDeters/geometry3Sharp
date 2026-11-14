@@ -17,18 +17,39 @@ namespace g3
     /// </summary>
     public static class ExactPredicates
     {
-        const double Epsilon = 1.1102230246251565e-16;     // 2^-53
+        internal const double Epsilon = 1.1102230246251565e-16;     // 2^-53
         const double Orient2dBound = (3.0 + 16.0 * Epsilon) * Epsilon;
-        const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
-        const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
-        const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
-        // below this the products may be subnormal (absolute, not relative rounding error)
-        const double UnderflowLimit = 1e-200;
+        internal const double Orient3dBound = (7.0 + 56.0 * Epsilon) * Epsilon;
+        internal const double InCircleBound = (10.0 + 96.0 * Epsilon) * Epsilon;
+        internal const double InSphereBound = (16.0 + 224.0 * Epsilon) * Epsilon;
+        // below this the products may be subnormal (absolute, not relative rounding error). with_underflow relies on
+        // UnderflowLimit > 2^-706 and on every bound constant being at least 2^-51 (then B * permanent >= 2^-757 and
+        // half an ulp of it exceeds 2^-810, the largest term it skips); ExactPredicatesTests checks this coupling.
+        internal const double UnderflowLimit = 1e-200;
         // A larger permanent does not exclude subnormal partial products either: a subnormal 2x2 product (absolute
         // error up to 2^-1075) times a large coordinate or lift. With fl(x * y) = x y (1 + d) + n, |n| <= 2^-1075
         // (sums that underflow are exact), these errors add at most 4 * 2^-1075 times the sum of the factors they
         // are multiplied by (plus 1); the filters add that sum times 2^-1066.
-        const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
+        internal const double UnderflowUnit = double.Epsilon * 256;     // 2^-1066
+        // below this sum the underflow term adds nothing to the bound (with_underflow)
+        internal const double UnderflowSumNegligible = 1.157920892373162e77;    // 2^256
+
+        /// <summary>
+        /// The bound of a filter: relative (its bound constant times the permanent) plus sum times 2^-1066, the same
+        /// double as relative + sum * UnderflowUnit wherever the filter can decide, but without that product where it
+        /// adds nothing. The product is subnormal for every sum below 2^44, and subnormal arithmetic is slow on
+        /// x86 (a microcode assist of about 50 ns per filter call, benchmarks/PredicateComparison/README.md, "Filter underflow term").
+        /// Why the result is the same: the filters decide only where permanent > UnderflowLimit (1e-200 > 2^-665),
+        /// and every bound constant is at least 2^-51, so relative >= 2^-716 (rounding is monotone and 2^-716 is a
+        /// double) and half an ulp of it is at least 2^-769. For sum < 2^256, sum * 2^-1066 < 2^-810 is below that
+        /// half ulp and non-negative, so relative + sum * 2^-1066 rounds to relative. NaN and infinite sums take the
+        /// full expression (the comparison is false), as before.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static double with_underflow(double relative, double sum)
+        {
+            return sum < UnderflowSumNegligible ? relative : relative + sum * UnderflowUnit;
+        }
 
         /// <summary> sign of (b - a) x (c - a): +1 if a, b, c are counter-clockwise, -1 clockwise, 0 collinear </summary>
         [MethodImpl(JitHints.Optimize)]
@@ -78,7 +99,7 @@ namespace g3
                 + Math.Abs(wy) * (Math.Abs(uzvx) + Math.Abs(uxvz))
                 + Math.Abs(wz) * (Math.Abs(uxvy) + Math.Abs(uyvx));
             // (the 2x2 products have absolute errors of their own, multiplied by |w|)
-            double bound = Orient3dBound * permanent + (Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1) * UnderflowUnit;
+            double bound = with_underflow(Orient3dBound * permanent, Math.Abs(wx) + Math.Abs(wy) + Math.Abs(wz) + 1);
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
             return 0;
@@ -103,8 +124,8 @@ namespace g3
                 + (Math.Abs(cdxady) + Math.Abs(adxcdy)) * blift
                 + (Math.Abs(adxbdy) + Math.Abs(bdxady)) * clift;
             // (the 2x2 products and the lifts have absolute errors of their own, multiplied by each other)
-            double bound = InCircleBound * permanent + (alift + blift + clift + Math.Abs(bdxcdy) + Math.Abs(cdxbdy)
-                + Math.Abs(cdxady) + Math.Abs(adxcdy) + Math.Abs(adxbdy) + Math.Abs(bdxady) + 1) * UnderflowUnit;
+            double bound = with_underflow(InCircleBound * permanent, alift + blift + clift + Math.Abs(bdxcdy) + Math.Abs(cdxbdy)
+                + Math.Abs(cdxady) + Math.Abs(adxcdy) + Math.Abs(adxbdy) + Math.Abs(bdxady) + 1);
             if (det > bound && permanent > UnderflowLimit) return 1;
             if (-det > bound && permanent > UnderflowLimit) return -1;
             PredicateStats.ExactStage(PredicateStats.Kind.InCircle);
@@ -146,8 +167,8 @@ namespace g3
                 + (bcp * aezp + acp * bezp + abp * cezp) * dlift;
             // (the 2x2 products have absolute errors, multiplied by z and the lifts; the lifts', multiplied by
             // the 3x3 minors)
-            double bound = InSphereBound * permanent + ((alift + blift + clift + dlift) * (aezp + bezp + cezp + dezp + 1)
-                + Math.Abs(abc) + Math.Abs(bcd) + Math.Abs(cda) + Math.Abs(dab) + 1) * UnderflowUnit;
+            double bound = with_underflow(InSphereBound * permanent, (alift + blift + clift + dlift) * (aezp + bezp + cezp + dezp + 1)
+                + Math.Abs(abc) + Math.Abs(bcd) + Math.Abs(cda) + Math.Abs(dab) + 1);
             if (det > bound && permanent > UnderflowLimit) return -1;
             if (-det > bound && permanent > UnderflowLimit) return 1;
             return insphere_exact(a, b, c, d, e);

@@ -384,8 +384,9 @@ namespace geometry3Sharp.Tests
         {
             // a UTM case that the relative bound cannot repair: strict, Compute fails with the defects left, where, and
             // the drift the smallest rejected edit needed; not strict, it is clean
-            // (Cluster k0 count 4 seed 0 until Boolean 2.0: the reference rule repairs it within the relative bound)
-            var (name, mesh) = UtmCases().First(c => c.name == "FoldedCluster k36 count 4 seed 1");
+            // (Cluster k0 count 4 seed 0 until Boolean 2.0: the reference rule repairs it within the relative bound;
+            // FoldedCluster k36 count 4 seed 1 until the position search, which repairs it within that bound, too)
+            var (name, mesh) = UtmCases().First(c => c.name == "FoldedCluster k36 count 4 seed 0");
             var strict = new ExactMeshBoolean(new DMesh3(mesh), new DMesh3(), Ops.Union) { StrictRounding = true };
             Assert.False(strict.Compute(), name);
             Assert.Equal(ExactMeshBoolean.BooleanStatus.RoundingNotClean, strict.Status);

@@ -2,13 +2,14 @@
 
   <!--
     Optional package: robust 2D polygon booleans, offsets, Minkowski sums and simplification for the polygon types of
-    geometry3Sharp, on top of Clipper2 (Angus Johnson, Boost-1.0, NuGet package "Clipper2"). The core package
-    geometry3Sharp stays free of dependencies; this one depends on it and on Clipper2.
+    geometry3Sharp, on top of Clipper2 (Angus Johnson, Boost-1.0): the vendored C# sources of Clipper2 2.0.0
+    (Clipper2Lib/, internal, namespace g3.Clipper2.Vendored, see Clipper2Lib/README.md). Since 2.0 no package
+    dependency other than geometry3Sharp (README, "Breaking change in 2.0").
   -->
   <PropertyGroup>
-    <Version>1.1.0</Version>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.0</FileVersion>
+    <Version>2.0.0</Version>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <FileVersion>2.0.0.0</FileVersion>
     <TargetFrameworks>net10.0;netstandard2.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <RootNamespace>g3.Clipper2</RootNamespace>
@@ -17,7 +18,7 @@
     <Title>geometry3Sharp.Clipper2</Title>
     <Authors>Harmen Grosse Deters</Authors>
     <Description>2D polygon booleans (union, intersection, difference, xor), offsets, Minkowski sums and simplification for the geometry3Sharp polygon types (Polygon2d, GeneralPolygon2d, PolyLine2d), on top of Clipper2</Description>
-    <PackageLicenseExpression>BSL-1.0</PackageLicenseExpression>
+    <PackageLicenseExpression>BSL-1.0 AND MIT AND BSD-2-Clause</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/HarmenGrosseDeters/geometry3Sharp</PackageProjectUrl>
     <RepositoryUrl>https://github.com/HarmenGrosseDeters/geometry3Sharp</RepositoryUrl>
@@ -29,7 +30,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Clipper2" Version="2.0.0" />
     <ProjectReference Include="..\..\geometry3Sharp_netstandard.csproj" />
   </ItemGroup>
 
@@ -40,6 +40,8 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <!-- the licences of the vendored Clipper2 sources (Boost-1.0, and MIT / BSD-2 for HashCode.cs) -->
+    <None Include="THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

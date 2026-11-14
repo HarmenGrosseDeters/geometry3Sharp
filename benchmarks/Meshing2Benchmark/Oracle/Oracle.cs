@@ -72,6 +72,42 @@ namespace Meshing2Acceptance
         static bool Finite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 
         /// <summary>
+        /// Whether input constraint a-b holds the end p of a piece for GridUnsplittable's "own" constraints (exact): p lies in the
+        /// constraint's envelope (it meets the closed square of half a pixel around p), or one of the constraint's endpoints snaps to
+        /// p's pixel. A decimal pixel width is not exact in doubles, so an input point on its pixel's border may lie a hair outside the
+        /// square around the rounded centre and lose the constraint it ends (#728); only such an endpoint is taken in, not a constraint
+        /// that merely runs within a hair of the square without ending in the pixel (review of #730, #748)
+        /// </summary>
+        public static bool OwnConstraintHoldsEnd(Pt a, Pt b, Pt p, Q pixel)
+        {
+            Q half = pixel / 2;
+            bool SnapsTo(Pt x) => SnapIndex(x.Qx, pixel) == SnapIndex(p.Qx, pixel) && SnapIndex(x.Qy, pixel) == SnapIndex(p.Qy, pixel);
+            return EnvelopeHolds(a, b, p, half) || SnapsTo(a) || SnapsTo(b);
+        }
+
+        /// <summary> the index k of the pixel k w that x snaps to: floor(x / w + 1/2), exactly (also below 0) </summary>
+        internal static Q SnapIndex(Q x, Q pixel)
+        {
+            Q q = x / pixel + new Q(1, 2);
+            var f = BigInteger.Divide(q.N, q.D);
+            if (q.N.Sign < 0 && f * q.D != q.N) f -= 1;
+            return new Q(f, 1);
+        }
+
+        /// <summary> segment a-b meets the closed square of half-width h around p (exact) </summary>
+        internal static bool EnvelopeHolds(Pt a, Pt b, Pt p, Q h)
+        {
+            Q x0 = p.Qx - h, x1 = p.Qx + h, y0 = p.Qy - h, y1 = p.Qy + h;
+            if (Q.Max(a.Qx, b.Qx) < x0 || Q.Min(a.Qx, b.Qx) > x1 || Q.Max(a.Qy, b.Qy) < y0 || Q.Min(a.Qy, b.Qy) > y1) return false;
+            int pos = 0, neg = 0;
+            foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
+                int or = Exact.Orient(a, b, corner);
+                if (or > 0) ++pos; else if (or < 0) ++neg;
+            }
+            return pos < 4 && neg < 4;
+        }
+
+        /// <summary>
         /// GridUnsplittable's band (#723): for the pixel index km along the larger axis of a piece (y if steep, else x), the range of
         /// pixel indices along the other axis, within o0..o1, that holds every pixel centre whose distance from the line through
         /// (fax, fay) with direction (fdx, fdy) is at most fw in doubles (the filter of GridUnsplittable), with two pixels of margin for
@@ -815,10 +851,13 @@ namespace Meshing2Acceptance
                 SnapHot();
                 // its input constraints: those whose envelope holds both ends (a hull domain's hull edges too: on the grid the mesher
                 // snap-rounds them with the segments, option C, and splits their pieces as it splits a segment's; Q17)
+                // (an end of the constraint that snaps to the piece's end pixel counts as in it, OwnConstraintHoldsEnd: #728, review of
+                // #730; point 4 of the Rhein-Erft tile, 4.7e-12 outside, left the piece 4-195 with no own constraint, judged splittable,
+                // and its encroachment was not excused)
                 var own = sources.Select(s => (s.a, s.b)).Concat(domain.IsHull ? domain.Edges() : Enumerable.Empty<(Pt a, Pt b)>())
-                    .Where(s => InEnvelopeOf(s.a, s.b, pa, half) && InEnvelopeOf(s.a, s.b, pb, half)).ToList();
+                    .Where(s => OwnConstraintHoldsEnd(s.a, s.b, pa, pixel) && OwnConstraintHoldsEnd(s.a, s.b, pb, pixel)).ToList();
                 if (own.Count == 0) return false;
-                Q Index(Q x) { Q q = x / pixel + new Q(1, 2); var f = BigInteger.Divide(q.N, q.D); if (q.N.Sign < 0 && f * q.D != q.N) f -= 1; return new Q(f, 1); }
+                Q Index(Q x) => SnapIndex(x, pixel);
                 Q kx0 = Index(Q.Min(pa.Qx, pb.Qx)) - 1, kx1 = Index(Q.Max(pa.Qx, pb.Qx)) + 1, ky0 = Index(Q.Min(pa.Qy, pb.Qy)) - 1, ky1 = Index(Q.Max(pa.Qy, pb.Qy)) + 1;
                 // (a piece longer than 2^18 pixels along its larger axis is not enumerated and judged splittable: the band of such a piece
                 // costs seconds, which a run of many fine-pixel pieces would multiply; #723: the limit was 2^16 pixels of the piece's box,
@@ -1640,17 +1679,7 @@ namespace Meshing2Acceptance
                 return true;
             }
 
-            static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h)
-            {
-                Q x0 = p.Qx - h, x1 = p.Qx + h, y0 = p.Qy - h, y1 = p.Qy + h;
-                if (Q.Max(a.Qx, b.Qx) < x0 || Q.Min(a.Qx, b.Qx) > x1 || Q.Max(a.Qy, b.Qy) < y0 || Q.Min(a.Qy, b.Qy) > y1) return false;
-                int pos = 0, neg = 0;
-                foreach (var corner in new[] { new Pt(x0, y0), new Pt(x1, y0), new Pt(x1, y1), new Pt(x0, y1) }) {
-                    int or = Exact.Orient(a, b, corner);
-                    if (or > 0) ++pos; else if (or < 0) ++neg;
-                }
-                return pos < 4 && neg < 4;
-            }
+            static bool InEnvelopeOf(Pt a, Pt b, Pt p, Q h) => EnvelopeHolds(a, b, p, h);
 
             /// <summary> D14: some input constraint meets the closed square of half-width h around p (p lies in its envelope) </summary>
             bool InEnvelope(Pt p, Q h)

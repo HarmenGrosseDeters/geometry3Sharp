@@ -102,6 +102,8 @@ same file when it carries 17 or more significant digits (writers of other tools 
 same mesh differs (`v 0.5066380290214285 ...` against `v 0.506638029021429 ...`) and **the net48 file does not read back
 to the same vertices** (`roundtrip exact: False`; net10: True). The STL text round trip is not exact on any runtime (not examined
 further: probably the float precision of the format). On the x86 net48 process the 17-digit form differs in the last digit as well (x87).
+Fixed for `MeshIOUtil.FormatDouble` / `FormatFloat` (all writers using them): one integer implementation (`ShortestDecimal`, Ryu) writes the shortest
+round-trip text on every target in the layout of net10 `"R"`, so net10 output did not change and net48 now matches it. STL and OFF text use fixed precision format strings and are not covered.
 
 **C4. 32-bit net48 (x87 / legacy FPU semantics).** Float arithmetic differs (`probe.float-cast`), and the libm functions
 differ further (asin, acos, atan, exp, log10, sinh, cosh, tanh, atan2, pow against x64). Plain double arithmetic does not
@@ -110,7 +112,10 @@ double. Float code (`Vector3f`, `MeshLocalParam`, glTF) is where x86 would show.
 
 **C5. Parallel reduction order, thread count.** No difference found (section 2). The library's own parallel loops write
 disjoint outputs; reductions go through `PartitionedReduction` and the exact code forbids parallel loops without an entry
-in the allow list. Not covered: loops not switchable by `gParallel.SerialOnThisThread`, other core counts on Windows.
+in the allow list. Not covered: loops not switchable by `gParallel.SerialOnThisThread` (since #786 only those that call
+`Parallel.For` directly: `PartitionedReduction`, `TerrainGridTin`, the 2D quadtrees, `SafeCollections`), other core counts
+on Windows. The schedule adversary of #786 (`adversary`, `OrderAdversaryTests`) runs every `gParallel` loop backwards and in
+seeded permutations: no case changes.
 
 **C6. FMA and JIT contraction.** No difference: x64 RyuJIT (net10) and the .NET Framework JIT do not fuse `a * b + c`
 (`probe.arith-chain` identical on all four configurations, 256 chains of 64 steps each).
@@ -174,7 +179,12 @@ identity** (first the geodesic family: `IntrinsicTriangulation*`, `IntrinsicComm
 `MeshGeodesicDistance`, `MeshGeodesicPath`, `MeshGeodesicBezier` and `SparseCholesky.LogAdd`), not as a global replacement of
 `System.Math` (cost 1.5 to 4 times per call, more with the software FMA on net48; no gain in accuracy that matters to
 geometry tolerances). It is extended to further code only when the determinism harness shows a real difference that the
-result depends on, with a harness case and benchmark numbers. Files using `CoreMath` may not call the `System.Math`
+result depends on, with a harness case and benchmark numbers. Second user (2026-11-13, issue #802): the terrain slope
+design (`mesh_ops/TerrainSlope*.cs`), whose result differed in 20 of 15302 values between the Windows CRT of .NET and the
+others on a libm-free input (the `Cos / Sin` of the fan directions); its `Cos`, `Sin`, `Atan2` are `CoreMath`'s, its two
+`Acos` are `CoreMath.AcosByAtan2` (composed from `Atan2` and `Sqrt`: the same bits everywhere; not correctly rounded: measured within 1 ulp of glibc's
+`Math.Acos` over 816 000 arguments, by derivation within about 1.6 ulps of the true value near 1), its powers of two `CoreMath.Ldexp`; harness cases `terrain.slope-design*`, no measurable change of
+the run time (1.39 s against 1.40 s, median of 5, pit at tolerance 0.001). Files using `CoreMath` may not call the `System.Math`
 transcendentals: the analyzer G3E0004 (`tools/analyzers/G3ExactCodeAnalyzers`, scoped to those files by `.editorconfig`,
 tested in `ExactCodeAnalyzerTests`) makes a `Math.Sin` & co. in them a build error.
 

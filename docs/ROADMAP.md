@@ -48,6 +48,8 @@ selectively.
 
 ## Now
 Status on 2026-11-12 (evening, Berlin).
+- **Clipper2 C# sources vendored** (owner decision 2026-11-12, option (b)): PR 1 #751 (behaviour-identical, draft), then PR 2
+  fixes FINDINGS item 5 (`bugfix`). [platform.md](roadmap/platform.md#open)
 - **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3, counted as Exact Boolean 2.1, owner 2026-11-12; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
   2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
   documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
@@ -100,14 +102,15 @@ Status on 2026-11-12 (evening, Berlin).
 - **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
   2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
   machine: no kill data (Windows runner failure), so kills only in CI. Process since 2026-11-11 (owner): no full shards
-  on PRs, full shard runs nightly on master. Next: smaller test sets per shard from the exclusive kills. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
+  on PRs, full shard runs nightly on master. Smaller test sets per shard from the recorded killers: tool and guard in PR #777 (`tests/mutation/narrow_tests.py`); the guaranteed saving is large only on 3 of 18 measurable shards because Stryker records no killer for timeouts (`--timeouts one`, owner-approved, saves 50-100 % on 14 shards; Sunday run unfiltered). Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
   the shard's `mutate` filter only skips them (579 tested in boolean-1), so the coverage capture pays for every placed
   mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); the fix (only the shard's files are
   mutated) is in #615 (CI-speed session, open), with the 3.0 process (no full shards on PRs, scheduled full runs).
   [platform.md](roadmap/platform.md)
 - **Scheduled runs on GitHub are unreliable:** they fire hours late. `coverage.yml` (cron 03:41 UTC): first scheduled run
   2026-11-12, started 11:48 UTC (failed); `nightly.yml` (cron 02:23 UTC): 2026-11-11 started 09:36 UTC, 2026-11-12 started
-  09:57 UTC (both green).
+  09:57 UTC (both green). Cause: GitHub creates the runs hours late (7-8 h), not the runners. Fix: external dispatch
+  plus a once-a-day guard, [QA.md 2.12](QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13).
   [platform.md](roadmap/platform.md#open)
 - **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
   no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
@@ -153,16 +156,17 @@ The next steps per topic, in order ("in progress" where a session works on them)
   Steiner-limit bugfix #664 (#666, merged 2026-11-12, fec3b2a9); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
   (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
   session (owner exception 2026-11-12, as in stage 6b): done 2026-11-12, stage 6b-4 on master `01a7e71`, no (A) finding, no
-  rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
-  repository. [meshing2d.md](roadmap/meshing2d.md#open)
+  rewrite needed. SplitSegment speed: deferred after its upper-bound check (27 % of refinement, about 7 % realistic gain,
+  2026-11-13); next a SplitTriangle breakdown (measurement), then one speed PR for both. The oracle leftovers need corpus inputs that are not in the repository. [meshing2d.md](roadmap/meshing2d.md#open)
 - Alpha Wrap 3.0: L4 merged (#670), L1 merged (#681, 2026-11-12), L3b and L2 dropped (<= 1.02x each); next (owner: worst case first) the 800 run with a tail report (in progress, started 2026-11-12), a black-box competitor comparison, the (B) probe on the tail. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
 - Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667, D #669
-  and E #672 merged; F (`offset`) in review, G next). [research.md](roadmap/research.md#open)
+  E #672, F #689 and G (`hull2d` #690, Minkowski #702) merged; the last PR #707 (`query3d --camera`) in review; `voxelize` dropped). [research.md](roadmap/research.md#open)
 - Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
   the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
   [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
 - Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
-  #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
+  #540); exact geodesic distance as a certified test oracle up to about 10^4 vertices, claims A7 / A9 in review
+  ([GEODESICS.md](design/GEODESICS.md)). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
 - Platform: no issue-tracker follow-up left (the flip-guard default follow-up is closed: the Remesher
   defaults stay upstream's, owner November 2026; the P1 collapse is a documented limitation, the real fix is research; P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
 

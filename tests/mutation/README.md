@@ -31,7 +31,7 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 | The PR changes | Runs | Fails below `break`? |
 |---|---|---|
 | a mutated file | incremental: the mutants of the changed lines; the others keep their result from the baseline (below). Without a baseline in the cache: the whole shard | yes, on the combined score |
-| the config | the whole shard | yes |
+| the config | the whole shard; an edit that only moves the spans of `mutate` (offsets after a source edit, a resplit) runs incrementally, as a mutated file | yes |
 | only tests of the `test-case-filter` | `--since`: the mutants those tests cover | no: a score over a part of the mutants is not comparable with the threshold, so it only reports |
 | `.config/dotnet-tools.json` | every config in full | yes |
 | the workflow | every config in full if the edit touches a line that can change how a shard runs; an edit that stays in the regions below runs nothing by itself (`select_shards.py` checks the diff by line position) | yes |
@@ -44,20 +44,27 @@ workflow". On a pull request, it waits until the PR is ready for review (drafts 
 
 Every full run stores its JSON report as the baseline of its config in the Actions cache
 ([baseline.py](baseline.py) `store`: only the files with tested mutants, keyed by relative paths; cache key
-`mutation-baseline-<config>-<hash of the config, the tools and `BASELINE_FORMAT`>-<run id>`). A PR that changes a mutated file restores
+`mutation-baseline-<config>-<hash of the tools and `BASELINE_FORMAT`>-<run id>`; the report holds the run's config as
+`g3-config`). A PR that changes a mutated file restores
 the newest baseline of its config: its own from an earlier full run of the PR, else the one of its base branch (on
 master the weekly run). Then [run_stryker.sh](run_stryker.sh) with [incremental.py](incremental.py):
 
 1. `plan`: a line diff of each mutated file against its source in the baseline report gives the changed lines; the run
    config is the config with `mutate` limited to them (character spans `File.cs{a..b}`, within the config's own span,
-   so split shards stay split).
+   so split shards stay split). The baseline is used only if its `g3-config` equals the config up to the spans of
+   `mutate` (the same files in the same order, every other key equal); else the shard runs in full. The baseline's
+   spans are carried over the line diff: a part of the config's span that they do not cover (a resplit moved a
+   boundary) runs too; a span boundary on a changed line moves to the start of that change, whose lines run anyway.
 2. Stryker runs that config with `--break-at 0`: it mutates only the changed lines.
-3. `merge`: the shard's score is the run's mutants plus the baseline's mutants that touch no changed line, with
+3. `merge`: the shard's score is the run's mutants plus the baseline's mutants that touch no changed line and now lie in
+   the config's span, with
    Stryker's formula (killed and timeouts over killed, timeouts, survived and no coverage); below the config's break
    threshold the job fails. The job summary shows the counts.
 
-A changed config, a new Stryker version or a bump of `BASELINE_FORMAT` changes the cache key, so a
-baseline of another config or format is never used; without a baseline the shard runs in full and stores one. (The
+A new Stryker version or a bump of `BASELINE_FORMAT` changes the cache key, and `plan` rejects a baseline of another
+config (its `g3-config`), so a baseline of another config or format is never used; without a baseline the shard runs in
+full and stores one. (Format 2, 2026-11-13: the config moved from the key into the report, so that an edit that only
+moves spans keeps the baseline.) (The
 baseline's results can still be out of date for other reasons: see the limits.)
 
 **`BASELINE_FORMAT`** ([the file](BASELINE_FORMAT), an integer) stands in the cache key for the scripts: the key used to
@@ -85,8 +92,54 @@ changed key can only lose baselines, and a shard without a baseline runs in full
 comment or blank line counts with its neighbours. A workflow that uses YAML anchors, aliases or merge keys is not
 classified: any edit of it runs everything (the real one has none; `test_select_shards` checks that). The shards themselves come from the configs (the matrix is
 `fromJSON` of the selection), so a new or changed shard runs in full through its own config file, and the others do not.
-`max-parallel` is 12: a full run has 25 mesh shards (the table below), at most 12 of them at a time; with the
-arithmetic job and the selection job that is 14, which leaves 6 of the account's 20 concurrent jobs for CI.
+`max-parallel` is 6 (owner 2026-11-13, it was 12): a full run has 25 mesh shards (the table below), at most 6 of them at a time; with the
+arithmetic job and the selection job that is 8, which leaves 12 of the account's 20 concurrent jobs for CI. At about 4 hours a shard
+(1 to 5 hours) a full run needs about 17 hours of wall time. A concurrency group per slot does not work: a group keeps one running and
+one pending job and cancels every older pending one, so most shards would end as cancelled.
+
+### Narrowed test sets
+
+A shard needs only the tests that kill its mutants. [narrow_tests.py](narrow_tests.py) turns the report of a full run
+(`killedBy` / `coveredBy` of every mutant) into a filter file `test-filters/<config name>.json` (kept tests, plus a hash of
+the config and the content hashes of the mutated files and of the test files it was made from):
+
+```
+python3 narrow_tests.py make --report mutation-report.json --config stryker-mesh-rounding-2.json \
+    [--durations full-run.trx] -o test-filters/stryker-mesh-rounding-2.json
+```
+
+The kept set is a greedy cover with one recorded killer of every killed mutant (a sole killer is always kept; with
+`--durations` the cover prefers cheap tests). Stryker records no killer for a timed-out mutant (`killedBy` is empty, only
+`coveredBy`), so `--timeouts one` (default; owner decision 2026-11-13) keeps one covering test per such mutant (a timeout can turn
+into a survivor if that test does not hang) and `--timeouts all` keeps every covering test of such a mutant (nothing can be
+lost, but the saving is small on shards with many timeouts).
+
+**Rule: the scheduled run of every Sunday (UTC) is unfiltered** (`full_config` in [run_stryker.sh](run_stryker.sh) ignores the
+filter files when `GITHUB_EVENT_NAME=schedule` and `date -u +%u` is 7; a run that GitHub starts late into Monday counts as
+Monday), as is every run with `G3_FULL_TESTS=1`, so a kill that the narrowed runs lost shows up within a week as a survivor
+of the Sunday report, which is also the report the next filter files are made from. Measured on the stored reports of
+2026-11-09 to 12 (`--timeouts one`; saving of the coverage capture / of the mutant runs): envelope-1 92 / 93 %, -2 86 / 85 %,
+-3 59 / 52 %, -4 50 / 8 % (no filter, below 20 %), fixed 35 / 35 %, rounding-1..8 80-99 / 76-100 %, arithmetic 84 / 66 %,
+terrain-arith 100 / 100 %, terrain-kernel 85 / 85 %; arrangement, boolean, planar and terrain-overlay have no full master
+report yet. With `--timeouts all` only arithmetic, terrain-arith (86 / 40 %) and terrain-kernel keep 20 % or more. Survivors lose no kill by this: a mutant that no test kills stays
+unkilled, and a survivor whose covering tests were all dropped becomes `NoCoverage`, which the score counts the same.
+`make` writes nothing when the estimated saving of the mutant runs is below 20 % (`--min-saving`): such a shard keeps its
+full filter. In the full run (`full()` of [run_stryker.sh](run_stryker.sh), which is also the run without a baseline of a
+`source` shard) the script calls `narrow_tests.py apply`: with a current filter file Stryker gets the exact list of kept
+tests as `test-case-filter` (`FullyQualifiedName=...|...`), so the coverage capture and every survivor / timeout run
+execute those tests only; the job summary says `narrowed: N of M tests`. **Current** means: the config (but `thresholds`, `reporters`, `concurrency`) is unchanged, every mutated file and every test file with a test in the report has its content from the report
+(line breaks and BOM aside), and no other test file mentions a class name of the filter. Anything else (stale, no file,
+unreadable) runs the config as it is and the summary says why (`full: mutated file changed: ...`). Incremental runs and
+`--since` runs keep the config's filter.
+
+Make the filter only from a report of a run with the FULL filter (`G3_FULL_TESTS=1`, or the fallback above): the
+`killedBy` of a narrowed run names kept tests only, so a filter made from it could never grow. A narrowed run is
+therefore a repeat of an earlier result for unchanged code, not a new one; **the unfiltered full run on master is the
+check of record** (code that the mutated files call, test helpers and data files without a test of their own, and test files linked from outside the test project are not in the guard: a change there can make a kept test stop killing a
+mutant that a dropped test still kills). Measured on the stored reports of 2026-11-09 to 12 (test times of the master
+full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
+`G3_TEST_FILTERS=<dir>` reads the filter files from another directory (default `test-filters/`). Tests:
+`python3 test_narrow_tests.py`.
 
 Stryker's own `--with-baseline` (5.0, experimental) is not used: it looks the baseline up by relative path while its
 report stores absolute paths, so it never matches; and it matches mutants by source text and mutator name, which is
@@ -102,6 +155,10 @@ Limits:
 - A mutant that reaches beyond the changed lines (a statement or block around a changed line) is neither run (Stryker
   mutates only mutants inside the spans) nor taken from the baseline (its code changed): it is left out until the next
   full run. The summary counts the baseline mutants on changed lines.
+- Likewise at a moved span boundary: Stryker mutates only mutants that lie wholly inside a span, so a mutant that crosses
+  the old boundary (a block around it) was in neither shard's baseline and is not in the added part either; it is left
+  out until the next full run (rare: the boundaries sit between members, except a few such as the envelope split at a
+  local function). A baseline mutant that now crosses the span is not counted, as in a full run.
 - A baseline result is reused even if a test or another file changed in the same PR: a test the PR weakens or removes
   keeps its kills, and a change in a called file is not seen. So a PR that changes a mutated file and weakens its
   tests can pass where a full run would fail. The weekly full run is the check of record, and the review checks test
@@ -215,7 +272,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
 | `boolean-1` .. `boolean-4` | `mesh_ops/ExactMeshBoolean.cs`, split at `open_winding_per_patch`, `trace_clusters` and `front_winding` (since 12 November 2026 three parts: the 55928 tail-case stage, #633, put the open winding per patch and the carried rays before `front_winding` and nearly doubled the first part, 74.8k to 140.1k characters; it is split where that code begins, and the old `boolean-2` is `boolean-3`; the new `boolean-2` keeps the break threshold of `boolean-1` until its own full run gives a reason to change it. Since T5 PR 2, #675, four parts: the carry across input-triangle edges grew `boolean-2` from 67.8k to 100.0k characters; it is split at `trace_clusters`, 52.1k and 47.9k, the new `boolean-3` with `boolean-2`'s filter and threshold, and the old `boolean-3` is `boolean-4`) | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-3` also `ExactBooleanFilterTests` |
 | `arrangement-1` .. `arrangement-4` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles`, `candidates` and `triangulate_touched` (since 8 November 2026 `arrangement-2` is three shards: on #403 it had 1375 mutants, its coverage pass took 71 min and the job was cancelled after 350 minutes, 272 of them testing; each part keeps the break threshold 72 until its own full runs give a reason to change it) | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
 | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
-| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) | `ExactPoint3FixedWidthTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
+| `fixed` | `math/FixedPoint3.cs` (the arrangement's fixed-width exact points and their arithmetic; a shard of its own, so that its score does not mix with the threshold of `stryker-config.json`) and `math/ExactLimbSigns.cs` (the classification's sign stages on stack limbs, built on that arithmetic; docs/design/EXACT_LIMB_SIGNS.md) | `ExactPoint3FixedWidthTests`, `ExactLimbSignsTests`, `ExactBooleanBuildingBlockTests`, `ExactPlanesFixedWidthTests` |
 | `generated` | `math/Generated/IndirectPredicates.cs` (the generated indirect predicates, docs/design/INDIRECT_PREDICATES.md; with the filter (#250) 94.94 %, 826 of 870 killed; the survivors: 26 that only shrink the filter's bound (its magnitude path; no input reaches the slack, the derivation and the constant tests guard it), exception texts, comparisons at equality that cannot occur, the always-exact path; break 92), and `math/Generated/DoublePredicates.cs` (the generated monomial kernels of the exact predicates on doubles, docs/design/EXACT_FALLBACK_MONOMIALS.md; that file alone, local run 2026-11-13: 518 mutants, 506 killed, 12 timeouts, none survived; 52 are marked in the generated code with their reason: 29 that change no result (`>>` against `>>>` on unsigned operands, comparisons at an equality that cannot occur, `|=` against `^=` on a clear bit, a carry only tested against 0, more limbs than needed), and 23 real ones of the same mutator on the same statements (19 shift directions, 2 `|=` to `&=`, 2 comparison directions); a run without the marks killed those, and they are pinned as hand mutants at the generator (27 in all, each applied, the kernels regenerated, `GeneratedDoublePredicatesTests` must fail: all killed; the script and its output are on the branch `runs/exact-numbers`, `pr1/hand_mutants.sh`)) | `GeneratedPredicatesIndirectTests`, `GeneratedDoublePredicatesTests` |
 | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
 | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
@@ -242,10 +299,10 @@ Things to know:
   a method start. Every shard of a file has the same test filter and break threshold unless its own full runs give a
   reason to change them.
   **Any edit before a split point moves every later offset**, so after a larger change to the file the test fails
-  until the offsets are moved back to their methods, and every shard of that file whose config changed then runs in
-  full (the baseline of a changed config is not used): with 4 parts, one edit near the top of
-  `ExactMeshArrangement.cs` or `PolyhedralEnvelope.cs` costs three or four full shard runs and loses the incremental
-  mode for them. So keep the number of parts small, and choose the cut points with
+  until the offsets are moved back to their methods. Since 2026-11-13 such an edit of the configs (only the spans move)
+  runs those shards incrementally (`select_shards.config_edit_moves_only_spans`, `incremental.plan`); before, every
+  shard of the file ran in full. Still keep the number of parts small (each repeats the build and coverage overhead),
+  and choose the cut points with
   [suggest_split.py](suggest_split.py) from the report of a full run (below).
 - **`suggest_split.py`** (a manual tool, nothing in CI runs it; tested by `test_suggest_split.py`):
   `python3 suggest_split.py <report> mesh_ops/File.cs --parts 3` or `--target-minutes 150`. The report is the JSON

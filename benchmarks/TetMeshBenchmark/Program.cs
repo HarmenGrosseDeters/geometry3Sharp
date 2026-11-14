@@ -3,6 +3,10 @@
 //   dotnet run -c Release --project benchmarks/TetMeshBenchmark -- insert [n ...]
 //   dotnet run -c Release --project benchmarks/TetMeshBenchmark -- wrap [relativeAlpha] [relativeOffset]   (procedural inputs)
 //   dotnet run -c Release --project benchmarks/TetMeshBenchmark -- file <mesh.obj|stl|off> [relativeAlpha] [relativeOffset]
+//   ... -- export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]     (the wrap's inside cells as a tet file)
+//   ... -- eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]       (exact validity, quality, deviation: TetFiles.Header)
+//   ... -- ours <mesh> [relativeAlpha] [relativeOffset]                           (stage-0 path timed, the same row as eval)
+//   ... -- refine [proc|<mesh>] [relativeAlpha] [relativeOffset] [maxSteiner] [surfaceMinAngle]   (stage 1; refine_s = total - a separate wrap)
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -30,6 +34,51 @@ static class Program
             var mesh = StandardMeshReader.ReadMesh(args[1]);
             Header();
             Wrap(System.IO.Path.GetFileName(args[1]), mesh, ra, ro);
+        } else if (mode == "export") {          // export <mesh> <out.mesh|out.msh> [relativeAlpha] [relativeOffset]: the wrap's inside cells as a tet file
+            double ra = args.Length > 3 ? double.Parse(args[3], Inv) : 20, ro = args.Length > 4 ? double.Parse(args[4], Inv) : 600;
+            var w = new MeshAlphaWrap(StandardMeshReader.ReadMesh(args[1])) { RelativeAlpha = ra, RelativeOffset = ro };
+            if (!w.Compute()) { Console.Error.WriteLine("wrap failed: " + w.Status); return 2; }
+            TetFiles.Write(w.ExtractTetMesh(), args[2]);
+        } else if (mode == "eval") {            // eval <tet file .mesh|.msh> <input mesh> [name] [time_s] [threads]: a tet mesh of another mesher
+            Console.WriteLine(TetFiles.Header);
+            Console.WriteLine(TetFiles.Evaluate(args.Length > 3 ? args[3] : System.IO.Path.GetFileName(args[1]), TetFiles.Read(args[1]),
+                StandardMeshReader.ReadMesh(args[2]), args.Length > 4 ? args[4] : "", args.Length > 5 ? args[5] : ""));
+        } else if (mode == "ours") {            // ours <mesh> [relativeAlpha] [relativeOffset]: the stage-0 path (wrap + inside cells), timed, same row as eval
+            double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;
+            DMesh3 input = StandardMeshReader.ReadMesh(args[1]);
+            string name = System.IO.Path.GetFileName(args[1]);
+            var sw = Stopwatch.StartNew();
+            var w = new MeshAlphaWrap(input) { RelativeAlpha = ra, RelativeOffset = ro };
+            bool ok = w.Compute();
+            TetMesh3 t = ok ? w.ExtractTetMesh() : null;
+            double secs = sw.Elapsed.TotalSeconds;
+            Console.WriteLine(TetFiles.Header);
+            // the wrap is serial (one thread); the evaluation is not timed
+            Console.WriteLine(t == null ? name + "," + secs.ToString("G6", Inv) + ",1,WRAP_" + w.Status : TetFiles.Evaluate(name, t, input, secs.ToString("G6", Inv), "1"));
+        } else if (mode == "refine") {          // refine [file|proc] [relativeAlpha] [relativeOffset]: stage 1 (MeshTetrahedralization), same row as eval
+            string src = args.Length > 1 ? args[1] : "proc";
+            double ra = args.Length > 2 ? double.Parse(args[2], Inv) : 20, ro = args.Length > 3 ? double.Parse(args[3], Inv) : 600;
+            var inputs = src == "proc" ? Procedural().ToList()
+                : new List<KeyValuePair<string, DMesh3>> { new KeyValuePair<string, DMesh3>(System.IO.Path.GetFileName(src), StandardMeshReader.ReadMesh(src)) };
+            Console.WriteLine(TetFiles.Header + ",status,wrap_s,refine_s,us_per_tet,counts");
+            foreach (var kv in inputs) {
+                var sw = Stopwatch.StartNew();
+                var wrap = new MeshAlphaWrap(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                if (args.Length > 5) wrap.RefineMinAngleDegrees = double.Parse(args[5], Inv);
+                wrap.Compute();
+                double wrapS = sw.Elapsed.TotalSeconds;
+                sw.Restart();
+                var tm = new MeshTetrahedralization(kv.Value) { RelativeAlpha = ra, RelativeOffset = ro };
+                if (args.Length > 4) tm.MaxSteinerPoints = int.Parse(args[4], Inv);
+                if (args.Length > 5) tm.SurfaceMinAngleDegrees = double.Parse(args[5], Inv);
+                tm.Compute();
+                double totalS = sw.Elapsed.TotalSeconds;
+                if (tm.Result == null) { Console.WriteLine(kv.Key + "," + tm.Status + "," + string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value))); continue; }
+                double refineS = Math.Max(0, totalS - wrapS);
+                string counts = string.Join(" ", tm.Counts.Select(c => c.Key + "=" + c.Value));
+                Console.WriteLine(TetFiles.Evaluate(kv.Key, tm.Result, kv.Value, totalS.ToString("G4", Inv), "1") + "," + tm.Status + "," +
+                    wrapS.ToString("G4", Inv) + "," + refineS.ToString("G4", Inv) + "," + (refineS * 1e6 / Math.Max(1, tm.Result.Tets.Count)).ToString("G4", Inv) + "," + counts);
+            }
         } else return 1;
         return 0;
     }

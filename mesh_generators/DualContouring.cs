@@ -210,10 +210,12 @@ namespace g3
             Diagnostics = CollectDiagnostics ? new DiagnosticCounts() : null;
             ResolveMilliseconds = 0;
             CoveredTriangles = CheckedTriangles = ForcedDiagonals = EdgeVertices = 0;
+            DegenerateSplitsAvoided = 0;
             coveredTriangles = new HashSet<int>();
             edgeVertexIds = new HashSet<int>();
             faceVertexIds = new HashSet<int>();
             FaceVertices = ClampedFaceVertices = 0;
+            certificate = RecordCertificateData ? new CertificateRecord() : null;
             if (crossings == null)
                 FindCrossings();
             if (CancelF() || crossings == null) return;
@@ -282,6 +284,9 @@ namespace g3
             long[] cellList = new long[cellCrossings.Count];
             cellCrossings.Keys.CopyTo(cellList, 0);
             Array.Sort(cellList);       // deterministic vertex order
+            lastCellKeys = cellList;
+            lastCells = new Dictionary<long, Cell>(cellList.Length, EdgeKeyComparer.Instance);
+            foreach (var kv in cellCrossings) lastCells[kv.Key] = kv.Value.Cell;
             int[][] cellEdgeGroup = new int[cellList.Length][];
             int[][] cellFaceGroup = new int[cellList.Length][];
             Vector3d[][] cellGroupPos = new Vector3d[cellList.Length][];
@@ -409,8 +414,10 @@ namespace g3
                     if (poly[q] < 0) valid = false;
                     if (cell.Coarse) anyCoarse = true; else anyFine = true;
                 }
-                if (valid == false)
+                if (valid == false) {
+                    if (certificate != null) certificate.Refuse(polyCells, this);
                     continue;
+                }
                 if (Diagnostics != null)
                     diagnose_polygon(e, poly, polyCells, anyFine && anyCoarse, vertexPatches);
                 // faces around e that need a face vertex (between cells of different size or with several patches,
@@ -422,8 +429,16 @@ namespace g3
                         for (int q = 0; q < 4; ++q) transitionVertices.Add(poly[q]);
                     if (emit_fan(e, ci, cycle, fanCovered, hpoints, polyCells[0]) == false)
                         add_non_manifold_cells(nonManifoldCells, polyCells);
+                    else if (certificate != null)
+                        certificate.Fan(e, ci, cycle, polyCells, lastFanOnEdge, lastCycleFaces, this);
                     continue;
                 }
+                // a polygon without face vertices: a dual polygon of four cells of one size (Theorem 2). Where a face vertex
+                // it needed failed, a dual side crosses that face next to the fans of its other segment (fact (i)); at a
+                // transition that is the only way here (a face between cells of two sizes always asks for one), and the
+                // proof needs a fan there (fact (ii))
+                if (certificate != null && lastCycleFailed)
+                    certificate.Refuse(polyCells, this);
                 // Wang's envelope criterion on a quad of four single-patch cells of one size, before the
                 // orientation swap (it needs the counter-clockwise order): which triangulation stays inside the
                 // envelope of e, so that no other covered triangle can intersect it
@@ -515,6 +530,8 @@ namespace g3
                 ResolveMilliseconds = resolveTimer.ElapsedMilliseconds - diagnosticMs;
             }
             phase("intersections");
+            if (certificate != null)
+                certificate.Finish(this);
             if (qefPositions != null) {
                 for (int v = 0; v < qefPositions.Length; ++v)
                     if (Mesh.IsVertex(v) && Mesh.GetVertex(v) != qefPositions[v]) Diagnostics.ResolveMovedVertices++;
@@ -1616,6 +1633,13 @@ namespace g3
         /// (or an exactly coplanar test), split into four triangles that stay inside the envelope
         /// </summary>
         public int EdgeVertices;
+        /// <summary>
+        /// quads of the last Generate() whose split by normal agreement alone would have kept a degenerate triangle (area at most
+        /// 1e-12 times its squared longest edge, eg three vertices on a crease line) and that were split along the other
+        /// diagonal, which has none (#800). Quads with both splits degenerate keep the agreement's choice and are not counted;
+        /// the forced diagonals of the envelope criterion (ForcedDiagonals) do not use this rule
+        /// </summary>
+        public int DegenerateSplitsAvoided;
         internal HashSet<int> coveredTriangles = new HashSet<int>();
         internal HashSet<int> edgeVertexIds = new HashSet<int>();
 
@@ -1672,6 +1696,7 @@ namespace g3
             if (edge_point(e, edge_surface_t(e, hpoints[ci], genNormals != null ? genNormals[ci] : Vector3d.Zero), out ve) == false)
                 return append_quad(poly[0], poly[1], poly[2], poly[3]);   // (the edge is too short to split in double)
             int vid = Mesh.AppendVertex(ve);
+            if (certificate != null) certificate.EdgeVertex(vid, e);
             // (per-vertex lists are indexed by vertex id; a rolled back edge vertex can leave its id free for reuse)
             while (vertexMass.Count <= vid) {
                 vertexMass.Add(ve); vertexPlane.Add(Vector3d.Zero); vertexCell.Add(cell); vertexLast.Add(ve); vertexPatches.Add(0);
@@ -1719,6 +1744,199 @@ namespace g3
             if (!(p[e.Axis] > lo && p[e.Axis] < hi))
                 p[e.Axis] = 0.5 * (lo + hi);
             return p[e.Axis] > lo && p[e.Axis] < hi;
+        }
+
+        // ---- the topology certificate (docs/design/CONTOURING_TOPOLOGY.md, Theorem 2) ----
+
+        /// <summary>
+        /// (WindingContouring's topology certificate) record during Generate what Theorem 2 needs of the contour: off by
+        /// default, no effect on the result
+        /// </summary>
+        internal bool RecordCertificateData;
+        CertificateRecord certificate;
+        /// test seam (the thread that calls Generate): true makes the face vertex asked for fail (as if none could be placed)
+        [ThreadStatic] internal static Func<bool> FailFaceVertexForTests;
+        /// (tests) the mesh side of the certificate again, on the mesh as it is now (eg after a test moved a vertex)
+        internal void CheckCertificateMeshSideForTests() { if (certificate != null) certificate.Finish(this); }
+
+        /// <summary>
+        /// The mesh side of the certificate after Generate (RecordCertificateData): the cells where the contour is not
+        /// known to be what Theorem 2 proves, as (min node, size): around a polygon of a kind the proof does not cover (at a
+        /// refinement transition without face vertices, fact (ii); a face vertex that could not be placed, where facts (i)
+        /// and (iii) fail; a fan without its edge vertex; a polygon left out of the grid), and around a face vertex outside
+        /// its face (H1). And whether the whole contour
+        /// fails: a vertex not strictly inside its cell or edge (H1), a triangle of no area or a left-out polygon (H2),
+        /// self-intersections (H3), transition errors.
+        /// </summary>
+        internal bool CertificateMeshFails { get { return CertificateMeshFailures != MeshFailures.None; } }
+        /// <summary> why the whole contour fails the mesh side (flags) </summary>
+        [Flags] internal enum MeshFailures { None = 0, VertexPlacement = 1, NoArea = 2, LeftOut = 4, SelfIntersections = 8, Transitions = 16 }
+        internal MeshFailures CertificateMeshFailures;
+        internal List<KeyValuePair<Vector3i, int>> CertificateMeshCells = new List<KeyValuePair<Vector3i, int>>();
+
+        /// <summary> the cells of the last Generate (min node in fine units, size in nodes), sorted </summary>
+        internal List<KeyValuePair<Vector3i, int>> ContourCells()
+        {
+            var keys = new List<long>(lastCellKeys);
+            var list = new List<KeyValuePair<Vector3i, int>>(keys.Count);
+            foreach (long k in keys) {
+                Cell c = lastCells[k];
+                list.Add(new KeyValuePair<Vector3i, int>(c.Min, cell_size(c)));
+            }
+            return list;
+        }
+        long[] lastCellKeys = new long[0];
+        Dictionary<long, Cell> lastCells = new Dictionary<long, Cell>(EdgeKeyComparer.Instance);
+
+        /// <summary> (tests) the size (in fine nodes) of the cell of a vertex of the last Generate's mesh </summary>
+        internal int VertexCellSize(int vid) { return cell_size(genCell[vid]); }
+
+        /// <summary> (tests) the number of crossed grid edges of the last Generate </summary>
+        internal int CrossingCount { get { return crossings == null ? 0 : crossings.Count; } }
+
+        /// <summary> is the coarse cell (coarse grid coordinates) refined (SetRefinement) </summary>
+        internal bool IsRefinedCell(Vector3i coarseCell) { return is_refined(coarseCell); }
+
+        /// <summary> the two-level grid of the last Generate, its pattern and its face rule, for the certificate </summary>
+        internal CertificateGrid ContourGrid() { return new ContourCertificateGrid(this); }
+
+        sealed class ContourCertificateGrid : CertificateGrid
+        {
+            readonly DualContouring dc;
+            public ContourCertificateGrid(DualContouring dc) { this.dc = dc; }
+            public override double Coord(int axis, int i) { return dc.origin[axis] + dc.h * i; }
+            public override int BinSize { get { return dc.F; } }
+            public override void CellFaces(Vector3i min, int size, List<GridFace> faces)
+            {
+                int F = dc.F;
+                for (int a = 0; a < 3; ++a)
+                    for (int side = 0; side < 2; ++side) {
+                        Vector3i fmin = min; fmin[a] += side * size;
+                        bool split = false;
+                        if (size == F && F > 1) {
+                            // a coarse cell's side next to a refined cell: the fine faces it is made of
+                            Vector3i nb = fdiv(min, F); nb[a] += side == 0 ? -1 : 1;
+                            split = dc.is_refined(nb);
+                        }
+                        if (!split) { faces.Add(new GridFace(fmin, a, size)); continue; }
+                        int u = (a + 1) % 3, v = (a + 2) % 3;
+                        for (int j = 0; j < F; ++j)
+                            for (int i = 0; i < F; ++i)
+                                faces.Add(new GridFace(fmin + axis_vec(u, i) + axis_vec(v, j), a, 1));
+                    }
+            }
+            public override void FaceEdges(GridFace f, List<GridSegment> edges)
+            {
+                int F = dc.F;
+                for (int k = 0; k < 4; ++k) {
+                    Vector3i c0 = f.Corner(k), c1 = f.Corner((k + 1) % 4), d = c1 - c0;
+                    int axis = d.x != 0 ? 0 : d.y != 0 ? 1 : 2;
+                    Vector3i start = d[axis] > 0 ? c0 : c1;
+                    // a coarse face's side next to a refined cell: the fine edges it is made of (as cell_edges)
+                    if (f.Size == F && F > 1 && dc.is_subdivided_edge(fdiv(start, F), axis))
+                        for (int t = 0; t < F; ++t) edges.Add(new GridSegment(start + axis_vec(axis, t), axis, 1));
+                    else
+                        edges.Add(new GridSegment(start, axis, f.Size));
+                }
+            }
+            public override bool Crossed(GridSegment e)
+            {
+                return dc.crossingIndex.ContainsKey(dc.edge_key(new GridEdge(e.Start, e.Axis, e.Length == dc.F)));
+            }
+            public override bool NodeInside(Vector3i n) { return dc.is_inside(dc.node_value(n)); }
+        }
+
+        sealed class CertificateRecord
+        {
+            public readonly HashSet<long> Refused = new HashSet<long>(EdgeKeyComparer.Instance);
+            public readonly Dictionary<long, Cell> RefusedCells = new Dictionary<long, Cell>(EdgeKeyComparer.Instance);
+            // per face vertex its face, per edge vertex its grid edge
+            readonly Dictionary<int, FaceVertexRecord> faceVertices = new Dictionary<int, FaceVertexRecord>();
+            readonly Dictionary<int, GridEdge> edgeVertices = new Dictionary<int, GridEdge>();
+            class FaceVertexRecord { public Vector3i Min; public int Normal, Size; }
+
+            public void Refuse(Cell c) { long k = cell_key(c); if (Refused.Add(k)) RefusedCells[k] = c; }
+            // a vertex that breaks H1 moves every polygon of its cell's edges: the whole contour is refused
+            public MeshFailures Fails;
+            // the cells around the four edges of a face (every polygon that crosses the face is one of those edges')
+            public void RefuseAroundFace(Vector3i fmin, int normal, int size, DualContouring dc)
+            {
+                GridFace f = new GridFace(fmin, normal, size);
+                for (int k = 0; k < 4; ++k) {
+                    Vector3i c0 = f.Corner(k), c1 = f.Corner((k + 1) % 4), d = c1 - c0;
+                    int axis = d.x != 0 ? 0 : d.y != 0 ? 1 : 2;
+                    GridEdge e = new GridEdge(d[axis] > 0 ? c0 : c1, axis, size == dc.F);
+                    for (int q = 0; q < 4; ++q) { Cell c; if (dc.quadrant_cell(e, q, out c)) Refuse(c); }
+                }
+            }
+            public void Refuse(Cell[] cells, DualContouring dc) { foreach (Cell c in cells) Refuse(c); }
+
+            public void FaceVertex(int vid, Vector3i fmin, int normal, int size, Cell A, Cell B)
+            {
+                if (vid < 0) return;     // (no face vertex could be placed: the polygons that asked are refused in Fan)
+                faceVertices[vid] = new FaceVertexRecord() { Min = fmin, Normal = normal, Size = size };
+            }
+            public void EdgeVertex(int vid, GridEdge e) { edgeVertices[vid] = e; }
+
+            public void Fan(GridEdge e, int ci, List<int> cycle, Cell[] cells, bool onEdge, List<CycleFace> faces, DualContouring dc)
+            {
+                // a fan around its edge vertex (Theorem 2, face vertices). Facts (i) and (iii) hold by construction: every
+                // polygon through a face asks face_vertex with the same two cells, whose decision (dual or a vertex) depends
+                // only on the face and the cells' patch counts, and a face vertex is keyed by the face and its segment, so
+                // the two polygons of a segment share it and no other polygon uses it. They fail where no face vertex could
+                // be placed (refused here), and fact (ii) where a transition polygon got no face vertex at all (refused in
+                // Generate: it is not a fan then). A fan
+                // without its edge vertex (the edge too short in double) is not covered either.
+                if (!onEdge) { Refuse(cells, dc); return; }
+                // (a face between cells of two sizes always asks for a face vertex: face_vertex never calls it dual)
+                foreach (CycleFace cf in faces)
+                    if (cf.Vertex == FaceVertexFailed) { Refuse(cells, dc); return; }
+            }
+
+            public void Finish(DualContouring dc)
+            {
+                DMesh3 mesh = dc.Mesh;
+                Fails = MeshFailures.None;
+                // H1 for a face vertex: in the face's plane, strictly inside the face (else the cells around the face's edges,
+                // whose polygons are the fans through it)
+                foreach (var kv in faceVertices) {
+                    FaceVertexRecord r = kv.Value;
+                    if (!mesh.IsVertex(kv.Key)) continue;
+                    Vector3d p = mesh.GetVertex(kv.Key);
+                    int a1 = (r.Normal + 1) % 3, a2 = (r.Normal + 2) % 3;
+                    Vector3d lo = dc.node_pos(r.Min), hi = dc.node_pos(r.Min + axis_vec(a1, r.Size) + axis_vec(a2, r.Size));
+                    if (!(p[r.Normal] == lo[r.Normal] && p[a1] > lo[a1] && p[a1] < hi[a1] && p[a2] > lo[a2] && p[a2] < hi[a2]))
+                        RefuseAroundFace(r.Min, r.Normal, r.Size, dc);
+                }
+                // H1 for an edge vertex: on its grid edge, strictly between the end nodes
+                foreach (var kv in edgeVertices) {
+                    if (!mesh.IsVertex(kv.Key)) continue;
+                    GridEdge e = kv.Value;
+                    Vector3d p = mesh.GetVertex(kv.Key), a = dc.node_pos(e.Start), b = dc.node_pos(e.End(dc.F));
+                    int u = (e.Axis + 1) % 3, v = (e.Axis + 2) % 3;
+                    if (!(p[u] == a[u] && p[v] == a[v] && p[e.Axis] > a[e.Axis] && p[e.Axis] < b[e.Axis])) Fails |= MeshFailures.VertexPlacement;
+                }
+                // H1 for a cell vertex: strictly inside its cell
+                foreach (int v in mesh.VertexIndices()) {
+                    if (dc.genPatches[v] < 1) continue;
+                    if (!dc.strictly_in_cell(v, dc.genCell[v])) Fails |= MeshFailures.VertexPlacement;
+                }
+                // H2: no triangle of no area (refused at its cell vertices' cells)
+                foreach (int t in mesh.TriangleIndices()) {
+                    Index3i tv = mesh.GetTriangle(t);
+                    var T = new Triangle3d(mesh.GetVertex(tv.a), mesh.GetVertex(tv.b), mesh.GetVertex(tv.c));
+                    if (ExactTriangleIntersection.IsDegenerate(ref T)) Fails |= MeshFailures.NoArea;
+                }
+                // H2 (no polygon left out), H3 (no self-intersections), the transitions: of the whole contour
+                if (dc.NonManifoldTriangles > 0) Fails |= MeshFailures.LeftOut;
+                if (dc.TransitionErrors > 0) Fails |= MeshFailures.Transitions;
+                if (!dc.SelfIntersectionFree) Fails |= MeshFailures.SelfIntersections;
+                dc.CertificateMeshFailures = Fails;
+                var keys = new List<long>(Refused);
+                keys.Sort();
+                dc.CertificateMeshCells = new List<KeyValuePair<Vector3i, int>>(keys.Count);
+                foreach (long k in keys) dc.CertificateMeshCells.Add(new KeyValuePair<Vector3i, int>(RefusedCells[k].Min, dc.cell_size(RefusedCells[k])));
+            }
         }
 
         // ---- face vertices (option B of docs/design/DC_INTERSECTION_FREE.md) ----
@@ -1782,6 +2000,7 @@ namespace g3
         List<int> polygon_cycle(GridEdge e, int[] poly, Cell[] cells, out bool covered)
         {
             covered = true;
+            lastCycleFailed = false;
             // fast path (no allocation): most polygons need no face vertex
             bool any = false;
             for (int q = 0; q < 4 && !any; ++q) {
@@ -1802,17 +2021,23 @@ namespace g3
                 return null;
             var cycle = new List<int>(8);
             bool anyFace = false;
+            lastCycleFaces.Clear();
             for (int i = 0; i < cq.Count; ++i) {
                 int qa = cq[i], qb = cq[(i + 1) % cq.Count];
                 cycle.Add(poly[qa]);
                 if (genPatches[poly[qa]] != 1 || strictly_in_cell(poly[qa], cells[qa]) == false) covered = false;
                 int fv = face_vertex(e, cells[qa], cells[qb], poly[qa], poly[qb]);
                 if (fv >= 0) { cycle.Add(fv); anyFace = true; }
-                else if (fv == FaceVertexFailed) covered = false;
+                else if (fv == FaceVertexFailed) { covered = false; lastCycleFailed = true; }
+                lastCycleFaces.Add(new CycleFace() { A = cells[qa], B = cells[qb], Vertex = fv });
             }
             return anyFace ? cycle : null;
         }
         const int FaceDual = -1, FaceVertexFailed = -2;
+        // the faces between consecutive cells of the last polygon_cycle, and whether the last emit_fan had its edge vertex
+        struct CycleFace { public Cell A, B; public int Vertex; }
+        readonly List<CycleFace> lastCycleFaces = new List<CycleFace>();
+        bool lastFanOnEdge, lastCycleFailed;
 
         // the crossing on the grid edge between two face corners: the edge itself, or one of its fine sub-edges
         // (a coarse edge subdivided between refined and unrefined cells)
@@ -1911,10 +2136,12 @@ namespace g3
             if (faceVertices.TryGetValue(key, out vid))
                 return vid;
             Vector3d p;
-            bool atQef;
-            vid = place_face_vertex(corner, inside, normal, ambiguous, seg, Mesh.GetVertex(vA), Mesh.GetVertex(vB), out p, out atQef)
+            bool atQef = false;
+            vid = (FailFaceVertexForTests == null || !FailFaceVertexForTests())
+                && place_face_vertex(corner, inside, normal, ambiguous, seg, Mesh.GetVertex(vA), Mesh.GetVertex(vB), out p, out atQef)
                 ? append_aux_vertex(p, A) : FaceVertexFailed;
             if (vid >= 0) { FaceVertices++; faceVertexIds.Add(vid); if (!atQef) ClampedFaceVertices++; }
+            if (certificate != null) certificate.FaceVertex(vid, fmin, normal, fsize, A, B);
             faceVertices[key] = vid;
             return vid;
         }
@@ -2055,8 +2282,10 @@ namespace g3
             var tris = new List<int>(n);
             int center;
             bool onEdge = edge_point(e, edge_surface_t(e, hpoints[ci], genNormals != null ? genNormals[ci] : Vector3d.Zero), out ve);
+            lastFanOnEdge = onEdge;
             if (onEdge) {
                 center = append_aux_vertex(ve, cell);
+                if (certificate != null) certificate.EdgeVertex(center, e);
                 for (int i = 0; i < n; ++i) {
                     int t = Mesh.AppendTriangle(cycle[i], cycle[(i + 1) % n], center);
                     if (t < 0) {
@@ -2094,16 +2323,32 @@ namespace g3
         bool append_quad(int v0, int v1, int v2, int v3)
         {
             Vector3d p0 = Mesh.GetVertex(v0), p1 = Mesh.GetVertex(v1), p2 = Mesh.GetVertex(v2), p3 = Mesh.GetVertex(v3);
+            // the diagonal whose two triangles' normals agree best; a split with a degenerate triangle (eg three vertices on a
+            // crease line, #800) loses against one without: its normal is rounding noise, and the triangle has no area. With both
+            // splits degenerate (or neither) the agreement decides, as before
+            bool degA = degenerate(p0, p1, p2) || degenerate(p0, p2, p3), degB = degenerate(p1, p2, p3) || degenerate(p1, p3, p0);
             double splitA = MathUtil.Normal(p0, p1, p2).Dot(MathUtil.Normal(p0, p2, p3));
             double splitB = MathUtil.Normal(p1, p2, p3).Dot(MathUtil.Normal(p1, p3, p0));
-            bool preferA = splitA >= splitB;
-            if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0))
+            bool byAgreement = splitA >= splitB;
+            bool preferA = (degA != degB) ? degB : byAgreement;
+            if (try_split(preferA ? v0 : v1, preferA ? v1 : v2, preferA ? v2 : v3, preferA ? v3 : v0)) {
+                if (preferA != byAgreement) DegenerateSplitsAvoided++;   // the rule changed the choice, and that split was taken
                 return true;
+            }
             if (try_split(preferA ? v1 : v0, preferA ? v2 : v1, preferA ? v3 : v2, preferA ? v0 : v3))
                 return true;
             NonManifoldTriangles += 2;
             return false;
         }
+        // area below 1e-12 times the squared longest edge (relative, so scale-free; the threshold of NotCleanReason, which is
+        // relative to the bounding box, is coarser for every triangle smaller than the box)
+        static bool degenerate(Vector3d a, Vector3d b, Vector3d c)
+        {
+            Vector3d ab = b - a, bc = c - b, ca = a - c;
+            double l2 = Math.Max(ab.LengthSquared, Math.Max(bc.LengthSquared, ca.LengthSquared));
+            return !(ab.Cross(-ca).Length > 2e-12 * l2);
+        }
+
         bool try_split(int a, int b, int c, int d)
         {
             int t0 = Mesh.AppendTriangle(a, b, c);

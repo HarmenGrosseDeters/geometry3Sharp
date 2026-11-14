@@ -225,7 +225,10 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   triangle (11 of 35 generated and 4 of 5 D1 cohort leftovers clean, 41.5 s against 36.4 s without search on the 35;
   local frame one round: 8 of 35; J = 24 gains 1-3 at 2-2.5x the proposals); sizes smallest first, room / 128 up to room
   (owner 2026-11-12, reverses "largest first": 10 instead of 11 of 35, the same 4 of 5, the cohort's drift 2-16x lower,
-  as fix_degenerate / fix_intersection and Milenkovic-Sacks); the D1 cohort acceptance run (2-3 h) is approved;
+  as fix_degenerate / fix_intersection and Milenkovic-Sacks); built in #755 (merged 2026-11-13; hash gate 263 / 263
+  identical, on the 33 rotated operations 28 identical, 2 newly clean, rounding +2.4 %); the D1 cohort acceptance run
+  over all 5413 models (16 239 operations; `runs/position-search-cohort`, SAFE_ROUNDING.md section 9) is passed: no
+  operation newly unclean, 16 232 rounding-clean results identical, 4 newly clean, MaxDrift within the bound;
   (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
@@ -409,11 +412,23 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
-  P2 is built (2026-11-12, PR pending): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
+  P2 is built (2026-11-12, #769): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
   by the monomial pass ([design](../design/EXACT_FALLBACK_MONOMIALS.md)); on master a7693fd the 61 units of the #711
   class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
   shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
   (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
+  Candidate B is built (2026-11-13, #772): the classification's exact sign stages (plane side, normal dot, the
+  4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
+  ([design](../design/EXACT_LIMB_SIGNS.md)). Measured against master 683fb2c (4 cores, wall time with collections,
+  median of 5): slow tail 42327 -15 to -17 % per operation (three quarters of it the collector's pause, 12.8 GB less
+  allocation), 107554 -3 to -6 %; normal stratum unchanged within noise; hashes equal, also on the 61 units of the
+  #711 class. The CPU gain of the side stage needs the limbs stored with the points. Candidate C measured
+  (2026-11-13, study `REPORT.md` sections 5c and 5d): the centroid on stack limbs with a conversion back gains
+  nothing; the exact point construction is 2.4 % / 4.9 % of the normal stratum's one-thread time (20 pairs / 13
+  models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
+  that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
+  15 % of the slow tail's one-thread time, nothing on the normal stratum) are parked until lever 1 (#767) has
+  landed, which changes how often these stages run, and are measured again then.
 - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
   its tail (4 cores, median of 5, alternating A/B, hashes equal):
   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
@@ -441,6 +456,10 @@ Open:
     - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
       simplify about 30 %, setup 4 %.
     - Next: presizing and reuse of scratch buffers in the arrangement, after the files are cleared.
+    - Open (snap-rounding follow-up): reusing the `TriangleBoxTree` that `MeshRoundingRepair.rebuild_tree` builds again
+      and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
+      `claude/lever4-arrangement-allocs`: the reuse constructor, the check for a released tree, two tests, and the
+      allow-list entry. Build it together with the call and a benchmark row.
 - **Exact coplanar triangle intersection:** the 2D clipping of `IntrTriangle2Triangle2` is unchanged; exact output
   coordinates stay open, not scheduled.
 - **Mesh-kernel ideas** (not scheduled): a `MeshKernel` operation (Phase 5 candidate), an exact 3D LP feasibility

@@ -1,0 +1,161 @@
+name: Tet mesher comparison
+
+# fTetWild as a black box against our tet-meshing path on the 40-mesh Thingi10K subset (docs/design/TET_MESHING.md section 10.2,
+# owner 2026-11-13). Licence rule (binding): fTetWild is MPL-2.0. It is cloned and built here, on the GitHub-hosted runner only,
+# from its README build steps; its source is never read, copied or ported, and its output files are deleted after our evaluator
+# has read them. Only our own CSVs and summary are published (data branch runs/tet-meshing, never merged). Thingi10K meshes are
+# fetched at run time and never committed.
+# Default 4 shards, fTetWild at 4 threads only (runner load, coordinator 2026-11-13). Runs on demand only (workflow_dispatch; ask the
+# coordinator first, runner budget).
+on:
+  workflow_dispatch:
+    inputs:
+      ftetwild_ref:
+        description: fTetWild git ref to build
+        default: master
+      timeout_s:
+        description: timeout per mesh and variant (s)
+        default: '1800'
+      shards:
+        description: number of shard jobs (runners), 1-8 (larger values would drop meshes)
+        default: '4'
+      ft_threads:
+        description: fTetWild thread counts to run, space separated (eg "4" or "4 1")
+        default: '4'
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  SHARDS: ${{ inputs.shards || '4' }}
+  FT_THREADS: ${{ inputs.ft_threads || '4' }}
+
+concurrency:
+  group: tet-compare
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-ftetwild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      commit: ${{ steps.build.outputs.commit }}
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - name: Build fTetWild (README steps; black box, no source read)
+        id: build
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libgmp-dev build-essential
+          # Pin CMake 3.29: the libigl eigen recipe fetched by fTetWild calls FetchContent_Populate, an error under policy CMP0169
+          # (CMake >= 3.30) once a project sets that policy NEW through its version range, so CMAKE_POLICY_DEFAULT_CMP0169 does not
+          # help (runs 43509655424 with CMake 4.4, 43514622318 with 3.31); 3.29 predates the policy
+          python3 -m venv "$RUNNER_TEMP/cmake" && "$RUNNER_TEMP/cmake/bin/pip" install -q "cmake==3.29.*"
+          export PATH="$RUNNER_TEMP/cmake/bin:$PATH"
+          cmake --version
+          git clone --recursive https://github.com/wildmeshing/fTetWild.git ftw
+          cd ftw && git checkout -q "${{ inputs.ftetwild_ref || 'master' }}" && git submodule update --init --recursive
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(python3 -c "import json; print(json.dumps(list(range(max(1, min(8, int('$SHARDS')))))))")" >> "$GITHUB_OUTPUT"
+          # Policy floor and CMP0169=OLD: fallbacks should a CMake 4 still be picked up (it refuses minimums below 3.5)
+          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_POLICY_DEFAULT_CMP0169=OLD > ../../cmake.log 2>&1 \
+            && make -j"$(nproc)" > ../../make.log 2>&1 \
+            || { tail -n 60 ../../cmake.log; [ -f ../../make.log ] && tail -n 60 ../../make.log; exit 1; }
+          bin=$(find . -maxdepth 2 -type f -name FloatTetwild_bin | head -1)
+          mkdir -p ../../ftbin && cp "$bin" ../../ftbin/ && ../../ftbin/FloatTetwild_bin --help > ../../ftbin/help.txt 2>&1 || true
+          ldd ../../ftbin/FloatTetwild_bin > ../../ftbin/ldd.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ftetwild-bin
+          path: ftbin/
+          retention-days: 3
+
+  shard:
+    needs: build-ftetwild
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.build-ftetwild.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build our evaluator
+        run: dotnet build benchmarks/TetMeshBenchmark -c Release
+      - uses: actions/download-artifact@v4
+        with:
+          name: ftetwild-bin
+          path: ftbin
+      - name: Run shard (ours, then fTetWild at each of FT_THREADS; one at a time)
+        run: |
+          sudo apt-get install -y -qq libgmp10 bc
+          chmod +x ftbin/FloatTetwild_bin
+          nproc > machine.txt; uname -a >> machine.txt; lscpu | grep -E "Model name|^CPU\(s\)" >> machine.txt; free -g | head -2 >> machine.txt
+          bash benchmarks/TetMeshBenchmark/compare/run_shard.sh ${{ matrix.shard }} $SHARDS \
+            benchmarks/TetMeshBenchmark/bin/Release/net10.0/TetMeshBenchmark.dll "$PWD/ftbin/FloatTetwild_bin" \
+            "$RUNNER_TEMP/meshes" "$RUNNER_TEMP/work" "out" "${{ inputs.timeout_s || '1800' }}"
+          cp machine.txt out/machine-${{ matrix.shard }}.txt
+          for v in ours ft4 ft1; do [ -f out/$v.csv ] && mv out/$v.csv out/$v-${{ matrix.shard }}.csv; done
+          # diagnostics of failures only (format heads, evaluator errors): short-lived artifact, never published
+          mkdir -p diag && cp "$RUNNER_TEMP"/work/head_* "$RUNNER_TEMP"/work/eval_err_* diag/ 2>/dev/null || true
+          find diag -size 0 -delete
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shard-${{ matrix.shard }}
+          path: out/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-${{ matrix.shard }}
+          path: diag/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  publish:
+    needs: [build-ftetwild, shard]
+    if: always() && needs.build-ftetwild.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - uses: actions/checkout@v4
+        with:
+          ref: runs/tet-meshing
+          path: data
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Merge, summarize, push to runs/tet-meshing
+        run: |
+          dir=data/compare/$(date -u +%Y-%m-%d)-run${{ github.run_id }}
+          mkdir -p "$dir"
+          for v in ours ft4 ft1; do cat art/shard-*/$v-*.csv 2>/dev/null | sort > "$dir/$v.csv" || true; done
+          cat art/shard-*/machine-*.txt > "$dir/machines.txt" 2>/dev/null || true
+          cp art/ftetwild-bin/help.txt "$dir/ftetwild-help.txt"
+          {
+            echo "# Tet mesher comparison, run ${{ github.run_id }}"
+            echo
+            echo "- geometry3Sharp commit: ${{ github.sha }} (benchmarks/TetMeshBenchmark, modes ours / eval)"
+            echo "- fTetWild commit: ${{ needs.build-ftetwild.outputs.commit }} (black box, MPL-2.0; built and run on the hosted runner only; outputs deleted after evaluation)"
+            echo "- Command per mesh: \`FloatTetwild_bin -i <id>.stl -o <out>.mesh --max-threads N --no-binary --level 3\` (its defaults: -l 0.05, -e 1e-3), N in \"$FT_THREADS\" (column ftN); ours: \`TetMeshBenchmark ours <id>.stl 20 600\` (serial)"
+            echo "- Timeout per mesh and variant: ${{ inputs.timeout_s || '1800' }} s; $SHARDS shards, one runner each (ubuntu-latest, see machines.txt); within a shard one mesher at a time"
+            echo "- Checks are ours (TetFiles.Evaluate): exact orientation, matched facets, closed manifold boundary, exact boundary self-intersection test"
+            echo
+            python3 -I src/benchmarks/TetMeshBenchmark/compare/summarize.py "$dir"
+          } > "$dir/SUMMARY.md"
+          cat "$dir/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
+          cd data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add compare
+          git commit -q -m "Tet mesher comparison, run ${{ github.run_id }}"
+          for i in 1 2 3 4; do git push origin HEAD:runs/tet-meshing && break; sleep $((i * 10)); git pull -q --rebase origin runs/tet-meshing; done

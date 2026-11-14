@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """The baseline of the incremental mutation runs (.github/workflows/mutation.yml, README.md, incremental.py).
 
-  store <StrykerOutput dir> <baseline dir>
+  store <StrykerOutput dir> <baseline dir> <config>
       after a full run: copy the JSON report of the run into <baseline dir>/stryker-report.json, without the files that
       have no tested mutant (Stryker reports every file of the library, nearly all of them only with ignored
       mutants; incremental.py reads the mutated files only), keyed by the path relative to the project directory
-      (Stryker writes absolute paths). Writes stored=true|false to GITHUB_OUTPUT.
+      (Stryker writes absolute paths), with the run's config (the "stryker-config" of <config>) as `g3-config`:
+      incremental.py reuses the baseline only for the same config up to the spans of `mutate`, and carries the spans
+      over (the cache key does not hold the config). Writes stored=true|false to GITHUB_OUTPUT.
 """
 import glob
 import json
@@ -45,7 +47,7 @@ def output(key, value):
 
 
 def main(argv):
-    if len(argv) == 3 and argv[0] == "store":
+    if len(argv) == 4 and argv[0] == "store":
         report_path = latest_report(argv[1])
         if report_path is None:
             print("no report: nothing stored")
@@ -53,6 +55,8 @@ def main(argv):
             return 0
         with open(report_path, encoding="utf-8-sig") as f:
             report = strip(json.load(f))
+        with open(argv[3], encoding="utf-8-sig") as f:
+            report["g3-config"] = json.load(f)["stryker-config"]
         os.makedirs(argv[2], exist_ok=True)
         with open(os.path.join(argv[2], "stryker-report.json"), "w", encoding="utf-8") as f:
             json.dump(report, f)

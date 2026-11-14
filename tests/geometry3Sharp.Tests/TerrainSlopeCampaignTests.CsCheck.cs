@@ -40,7 +40,12 @@ namespace geometry3Sharp.Tests
             public int Tilt;            // Auto: the terrain tilts through the toe plane, 0 .. 2 (x 0.4 per unit)
             public int Side;            // 0 Outside, 1 Inside
             public int Holes;           // 0 .. 3 triangles removed at the terrain corner far from the toe (no-data cells)
-            public override string ToString() => $"{new[] { "cut", "fill", "auto" }[Dir]}: toe {Toe}-gon r {Radius / 2.0}, 1:{Ratio / 8.0}, terrain amp {Amp / 2.0} wave {Wave / 100.0} height {Height / 2.0} jitter {Jitter} tilt {Tilt} grid {Nx}x{Ny}{(Flip ? " flipped" : "")}, side {(Side == 0 ? "outside" : "inside")}, holes {Holes}, seed {Seed}";
+            // a ramp (cut, outside; RampCampaign): from toe vertex 0 along the first edge, leaving the toe at sin = Leave / 10 x
+            // grade / slope (below 10: the road hangs), Grade in %, Width in 0.5 units, Length in 1/10 of the edge
+            public bool Ramp;
+            public int Grade, Width, Leave, Length;
+            public override string ToString() => $"{new[] { "cut", "fill", "auto" }[Dir]}: toe {Toe}-gon r {Radius / 2.0}, 1:{Ratio / 8.0}, terrain amp {Amp / 2.0} wave {Wave / 100.0} height {Height / 2.0} jitter {Jitter} tilt {Tilt} grid {Nx}x{Ny}{(Flip ? " flipped" : "")}, side {(Side == 0 ? "outside" : "inside")}, holes {Holes}, seed {Seed}"
+                + (Ramp ? $", ramp grade {Grade} % width {Width / 2.0} leave {Leave / 10.0} length {Length / 10.0}" : "");
         }
 
         /// <summary> the design, all lengths multiplied by 2^shift (exact) </summary>
@@ -58,10 +63,21 @@ namespace geometry3Sharp.Tests
                 s.Side == 0 ? SlopeToe.Sides.Outside : SlopeToe.Sides.Inside, SlopeSpec.Ratio(s.Ratio / 8.0));
             if (s.Dir == 1) { toe.FillStart = toe.CutStart; toe.CutStart = null; }
             else if (s.Dir == 2) { toe.FillStart = toe.CutStart; }
-            return new TerrainSlopeDesign() {
+            var d = new TerrainSlopeDesign() {
                 Toes = { toe }, Terrain = terrain, Tolerance = f * 0.05, BuildComposite = true,
                 Direction = s.Dir == 0 ? TerrainSlopeDesign.Directions.Cut : s.Dir == 1 ? TerrainSlopeDesign.Directions.Fill : TerrainSlopeDesign.Directions.Auto
             };
+            if (s.Ramp) {
+                // (in the unscaled frame, then scaled and moved like the toe; the start is the toe's vertex 0, exactly)
+                var ngon = TerrainSlopeCatchLineTests.Ngon(s.Toe, s.Radius / 2.0, 0, Vector2d.Zero, 0.1);
+                Vector2d p0 = ngon[0].xy, e = ngon[1].xy - p0, u = e.Normalized, n = new Vector2d(u.y, -u.x);
+                double g = s.Grade / 100.0, sl = 8.0 / s.Ratio, sinb = Math.Min(0.8, s.Leave / 10.0 * g / sl), cosb = Math.Sqrt(1 - sinb * sinb);
+                Vector2d end = p0 + (s.Length / 10.0 * e.Length) * (cosb * u + sinb * n);
+                d.Ramps.Add(new SlopeRamp() {
+                    Toe = 0, Path = new List<Vector2d>() { toe.Points[0].xy, f * end + move.xy }, Grade = SlopeSpec.Percent(s.Grade), Width = f * s.Width / 2.0, Side = SlopeToe.Sides.Right
+                });
+            }
+            return d;
         }
 
         static bool Acceptable(TerrainSlopeDesign.Statuses st) =>
@@ -99,23 +115,8 @@ namespace geometry3Sharp.Tests
             return d == "" ? "" : "slope region: " + d;
         }
 
-        /// <summary>
-        /// Open finding (reported to the coordinator, not fixed here): a closed toe with the slope on its inside (a cone to an apex
-        /// of needle triangles) needs the retries of the exact check (4 attempts, slope margin raised from 1e-6 to 5e-4 in the cases
-        /// seen) and ends once in about 500 such designs with the status SlopeViolation ("1 triangles failed the exact check", a safe
-        /// failure, never a violating result), e.g. fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671. The same design outside is
-        /// certified at once. The campaign counts these.
-        /// </summary>
-        static int openSlopeViolations;
-        /// <summary>
-        /// Open finding 2 (reported to the coordinator, not fixed here): Direction Auto on a terrain that tilts through the toe plane
-        /// ends with
-        /// SlopeViolation "the composite is not certified: its catch points moved (... 1e-11 from its own position) and changed the
-        /// surface by up to 0.23, where at most 0.0127 fits into Tolerance" (a safe failure): auto, 8-gon r 11, 1:2.5, amplitude 5,
-        /// wave 0.13, height 6, tilt 2, grid 28x13 (seed 90309; tilt 0 and 1 are certified). 1 of 700 designs.
-        /// </summary>
-        static int openAutoCrossings;
         static int accepted, rejected, volumeChecked;
+        static int rampSuccess, rampNotOnWall;
 
         static string Property(Scene s, int[] shifts)
         {
@@ -124,18 +125,13 @@ namespace geometry3Sharp.Tests
             catch (Exception e) { return "Compute threw " + e.GetType().Name + ": " + e.Message; }
             if (!Acceptable(d.Status)) {
                 System.Threading.Interlocked.Increment(ref rejected);
+                if (d.Status == TerrainSlopeDesign.Statuses.RampNotOnWall) {
+                    // (a hanging road: only expected when the path leaves the toe more flatly than the grade over the slope)
+                    System.Threading.Interlocked.Increment(ref rampNotOnWall);
+                    if (s.Leave >= 12) return "RampNotOnWall on a path that leaves the toe at 1.2 x the grade over the slope or more: " + d.Message;
+                    return "";
+                }
                 // (the documented limits of a design are no failure; an internal one is)
-                // (open finding OpenSlopeViolation: counted and let pass unless G3_PROPERTY_STRICT=1)
-                if (s.Side == 1 && d.Status == TerrainSlopeDesign.Statuses.SlopeViolation && d.ProblemTriangles.Count == 1 && d.Message.StartsWith("1 triangles failed the exact check") && Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") != "1") {
-                    System.Threading.Interlocked.Increment(ref openSlopeViolations);
-                    return "";
-                }
-                // (open finding 2, OpenAutoToeCrossing: counted and let pass unless G3_PROPERTY_STRICT=1)
-                if (s.Dir == 2 && d.Status == TerrainSlopeDesign.Statuses.SlopeViolation && d.Message.StartsWith("the composite is not certified: its catch points moved") &&
-                    Environment.GetEnvironmentVariable("G3_PROPERTY_STRICT") != "1") {
-                    System.Threading.Interlocked.Increment(ref openAutoCrossings);
-                    return "";
-                }
                 if (d.Status == TerrainSlopeDesign.Statuses.InvalidInput || d.Status == TerrainSlopeDesign.Statuses.NotImplemented || d.Status == TerrainSlopeDesign.Statuses.Failed || d.Status == TerrainSlopeDesign.Statuses.SlopeViolation ||
                     d.Status == TerrainSlopeDesign.Statuses.CompositeFailed || d.Status == TerrainSlopeDesign.Statuses.NotHeightField)
                     return "status " + d.Status + ": " + d.Message;
@@ -175,7 +171,13 @@ namespace geometry3Sharp.Tests
                 // (cut or fill: the catch-line oracle; Auto: when all pieces have one direction, else only the composite oracles)
                 bool allFill = d.Pieces.Count > 0 && d.Pieces.All(p => p.Direction == TerrainSlopeDesign.Directions.Fill);
                 bool allCut = d.Pieces.Count > 0 && d.Pieces.All(p => p.Direction == TerrainSlopeDesign.Directions.Cut);
-                if (s.Dir != 2 || allFill || allCut) TerrainSlopeCatchLineTests.AssertCatchLines(d, s.Dir == 1 || allFill);
+                if (s.Ramp) {
+                    // (the ramp's oracles: the slope surface against the references of toe and road, the road's width and
+                    // heights, the catch lines between the references)
+                    TerrainSlopeRampTests.AssertRamps(d, 4);
+                    TerrainSlopeRampTests.AssertRampCatchLines(d);
+                    System.Threading.Interlocked.Increment(ref rampSuccess);
+                } else if (s.Dir != 2 || allFill || allCut) TerrainSlopeCatchLineTests.AssertCatchLines(d, s.Dir == 1 || allFill);
                 TerrainSlopeCatchLineTests.AssertComposite(d, s.Dir == 1);
                 if (d.Composite != null) {
                     var tvd = new TerrainVolumeDifference(d.Terrain, d.Composite);
@@ -203,42 +205,129 @@ namespace geometry3Sharp.Tests
 
         static readonly int[] Shifts = { -9, 11 };
 
+        // the scenes of the ramp campaign: cut, outside, with a ramp
+        static readonly Gen<Scene> GenRampScene =
+            Gen.Select(GenScene, Gen.Int[4, 12], Gen.Int[4, 10], Gen.Int[8, 30], Gen.Int[4, 9],
+                (sc, g, w, l, len) => { sc.Dir = 0; sc.Side = 0; sc.Tilt = 0; sc.Ramp = true; sc.Grade = g; sc.Width = w; sc.Leave = l; sc.Length = len; return sc; });
+
         /// <summary>
-        /// the open finding as a fixed example: the inside of a closed toe, found by the campaign (seed lyr6). When this test fails
-        /// because the design is certified, the finding is fixed: replace the assertion by Assert.True(d.Compute()) and the oracles
+        /// found by the ramp campaign (seed cWs6): the prefilter of SlopeMap.InsertPiece skipped a face smaller than the error
+        /// of its approximate corners (at the ramp's start on a toe vertex, where many planes meet) by its approximate
+        /// distance alone, differently at the scale 2^-9, and the design was not the same scaled bit for bit
         /// </summary>
         [Fact]
-        public void OpenFinding_InsideOfAToe_EndsWithSlopeViolation()
+        public void Regression_PrefilterOfTinyFaces_IsScaleInvariant()
         {
-            var s = new Scene { Dir = 1, Toe = 4, Radius = 26, Ratio = 8, Amp = 8, Wave = 11, Height = 18, Jitter = 1, Nx = 24, Ny = 18, Flip = false, Seed = 70671, Side = 1, Holes = 0 };
-            TerrainSlopeDesign d = Make(s, 0);
-            Assert.False(d.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.SlopeViolation, d.Status);
-            Assert.Single(d.ProblemTriangles);
-            // the safe failure: no result is returned
-            Assert.Null(d.Composite);
+            var sc = new Scene { Dir = 0, Toe = 6, Radius = 16, Ratio = 16, Amp = 9, Wave = 13, Height = 19, Jitter = 0, Nx = 14, Ny = 20, Flip = false, Seed = 80058, Side = 0, Holes = 1,
+                                 Ramp = true, Grade = 8, Width = 5, Leave = 29, Length = 9 };
+            TerrainSlopeDesign a = Make(sc, 0), b = Make(sc, -9);
+            Assert.True(a.Compute(), a.Message);
+            Assert.True(b.Compute(), b.Message);
+            Assert.Equal("", SameMesh(a.SlopeSurface, b.SlopeSurface, Math.ScaleB(1.0, -9)));
+            Assert.Equal("", SameDesign(a, b, Math.ScaleB(1.0, -9)));
+            Assert.Equal("", Oracles(sc, a));
         }
 
-        /// <summary> open finding 2 as a fixed example (seed mjr6): see openAutoCrossings </summary>
+        /// <summary> the campaign with a random ramp per scene (TERRAIN_RAMPS.md, R1): the same properties, with the ramp's oracles </summary>
         [Fact]
-        public void OpenFinding2_AutoAtAToeCrossing_EndsWithSlopeViolation()
+        public void RampCampaign()
         {
-            var s = new Scene { Dir = 2, Toe = 8, Radius = 22, Ratio = 20, Amp = 10, Wave = 13, Height = 12, Jitter = 1, Nx = 28, Ny = 13, Flip = false, Seed = 90309, Side = 0, Holes = 2, Tilt = 2 };
+            accepted = rejected = volumeChecked = rampSuccess = rampNotOnWall = 0;
+            CampaignRunner.Run(log, nameof(TerrainSlopeCampaignTests), "terrainramp", GenRampScene, s => Property(s, Shifts), CampaignRunner.Samples(5), 412u);
+            if (CampaignRunner.Samples(5) >= 5 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY"))) Assert.True(rampSuccess > 0, $"{rampSuccess} ramps with a result");
+            log.WriteLine($"terrainramp: {accepted} designs with a result ({rampSuccess} checked with the ramp's oracles), {rejected} with another status ({rampNotOnWall} RampNotOnWall), {volumeChecked} volume checks");
+        }
+
+
+        static TerrainSlopeDesign AssertCertified(Scene s)
+        {
             TerrainSlopeDesign d = Make(s, 0);
-            Assert.False(d.Compute());
-            Assert.Equal(TerrainSlopeDesign.Statuses.SlopeViolation, d.Status);
-            Assert.StartsWith("the composite is not certified: its catch points moved", d.Message);
-            Assert.Null(d.Composite);
+            Assert.True(d.Compute(), d.Status + ": " + d.Message);
+            Assert.Equal(TerrainSlopeDesign.Statuses.Success, d.Status);
+            Assert.True(d.MaxSlopeRatio <= 1, $"MaxSlopeRatio {d.MaxSlopeRatio}");
+            TerrainSlopeCatchLineTests.AssertRegionNeverSteeper(d);
+            Assert.NotNull(d.Composite);
+            // (the campaign's property: the oracles of the catch lines, the composite and the volumes, a second Compute and a
+            // new instance bit for bit, the design at UTM, and scaled by 2^-9 and 2^11 bit for bit)
+            Assert.Equal("", Property(s, Shifts));
+            return d;
+        }
+
+        /// <summary>
+        /// The first safe-failure class of #567, fixed: a closed toe with the slope on its inside, found by the campaign (seed
+        /// lyr6; fill, 4-gon r 13, 1:1, jitter, grid 24x18, seed 70671). The four planes of the square meet in two points 9e-12
+        /// apart, so the realized surface has a needle from a toe corner to the apex; it passes the exact check, but the
+        /// catch line crosses it, and its clipped part has two catch points 7e-12 apart, whose z, rounded again, tilt its
+        /// plane by e_z / 7e-12. That failed the check on every margin (4 attempts, then SlopeViolation). Now the region's
+        /// failing triangle names its realized parent, and the band merge collapses the parent's short edge on the next
+        /// realization (TERRAIN.md 5.5): certified at the first margin.
+        /// </summary>
+        [Fact]
+        public void InsideOfAToe_NeedleAtTheApex_IsCertified()
+        {
+            TerrainSlopeDesign d = AssertCertified(InsideOfAToe);
+            // (by the merge of the region's needle, at the first margin, not by a larger one: its edge recorded and found
+            // by the band merge)
+            Assert.True(d.RegionNeedles > 0 && d.RegionNeedleHits > 0, $"{d.RegionNeedles} edges, {d.RegionNeedleHits} hits");
+            Assert.Equal(d.SlopeMargin, d.UsedSlopeMargin);
+        }
+
+        static readonly Scene InsideOfAToe = new Scene { Dir = 1, Toe = 4, Radius = 26, Ratio = 8, Amp = 8, Wave = 11, Height = 18, Jitter = 1, Nx = 24, Ny = 18, Flip = false, Seed = 70671, Side = 1, Holes = 0 };
+
+        // the reference path, a new build for every lowering (TerrainSlopeOneBuildTests), keeps the margin's region needles:
+        // the same result bit for bit, in one build per realization of the normal path (it looped before, each rebuild without them; the build limit
+        // turns a hang into a failure)
+        [Fact]
+        public void InsideOfAToe_RebuildForEachLowering_GivesTheSameResult()
+        {
+            TerrainSlopeDesign d = Make(InsideOfAToe, 0);
+            Assert.True(d.Compute(), d.Status + ": " + d.Message);
+            TerrainSlopeDesign r = Make(InsideOfAToe, 0);
+            r.RebuildForEachLowering = true;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            r.CancelF = () => r.Attempts > d.Realizations || sw.Elapsed.TotalSeconds > 60;
+            Assert.True(r.Compute(), r.Status + ": " + r.Message);
+            // (one build per realization of the normal path)
+            Assert.True(r.Attempts <= d.Realizations, $"{r.Attempts} builds, {d.Realizations} realizations without rebuilds");
+            Assert.Equal(d.UsedToeLowering, r.UsedToeLowering);
+            Assert.Equal("", SameDesign(d, r, 1));
+        }
+
+        // the edge key of the region needles: the order of its ends and the sign of a zero do not matter
+        [Fact]
+        public void RegionNeedleEdgeKey_IgnoresOrderAndSignOfZero()
+        {
+            var p = new Vector2d(0.0, 1.5); var q = new Vector2d(-2.0, 0.25);
+            var a = new TerrainSlopeDesign.XYEdge(p, q); var b = new TerrainSlopeDesign.XYEdge(q, p);
+            Assert.Equal(a, b); Assert.Equal(a.GetHashCode(), b.GetHashCode());
+            var n = new TerrainSlopeDesign.XYEdge(new Vector2d(-0.0, 1.5), q);
+            Assert.Equal(a, n); Assert.Equal(a.GetHashCode(), n.GetHashCode());
+            Assert.NotEqual(a, new TerrainSlopeDesign.XYEdge(p, new Vector2d(-2.0, 0.5)));
+        }
+
+        /// <summary>
+        /// The second safe-failure class of #567, fixed: Direction Auto on a terrain that tilts through the toe plane (seed
+        /// mjr6; auto, 8-gon r 11, 1:2.5, amplitude 5, wave 0.13, height 6, tilt 2, grid 28x13, seed 90309). The terrain
+        /// triangle at a toe corner has its two other corners on the two toe segments there, catch points moved by 1e-11,
+        /// so it overlaps each run's slope in a sliver along each segment. The certificate's step rule asked for one capsule
+        /// around one boundary edge holding the run's whole overlap, which no capsule does at a corner, so it compared the
+        /// slope across the step (0.23 where 0.0127 fits). The rule is now per slope triangle, whose overlap is convex and
+        /// lies along one segment (TERRAIN.md 5.5; TerrainSlopeSnapBoundTests.StepsAtACornerOfTheToe).
+        /// </summary>
+        [Fact]
+        public void AutoAtAToeCorner_StepSlivers_IsCertified()
+        {
+            AssertCertified(new Scene { Dir = 2, Toe = 8, Radius = 22, Ratio = 20, Amp = 10, Wave = 13, Height = 12, Jitter = 1, Nx = 28, Ny = 13, Flip = false, Seed = 90309, Side = 0, Holes = 2, Tilt = 2 });
         }
 
         [Fact]
         public void Campaign()
         {
-            accepted = rejected = volumeChecked = openSlopeViolations = openAutoCrossings = 0;
+            accepted = rejected = volumeChecked = 0;
             CampaignRunner.Run(log, nameof(TerrainSlopeCampaignTests), "terrainslope", GenScene, s => Property(s, Shifts), CampaignRunner.Samples(5), 411u);
             // (not vacuous: most designs end with a result)
             if (CampaignRunner.Samples(5) >= 5 && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("G3_PROPERTY_REPLAY"))) Assert.True(accepted > 2 * rejected && volumeChecked > 0, $"{accepted} designs with a result, {rejected} with another status, {volumeChecked} volume checks");
-            log.WriteLine($"terrainslope: {accepted} designs with a result, {rejected} with another status, {volumeChecked} volume checks, {openSlopeViolations} SlopeViolation on the inside of a toe (open finding), {openAutoCrossings} SlopeViolation of an Auto design at a toe crossing (open finding 2)");
+            log.WriteLine($"terrainslope: {accepted} designs with a result, {rejected} with another status, {volumeChecked} volume checks");
         }
     }
 }
