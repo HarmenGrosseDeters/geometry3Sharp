@@ -1,0 +1,42 @@
+before
+44.095 ms checksum -89109970
+20.814 ms checksum -89109970
+21.122 ms checksum -89109970
+22.090 ms checksum -89109970
+21.111 ms checksum -89109970
+21.135 ms checksum -89109970
+after
+38.596 ms checksum -89109970
+21.591 ms checksum -89109970
+21.042 ms checksum -89109970
+22.834 ms checksum -89109970
+21.338 ms checksum -89109970
+21.143 ms checksum -89109970
+after
+32.530 ms checksum -89109970
+21.682 ms checksum -89109970
+21.521 ms checksum -89109970
+20.876 ms checksum -89109970
+21.152 ms checksum -89109970
+21.694 ms checksum -89109970
+before
+31.692 ms checksum -89109970
+21.629 ms checksum -89109970
+21.670 ms checksum -89109970
+23.911 ms checksum -89109970
+24.620 ms checksum -89109970
+21.656 ms checksum -89109970
+before
+42.308 ms checksum -89109970
+22.132 ms checksum -89109970
+22.193 ms checksum -89109970
+24.922 ms checksum -89109970
+22.041 ms checksum -89109970
+23.428 ms checksum -89109970
+after
+32.742 ms checksum -89109970
+20.571 ms checksum -89109970
+20.529 ms checksum -89109970
+22.794 ms checksum -89109970
+20.800 ms checksum -89109970
+21.128 ms checksum -89109970

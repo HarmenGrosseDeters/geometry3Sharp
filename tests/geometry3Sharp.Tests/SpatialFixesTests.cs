@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
@@ -139,6 +139,25 @@ namespace geometry3Sharp.Tests
             Bitmap3 b = grid.BlockGrid.Get(new Vector3i(-1, 0, 0), false);
             Assert.NotNull(b);
             Assert.True(b.Get(new Vector3i(0, 0, 0)));
+        }
+
+        [Fact]
+        public void GridIndexers_ToGrid_ExtremesHaveSpecifiedCells()
+        {
+            foreach (double value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity,
+                                             1e300, -1e300, 2147483648.0, -2147483649.0, -0.5, 1.5 }) {
+                int expected = double.IsNaN(value) ? 0 : value >= int.MaxValue ? int.MaxValue :
+                               value <= int.MinValue ? int.MinValue : (int)Math.Floor(value);
+                var p2 = new Vector2d(value, value);
+                Assert.Equal(new Vector2i(expected, expected), new ScaleGridIndexer2(1).ToGrid(p2));
+                Assert.Equal(new Vector2i(expected, expected), new ShiftGridIndexer2(Vector2d.Zero, 1).ToGrid(p2));
+                var p3 = new Vector3d(value, value, value);
+                Assert.Equal(new Vector3i(expected, expected, expected), new ScaleGridIndexer3(1).ToGrid(p3));
+                Assert.Equal(new Vector3i(expected, expected, expected), new ShiftGridIndexer3(Vector3d.Zero, 1).ToGrid(p3));
+            }
+            var frame = new FrameGridIndexer3(Frame3f.Identity, Vector3f.One);
+            Assert.Equal(new Vector3i(int.MaxValue, 0, 0), frame.ToGrid(new Vector3d(1e20, 0, 0)));
+            Assert.Equal(new Vector3i(int.MinValue, 0, 0), frame.ToGrid(new Vector3d(-1e20, 0, 0)));
         }
 
         [Fact]
