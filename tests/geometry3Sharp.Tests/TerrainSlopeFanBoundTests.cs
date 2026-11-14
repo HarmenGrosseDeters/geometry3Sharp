@@ -255,6 +255,35 @@ namespace geometry3Sharp.Tests
             TerrainSlopeRampTests.AssertRamps(ok);
         }
 
+        // review of #850: the search of the named Tolerance evaluates the budget at other caps and Tolerances, and the ramps'
+        // share writes the build's diagnostics (RampShare*, RampGradeTooSmall); after a refusal they are the build's own.
+        // A flat terrain without HeightLimit: the cap is its height plus Tolerance, so the search's caps move maxXY, here
+        // across a power of 2 (e_xy doubles there, and with it the share's XY part: 2.98e-14 against the build's 1.49e-14)
+        [Fact]
+        public void Ramp_AfterARefusal_TheDiagnosticsAreTheBuildsOwn()
+        {
+            Func<int, TerrainSlopeDesign> make = (maxFan) => {
+                var d = TerrainSlopeRampTests.Straight();
+                d.HeightLimit = double.NaN;
+                d.Terrain = TerrainSlopeCatchLineTests.Grid(new AxisAlignedBox2d(-150, -150, 150, 150), 8, 8, (x, y) => 18);
+                d.Tolerance = 0.01; d.MaxFanDirections = maxFan;
+                return d;
+            };
+            var refused = make(16);
+            Assert.False(refused.Compute());
+            Assert.Contains("cone facets", refused.Message);
+            // (the same first build without the bound: its diagnostics)
+            var own = make(4096);
+            own.Compute();
+            Assert.Equal(1, own.Attempts);
+            Assert.Equal(-1, refused.RampGradeTooSmall);
+            Assert.Equal(own.UsedRampShare, refused.UsedRampShare);
+            Assert.Equal(own.RampShareRoad, refused.RampShareRoad);
+            Assert.Equal(own.RampShareWidth, refused.RampShareWidth);
+            Assert.Equal(own.RampShareRounding, refused.RampShareRounding);
+            Assert.Equal(own.RampShareXY, refused.RampShareXY);
+        }
+
         // the refusal and the named Tolerance in every frame (rotations about z; a translated frame in its local frame): the
         // 2^k frames bit for bit, the others within the rounding of the margins; the named Tolerance certifies in each, with
         // the facets at the bound

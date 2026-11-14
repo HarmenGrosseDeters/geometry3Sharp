@@ -208,9 +208,19 @@ So the ramp's pieces go into the same envelope as the toe's:
     through a rounded across point tilted by up to e_xy / Wb, which moves its height at the inner corners (E away) by
     g e_xy E / Wb.
   When only the ramp's share does not fit: `InvalidInput`, "the ramp is too long or too wide for Tolerance", with both
-  parts. `UsedRoadMargin` reports the margin used. D0 (the reach in the δ term of the budget) uses the specified zMin,
-  while the built road lies up to the share lower; the 1.1 factor of that term covers it unless L exceeds about 200 D0
-  at δ = 1e-3.
+  parts. `UsedRoadMargin` reports the margin used.
+- **The reach D0 counts the lowest built height** (#861, 2026-11-14). The road and the wall above it are built up to the
+  share below the specified heights, so their cones reach up to share / (sMin (1 − δ)) further than from the specified
+  toe. D0, which the toe lowering's bound, the δ term, the facets and the domain all scale with, is
+  (H − zMin + share) / (sMin (1 − δ)). Before, it used the specified zMin, and only the 1.1 of those terms covered the
+  difference: up to L of about 0.2 D0 / δ, 200 D0 at δ = 1e-3 but 20 D0 at δ = 0.01. A ramp of 250 m at 2 % with δ = 0.01
+  reaches 13 % further; its budget at the built reach was 1.748 against a Tolerance of 1.7
+  (`TerrainSlopeRampReachTests`).
+  - The share depends on e_xy, which depends on D0, so D0 is a fixed point. D0 counts a share at least the one computed
+    at its own e_xy. It settles in one or two rounds, because e_xy changes only where maxXY crosses a power of 2.
+  - `reach_and_resolution` computes it for the build and for the naming of a Tolerance under `MaxFanDirections` (#808).
+    The naming keeps the build's own diagnostics of the share (`RampShare*`, `RampGradeTooSmall`).
+  - Designs without ramps are unchanged bit for bit (share 0).
 - The outer edge is built at Width (1 + 2δ); the width oracle's nominal polygons run from Width δ / 2 to Width
   (1 + 3δ / 2) and end Width δ inside each segment, so no rounding of a boundary they share with the road decides it.
 - The road's z at the path's vertices: z_{i+1} = z_i + g_b L_i in doubles (rounded once per vertex); the polygon
@@ -249,3 +259,9 @@ ramp case.
 Cut only (`Direction` Fill or Auto: `NotImplemented`); straight segments of one grade; no bends towards the road, no
 turns with s cos(turn) < g / 0.9; the road above the terrain is clipped by the clamp (the access ramp ends where it
 daylights; a road through a terrain valley has a gap there, which R2's fill would close).
+
+A ramp on an axis-parallel pit (`TerrainSlopeRampTests.Straight`) needs a raised margin δ when the cone facets per turn are
+a multiple of 4 (32, 64 and 65 seen; 21, 35, 50, 79 and 111 certify in one attempt), with any `MaxFanDirections`. Then
+fan directions coincide with the pit's edge directions. The design still succeeds, in two attempts, so it is a cost, not
+a defect. Near the bound of `MaxFanDirections`, the raised margin's facets can need one more than the bound, and the
+design is refused with the Tolerance they fit from (#850).
