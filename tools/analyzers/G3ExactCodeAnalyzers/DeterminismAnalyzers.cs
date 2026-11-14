@@ -165,7 +165,7 @@ namespace G3ExactCodeAnalyzers
         }
 
         static readonly DiagnosticDescriptor ApiRule = Rule(ApiId, "External member not on the determinism allow list",
-            "Proof scope: '{0}' is not on the allow list " + DeterministicApiList.FileName + " (add it with the reason why its result is specified on every runtime)");
+            "Proof scope: '{0}' is not on the allow list " + DeterministicApiList.FileName + " (add it with the reason why its result is specified on every runtime, and the regenerated ledger line in docs/design/DETERMINISM_PROOF.md 5.2)");
         static readonly DiagnosticDescriptor RestrictedRule = Rule(RestrictedId, "Restricted member used where its restriction does not allow it",
             "Proof scope: '{0}' {1}");
         static readonly DiagnosticDescriptor ConditionalRule = Rule(ConditionalId, "Unregistered conditional compilation",
@@ -342,7 +342,7 @@ namespace G3ExactCodeAnalyzers
             }
             // predefined decimal operators and conversions are calls of System.Decimal
             if ((op is IBinaryOperation || op is IUnaryOperation || op is IConversionOperation || op is ICompoundAssignmentOperation || op is IIncrementOrDecrementOperation)
-                && (IsDecimal(op.Type) || op.Children.Any(x => IsDecimal(x.Type))))
+                && (IsDecimal(op.Type) || op.ChildOperations.Any(x => IsDecimal(x.Type))))
                 return "construct:decimal";
             return null;
         }
@@ -449,7 +449,8 @@ namespace G3ExactCodeAnalyzers
         /// <summary> a conversion of a double (or float) to an integer type, checked or not, also of their nullable forms </summary>
         public static bool IsFloatToIntegerCast(IConversionOperation v)
         {
-            return v.OperatorMethod == null && IsFloatToInteger(v.Operand?.Type, v.Type);
+            // (a constant conversion is evaluated by the compiler: its value is fixed, or it does not compile)
+            return v.OperatorMethod == null && !v.ConstantValue.HasValue && IsFloatToInteger(v.Operand?.Type, v.Type);
         }
 
         static ITypeSymbol Underlying(ITypeSymbol t)
@@ -610,6 +611,7 @@ namespace G3ExactCodeAnalyzers
                 case DefineDirectiveTriviaSyntax d: return d.ToString().Trim();
                 case UndefDirectiveTriviaSyntax u: return u.ToString().Trim();
                 case LineDirectiveTriviaSyntax l: return l.ToString().Trim();
+                case LineSpanDirectiveTriviaSyntax ls: return ls.ToString().Trim();
             }
             return null;
         }
@@ -677,10 +679,10 @@ namespace G3ExactCodeAnalyzers
                 c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props("", ""), e.Substring(0, e.IndexOf(':')), "malformed: " + e.Substring(e.IndexOf(':') + 1).Trim()));
             foreach (DeterministicApiList.Entry e in s.List.Entries.Values)
                 if (!s.UsedEntries.ContainsKey(e.Id) && (s.NetDefined || !e.NetOnly))
-                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is not used by the scope"));
+                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.2)"));
             foreach (DeterministicApiList.Registration r in s.List.Registrations)
                 if (!s.UsedLines.ContainsKey(r.Line) && (s.NetDefined || !NetOnlyRegistration(s, r)))
-                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(r.Api ?? r.Member, r.Member), r.Line, r.Kind + " '" + r.Member + "' is not used by the scope"));
+                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(r.Api ?? r.Member, r.Member), r.Line, r.Kind + " '" + r.Member + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.2)"));
         }
 
         // a registration whose construct exists only when NET is defined: a site of a [NET] entry, a [SkipLocalsInit]

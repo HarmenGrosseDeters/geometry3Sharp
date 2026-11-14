@@ -3,6 +3,8 @@
 // that .editorconfig names. Every member of another assembly that the kernel uses is listed with the reason why its result
 // is specified on every runtime (assumptions T1 to T3 of the note, section 4.1); the build fails on an unlisted member and
 // on an entry the kernel no longer uses (G3D0009), so the list is exactly the kernel's external surface.
+// Every change of this file also changes the generated ledger line in docs/design/DETERMINISM_PROOF.md section 5.2
+// (DeterminismScopeAnalyzerTests.DesignNote_StatesTheGeneratedLedger prints the line to paste).
 //
 //   <doc id> ; [tags] reason                    tags: [NET] used only on one side of an #if NET block;
 //                                               [sites] every member that uses it has a site line; [hash] only inside a GetHashCode

@@ -276,6 +276,7 @@ namespace geometry3Sharp.Tests
         [InlineData("#define EXTRA")]
         [InlineData("#undef NET")]
         [InlineData("#line 1 \"other.cs\"")]
+        [InlineData("#line (1, 1) - (1, 10) \"other.cs\"")]
         public void Directive_IsReported(string directive)
         {
             string source = directive + "\nstatic class C { static double M(double x) { return Math.Sqrt(x); } }";
@@ -337,7 +338,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void OtherConversions_AreNotCasts()
         {
-            var d = Analyze(Usings + "static class C { static double M(int i, long k, double x) { long a = i; double b = k; int c = (int)k; uint u = (uint)i; return a + b + c + u + (double)x; } }", "");
+            // (a constant conversion is evaluated by the compiler)
+            var d = Analyze(Usings + "static class C { const double H = 2.5; static double M(int i, long k, double x) { long a = i; double b = k; int c = (int)k; uint u = (uint)i; int e = (int)H + (int)1.5; return a + b + c + u + e + (double)x; } }", "");
             Assert.Empty(d.Where(x => x.Id == DeterminismScopeAnalyzer.CastId));
         }
 
