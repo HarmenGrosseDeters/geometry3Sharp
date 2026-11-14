@@ -69,6 +69,8 @@ namespace g3
         readonly DMesh3 meshA, meshB;
         Vector3d[] endA, endB;
         readonly bool self;
+        // the sub-step hulls of the meshes' points during Compute (sub_hulls; null for SubSteps = 1)
+        double[] hullsA, hullsB;
 
         /// <summary> options of every pair query </summary>
         public CcdOptions Options = new CcdOptions();
@@ -163,6 +165,10 @@ namespace g3
             var jobs = new List<Job>();
             Prepared triB = triangles(meshB, endB, half, parallel), triA = self ? null : triangles(meshA, endA, half, parallel);
             Prepared edgB = edges(meshB, endB, half, parallel);
+            if (SubSteps > 1) {
+                hullsA = sub_hulls(meshA, endA, half, parallel);
+                hullsB = self ? hullsA : sub_hulls(meshB, endB, half, parallel);
+            }
             int[] vertsA = ids(meshA.VertexIndices()), vertsB = self ? null : ids(meshB.VertexIndices());
             int[] edgesA = self ? null : ids(meshA.EdgeIndices());
             add_blocks(jobs, JobKind.VertexTriangle, true, vertsA.Length);
@@ -248,6 +254,7 @@ namespace g3
                 }
             }
             flush(pending, jobs.Count);
+            hullsA = hullsB = null;
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
             PrepareSeconds = (t1 - t0) / (double)System.Diagnostics.Stopwatch.Frequency;
             PairsSeconds = (t2 - t1) / (double)System.Diagnostics.Stopwatch.Frequency;
@@ -358,7 +365,6 @@ namespace g3
         sealed class Worker
         {
             public readonly List<int> Found = new List<int>();
-            public AxisAlignedBox3d[] Sub;
             public readonly List<Index2i> Pairs = new List<Index2i>();
         }
 
@@ -388,55 +394,43 @@ namespace g3
                 for (int b = 0; b < blocks; ++b) block(b);
         }
 
-        // The box of point v of mesh m (end positions end) over sub-step i of SubSteps: the box of its positions at
-        // t_i = i / SubSteps and t_(i+1). The ends of the step are the exact positions; at an inner t_i (exact: SubSteps is
-        // a power of two) the position s + t (e - s) is enclosed in outward-rounded intervals. Under linear motion the
-        // point stays in the box during the sub-step (a convex combination of the two positions).
-        void sub_box(DMesh3 m, Vector3d[] end, int v, int i, ref double x0, ref double y0, ref double z0, ref double x1, ref double y1, ref double z1)
+        // The sub-step hulls of the points of mesh m (end positions end), by vertex id: for t_j = j / SubSteps, j = 0 ..
+        // SubSteps, the bounds (lo x y z, hi x y z) of the point's position at t_j, widened by pad with outward rounding.
+        // At j = 0 and SubSteps they are the exact positions; at an inner t_j (exact: SubSteps is a power of two) the
+        // position s + t_j (e - s) is enclosed in an outward-rounded interval, clipped per coordinate to [min(s, e),
+        // max(s, e)] (both hold the position; the clip keeps the interval widening inside the whole-step box, so the
+        // candidates are a subset of those of SubSteps = 1). Under linear motion the point stays during sub-step i in
+        // the box of its hulls at t_i and t_(i+1) (a convex combination of the two positions). The padding is per point:
+        // Down(x - pad) and Up(x + pad) are monotone, so the union of padded points is the padded union, as in box().
+        double[] sub_hulls(DMesh3 m, Vector3d[] end, double pad, bool parallel)
         {
-            Vector3d s = m.GetVertex(v), e = end[v];
-            for (int j = i; j <= i + 1; ++j) {
-                if (j == 0 || j == SubSteps) {
-                    Vector3d q = j == 0 ? s : e;
-                    x0 = Math.Min(x0, q.x); y0 = Math.Min(y0, q.y); z0 = Math.Min(z0, q.z);
-                    x1 = Math.Max(x1, q.x); y1 = Math.Max(y1, q.y); z1 = Math.Max(z1, q.z);
-                    continue;
+            int k = SubSteps, stride = 6 * (k + 1);
+            var h = new double[checked((long)m.MaxVertexID * stride)];
+            for_blocks(m.MaxVertexID, parallel, v => {
+                if (m.IsVertex(v) == false)
+                    return;
+                Vector3d s = m.GetVertex(v), e = end[v];
+                for (int j = 0; j <= k; ++j) {
+                    int o = v * stride + 6 * j;
+                    for (int c = 0; c < 3; ++c) {
+                        double lo, hi;
+                        if (j == 0 || j == k) {
+                            lo = hi = j == 0 ? s[c] : e[c];
+                        } else {
+                            ExactInterval q = ExactInterval.Of(s[c]) + ExactInterval.Of(j / (double)k) * (ExactInterval.Of(e[c]) - ExactInterval.Of(s[c]));
+                            lo = Math.Max(q.Lo, Math.Min(s[c], e[c]));
+                            hi = Math.Min(q.Hi, Math.Max(s[c], e[c]));
+                        }
+                        if (pad > 0) {
+                            lo = ExactInterval.Down(lo - pad);
+                            hi = ExactInterval.Up(hi + pad);
+                        }
+                        h[o + c] = lo;
+                        h[o + 3 + c] = hi;
+                    }
                 }
-                ExactInterval t = ExactInterval.Of(j / (double)SubSteps);
-                ExactInterval px = ExactInterval.Of(s.x) + t * (ExactInterval.Of(e.x) - ExactInterval.Of(s.x));
-                ExactInterval py = ExactInterval.Of(s.y) + t * (ExactInterval.Of(e.y) - ExactInterval.Of(s.y));
-                ExactInterval pz = ExactInterval.Of(s.z) + t * (ExactInterval.Of(e.z) - ExactInterval.Of(s.z));
-                x0 = Math.Min(x0, px.Lo); y0 = Math.Min(y0, py.Lo); z0 = Math.Min(z0, pz.Lo);
-                x1 = Math.Max(x1, px.Hi); y1 = Math.Max(y1, py.Hi); z1 = Math.Max(z1, pz.Hi);
-            }
-        }
-
-        // the box of the points v0..v(n-1) over sub-step i, clipped to their box over the whole step (both hold the
-        // points during the sub-step; the clip keeps the interval widening at inner t_i inside the SubSteps = 1 box, so
-        // the candidates are a subset of those of SubSteps = 1), widened by pad with outward rounding
-        AxisAlignedBox3d sub_box(DMesh3 m, Vector3d[] end, int i, double pad, int n, int v0, int v1, int v2)
-        {
-            double x0 = double.PositiveInfinity, y0 = x0, z0 = x0, x1 = double.NegativeInfinity, y1 = x1, z1 = x1;
-            sub_box(m, end, v0, i, ref x0, ref y0, ref z0, ref x1, ref y1, ref z1);
-            if (n > 1) sub_box(m, end, v1, i, ref x0, ref y0, ref z0, ref x1, ref y1, ref z1);
-            if (n > 2) sub_box(m, end, v2, i, ref x0, ref y0, ref z0, ref x1, ref y1, ref z1);
-            double fx0 = double.PositiveInfinity, fy0 = fx0, fz0 = fx0, fx1 = double.NegativeInfinity, fy1 = fx1, fz1 = fx1;
-            for (int k = 0; k < n; ++k) {
-                int v = k == 0 ? v0 : k == 1 ? v1 : v2;
-                Vector3d ps = m.GetVertex(v), pe = end[v];
-                fx0 = Math.Min(fx0, Math.Min(ps.x, pe.x)); fy0 = Math.Min(fy0, Math.Min(ps.y, pe.y)); fz0 = Math.Min(fz0, Math.Min(ps.z, pe.z));
-                fx1 = Math.Max(fx1, Math.Max(ps.x, pe.x)); fy1 = Math.Max(fy1, Math.Max(ps.y, pe.y)); fz1 = Math.Max(fz1, Math.Max(ps.z, pe.z));
-            }
-            x0 = Math.Max(x0, fx0); y0 = Math.Max(y0, fy0); z0 = Math.Max(z0, fz0);
-            x1 = Math.Min(x1, fx1); y1 = Math.Min(y1, fy1); z1 = Math.Min(z1, fz1);
-            if (pad > 0) {
-                x0 = ExactInterval.Down(x0 - pad); y0 = ExactInterval.Down(y0 - pad); z0 = ExactInterval.Down(z0 - pad);
-                x1 = ExactInterval.Up(x1 + pad); y1 = ExactInterval.Up(y1 + pad); z1 = ExactInterval.Up(z1 + pad);
-            }
-            var b = new AxisAlignedBox3d();
-            b.Min = new Vector3d(x0, y0, z0);
-            b.Max = new Vector3d(x1, y1, z1);
-            return b;
+            });
+            return h;
         }
 
         Prepared triangles(DMesh3 m, Vector3d[] end, double half, bool parallel)
@@ -467,27 +461,33 @@ namespace g3
             return p;
         }
 
-        // Sub-step filter of a candidate pair: true if the sub-step boxes of the two primitives (sub_box, clipped to the
-        // whole-step boxes, widened by half the minimum separation each) overlap in some sub-step. The query primitive's
-        // boxes are in w.Sub (set_sub); the other primitive's points are (m, end, n, v0, v1, v2).
-        bool overlaps_some_sub_step(Worker w, DMesh3 m, Vector3d[] end, double half, int n, int v0, int v1, int v2)
+        // Sub-step filter of a candidate pair: true if, in some sub-step i, the box of the points p0..p(n-1) (hulls hp)
+        // and the box of the points q0..q(m-1) (hulls hq) overlap; the box of points over sub-step i is that of their
+        // hulls at t_i and t_(i+1) (sub_hulls)
+        bool overlaps_some_sub_step(double[] hp, int n, int p0, int p1, int p2, double[] hq, int m, int q0, int q1, int q2)
         {
+            int stride = 6 * (SubSteps + 1);
             for (int st = 0; st < SubSteps; ++st) {
-                AxisAlignedBox3d b = sub_box(m, end, st, half, n, v0, v1, v2), q = w.Sub[st];
-                if (b.Min.x <= q.Max.x && q.Min.x <= b.Max.x && b.Min.y <= q.Max.y && q.Min.y <= b.Max.y
-                    && b.Min.z <= q.Max.z && q.Min.z <= b.Max.z)
+                bool all = true;
+                for (int c = 0; c < 3 && all; ++c) {
+                    double alo = double.PositiveInfinity, ahi = double.NegativeInfinity;
+                    double blo = double.PositiveInfinity, bhi = double.NegativeInfinity;
+                    for (int i = 0; i < n; ++i) {
+                        int o = (i == 0 ? p0 : i == 1 ? p1 : p2) * stride + 6 * st + c;
+                        alo = Math.Min(alo, Math.Min(hp[o], hp[o + 6]));
+                        ahi = Math.Max(ahi, Math.Max(hp[o + 3], hp[o + 9]));
+                    }
+                    for (int i = 0; i < m; ++i) {
+                        int o = (i == 0 ? q0 : i == 1 ? q1 : q2) * stride + 6 * st + c;
+                        blo = Math.Min(blo, Math.Min(hq[o], hq[o + 6]));
+                        bhi = Math.Max(bhi, Math.Max(hq[o + 3], hq[o + 9]));
+                    }
+                    all = alo <= bhi && blo <= ahi;
+                }
+                if (all)
                     return true;
             }
             return false;
-        }
-
-        // the query primitive's sub-step boxes into w.Sub
-        void set_sub(Worker w, DMesh3 m, Vector3d[] end, double half, int n, int v0, int v1, int v2)
-        {
-            if (w.Sub == null || w.Sub.Length < SubSteps)
-                w.Sub = new AxisAlignedBox3d[SubSteps];
-            for (int st = 0; st < SubSteps; ++st)
-                w.Sub[st] = sub_box(m, end, st, half, n, v0, v1, v2);
         }
 
         // jobs per group of the candidate search, and the candidate pairs per batch (they live at the same time, with
@@ -565,15 +565,13 @@ namespace g3
             w.Found.Clear();
             tri.Trees[0].Query(box(half, p, ve[vid], p, p, p, p, 2), w.Found);
             w.Found.Sort();
-            if (SubSteps > 1)
-                set_sub(w, vm, ve, half, 1, vid, -1, -1);
-            Vector3d[] te = vm == tm ? ve : (ve == endA ? endB : endA);
+            double[] hv = ofA ? hullsA : hullsB, ht = ofA ? hullsB : hullsA;
             foreach (int k in w.Found) {
                 int tid = tri.Ids[k];
                 Index3i t = tm.GetTriangle(tid);
                 if (self && (t.a == vid || t.b == vid || t.c == vid))
                     continue;
-                if (SubSteps > 1 && overlaps_some_sub_step(w, tm, te, half, 3, t.a, t.b, t.c) == false)
+                if (SubSteps > 1 && overlaps_some_sub_step(hv, 1, vid, -1, -1, ht, 3, t.a, t.b, t.c) == false)
                     continue;
                 pairs.Add(new PairRef { Kind = SweepContactKind.VertexTriangle, OfA = ofA, First = vid, Second = tid });
             }
@@ -586,13 +584,11 @@ namespace g3
             w.Found.Clear();
             edgB.Trees[0].Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), w.Found);
             w.Found.Sort();
-            if (SubSteps > 1)
-                set_sub(w, meshA, endA, half, 2, ea.a, ea.b, -1);
             foreach (int k in w.Found) {
                 int other = edgB.Ids[k];
                 if (SubSteps > 1) {
                     Index2i eb = meshB.GetEdgeV(other);
-                    if (overlaps_some_sub_step(w, meshB, endB, half, 2, eb.a, eb.b, -1) == false)
+                    if (overlaps_some_sub_step(hullsA, 2, ea.a, ea.b, -1, hullsB, 2, eb.a, eb.b, -1) == false)
                         continue;
                 }
                 pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = eid, Second = other });
@@ -615,8 +611,7 @@ namespace g3
                 if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b)
                     continue;
                 if (SubSteps > 1) {
-                    set_sub(w, meshA, endA, half, 2, ea.a, ea.b, -1);
-                    if (overlaps_some_sub_step(w, meshA, endA, half, 2, eb.a, eb.b, -1) == false)
+                    if (overlaps_some_sub_step(hullsA, 2, ea.a, ea.b, -1, hullsA, 2, eb.a, eb.b, -1) == false)
                         continue;
                 }
                 pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = k.a, Second = k.b });
