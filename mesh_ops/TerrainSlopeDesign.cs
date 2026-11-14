@@ -601,6 +601,7 @@ namespace gs
             int attempts0 = Attempts, capRounds0 = CapRounds;
             // (the runs of the search build again: the refused build's diagnostics are kept, the ramps' share among them)
             double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY, used = UsedRampShare;
+            double margin = UsedSlopeMargin, feature = UsedMinFeatureSize, lowering = UsedToeLowering, ez0 = lastEz;
             int tooSmall = RampGradeTooSmall;
             bool fits = false;
             fanCheckOnly = true;
@@ -616,6 +617,7 @@ namespace gs
                 fanCheckOnly = false; Tolerance = given; Attempts = attempts0; CapRounds = capRounds0;
                 RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; UsedRampShare = used;
                 RampGradeTooSmall = tooSmall;
+                UsedSlopeMargin = margin; UsedMinFeatureSize = feature; UsedToeLowering = lowering; lastEz = ez0;
             }
             FanTolerance = fits ? t : 0;
             ToeProblems = new List<Index2i>();
@@ -893,7 +895,9 @@ namespace gs
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
             ramp_box(ref toeBox);
-            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself)
+            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself; the reach
+            // from the specified toe, not from the ramps' built heights as the budget's D0 (#861): an estimate, the raise
+            // below decides)
             Func<double, double> upTo = CapEstimateRounds > 0 ? terrain_max_by_reach(toeBox, (H - zMin) / sMin, fill) : null;
             double hLocal = (upTo != null ? upTo(0) : local_terrain_max(toeBox, 0, fill)) + Tolerance;
             double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;

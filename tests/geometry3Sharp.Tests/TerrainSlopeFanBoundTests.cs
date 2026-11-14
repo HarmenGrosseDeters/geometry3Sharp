@@ -282,6 +282,10 @@ namespace geometry3Sharp.Tests
             Assert.Equal(own.RampShareWidth, refused.RampShareWidth);
             Assert.Equal(own.RampShareRounding, refused.RampShareRounding);
             Assert.Equal(own.RampShareXY, refused.RampShareXY);
+            // (and the build's other diagnostics, which the search's builds wrote too; not the toe lowering, which the full
+            // run raises by measurement after its realization, the refused build before it)
+            Assert.Equal(own.UsedSlopeMargin, refused.UsedSlopeMargin);
+            Assert.Equal(own.UsedMinFeatureSize, refused.UsedMinFeatureSize);
         }
 
         // the refusal and the named Tolerance in every frame (rotations about z; a translated frame in its local frame): the

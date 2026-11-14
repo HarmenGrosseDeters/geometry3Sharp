@@ -30,7 +30,7 @@ namespace geometry3Sharp.Tests
         // the toe lowering's bound 2 e_z (1 + 4.4 D / MinFeatureSize), the margin delta 1.1 D, the ramps' share and the facets
         // 1.1 D (1 - cos(3/4 theta)) fit into Tolerance (the realization merge's share, about 1e-12 here, left out: this is
         // a necessary condition); it fails by about 0.05 when D is the reach from the specified toe
-        static void AssertBudgetAtTheBuiltReach(TerrainSlopeDesign d, double h)
+        static void AssertBudgetAtTheBuiltReach(TerrainSlopeDesign d, double h, double z0 = 0)
         {
             double delta = d.UsedSlopeMargin, mf = d.UsedMinFeatureSize, share = d.UsedRampShare;
             double D = (h + share) / (1 - delta);
@@ -38,7 +38,7 @@ namespace geometry3Sharp.Tests
             double lambda = 2 * ez * (1 + 4 * 1.1 * D / mf);
             double facets = 1.1 * D * (1 - Math.Cos(0.75 * d.FacetAngle));
             double sum = lambda + delta * 1.1 * D + share + facets;
-            Assert.True(share > 0.1 * h, $"the ramp's share {share}");
+            Assert.True(share > 0.1 * h, $"the ramp's share {share} (toe at {z0})");
             Assert.True(sum <= d.Tolerance * (1 + 1e-9), $"the budget at the built reach {sum} exceeds Tolerance {d.Tolerance} (λ {lambda}, δ term {delta * 1.1 * D}, ramp {share}, facets {facets})");
         }
 
@@ -51,23 +51,30 @@ namespace geometry3Sharp.Tests
             TerrainSlopeRampTests.AssertRamps(d, 6);
         }
 
-        // the 2^k frames: the reach counts the share in the frame's units, so the design scales bit for bit (the facet angle,
-        // the share, the surface)
+        // every frame of Similarity.All (rotated about z; a translated frame in LocalFrame): the budget holds at the built reach
+        // and the design certifies; the 2^k frames are bit for bit (the facet angle, the share, the surface)
         [Theory]
-        [InlineData(1.0 / 1024)]
-        [InlineData(1024.0)]
-        public void LongLowGradeRamp_Pow2Scales(double scale)
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void LongLowGradeRamp_Similarities(string name)
         {
-            var r = LongRamp(1.7);
-            Assert.True(r.Compute(), r.Status + " " + r.Message);
-            var d = LongRamp(1.7, scale);
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
+            var d = LongRamp(1.7);
+            foreach (var t in d.Toes) t.Points = t.Points.Select(p => s.Apply(p)).ToList();
+            foreach (var r in d.Ramps) { r.Path = r.Path.Select(p => s.Apply(new Vector3d(p.x, p.y, 0)).xy).ToList(); r.Width = s.ApplyLength(r.Width); }
+            d.HeightLimit = s.Apply(new Vector3d(0, 0, d.HeightLimit)).z;
+            d.Tolerance = s.ApplyLength(d.Tolerance);
+            d.LocalFrame = s.Translation != Vector3d.Zero;
             Assert.True(d.Compute(), d.Status + " " + d.Message);
-            Assert.Equal(r.FacetAngle, d.FacetAngle);
-            Assert.Equal(r.UsedRampShare * scale, d.UsedRampShare);
-            Assert.Equal(r.UsedSlopeMargin, d.UsedSlopeMargin);
-            Assert.Equal(r.SlopeSurface.TriangleCount, d.SlopeSurface.TriangleCount);
-            var s = new Similarity("scale", scale, Matrix3d.Identity, Vector3d.Zero);
-            Assert.Equal("", Invariance.Difference(r.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+            AssertBudgetAtTheBuiltReach(d, s.ApplyLength(10), s.Translation.z);
+            var r0 = LongRamp(1.7);
+            Assert.True(r0.Compute(), r0.Status + " " + r0.Message);
+            if (s.IsExact) {
+                Assert.Equal(r0.FacetAngle, d.FacetAngle);
+                Assert.Equal(r0.UsedRampShare * s.Scale, d.UsedRampShare);
+                Assert.Equal("", Invariance.Difference(r0.SlopeSurface, Invariance.MappedBack(d.SlopeSurface, s)));
+            } else
+                Assert.True(Math.Abs(d.UsedRampShare / s.Scale - r0.UsedRampShare) <= 1e-6 * r0.UsedRampShare, $"{d.UsedRampShare / s.Scale} {r0.UsedRampShare}");
         }
     }
 }
