@@ -84,11 +84,41 @@ namespace geometry3Sharp.Tests
             return list;
         }
 
-        // the nine members, one wrapper each, results as integers (doubles as their bits)
+        // the twelve members, one wrapper each, results as integers (doubles as their bits)
         delegate void Member(Input x, List<long> trace);
 
         static readonly Member[] Members = {
-            Orient, InCircle, ComparePoints, CompareAlong, TrianglePlanes, LPI, TPI, LPIExact, TPIExact };
+            Orient, InCircle, ComparePoints, CompareAlong, TrianglePlanes, LPI, TPI, LPIExact, TPIExact,
+            DoubleOrient2d, DoubleOrient3d, DoubleInCircle };
+
+        // coordinate c of the double point n of x, scaled by a power of two that depends on n and c: the generated
+        // kernels of the exact predicates on doubles size their accumulators by the span of the exponents (up to 1200
+        // here), so the stack buffers have many limbs; zeros stay zeros
+        static double Wide(Input x, int n, int c)
+        {
+            int s = ((n * 197 + c * 331 + x.I * 89 + x.J * 53) % 1201) - 600;
+            // (2^s from its bits; the coordinates are integers of at most 2 bits, so the product is exact)
+            return x.D[n][c] * BitConverter.Int64BitsToDouble((long)(s + 1023) << 52);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void DoubleOrient2d(Input x, List<long> t)
+        {
+            t.Add(DoublePredicates.Orient2d(Wide(x, 0, 0), Wide(x, 0, 1), Wide(x, 1, 0), Wide(x, 1, 1), Wide(x, 2, 0), Wide(x, 2, 1)));
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void DoubleOrient3d(Input x, List<long> t)
+        {
+            t.Add(DoublePredicates.Orient3d(Wide(x, 0, 0), Wide(x, 0, 1), Wide(x, 0, 2), Wide(x, 1, 0), Wide(x, 1, 1), Wide(x, 1, 2),
+                Wide(x, 2, 0), Wide(x, 2, 1), Wide(x, 2, 2), Wide(x, 3, 0), Wide(x, 3, 1), Wide(x, 3, 2)));
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void DoubleInCircle(Input x, List<long> t)
+        {
+            t.Add(DoublePredicates.InCircle(Wide(x, 0, 0), Wide(x, 0, 1), Wide(x, 1, 0), Wide(x, 1, 1), Wide(x, 2, 0), Wide(x, 2, 1), Wide(x, 3, 0), Wide(x, 3, 1)));
+        }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         static void Orient(Input x, List<long> t) { FixedPoint3[] f = x.F; t.Add(FixedArith.Orient(ref f[0], ref f[1], ref f[2], x.I, x.J)); }
@@ -191,7 +221,8 @@ namespace geometry3Sharp.Tests
         }
 
         // the results themselves: the indirect predicates against their BigInteger forms (the FixedArith kernels have
-        // their oracles in ExactPoint3FixedWidthTests and ExactPlanesFixedWidthTests)
+        // their oracles in ExactPoint3FixedWidthTests and ExactPlanesFixedWidthTests, the generated kernels on doubles
+        // in GeneratedDoublePredicatesTests)
         [Fact]
         public void IndirectPredicates_OnADirtyStack_MatchTheBigIntegerForms()
         {

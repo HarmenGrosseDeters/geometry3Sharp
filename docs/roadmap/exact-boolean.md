@@ -412,6 +412,11 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
+  P2 is built (2026-11-12, #769): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
+  by the monomial pass ([design](../design/EXACT_FALLBACK_MONOMIALS.md)); on master a7693fd the 61 units of the #711
+  class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
+  shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
+  (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
   Candidate B is built (2026-11-13, #772): the classification's exact sign stages (plane side, normal dot, the
   4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
   ([design](../design/EXACT_LIMB_SIGNS.md)). Measured against master 683fb2c (4 cores, wall time with collections,

@@ -66,6 +66,11 @@ int ExactPredicates.InCircle(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
    Sonst `*_bigint`: alle Koordinaten als `m·2^e` auf gemeinsamen Exponenten, Determinante in `BigInteger`.
 3. NaN → `ArgumentException` (im exakten Pfad); ±∞ ebenso (Test `InfiniteCoordinates_Throw`).
 
+*Update 2026-11:* outside the range of the expansions `Orient2d`, `Orient3d` and `InCircle` no longer use `*_bigint`
+but the generated kernels of `math/Generated/DoublePredicates.cs` (the exact monomials of the determinant added on the
+stack, no allocation; [design/EXACT_FALLBACK_MONOMIALS.md](design/EXACT_FALLBACK_MONOMIALS.md)). The `*_bigint`
+functions remain as the reference of the tests and as the exact stage of `InSphere`.
+
 `Expansion.TwoProduct` nutzt bewusst kein FMA (`Math.FusedMultiplyAdd` gibt es unter netstandard2.0/net48
 nicht); Dekker-Splitting mit `2^27+1` ist exakt, solange nichts über-/unterläuft – dafür sorgt `InRange`.
 
