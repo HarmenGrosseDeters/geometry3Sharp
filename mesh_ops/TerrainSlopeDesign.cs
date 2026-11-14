@@ -599,6 +599,12 @@ namespace gs
             string head = Message.Substring(0, Message.IndexOf(FacetsFitFrom));
             double given = Tolerance, t = FanTolerance;
             int attempts0 = Attempts, capRounds0 = CapRounds;
+            // (the runs of the search build again: the refused build's diagnostics are kept, the ramps' share among them)
+            double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY, used = UsedRampShare;
+            double margin = UsedSlopeMargin, feature = UsedMinFeatureSize, lowering = UsedToeLowering, ez0 = lastEz, ratio = MaxSlopeRatio;
+            int tooSmall = RampGradeTooSmall, realizations = Realizations;
+            long predicates = PredicateCalls, fallbacks = ExactFallbacks, constructions = ExactConstructions;
+            var phases = new Dictionary<string, double>(PhaseSeconds);
             bool fits = false;
             fanCheckOnly = true;
             try {
@@ -611,6 +617,11 @@ namespace gs
                 }
             } finally {
                 fanCheckOnly = false; Tolerance = given; Attempts = attempts0; CapRounds = capRounds0;
+                RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; UsedRampShare = used;
+                RampGradeTooSmall = tooSmall;
+                UsedSlopeMargin = margin; UsedMinFeatureSize = feature; UsedToeLowering = lowering; lastEz = ez0; MaxSlopeRatio = ratio;
+                Realizations = realizations; PredicateCalls = predicates; ExactFallbacks = fallbacks; ExactConstructions = constructions;
+                PhaseSeconds = phases;
             }
             FanTolerance = fits ? t : 0;
             ToeProblems = new List<Index2i>();
@@ -888,7 +899,9 @@ namespace gs
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
             ramp_box(ref toeBox);
-            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself)
+            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself; the reach
+            // from the specified toe, not from the ramps' built heights as the budget's D0 (#861): an estimate, the raise
+            // below decides)
             Func<double, double> upTo = CapEstimateRounds > 0 ? terrain_max_by_reach(toeBox, (H - zMin) / sMin, fill) : null;
             double hLocal = (upTo != null ? upTo(0) : local_terrain_max(toeBox, 0, fill)) + Tolerance;
             double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
@@ -1255,12 +1268,12 @@ namespace gs
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
             ramp_box(ref toeBox);
-            double D0 = (H - zMin) / (sMin * (1 - delta));
-            double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
-            double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
             // (the output coordinates and heights are rounded to nearest from the exact values, ExactSlopeKernel.Rounded /
             // Height: half an ulp; one ulp is counted. Heights near the lowered toe can exceed maxZ a little: ulp(2 maxZ))
-            double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
+            double D0, maxXY, exy, eeval, rampShare, reachLowered;
+            if (reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered) == false)
+                return MathUtil.IsFinite(rampShare) ? fail(Statuses.Failed, "the reach of the lowered ramps does not converge")
+                                                    : fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
             // (the realization error of a stored height, TERRAIN.md 5.4: the slack of the catch-line bound's band, 5.5)
@@ -1290,8 +1303,8 @@ namespace gs
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
             // (a ramp's road is built flatter than its grade and its outer edge wider than Width: the road and the wall above
-            // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins")
-            double rampShare = ramp_share(delta, sMin, exy);
+            // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins"; reach_and_resolution
+            // computed it, and D0 from the lowest built height, #861)
             if (RampGradeTooSmall >= 0)
                 return ramp_problem(Statuses.InvalidInput, RampGradeTooSmall, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
             UsedRampShare = rampShare;
@@ -1359,7 +1372,7 @@ namespace gs
             double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
             UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
-            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
+            double dMax = (H - zMin + reachLowered + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
 
             // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
             // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
@@ -1952,25 +1965,60 @@ namespace gs
         int fan_directions_at(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, double t)
         {
             double sMin = pieces.Min(p => p.S), sMax = pieces.Max(p => p.S);
-            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
             ramp_box(ref toeBox);
-            double D0 = (H - zMin) / (sMin * (1 - delta));
-            double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
-            double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
-            double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
+            // (the ramps' share writes the build's diagnostics, RampShare* and RampGradeTooSmall: kept as the build's own)
+            double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY;
+            int tooSmall = RampGradeTooSmall;
+            double D0, maxXY, exy, eeval, rampShare, reachLowered;
+            bool converged;
+            try {
+                converged = reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered);
+            } finally {
+                RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; RampGradeTooSmall = tooSmall;
+            }
+            if (converged == false) return -1;
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false) return -1;
             double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
             double mergeShare = MergeShare(exy, sMax);
             double snapShare = Terrain != null ? t / 4 : 0;
-            // (the ramps' share: its parts are diagnostics of this build, the same at the build's own H and t)
-            double rampShare = ramp_share(delta, sMin, exy);
             double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
             double facetShare = t - withoutRamps - rampShare;
             return FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
+        }
+
+        /// <summary>
+        /// the reach D0 of the cones (TERRAIN.md 5.1) and the numerical resolution of a build at the cap H and margin delta:
+        /// the reach from the lowest built height. A ramp's road and the wall above it are built up to the ramp's share
+        /// below the specified heights (TERRAIN_RAMPS.md, "Margins"), so their cones reach up to share / (sMin (1 - delta))
+        /// further than from the specified toe; before #861 only the 1.1 of the budget's terms covered that (L up to about
+        /// 0.2 D0 / delta). The share depends on e_xy, which depends on D0: a fixed point, D0 counted with a share at least
+        /// the one computed at its e_xy (e_xy changes only at a power of 2 of maxXY, so it ends after one or two rounds).
+        /// Without ramps the share is 0 and all is as before, bit for bit. reachLowered: the share D0 counts; rampShare:
+        /// the share at the final e_xy (at most reachLowered; NaN with RampGradeTooSmall). Writes the RampShare*
+        /// diagnostics (ramp_share). False if it does not settle (not seen)
+        /// </summary>
+        bool reach_and_resolution(List<InPiece> pieces, AxisAlignedBox2d toeBox, double H, double delta, out double D0,
+                                  out double maxXY, out double exy, out double eeval, out double rampShare, out double reachLowered)
+        {
+            double sMin = pieces.Min(p => p.S);
+            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
+            double maxZ0 = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
+            reachLowered = 0;
+            for (int k = 0; ; ++k) {
+                D0 = (H - zMin + reachLowered) / (sMin * (1 - delta));
+                maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
+                // (the lowest built height, which the heights' resolution counts too)
+                double maxZ = reachLowered > 0 ? Math.Max(maxZ0, Math.Abs(zMin - reachLowered)) : maxZ0;
+                exy = ulp(maxXY); eeval = ulp(2 * maxZ);
+                rampShare = ramp_share(delta, sMin, exy);
+                if (!(rampShare > reachLowered)) return true;     // (NaN: a grade too small, reported by the caller)
+                if (k == 8 || MathUtil.IsFinite(rampShare) == false) return false;
+                reachLowered = rampShare;
+            }
         }
 
         /// <summary>
