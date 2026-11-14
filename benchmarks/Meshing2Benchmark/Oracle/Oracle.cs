@@ -653,7 +653,8 @@ namespace Meshing2Acceptance
 
             /// <summary>
             /// The piece predicate, decided exactly, on the constraints as the mesher has them (their ends where it merged them: the output
-            /// vertices of their input points; one merged to a point is no constraint):
+            /// vertices of their input points; one merged to a point is left out, which only withholds excuses: the mesher still refuses
+            /// a split point near that point):
             /// - its own constraints: those that hold both ends within the mesher's tolerance (a hair more): the mesher makes such vertices
             ///   vertices of the constraint and merges the sources of the shared piece; this also covers a split point that rounding put
             ///   off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of a hull
@@ -683,6 +684,9 @@ namespace Meshing2Acceptance
                 Pt pa = v[ia], pb = v[ib];
                 Q tol2 = o11Tol2, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7);
                 if (tol2 < Pow2(-2002)) return false;
+                // (a foreign producer's input point that is not found has no output vertex: the constraints as the mesher has them are
+                // then not known)
+                if (map.Any(m => m < 0)) return false;
                 var ms = MergedSources();
                 var own = new List<(Pt a, Pt b)>();
                 var ownIds = new HashSet<int>();
@@ -726,8 +730,11 @@ namespace Meshing2Acceptance
                 if (mergedSources != null) return mergedSources;
                 mergedSources = new List<(Pt a, Pt b)?>();
                 mergedBox = new double[4 * sources.Count];
-                // (four tolerances, with room for the doubles' rounding)
-                mergedPad = 4.5 * Math.Sqrt(Approx(o11Tol2)) + 1e-300;
+                // (four tolerances, with room for the doubles' rounding; the tolerance from its square scaled to about 1, as the square of
+                // one above the floor 2^-1001 is no double; no pad if it is not a finite double: then nothing is filtered)
+                int e2 = (int)Math.Floor((BigInteger.Log(o11Tol2.N, 2) - BigInteger.Log(o11Tol2.D, 2)) / 2);
+                double tolD = Math.Sqrt(Approx(o11Tol2 / Pow2(2 * e2))) * Math.Pow(2, e2);
+                mergedPad = tolD > 0 && tolD < double.PositiveInfinity ? 4.5 * tolD : double.NaN;
                 for (int k = 0; k < sources.Count; ++k) {
                     var (ia, ib) = sourceInputs[k];
                     Pt a = v[map[ia]], b = v[map[ib]];
@@ -742,6 +749,7 @@ namespace Meshing2Acceptance
             {
                 if (e.Reference || !vKnown[i] || double.IsNaN(mergedBox[4 * k])) return true;
                 double d = mergedPad;
+                if (double.IsNaN(d)) return true;
                 return !(vxh[i] < mergedBox[4 * k] - d || vxl[i] > mergedBox[4 * k + 1] + d || vyh[i] < mergedBox[4 * k + 2] - d || vyl[i] > mergedBox[4 * k + 3] + d);
             }
 
@@ -749,9 +757,10 @@ namespace Meshing2Acceptance
             /// (1 + 2^-6)^2: the mesher refuses a split point p~ whose ScaledDist2 to another constraint is at most its tolerance tol, both
             /// in doubles (scaling by a power of two is exact). In units of the magnitude (every coordinate, and every difference of
             /// coordinates per axis, at most 1; tol = 2^-41, the mesher's own within a relative u of it: its extent is a rounded
-            /// difference) and with u = 2^-53, p~ lies within 33 u of the point the oracle models:
+            /// difference) and with u = 2^-53, p~ lies within 39 u of the point the oracle models:
             /// - the projections tu, tw of the piece's ends (the differences from A, the dot products, the squared length, the division):
-            ///   gamma_5 |q| / |dir| each, times |dir| at most 5 sqrt2 u, weighted by 1 - f and f: 7.1 u;
+            ///   gamma_5 |q| / |dir| each, times |dir| at most 5 sqrt2 u, weighted by 1 - f and f: 7.1 u; and their dependence on the
+            ///   rounded direction (projections onto dir~, not dir): about 6 u;
             /// - the fraction: the mesher's d / length and the oracle's within 5 u of it relatively each, times |tw - tu| |dir| f
             ///   (at most sqrt2 * 2/3): 9.5 u; the mesher's 1 - d / length from the other end, one more rounding of at most u / 2,
             ///   times |tw - tu| |dir|: 0.7 u;
@@ -760,7 +769,7 @@ namespace Meshing2Acceptance
             /// - the rounded direction: |dir~ - dir| |tt| at most sqrt2 u |dir| |tt| = sqrt2 u |p - A|, at most 4 u;
             /// and the computed distance is at most 7 u below the exact distance of p~ (the differences from the constraint's end and its
             /// direction, 2 u each; t dx, 1.5 u; a wrong parameter t only lengthens the vector; the squares and the tolerance's square are
-            /// relative, below 1 u). So a refused point lies within tol + 40 u = tol (1 + 40 * 2^-12) of the other constraint, inside
+            /// relative, below 1 u). So a refused point lies within tol + 46 u = tol (1 + 46 * 2^-12) of the other constraint, inside
             /// tol (1 + 64 * 2^-12). (This needs every intermediate in the normal range, which ComputeO11Unsplittable's floor on the
             /// tolerance provides: below it the subnormal rounding is absolute.)
             /// </summary>
@@ -783,7 +792,9 @@ namespace Meshing2Acceptance
             /// - an input point did (its surviving output vertex);
             /// - a crossing did: it lies on the chords of two pieces of different constraints, each within the tolerance of its sources
             ///   (before refinement every chain vertex is an input point or a crossing within the tolerance of the chain's sources, and the
-            ///   distance to a segment is convex along another), so within the tolerance (a hair more) of at least two constraints;
+            ///   distance to a segment is convex along another), so within the tolerance of at least two constraints, plus the rounding of
+            ///   the crossings it was computed from: at most 0.71 u of the magnitude per crossing, and the hair (2^-6 of the tolerance,
+            ///   64 u) covers about 90 nested ones;
             /// - so one within it of at most one constraint is a split point; one within it of two or more may be either (review of #870).
             /// </summary>
             EndKind KindOfEnd(int id)

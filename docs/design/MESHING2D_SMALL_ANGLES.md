@@ -261,7 +261,7 @@ off-centres, petal candidates, the grid, lenses and lens deletion are not covere
       QualityMesh2 campaign, T5: 1e-11 along against 3e-12; 8 ulps is a conservative envelope, not a derived bound). A split point at
       or a hair beyond the mesher's tolerance (2^-41) from another source, which the mesher may refuse in doubles, is excused since #870:
       the oracle models the mesher's split point and refuses it up to the tolerance plus the derived rounding of the point and of
-      `ScaledDist2`, 40 * 2^-12 of the tolerance, taken as 2^-6 = 64 * 2^-12 (`O11RefusalSlack2`; before, its margin was 2^-7 inside). The three
+      `ScaledDist2`, 46 * 2^-12 of the tolerance, taken as 2^-6 = 64 * 2^-12 (`O11RefusalSlack2`; before, its margin was 2^-7 inside). The three
       single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28) were traced on 2026-11-12: each lay below A at
       a T-junction apex, its off-centre in the diametral circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave
       such a triangle up, which the oracle's O11 exemptions (a circumcentre behind the piece) do not cover. Fixed in the mesher: the

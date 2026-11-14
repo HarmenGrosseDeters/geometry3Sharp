@@ -1633,13 +1633,18 @@ namespace Meshing2Acceptance
             //     half the length is the only shell point (the other lies outside the middle third). An end that is a crossing (C, vertical
             //     through 5.525) lies near two constraints, so it may have existed before refinement or not: both its shell point and the
             //     midpoint are the mesher's possible points
-            foreach (var (inputX0, inputX1, flip, x0, x1, crossX1, excused, what) in new[] {
-                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: next to an input end the mesher's split point is the shell point from it, within the tolerance: excused (#870)"),
-                (false, true, false, 4.125, 5.525, false, false, "O11-unsplittable: next to an input end whose shell point lies outside the tolerance (the midpoint inside it) is judged (#870)"),
-                (false, true, true, 4.125, 5.525, false, false, "O11-unsplittable: the same with the piece's ends in the other order is judged (#870)"),
-                (false, false, false, 4.125, 5.525, false, true, "O11-unsplittable: between two split points the mesher's split point is the midpoint, within the tolerance: excused (#870)"),
-                (true, false, false, 4.3, 5.7, false, true, "O11-unsplittable: a shell point within the tolerance with the midpoint outside it is excused (#870)"),
-                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: next to a crossing end, which may have existed before refinement, its shell point outside the tolerance is judged (#870)") }) {
+            //     The crossing case and the first case again scaled by 2^-600 (review of #870: the prefilter's pad underflowed there, so the
+            //     constraints near a piece were missed); in both crossing cases the crossing vertex lies 1/8 of the tolerance off C, as a
+            //     rounded crossing may
+            foreach (var (inputX0, inputX1, flip, x0, x1, crossX1, excused, what, sc) in new[] {
+                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: next to an input end the mesher's split point is the shell point from it, within the tolerance: excused (#870)", 1.0),
+                (false, true, false, 4.125, 5.525, false, false, "O11-unsplittable: next to an input end whose shell point lies outside the tolerance (the midpoint inside it) is judged (#870)", 1.0),
+                (false, true, true, 4.125, 5.525, false, false, "O11-unsplittable: the same with the piece's ends in the other order is judged (#870)", 1.0),
+                (false, false, false, 4.125, 5.525, false, true, "O11-unsplittable: between two split points the mesher's split point is the midpoint, within the tolerance: excused (#870)", 1.0),
+                (true, false, false, 4.3, 5.7, false, true, "O11-unsplittable: a shell point within the tolerance with the midpoint outside it is excused (#870)", 1.0),
+                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: next to a crossing end, which may have existed before refinement, its shell point outside the tolerance is judged (#870)", 1.0),
+                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: the crossing case at 2^-600 is judged (#870)", Math.Pow(2, -600)),
+                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: the shell point from an input end at 2^-600 is excused (#870)", Math.Pow(2, -600)) }) {
                 const double m7 = 0.035;
                 double b7(double x) => 8 + m7 * (x - 4);
                 double xm = (x0 + x1) / 2;
@@ -1657,6 +1662,9 @@ namespace Meshing2Acceptance
                 if (crossX1) { inX.Add(x1); inY.Add(7.5); inX.Add(x1); inY.Add(8.5); }
                 int n = inX.Count;
                 if (e0 < 0) e0 = n - 1 - e0; if (e1 < 0) e1 = n - 1 - e1;
+                for (int i = 0; i < inX.Count; ++i) { inX[i] *= sc; inY[i] *= sc; }
+                for (int i = 0; i < exX.Count; ++i) { exX[i] *= sc; exY[i] *= sc; }
+                if (crossX1) exX[e1 - n] += sc / 256;   // (1/8 of the tolerance off C: still near it, beyond the vertex box's padding)
                 var input = new Mesh2Input { X = inX.ToArray(), Y = inY.ToArray(), MinAngleDeg = 20 };
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
                 input.Segments.Add(new SegmentInput(4, 5));
@@ -1666,7 +1674,7 @@ namespace Meshing2Acceptance
                 var o = new Mesh2Output { Status = Mesh2Status.Success, VX = inX.Concat(exX).ToArray(), VY = inY.Concat(exY).ToArray(),
                     InputToVertex = Enumerable.Range(0, n).ToArray(), Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                     Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, e0), new SubsegmentOutput(e0, e1), new SubsegmentOutput(e1, 5), new SubsegmentOutput(6, 7) } };
-                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) });
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) * Q.FromDouble(sc) });
                 string edge = flip ? "edge " + e1 + "-" + e0 + " is not locally Delaunay against " + top : "edge " + e0 + "-" + e1 + " is not locally Delaunay against " + bottom;
                 must(what, report.ToString().Contains(edge) != excused && (report.O11LocalExcused > 0) == excused, "report: " + report);
             }
@@ -1688,8 +1696,8 @@ namespace Meshing2Acceptance
                 must("O11-unsplittable: the split point on the piece's source within the tolerance, the chord's beyond it, is excused (#870)",
                     !report.ToString().Contains("edge 8-9 is not locally Delaunay against 11") && report.O11LocalExcused > 0, "report: " + report);
             }
-            // 7d'''. the other constraint as the mesher has it (#870, review): the 7d case of a refused midpoint (1 - 2^-9 of the tolerance
-            //     from A'), with the first end of A' merged into an input point 3/4 of the tolerance above it: the mesher measures against
+            // 7d'''. the other constraint at its merged ends (#870, review): the 7d case of a refused midpoint (1 - 2^-9 of the tolerance
+            //     from A'), with the first end of A' mapped to an input point 3/4 of the tolerance above it: the mesher measures against
             //     the merged A', 1.7 tolerances from the midpoint, and splits the piece, so it is judged (before, the oracle used the input
             //     ends of A')
             {
