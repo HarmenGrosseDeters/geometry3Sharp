@@ -964,16 +964,27 @@ def source_contract():
         if norm(ids + 'commit_drift();') not in body:
             raise ValueError(edit + ' does not set the ids of its added triangles before commit_drift; review '
                              'drift_reference.py')
-    # the records start at Apply: the anchors are the corners, the carried bounds 0, no ghosts
+    # the records start at Apply: the anchors are the corners, the carried bounds 0, no ghosts (the anchors are set per
+    # triangle by for_triangles, which visits every triangle id once: in this thread for one block of ids, else per block)
     apply = norm(_method(text, 'public bool Apply('))
     if norm("""refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
             refCarry = new double[Mesh.MaxTriangleID];
-            foreach (int t in Mesh.TriangleIndices()) {
+            for_triangles(Mesh, (t) => {
                 Index3i tv = Mesh.GetTriangle(t);
                 refAnchor[3 * t] = Mesh.GetVertex(tv.a); refAnchor[3 * t + 1] = Mesh.GetVertex(tv.b); refAnchor[3 * t + 2] = Mesh.GetVertex(tv.c);
-            }
+            });
             ghostsAt = new Dictionary<int, List<Ghost>>();""") not in apply:
         raise ValueError('Apply: the records do not start from the mesh; review drift_reference.py')
+    every = norm(_method(text, 'static void for_triangles('))
+    if (norm("""for (int tid = 0; tid < mesh.MaxTriangleID; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);""") not in every
+            or norm("""int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
+                for (int tid = b * TriangleBlock; tid < end; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);""") not in every
+            or norm("gParallel.ForRange(triangle_blocks(mesh), (b) => {") not in every):
+        raise ValueError('for_triangles: not every triangle id is visited; review drift_reference.py')
 
 
 if __name__ == '__main__':

@@ -429,20 +429,68 @@ namespace g3
         // the supported range (class comment): the largest coordinate magnitude in [2^-200, 2^200] (about 6e-61 to 2e60), no subnormal coordinate
         static bool coordinates_in_range(DMesh3 mesh)
         {
-            double max = 0;
-            foreach (int tid in mesh.TriangleIndices()) {
-                Index3i tv = mesh.GetTriangle(tid);
-                for (int k = 0; k < 3; ++k) {
-                    Vector3d p = mesh.GetVertex(tv[k]);
-                    for (int c = 0; c < 3; ++c) {
-                        double a = Math.Abs(p[c]);
-                        if (a != 0 && a < 2.2250738585072014e-308)
-                            return false;
-                        if (a > max) max = a;
+            // (per block of triangle ids: a subnormal coordinate, and the largest magnitude; the largest of the blocks'
+            // is the largest of all, exact in any order, so the answer is that of a serial scan)
+            int blocks = triangle_blocks(mesh);
+            var maxOf = new double[blocks];
+            var subnormalIn = new bool[blocks];
+            gParallel.ForRange(blocks, (b) => {
+                double max = 0;
+                int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
+                for (int tid = b * TriangleBlock; tid < end; ++tid) {
+                    if (mesh.IsTriangle(tid) == false)
+                        continue;
+                    Index3i tv = mesh.GetTriangle(tid);
+                    for (int k = 0; k < 3; ++k) {
+                        Vector3d p = mesh.GetVertex(tv[k]);
+                        for (int c = 0; c < 3; ++c) {
+                            double a = Math.Abs(p[c]);
+                            if (a != 0 && a < 2.2250738585072014e-308) {
+                                subnormalIn[b] = true;
+                                return;
+                            }
+                            if (a > max) max = a;
+                        }
                     }
                 }
+                maxOf[b] = max;
+            });
+            double most = 0;
+            for (int b = 0; b < blocks; ++b) {
+                if (subnormalIn[b])
+                    return false;
+                if (maxOf[b] > most) most = maxOf[b];
             }
-            return max == 0 || (max >= 6.2230152778611417e-61 && max <= 1.6069380442589903e60);       // (all zero: degenerate, not a range matter)
+            return most == 0 || (most >= 6.2230152778611417e-61 && most <= 1.6069380442589903e60);       // (all zero: degenerate, not a range matter)
+        }
+
+        // the per-triangle scans run over blocks of this many triangle ids in parallel; each block writes only its own
+        // ids' slots or its own entry, and the results are combined serially in block order (no floating-point
+        // reduction across threads: the combined values are flags and a largest magnitude, exact in any order)
+        const int TriangleBlock = 4096;
+
+        static int triangle_blocks(DMesh3 mesh)
+        {
+            return (mesh.MaxTriangleID + TriangleBlock - 1) / TriangleBlock;
+        }
+
+        // body(tid) for every triangle id of the mesh, in parallel over blocks of ids; body may write only the slots of
+        // its own id
+        static void for_triangles(DMesh3 mesh, Action<int> body)
+        {
+            // (one block: in this thread, without starting a parallel loop)
+            if (triangle_blocks(mesh) <= 1) {
+                for (int tid = 0; tid < mesh.MaxTriangleID; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);
+                return;
+            }
+            gParallel.ForRange(triangle_blocks(mesh), (b) => {
+                int end = Math.Min(mesh.MaxTriangleID, (b + 1) * TriangleBlock);
+                for (int tid = b * TriangleBlock; tid < end; ++tid)
+                    if (mesh.IsTriangle(tid))
+                        body(tid);
+            });
         }
 
         /// <summary> repair (see class comment); returns IsClean </summary>
@@ -455,10 +503,10 @@ namespace g3
             MaxDrift = 0;
             refAnchor = new Vector3d[3 * Mesh.MaxTriangleID];
             refCarry = new double[Mesh.MaxTriangleID];
-            foreach (int t in Mesh.TriangleIndices()) {
+            for_triangles(Mesh, (t) => {
                 Index3i tv = Mesh.GetTriangle(t);
                 refAnchor[3 * t] = Mesh.GetVertex(tv.a); refAnchor[3 * t + 1] = Mesh.GetVertex(tv.b); refAnchor[3 * t + 2] = Mesh.GetVertex(tv.c);
-            }
+            });
             ghostsAt = new Dictionary<int, List<Ghost>>();
             GhostsMade = GhostsLost = 0;
             touched.Clear();
@@ -498,13 +546,17 @@ namespace g3
             // a vertex of a triangle that is not finite (NaN or infinite): nothing to repair or to certify; the exact
             // filters would throw an ArgumentException (or an AggregateException of it), so report ScaleNotFinite, as
             // for an extent that overflows (component_scales has set it and the size) (QA 2.0 T1 finding R27)
-            foreach (int tid in Mesh.TriangleIndices()) {
+            // (per block: one flag)
+            var notFiniteIn = new bool[triangle_blocks(Mesh)];
+            for_triangles(Mesh, (tid) => {
                 Index3i tv = Mesh.GetTriangle(tid);
-                if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false) {
-                    InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
-                    ScaleNotFinite = true;
-                    return false;
-                }
+                if (Mesh.GetVertex(tv.a).IsFinite == false || Mesh.GetVertex(tv.b).IsFinite == false || Mesh.GetVertex(tv.c).IsFinite == false)
+                    notFiniteIn[tid / TriangleBlock] = true;
+            });
+            if (Array.IndexOf(notFiniteIn, true) >= 0) {
+                InitialIntersections = InitialDegenerate = RemainingIntersections = RemainingDegenerate = 0;
+                ScaleNotFinite = true;
+                return false;
             }
             // the supported range (class comment): outside it the tolerances (absolute parts, squares of tiny lengths) are meaningless
             if (coordinates_in_range(Mesh) == false) {
@@ -513,7 +565,8 @@ namespace g3
                 return false;
             }
             if (SharedPositionsTouch) {
-                atPosition = new Dictionary<Vector3d, List<int>>();
+                // (sized for the vertices: no rehash while it fills; the capacity does not change the order of its entries)
+                atPosition = new Dictionary<Vector3d, List<int>>(Mesh.VertexCount);
                 canonId = new int[Mesh.MaxVertexID];
                 foreach (int vid in Mesh.VertexIndices())
                     position_add(vid, Mesh.GetVertex(vid));
@@ -758,7 +811,7 @@ namespace g3
         {
             List<int> list;
             if (atPosition.TryGetValue(key(p), out list) == false)
-                atPosition[key(p)] = list = new List<int>();
+                atPosition[key(p)] = list = new List<int>(1);
             list.Add(v);
             int least = list.Count > 1 ? Math.Min(canonId[list[0]], v) : v;
             foreach (int u in list)
@@ -869,13 +922,17 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         void rebuild_tree()
         {
-            var boxes = new List<AxisAlignedBox3d>();
-            treeTids = new List<int>();
-            foreach (int tid in Mesh.TriangleIndices()) {
+            treeTids = new List<int>(Mesh.TriangleCount);
+            foreach (int tid in Mesh.TriangleIndices())
                 treeTids.Add(tid);
-                boxes.Add(box(Mesh.GetTriangle(tid)));
-            }
-            tree = new TriangleBoxTree(boxes);
+            // (the boxes per triangle in parallel, each into its own slot: min / max, exact; no edit is pending)
+            var boxAt = new AxisAlignedBox3d[treeTids.Count];
+            gParallel.ForRange((treeTids.Count + TriangleBlock - 1) / TriangleBlock, (b) => {
+                int end = Math.Min(treeTids.Count, (b + 1) * TriangleBlock);
+                for (int i = b * TriangleBlock; i < end; ++i)
+                    boxAt[i] = box(Mesh.GetTriangle(treeTids[i]));
+            });
+            tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxAt));
             dirty.Clear();
             dirtyTree = null;
             pending.Clear();
@@ -1125,9 +1182,21 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         List<int> degenerate_triangles()
         {
+            // (one block: a serial scan, without the marks)
+            if (triangle_blocks(Mesh) <= 1) {
+                var few = new List<int>();
+                foreach (int tid in Mesh.TriangleIndices())
+                    if (is_bad(tid))
+                        few.Add(tid);
+                return few;
+            }
+            // (the test per triangle in parallel, read only: no proposed edit is pending, movedV = -1; the list in id
+            // order, as a serial scan)
+            var isBad = new bool[Mesh.MaxTriangleID];
+            for_triangles(Mesh, (tid) => isBad[tid] = is_bad(tid));
             var list = new List<int>();
-            foreach (int tid in Mesh.TriangleIndices())
-                if (is_bad(tid))
+            for (int tid = 0; tid < isBad.Length; ++tid)
+                if (isBad[tid])
                     list.Add(tid);
             return list;
         }
@@ -2745,22 +2814,63 @@ namespace g3
                     return;
         }
 
+        // the connected components of the triangles (across edges), in the order of MeshConnectedComponents.FindConnectedT
+        // and each in its order: by increasing smallest triangle id, depth first from it with the neighbours pushed in
+        // edge order (the same lists, without its filter delegates and range enumerator). The list is reused: read it
+        // before the next component is asked for. Triangles removed while a component is read are not visited again
+        internal static IEnumerable<List<int>> connected_components(DMesh3 mesh)
+        {
+            int n = mesh.MaxTriangleID;
+            // 0 not visited, 1 on the stack, 2 done
+            var state = new byte[n];
+            var stack = new List<int>();
+            var comp = new List<int>();
+            for (int seed = 0; seed < n; ++seed) {
+                if (state[seed] != 0 || mesh.IsTriangle(seed) == false)
+                    continue;
+                stack.Add(seed);
+                state[seed] = 1;
+                while (stack.Count > 0) {
+                    int t = stack[stack.Count - 1];
+                    stack.RemoveAt(stack.Count - 1);
+                    state[t] = 2;
+                    comp.Add(t);
+                    Index3i nbrs = mesh.GetTriNeighbourTris(t);
+                    for (int j = 0; j < 3; ++j) {
+                        int u = nbrs[j];
+                        if (u != DMesh3.InvalidID && state[u] == 0) {
+                            stack.Add(u);
+                            state[u] = 1;
+                        }
+                    }
+                }
+                yield return comp;
+                comp.Clear();
+            }
+        }
+
         // components with a degenerate triangle or an edited vertex that are tiny or thin
         [MethodImpl(JitHints.Optimize)]
         int remove_tiny_components(List<int> bad)
         {
-            var comps = new MeshConnectedComponents(Mesh);
-            comps.FindConnectedT();
-            var badSet = new HashSet<int>(bad);
+            // (marks instead of hash sets; the components in the order of MeshConnectedComponents.FindConnectedT, each
+            // in its order, so the sums below are the same, bit for bit)
+            var isBad = new bool[Mesh.MaxTriangleID];
+            foreach (int t in bad)
+                isBad[t] = true;
+            var isTouched = new bool[Mesh.MaxVertexID];
+            // (the edits add no vertices: every touched id is below MaxVertexID)
+            foreach (int v in touched)
+                isTouched[v] = true;
             int count = 0;
-            foreach (var comp in comps.Components) {
+            foreach (List<int> comp in connected_components(Mesh)) {
                 bool hasBad = false;
                 double sum = 0, volume = 0;
                 // (the volume relative to a point of the component, against cancellation far from the origin)
-                Vector3d o = pos(Mesh.GetTriangle(comp.Indices[0]).a);
-                foreach (int t in comp.Indices) {
+                Vector3d o = pos(Mesh.GetTriangle(comp[0]).a);
+                foreach (int t in comp) {
                     Index3i tv = Mesh.GetTriangle(t);
-                    hasBad |= badSet.Contains(t) || touched.Contains(tv.a) || touched.Contains(tv.b) || touched.Contains(tv.c);
+                    hasBad |= isBad[t] || isTouched[tv.a] || isTouched[tv.b] || isTouched[tv.c];
                     sum += area(t);
                     volume += (pos(tv.a) - o).Dot((pos(tv.b) - o).Cross(pos(tv.c) - o)) / 6;
                 }
@@ -2768,13 +2878,13 @@ namespace g3
                     continue;
                 // tiny, or (closed) thinner than maxLength: a slab of thickness h has about volume = h area / 2
                 bool closed = true;
-                foreach (int t in comp.Indices) {
+                foreach (int t in comp) {
                     Index3i te = Mesh.GetTriEdges(t);
                     closed &= Mesh.IsBoundaryEdge(te.a) == false && Mesh.IsBoundaryEdge(te.b) == false && Mesh.IsBoundaryEdge(te.c) == false;
                 }
                 // (only closed ones: an open component may close the rest by position, eg sheets that touch along an
                 // edge with their own vertices; removing it would leave holes)
-                int v0 = Mesh.GetTriangle(comp.Indices[0]).a;
+                int v0 = Mesh.GetTriangle(comp[0]).a;
                 bool tiny = sum < 1e4 * sizeArea_of(v0), thin = 2 * Math.Abs(volume) < maxLength_of(v0) * sum;
                 if (closed == false || (tiny == false && thin == false))
                     continue;
@@ -2785,9 +2895,9 @@ namespace g3
                     ScaleDisparity++;
                     continue;
                 }
-                foreach (int t in comp.Indices)
+                foreach (int t in comp)
                     remove_triangle(t, true);
-                count += comp.Indices.Length;
+                count += comp.Count;
                 RemovedComponents++;
             }
             if (count > 0) {
