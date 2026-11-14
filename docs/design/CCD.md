@@ -647,11 +647,12 @@ Also in this PR (review notes of #857 and the code review of this PR): the candi
 per task (`Contacts` is sorted at the end, and the order of the tree queries and of `SelfPairs` depends only on the
 input); the query primitive's sub-step boxes are computed once per query.
 
-Measured: `benchmarks/CcdBenchmark/README.md` ("Sub-steps"). Parallel, puffer-ball goes from 28.4 s to 18.2 s (25M
-candidates instead of 250M), n-body from 5.3 s to 3.8 s. Where the motion is small the filter culls little and costs
-up to 14 ms (cloth-funnel 42 to 56 ms) or about 4 % (cloth-ball, rod-twist). The earliest times and the contacts are
-the same in every scene. The serial puffer-ball sweep (49.5 s, 86 s at SubSteps = 1) is still above 20 s; the
-parallel run is the default.
+Measured: `benchmarks/CcdBenchmark/README.md` ("Sub-steps"). Parallel, puffer-ball goes from 28-33 s to 18-20.5 s
+(25M candidates instead of 250M; 40 s on master), n-body from 5.7 s to 4.9 s, armadillo-rollers from 1.87 s to 1.59 s.
+Where the motion is small the filter culls little and costs about 10 ms (cloth-funnel) or 3 % (cloth-ball). The earliest
+times and the contacts are the same in every scene. Not solved: puffer-ball stays near 20 s on 4 cores (the whole-step
+pairs are still enumerated before the filter, about half of its time) and the serial sweep takes 51 s; a tree per
+sub-step would avoid that enumeration (16.8 s) but slowed the small-motion scenes. #866 keeps the diagnosis.
 
 Tests:
 - `SubSteps_SubsetOfOneSubStep`: random rounds, self and A against B, k = 2, 4, 8. The candidates are a subset with
