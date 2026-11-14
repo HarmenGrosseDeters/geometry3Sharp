@@ -1,0 +1,34 @@
+{
+  "stryker-config": {
+    "project": "geometry3Sharp_netstandard.csproj",
+    "test-projects": [
+      "../geometry3Sharp.Tests/geometry3Sharp.Tests.csproj"
+    ],
+    "target-framework": "net10.0",
+    "mutate": [
+      "**/mesh_ops/MeshHausdorffDistance.cs",
+      "**/queries/TriangleDeviationBounds.cs",
+      "**/queries/CertifiedTriangleBounds.cs",
+      "**/queries/CertifiedPointMeshDistance.cs"
+    ],
+    "test-case-filter": "FullyQualifiedName~CertifiedTriangleBoundsTests|FullyQualifiedName~HausdorffCertifiedUpperTests|FullyQualifiedName~HausdorffDistanceTests&FullyQualifiedName!~ReducedMesh_DeviationCertifiedQuickly&FullyQualifiedName!~UpperBound_ValidWithCoarseToleranceAndWithoutConvergence&FullyQualifiedName!~Invariant_UnderSimilarities|FullyQualifiedName~HausdorffPatchBoundTests&FullyQualifiedName!~Flat_Hole_Fold_Inconsistent_Plate_AlwaysSound&FullyQualifiedName!~SimplifyWithin_AlphaWrap&FullyQualifiedName!~Hausdorff_WithPatchBound_SameInterval_FewerSubdivisions|FullyQualifiedName~HausdorffRoundingTests|FullyQualifiedName~HausdorffSymmetricBudgetTests|FullyQualifiedName~MeshDeviationTests",
+    "ignore-methods": [
+      "*PredicateStats.*"
+    ],
+    "coverage-analysis": "perTest",
+    "configuration": "Release",
+    "additional-timeout": 30000,
+    "reporters": [
+      "progress",
+      "html",
+      "json",
+      "markdown"
+    ],
+    "thresholds": {
+      "high": 90,
+      "low": 70,
+      "break": 60
+    },
+    "concurrency": 2
+  }
+}
