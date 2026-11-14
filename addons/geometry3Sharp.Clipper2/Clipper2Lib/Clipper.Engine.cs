@@ -2996,6 +2996,8 @@ private void DoHorizontal(Active horz)
       OutPt dup = DuplicateOp(op2, false);
       dup.pt = dup.next!.next!.next!.pt;
       double after = Area(dup);
+      // a ring of zero net area (eg two equal lobes of opposite orientation) has no orientation to keep: upstream's
+      // behaviour (the insertion stays)
       if (before != 0 && (after > 0) != (before > 0))
       {
         dup.prev.next = dup.next;

@@ -137,7 +137,11 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      removal of the branch (`4da1564`, issue #1067, 2026-02-22, after 2.0.0): every failure fixed, but 2-3 % of the results
      changed within the rounding, most of them less accurate (16-gons: 250 farther from the exact area, 88 closer). 4da1564 is
      **not adopted** (owner 2026-11-13).
-   - **Known, open (option a, owner 2026-11-13):** the unshrunk pair of that case, 16-gons A = (2,3) (0,4) (-2,-1) (4,2) (-4,2)
+   - **Known, open (option a, owner 2026-11-13): the insertions that cost area without flipping the ring.** The guard catches only
+     an insertion that flips its ring. The independent review of the fix measured the rest of the class on the raw engine (random
+     8- to 24-gons on -2..2 and -4..4, every clip type and fill rule, against the exact area): 9 wrong results of 320 000 at 2^20
+     (4 pairs; 26 before the fix) and 4 of 128 000 at 2^50 (11 before), all from this branch, about 3 per 100 000; through the
+     adapter 2 of 96 000 changed, both from wrong to right. The repros are in issue #756. One of them, the unshrunk pair of that case, 16-gons A = (2,3) (0,4) (-2,-1) (4,2) (-4,2)
      (-1,-1) (-4,-2) (4,-4) (3,1) (-2,2) (0,-1) (-4,4) (-3,2) (2,-3) (0,0) (1,-1), B = (-2,1) (1,1) (4,0) (2,4) (1,-4) (-2,-3) (-2,0)
      (0,-2) (-3,-2) (-4,-3) (0,0) (-1,-1) (2,1) (2,0) (1,3) (-2,1), Intersection NonZero: 13.838 for an exact 14.267. The same
      insertion (vertex (-2,0), copy of (-2,-1)) costs 0.43 of area here without flipping the larger ring, so the guard does not
