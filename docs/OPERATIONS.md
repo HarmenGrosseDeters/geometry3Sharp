@@ -238,6 +238,12 @@ if (op.Compute() == false)
   their copies, 4 cores) the switch to Antipodal for all of them took 700 -> 446 s in all: the 1087141 family about
   95 -> 45 s each, 122796 11.2 -> 17.8 s (its classification 7.3 -> 14.4 s). Pieces whose
   centroid lies on or next to a boundary segment are undecided (`Counts["antipodal_undecided"]`) and read as outside.
+- For a boundary of 1000 segments or more, the boundary sum runs over a tree of the boundary chains: far runs of a chain
+  count by their chord and dipole, with a certified error (docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md). Its
+  value is taken only where it decides the same threshold as the full sum, so the result is the same, bit for bit;
+  `Counts["antipodal_hierarchical"]` and `["antipodal_hierarchical_fallbacks"]` count the evaluations it decided and
+  handed back. On the slow open models (union with the copy, 4 cores): 117959 111 -> 41 s, 122796 19.9 -> 10.6 s (the
+  cost of the Antipodal path above is gone there), the 1087141 family about 46 -> 34 s each.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
   (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
