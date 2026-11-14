@@ -68,10 +68,11 @@ namespace geometry3Sharp.Tests
         {
             Mesh2Output o0 = new QualityMesh2Candidate().Run(Issue());
             int checkedCases = 0;
+            var skipped = new List<string>();
             foreach (Similarity s in Similarity.All2D()) {
                 Mesh2Input input = Issue(p => s.Apply2d(p));
                 Mesh2Output o = new QualityMesh2Candidate().Run(input);
-                if (!s.IsExact && o.Status != Mesh2Status.Success) continue;
+                if (!s.IsExact && o.Status != Mesh2Status.Success) { skipped.Add(s.Name); continue; }
                 Assert.True(o.Status == Mesh2Status.Success, s.Name);
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 Assert.True(report.Ok, s.Name + ": " + report);
@@ -82,6 +83,8 @@ namespace geometry3Sharp.Tests
                 }
                 checkedCases++;
             }
+            // (a non-exact similarity whose rounded input the mesher could not mesh would be skipped: none is)
+            Assert.Empty(skipped);
             Assert.True(checkedCases > 4);
         }
     }
