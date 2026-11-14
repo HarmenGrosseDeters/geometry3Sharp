@@ -601,8 +601,10 @@ namespace gs
             int attempts0 = Attempts, capRounds0 = CapRounds;
             // (the runs of the search build again: the refused build's diagnostics are kept, the ramps' share among them)
             double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY, used = UsedRampShare;
-            double margin = UsedSlopeMargin, feature = UsedMinFeatureSize, lowering = UsedToeLowering, ez0 = lastEz;
-            int tooSmall = RampGradeTooSmall;
+            double margin = UsedSlopeMargin, feature = UsedMinFeatureSize, lowering = UsedToeLowering, ez0 = lastEz, ratio = MaxSlopeRatio;
+            int tooSmall = RampGradeTooSmall, realizations = Realizations;
+            long predicates = PredicateCalls, fallbacks = ExactFallbacks, constructions = ExactConstructions;
+            var phases = new Dictionary<string, double>(PhaseSeconds);
             bool fits = false;
             fanCheckOnly = true;
             try {
@@ -617,7 +619,9 @@ namespace gs
                 fanCheckOnly = false; Tolerance = given; Attempts = attempts0; CapRounds = capRounds0;
                 RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; UsedRampShare = used;
                 RampGradeTooSmall = tooSmall;
-                UsedSlopeMargin = margin; UsedMinFeatureSize = feature; UsedToeLowering = lowering; lastEz = ez0;
+                UsedSlopeMargin = margin; UsedMinFeatureSize = feature; UsedToeLowering = lowering; lastEz = ez0; MaxSlopeRatio = ratio;
+                Realizations = realizations; PredicateCalls = predicates; ExactFallbacks = fallbacks; ExactConstructions = constructions;
+                PhaseSeconds = phases;
             }
             FanTolerance = fits ? t : 0;
             ToeProblems = new List<Index2i>();
@@ -1268,7 +1272,8 @@ namespace gs
             // Height: half an ulp; one ulp is counted. Heights near the lowered toe can exceed maxZ a little: ulp(2 maxZ))
             double D0, maxXY, exy, eeval, rampShare, reachLowered;
             if (reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered) == false)
-                return fail(Statuses.Failed, "the reach of the lowered ramps does not converge");
+                return MathUtil.IsFinite(rampShare) ? fail(Statuses.Failed, "the reach of the lowered ramps does not converge")
+                                                    : fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
             // (the realization error of a stored height, TERRAIN.md 5.4: the slack of the catch-line bound's band, 5.5)

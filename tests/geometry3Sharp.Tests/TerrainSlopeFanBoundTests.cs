@@ -286,6 +286,11 @@ namespace geometry3Sharp.Tests
             // run raises by measurement after its realization, the refused build before it)
             Assert.Equal(own.UsedSlopeMargin, refused.UsedSlopeMargin);
             Assert.Equal(own.UsedMinFeatureSize, refused.UsedMinFeatureSize);
+            // (the Tolerance used is the caller's, not one the search tried; the search's runs are not counted)
+            Assert.Equal(0.01, refused.UsedTolerance);
+            // (a build counts as an attempt after the insertion, which the refused one does not reach; its cap round counts)
+            Assert.Equal(0, refused.Attempts);
+            Assert.Equal(1, refused.CapRounds);
         }
 
         // the refusal and the named Tolerance in every frame (rotations about z; a translated frame in its local frame): the
