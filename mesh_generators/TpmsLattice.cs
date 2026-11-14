@@ -125,6 +125,8 @@ namespace g3
         public int GridShiftsUsed;
         /// <summary> The marching cubes level used (0 unless Enclosure: sqrt(3) h / 2 plus the floating point pad, in length units). </summary>
         public double IsoValueUsed;
+        // the sliver guard of the field, in cubes (2^-8); 0 switches it off. Internal: for the tests that compare with and without it
+        internal double SliverGuardCubeFraction = 1.0 / 256;
         // test hooks: reject a grid attempt as if the contouring had failed; the lowest node of the grid last used
         internal Func<int, bool> RejectAttempt;
         internal Vector3d LastGridMin;
@@ -178,6 +180,27 @@ namespace g3
                 case TpmsType.Lidinoid: return 4 * r3;
                 default: throw new ArgumentOutOfRangeException(nameof(type));
             }
+        }
+
+        static readonly ConcurrentDictionary<TpmsType, double> gradientRatios = new ConcurrentDictionary<TpmsType, double>();
+
+        // sampled maximum of |grad f| over one period (central differences, 24^3 points) divided by the proven bound: in (0, 1]
+        internal static double GradientRatio(TpmsType type)
+        {
+            return gradientRatios.GetOrAdd(type, t => {
+                const int n = 24;
+                double e = 1e-5, max = 0, step = 2 * Math.PI / n;
+                for (int i = 0; i < n; ++i)
+                    for (int j = 0; j < n; ++j)
+                        for (int l = 0; l < n; ++l) {
+                            double x = (i + 0.37) * step, y = (j + 0.61) * step, z = (l + 0.23) * step;
+                            double gx = (Evaluate(t, x + e, y, z) - Evaluate(t, x - e, y, z)) / (2 * e);
+                            double gy = (Evaluate(t, x, y + e, z) - Evaluate(t, x, y - e, z)) / (2 * e);
+                            double gz = (Evaluate(t, x, y, z + e) - Evaluate(t, x, y, z - e)) / (2 * e);
+                            max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz));
+                        }
+                return Math.Min(1, 1.05 * max / GradientBound(t));
+            });
         }
 
         // bound of the sum of the absolute values of the terms, for the rounding error of an evaluation
@@ -272,6 +295,14 @@ namespace g3
             });
         }
 
+        // The sliver guard of the field (see FieldFunction.Value): a value within snap of the level iso counts as inside. Only ever down:
+        // the solid becomes a superset, so the enclosure survives. Internal for the tests that pin the direction and the range.
+        internal static double SliverGuard(double value, double iso, double snap)
+        {
+            if (snap > 0 && Math.Abs(value - iso) < snap) return iso - snap;
+            return value;
+        }
+
         // ================= the field =================
 
         sealed class FieldFunction : ImplicitFunction3d
@@ -281,11 +312,24 @@ namespace g3
             public Func<Vector3d, Vector3d> PhaseMap;   // graded cell size: local position -> phase in periods
             public double Level;              // c (constant fraction)
             public double InvLipschitz;       // 1 / Lw
+            public double Iso, Snap;          // the contouring level and the sliver guard: a value within Snap of Iso is moved to Iso - Snap
             public bool UseBox; public Vector3d Center, Half;
             public Func<Vector3d, double> LevelAt;    // grading: local position -> level
             public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
 
             public double Value(ref Vector3d p)
+            {
+                double v = Raw(ref p);
+                // Sliver guard: a node whose value is within rounding of the level makes a crossing at a cube corner and so degenerate
+                // triangles (found: large lattices with a position dependent level or a graded cell size). Values within Snap of the
+                // level count as inside, with Snap = ratio * 2^-8 cube (ratio: see Compute): where F is 1-Lipschitz in length every crossing is
+                // then at least ratio / 256 of an edge from a node. That is a heuristic size, not a proof (the clip distance d changes by h per
+                // edge, and a position dependent level makes F not 1-Lipschitz); the result is certified separately. The surface moves by less than 2 Snap, and only down, which keeps the
+                // solid a superset (the enclosure survives).
+                return SliverGuard(v, Iso, Snap);
+            }
+
+            double Raw(ref Vector3d p)
             {
                 double f;
                 if (PhaseMap != null) {
@@ -389,6 +433,7 @@ namespace g3
             }
             double level = LevelForFraction(table, fraction);
             double k = 2 * Math.PI / CellSize;
+            double mapGradientRatio = 1;                  // sampled / bounded phase gradient (1 for the constant lattice)
             double jac = 1 / CellSize, phaseMax = 0;      // bound of the Jacobian of the phase (periods per length) and of its magnitude
             Func<Vector3d, Vector3d> map = Grade != null ? Grade.Map : PhaseMap;
             if (map != null) {
@@ -412,6 +457,7 @@ namespace g3
                     Fail(TpmsStatus.InvalidOptions, "the grid does not resolve the smallest local period " + MinLocalCellSize + ": CellSize / Divisions must be at most a quarter of it (set CellSize to the smallest period, raise Divisions)"); return;
                 }
                 jac = Grade != null ? Grade.JacobianBound : 1.5 * gradMax;
+                mapGradientRatio = Math.Min(1, gradMax / jac);   // the guard scales with the sampled over the bounded phase gradient too
             }
             double lw = map == null ? GradientBound(Type) * k : GradientBound(Type) * 2 * Math.PI * jac;       // Lipschitz bound of g in length units
             LipschitzBoundUsed = lw;
@@ -430,6 +476,12 @@ namespace g3
 
             // ---- grid (in the lattice frame, anchored at multiples of the cube) ----
             double h = CellSize / Divisions;
+            // The sliver guard in field units: SliverGuardCubeFraction of a cube times the ratio of the true gradient scale to the proven bound
+            // Lw (the bound is loose for some types: Schwarz D and Neovius by about 4). The guard band is then the same fraction of the f
+            // change per edge for every type, and the crossing distance of 2^-8 of an edge holds against the sampled maximum change per
+            // edge. The ratio is a sampled estimate and only sizes the guard: the result is certified separately, and the enclosure pad
+            // pays 2 Snap in field units whatever Snap is.
+            double snap = h * SliverGuardCubeFraction * Math.Max(GradientRatio(Type) * mapGradientRatio, 1.0 / 16);
             var cells = new int[3];
             var kmin = new double[3];
             double nodes = 1;
@@ -470,7 +522,9 @@ namespace g3
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain is too small against the period for the proven error bound");
                     return;
                 }
-                isoValue = Math.Sqrt(3.0) * h / 2 + s * (Math.Pow(2, -26) + 4 * eNorm);
+                // + 2 Snap: the sliver guard moves node values by less than 2 Snap (one-sided, down), a sample error e in the sense of the
+                // audit's rule "level above half diagonal + e + S E"; the pad pays for it although a one-sided error would need less
+                isoValue = Math.Sqrt(3.0) * h / 2 + 2 * snap + s * (Math.Pow(2, -26) + 4 * eNorm);
                 // the samples of the outermost nodes are at least 1.2 cubes above the box; they must stay above the level
                 if (!(isoValue < 1.2 * h)) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the cube is too small against the coordinates for the proven level pad (reduce the number of cubes)");
@@ -480,7 +534,7 @@ namespace g3
 
             IsoValueUsed = isoValue;
             var field = new FieldFunction {
-                Type = Type, Style = Style, K = k, PhaseMap = map, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt,
+                Type = Type, Style = Style, K = k, PhaseMap = map, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt, Iso = isoValue, Snap = snap,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
                 DomainTree = tree, DomainBounds = box
             };
