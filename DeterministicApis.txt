@@ -1,0 +1,192 @@
+// The allow list of the determinism proof scope, stage 0: the exact kernel (docs/design/DETERMINISM_PROOF.md section 6.1,
+// issue 859). Read by the analyzers G3D0001-9 (tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs) for the files
+// that .editorconfig names. Every member of another assembly that the kernel uses is listed with the reason why its result
+// is specified on every runtime (assumptions T1 to T3 of the note, section 4.1); the build fails on an unlisted member and
+// on an entry the kernel no longer uses (G3D0009), so the list is exactly the kernel's external surface.
+// Every change of this file also changes the generated ledger line in docs/design/DETERMINISM_PROOF.md section 5.2
+// (DeterminismScopeAnalyzerTests.DesignNote_StatesTheGeneratedLedger prints the line to paste).
+//
+//   <doc id> ; [tags] reason                    tags: [NET] used only on one side of an #if NET block;
+//                                               [sites] every member that uses it has a site line; [hash] only inside a GetHashCode
+//   site <api> @ <member> ; why                 a member allowed to use a [sites] entry
+//   if <member> ; n ; test ; why                the n #if / #elif blocks of a member, and the test that checks their branches
+//   cast <member> ; n ; guard                   the n conversions of a double to an integer type in a member, and their guard
+//   skiplocalsinit <member> ; argument          a [SkipLocalsInit] member: every element is written before it is read
+
+// ---- constants (IEEE 754 binary64 and two's complement values, fixed by the standards) ----
+F:System.Double.Epsilon ; constant 2^-1074
+F:System.Double.MaxValue ; constant (2 - 2^-52) 2^1023
+F:System.Double.NaN ; constant; only tested with IsNaN or compared (a NaN payload never reaches a result of the kernel's predicates)
+F:System.Double.NegativeInfinity ; constant
+F:System.Double.PositiveInfinity ; constant
+F:System.Int32.MaxValue ; constant 2^31 - 1
+F:System.Int64.MinValue ; constant -2^63
+
+// ---- no value: JIT hints, attributes, construction of an object ----
+F:System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining ; JIT hint, no effect on values (T1: no contraction, inlined or not)
+F:System.Runtime.CompilerServices.MethodImplOptions.NoInlining ; JIT hint, no effect on values
+M:System.Runtime.CompilerServices.MethodImplAttribute.#ctor(System.Runtime.CompilerServices.MethodImplOptions) ; JIT hint, no effect on values
+M:System.Runtime.CompilerServices.SkipLocalsInitAttribute.#ctor ; [NET] locals not zeroed: every such member is registered below (skiplocalsinit, G3D0008)
+M:System.Object.#ctor ; base constructor, no value
+M:System.ThreadStaticAttribute.#ctor ; [sites] state that survives a call (R14): every field is registered with what it holds
+
+// ---- failure: an exception, no result (section 2: failure is outside the claim; type and message are fixed) ----
+M:System.ArgumentException.#ctor(System.String) ; exception on invalid input, fixed message
+M:System.ArgumentOutOfRangeException.#ctor(System.String,System.String) ; exception on invalid input, fixed message
+M:System.DivideByZeroException.#ctor ; exception on a zero denominator
+M:System.InvalidOperationException.#ctor(System.String) ; exception on a broken invariant, fixed message
+
+// ---- bits and IEEE 754 operations (T1) ----
+M:System.BitConverter.DoubleToInt64Bits(System.Double) ; reinterprets the binary64 bits, exact
+M:System.BitConverter.Int64BitsToDouble(System.Int64) ; reinterprets the binary64 bits, exact
+M:System.Double.IsInfinity(System.Double) ; classification, exact
+M:System.Double.IsNaN(System.Double) ; classification, exact
+M:System.Math.Abs(System.Double) ; clears the sign bit (Abs(-0) = +0 on both runtimes), exact
+M:System.Math.Sign(System.Double) ; -1 / 0 / 1 (both zeros give 0), ArithmeticException for NaN on both runtimes
+M:System.Math.Sqrt(System.Double) ; IEEE 754 squareRoot, correctly rounded (T1)
+M:System.Math.Min(System.Int32,System.Int32) ; integer minimum, exact
+M:System.Math.Max(System.Int32,System.Int32) ; integer maximum, exact
+M:System.Math.Min(System.Double,System.Double) ; [sites] min(+0, -0) differs between .NET Framework (second operand) and .NET (-0) (probe.minmax-zero, #803); NaN agrees. Each site: the result is compared or is a bound, never a result value, else MathUtil.MinExact
+M:System.Math.Max(System.Double,System.Double) ; [sites] max(-0, +0) differs as for Min (#803); each site: compared or a bound, never a result value, else MathUtil.MaxExact
+M:System.Math.BigMul(System.UInt64,System.UInt64,System.UInt64@) ; [NET] the 128-bit product, exact (portable branch: FixedArith.MulHighPortable, registered #if)
+M:System.Numerics.BitOperations.LeadingZeroCount(System.UInt64) ; [NET] exact (portable branch registered #if)
+M:System.Numerics.BitOperations.TrailingZeroCount(System.UInt64) ; [NET] exact (portable branch registered #if)
+
+// ---- BigInteger: integer arithmetic, defined by its value (T2) ----
+M:System.Numerics.BigInteger.#ctor(System.Int64) ; exact
+M:System.Numerics.BigInteger.#ctor(System.UInt64) ; exact
+M:System.Numerics.BigInteger.op_Implicit(System.Int32)~System.Numerics.BigInteger ; exact
+M:System.Numerics.BigInteger.op_Implicit(System.Int64)~System.Numerics.BigInteger ; exact
+M:System.Numerics.BigInteger.#ctor(System.Byte[]) ; little-endian two's complement, documented format, exact
+M:System.Numerics.BigInteger.#ctor(System.ReadOnlySpan{System.Byte},System.Boolean,System.Boolean) ; [NET] unsigned little-endian bytes, exact (portable branch: FixedPoint3.ToBigPortable, registered #if)
+M:System.Numerics.BigInteger.#ctor(System.Double) ; truncation toward zero of the double, exact; OverflowException for NaN and infinities; measured identical on .NET 10 and .NET Framework 4.8 x64 / x86 (probe.double-bigint, determinism run 43505530553)
+M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double ; [sites] NOT correctly rounded: the magnitude truncated to 53 bits toward zero, infinite at 2^1024 and above, on .NET 10 and .NET Framework 4.8 x64 / x86 alike (probe.bigint-double: 1238 values with ties, sticky bits beyond the top 64 bits and the overflow boundary, identical bits, run 43505530553); so its bits are the same on both; each site says why no bound there assumes round-to-nearest
+M:System.Numerics.BigInteger.Abs(System.Numerics.BigInteger) ; exact
+M:System.Numerics.BigInteger.CompareTo(System.Numerics.BigInteger) ; exact order of values
+M:System.Numerics.BigInteger.DivRem(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Numerics.BigInteger@) ; truncated division (quotient toward zero, remainder with the sign of the dividend), exact
+M:System.Numerics.BigInteger.GreatestCommonDivisor(System.Numerics.BigInteger,System.Numerics.BigInteger) ; the nonnegative gcd, exact
+M:System.Numerics.BigInteger.GetBitLength ; [NET] bit length of the value, exact (portable branch: ExactPoint3.BitLengthPortable, registered #if)
+M:System.Numerics.BigInteger.ToByteArray ; little-endian two's complement, shortest form, documented format, exact
+M:System.Numerics.BigInteger.TryWriteBytes(System.Span{System.Byte},System.Int32@,System.Boolean,System.Boolean) ; [NET] the same bytes as ToByteArray, exact (portable branch registered #if)
+M:System.Numerics.BigInteger.op_Addition(System.Numerics.BigInteger,System.Numerics.BigInteger) ; exact
+M:System.Numerics.BigInteger.op_Subtraction(System.Numerics.BigInteger,System.Numerics.BigInteger) ; exact
+M:System.Numerics.BigInteger.op_Multiply(System.Numerics.BigInteger,System.Numerics.BigInteger) ; exact
+M:System.Numerics.BigInteger.op_Division(System.Numerics.BigInteger,System.Numerics.BigInteger) ; truncated quotient (toward zero), exact
+M:System.Numerics.BigInteger.op_Equality(System.Numerics.BigInteger,System.Numerics.BigInteger) ; exact
+M:System.Numerics.BigInteger.op_LeftShift(System.Numerics.BigInteger,System.Int32) ; multiplication by 2^n, exact
+M:System.Numerics.BigInteger.op_RightShift(System.Numerics.BigInteger,System.Int32) ; arithmetic shift (floor of v / 2^n), exact
+M:System.Numerics.BigInteger.op_UnaryNegation(System.Numerics.BigInteger) ; exact
+P:System.Numerics.BigInteger.IsEven ; exact
+P:System.Numerics.BigInteger.IsOne ; exact
+P:System.Numerics.BigInteger.IsZero ; exact
+P:System.Numerics.BigInteger.Sign ; exact
+P:System.Numerics.BigInteger.One ; constant
+P:System.Numerics.BigInteger.Zero ; constant
+M:System.Numerics.BigInteger.GetHashCode ; [hash] seeded per process on .NET 10, fixed on .NET Framework (probe.hash-seeded, #789): only inside a GetHashCode implementation (ExactPoint3.GetHashCode), so the value reaches hash containers only; their consumers are outside stage 0 (R7, obligation of stages 1 and 2)
+
+// ---- arrays, spans, lists, dictionaries: storage (sequential; the scope enumerates no hash container) ----
+M:System.Array.Copy(System.Array,System.Array,System.Int32) ; copies elements, exact
+P:System.Array.Length ; exact
+M:System.ReadOnlySpan`1.#ctor(System.Void*,System.Int32) ; [NET] a view of a stack buffer, no value
+M:System.Span`1.#ctor(System.Void*,System.Int32) ; [NET] a view of a stack buffer, no value
+M:System.Collections.Generic.List`1.#ctor ; storage
+M:System.Collections.Generic.List`1.Add(`0) ; append: the order is the order of the (sequential) calls
+P:System.Collections.Generic.List`1.Count ; exact
+P:System.Collections.Generic.List`1.Item(System.Int32) ; index, exact
+M:System.Collections.Generic.Dictionary`2.#ctor(System.Collections.Generic.IEqualityComparer{`0}) ; lookup structure with the kernel's own comparer (ExactSlopeKernel.PairKeyComparer: an unseeded hash of the key); never enumerated in the scope
+M:System.Collections.Generic.Dictionary`2.TryGetValue(`0,`1@) ; lookup: the answer is a function of the keys stored (P4), not of the bucket order
+P:System.Collections.Generic.Dictionary`2.Item(`0) ; lookup and store by key, as TryGetValue
+
+// ---- geometry3Sharp members declared outside the kernel files (their bodies are outside the stage 0 check: each
+//      reason is a review of the body today; extending the scope to these declarations is stage 1 work) ----
+F:g3.JitHints.Optimize ; constant MethodImplOptions.AggressiveOptimization (a JIT hint, no effect on values, T1)
+F:g3.Vector2d.x ; a field: storage
+F:g3.Vector2d.y ; a field: storage
+M:g3.Vector2d.#ctor(System.Double,System.Double) ; stores the two values
+M:g3.Vector2d.Dot(g3.Vector2d) ; x * v.x + y * v.y, separately rounded (T1)
+M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; componentwise ==, exact
+M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; componentwise -, one rounding each (T1)
+F:g3.Vector3d.x ; a field: storage
+F:g3.Vector3d.y ; a field: storage
+F:g3.Vector3d.z ; a field: storage
+F:g3.Vector3d.Zero ; constant (0, 0, 0), all +0
+M:g3.Vector3d.#ctor(System.Double,System.Double,System.Double) ; stores the three values
+P:g3.Vector3d.Item(System.Int32) ; selects x, y or z by index
+P:g3.Vector3d.LengthSquared ; x * x + y * y + z * z, separately rounded, left to right (T1)
+M:g3.Vector3d.Cross(g3.Vector3d) ; the three 2x2 minors, separately rounded (T1)
+M:g3.Vector3d.op_Addition(g3.Vector3d,g3.Vector3d) ; componentwise +, one rounding each (T1)
+M:g3.Vector3d.op_Subtraction(g3.Vector3d,g3.Vector3d) ; componentwise -, one rounding each (T1)
+M:g3.Vector3d.op_Equality(g3.Vector3d,g3.Vector3d) ; componentwise ==, exact
+M:g3.Vector3d.ToString ; [sites] text: string.Format with F8 under the invariant culture; the formatting of doubles changed in .NET Core 3.0, so the text can differ from .NET Framework: display only
+F:g3.Triangle3d.V0 ; a field: storage
+F:g3.Triangle3d.V1 ; a field: storage
+F:g3.Triangle3d.V2 ; a field: storage
+P:g3.Triangle3d.Item(System.Int32) ; selects V0, V1 or V2 by index
+M:g3.Index3i.#ctor(System.Int32,System.Int32,System.Int32) ; stores the three values
+P:g3.Index3i.Item(System.Int32) ; selects a, b or c by index
+M:g3.MathUtil.IsFinite(System.Double) ; !IsInfinity && !IsNaN, exact
+M:g3.PredicateStats.Call(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"): compiled out of every build but the profiling one; a counter, no predicate reads it
+M:g3.PredicateStats.ExactStage(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"), as Call
+F:g3.PredicateStats.Kind.Orient2d ; enum constant (the counter's index)
+F:g3.PredicateStats.Kind.Orient3d ; enum constant
+F:g3.PredicateStats.Kind.InCircle ; enum constant
+
+// ---- threads: schedule constructs (R13), every site registered ----
+M:System.Threading.Interlocked.Increment(System.Int32@) ; [sites] the value is schedule-assigned when called concurrently: each site says what it guards
+M:System.Threading.Volatile.Read(System.Int32@) ; [sites] reads a value published by another thread: each site says what it guards
+M:System.Threading.Monitor.Enter(System.Object,System.Boolean@) ; [sites] the lock statement: each site says what it guards
+M:System.Threading.Monitor.Exit(System.Object) ; [sites] the lock statement: as Monitor.Enter
+
+// ---- sites of the restricted entries ----
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactInterval.op_Multiply(g3.ExactInterval,g3.ExactInterval) ; an interval bound: make() replaces a zero bound by -2^-1074 / +2^-1074 (Down / Up), so the sign of zero never survives
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.op_Multiply(g3.ExactInterval,g3.ExactInterval) ; an interval bound, zero replaced by make() as for Min
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.Square(g3.ExactInterval) ; both operands > 0 here (a.Lo < 0 < a.Hi), no zero; the result is squared into a bound
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactRayTriangle.SecondPoint(g3.Vector3d,g3.Vector3d) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the maxima only feed comparisons and an exponent
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactSlopeKernel.GradientBound(System.Int32) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the bound is returned
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactTriangleIntersection.on_segment(g3.Vector2d,g3.Vector2d,g3.Vector2d) ; compared only (-0 == +0)
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactTriangleIntersection.on_segment(g3.Vector2d,g3.Vector2d,g3.Vector2d) ; compared only (-0 == +0)
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.ExactDyadic.Quotient(g3.ExactDyadic,g3.ExactDyadic) ; converts the mantissa the kernel rounded itself (to nearest, ties to even): at most 54 bits, and 54 only as 2^53, so the conversion is exact
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.ExactPoint3.ApproxVector3d ; documented bound 4 * 2^-52 relative: under truncation X and W are each off by less than 1 ulp (2^-52 of the truncated value, same binade), the division by half an ulp: about 2.5 * 2^-52; consumers use U |a| for W = 1 (truncation error < ulp(a) <= 2^-52 |a|) and 4 U |a| otherwise
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.ExactPoint3.ToDouble(System.Numerics.BigInteger,System.Numerics.BigInteger,System.Int32) ; documented "error below 1 ulp": q is the quotient truncated to 64+ significant bits, then truncated to 53: v - d < 1 + (q - d) <= ulp; a subnormal result is rounded once more by ScaleB and stays below 1 subnormal ulp
+site M:System.Numerics.BigInteger.op_Explicit(System.Numerics.BigInteger)~System.Double @ M:g3.FixedPoint3.DoubleOf(g3.ExactPoint3,g3.Vector3d@) ; exactness is checked by converting back (new BigInteger(d) == v), whatever the rounding
+site M:g3.Vector3d.ToString @ M:g3.ExactPoint3.ToString ; display only: no kernel operation reads the text
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.AdaptivePredicates.StageDCount ; a counter for tests (stage D calls on this thread); no predicate reads it
+site M:System.ThreadStaticAttribute.#ctor @ F:g3.AdaptivePredicates.Workspace.current ; the per-thread scratch arrays of the adaptive stages; every element a stage reads was written by the same call first (expansion lengths are returned with the data; review, not a tool check: R14)
+site M:System.Threading.Interlocked.Increment(System.Int32@) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; hands out the slot of an appended point: a schedule-assigned id when ExactMeshArrangement adds concurrently (R13, P5); no kernel predicate reads it, its consumers are stage 2 obligations
+site M:System.Threading.Volatile.Read(System.Int32@) @ M:g3.FixedPointStore.get_Count ; the number of slots handed out (a count, observable only as a bound of the store); no kernel predicate reads it
+site M:System.Threading.Monitor.Enter(System.Object,System.Boolean@) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; guards the growth of the chunk table only: whoever grows it copies the same chunk references, chunks never move, and a slot is written by the one thread that got its index, so no stored value depends on the lock order
+site M:System.Threading.Monitor.Exit(System.Object) @ M:g3.FixedPointStore.Add(g3.FixedPoint3@) ; as Monitor.Enter
+
+// ---- conditional compilation (G3D0005): each member's #if NET block and the test that checks both branches; the net48 jobs run the tests on the other branch ----
+if M:g3.ExactPoint3.BitLength(System.Numerics.BigInteger) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; GetBitLength against BitLengthPortable, value by value on .NET
+if M:g3.ExactPredicates.trailing_zeros(System.UInt64) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; BitOperations.TrailingZeroCount against TrailingZerosPortable on .NET
+if M:g3.FixedArith.MulHigh(System.UInt64,System.UInt64,System.UInt64@) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; Math.BigMul against MulHighPortable (both limbs) on .NET
+if M:g3.FixedArith.leading_zeros(System.UInt64) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; BitOperations.LeadingZeroCount against LeadingZerosPortable on .NET
+if M:g3.FixedArith.ToBig(g3.FixedInt) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; the span constructor against ToBigPortable on .NET
+if M:g3.FixedPoint3.LoadN(System.Numerics.BigInteger,System.UInt64*,System.Int32,System.Int32@,System.Boolean@) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; Load (TryWriteBytes) against LoadPortable (ToByteArray), limb by limb, on .NET
+if M:g3.FixedPoint3.ToBig(System.UInt64*,System.Byte) ; 1 ; KernelPortableBranchTests.NetBranches_EqualTheirPortableTwins ; the span constructor against ToBigPortable on .NET
+if M:g3.IndirectPredicates.__dec(System.Double,System.UInt64@,System.Int32@) ; 1 ; GeneratedPredicatesIndirectTests.GeneralDoubles_MatchTheOracle ; generated inline loop (no portable twin to call on .NET): both branches checked against the same oracle, each on its runtime (net10 and the net48 job)
+if M:g3.IndirectPredicates.__bits(System.UInt64) ; 1 ; GeneratedPredicatesIndirectTests.GeneralDoubles_MatchTheOracle ; generated inline loop, as __dec
+if M:g3.FixedArith.Orient(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Int32,System.Int32) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; the branches differ only by [SkipLocalsInit]: a dirty stack gives the results of a zeroed one
+if M:g3.FixedArith.InCircle(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Int32,System.Int32) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, as Orient
+if M:g3.FixedArith.CompareAlong(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedInt,g3.FixedInt,g3.FixedInt) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, as Orient
+if M:g3.FixedArith.ComparePoints(g3.FixedPoint3@,g3.FixedPoint3@,System.UInt64,System.UInt64,System.UInt64) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, as Orient
+if M:g3.FixedArith.TrianglePlanes(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Double[],System.Numerics.BigInteger@,System.Numerics.BigInteger@,System.Numerics.BigInteger@,System.Numerics.BigInteger@,System.Int32@,System.Int32@) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, as Orient
+if M:g3.IndirectPredicates.Orient3dLPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+if M:g3.IndirectPredicates.Orient3dLPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+if M:g3.IndirectPredicates.Orient3dTPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+if M:g3.IndirectPredicates.Orient3dTPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+
+// ---- double -> integer conversions (G3D0006, R5: out of range and NaN differ between runtimes) ----
+cast M:g3.ExactPredicates.diff(System.Double,System.Double,System.Double,System.Int64@) ; 2 ; guarded in the member: returns before the casts unless |hi scale| < 2^62 (NaN fails the comparison); hi scale and lo scale are integers there and |lo scale| <= |hi scale| / 2^53, so both are in the range of long
+
+// ---- [SkipLocalsInit] (G3D0008, R15): stack buffers not zeroed on .NET ----
+skiplocalsinit M:g3.FixedArith.Orient(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Int32,System.Int32) ; the corners are copied in by FixedPoint3.Get (Len limbs, read up to Len only); every FixedArith result takes fresh limbs from the arena and writes all of them before it is read (Mul zeroes its product first, add_mag / sub_mag write each limb); checked by SkipLocalsInitKernelTests
+skiplocalsinit M:g3.FixedArith.InCircle(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Int32,System.Int32) ; as Orient
+skiplocalsinit M:g3.FixedArith.CompareAlong(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedInt,g3.FixedInt,g3.FixedInt) ; as Orient
+skiplocalsinit M:g3.FixedArith.ComparePoints(g3.FixedPoint3@,g3.FixedPoint3@,System.UInt64,System.UInt64,System.UInt64) ; as Orient
+skiplocalsinit M:g3.FixedArith.TrianglePlanes(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,System.Double[],System.Numerics.BigInteger@,System.Numerics.BigInteger@,System.Numerics.BigInteger@,System.Numerics.BigInteger@,System.Int32@,System.Int32@) ; as Orient; the FixedInt locals of p are each assigned before use
+skiplocalsinit M:g3.IndirectPredicates.Orient3dLPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; generated (tools/PredicateCompiler): the same FixedArith operations as Orient, each output from the arena; checked by SkipLocalsInitKernelTests
+skiplocalsinit M:g3.IndirectPredicates.Orient3dLPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; generated: each __i buffer is filled by __align (the coordinate's scaled mantissa) before its FixedInt exists, every other value is a FixedArith output from the arena, as Orient3dLPI; checked by SkipLocalsInitKernelTests
+skiplocalsinit M:g3.IndirectPredicates.Orient3dTPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; generated, as Orient3dLPI
+skiplocalsinit M:g3.IndirectPredicates.Orient3dTPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; generated, as Orient3dLPIExact

@@ -17,14 +17,14 @@ namespace g3.Examples
             Clipper2Result buildings = Clipper2Polygons.Union(footprints);
 
             // the setback zone: the footprints grown by setback, with mitered corners
-            var miter = new Clipper2Options { JoinType = Clipper2Lib.JoinType.Miter };
+            var miter = new Clipper2Options { JoinType = JoinType.Miter };
             Clipper2Result zone = Clipper2Polygons.Offset(buildings.Polygons, setback, miter);
 
             // the free area: parcel minus the zone; Status tells whether it worked
             Clipper2Result free = Clipper2Polygons.Difference(new[] { parcel }, zone.Polygons);
 
             // the pieces of the break line that lie in the free area
-            clippedLine = Clipper2Polygons.ClipPolyLines(Clipper2Lib.ClipType.Intersection, new[] { breakLine }, free.Polygons);
+            clippedLine = Clipper2Polygons.ClipPolyLines(ClipType.Intersection, new[] { breakLine }, free.Polygons);
             return free;
         }
     }

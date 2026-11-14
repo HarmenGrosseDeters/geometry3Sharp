@@ -2,6 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Clipper2Lib;
+// the addon's enums (since 2.0 its own types; Clipper2Lib has the same names)
+using ClipType = g3.Clipper2.ClipType;
+using EndType = g3.Clipper2.EndType;
+using FillRule = g3.Clipper2.FillRule;
+using JoinType = g3.Clipper2.JoinType;
 using g3;
 using g3.Clipper2;
 using geometry3Sharp.Tests;
@@ -41,7 +46,7 @@ namespace geometry3Sharp.Clipper2.Tests
         /// the origin (an ulp of the coordinate in grid units, eg 16 units at UTM coordinates on the default grid);
         /// each moves an edge by at most that much, so the area by at most perimeter times the sum, plus 1.
         /// </summary>
-        static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
+        internal static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
         {
             Clipper2Result r = Clipper2Polygons.BooleanPaths(op, new[] { a }, new[] { b }, new Clipper2Options { FillRule = rule });
             Assert.True(r.Ok, r.ToString());
@@ -268,7 +273,7 @@ namespace geometry3Sharp.Clipper2.Tests
 
         static double Ulp(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x;
 
-        static bool IsPowerOfTwo(double x)
+        internal static bool IsPowerOfTwo(double x)
         {
             long bits = BitConverter.DoubleToInt64Bits(x);
             return x > 0 && (bits & 0xFFFFFFFFFFFFFL) == 0;

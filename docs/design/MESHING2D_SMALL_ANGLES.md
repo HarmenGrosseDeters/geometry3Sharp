@@ -258,9 +258,10 @@ off-centres, petal candidates, the grid, lenses and lens deletion are not covere
       and within 8 ulps of the largest coordinate involved (the apex and the ends of the two sources) divided by the sine of their angle
       (`RoundingReach2`): a vertex computed from the two sources in doubles (a crossing, a split point) is off both by far less than the tube
       but along them by up to that error over the sine, which exceeds 3 tube once the sine is below about 4e-4 (the near-contact fan of the
-      QualityMesh2 campaign, T5: 1e-11 along against 3e-12; 8 ulps is a conservative envelope, not a derived bound). Open and documented,
-      not fixed: a split point exactly at the mesher's tolerance (2^-41) from another source, which only a dyadic input produces, is
-      refused by the mesher (`<=`) and not excused by the oracle, whose `O11Unsplittable` margin is 2^-7 inside the tolerance. The three
+      QualityMesh2 campaign, T5: 1e-11 along against 3e-12; 8 ulps is a conservative envelope, not a derived bound). A split point at
+      or a hair beyond the mesher's tolerance (2^-41) from another source, which the mesher may refuse in doubles, is excused since #870:
+      the oracle models the mesher's split point and refuses it up to the tolerance plus the derived rounding of the point and of
+      `ScaledDist2`, 46 * 2^-12 of the tolerance, taken as 2^-6 = 64 * 2^-12 (`O11RefusalSlack2`; before, its margin was 2^-7 inside). The three
       single triangles at angles of 1e-7 to 1e-9 radian (fan factors 1.13 at k = 26 and 28) were traced on 2026-11-12: each lay below A at
       a T-junction apex, its off-centre in the diametral circle of a piece of A that B_i makes O11-unsplittable; off the grid the mesher gave
       such a triangle up, which the oracle's O11 exemptions (a circumcentre behind the piece) do not cover. Fixed in the mesher: the

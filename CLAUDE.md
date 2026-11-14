@@ -47,8 +47,9 @@ sessions, combined mutation gates).
 ## Before every push
 
 Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (the `paths` filter in
-`ci.yml`): re-read the diff and push. Exception: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
-`GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests. A change to existing library code, including code in `docs/examples`, runs
+`ci.yml`): re-read the diff and push. Exceptions: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
+`GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests; `docs/design/DETERMINISM_PROOF.md`,
+whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests. A change to existing library code, including code in `docs/examples`, runs
 the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
 all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack` (API validation); GitHub CI runs the
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its

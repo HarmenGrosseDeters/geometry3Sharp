@@ -20,6 +20,24 @@ namespace g3
     public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled }
 
     /// <summary>
+    /// A graded cell size with a library-derived bound of the Jacobian of its phase map (periods per length), from
+    /// <see cref="TpmsLattice.LinearGrade"/>. The bound holds for transverse coordinates within TransverseHalfExtent of the frame origin.
+    /// </summary>
+    public sealed class TpmsPhaseGrade
+    {
+        /// <summary> Local position to phase in periods. </summary>
+        public Func<Vector3d, Vector3d> Map { get; }
+        /// <summary> A bound of the operator norm of the Jacobian of Map within the transverse extent, periods per unit length. </summary>
+        public double JacobianBound { get; }
+        /// <summary> The grading axis. </summary>
+        public int Axis { get; }
+        /// <summary> The bound holds while the two other coordinates stay within +- this. </summary>
+        public double TransverseHalfExtent { get; }
+        internal TpmsPhaseGrade(Func<Vector3d, Vector3d> map, double bound, int axis, double extent)
+        { Map = map; JacobianBound = bound; Axis = axis; TransverseHalfExtent = extent; }
+    }
+
+    /// <summary>
     /// Triply periodic minimal surface lattices (gyroid, Schwarz P and D, Neovius, I-WP) for additive manufacturing,
     /// clipped to a box or to the inside of a closed mesh. Marching cubes with <see cref="MarchingCubes.RootfindingModes.LinearEdges"/>
     /// on the field F = max((g - c) / Lw, d): g the style value of the nodal approximation, c the level for the volume
@@ -56,6 +74,19 @@ namespace g3
         public double WallThickness = 0;
         /// <summary> Optional grading: the volume fraction at a world position (replaces VolumeFraction; not with Enclosure). Called from several threads with ParallelCompute, so it must be thread-safe; a NaN gives ContouringFailed, a fraction outside (0, 1) is clamped to [0.001, 0.999]. </summary>
         public Func<Vector3d, double> VolumeFractionAt;
+        /// <summary>
+        /// Graded cell size, general form: the phase of the lattice in periods as a function of the local position (null: x / CellSize,
+        /// a constant period). The field is f(2 pi PhaseMap(x)). It must be pure, thread-safe and finite on the grid. CellSize stays the
+        /// nominal period that sets the cube (CellSize / Divisions): set it to the smallest local period. A general map distorts the cells
+        /// (see docs/design/TPMS_GRADED_CELL.md). The map is sampled on a 9^3 set of points of the domain (and at +-h/8 around them, so it must be finite slightly outside the domain) to check that the grid resolves the smallest period: a narrow feature between the samples can be missed (the result is still certified). Not with WallThickness, and not with Enclosure (the library cannot certify the Jacobian
+        /// bound of an arbitrary delegate: use <see cref="Grade"/>). Do not set both.
+        /// </summary>
+        public Func<Vector3d, Vector3d> PhaseMap;
+        /// <summary>
+        /// Graded cell size with a library-derived Jacobian bound (<see cref="LinearGrade"/>): the only graded form allowed with Enclosure.
+        /// The box (or domain mesh) must lie within the grade's transverse extent. Do not set both Grade and PhaseMap.
+        /// </summary>
+        public TpmsPhaseGrade Grade;
         /// <summary> Lattice frame: the world position of the local origin (lattice phase zero). </summary>
         public Vector3d Origin = Vector3d.Zero;
         /// <summary> Lattice frame: local to world rotation (orthonormal, determinant +1). </summary>
@@ -94,9 +125,15 @@ namespace g3
         public int GridShiftsUsed;
         /// <summary> The marching cubes level used (0 unless Enclosure: sqrt(3) h / 2 plus the floating point pad, in length units). </summary>
         public double IsoValueUsed;
+        // the sliver guard of the field, in cubes (2^-8); 0 switches it off. Internal: for the tests that compare with and without it
+        internal double SliverGuardCubeFraction = 1.0 / 256;
         // test hooks: reject a grid attempt as if the contouring had failed; the lowest node of the grid last used
         internal Func<int, bool> RejectAttempt;
         internal Vector3d LastGridMin;
+        /// <summary> With a PhaseMap: the smallest local period seen on the sample points (1 / the largest sampled phase gradient), else 0. </summary>
+        public double MinLocalCellSize;
+        /// <summary> The Lipschitz bound of the lattice field in length units that normalises it (Lf 2 pi J); a report for tests and proofs. </summary>
+        public double LipschitzBoundUsed;
         /// <summary> NotCleanReason of a rejected result. </summary>
         public string NotCleanReason = "";
 
@@ -143,6 +180,27 @@ namespace g3
                 case TpmsType.Lidinoid: return 4 * r3;
                 default: throw new ArgumentOutOfRangeException(nameof(type));
             }
+        }
+
+        static readonly ConcurrentDictionary<TpmsType, double> gradientRatios = new ConcurrentDictionary<TpmsType, double>();
+
+        // sampled maximum of |grad f| over one period (central differences, 24^3 points) divided by the proven bound: in (0, 1]
+        internal static double GradientRatio(TpmsType type)
+        {
+            return gradientRatios.GetOrAdd(type, t => {
+                const int n = 24;
+                double e = 1e-5, max = 0, step = 2 * Math.PI / n;
+                for (int i = 0; i < n; ++i)
+                    for (int j = 0; j < n; ++j)
+                        for (int l = 0; l < n; ++l) {
+                            double x = (i + 0.37) * step, y = (j + 0.61) * step, z = (l + 0.23) * step;
+                            double gx = (Evaluate(t, x + e, y, z) - Evaluate(t, x - e, y, z)) / (2 * e);
+                            double gy = (Evaluate(t, x, y + e, z) - Evaluate(t, x, y - e, z)) / (2 * e);
+                            double gz = (Evaluate(t, x, y, z + e) - Evaluate(t, x, y, z - e)) / (2 * e);
+                            max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz));
+                        }
+                return Math.Min(1, 1.05 * max / GradientBound(t));
+            });
         }
 
         // bound of the sum of the absolute values of the terms, for the rounding error of an evaluation
@@ -237,21 +295,48 @@ namespace g3
             });
         }
 
+        // The sliver guard of the field (see FieldFunction.Value): a value within snap of the level iso counts as inside. Only ever down:
+        // the solid becomes a superset, so the enclosure survives. Internal for the tests that pin the direction and the range.
+        internal static double SliverGuard(double value, double iso, double snap)
+        {
+            if (snap > 0 && Math.Abs(value - iso) < snap) return iso - snap;
+            return value;
+        }
+
         // ================= the field =================
 
         sealed class FieldFunction : ImplicitFunction3d
         {
             public TpmsType Type; public TpmsStyle Style;
             public double K;                  // 2 pi / L
+            public Func<Vector3d, Vector3d> PhaseMap;   // graded cell size: local position -> phase in periods
             public double Level;              // c (constant fraction)
             public double InvLipschitz;       // 1 / Lw
+            public double Iso, Snap;          // the contouring level and the sliver guard: a value within Snap of Iso is moved to Iso - Snap
             public bool UseBox; public Vector3d Center, Half;
             public Func<Vector3d, double> LevelAt;    // grading: local position -> level
             public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
 
             public double Value(ref Vector3d p)
             {
-                double f = Evaluate(Type, K * p.x, K * p.y, K * p.z);
+                double v = Raw(ref p);
+                // Sliver guard: a node whose value is within rounding of the level makes a crossing at a cube corner and so degenerate
+                // triangles (found: large lattices with a position dependent level or a graded cell size). Values within Snap of the
+                // level count as inside, with Snap = ratio * 2^-8 cube (ratio: see Compute): where F is 1-Lipschitz in length every crossing is
+                // then at least ratio / 256 of an edge from a node. That is a heuristic size, not a proof (the clip distance d changes by h per
+                // edge, and a position dependent level makes F not 1-Lipschitz); the result is certified separately. The surface moves by less than 2 Snap, and only down, which keeps the
+                // solid a superset (the enclosure survives).
+                return SliverGuard(v, Iso, Snap);
+            }
+
+            double Raw(ref Vector3d p)
+            {
+                double f;
+                if (PhaseMap != null) {
+                    Vector3d ph = PhaseMap(p);
+                    f = Evaluate(Type, 2 * Math.PI * ph.x, 2 * Math.PI * ph.y, 2 * Math.PI * ph.z);
+                } else
+                    f = Evaluate(Type, K * p.x, K * p.y, K * p.z);
                 double c = LevelAt != null ? LevelAt(p) : Level;
                 double g = (StyleValue(Style, f) - c) * InvLipschitz;
                 if (UseBox) {
@@ -292,7 +377,7 @@ namespace g3
         public void Compute()
         {
             Mesh = null; Message = ""; NotCleanReason = ""; Level = 0; RealizedVolumeFraction = 0; MeanWallThickness = 0;
-            SelfIntersectionsFound = 0; CellsEvaluated = 0; GridShiftsUsed = 0; IsoValueUsed = 0;
+            SelfIntersectionsFound = 0; CellsEvaluated = 0; GridShiftsUsed = 0; IsoValueUsed = 0; MinLocalCellSize = 0; LipschitzBoundUsed = 0;
             Status = TpmsStatus.InvalidOptions;
 
             // ---- options ----
@@ -304,6 +389,10 @@ namespace g3
             if (VolumeFractionAt == null && WallThickness <= 0 && !(VolumeFraction > 0 && VolumeFraction < 1)) { Fail(TpmsStatus.InvalidOptions, "VolumeFraction must be in (0, 1)"); return; }
             if (double.IsNaN(WallThickness) || double.IsInfinity(WallThickness) || WallThickness < 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness must be finite and not negative"); return; }
             if (WallThickness > 0 && Style != TpmsStyle.Sheet) { Fail(TpmsStatus.InvalidOptions, "WallThickness is defined for Sheet only"); return; }
+            if (PhaseMap != null && WallThickness > 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness assumes a constant period: not with a PhaseMap"); return; }
+            if (PhaseMap != null && Grade != null) { Fail(TpmsStatus.InvalidOptions, "set either PhaseMap or Grade, not both"); return; }
+            if (Grade != null && WallThickness > 0) { Fail(TpmsStatus.InvalidOptions, "WallThickness assumes a constant period: not with a Grade"); return; }
+            if (Enclosure && PhaseMap != null) { Fail(TpmsStatus.InvalidOptions, "Enclosure with a graded cell size needs a Grade (a library-derived Jacobian bound), not a general PhaseMap"); return; }
             if (Enclosure && (VolumeFractionAt != null || DomainMesh != null)) { Fail(TpmsStatus.InvalidOptions, "Enclosure needs a box domain and a constant volume fraction"); return; }
             if (MaxCells < 1) { Fail(TpmsStatus.InvalidOptions, "MaxCells must be positive"); return; }
 
@@ -344,7 +433,34 @@ namespace g3
             }
             double level = LevelForFraction(table, fraction);
             double k = 2 * Math.PI / CellSize;
-            double lw = GradientBound(Type) * k;       // Lipschitz bound of g in length units
+            double mapGradientRatio = 1;                  // sampled / bounded phase gradient (1 for the constant lattice)
+            double jac = 1 / CellSize, phaseMax = 0;      // bound of the Jacobian of the phase (periods per length) and of its magnitude
+            Func<Vector3d, Vector3d> map = Grade != null ? Grade.Map : PhaseMap;
+            if (map != null) {
+                if (Grade != null) {
+                    // the derived Jacobian bound holds within the transverse extent of the grade: the domain plus the grid pad (3.5 cubes:
+                    // the grid reaches 3 cubes beyond the box, a shifted grid one more)
+                    double ext = Grade.TransverseHalfExtent * (1 + 1e-12), pad = 3.5 * CellSize / Divisions;
+                    for (int d = 1; d <= 2; ++d) {
+                        int ax = (Grade.Axis + d) % 3;
+                        if (Math.Abs(box.Min[ax]) + pad > ext || Math.Abs(box.Max[ax]) + pad > ext) {
+                            Fail(TpmsStatus.InvalidOptions, "the domain and the grid pad (3.5 cubes) leave the transverse extent " + Grade.TransverseHalfExtent + " of the Grade (axis " + ax + ")"); return;
+                        }
+                    }
+                }
+                if (!SamplePhase(map, box, CellSize / Divisions, out double gradMax, out phaseMax)) {
+                    Fail(TpmsStatus.InvalidOptions, "the phase map must be finite on the domain"); return;
+                }
+                MinLocalCellSize = gradMax > 0 ? 1 / gradMax : double.PositiveInfinity;
+                if (!(gradMax > 0)) { Fail(TpmsStatus.InvalidOptions, "the phase map is constant on the domain"); return; }
+                if (CellSize / Divisions > MinLocalCellSize / 4) {
+                    Fail(TpmsStatus.InvalidOptions, "the grid does not resolve the smallest local period " + MinLocalCellSize + ": CellSize / Divisions must be at most a quarter of it (set CellSize to the smallest period, raise Divisions)"); return;
+                }
+                jac = Grade != null ? Grade.JacobianBound : 1.5 * gradMax;
+                mapGradientRatio = Math.Min(1, gradMax / jac);   // the guard scales with the sampled over the bounded phase gradient too
+            }
+            double lw = map == null ? GradientBound(Type) * k : GradientBound(Type) * 2 * Math.PI * jac;       // Lipschitz bound of g in length units
+            LipschitzBoundUsed = lw;
             Func<Vector3d, double> levelAt = null;
             if (VolumeFractionAt != null) {
                 Func<Vector3d, double> frac = VolumeFractionAt;
@@ -360,6 +476,12 @@ namespace g3
 
             // ---- grid (in the lattice frame, anchored at multiples of the cube) ----
             double h = CellSize / Divisions;
+            // The sliver guard in field units: SliverGuardCubeFraction of a cube times the ratio of the true gradient scale to the proven bound
+            // Lw (the bound is loose for some types: Schwarz D and Neovius by about 4). The guard band is then the same fraction of the f
+            // change per edge for every type, and the crossing distance of 2^-8 of an edge holds against the sampled maximum change per
+            // edge. The ratio is a sampled estimate and only sizes the guard: the result is certified separately, and the enclosure pad
+            // pays 2 Snap in field units whatever Snap is.
+            double snap = h * SliverGuardCubeFraction * Math.Max(GradientRatio(Type) * mapGradientRatio, 1.0 / 16);
             var cells = new int[3];
             var kmin = new double[3];
             double nodes = 1;
@@ -394,12 +516,15 @@ namespace g3
                 }
                 double u = Math.Pow(2, -53);
                 // evaluation error of g in normalised units: terms (64 u per unit of term sum) / (Lw s); the phase error is 4 u
-                double eNorm = 64 * u * TermSum(Type) / (lw * s) + 4 * u;
+                // (with a Grade the phase term is 4 u |phase| / (J s) and assumes the map is evaluated to a relative error of 4 u)
+                double eNorm = EnclosureError(Type, lw, s, map != null, phaseMax, jac, h);
                 if (!(eNorm <= Math.Pow(2, -30))) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the domain is too small against the period for the proven error bound");
                     return;
                 }
-                isoValue = Math.Sqrt(3.0) * h / 2 + s * (Math.Pow(2, -26) + 4 * eNorm);
+                // + 2 Snap: the sliver guard moves node values by less than 2 Snap (one-sided, down), a sample error e in the sense of the
+                // audit's rule "level above half diagonal + e + S E"; the pad pays for it although a one-sided error would need less
+                isoValue = Math.Sqrt(3.0) * h / 2 + 2 * snap + s * (Math.Pow(2, -26) + 4 * eNorm);
                 // the samples of the outermost nodes are at least 1.2 cubes above the box; they must stay above the level
                 if (!(isoValue < 1.2 * h)) {
                     Fail(TpmsStatus.InvalidOptions, "Enclosure: the cube is too small against the coordinates for the proven level pad (reduce the number of cubes)");
@@ -409,7 +534,7 @@ namespace g3
 
             IsoValueUsed = isoValue;
             var field = new FieldFunction {
-                Type = Type, Style = Style, K = k, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt,
+                Type = Type, Style = Style, K = k, PhaseMap = map, Level = level, InvLipschitz = 1.0 / lw, LevelAt = levelAt, Iso = isoValue, Snap = snap,
                 UseBox = tree == null, Center = box.Center, Half = new Vector3d(box.Width / 2, box.Height / 2, box.Depth / 2),
                 DomainTree = tree, DomainBounds = box
             };
@@ -484,6 +609,90 @@ namespace g3
         }
 
         // ================= helpers =================
+
+        // Samples the phase map on a regular set of points of the box: false if a value is not finite, else the largest sampled
+        // column norm of the Jacobian (central differences over an eighth of a cube) and the largest sampled phase magnitude.
+        static bool SamplePhase(Func<Vector3d, Vector3d> map, AxisAlignedBox3d box, double h, out double gradMax, out double phaseMax)
+        {
+            gradMax = 0; phaseMax = 0;
+            double e = h / 8;
+            const int n = 9;
+            for (int i = 0; i < n; ++i)
+                for (int j = 0; j < n; ++j)
+                    for (int l = 0; l < n; ++l) {
+                        var p = new Vector3d(box.Min.x + (box.Max.x - box.Min.x) * i / (n - 1), box.Min.y + (box.Max.y - box.Min.y) * j / (n - 1),
+                                             box.Min.z + (box.Max.z - box.Min.z) * l / (n - 1));
+                        Vector3d v = map(p);
+                        if (!IsFinite(v)) return false;
+                        phaseMax = Math.Max(phaseMax, Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))));
+                        for (int axis = 0; axis < 3; ++axis) {
+                            Vector3d a = p, b = p;
+                            a[axis] -= e; b[axis] += e;
+                            Vector3d va = map(a), vb = map(b);
+                            if (!IsFinite(va) || !IsFinite(vb)) return false;
+                            gradMax = Math.Max(gradMax, (vb - va).Length / (2 * e));
+                        }
+                    }
+            return true;
+        }
+
+        /// <summary>
+        /// A graded cell size whose period varies linearly along one axis: the period is period0 at z0 and period1 at z1 (constant
+        /// outside), the phase along the axis is the exact integral of 1 / period, the transverse phase is the transverse coordinate over
+        /// the local period (so the cells are stretched with the period, distorted by the slope times the transverse distance from the
+        /// frame origin: centre the box on the axis for the smallest distortion). The Jacobian bound is derived here (the Frobenius, hence
+        /// operator, norm bound over the transverse half extent: the largest |coordinate| of the domain in the two other axes) and
+        /// checked by the library against the domain. Set CellSize to the smaller period.
+        /// </summary>
+        public static TpmsPhaseGrade LinearGrade(int axis, double z0, double period0, double z1, double period1, double transverseHalfExtent)
+        {
+            if (axis < 0 || axis > 2) throw new ArgumentOutOfRangeException(nameof(axis));
+            if (!(period0 > 0) || !(period1 > 0) || double.IsInfinity(period0) || double.IsInfinity(period1)) throw new ArgumentException("the periods must be finite and positive");
+            if (!(z1 > z0) || double.IsInfinity(z1) || double.IsInfinity(z0)) throw new ArgumentException("z1 must be above z0");
+            if (!(transverseHalfExtent >= 0) || double.IsInfinity(transverseHalfExtent)) throw new ArgumentException("the transverse extent must be finite and not negative");
+            double slope = (period1 - period0) / (z1 - z0);
+            double minPeriod = Math.Min(period0, period1);
+            double bound = Math.Sqrt(3 / (minPeriod * minPeriod) + 2 * Math.Pow(transverseHalfExtent * Math.Abs(slope) / (minPeriod * minPeriod), 2));
+            Func<double, double> period = z => period0 + (Math.Min(Math.Max(z, z0), z1) - z0) * slope;
+            Func<double, double> phase = z => {
+                if (z <= z0) return (z - z0) / period0;
+                double top = Math.Min(z, z1);
+                // the integral of 1 / period: (top - z0) / period0 * log(1 + x) / x with x = slope (top - z0) / period0, accurate to a
+                // few ulps for every x (log1p by the u = 1 + x trick), so the phase has a relative error of a few u, also for gentle grades
+                double len = top - z0, x = slope * len / period0;
+                double inside = len / period0 * Log1pOverX(x);
+                return inside + (z > z1 ? (z - z1) / period1 : 0);
+            };
+            Func<Vector3d, Vector3d> map = p => {
+                double z = p[axis], l = period(z);
+                var v = new Vector3d();
+                v[axis] = phase(z);
+                v[(axis + 1) % 3] = p[(axis + 1) % 3] / l;
+                v[(axis + 2) % 3] = p[(axis + 2) % 3] / l;
+                return v;
+            };
+            return new TpmsPhaseGrade(map, bound, axis, transverseHalfExtent);
+        }
+
+        // The evaluation error of the normalised field in the Enclosure proof, in units of s: the terms of f (64 u per unit of term sum, over
+        // Lw s) plus the phase rounding: 4 u for the constant lattice (phase = x / L), and for a graded map 8 u |phase| / (J s) with the phase
+        // magnitude taken as twice the sampled maximum plus J times the grid pad (the grid reaches 3.5 cubes beyond the box). The 8 u is the
+        // assumption on the map (LinearGrade evaluates to a few ulps, see Log1pOverX); a PhaseMap is not allowed with Enclosure.
+        internal static double EnclosureError(TpmsType type, double lw, double s, bool graded, double phaseMax, double jac, double h)
+        {
+            double u = Math.Pow(2, -53);
+            double phase = graded ? 8 * u * (2 * phaseMax + 4 * jac * h) / (jac * s) : 4 * u;
+            return 64 * u * TermSum(type) / (lw * s) + phase;
+        }
+
+        // log(1 + x) / x to a few ulps for all x > -1 (x == 0 gives 1): log1p by the trick log(u) x / (u - 1) with u = 1 + x
+        internal static double Log1pOverX(double x)
+        {
+            if (x == 0) return 1;
+            double u = 1 + x;
+            if (u == 1) return 1 - x / 2;          // |x| below 2^-53: the series is exact to rounding
+            return Math.Log(u) / (u - 1);
+        }
 
         static bool IsFinite(Vector3d v)
         {
