@@ -11,7 +11,7 @@ dotnet run --project benchmarks/CcdBenchmark -c Release -- sweep /tmp/ccdsample 
 
 `sweep`: the self sweep of each sample scene's two frames (`frames/*.ply`, also fetched by `fetch_sample.sh`), serial and
 parallel, with the time of the preparation and of the pair search and solve (`G3_SWEEP_SCENES`, `G3_SWEEP_BLOCK`,
-`G3_SWEEP_TASKS` select scenes and job sizes for experiments).
+`G3_SWEEP_TASKS` select scenes and job sizes for experiments, `G3_SWEEP_SUBSTEPS` the sub-steps).
 
 `synthetic`: the stage-1 probe's queries (CCD.md 7.1) through the library, on the filter and the interval path, and sphere
 sweeps (A moving into B) with and without a minimum separation. `sample`: the Apache-2.0 sample of the ToI dataset
@@ -111,3 +111,21 @@ Raw: `results-sweep-ab-2026-11-13.csv` (master at 2ccb989c vs this branch, two a
 | puffer-ball | 1 064 216 | 249 805 425 | out of memory | 40.0 s (serial 112 s) |
 
 Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master.
+
+## Sub-steps (2026-11-14, CCD.md 10.10, #866)
+
+Raw: `results-sweep-substeps-2026-11-14.csv` (`G3_SWEEP_SUBSTEPS=1` and `4`, one run each after a warm-up, 4 cores).
+SubSteps = 1 is the broad phase of 10.9 (with the self-edge sort removed).
+
+| scene | candidates k=1 | candidates k=4 | parallel k=1 | parallel k=4 | serial k=1 | serial k=4 |
+|---|---|---|---|---|---|---|
+| armadillo-rollers | 7 099 982 | 1 127 562 | 1.80 s | 1.64 s | 5.90 s | 5.31 s |
+| cloth-ball | 6 852 873 | 2 450 850 | 5.08 s | 5.29 s | 18.6 s | 19.5 s |
+| cloth-funnel | 41 089 | 26 144 | 0.042 s | 0.056 s | 0.091 s | 0.103 s |
+| n-body-simulation | 31 763 261 | 4 832 461 | 5.29 s | 3.79 s | 17.9 s | 10.6 s |
+| rod-twist | 2 489 604 | 1 823 450 | 1.76 s | 1.83 s | 6.07 s | 6.05 s |
+| puffer-ball | 249 805 425 | 24 953 688 | 28.4 s | 18.2 s | 86.1 s | 49.5 s |
+
+The earliest time of impact and the contacts are the same for k = 1 and 4 in every scene. Before the review notes of
+#857 (with the per-task sort of the self edge pairs), puffer-ball took 33.2 s at k = 1; on master, 40.0 s (10.9).
+Run-to-run spread in this container is about 5-10 % (see the two k = 1 runs in the PR).

@@ -364,6 +364,75 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        static DMesh3 triangle(Vector3d p0, Vector3d p1, Vector3d p2)
+        {
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(p0), m.AppendVertex(p1), m.AppendVertex(p2));
+            return m;
+        }
+
+        // #866 sub-step filter, per sub-step: both of its ends count (a vertex and a triangle that meet exactly at t = 1,
+        // from either side of each axis, so the last sub-step's boxes only touch), the overlap test is
+        // closed, and the sub-step times are i / SubSteps (a vertex passing diagonally by a triangle overlaps it in the
+        // whole step and in [0, 1/2], but in none of the four quarters)
+        [Fact]
+        public void SubSteps_TouchAtTheEndAndDiagonalPassBy()
+        {
+            var o = new CcdOptions { MinSeparation = 0 };
+            for (int axis = 0; axis < 3; ++axis)
+                for (int sign = -1; sign <= 1; sign += 2)
+                    foreach (bool movingA in new[] { true, false }) {
+                        // the target triangle from the plane x_axis = -sign to 0, the moving triangle's tip from x_axis =
+                        // sign to 0: they meet at t = 1, where the last sub-step's boxes only touch (the inner hulls are
+                        // widened by a rounding unit, the ends are exact)
+                        Vector3d at(double c, double u, double v)
+                        {
+                            var q = Vector3d.Zero;
+                            q[axis] = c; q[(axis + 1) % 3] = u; q[(axis + 2) % 3] = v;
+                            return q;
+                        }
+                        DMesh3 target = triangle(at(-sign, -1, -1), at(-sign, 2, -1), at(-sign, -1, 2));
+                        DMesh3 mover = triangle(at(sign, 0.25, 0.25), at(1.5 * sign, 0.5, 0.25), at(1.5 * sign, 0.25, 0.5));
+                        Vector3d[] me = moved(mover, x => { var y = x; y[axis] -= sign; return y; });
+                        Vector3d[] te = moved(target, x => { var y = x; y[axis] += sign; return y; });
+                        MeshSweepCollision make(int k)
+                        {
+                            var sw = movingA ? new MeshSweepCollision(mover, me, target, te)
+                                             : new MeshSweepCollision(target, te, mover, me);
+                            sw.SubSteps = k; sw.Options = o;
+                            sw.Compute();
+                            return sw;
+                        }
+                        MeshSweepCollision one = make(1), four = make(4);
+                        string name = $"axis {axis} sign {sign} A {movingA}";
+                        Assert.True(one.Status == MeshSweepStatus.Collision, name);
+                        Assert.Equal(one.Status, four.Status);
+                        Assert.Equal(one.EarliestNearContactTime, four.EarliestNearContactTime);
+                        Assert.Equal(one.Contacts, four.Contacts);
+                    }
+
+            foreach (bool movingA in new[] { true, false }) {
+                // the moving vertices go from about (-10, 0, 0) to (10, 20, 0); the target is at (-7, 7, 0), 2.8 from the
+                // path
+                DMesh3 mover = triangle(new Vector3d(-10, 0, 0), new Vector3d(-9.75, 0, 0), new Vector3d(-10, 0.25, 0));
+                DMesh3 target = triangle(new Vector3d(-7, 7, 0), new Vector3d(-6.75, 7, 0), new Vector3d(-7, 7.25, 0));
+                Vector3d[] me = moved(mover, x => x + new Vector3d(20, 20, 0));
+                MeshSweepCollision make(int k)
+                {
+                    var sw = movingA ? new MeshSweepCollision(mover, me, target, moved(target, x => x))
+                                     : new MeshSweepCollision(target, moved(target, x => x), mover, me);
+                    sw.SubSteps = k;
+                    sw.Compute();
+                    return sw;
+                }
+                MeshSweepCollision one = make(1), four = make(4);
+                Assert.Equal(MeshSweepStatus.NoCollision, one.Status);
+                Assert.True(one.CandidatePairCount > 0);
+                Assert.Equal(0, four.CandidatePairCount);
+                Assert.Equal(MeshSweepStatus.NoCollision, four.Status);
+            }
+        }
+
         // review #793: the smallest minimum separation still widens the broad phase's boxes
         [Fact]
         public void TinyMinSeparation_ReachesTheNarrowPhase()

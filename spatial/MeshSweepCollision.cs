@@ -399,11 +399,11 @@ namespace g3
         // The sub-step hulls of the points of mesh m (end positions end), by vertex id: for t_j = j / SubSteps, j = 0 ..
         // SubSteps, the bounds (lo x y z, hi x y z) of the point's position at t_j, widened by pad with outward rounding.
         // At j = 0 and SubSteps they are the exact positions; at an inner t_j (exact: SubSteps is a power of two) the
-        // position s + t_j (e - s) is enclosed in an outward-rounded interval, clipped per coordinate to [min(s, e),
-        // max(s, e)] (both hold the position; the clip keeps the interval widening inside the whole-step box, so the
-        // candidates are a subset of those of SubSteps = 1). Under linear motion the point stays during sub-step i in
-        // the box of its hulls at t_i and t_(i+1) (a convex combination of the two positions). The padding is per point:
-        // Down(x - pad) and Up(x + pad) are monotone, so the union of padded points is the padded union, as in box().
+        // position s + t_j (e - s) is enclosed in an outward-rounded interval. Under linear motion the point stays
+        // during sub-step i in the box of its hulls at t_i and t_(i+1) (a convex combination of the two positions). The
+        // padding is per point: Down(x - pad) and Up(x + pad) are monotone, so the union of padded points is the padded
+        // union, as in box(). (The filter only drops candidates of the whole-step tree, so the candidates are a subset
+        // of those of SubSteps = 1 whatever the hulls' widening.)
         double[] sub_hulls(DMesh3 m, Vector3d[] end, double pad, bool parallel)
         {
             int k = SubSteps, stride = 6 * (k + 1);
@@ -420,8 +420,8 @@ namespace g3
                             lo = hi = j == 0 ? s[c] : e[c];
                         } else {
                             ExactInterval q = ExactInterval.Of(s[c]) + ExactInterval.Of(j / (double)k) * (ExactInterval.Of(e[c]) - ExactInterval.Of(s[c]));
-                            lo = Math.Max(q.Lo, Math.Min(s[c], e[c]));
-                            hi = Math.Min(q.Hi, Math.Max(s[c], e[c]));
+                            lo = q.Lo;
+                            hi = q.Hi;
                         }
                         if (pad > 0) {
                             lo = ExactInterval.Down(lo - pad);
