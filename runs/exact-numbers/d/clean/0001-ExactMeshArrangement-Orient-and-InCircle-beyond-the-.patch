@@ -1,6 +1,6 @@
-From 7e1f5eb6703d4db15d2e53329bb034257130f66f Mon Sep 17 00:00:00 2001
+From 9671db65b4fc613900cefc5f205ba9b30dc09952 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
-Date: Fri, 13 Nov 2026 16:51:46 +0000
+Date: Sat, 14 Nov 2026 00:18:43 +0000
 Subject: [PATCH] ExactMeshArrangement: Orient and InCircle beyond the fixed
  width on stack limbs
 
@@ -36,15 +36,16 @@ Claude-Session: https://claude.ai/code/session_01AaGT5CdtKaF4p9ewMMrjAm
  .../ExactLimbSignsTests.cs                    |  14 +-
  .../ExactLimbSignsTestsPlanar.cs              | 340 ++++++++++++++++++
  tests/mutation/README.md                      |   2 +-
- .../mutation/stryker-mesh-arrangement-2.json  |   4 +-
+ .../mutation/stryker-mesh-arrangement-2.json  |   2 +-
  .../mutation/stryker-mesh-arrangement-3.json  |   2 +-
  .../mutation/stryker-mesh-arrangement-4.json  |   2 +-
- 13 files changed, 755 insertions(+), 49 deletions(-)
+ tests/mutation/stryker-mesh-fixed.json        |   2 +-
+ 14 files changed, 755 insertions(+), 49 deletions(-)
  create mode 100644 tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs
  create mode 100644 tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
 
 diff --git a/.github/workflows/mutation.yml b/.github/workflows/mutation.yml
-index 7f56301..5ad71aa 100644
+index b4fa4b36..d0333651 100644
 --- a/.github/workflows/mutation.yml
 +++ b/.github/workflows/mutation.yml
 @@ -41,7 +41,7 @@ on:
@@ -57,7 +58,7 @@ index 7f56301..5ad71aa 100644
        - 'tests/geometry3Sharp.Tests/ExactTouchOnlyCoplanarTests.cs'
        - 'tests/geometry3Sharp.Tests/ExactPlanesFixedWidthTests.cs'
 diff --git a/docs/design/EXACT_LIMB_SIGNS.md b/docs/design/EXACT_LIMB_SIGNS.md
-index e012a82..507681a 100644
+index e012a82d..507681ab 100644
 --- a/docs/design/EXACT_LIMB_SIGNS.md
 +++ b/docs/design/EXACT_LIMB_SIGNS.md
 @@ -1,7 +1,8 @@
@@ -163,7 +164,7 @@ index e012a82..507681a 100644
  Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
  `ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
 diff --git a/docs/roadmap/exact-boolean.md b/docs/roadmap/exact-boolean.md
-index 3dd7c8e..f976714 100644
+index 3dd7c8e5..f9767143 100644
 --- a/docs/roadmap/exact-boolean.md
 +++ b/docs/roadmap/exact-boolean.md
 @@ -385,7 +385,8 @@ Open:
@@ -192,7 +193,7 @@ index 3dd7c8e..f976714 100644
    its tail (4 cores, median of 5, alternating A/B, hashes equal):
    - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
 diff --git a/math/ExactLimbSigns.cs b/math/ExactLimbSigns.cs
-index 46ae555..10e3bcc 100644
+index 46ae5555..10e3bcc6 100644
 --- a/math/ExactLimbSigns.cs
 +++ b/math/ExactLimbSigns.cs
 @@ -8,20 +8,22 @@ namespace g3
@@ -402,7 +403,7 @@ index 46ae555..10e3bcc 100644
          internal static int Det4Big(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d)
          {
 diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
-index 4fae20e..3079168 100644
+index 4fae20e0..30791681 100644
 --- a/mesh_ops/ExactMeshArrangement.cs
 +++ b/mesh_ops/ExactMeshArrangement.cs
 @@ -1633,9 +1633,7 @@ namespace g3
@@ -448,7 +449,7 @@ index 4fae20e..3079168 100644
  
          [MethodImpl(JitHints.Optimize)]
 diff --git a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
-index 1ec66c1..820dc61 100644
+index 1ec66c12..820dc611 100644
 --- a/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
 +++ b/tests/geometry3Sharp.Tests/ExactBooleanLimbSignsTests.cs
 @@ -71,7 +71,7 @@ namespace geometry3Sharp.Tests
@@ -462,7 +463,7 @@ index 1ec66c1..820dc61 100644
              foreach (int t in m.TriangleIndices()) {
 diff --git a/tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs b/tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs
 new file mode 100644
-index 0000000..cef7be6
+index 00000000..cef7be6f
 --- /dev/null
 +++ b/tests/geometry3Sharp.Tests/ExactBooleanWidePointTests.cs
 @@ -0,0 +1,126 @@
@@ -593,7 +594,7 @@ index 0000000..cef7be6
 +    }
 +}
 diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
-index b149ee0..c6cc62a 100644
+index b149ee05..c6cc62a8 100644
 --- a/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
 +++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTests.cs
 @@ -15,18 +15,18 @@ namespace geometry3Sharp.Tests
@@ -640,7 +641,7 @@ index b149ee0..c6cc62a 100644
                  case 0: return r.Next(0, 4);
 diff --git a/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs b/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
 new file mode 100644
-index 0000000..85c85c3
+index 00000000..85c85c3b
 --- /dev/null
 +++ b/tests/geometry3Sharp.Tests/ExactLimbSignsTestsPlanar.cs
 @@ -0,0 +1,340 @@
@@ -985,10 +986,10 @@ index 0000000..85c85c3
 +    }
 +}
 diff --git a/tests/mutation/README.md b/tests/mutation/README.md
-index e0c2690..a9c5ee6 100644
+index 3ce728ab..2d4f5d69 100644
 --- a/tests/mutation/README.md
 +++ b/tests/mutation/README.md
-@@ -270,7 +270,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
+@@ -272,7 +272,7 @@ each). Each shard runs the unit tests of its file (the `test-case-filter` of its
  | `boolean-1` .. `boolean-4` | `mesh_ops/ExactMeshBoolean.cs`, split at `open_winding_per_patch`, `trace_clusters` and `front_winding` (since 12 November 2026 three parts: the 55928 tail-case stage, #633, put the open winding per patch and the carried rays before `front_winding` and nearly doubled the first part, 74.8k to 140.1k characters; it is split where that code begins, and the old `boolean-2` is `boolean-3`; the new `boolean-2` keeps the break threshold of `boolean-1` until its own full run gives a reason to change it. Since T5 PR 2, #675, four parts: the carry across input-triangle edges grew `boolean-2` from 67.8k to 100.0k characters; it is split at `trace_clusters`, 52.1k and 47.9k, the new `boolean-3` with `boolean-2`'s filter and threshold, and the old `boolean-3` is `boolean-4`) | `ExactMeshBooleanTests`, `ExactMeshBooleanNaryTests`, `ExactBooleanOrientationTests`, `ExactBooleanReuseTests`, `ExactBooleanEdgeOrderTests`, the `ExactVertices` tests of `MeshRoundingRepairTests`, `BooleanPerformanceTests`, `ExactBooleanOpenInputTests`, `ExactBooleanSurvivorTests`, `ExactBooleanIssueCasesTests`, `ExactBooleanByDesignTests`; `boolean-3` also `ExactBooleanFilterTests` |
  | `arrangement-1` .. `arrangement-4` | `mesh_ops/ExactMeshArrangement.cs`, split at `build_triangles`, `candidates` and `triangulate_touched` (since 8 November 2026 `arrangement-2` is three shards: on #403 it had 1375 mutants, its coverage pass took 71 min and the job was cancelled after 350 minutes, 272 of them testing; each part keeps the break threshold 72 until its own full runs give a reason to change it) | `ExactFilterBoundTests`, `ExactArrangementScalingTests`, `ExactMeshBooleanTests`, `ExactBooleanEdgeOrderTests`, `ExactBooleanBuildingBlockTests`, the `ExactVertices` tests, `BooleanPerformanceTests`, `ExactImplicitPointTests`, `ExactPoint3FixedWidthTests`, `ExactBooleanPairSearchTests`, `ExactTouchOnlyCoplanarTests`, `ExactPlanesFixedWidthTests` |
  | `planar` | `mesh_ops/ExactPlanarSimplify.cs`, `mesh_ops/ExactTriangulation2.cs` | `ExactPlanarSimplifyTests`, `ExactTriangulation2Tests`, `ExactBooleanBuildingBlockTests`, `ExactMeshBooleanTests` |
@@ -998,23 +999,20 @@ index e0c2690..a9c5ee6 100644
  | `envelope-1` .. `envelope-4` | `mesh_ops/PolyhedralEnvelope.cs`, split at `Builder.add`, `bit_length` and `ContainsTriangle` (since 8 November 2026 four shards: the whole file had 687 mutants, each running all 15 tests (`coverage-analysis` all) with a 30 s additional timeout, and the job was cancelled after 350 minutes; the polyhedral envelope, docs/design/ENVELOPE.md 4.4). First CI measurement (run 42474504758, 8 November 2026): `envelope-1` 82.18 % (138 killed, 5 timeouts, 30 survived, 1 no coverage), `envelope-2` 76.30 % (121 / 11 / 34 / 7), `envelope-3` 87.61 % (94 / 5 / 13 / 1), `envelope-4` 77.69 % (187 / 1 / 48 / 6); break 80, 74, 85 and 75 (the score rounded down, less two points), low = break + 2. Killed without timeouts: 540 of 702, 76.9 %. The earlier break of 90 came from a provisional local score of an older file and older tests (#263, before `ContainsTriangle`: 385 killed and 96 timeouts of 494, 97.37 %, of which 19.4 points were timeouts; the killed share then was 77.9 %, the same as now). Stryker's timeout per run is 1.5 times the initial run plus the additional timeout; the oracle test `ContainsTriangle_MatchesOracle` (141 s of the suite's 183 s) widened that window from about 75 s to about 305 s, so mutants that only slow the BigInteger paths (filters, helpers, margins) now finish and survive instead of timing out as "killed". The survivors are mostly such performance or bound-slack mutants (as the filter bounds below); a few look like real gaps (the cube axis choice, `Math.Abs(d.y) < Math.Abs(d.z)`, `f > nf`, the `Orient3d > 0` of the output check) and are open. Each part runs 2 to 4 hours on a runner, the coverage pass 20 to 37 minutes of it) | `PolyhedralEnvelopeTests` |
  | `terrain-arith` | `math/ExactIntervals.cs`, `math/ExactSlopePredicates.cs`, `mesh_ops/TerrainSlope.cs` (terrain slope design, phase 1a: exact intervals and slope predicates; local run 88.65 % at #267; break 85) | `ExactIntervalsTests`, `TerrainSlopeOracleTests` |
 diff --git a/tests/mutation/stryker-mesh-arrangement-2.json b/tests/mutation/stryker-mesh-arrangement-2.json
-index 1bf6e49..d064d71 100644
+index 1bf6e495..82f5fa15 100644
 --- a/tests/mutation/stryker-mesh-arrangement-2.json
 +++ b/tests/mutation/stryker-mesh-arrangement-2.json
-@@ -6,9 +6,9 @@
+@@ -6,7 +6,7 @@
      ],
      "target-framework": "net10.0",
      "mutate": [
 -      "**/mesh_ops/ExactMeshArrangement.cs{70960..113092}"
 +      "**/mesh_ops/ExactMeshArrangement.cs{70960..112109}"
      ],
--    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
-+    "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactBooleanWidePointTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
+     "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
      "ignore-methods": [
-       "*PredicateStats.*"
-     ],
 diff --git a/tests/mutation/stryker-mesh-arrangement-3.json b/tests/mutation/stryker-mesh-arrangement-3.json
-index 729c864..cae6787 100644
+index 729c864c..cae6787e 100644
 --- a/tests/mutation/stryker-mesh-arrangement-3.json
 +++ b/tests/mutation/stryker-mesh-arrangement-3.json
 @@ -6,7 +6,7 @@
@@ -1027,7 +1025,7 @@ index 729c864..cae6787 100644
      "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
      "ignore-methods": [
 diff --git a/tests/mutation/stryker-mesh-arrangement-4.json b/tests/mutation/stryker-mesh-arrangement-4.json
-index e7c25d5..2348249 100644
+index e7c25d58..23482498 100644
 --- a/tests/mutation/stryker-mesh-arrangement-4.json
 +++ b/tests/mutation/stryker-mesh-arrangement-4.json
 @@ -6,7 +6,7 @@
@@ -1039,6 +1037,19 @@ index e7c25d5..2348249 100644
      ],
      "test-case-filter": "FullyQualifiedName~ExactFilterBoundTests|FullyQualifiedName~ExactArrangementScalingTests|FullyQualifiedName~ExactMeshBooleanTests|FullyQualifiedName~ExactBooleanEdgeOrderTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~MeshRoundingRepairTests.ExactVertices|FullyQualifiedName~BooleanPerformanceTests|FullyQualifiedName~ExactImplicitPointTests|FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanPairSearchTests|FullyQualifiedName~BoxTreeMortonTests|FullyQualifiedName~BoxTreeOrderTests|FullyQualifiedName~ExactTouchOnlyCoplanarTests|FullyQualifiedName~ExactPlanesFixedWidthTests|FullyQualifiedName~TriTriPrefilterTests",
      "ignore-methods": [
+diff --git a/tests/mutation/stryker-mesh-fixed.json b/tests/mutation/stryker-mesh-fixed.json
+index e17ad366..e5a7ac1c 100644
+--- a/tests/mutation/stryker-mesh-fixed.json
++++ b/tests/mutation/stryker-mesh-fixed.json
+@@ -9,7 +9,7 @@
+       "**/math/FixedPoint3.cs",
+       "**/math/ExactLimbSigns.cs"
+     ],
+-    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactLimbSignsTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
++    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactLimbSignsTests|FullyQualifiedName~ExactLimbSignsTestsPlanar|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
+     "ignore-methods": [
+       "*PredicateStats.*"
+     ],
 -- 
 2.43.0
 

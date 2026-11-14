@@ -2,7 +2,7 @@
 
 Owner decision 2026-11-12 (roadmap/exact-boolean.md, "Exact number representation beyond `BigInteger`"): after P2 (#769)
 the candidates B (#772), C, D, each after a probe that confirms a whole-operation gain above noise. The coordinator
-accepted D on its probe and on the measurement of the built version. This is D; it builds on #772.
+accepted D on its probe and on the measurement of the built version. This is D, on the kernels of #772.
 
 ### What changes
 
@@ -87,9 +87,14 @@ allocation separately. Rows: branch `runs/exact-numbers`, `results/d2`, `results
     exchanged with the third, the projection's sign dropped;
   - the BigInteger forms (11): beyond the limit a zero or the opposite sign, for each kernel; columns or rows
     exchanged; the row's `A`, `s`, `A^2 + B^2`; the `W = 1` shortcut's `B` and its condition.
-- Mutation: the offsets of the shards `mesh-arrangement-2..4` follow the file (it got shorter); `ExactBooleanWidePointTests`
-  joins shard 2's filter; the kernels and their BigInteger forms are in the shard `mesh-fixed`, whose filter term
-  `ExactLimbSignsTests` matches the new class too; `mutation.yml` paths cover the new test files.
+- Mutation: the offsets of the shards `mesh-arrangement-2..4` follow the file (it got shorter; only the spans move, so
+  these shards run incrementally: `select_shards.py` gives `source` for `arrangement-1..4`). The kernels and their
+  BigInteger forms are in the shard `mesh-fixed`, whose filter names `ExactLimbSignsTestsPlanar`; that is a filter
+  change, so `fixed` runs in full, which is the gate for this exact arithmetic (51 minutes on #772). `mutation.yml`
+  paths cover the new test file.
+- Left out on purpose: `ExactBooleanWidePointTests` in the filter of `mesh-arrangement-2` (it kills the six call-site
+  mutants above). A filter change makes that shard run in full on the PR, which the 3.0 rule excludes; the term can
+  join with the next change of that config on master.
 
 ### Review (exact code)
 
@@ -109,11 +114,26 @@ kernels returned false beyond the limit and the two call sites evaluated the Big
     determinant of the lifted points, and `KnownSigns` fixes the absolute signs;
   - the limit tests ran in one projection: now in the three, with a wide entry in the unread axis;
   - `total` was an `int` under a comment that promised no overflow for any size: the sizes are summed in `long`;
-  - the design note's statement about the callers, the header comment, a redundant filter term, two assert messages.
+  - the design note's statement about the callers, the header comment, two assert messages.
+
+A second agent on the final commit (the diff against master only), on what changed since: the BigInteger forms
+against the removed code of `ExactMeshArrangement` (textually the old rows, the `W = 1` shortcut, the argument order
+at the call sites), the `long` sizes and the casts at the `stackalloc`s, the netstandard2.0 body, `[SkipLocalsInit]`
+(`load` and `FixedArith` write every limb they read), the test references on 200,000 small cases with both signs of
+`W`, the shard offsets (characters, at the `[MethodImpl]` lines of `build_triangles`, `candidates`,
+`triangulate_touched`), the design note against the code. No defect in the kernels or the call sites. Its findings,
+taken: the filter change of `mesh-arrangement-2` would run that shard in full (left out, above); `select_shards.py`
+maps a filter term to a file, so `mesh-fixed` names the new class.
 
 ### Local checks
 
-@@LOCAL@@
+The full list of CLAUDE.md on a1f0d24a (this change on master 2fea6ac7), 4-core cloud container, every step with exit
+code 0: library tests net10.0 12970 passed, 0 failed, 2 skipped (18 m 31 s); g3cli tests 566 passed; `dotnet pack` with the API
+validation against 1.0.324 and the package smoke test; the net48 build of the library tests; Clipper2 tests 96
+passed, its pack, smoke test and net48 build; the 39 benchmark projects and `tools/PredicateCompiler` build. The head
+adds only the two filter terms of the mutation configs to it: on it the tool tests of ci.yml and of `tests/mutation`
+pass (7), the library builds for both targets, and `MutationConfigTests`, `ExactLimbSignsTests*` and
+`ExactBooleanWidePointTests` pass (33). The net48 tests themselves run only on GitHub (no .NET Framework here).
 
 ### Review notes (exact code)
 
