@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using g3;
 using gs;
@@ -35,6 +35,62 @@ namespace geometry3Sharp.Tests
                     max = Math.Max(max, Math.Abs(ray.PointAt(intr.RayParameter).z - g.Z[i + g.NX * j]));
                 }
             return max;
+        }
+
+        [Fact]
+        public void RemoveVertices_PlateauIsInvariantUnderPowerOfTwoScaling()
+        {
+            var random = new Random(283);
+            var heights = Enumerable.Range(0, 16).Select(_ => random.Next(3) + random.Next(3) * 1e-14).ToArray();
+            TerrainGreedyTIN Compute(double scale) {
+                var tin = new TerrainGreedyTIN(heights.Select(z => z * scale).ToArray(), 4, 4, 0, 0, scale) {
+                    MaxError = 0.5 * scale, RemoveVertices = true
+                };
+                Assert.True(tin.Compute());
+                Assert.True(tin.Result.CheckValidity());
+                return tin;
+            }
+            var original = Compute(1);
+            Assert.True(MaxNodeError(original) <= 0.5 + 1e-9);
+            foreach (double scale in new[] { 1.0 / 1024, 1024.0, 1099511627776.0 }) {
+                var scaled = Compute(scale);
+                Assert.Equal(original.Result.VertexCount, scaled.Result.VertexCount);
+                Assert.Equal(original.Result.TriangleCount, scaled.Result.TriangleCount);
+                foreach (int v in original.Result.VertexIndices()) {
+                    Assert.True(scaled.Result.IsVertex(v));
+                    Assert.Equal(original.Result.GetVertex(v), scaled.Result.GetVertex(v) / scale);
+                }
+                foreach (int t in original.Result.TriangleIndices())
+                    Assert.Equal(original.Result.GetTriangle(t), scaled.Result.GetTriangle(t));
+            }
+        }
+
+        [Fact]
+        public void RemoveVertices_SeededPlateausKeepTopologyAtPowerOfTwoScale()
+        {
+            for (int seed = 0; seed < 32; ++seed) {
+                var random = new Random(seed);
+                var heights = Enumerable.Range(0, 16).Select(_ => random.Next(3) + random.Next(3) * 1e-14).ToArray();
+                TerrainGreedyTIN Compute(double scale) {
+                    var tin = new TerrainGreedyTIN(heights.Select(z => z * scale).ToArray(), 4, 4, 0, 0, scale) {
+                        MaxError = 0.5 * scale, RemoveVertices = true
+                    };
+                    Assert.True(tin.Compute());
+                    return tin;
+                }
+                var a = Compute(1);
+                var b = Compute(1099511627776.0);
+                Assert.True(a.Result.CheckValidity());
+                Assert.True(b.Result.CheckValidity());
+                Assert.Equal(a.Result.VertexCount, b.Result.VertexCount);
+                Assert.Equal(a.Result.TriangleCount, b.Result.TriangleCount);
+                foreach (int v in a.Result.VertexIndices()) {
+                    Assert.True(b.Result.IsVertex(v));
+                    Assert.Equal(a.Result.GetVertex(v), b.Result.GetVertex(v) / 1099511627776.0);
+                }
+                foreach (int t in a.Result.TriangleIndices())
+                    Assert.Equal(a.Result.GetTriangle(t), b.Result.GetTriangle(t));
+            }
         }
 
         [Fact]
