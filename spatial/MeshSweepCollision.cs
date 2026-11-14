@@ -475,6 +475,35 @@ namespace g3
             return p;
         }
 
+        // Sub-step filter of a pair of primitives, both from the hulls: true if, in some sub-step, the box of the points
+        // p0..p(n-1) (hulls hp) and that of the points q0..q(m-1) (hulls hq) overlap (closed boxes); stops at the first
+        // separating axis of each sub-step (self edge pairs, where the first edge changes from pair to pair)
+        bool overlaps_some_sub_step(double[] hp, int n, int p0, int p1, int p2, double[] hq, int m, int q0, int q1, int q2)
+        {
+            int stride = 6 * (SubSteps + 1);
+            for (int st = 0; st < SubSteps; ++st) {
+                bool all = true;
+                for (int c = 0; c < 3 && all; ++c) {
+                    double alo = double.PositiveInfinity, ahi = double.NegativeInfinity;
+                    double blo = double.PositiveInfinity, bhi = double.NegativeInfinity;
+                    for (int i = 0; i < n; ++i) {
+                        int o = (i == 0 ? p0 : i == 1 ? p1 : p2) * stride + 6 * st + c;
+                        alo = Math.Min(alo, Math.Min(hp[o], hp[o + 6]));
+                        ahi = Math.Max(ahi, Math.Max(hp[o + 3], hp[o + 9]));
+                    }
+                    for (int i = 0; i < m; ++i) {
+                        int o = (i == 0 ? q0 : i == 1 ? q1 : q2) * stride + 6 * st + c;
+                        blo = Math.Min(blo, Math.Min(hq[o], hq[o + 6]));
+                        bhi = Math.Max(bhi, Math.Max(hq[o + 3], hq[o + 9]));
+                    }
+                    all = alo <= bhi && blo <= ahi;
+                }
+                if (all)
+                    return true;
+            }
+            return false;
+        }
+
         // the boxes of the points p0..p(n-1) (hulls h) over the sub-steps into dst (lo x y z, hi x y z per sub-step): the
         // box over sub-step i is that of their hulls at t_i and t_(i+1) (sub_hulls)
         void sub_boxes(double[] h, int n, int p0, int p1, int p2, double[] dst)
@@ -638,17 +667,13 @@ namespace g3
         {
             w.Pairs.Clear();
             edg.Tree.SelfPairs(task, w.Pairs);
-            double[] q = subFilter ? query_boxes(w) : null;
             foreach (Index2i k in w.Pairs) {
                 int x = edg.Ids[k.a], y = edg.Ids[k.b];
                 Index2i ea = meshA.GetEdgeV(x), eb = meshA.GetEdgeV(y);
                 if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b)
                     continue;
-                if (subFilter) {
-                    sub_boxes(hullsA, 2, ea.a, ea.b, -1, q);
-                    if (overlaps_some_sub_step(q, hullsA, 2, eb.a, eb.b, -1) == false)
-                        continue;
-                }
+                if (subFilter && overlaps_some_sub_step(hullsA, 2, ea.a, ea.b, -1, hullsA, 2, eb.a, eb.b, -1) == false)
+                    continue;
                 pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = Math.Min(x, y), Second = Math.Max(x, y) });
             }
         }
