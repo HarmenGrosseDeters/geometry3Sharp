@@ -1,0 +1,25 @@
+4
+Linux runnervmccnms 7.0.0-1019-azure #20-Ubuntu SMP PREEMPT Mon Oct 19 22:41:16 UTC 2026 x86_64 GNU/Linux
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V74 80-Core Processor
+               total        used        free      shared  buff/cache   available
+Mem:              15           1          12           0           1          13
+4
+Linux runnervmccnms 7.0.0-1019-azure #20-Ubuntu SMP PREEMPT Mon Oct 19 22:41:16 UTC 2026 x86_64 GNU/Linux
+CPU(s):                                  4
+Model name:                              INTEL(R) XEON(R) PLATINUM 8573C
+CPU(s) scaling MHz:                      126%
+               total        used        free      shared  buff/cache   available
+Mem:              15           2          12           0           1          13
+4
+Linux ip-10-0-140-99 7.0.0-1016-aws #17-Ubuntu SMP PREEMPT Mon Oct 19 17:36:33 UTC 2026 x86_64 GNU/Linux
+CPU(s):                                  4
+Model name:                              Intel(R) Xeon(R) 6975P-C
+               total        used        free      shared  buff/cache   available
+Mem:              15           2          12           0           1          13
+4
+Linux runnervmccnms 7.0.0-1019-azure #20-Ubuntu SMP PREEMPT Mon Oct 19 22:41:16 UTC 2026 x86_64 GNU/Linux
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V45 96-Core Processor
+               total        used        free      shared  buff/cache   available
+Mem:              15           2          12           0           1          13
