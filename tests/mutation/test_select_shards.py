@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 CONFIGS = load_configs()
 RO = ["rounding-%d" % i for i in range(1, 9)]
 ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
-                                                "terrain-arith", "terrain-kernel", "terrain-overlay"}
+                                                "terrain-arith", "terrain-kernel", "terrain-overlay", "hausdorff"}
 
 
 def run(*changed):
@@ -78,6 +78,14 @@ class SelectShards(unittest.TestCase):
         # terrain-overlay: "FullyQualifiedName~TerrainSlopeCatchLineTests&FullyQualifiedName!~RandomTerrains"
         self.assertEqual(("none", {"terrain-overlay": "tests"}), run(TESTS + "TerrainSlopeCatchLineTests.cs"))
         self.assertEqual(("none", {"terrain-overlay": "source"}), run("mesh_ops/TerrainSlopeOverlay.cs"))
+
+    def test_hausdorff_shard(self):
+        # the certified upper bound of MeshHausdorffDistance (#742) and the cascade it runs in
+        for f in ("mesh_ops/MeshHausdorffDistance.cs", "queries/TriangleDeviationBounds.cs", "queries/CertifiedTriangleBounds.cs",
+                  "queries/CertifiedPointMeshDistance.cs"):
+            self.assertEqual(("none", {"hausdorff": "source"}), run(f))
+        self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "HausdorffCertifiedUpperTests.cs"))
+        self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "MeshDeviationTests.cs"))
 
     def test_source_wins_over_tests(self):
         self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding-1"])
