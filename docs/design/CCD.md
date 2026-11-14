@@ -610,7 +610,8 @@ overlap many primitives that are never close at the same time.
 As built: `SubSteps` (a power of two, 1 to 64, 4 by default). The tree is that of the whole-step boxes, as before. A pair
 of overlapping whole-step boxes is a candidate only if the boxes of its two primitives also overlap in some sub-step
 [t_i, t_(i+1)], t_i = i / SubSteps. The box of a primitive over sub-step i is that of its points' hulls at t_i and t_(i+1),
-which are computed once per vertex (`sub_hulls`, (SubSteps + 1) · 48 bytes per vertex, 128 MB for puffer-ball at 4):
+which are computed once per vertex (`sub_hulls`, (SubSteps + 1) · 48 bytes per vertex, 128 MB for puffer-ball at 4;
+above 1 GB, `MaxHullDoubles`, the filter is skipped and the candidates are those of SubSteps = 1):
 - at t_0 and t_SubSteps the exact positions;
 - at an inner t_j (exact, since SubSteps is a power of two) the position s + t_j (e - s) in an outward-rounded
   `ExactInterval` (the stated conservative bound);
@@ -625,12 +626,13 @@ Guarantee (the owner's condition, coordinator 2026-11-14):
 - the filter only drops candidates of the whole-step tree, so the candidates of SubSteps = k are a subset of those of
   SubSteps = 1, with bit-identical results per pair (a first version with one tree per sub-step needed the sub-step
   boxes clipped to the whole-step box for this; the filter does not);
-- every pair that has a contact or a near contact in the step (closer than the minimum separation at some time) is a
-  candidate, so the true contacts, `EarliestNearContactTime` and, with `CollectAll = false`, the kept contacts are the
-  same;
-- the difference: a pair whose primitives are farther apart than the minimum separation in every sub-step box is left
-  out even when its whole-step query gives a false positive (a `Collision` within the error bound) or `IterationLimit`
-  (then `EarliestTimeOfImpact` can be later, but never later than a true contact).
+- every pair that is closer than the minimum separation at some time in the step is a candidate, so no true contact is
+  lost;
+- the difference: a pair whose sub-step boxes are farther apart than the minimum separation in every sub-step is left
+  out even when its whole-step query gives a false positive (a `Collision` within the error bound) or `IterationLimit`.
+  Then `EarliestTimeOfImpact` and `EarliestNearContactTime` can be later and `Status` can change from `Collision` to
+  `NoCollision`, but never past a true contact: the result is still conservative, and tighter. On the random scenes of
+  the test and on all six sample scenes the status, both times and the kept contacts are the same.
 
 Candidate order: the filter is a per-pair test on the candidates of the fixed jobs, so the order depends only on the
 input; parallel equals serial.
@@ -641,8 +643,9 @@ Two designs were rejected:
 - the filter computing the candidate's sub-step boxes per pair with `ExactInterval`: puffer-ball 172 s, every scene
   slower.
 
-Also in this PR (review notes of #857): the self edge pairs are filtered before anything else, and the per-task sort is
-gone (`Contacts` is sorted at the end, and the order of `SelfPairs` depends only on the input).
+Also in this PR (review notes of #857 and the code review of this PR): the candidates are no longer sorted per query or
+per task (`Contacts` is sorted at the end, and the order of the tree queries and of `SelfPairs` depends only on the
+input); the query primitive's sub-step boxes are computed once per query.
 
 Measured: `benchmarks/CcdBenchmark/README.md` ("Sub-steps"). Parallel, puffer-ball goes from 28.4 s to 18.2 s (25M
 candidates instead of 250M), n-body from 5.3 s to 3.8 s. Where the motion is small the filter culls little and costs

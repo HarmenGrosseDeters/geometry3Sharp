@@ -323,7 +323,7 @@ namespace geometry3Sharp.Tests
                 double twist = rnd.NextDouble();
                 Func<Vector3d, Vector3d> fa = x => x + move + twist * new Vector3d(0, 0.3 * x.z, -0.3 * x.y);
                 var o = new CcdOptions { MinSeparation = (round % 3) * 0.004 };
-                MeshSweepCollision make(int k, bool all)
+                MeshSweepCollision make(int k, bool all, long maxHull = 1L << 27)
                 {
                     MeshSweepCollision sw;
                     if (self) {
@@ -335,11 +335,12 @@ namespace geometry3Sharp.Tests
                         sw = new MeshSweepCollision(m, end);
                     } else
                         sw = new MeshSweepCollision(a, moved(a, fa), b, moved(b, x => x));
-                    sw.SubSteps = k; sw.CollectAll = all; sw.Options = o;
+                    sw.SubSteps = k; sw.CollectAll = all; sw.Options = o; sw.MaxHullDoubles = maxHull;
                     sw.Compute();
                     return sw;
                 }
                 var one = make(1, true);
+                var a1 = make(1, false);
                 var key = new Dictionary<(SweepContactKind, bool, int, int), CcdResult>();
                 foreach (SweepContact c in one.Contacts) key[(c.Kind, c.FirstOfMeshA, c.First, c.Second)] = c.Result;
                 foreach (int k in new[] { 2, 4, 8 }) {
@@ -350,13 +351,17 @@ namespace geometry3Sharp.Tests
                         Assert.Equal(r, c.Result);
                     }
                     // (the dropped pairs are farther apart than the minimum separation in every sub-step: no contact)
-                    var a1 = make(1, false); var ak = make(k, false);
+                    var ak = make(k, false);
                     Assert.Equal(a1.Status, ak.Status);
                     Assert.Equal(a1.EarliestTimeOfImpact, ak.EarliestTimeOfImpact);
                     Assert.Equal(a1.EarliestNearContactTime, ak.EarliestNearContactTime);
                     Assert.Equal(a1.Contacts, ak.Contacts);
                     if (k == 4 && move.x > 0.6) Assert.True(sub.CandidatePairCount < one.CandidatePairCount, $"round {round}: no fewer candidates");
                 }
+                // hulls above MaxHullDoubles: no filter, the candidates of SubSteps = 1
+                var big = make(4, true, 0);
+                Assert.Equal(one.CandidatePairCount, big.CandidatePairCount);
+                Assert.Equal(one.Contacts, big.Contacts);
             }
             foreach (int bad in new[] { 0, 3, 6, 128, -4 }) {
                 DMesh3 a = box(Vector3d.Zero, 1);
@@ -417,11 +422,11 @@ namespace geometry3Sharp.Tests
                 DMesh3 mover = triangle(new Vector3d(-10, 0, 0), new Vector3d(-9.75, 0, 0), new Vector3d(-10, 0.25, 0));
                 DMesh3 target = triangle(new Vector3d(-7, 7, 0), new Vector3d(-6.75, 7, 0), new Vector3d(-7, 7.25, 0));
                 Vector3d[] me = moved(mover, x => x + new Vector3d(20, 20, 0));
-                MeshSweepCollision make(int k)
+                MeshSweepCollision make(int k, long maxHull = 1L << 27)
                 {
                     var sw = movingA ? new MeshSweepCollision(mover, me, target, moved(target, x => x))
                                      : new MeshSweepCollision(target, moved(target, x => x), mover, me);
-                    sw.SubSteps = k;
+                    sw.SubSteps = k; sw.MaxHullDoubles = maxHull;
                     sw.Compute();
                     return sw;
                 }
@@ -430,6 +435,9 @@ namespace geometry3Sharp.Tests
                 Assert.True(one.CandidatePairCount > 0);
                 Assert.Equal(0, four.CandidatePairCount);
                 Assert.Equal(MeshSweepStatus.NoCollision, four.Status);
+                // the hulls take (3 + 3) vertices * 6 * (4 + 1) doubles: the filter runs at that bound, not below it
+                Assert.Equal(0, make(4, 180).CandidatePairCount);
+                Assert.Equal(one.CandidatePairCount, make(4, 179).CandidatePairCount);
             }
         }
 
