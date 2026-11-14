@@ -321,6 +321,7 @@ namespace g3cli
             c.Params.Add(new Param("height_limit", ParamType.Number, "the height up to which the slope is built (cut; down to it for fill); default: up to the terrain near the toe"));
             c.Params.Add(new Param("target_heights", ParamType.String, "comma separated heights: the level lines of the slope region at these heights (bench levels), written to target_lines"));
             c.Params.Add(new Param("slope_margin", ParamType.Number, "the relative margin below the slope (δ), raised automatically if needed") { Default = 1e-6 });
+            c.Params.Add(new Param("max_fan_directions", ParamType.Integer, "the largest number of cone facets per turn (16 to 4096); a smaller tolerance than these allow is refused, naming one that fits") { Default = 512 });
             c.Params.Add(new Param("terrain_vertical_uncertainty", ParamType.Number, "the terrain's vertical uncertainty, for the catch lines' horizontal uncertainty") { Default = 0.0 });
             c.Params.Add(new Param("required_catch_line_accuracy", ParamType.Number, "fail (catch_line_accuracy_not_reached) unless every catch-line segment is located this well horizontally"));
             c.Params.Add(new Param("local_frame", ParamType.Boolean, "compute in a local frame at the toes (finer guaranteed features at UTM); the outputs are then local: add used_origin to x and y") { Default = false });
@@ -334,6 +335,7 @@ namespace g3cli
                 double tol = args.Number("tolerance");
                 if (!(tol > 0)) throw new CommandException(ResultCodes.InvalidArguments, "'tolerance' must be > 0");
                 if (!(args.Number("slope_margin") > 0 && args.Number("slope_margin") <= 0.01)) throw new CommandException(ResultCodes.InvalidArguments, "'slope_margin' must be in (0, 0.01]");
+                if (args.Integer("max_fan_directions") < 16 || args.Integer("max_fan_directions") > 4096) throw new CommandException(ResultCodes.InvalidArguments, "'max_fan_directions' must be in [16, 4096]");
                 if (args.Has("height_limit") && args.String("direction") == "auto")
                     throw new CommandException(ResultCodes.InvalidArguments, "'height_limit' is not for direction auto (the cut and the fill run end at the terrain)");
                 foreach (string g in new[] { "catch_lines", "target_lines" })
@@ -369,7 +371,7 @@ namespace g3cli
                 DMesh3 terrain = MeshFiles.Read(args.String("terrain"), warnings);
 
                 var d = new TerrainSlopeDesign() {
-                    Toes = toes.Toes, Terrain = terrain, Tolerance = tol, SlopeMargin = args.Number("slope_margin"),
+                    Toes = toes.Toes, Terrain = terrain, Tolerance = tol, SlopeMargin = args.Number("slope_margin"), MaxFanDirections = args.Integer("max_fan_directions"),
                     TerrainVerticalUncertainty = args.Number("terrain_vertical_uncertainty"),
                     BuildComposite = composite != "none",
                     CompositeKind = composite == "replacement" ? TerrainSlopeDesign.CompositeKinds.Replacement : TerrainSlopeDesign.CompositeKinds.Full,
