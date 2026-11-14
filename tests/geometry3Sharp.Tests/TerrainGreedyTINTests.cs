@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using g3;
 using gs;
@@ -12,6 +12,38 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainGreedyTINTests
     {
+        [Fact]
+        public void ZeroError_TinyHeightSweepTerminates()
+        {
+            var random = new Random(855);
+            for (int trial = 0; trial < 80; ++trial) {
+                var heights = new double[20];
+                for (int i = 0; i < heights.Length; ++i)
+                    heights[i] = random.Next(3) == 0 ? (random.NextDouble() - 0.5) * 1e-220 : random.Next(2);
+                int calls = 0;
+                var tin = new TerrainGreedyTIN(heights, 5, 4, 0, 0, 1) {
+                    MaxError = 0, CancelF = () => ++calls > 100
+                };
+                Assert.True(tin.Compute());
+                Assert.InRange(tin.Result.VertexCount, 4, heights.Length);
+                Assert.True(tin.Result.CheckValidity());
+            }
+        }
+
+        [Fact]
+        public void ZeroError_DoesNotReinsertExistingVertex()
+        {
+            double[] heights = { 0, 1, 1, 1, 1, 1, 1, -2.868160137710835E-223, 0, 0 };
+            int calls = 0;
+            var tin = new TerrainGreedyTIN(heights, 5, 2, 0.0625, 0, 0.35377429245212266) {
+                MaxError = 0, CancelF = () => ++calls > 100
+            };
+            Assert.True(tin.Compute());
+            Assert.NotNull(tin.Result);
+            Assert.InRange(tin.Result.VertexCount, 4, 10);
+            Assert.True(tin.Result.CheckValidity());
+        }
+
         static double[] Grid(int nx, int ny, Func<int, int, double> h)
         {
             var z = new double[nx * ny];
