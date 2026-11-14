@@ -300,7 +300,7 @@ namespace g3
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static int trailing_zeros(ulong v)
+        internal static int trailing_zeros(ulong v)
         {
 #if NET
             return System.Numerics.BitOperations.TrailingZeroCount(v);
