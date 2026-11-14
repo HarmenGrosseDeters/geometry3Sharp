@@ -58,9 +58,11 @@ namespace g3
     ///
     /// Broad phase: the box of each primitive's start and end positions (the primitive stays in it under linear
     /// motion), widened by half the minimum separation with outward rounding, in a closed, unpadded box tree (no
-    /// overlapping pair is missed). Narrow phase: ContinuousCollision per candidate pair; each pair is computed
-    /// independently. Both run in parallel over fixed jobs (blocks of query primitives, self edge-pair tasks) in batches of
-    /// about two million candidate pairs; the jobs and batches depend only on the input and the outputs are merged in
+    /// overlapping pair is missed); a pair of overlapping boxes is kept if the boxes of its primitives also overlap in
+    /// some sub-step (SubSteps). Narrow phase: ContinuousCollision per candidate pair over the whole step; each pair is
+    /// computed independently. Both run in parallel over fixed jobs (blocks of query primitives, self edge-pair tasks) in
+    /// batches of about two million candidate pairs (a batch ends at the job that reaches that number, so it can hold
+    /// one job's pairs more); the jobs and batches depend only on the input and the outputs are merged in
     /// job order and sorted, so the result does not depend on the thread schedule, and the memory is that of a batch and
     /// of the kept pairs.
     /// </summary>
@@ -595,13 +597,13 @@ namespace g3
             }
         }
 
-        // self sweep: the overlapping edge pairs of one SelfPairs task (each pair once), sorted by ids; edges that share
-        // a vertex skipped
+        // self sweep: the overlapping edge pairs of one SelfPairs task (each pair once, ids ordered within the pair), in
+        // SelfPairs order; edges that share a vertex skipped
         void self_edges(Index2i task, Prepared edg, double half, Worker w, List<PairRef> pairs)
         {
             w.Pairs.Clear();
             edg.Trees[0].SelfPairs(task, w.Pairs);
-            // the per-pair tests first (they do not depend on the order), then the sort of the kept pairs
+            // in the order of SelfPairs (it depends only on the tree, so only on the input; Contacts is sorted at the end)
             int n = 0;
             for (int i = 0; i < w.Pairs.Count; ++i) {
                 int x = edg.Ids[w.Pairs[i].a], y = edg.Ids[w.Pairs[i].b];
@@ -612,10 +614,8 @@ namespace g3
                     continue;
                 w.Pairs[n++] = x < y ? new Index2i(x, y) : new Index2i(y, x);
             }
-            w.Pairs.RemoveRange(n, w.Pairs.Count - n);
-            w.Pairs.Sort((p, q) => p.a != q.a ? p.a.CompareTo(q.a) : p.b.CompareTo(q.b));
-            foreach (Index2i k in w.Pairs)
-                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = k.a, Second = k.b });
+            for (int i = 0; i < n; ++i)
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = w.Pairs[i].a, Second = w.Pairs[i].b });
         }
     }
 }
