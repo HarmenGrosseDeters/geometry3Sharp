@@ -369,6 +369,32 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // review #872: SubSteps changed between two Computes on one instance gives the result of a fresh instance (the
+        // hulls are rebuilt for the new SubSteps and released after each Compute)
+        [Fact]
+        public void SubSteps_ChangedBetweenComputes()
+        {
+            DMesh3 a = sphere(Vector3d.Zero, 1, 4), b = sphere(new Vector3d(2.1, 0.2, 0.1), 1, 4);
+            Vector3d[] ea = moved(a, x => x + new Vector3d(1.6, 0.4, 0)), eb = moved(b, x => x);
+            MeshSweepCollision fresh(int k)
+            {
+                var f = new MeshSweepCollision(a, ea, b, eb) { SubSteps = k, CollectAll = true };
+                f.Compute();
+                return f;
+            }
+            var sweep = new MeshSweepCollision(a, ea, b, eb) { CollectAll = true };
+            foreach (int k in new[] { 4, 1, 8, 4, 2 }) {
+                sweep.SubSteps = k;
+                sweep.Compute();
+                var f = fresh(k);
+                Assert.Equal(f.CandidatePairCount, sweep.CandidatePairCount);
+                Assert.Equal(f.Status, sweep.Status);
+                Assert.Equal(f.EarliestTimeOfImpact, sweep.EarliestTimeOfImpact);
+                Assert.Equal(f.Contacts, sweep.Contacts);
+            }
+            Assert.True(fresh(4).CandidatePairCount < fresh(1).CandidatePairCount);
+        }
+
         static DMesh3 triangle(Vector3d p0, Vector3d p1, Vector3d p2)
         {
             var m = new DMesh3();

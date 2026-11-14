@@ -87,8 +87,11 @@ namespace g3
         /// sub-step. Fewer candidates for large motions; every candidate is still solved over the whole step, so a pair's
         /// result does not depend on SubSteps. A pair is left out only if its boxes are farther apart than MinSeparation
         /// in every sub-step: no contact is lost, but a pair that SubSteps = 1 reports as a false positive (within the
-        /// error bound) or at the iteration limit can be left out (docs/design/CCD.md 10.10). Memory: (SubSteps + 1) * 48
-        /// bytes per vertex; above 1 GB the filter is skipped (the candidates of SubSteps = 1).
+        /// error bound) or at the iteration limit can be left out (docs/design/CCD.md 10.10). Then Status can go from
+        /// Collision to NoCollision, the earliest times can be later (never past a true contact), and with CollectAll =
+        /// false Contacts can hold pairs that SubSteps = 1 leaves out (those up to the later EarliestNearContactTime): the
+        /// subset holds for the candidates and per-pair results. SubSteps = 1 gives the behaviour before this option.
+        /// Memory: (SubSteps + 1) * 48 bytes per vertex; above 1 GB the filter is skipped (the candidates of SubSteps = 1).
         /// </summary>
         public int SubSteps = 4;
         /// <summary> run the whole sweep (boxes, tree queries, pair queries) on all cores (the result equals the serial one) </summary>

@@ -631,8 +631,14 @@ Guarantee (the owner's condition, coordinator 2026-11-14):
 - the difference: a pair whose sub-step boxes are farther apart than the minimum separation in every sub-step is left
   out even when its whole-step query gives a false positive (a `Collision` within the error bound) or `IterationLimit`.
   Then `EarliestTimeOfImpact` and `EarliestNearContactTime` can be later and `Status` can change from `Collision` to
-  `NoCollision`, but never past a true contact: the result is still conservative, and tighter. On the random scenes of
+  `NoCollision`, but never past a true contact: the result is still conservative, and tighter. With `CollectAll =
+  false`, `Contacts` is then not a subset of the SubSteps = 1 result: it holds the pairs with `TimeOfImpact <=
+  EarliestNearContactTime`, so when a dropped false positive held that time low, the later time can let true pairs in
+  that SubSteps = 1 left out. The subset claim is for the candidates and the per-pair results. On the random scenes of
   the test and on all six sample scenes the status, both times and the kept contacts are the same.
+- for existing callers the default of 4 is a change of behaviour: where a false positive or an iteration-limit pair
+  is dropped, `Status` can go from `Collision` to `NoCollision` and `EarliestTimeOfImpact`, `EarliestNearContactTime`
+  and `Contacts` can change as above. SubSteps = 1 gives the earlier behaviour.
 
 Candidate order: the filter is a per-pair test on the candidates of the fixed jobs, so the order depends only on the
 input; parallel equals serial.
