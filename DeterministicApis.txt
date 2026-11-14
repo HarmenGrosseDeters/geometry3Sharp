@@ -20,6 +20,7 @@ F:System.Double.NaN ; constant; only tested with IsNaN or compared (a NaN payloa
 F:System.Double.NegativeInfinity ; constant
 F:System.Double.PositiveInfinity ; constant
 F:System.Int32.MaxValue ; constant 2^31 - 1
+F:System.Int32.MinValue ; constant -2^31
 F:System.Int64.MinValue ; constant -2^63
 
 // ---- no value: JIT hints, attributes, construction of an object ----
@@ -176,6 +177,9 @@ if M:g3.IndirectPredicates.Orient3dLPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedP
 if M:g3.IndirectPredicates.Orient3dLPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
 if M:g3.IndirectPredicates.Orient3dTPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
 if M:g3.IndirectPredicates.Orient3dTPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+if M:g3.DoublePredicates.Orient2d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated (the monomial kernels of the exact predicates on doubles)
+if M:g3.DoublePredicates.Orient3d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
+if M:g3.DoublePredicates.InCircle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; 1 ; SkipLocalsInitKernelTests.SkipLocalsInitMembers_SameResults_OnADirtyStack ; [SkipLocalsInit] only, generated
 
 // ---- double -> integer conversions (G3D0006, R5: out of range and NaN differ between runtimes) ----
 cast M:g3.ExactPredicates.diff(System.Double,System.Double,System.Double,System.Int64@) ; 2 ; guarded in the member: returns before the casts unless |hi scale| < 2^62 (NaN fails the comparison); hi scale and lo scale are integers there and |lo scale| <= |hi scale| / 2^53, so both are in the range of long
@@ -190,3 +194,6 @@ skiplocalsinit M:g3.IndirectPredicates.Orient3dLPI(g3.FixedPoint3@,g3.FixedPoint
 skiplocalsinit M:g3.IndirectPredicates.Orient3dLPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; generated: each __i buffer is filled by __align (the coordinate's scaled mantissa) before its FixedInt exists, every other value is a FixedArith output from the arena, as Orient3dLPI; checked by SkipLocalsInitKernelTests
 skiplocalsinit M:g3.IndirectPredicates.Orient3dTPI(g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@,g3.FixedPoint3@) ; generated, as Orient3dLPI
 skiplocalsinit M:g3.IndirectPredicates.Orient3dTPIExact(g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d,g3.Vector3d) ; generated, as Orient3dLPIExact
+skiplocalsinit M:g3.DoublePredicates.Orient2d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated (tools/PredicateCompiler, the monomial pass): load writes m[i] and e[i] of every input before a monomial reads them; the accumulators p and q are zeroed by the loop that follows their stackalloc, and add2 / compare read only those limbs; checked by SkipLocalsInitKernelTests
+skiplocalsinit M:g3.DoublePredicates.Orient3d(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated, as Orient2d (add3)
+skiplocalsinit M:g3.DoublePredicates.InCircle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double) ; generated, as Orient2d (add4)

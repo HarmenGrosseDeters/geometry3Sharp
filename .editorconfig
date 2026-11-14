@@ -44,7 +44,7 @@ dotnet_diagnostic.G3E0004.severity = error
 # member of another assembly that it uses is on the allow list DeterministicApis.txt with the reason why its result is
 # specified on every runtime, and the environment-dependent constructs (#if, double -> integer casts, [SkipLocalsInit],
 # restricted members) are registered there (G3D0001-9, tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs)
-[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/IndirectPredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs}]
+[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/IndirectPredicates.cs,math/Generated/DoublePredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs}]
 dotnet_diagnostic.G3D0001.severity = error
 dotnet_diagnostic.G3D0002.severity = error
 dotnet_diagnostic.G3D0005.severity = error
