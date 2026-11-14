@@ -174,6 +174,7 @@ g3cli offset part.stl part_offset.stl --distance 0.5 --relative-cell-size 0.005 
 #   -> or operation_failed with "offset_status": "linear_edges_precondition" and no output file
 
 # convex hull of 2D points (or of the x/y of a mesh's vertices); the hull vertices counterclockwise with their indices in the input
+g3cli tpms lattice.stl --type gyroid --style sheet --volume-fraction 0.3 --box-max 4,4,4 --divisions 16
 g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1" --return-geojson
 #   -> "dimension": 2, "hull_vertices": 4, "area": 12, "perimeter": 14, "indices": [2, 3, 0, 1], "polygon": [[4, 3], [0, 3], [0, 0], [4, 0]]
 g3cli hull2d part.stl --output hull.geojson

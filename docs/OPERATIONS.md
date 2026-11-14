@@ -893,6 +893,15 @@ implemented), so none is offered. `--epsilon` (default 1e-8, must be > 0) decide
 g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
 ```
 
+**TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal
+solid in a box (`--box-min` / `--box-max`, in the lattice frame, which moves with `--origin`) or inside a closed mesh (`--domain`), by `--volume-fraction` or (sheet) `--wall-thickness`, optionally
+with a linear `--grade` of the period and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
+`--verify-self-intersections false` the result says `self_intersection_verified: false` and warns. Tests: `TpmsCliTests`.
+
+```
+g3cli tpms lattice.stl --type gyroid --volume-fraction 0.3 --box-max 4,4,4 --divisions 16
+```
+
 **Quadtree queries on a terrain** (`query2d`, `TriangleQuadtree2d`): heights at points (exact containment; with
 `--tolerance`, points just outside get the height of the nearest triangle), the triangles whose boxes meet a
 rectangle, and the nearest triangles, here on the mesh above. A point inside several triangles (on an edge or a vertex,

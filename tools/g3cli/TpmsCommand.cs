@@ -36,9 +36,9 @@ namespace g3cli
                     "Neovius, I-WP or Lidinoid lattice, as a sheet (|f| <= t) or a skeletal solid (f <= c, or f >= -c), in a box (box_min, box_max; default two periods) or inside a closed mesh (domain). " +
                     "The solid fraction is volume_fraction of the infinite lattice (the exact quantile of f over a period) or, for a sheet, wall_thickness (a first-order approximation: the result reports " +
                     "mean_wall_thickness). divisions is the number of marching cubes cubes per period: a wall should be at least 2 cubes thick, the result has no topology guarantee for thinner walls. " +
-                    "enclosure: the solid contains the exact lattice (never a wall thinner than designed; box domain, constant volume fraction, a dyadic grid: cell_size / divisions and the grid origin " +
+                    "grade: a cell size that varies linearly along an axis (TPMS_GRADED_CELL.md; min_local_cell_size is reported). enclosure: the solid contains the exact lattice (never a wall thinner than designed; box domain, constant volume fraction, a dyadic grid: cell_size / divisions and the grid origin " +
                     "exact binary fractions, eg cell_size 1 and divisions 16) at the price of a larger volume. The result is always checked: tpms_status ok only for a closed, manifold, " +
-                    "oriented mesh that passed the exact self-intersection check (verify_self_intersections); otherwise nothing is written (invalid_arguments for options and domain, " +
+                    "oriented mesh that passed the exact self-intersection check (unless verify_self_intersections is off: self_intersection_verified false and a warning); otherwise nothing is written (invalid_arguments for options and domain, " +
                     "operation_failed for a contouring or certificate failure, with tpms_status). Reports level, realized_volume_fraction, mean_wall_thickness, iso_value_used, grid_shifts_used and the metrics of the mesh.",
             };
             c.Params.Add(Output());
@@ -48,10 +48,11 @@ namespace g3cli
             c.Params.Add(new Param("divisions", ParamType.Integer, "marching cubes cubes per period, 4..512 (default 16)") { Default = 16 });
             c.Params.Add(new Param("volume_fraction", ParamType.Number, "target solid fraction of the infinite lattice in (0, 1) (default 0.3; not with wall_thickness)"));
             c.Params.Add(new Param("wall_thickness", ParamType.Number, "sheet only: wall thickness in mesh units, replaces volume_fraction (first-order approximation)"));
-            c.Params.Add(new Param("box_min", ParamType.String, "domain box minimum 'x,y,z' (default 0,0,0)"));
+            c.Params.Add(new Param("box_min", ParamType.String, "domain box minimum 'x,y,z' in the lattice frame, which moves with origin (default 0,0,0)"));
             c.Params.Add(new Param("box_max", ParamType.String, "domain box maximum 'x,y,z' (default two periods: 2 cell_size in each axis)"));
             c.Params.Add(new Param("domain", ParamType.String, "instead of the box: a closed manifold mesh file; the lattice is clipped to its inside (" + string.Join(", ", MeshFiles.ReadFormats) + ")"));
             c.Params.Add(new Param("origin", ParamType.String, "world position of the lattice phase zero 'x,y,z' (default 0,0,0)"));
+            c.Params.Add(new Param("grade", ParamType.String, "graded cell size along one axis 'axis,z0,period0,z1,period1,transverse_half_extent' (axis 0, 1 or 2; the period varies linearly from period0 at z0 to period1 at z1; set cell_size to the smaller period; the box must stay within transverse_half_extent of the origin in the other two axes; not with enclosure)"));
             c.Params.Add(new Param("enclosure", ParamType.Boolean, "the solid contains the exact lattice (needs a box domain, no wall_thickness and a dyadic grid)") { Default = false });
             c.Params.Add(new Param("verify_self_intersections", ParamType.Boolean, "run the exact self-intersection check inside the operation (cost O(T log T))") { Default = true });
             c.Params.Add(new Param("max_cells", ParamType.Integer, $"refuse a grid with more nodes than this, 1..{TpmsMaxCellsLimit} (default {TpmsDefaultMaxCells})") { Default = (int)TpmsDefaultMaxCells });
@@ -118,11 +119,20 @@ namespace g3cli
                         throw new CommandException(ResultCodes.InvalidArguments, "box_max must be above box_min in every axis");
                     lattice.Box = new AxisAlignedBox3d(min, max);
                 }
+                if (args.Has("grade")) {
+                    double[] g = ParseNumbers(args.String("grade"), 6, "grade", "'axis,z0,period0,z1,period1,transverse_half_extent'");
+                    if (g[0] != 0 && g[0] != 1 && g[0] != 2) throw new CommandException(ResultCodes.InvalidArguments, "'grade': the axis must be 0, 1 or 2");
+                    try { lattice.Grade = TpmsLattice.LinearGrade((int)g[0], g[1], g[2], g[3], g[4], g[5]); }
+                    catch (ArgumentException e) { throw new CommandException(ResultCodes.InvalidArguments, "'grade': " + e.Message); }
+                }
                 lattice.Enclosure = args.Bool("enclosure");
                 lattice.VerifySelfIntersections = args.Has("verify_self_intersections") ? args.Bool("verify_self_intersections") : true;
                 lattice.ParallelCompute = args.Has("parallel") ? args.Bool("parallel") : true;
 
-                lattice.Compute();
+                try { lattice.Compute(); }
+                catch (OutOfMemoryException) {
+                    throw new CommandException(ResultCodes.OperationFailed, "out of memory for the grid (8 bytes per node): lower max_cells or divisions, or use a larger cell_size");
+                }
                 string status = ToSnake(lattice.Status.ToString());
                 var failure = new JsonObject() { ["tpms_status"] = status };
                 switch (lattice.Status) {
@@ -145,6 +155,9 @@ namespace g3cli
                 o2["grid_shifts_used"] = lattice.GridShiftsUsed;
                 o2["grid_nodes"] = lattice.CellsEvaluated;
                 o2["enclosure"] = lattice.Enclosure;
+                o2["self_intersection_verified"] = lattice.VerifySelfIntersections;
+                if (args.Has("grade")) o2["min_local_cell_size"] = MeshReport.Num(lattice.MinLocalCellSize);
+                if (!lattice.VerifySelfIntersections) warnings.Add("verify_self_intersections is off: the mesh is closed and manifold, but was not checked for self-intersections");
                 o2["mesh"] = MeshReport.Metrics(lattice.Mesh, args.Bool("self_intersections"));
                 o2["warnings"] = Warnings(warnings);
                 return o2;

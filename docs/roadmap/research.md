@@ -127,7 +127,7 @@ Part of the [roadmap](../ROADMAP.md).
      (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
      Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
      `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
-     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833, merged), #815 (Lidinoid, #835, merged), #838 (sliver guard, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`), #814 (CLI / MCP).
+     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833, merged), #815 (Lidinoid, #835, merged), #838 (sliver guard, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`, #860, merged), #814 (CLI / MCP, `tpms` command, PR #879).
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers

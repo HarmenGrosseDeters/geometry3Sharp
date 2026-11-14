@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.Json.Nodes;
 using Xunit;
 using g3;
@@ -73,9 +74,91 @@ namespace g3cli.Tests
         [Fact]
         public void WallThickness_IsReported()
         {
-            var (exit, r) = Run("tpms", m.Path_("tpms_wall.obj"), "--wall-thickness", "0.1", "--divisions", "24", "--compact");
+            // far from the default volume fraction 0.3 (mean thickness about 0.1): an ignored option is seen
+            var (exit, r) = Run("tpms", m.Path_("tpms_wall.obj"), "--wall-thickness", "0.04", "--divisions", "32", "--compact");
             Assert.Equal(0, exit);
-            Assert.InRange(D(r["mean_wall_thickness"]), 0.07, 0.13);
+            Assert.InRange(D(r["mean_wall_thickness"]), 0.03, 0.05);
+            Assert.InRange(D(r["realized_volume_fraction"]), 0.08, 0.17);
+        }
+
+        [Fact]
+        public void BoxAndOrigin_MatchTheLibraryCalledDirectly()
+        {
+            var (exit, r) = Run("tpms", m.Path_("tpms_box.obj"), "--type", "schwarz_p", "--cell-size", "2", "--divisions", "8", "--box-min", "-1,0,1", "--box-max", "3,2,2.5",
+                "--origin", "0.5,0.25,-0.5", "--parallel", "false", "--compact");
+            Assert.Equal(0, exit);
+            var direct = new TpmsLattice { Type = TpmsType.SchwarzP, CellSize = 2, Divisions = 8, Box = new AxisAlignedBox3d(new Vector3d(-1, 0, 1), new Vector3d(3, 2, 2.5)), Origin = new Vector3d(0.5, 0.25, -0.5), ParallelCompute = false };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+            Assert.Equal(direct.RealizedVolumeFraction, D(r["realized_volume_fraction"]), 9);
+            Assert.Equal(MeshMeasure(direct.Mesh), D(r["mesh"]["volume"]), 6);
+            // the box lives in the lattice frame, so it moves with the origin: world box [-0.5, 3.5] x [0.25, 2.25] x [0.5, 2]; each axis is checked (a swap or a dropped option would show)
+            Assert.InRange(D(r["mesh"]["bounds"]["min"][0]), -0.55, -0.3);
+            Assert.InRange(D(r["mesh"]["bounds"]["max"][1]), 1.9, 2.3);
+            Assert.InRange(D(r["mesh"]["bounds"]["max"][2]), 1.6, 2.05);
+            // without the origin the same lattice sits at the box itself (the frame moves the whole result)
+            (exit, r) = Run("tpms", m.Path_("tpms_box0.obj"), "--type", "schwarz_p", "--cell-size", "2", "--divisions", "8", "--box-min", "-1,0,1", "--box-max", "3,2,2.5", "--compact");
+            Assert.Equal(0, exit);
+            Assert.InRange(D(r["mesh"]["bounds"]["min"][0]), -1.05, -0.8);
+        }
+
+        static double MeshMeasure(DMesh3 mesh) => MeshMeasurements.VolumeArea(mesh, mesh.TriangleIndices(), mesh.GetVertex).x;
+
+        [Fact]
+        public void Parallel_GivesTheSameMesh()
+        {
+            var (e1, a) = Run("tpms", m.Path_("tpms_par1.obj"), "--divisions", "12", "--parallel", "true", "--compact");
+            var (e2, b) = Run("tpms", m.Path_("tpms_par0.obj"), "--divisions", "12", "--parallel", "false", "--compact");
+            var (e3, c) = Run("tpms", m.Path_("tpms_par2.obj"), "--divisions", "12", "--parallel", "true", "--compact");
+            Assert.Equal(0, e1 + e2 + e3);
+            Assert.Equal(I(a["mesh"]["triangles"]), I(b["mesh"]["triangles"]));
+            Assert.Equal(D(a["mesh"]["volume"]), D(b["mesh"]["volume"]));
+            Assert.Equal(D(a["mesh"]["volume"]), D(c["mesh"]["volume"]));
+        }
+
+        [Fact]
+        public void ScaleByAPowerOfTwo_GivesTheSameMeshScaled()
+        {
+            var (e1, a) = Run("tpms", m.Path_("tpms_s1.obj"), "--divisions", "12", "--compact");
+            var (e2, b) = Run("tpms", m.Path_("tpms_s4.obj"), "--divisions", "12", "--cell-size", "4", "--box-max", "8,8,8", "--compact");
+            Assert.Equal(0, e1 + e2);
+            Assert.Equal(I(a["mesh"]["triangles"]), I(b["mesh"]["triangles"]));
+            Assert.Equal(D(a["mesh"]["volume"]) * 64, D(b["mesh"]["volume"]));
+        }
+
+        [Fact]
+        public void VerifySelfIntersectionsOff_IsReportedNotSilent()
+        {
+            var (exit, r) = Run("tpms", m.Path_("tpms_noverify.obj"), "--divisions", "12", "--verify-self-intersections", "false", "--compact");
+            Assert.Equal(0, exit);
+            Assert.False(B(r["self_intersection_verified"]));
+            Assert.Contains("verify_self_intersections", r["warnings"].ToJsonString());
+            (exit, r) = Run("tpms", m.Path_("tpms_verify.obj"), "--divisions", "12", "--compact");
+            Assert.True(B(r["self_intersection_verified"]));
+        }
+
+        [Fact]
+        public void Grade_MatchesTheLibraryAndReportsTheSmallestPeriod()
+        {
+            string[] a = { "--cell-size", "1", "--divisions", "16", "--box-min", "-1,-1,0", "--box-max", "1,1,4", "--grade", "2,0,1,4,2,1.5" };
+            var (exit, r) = Run(new[] { "tpms", m.Path_("tpms_grade.obj") }.Concat(a).Concat(new[] { "--compact" }).ToArray());
+            Assert.Equal(0, exit);
+            var direct = new TpmsLattice { CellSize = 1, Divisions = 16, Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 4)), Grade = TpmsLattice.LinearGrade(2, 0, 1, 4, 2, 1.5) };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+            Assert.Equal(direct.MinLocalCellSize, D(r["min_local_cell_size"]), 9);
+            // bad grades
+            string output = m.Path_("tpms_grade_bad.obj");
+            File.Delete(output);
+            (exit, r) = Run("tpms", output, "--grade", "3,0,1,4,2,1", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            (exit, r) = Run("tpms", output, "--grade", "2,4,1,0,2,1", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            (exit, r) = Run("tpms", output, "--grade", "2,0,1,4", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.False(File.Exists(output));
         }
 
         [Fact]
