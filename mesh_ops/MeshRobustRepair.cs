@@ -177,6 +177,8 @@ namespace gs
         /// triangle count (issue #694: 260 triangles of a flattened sphere wrapped to 211,614 triangles, about 6 s per Apply).
         /// </summary>
         public int WrapMaxEstimatedTriangles = 0;
+        /// <summary> threads of the alpha wrap's carving (MeshAlphaWrap.MaxThreads: 0 = all cores, 1 = one thread); the result is the same for every value </summary>
+        public int WrapMaxThreads = 0;
         /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
         /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
@@ -791,7 +793,7 @@ namespace gs
                 if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
                     small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
                 AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
-                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles };
+                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles, MaxThreads = WrapMaxThreads };
                 AlphaWrap.Compute();
                 AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
                 end_phase("wrap");

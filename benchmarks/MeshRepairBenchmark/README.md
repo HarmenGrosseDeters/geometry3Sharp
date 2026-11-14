@@ -1678,3 +1678,41 @@ outputs), 4-core container, one process at a time:
 All results closed and clean. "partly flipped" is a closed sphere with flipped triangles: its estimate is 2.2 times its
 size, as for closed solids. The coarsened wrap is a complete wrap at the larger alpha (bit for bit the wrap with that
 alpha and offset given), so it wraps over cavities and gaps up to about 2 * UsedAlpha.
+
+## Alpha Wrap 3.0 lever (B): round-based parallel carving (`MeshAlphaWrap`, 2026-11-13)
+
+The main carving in rounds of gates with disjoint cells, evaluated in parallel, committed in heap order
+([docs/design/ALPHA_WRAP_ROUNDS.md](../../docs/design/ALPHA_WRAP_ROUNDS.md)); the output bits change against master, the
+resolution does not (alpha, offset, size criterion unchanged; raw triangles +0.03 %). Run: master 58644af against the
+branch, `BENCH_REPAIR=wrappipe BENCH_FIDELITY=none` (alpha = diag / 300, offset = diag / 3000, warm = soup, quality pass
+off), one process at a time on the 4-core cloud container (default thread count 4). Corpus: the first 20 of the
+performance study's tail list and its normal stratum of 30 meshes near the median (`aw3study/list_tail.txt`,
+`list_normal.txt` on runs/alpha-wrap-3-fable), Thingi10K sample800 seed 2611. 50 / 50 closed on both.
+
+| | tail 20: master | rounds | normal 30: master | rounds |
+|---|---:|---:|---:|---:|
+| pipeline (`pipe_ms`) sum / max | 760 s / 87.9 s | 603 s / 81.5 s (1.26x) | 179 s / 8.5 s | 163 s / 6.8 s (1.10x) |
+| wrap sum | 544 s | 401 s (1.36x) | 109 s | 92 s (1.19x) |
+| main carving (`wrap/carve`) sum / max | 402 s / 51.6 s | 263 s / 40.0 s (1.53x) | 82 s / 3.9 s | 65 s / 2.8 s (1.27x) |
+| final p01 median / worst | 11.36 / 10.79 | 11.42 / 10.74 | 11.49 / 10.90 | 11.52 / 10.81 |
+| final min angle median / worst | 6.99 / 1.29 | 6.84 / 2.95 | 9.98 / 4.74 | 8.45 / 4.64 |
+| raw p01 median / worst | 20.90 / 15.78 | 20.93 / 15.77 | 20.44 / 17.21 | 20.45 / 17.23 |
+| raw min angle median / worst | 6.18 / 0.72 | 6.84 / 2.95 | 8.98 / 4.26 | 8.44 / 4.34 |
+| final triangles < 0.5 deg / > 170 deg | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+Paired per mesh: final p01 difference median -0.00 (tail) / +0.01 (normal); raw p01 within -0.62 .. +0.73; the min angle
+is one triangle per mesh and moves both ways (tail: median +0.59, 3 meshes more than 0.5 deg worse; normal: median
+-0.02, 10 worse, 9 better). The three large p01 / triangle differences are the known case of a simplification that is
+not applied (the result is the raw wrap, p01 about 20): 78968 is unsimplified with the rounds (master simplified it),
+111959 and 67121 are unsimplified on master and simplified with the rounds; without them the final triangle sums differ
+by less than 0.5 %. That defect check is the AW3 session's (roadmap, "Lever choice"); the rounds only change which raw
+wraps hit it.
+
+Where the time goes: on the tail the main carving is 1.53x faster on 4 cores; the remaining serial parts (pinch and
+manifold trials, the rest of the wrap, the serial share of the simplification) bound the pipeline at 1.26x. A round
+evaluates more than the serial loop evaluates: gates deferred because an earlier gate of the round took their cells are
+evaluated again (deferred / kept 0.46 on 40118, about 0.2 elsewhere), and the evaluation runs about 1.2x slower per gate
+on 4 threads than on one (memory access over a triangulation of up to 7.6 M cells). Before the fixed thread team
+(`core/WorkerTeam.cs`), `Parallel.For` per round phase kept only about 2 of the 4 threads busy (49998: carve 14.7 s
+against 10.3 s with the team). 16 cores were not available here; the next lever for the tail is the parallel trial
+passes (second PR).
