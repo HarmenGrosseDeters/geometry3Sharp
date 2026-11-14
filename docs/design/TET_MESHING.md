@@ -341,8 +341,8 @@ Comparison with the owner's targets (100 % valid, min dihedral >= 10 degrees, sa
 target for the subset (fTetWild reports 99.97 %); the dihedral target is **not met at stage 0** (0 of 40; this is what stages 1 and 2 are
 for); the time of stage 0 (wrap median 0.33 s) is far below fTetWild's 18-50 s, but it produces a coarse tet mesh without
 quality, so the comparison becomes meaningful only after stages 1 and 2 (their cost is the open part, section 10 item 3).
-Note that the dihedral target cannot be checked against fTetWild's own output from its paper; a run of fTetWild itself on the same subset
-(black box, MPL, no code read) would settle it, an owner decision.
+Note that the dihedral target cannot be checked against fTetWild's own output from its paper; the black-box run of fTetWild on
+the same subset is in section 12 (2026-11-14).
 
 ## 11. Hand-over (2026-11-09): where stage 1 would start
 
@@ -372,6 +372,70 @@ probably not worth building.
    agreed but not yet added.
 3. Sliver strategy for stage 2 (flips + smoothing recommended) and the dihedral target (10 degrees assumed).
 4. Whether option (d) lattice stuffing (1-2 weeks, guaranteed dihedral bound) is worth building first for implicit domains.
+
+## 12. fTetWild black-box comparison (2026-11-14)
+
+fTetWild run as a black box on the GitHub-hosted runner (MPL-2.0: built from its README steps, run with its defaults, its
+output read back by our evaluator and deleted; no source read, nothing ported), workflow `.github/workflows/tet-compare.yml`,
+run 43547804151 on master 6b172b1, fTetWild commit 8118f81. Data branch `runs/tet-meshing`,
+`compare/2026-11-14-run43547804151/` (SUMMARY.md, one CSV per variant). The command per mesh is
+`FloatTetwild_bin -i <id>.stl -o <out>.mesh --max-threads 4 --no-binary --level 3`, with a 1800 s timeout. `--level` is only
+the log level; the meshing parameters are fTetWild's defaults, ideal edge length `-l 0.05` and envelope `-e 1e-3` of the bbox
+diagonal. Four shards ran on four ubuntu-latest runners (4 vCPU, 15 GB each) with four different CPUs (`machines.txt`): AMD
+EPYC 9V74, Intel Xeon Platinum 8573C, Intel Xeon 6975P-C and AMD EPYC 9V45. Each mesh ran both meshers, one at a time, on its
+shard's runner, so per-mesh times compare on one machine, while the medians below mix the four machines. Both outputs
+went through the same checks (`TetFiles.Evaluate`: exact orientation, matched facets, closed and consistently oriented
+2-manifold boundary, exact boundary self-intersection test). The `ft1` column of SUMMARY.md is empty: the single-thread
+fTetWild variant was not run (`ft_threads` = 4).
+
+The stage-0 row is from the same run. The stage-1 and stage-2 rows are the local subset runs of sections 14.8 and 15
+(`benchmarks/TetMeshBenchmark/results/thingi10k-subset-stage1-peel-2026-11-13.csv`, `...-stage2-lever2-free050-2026-11-13.csv`,
+the default parameters). Those ran on a different machine (this project's shared cloud container, one thread), so their
+times are comparable to the runner's only in order of magnitude.
+
+| 40 Thingi10K meshes | fTetWild (4 threads) | ours stage 0 (1 thread, same runners) | ours stage 1 (local) | ours stage 2, default (local) |
+|---|---:|---:|---:|---:|
+| output | 40 | 40 | 40 | 40 |
+| valid (our definition, see below) | **33** | 40 | 40 | **40** |
+| inverted tets (sum) | 0 | 0 | 0 | 0 |
+| time median / max (s) | 8.48 / 318 | 0.26 / 6.45 | 0.49 / 10.3 | 0.60 / 13.4 |
+| tets, median | 14,690 | 3,444 | 4,485 | 4,441 |
+| smallest dihedral per mesh: median / best (degrees) | 11.4 / 23.2 | 0.22 / 1.29 | 1.18 / 10.0 | 9.54 / 10.5 |
+| p01 dihedral, median (degrees) | 20.2 | 2.31 | 9.3 | 10.9 |
+| meshes with p01 >= 10 degrees | 40 of 40 | 0 | 16 | 40 |
+| meshes with every tet >= 10 degrees (valid or not) | **34** of 40 | 0 | 1 | **16** |
+| share of tets below 10 degrees, median | 0 | 0.094 | 0.013 | 0.00025 |
+| boundary to input, max, median (rel. bbox diagonal) | 0.00054 | 0.00167 | 0.00167 | 0.00249 |
+| input to boundary, max, median (rel. bbox diagonal) | 0.00099 | 0.0313 | 0.0313 | 0.0313 |
+
+- **Validity.** "Valid" is our definition: every tet exactly positive and a closed, consistently oriented 2-manifold boundary
+  without self-intersections. It is not the measure behind fTetWild's published 99.97 % (section 10.1). fTetWild returns a
+  mesh for all 40 meshes, but 7 of them fail our check with "a boundary edge occurs twice with the same direction": 110372,
+  265729, 44041, 46460, 49884, 51809 and 58733. Their tets are all positive; the boundary they bound is not a consistently
+  oriented 2-manifold. Two of them also leave the envelope: their boundary is up to 0.0082 (44041) and 0.0286 (49884) of the
+  diagonal from the input. This is reported as measured; whether an option of fTetWild changes it was not checked.
+- **Dihedral angles.** fTetWild does not keep every tet at 10 degrees on all 40 meshes: 6 meshes go below. 5 of them are
+  valid (186204, 55429, 88564, 91589, 94240; lowest 7.84 degrees on 88564), and 49884 (9.2 degrees) is one of the invalid
+  ones. So the answer to section 11, open decision 1, is no, and as decided there the 10-degree target is a floor, not a
+  copy of fTetWild. On the measure of the stage-2 target, p01 >= 10 degrees, both reach 40 of 40. fTetWild's angles are
+  clearly better: median p01 20.2 against 10.9 degrees, and 34 against 16 meshes with every tet at 10 degrees. Its best mesh,
+  23.2 degrees, is 100026, which has only 23 tets.
+- **Surface.** fTetWild tracks the input within its envelope: boundary within 0.00054 of the diagonal, input within 0.00099.
+  Our boundary is the alpha wrap, 1/600 of the diagonal outside the input (stage 2: up to 1.5 offsets). The input-to-boundary
+  distance of 0.031 is the wrap's resolution (alpha = diagonal / 20): the wrap does not follow concave detail finer than alpha.
+  This is the main quality gap, and a property of the wrap, not of the tet stages. Sharp features: section 13.
+- **Time and size.** Per mesh, on one runner, stage 0 is 36x faster than fTetWild at the median of the ratios (4.5x to 620x;
+  per-shard medians 28x to 45x; fTetWild on 4 threads, ours on 1). Stage 2 measured locally is 0.60 s median and 13.4 s max,
+  about an order of magnitude below fTetWild's 8.48 s median on the runners. Our meshes have about 3.3x fewer tets (4.4k
+  against 14.7k at the median). The run does not measure why; fTetWild's default ideal edge length (`-l 0.05` of the
+  diagonal) is one setting that sets its size. So "time in fTetWild's order" is met, with the surface-fidelity and tet-count
+  caveats above.
+
+Workflow notes, so the next run starts green:
+- The build pins CMake 3.29. The runner's CMake 4.x, and 3.31, fail on CMP0169 in a fetched libigl recipe (#849, #862).
+- The shard runners get the build-tree `libtbb.so.12` bundled; without it the loader exits 127 on every mesh (#877).
+- The directories `compare/2026-11-13-run43517643335`, `compare/2026-11-14-run43533334096` (rc127) and
+  `compare/2026-11-14-run43537131856` (30 s smoke test) on the data branch are not results.
 
 ## 13. Sharp features: does the Alpha Wrap 3.0 feature pass (#736) give the surfaces stage 1 needs? (2026-11-13)
 

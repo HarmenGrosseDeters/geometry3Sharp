@@ -6,6 +6,7 @@
 #   G3E0002  parallel loops outside the allow-list core/ExactCodeAllowList.cs
 #   G3E0003  fused multiply-add
 #   G3E0004  platform libm (Math.Sin, Cos, Atan2, Exp, Log, ...) in code that promises cross-platform bit identity
+#   G3D0001-9 the closed world of a determinism proof scope (DeterministicApis.txt, docs/design/DETERMINISM_PROOF.md)
 # off in general ...
 [*.cs]
 dotnet_diagnostic.RS0030.severity = none
@@ -13,6 +14,13 @@ dotnet_diagnostic.G3E0001.severity = none
 dotnet_diagnostic.G3E0002.severity = none
 dotnet_diagnostic.G3E0003.severity = none
 dotnet_diagnostic.G3E0004.severity = none
+dotnet_diagnostic.G3D0001.severity = none
+dotnet_diagnostic.G3D0002.severity = none
+dotnet_diagnostic.G3D0005.severity = none
+dotnet_diagnostic.G3D0006.severity = none
+dotnet_diagnostic.G3D0007.severity = none
+dotnet_diagnostic.G3D0008.severity = none
+dotnet_diagnostic.G3D0009.severity = none
 
 # ... and errors in the exact-arithmetic code: the predicates (also the generated ones), the exact points (also in fixed width), the exact
 # mesh pipeline and the exact parts it calls (ExactTriangulation2, ExactPlanarSimplify, ExactTriangleIntersection,
@@ -31,3 +39,16 @@ dotnet_diagnostic.G3E0003.severity = error
 # (issue 802: the fan directions differed between the Windows CRT of .NET and the others).
 [{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,solvers/SparseCholesky.cs,math/CoreMath/*.cs}]
 dotnet_diagnostic.G3E0004.severity = error
+
+# The determinism proof, stage 0 (docs/design/DETERMINISM_PROOF.md section 6.1): the exact kernel is a closed world. Every
+# member of another assembly that it uses is on the allow list DeterministicApis.txt with the reason why its result is
+# specified on every runtime, and the environment-dependent constructs (#if, double -> integer casts, [SkipLocalsInit],
+# restricted members) are registered there (G3D0001-9, tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs)
+[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/IndirectPredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs}]
+dotnet_diagnostic.G3D0001.severity = error
+dotnet_diagnostic.G3D0002.severity = error
+dotnet_diagnostic.G3D0005.severity = error
+dotnet_diagnostic.G3D0006.severity = error
+dotnet_diagnostic.G3D0007.severity = error
+dotnet_diagnostic.G3D0008.severity = error
+dotnet_diagnostic.G3D0009.severity = error
