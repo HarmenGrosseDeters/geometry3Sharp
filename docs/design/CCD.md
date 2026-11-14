@@ -489,9 +489,10 @@ cores (minimum separation 0), 2.1 s (0.01).
 - The bound is absolute (`M`): at UTM coordinates of a millimetre scene the time of impact moves by up to e / speed
   (the invariance test allows 256 rounding units).
 - One degenerate edge-edge query of the sample (cloth-funnel) took 0.27 s (775 689 boxes); fixed in 10.8.
-- Performance left for later (code review of #793): the broad phase runs serially; with `CollectAll = false` every
-  candidate pair still runs its tightening, also those the reduction drops (a first pass without tightening, then
-  tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the result and save time).
+- Performance left for later (code review of #793): the broad phase ran serially (parallel since 10.9); with
+  `CollectAll = false` every candidate pair still runs its tightening, also those the reduction drops (a first pass
+  without tightening, then tightening only the pairs with `TimeOfImpact <= EarliestNearContactTime`, would keep the
+  result and save time).
 
 ### 10.7 Bound review (2026-11-13)
 
@@ -556,3 +557,120 @@ alternation (performance only, above).
 Result: cloth-funnel 227ee needs at most 1 495 boxes per query (was 775 689), all 263 queries in under 0.1 s (was 0.62 s);
 sample totals in the benchmark README. Test: `NearlyParallelEdges_DecideQuickly` (the pattern built procedurally: 425 317
 boxes on the old code, under 20 000 required).
+
+### 10.9 Parallel broad phase (follow-up, 2026-11-13)
+
+Upper bound, on master: the self sweep of each ToI sample scene's two frames (`CcdBenchmark sweep`, 4 cores). The broad
+phase (boxes, trees, pair lists) took 6-19 % of the serial and 15-46 % of the parallel time; a perfectly parallel broad
+phase would have made the parallel sweep at most 1.63x (n-body), 1.44x (armadillo-rollers), 1.19x (cloth-ball) faster.
+The 1M-triangle frame (puffer-ball, 250M candidate pairs) ran out of memory with the pair list.
+
+As built: fixed jobs (blocks of 128 query vertices or edges; 4 096 self edge-pair tasks of `TriangleBoxTree.SelfPairs`),
+the box lists in parallel blocks, and batches of about 2M candidate pairs: the jobs' candidates in parallel over the jobs
+(groups of 64), then the batch's pairs in parallel over the pairs, then the results recorded per job in job order. The
+jobs and batches depend only on the input, the merge is in job order and the contacts are sorted: parallel equals serial.
+Memory: a batch and the kept pairs.
+
+Measured, parallel, two alternating rounds in one job (mean); master at 2ccb989c (with 10.8), raw
+`benchmarks/CcdBenchmark/results-sweep-ab-2026-11-13.csv`:
+
+| scene | master | batches (built) | |
+|---|---|---|---|
+| armadillo-rollers | 2.96 s | 2.36 s | 1.26x |
+| cloth-ball | 7.01 s | 6.12 s | 1.15x |
+| cloth-funnel | 0.094 s | 0.062 s | 1.51x |
+| n-body-simulation | 9.86 s | 7.27 s | 1.36x |
+| rod-twist | 2.38 s | 1.97 s | 1.21x |
+| puffer-ball | out of memory | 40.0 s (112 s serial) | |
+
+Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master. A
+fused variant (each job queries and solves its own pairs; measured against master before 10.8, raw
+`results-sweep-ab-fused-2026-11-13.csv`) was 1.55x / 1.73x faster than that master on armadillo-rollers / n-body but
+1.5x slower on cloth-funnel, where expensive pairs cluster in a few jobs and then run one after the other; solving each
+batch in parallel over the pairs spreads them, at the cost of the barriers (never slower is worth more). The puffer-ball sweep (40.9 s parallel, 121 s serial; linear in
+its 250M candidates) is above the 20 s of CLAUDE.md: issue #866, with the diagnosis and options.
+
+Code review of #857, fixed in the same PR: a batch ends at the job (in job order) that reaches `BatchPairs`, not after a
+whole group, so a batch holds at most `BatchPairs` plus one job's pairs; the batch arrays are reused across batches;
+`CandidatePairCount` and the phase times are reset by `Compute`; invalid job sizes are `InvalidInput`; the phase times are
+named for what they measure (`PrepareSeconds`, `PairsSeconds`); tests for `CollectAll = false` against one job, for
+backwards and permuted serial orders (`gParallel.SerialOrderOnThisThread`), and for pairs at the iteration limit. Not
+changed: the copy of the box array into the list `TriangleBoxTree` takes (its file is on the locked list of Exact Boolean
+3.0). Equivalent survivor: a batch cut one job earlier (only the batch boundary moves). Same candidates, contacts and times in every variant. Tests:
+`Jobs_ParallelEqualsSerial` (single job vs small jobs and batches vs the defaults, parallel vs serial, repeated runs, self
+and A against B), `SelfSweep_Invariance` over `Similarity.All()`.
+
+### 10.10 Sub-steps in the broad phase (#866, 2026-11-14)
+
+Upper bound (issue #866): the puffer-ball sweep (1M triangles, 250M candidate pairs) took 41 s parallel on master.
+Without tightening it still took 41.7 s, and with a time limit at its earliest contact 40.2 s: the cost is the volume
+of candidates (about 0.16 µs per pair on 4 cores), not the hard pairs. The whole-step boxes of a fast-moving surface
+overlap many primitives that are never close at the same time.
+
+As built: `SubSteps` (a power of two, 1 to 64, 4 by default). The tree is that of the whole-step boxes, as before. A pair
+of overlapping whole-step boxes is a candidate only if the boxes of its two primitives also overlap in some sub-step
+[t_i, t_(i+1)], t_i = i / SubSteps. The box of a primitive over sub-step i is that of its points' hulls at t_i and t_(i+1),
+which are computed once per vertex (`sub_hulls`, (SubSteps + 1) · 48 bytes per vertex, 128 MB for puffer-ball at 4;
+above 1 GB, `MaxHullDoubles`, the filter is skipped and the candidates are those of SubSteps = 1):
+- at t_0 and t_SubSteps the exact positions;
+- at an inner t_j (exact, since SubSteps is a power of two) the position s + t_j (e - s) in an outward-rounded
+  `ExactInterval` (the stated conservative bound);
+- widened by half the minimum separation with `Down` / `Up`, per point. These are monotone, so the union of the padded
+  points is the padded union, as in the whole-step boxes.
+
+Under linear motion a point stays during a sub-step in the box of its positions at the two ends (a convex combination),
+so a pair that is closer than the minimum separation at some time is a candidate. Each candidate is still solved over
+the whole step by the same query as before.
+
+Guarantee (the owner's condition, coordinator 2026-11-14):
+- the filter only drops candidates of the whole-step tree, so the candidates of SubSteps = k are a subset of those of
+  SubSteps = 1, with bit-identical results per pair (a first version with one tree per sub-step needed the sub-step
+  boxes clipped to the whole-step box for this; the filter does not);
+- every pair that is closer than the minimum separation at some time in the step is a candidate, so no true contact is
+  lost;
+- the difference: a pair whose sub-step boxes are farther apart than the minimum separation in every sub-step is left
+  out even when its whole-step query gives a false positive (a `Collision` within the error bound) or `IterationLimit`.
+  Then `EarliestTimeOfImpact` and `EarliestNearContactTime` can be later and `Status` can change from `Collision` to
+  `NoCollision`, but never past a true contact: the result is still conservative, and tighter. With `CollectAll =
+  false`, `Contacts` is then not a subset of the SubSteps = 1 result: it holds the pairs with `TimeOfImpact <=
+  EarliestNearContactTime`, so when a dropped false positive held that time low, the later time can let true pairs in
+  that SubSteps = 1 left out. The subset claim is for the candidates and the per-pair results. On the random scenes of
+  the test and on all six sample scenes the status, both times and the kept contacts are the same.
+- for existing callers the default of 4 is a change of behaviour: where a false positive or an iteration-limit pair
+  is dropped, `Status` can go from `Collision` to `NoCollision` and `EarliestTimeOfImpact`, `EarliestNearContactTime`
+  and `Contacts` can change as above. SubSteps = 1 gives the earlier behaviour.
+
+Candidate order: the filter is a per-pair test on the candidates of the fixed jobs, so the order depends only on the
+input; parallel equals serial.
+
+Two designs were rejected:
+- one tree per sub-step, with the candidates merged and deduplicated: puffer-ball 16.8 s, but cloth-funnel 3.3x and
+  rod-twist 1.3x slower, from the k trees and the merge;
+- the filter computing the candidate's sub-step boxes per pair with `ExactInterval`: puffer-ball 172 s, every scene
+  slower.
+
+Also in this PR (review notes of #857 and the code review of this PR): the candidates are no longer sorted per query or
+per task (`Contacts` is sorted at the end, and the order of the tree queries and of `SelfPairs` depends only on the
+input); the query primitive's sub-step boxes are computed once per query.
+
+Measured: `benchmarks/CcdBenchmark/README.md` ("Sub-steps"). Parallel, puffer-ball goes from 28-33 s to 18-20.5 s
+(25M candidates instead of 250M; 40 s on master), n-body from 5.7 s to 4.9 s, armadillo-rollers from 1.87 s to 1.59 s.
+Where the motion is small the filter culls little and costs about 10 ms (cloth-funnel) or 3 % (cloth-ball). The earliest
+times and the contacts are the same in every scene. Not solved: puffer-ball stays near 20 s on 4 cores (the whole-step
+pairs are still enumerated before the filter, about half of its time) and the serial sweep takes 51 s; a tree per
+sub-step would avoid that enumeration (16.8 s) but slowed the small-motion scenes. #866 keeps the diagnosis.
+
+Tests:
+- `SubSteps_SubsetOfOneSubStep`: random rounds, self and A against B, k = 2, 4, 8. The candidates are a subset with
+  equal results, the reduction is the same, there are fewer candidates for large motion, and invalid k are rejected.
+- `SelfSweep_Invariance` over `Similarity.All()` at SubSteps = 1 and 4: the sub-step culling is scale-free at 2^k.
+- `SubSteps_TouchAtTheEndAndDiagonalPassBy`: a vertex and a triangle that meet exactly at t = 1 from either side of
+  each axis, with either mesh moving, are still found (both ends of a sub-step count, and the overlap test is closed). A
+  vertex passing diagonally by a triangle overlaps it over the whole step and over [0, 1/2], but over none of the
+  quarters, and is no candidate at SubSteps = 4.
+- `Jobs_ParallelEqualsSerial` runs at the default of 4.
+- Mutants, all killed: no padding of the hulls, one end of a sub-step only (either primitive), strict overlap
+  (either side), the wrong sub-step times ((j + 1) / k), the last sub-step skipped, the end hull at the start position.
+  The clip of the inner hulls to the whole-step range of a point, which the first version had, survived as
+  equivalent: it changes boxes only by the interval's rounding unit, and the filter drops only candidates of the
+  whole-step tree. It was removed.

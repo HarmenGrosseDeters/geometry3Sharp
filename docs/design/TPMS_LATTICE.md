@@ -129,6 +129,22 @@ solid and the result is closed.
   triangles only. The shift moves only the grid, not the lattice phase; with `Enclosure` only the dyadic shifts 0.5, 0.25, 0.75, 0.125 are used and a shift whose grid is not exactly representable is skipped (review finding); `ContouringFailed` if all four fail
   (`GridShiftsUsed` reports the attempt). Found by the tests: Neovius with a box on grid planes gave a sliver at a box
   edge on the unshifted grid.
+- **Sliver guard** (bugfix after #750, found by a large graded lattice): with a level that varies continuously (`VolumeFractionAt`, a
+  graded cell size) the node values are generic, and on a lattice of a few hundred thousand nodes a few lie within rounding of the
+  level; their crossings sit at cube corners and give degenerate triangles that no grid shift avoids (a constant lattice on its own
+  grid has a small discrete set of node values and was not hit). The field therefore treats a value within `Snap = h / 256 * ratio` of the level as
+  inside (moved to `iso - Snap`, `TpmsLattice.SliverGuard`), where `ratio` is the sampled maximum of `|grad f|` over the proven bound (1 for
+  the gyroid-like types, about 1/4 for Schwarz D and Neovius, whose bound is loose), so that the band is the same fraction of the change of f
+  per edge for every type: every crossing is then at least 2^-8 of an edge from its node and no
+  triangle is smaller than about 1e-5 cube^2. The field value of a snapped node moves by less than `2 Snap` and only down: the solid `{F <= iso}` can only grow, in
+  every variant (sheet: both walls thicken; skeletal: the solid grows). Where `F` is 1-Lipschitz in length (`(g - c) / Lw` with a constant `c`), the change of F per
+  cube edge is at most `h` and every crossing is at least `Snap / h = ratio / 256` of an edge from its node (about 1/1024 of an edge for Schwarz D
+  and Neovius). This is a heuristic sizing, not a proof: the clip distance `d` changes by `h` per edge, and a position dependent level
+  (`VolumeFractionAt`, the motivating case) makes `F` not 1-Lipschitz, so the crossing distance there is smaller; the guard still removes
+  the exact-corner crossings, and the result is certified separately (`NotCleanReason`, exact self-intersection check). For `Enclosure` the sample error is one-sided and below
+  `2 Snap` in field units: the level pad pays `2 Snap` (the audit's `e` term) on top of `sqrt(3) h / 2`. On the constant lattices of the tests (2 periods, 14 cubes per period, fraction 0.3; not a guarantee for other
+  fractions, resolutions or box offsets) 15 of 18 type / style cases are bit for bit unchanged; Neovius skeletal and Lidinoid skeletal high change by less than 12 % of a cube (measured: 5 % and 9 %; where `f` is nearly flat a snapped node moves the surface by the guard band over the local gradient) and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
+  retries are rare and remain for what the guard cannot see.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).
 - Alternative for an exact cut: the user builds the lattice on a bounding box and intersects with

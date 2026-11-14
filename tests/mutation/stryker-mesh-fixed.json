@@ -6,9 +6,10 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/math/FixedPoint3.cs"
+      "**/math/FixedPoint3.cs",
+      "**/math/ExactLimbSigns.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
+    "test-case-filter": "FullyQualifiedName~ExactPoint3FixedWidthTests|FullyQualifiedName~ExactLimbSignsTests|FullyQualifiedName~ExactBooleanBuildingBlockTests|FullyQualifiedName~ExactPlanesFixedWidthTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

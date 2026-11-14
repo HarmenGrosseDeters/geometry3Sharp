@@ -260,6 +260,8 @@ namespace g3
     {
         ulong* cur, end;
         public FixedArena(ulong* buf, int limbs) { cur = buf; end = buf + limbs; }
+        /// <summary> the limbs not taken yet </summary>
+        public int Remaining { get { return (int)(end - cur); } }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ulong* Take(int n)
         {

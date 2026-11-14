@@ -358,6 +358,8 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   the slope surface and the slope region; `--catch-lines` and `--target-lines` write GeoJSON `LineString`s (closed lines
   repeat their first position), with `start_reason` / `end_reason`, `max_uncertainty` and `tangential_segments`, or
   `height`.
+- **`--max-fan-directions`** (default 512, 16 to 4096): the largest number of cone facets per turn. A tolerance whose facets
+  need more fails with `invalid_arguments` (`design_status` `invalid_input`), and the message names a tolerance that fits.
 - **The report**: `design_status` and `status_kind` (TerrainSlopeDesign's), `complete`, the volumes and areas
   (`cut_volume`, `fill_volume`, `cut_area`, `fill_area`, `volume`, `plan_area`, `slope_area`), the catch lines,
   `min_feature_size` (the smallest feature the result guarantees, about 1.5 cm at UTM), `slope_margin`, `toe_lowering`,

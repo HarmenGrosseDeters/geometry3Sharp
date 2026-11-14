@@ -47,18 +47,30 @@ jobs:
       - name: Build fTetWild (README steps; black box, no source read)
         id: build
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libgmp-dev cmake build-essential
+          sudo apt-get update -qq && sudo apt-get install -y -qq libgmp-dev build-essential
+          # Pin CMake 3.29: the libigl eigen recipe fetched by fTetWild calls FetchContent_Populate, an error under policy CMP0169
+          # (CMake >= 3.30) once a project sets that policy NEW through its version range, so CMAKE_POLICY_DEFAULT_CMP0169 does not
+          # help (runs 43509655424 with CMake 4.4, 43514622318 with 3.31); 3.29 predates the policy
+          python3 -m venv "$RUNNER_TEMP/cmake" && "$RUNNER_TEMP/cmake/bin/pip" install -q "cmake==3.29.*"
+          export PATH="$RUNNER_TEMP/cmake/bin:$PATH"
+          cmake --version
           git clone --recursive https://github.com/wildmeshing/fTetWild.git ftw
           cd ftw && git checkout -q "${{ inputs.ftetwild_ref || 'master' }}" && git submodule update --init --recursive
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "matrix=$(python3 -c "import json; print(json.dumps(list(range(max(1, min(8, int('$SHARDS')))))))")" >> "$GITHUB_OUTPUT"
-          # CMake 4 (ubuntu-latest) refuses projects that declare a minimum below 3.5 unless this policy floor is given
-          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 > ../../cmake.log 2>&1 \
+          # Policy floor and CMP0169=OLD: fallbacks should a CMake 4 still be picked up (it refuses minimums below 3.5)
+          mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_POLICY_DEFAULT_CMP0169=OLD > ../../cmake.log 2>&1 \
             && make -j"$(nproc)" > ../../make.log 2>&1 \
             || { tail -n 60 ../../cmake.log; [ -f ../../make.log ] && tail -n 60 ../../make.log; exit 1; }
           bin=$(find . -maxdepth 2 -type f -name FloatTetwild_bin | head -1)
-          mkdir -p ../../ftbin && cp "$bin" ../../ftbin/ && ../../ftbin/FloatTetwild_bin --help > ../../ftbin/help.txt 2>&1 || true
-          ldd ../../ftbin/FloatTetwild_bin > ../../ftbin/ldd.txt
+          mkdir -p ../../ftbin/lib && cp "$bin" ../../ftbin/
+          # Bundle the shared libraries the binary resolves outside the system dirs (eg libraries of the build tree): the shard
+          # runners do not have the build tree, so without them the loader exits 127 (run 43533334096)
+          ldd ../../ftbin/FloatTetwild_bin | awk '$2 == "=>" && $3 ~ /^\// {print $3}' | grep -vE '^/(usr/)?lib(32|64|x32)?/' \
+            | while read -r l; do cp -L "$l" ../../ftbin/lib/; done
+          ls -l ../../ftbin/lib
+          LD_LIBRARY_PATH="$PWD/../../ftbin/lib" ../../ftbin/FloatTetwild_bin --help > ../../ftbin/help.txt 2>&1 || true
+          ldd ../../ftbin/FloatTetwild_bin > ../../ftbin/ldd.txt; cat ../../ftbin/ldd.txt
       - uses: actions/upload-artifact@v4
         with:
           name: ftetwild-bin
@@ -88,14 +100,18 @@ jobs:
         run: |
           sudo apt-get install -y -qq libgmp10 bc
           chmod +x ftbin/FloatTetwild_bin
+          export LD_LIBRARY_PATH="$PWD/ftbin/lib"
+          # Fail fast if the binary cannot load here (missing library, other image): no shard of NO_OUTPUT_rc127 rows
+          if ldd ftbin/FloatTetwild_bin | grep "not found"; then exit 1; fi
+          rc=0; ftbin/FloatTetwild_bin --help > /dev/null 2>&1 || rc=$?; [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] || { echo "fTetWild does not start (rc $rc)"; exit 1; }
           nproc > machine.txt; uname -a >> machine.txt; lscpu | grep -E "Model name|^CPU\(s\)" >> machine.txt; free -g | head -2 >> machine.txt
           bash benchmarks/TetMeshBenchmark/compare/run_shard.sh ${{ matrix.shard }} $SHARDS \
             benchmarks/TetMeshBenchmark/bin/Release/net10.0/TetMeshBenchmark.dll "$PWD/ftbin/FloatTetwild_bin" \
             "$RUNNER_TEMP/meshes" "$RUNNER_TEMP/work" "out" "${{ inputs.timeout_s || '1800' }}"
           cp machine.txt out/machine-${{ matrix.shard }}.txt
           for v in ours ft4 ft1; do [ -f out/$v.csv ] && mv out/$v.csv out/$v-${{ matrix.shard }}.csv; done
-          # diagnostics of failures only (format heads, evaluator errors): short-lived artifact, never published
-          mkdir -p diag && cp "$RUNNER_TEMP"/work/head_* "$RUNNER_TEMP"/work/eval_err_* diag/ 2>/dev/null || true
+          # diagnostics of failures only (format heads, evaluator errors, fTetWild log tails): short-lived artifact, never published
+          mkdir -p diag && cp "$RUNNER_TEMP"/work/head_* "$RUNNER_TEMP"/work/eval_err_* "$RUNNER_TEMP"/work/ftlog_* diag/ 2>/dev/null || true
           find diag -size 0 -delete
       - uses: actions/upload-artifact@v4
         if: always()
