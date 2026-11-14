@@ -51,13 +51,13 @@
   },
   {
     "file": "mesh_ops/ExactMeshBoolean.cs",
-    "text": "windingTrees[mesh] = tree = new_winding_tree(mesh);",
+    "text": "throw new InvalidOperationException(\"ExactMeshBoolean: no fast-winding tree was built for open mesh \" + mesh);",
     "after": [
       "if (windingTrees.TryGetValue(mesh, out tree) == false)",
       "DMeshAABBTree3 tree;"
     ],
-    "reason": "invariant guard, unreachable through the public API (patch_winding is called with an empty list of open meshes, windingTrees holds every open mesh before any lookup); kept: deleting it needs the exact-code review and the 6 h Boolean shards",
-    "approved_in": "#594"
+    "reason": "invariant guard, unreachable through the public API: classify builds a fast-winding tree for every open mesh off the Antipodal path before its loops, and since #882 patch_winding takes only closed meshes from its box query; it replaces the lazy build that raced there",
+    "approved_in": "#883"
   },
   {
     "file": "mesh_generators/DualContouring.cs",

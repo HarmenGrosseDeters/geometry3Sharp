@@ -1291,6 +1291,11 @@ namespace g3
             double pad = 1e-9 * (Math.Abs(pv.x) + Math.Abs(pv.y) + Math.Abs(pv.z)) + 1e-300;
             candidates.Clear();
             closedTree.Query(new AxisAlignedBox3d(pv - pad * Vector3d.One, pv + pad * Vector3d.One), candidates);
+            // (only the closed meshes from the tree: an open mesh's box there is empty, but an infinite pad (coordinates near
+            // 1e308) meets it too; the open meshes are evaluated on their own path, per piece, or by the caller's list)
+            for (int k = candidates.Count - 1; k >= 0; --k)
+                if (ExactWinding[candidates[k]] == false)
+                    candidates.RemoveAt(k);
             candidates.AddRange(openMeshes);
             candidates.Sort();
             // (a generator per patch: the patches are evaluated in parallel)
@@ -3630,13 +3635,15 @@ namespace g3
 
         readonly Dictionary<int, DMeshAABBTree3> windingTrees = new Dictionary<int, DMeshAABBTree3>();
 
-        // the tree of an open mesh for its fast winding numbers (built when first needed: not thread-safe)
+        // the tree of an open mesh for its fast winding numbers: classify builds one for every open mesh off the Antipodal
+        // path before its parallel loops, which only read here (#882: a lazy build inside them raced on the dictionary).
+        // Asking for any other mesh's tree is a defect of the caller
         [MethodImpl(JitHints.Optimize)]
         DMeshAABBTree3 winding_tree(int mesh)
         {
             DMeshAABBTree3 tree;
             if (windingTrees.TryGetValue(mesh, out tree) == false)
-                windingTrees[mesh] = tree = new_winding_tree(mesh);
+                throw new InvalidOperationException("ExactMeshBoolean: no fast-winding tree was built for open mesh " + mesh);
             return tree;
         }
 
