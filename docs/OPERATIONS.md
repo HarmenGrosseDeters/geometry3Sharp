@@ -647,7 +647,7 @@ The package `geometry3Sharp.Clipper2` (project `addons/geometry3Sharp.Clipper2`)
 library. The core package does not depend on it.
 
 ```csharp
-using g3; using g3.Clipper2; using Clipper2Lib;
+using g3; using g3.Clipper2;
 
 Clipper2Result merged = Clipper2Polygons.Union(footprints);                  // also Intersection, Difference, Xor
 Clipper2Result zone = Clipper2Polygons.Offset(merged.Polygons, 3.0,
@@ -677,8 +677,10 @@ vertices are off by about a grid spacing from their exact position: about 1e-12 
 for a 10 km footprint at UTM coordinates. Scaling the input by a
 power of two gives the same result, scaled, bit for bit; other similarities give it up to the grid spacing (tested
 over `Similarity.All()`). Features below the grid spacing vanish. `Clipper2Options.Frame` sets a fixed grid instead
-(eg Scale = 1000 for millimetres on metre coordinates), and `ClipperFrame` converts between the polygon types and
-Clipper2's `Path64` / `PolyTree64` for direct use of Clipper2. Single-threaded and deterministic.
+(eg Scale = 1000 for millimetres on metre coordinates). The package carries the Clipper2 2.0.0 sources (internal) and,
+since 2.0, has no package dependency besides geometry3Sharp; its enums `ClipType`, `FillRule`, `JoinType`, `EndType` are
+its own (`g3.Clipper2`, the names and values of Clipper2's; the addon README lists the break). Single-threaded and
+deterministic.
 
 The example is in [examples/Clipper2/](examples/Clipper2/Clipper2Example.cs) and runs in
 `tests/geometry3Sharp.Clipper2.Tests` (`Clipper2ExampleTests`), not in `DocExamplesTests`, because it needs the package.
