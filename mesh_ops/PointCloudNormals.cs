@@ -252,7 +252,8 @@ namespace gs
             for (int attempt = 0; ; ++attempt) {
                 UsedOffset = Offset > 0 ? Offset : UsedAlpha / OffsetDivisor;
                 AlphaConditionMet = UsedAlpha >= condition;
-                MeshAlphaWrap wrap = new MeshAlphaWrap(pts) { Alpha = UsedAlpha, Offset = UsedOffset, MaxSteinerPoints = MaxSteinerPoints };
+                MeshAlphaWrap wrap = new MeshAlphaWrap(pts) { Alpha = UsedAlpha, Offset = UsedOffset, MaxSteinerPoints = MaxSteinerPoints,
+                    MaxThreads = Parallel ? 0 : 1 };
                 bool ok = wrap.Compute();
                 WrapStatus = wrap.Status;
                 bool limited = wrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached;

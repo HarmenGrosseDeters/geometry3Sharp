@@ -197,5 +197,58 @@ namespace geometry3Sharp.Tests
             Assert.Equal(MeshAlphaWrap.WrapStatus.Cancelled, w.Status);
             Assert.Null(w.Result);
         }
+
+        // the default path's quality, pinned where the round order moved it (the serial carving's bounds stay pinned with
+        // RoundWindow = 0 in AlphaWrapTests): soup 42 at alpha = diagonal / 20 keeps one pinch spot for the manifold step, whose
+        // facets have no angle bound (class comment), so a few triangles are below the bound of the carving's triangles (2.87
+        // degrees); the separation bound and a clean result hold. Measured with this PR: min angle 2.12 degrees, 4 triangles below
+        // the bound (the serial carving: 0)
+        [Fact]
+        public void Rounds_DefaultPath_Soup42_QualityPinned()
+        {
+            DMesh3 m = AlphaWrapTests.RandomSoup(42);
+            var w = new MeshAlphaWrap(m) { RelativeAlpha = 20, RelativeOffset = 200 };
+            Assert.True(w.Compute(), w.Error);
+            AlphaWrapTests.CheckWrap(w, AlphaWrapTests.Vertices(m));
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            AlphaWrapTests.AssertSeparationBound(w, "soup 42");
+            double alpha = w.UsedAlpha, off = w.UsedOffset;
+            double lo = Math.Asin((1 - 1e-5) * Math.Min(off, alpha - off) / (2 * alpha)) * 180 / Math.PI;
+            double min = 180; int below = 0;
+            foreach (int tid in w.Result.TriangleIndices()) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                w.Result.GetTriVertices(tid, ref a, ref b, ref c);
+                Func<Vector3d, Vector3d, double> ang = (u, v) => Math.Atan2(u.Cross(v).Length, u.Dot(v)) * 180 / Math.PI;
+                double t = Math.Min(ang(b - a, c - a), Math.Min(ang(a - b, c - b), ang(a - c, b - c)));
+                min = Math.Min(min, t);
+                if (t < lo) below++;
+            }
+            Assert.True(min >= 2.0, $"min angle {min}");
+            Assert.True(below <= 4, $"{below} triangles below {lo}");
+        }
+
+        // MaxThreads = 0: all cores on a thread of its own, one thread on a thread-pool thread (inside a caller that is parallel
+        // already); the result is the same either way. The settings of the callers reach the wrap
+        [Fact]
+        public void MaxThreads_Default_OneThreadInsideParallelCallers_AndForwarded()
+        {
+            DMesh3 input = Input();
+            MeshAlphaWrap own = null, pooled = null;
+            var t = new System.Threading.Thread(() => {
+                own = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600 };
+                own.Compute();
+            });
+            t.Start(); t.Join();
+            System.Threading.Tasks.Task.Run(() => {
+                pooled = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600 };
+                pooled.Compute();
+            }).GetAwaiter().GetResult();
+            Assert.Equal(Environment.ProcessorCount, own.UsedThreads);
+            Assert.Equal(1, pooled.UsedThreads);
+            Assert.Equal(Fingerprint(own), Fingerprint(pooled));
+            var tm = new MeshTetrahedralization(AlphaWrapTests.Ellipsoid(2, 0.5, 0.6)) { MaxThreads = 3, RelativeAlpha = 12, RelativeOffset = 200 };
+            tm.Compute();
+            Assert.Equal(3, tm.Wrap.UsedThreads);
+        }
     }
 }

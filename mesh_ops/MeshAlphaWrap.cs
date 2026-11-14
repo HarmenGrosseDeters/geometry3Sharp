@@ -169,11 +169,15 @@ namespace gs
         const int MaxQualityRounds = 10;
 
         /// <summary>
-        /// Threads of the carving (0 = all cores, 1 = one thread). The result is the same for every value: the carving
-        /// processes its queue in rounds of gates whose cells do not overlap, chosen and committed in a fixed order
-        /// (docs/design/ALPHA_WRAP_ROUNDS.md), so only the time depends on it.
+        /// Threads of the carving (0 = all cores, or one thread when Compute runs on a thread-pool thread, ie inside a caller
+        /// that is parallel already; 1 = one thread). The result is the same for every value: the carving processes its queue in
+        /// rounds of gates whose cells do not overlap, chosen and committed in a fixed order (docs/design/ALPHA_WRAP_ROUNDS.md),
+        /// so only the time depends on it. The threads live for the main carving only; between its rounds they spin for at
+        /// most about a millisecond, then block.
         /// </summary>
         public int MaxThreads = 0;
+        /// <summary> (tests) the threads the last main carving used (from MaxThreads) </summary>
+        internal int UsedThreads { get; private set; }
         /// <summary>
         /// (tests) gates per round of the carving (Alpha Wrap 3.0 lever (B), docs/design/ALPHA_WRAP_ROUNDS.md); 0 = one gate at
         /// a time: the order, and the result bit for bit, of the serial loop before the rounds
@@ -765,7 +769,9 @@ namespace gs
 
         WrapStatus carve_rounds()
         {
-            int threads = MaxThreads > 0 ? MaxThreads : Environment.ProcessorCount;
+            int threads = MaxThreads > 0 ? MaxThreads
+                : System.Threading.Thread.CurrentThread.IsThreadPoolThread ? 1 : Environment.ProcessorCount;
+            UsedThreads = threads;
             team = threads > 1 ? new WorkerTeam(threads) : null;
             if (evaluateBody == null) {
                 evaluateBody = k => {

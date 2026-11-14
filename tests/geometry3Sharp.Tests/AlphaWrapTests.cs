@@ -940,7 +940,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Wrap_WorstAnglesOfTheRawWrap()
         {
-            // (the cylinder: 22.2 with the serial carving, 21.0 with the round-based carving of lever (B), whose order differs)
+            // (the cylinder: 22.2 with the serial carving, 21.0 with the round-based carving of lever (B), whose order differs;
+            // the bound below it, 20.5, keeps a margin)
             foreach (var (m, p01) in new[] { (AlphaWrapQualityRefinementTests.Cylinder(), 20.5), (RandomSoup(42), 13.0) }) {
                 var w = new MeshAlphaWrap(m) { RelativeAlpha = 60, RelativeOffset = 600 };
                 Assert.True(w.Compute(), w.Error);
