@@ -298,27 +298,124 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
-        public void Compute_RetriesTheGridWhenASampleLiesOnTheLevel_AndIsInvariant()
+        public void Compute_RetriesTheGridWhenTheFirstOneIsRejected_AndIsInvariant()
         {
-            // The first grid is the lattice grid moved down by half a cube. The box [h/2, L + h/2]^3 has its faces on the planes of
-            // those nodes: samples of the box distance are exactly 0 there (a sample on the level or a sliver), so the first
-            // grid must be rejected and a later shift succeed.
+            // The retry path itself (the guard makes a real on-level sample rare): an internal hook rejects the first attempt; the
+            // shifts are defined in the lattice frame, so every similarity uses the same one and the 2^k scales stay bit for bit.
             TpmsLattice reference = null;
             foreach (Similarity s in Similarity.All()) {
                 var lattice = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.5, 16, 1);
                 lattice.CellSize = s.Scale * L;
-                lattice.Box = new AxisAlignedBox3d(new Vector3d(1, 1, 1) * (s.Scale / 32), new Vector3d(1, 1, 1) * (s.Scale * (1 + 1.0 / 32)));
+                lattice.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1, 1, 1) * s.Scale);
                 lattice.Origin = s.Apply(Vector3d.Zero);
                 lattice.Rotation = s.Rotation;
+                lattice.RejectAttempt = a => a < 2;
                 lattice.Compute();
                 Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
-                Assert.True(lattice.GridShiftsUsed > 0, "the on-level grid must have been rejected: " + s.Name);
+                Assert.Equal(2, lattice.GridShiftsUsed);
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(lattice.Mesh));
                 if (reference == null) { reference = lattice; continue; }
-                Assert.Equal(reference.GridShiftsUsed, lattice.GridShiftsUsed);
                 if (s.IsExact)
                     Assert.Equal("", Invariance.Difference(reference.Mesh, Invariance.MappedBack(lattice.Mesh, s)));
             }
+        }
+
+        [Fact]
+        public void SliverGuard_GradientRatioIsTheSampledOverTheProvenBound()
+        {
+            // the ratio sizes the guard: in (0.2, 1] and consistent with the independent finite-difference maximum of the test copy
+            foreach (TpmsType t in Enum.GetValues(typeof(TpmsType))) {
+                double ratio = TpmsLattice.GradientRatio(t);
+                Assert.InRange(ratio, 0.2, 1.0);
+                var rand = new Random(71);
+                double max = 0, e = 1e-6;
+                for (int i = 0; i < 20000; ++i) {
+                    var q = new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble());
+                    double gx = (F(t, q + new Vector3d(e, 0, 0)) - F(t, q - new Vector3d(e, 0, 0))) / (2 * e);
+                    double gy = (F(t, q + new Vector3d(0, e, 0)) - F(t, q - new Vector3d(0, e, 0))) / (2 * e);
+                    double gz = (F(t, q + new Vector3d(0, 0, e)) - F(t, q - new Vector3d(0, 0, e))) / (2 * e);
+                    max = Math.Max(max, Math.Sqrt(gx * gx + gy * gy + gz * gz) / (2 * Math.PI));
+                }
+                Assert.True(ratio * TpmsLattice.GradientBound(t) >= max, t + ": the sampled maximum " + max + " exceeds ratio * bound");
+                Assert.True(ratio * TpmsLattice.GradientBound(t) <= 1.2 * max, t + ": the ratio is far above the independent sampled maximum");
+            }
+        }
+
+        [Fact]
+        public void SliverGuard_MovesNearLevelValuesDownAndOnlyThose()
+        {
+            // pins the direction (down: the solid only grows, so the enclosure survives) and the range of the guard
+            const double iso = 0.25, snap = 0.01;
+            Assert.Equal(iso - snap, TpmsLattice.SliverGuard(iso, iso, snap));                // on the level
+            Assert.Equal(iso - snap, TpmsLattice.SliverGuard(iso + 0.5 * snap, iso, snap));   // slightly outside
+            Assert.Equal(iso - snap, TpmsLattice.SliverGuard(iso - 0.5 * snap, iso, snap));   // slightly inside
+            Assert.Equal(iso + 2 * snap, TpmsLattice.SliverGuard(iso + 2 * snap, iso, snap)); // far values unchanged
+            Assert.Equal(iso - 2 * snap, TpmsLattice.SliverGuard(iso - 2 * snap, iso, snap));
+            Assert.Equal(iso, TpmsLattice.SliverGuard(iso, iso, 0));                          // off: untouched
+            foreach (double v in new[] { -1.0, 0.0, iso - 0.02, iso + 0.02, 3.0 })
+                Assert.True(TpmsLattice.SliverGuard(v, iso, snap) <= v + 1.5 * snap && TpmsLattice.SliverGuard(v, iso, snap) <= Math.Max(v, iso - snap));
+        }
+
+        public static IEnumerable<object[]> CombinationsForTheGuard() => Combinations();
+
+        [Theory]
+        [MemberData(nameof(CombinationsForTheGuard))]
+        public void SliverGuard_ChangesConstantLatticesNotAtAllOrByLessThanACubeFraction(TpmsType type, TpmsStyle style)
+        {
+            // On its own grid a constant lattice has a small discrete set of node values. The guard moves a node whose normalised
+            // value (g - c) / Lw is within h / 256 of the level; Lw is a proven but loose bound, so for the types whose bound is
+            // far above the true gradient (Schwarz D, Neovius: bound / true maximum about 4) that is a wider band of f values and the
+            // output of the unguarded code changes. The guard band is scaled by the sampled true gradient over the proven bound (the
+            // ratio), which leaves 2 of the 15 cases (Neovius skeletal) different; the other 13 are bit for bit the same.
+            // 2 periods, 14 cubes per period.
+            var on = Make(type, style, 0.3, 14);
+            var off = Make(type, style, 0.3, 14);
+            off.SliverGuardCubeFraction = 0;
+            on.Compute();
+            off.Compute();
+            Assert.True(on.Status == TpmsStatus.Ok, on.Status + ": " + on.Message);
+            Assert.True(off.Status == TpmsStatus.Ok, off.Status + ": " + off.Message);
+            bool changes = (type == TpmsType.Neovius && style != TpmsStyle.Sheet) || (type == TpmsType.Lidinoid && style == TpmsStyle.SkeletalHigh);
+            if (!changes) {
+                Assert.Equal("", Invariance.Difference(off.Mesh, on.Mesh));
+                return;
+            }
+            // changed: by how much? (Where f is nearly flat, a snapped node adds or moves a small piece of surface by the guard band over
+            // the local gradient: the Lidinoid skeletal high case measures 9 % of a cube, Neovius 5 %.)
+            // Every guarded vertex stays within 12 % of a cube of the unguarded surface (and vice versa),
+            // and the volume grows by less than 2 %.
+            double h = L / 14;
+            var treeOff = new DMeshAABBTree3(off.Mesh, true);
+            var treeOn = new DMeshAABBTree3(on.Mesh, true);
+            double maxOn = 0, maxOff = 0;
+            foreach (Vector3d v in on.Mesh.Vertices()) { treeOff.FindNearestTriangle(v, out double d2); maxOn = Math.Max(maxOn, Math.Sqrt(d2)); }
+            foreach (Vector3d v in off.Mesh.Vertices()) { treeOn.FindNearestTriangle(v, out double d2); maxOff = Math.Max(maxOff, Math.Sqrt(d2)); }
+            Assert.True(maxOn <= 0.12 * h && maxOff <= 0.12 * h, "guarded " + maxOn / h + " h, unguarded " + maxOff / h + " h");
+            double ratio = on.RealizedVolumeFraction / off.RealizedVolumeFraction;
+            Assert.True(ratio >= 0.999 && ratio <= 1.02, "volume ratio " + ratio);   // the solid only grows
+        }
+
+        [Fact]
+        public void SliverGuard_OnlyChangesTheNodesItSnaps_AndOnlyOutward()
+        {
+            // A box with its planes on nodes: the guard moves the on-level nodes inside (by less than 2 / 256 cube). The two meshes
+            // differ only near the box planes, and the guarded solid contains the unguarded one (here: more volume, within 1 %).
+            double h = L / 16;
+            TpmsLattice Run(double guard)
+            {
+                var l = Make(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.5, 16, 1);
+                l.Box = new AxisAlignedBox3d(new Vector3d(1, 1, 1) * (h / 2), new Vector3d(1, 1, 1) * (1 + h / 2));
+                l.SliverGuardCubeFraction = guard;
+                l.RejectAttempt = a => false;
+                l.Compute();
+                return l;
+            }
+            TpmsLattice on = Run(1.0 / 256), off = Run(0);
+            Assert.True(on.Status == TpmsStatus.Ok, on.Status + ": " + on.Message);
+            // without the guard the first grid throws (a node on the level) and a shifted grid is used
+            Assert.Equal(0, on.GridShiftsUsed);
+            Assert.True(off.GridShiftsUsed > 0 || off.Status != TpmsStatus.Ok);
+            Assert.True(on.RealizedVolumeFraction >= off.RealizedVolumeFraction - 0.01 * off.RealizedVolumeFraction - 1e-3);
         }
 
         [Fact]
@@ -563,8 +660,8 @@ namespace geometry3Sharp.Tests
                 lattice.Compute();
                 Assert.True(lattice.Status == TpmsStatus.Ok, lattice.Status + ": " + lattice.Message);
                 double h = L / divisions;
-                Assert.True(lattice.IsoValueUsed >= Math.Sqrt(3) * h / 2 + 4 * Math.Pow(2, -26), "level " + lattice.IsoValueUsed);
-                Assert.True(lattice.IsoValueUsed <= Math.Sqrt(3) * h / 2 + 4 * Math.Pow(2, -22), "level " + lattice.IsoValueUsed);
+                Assert.True(lattice.IsoValueUsed >= Math.Sqrt(3) * h / 2 + 2 * h / 256 * TpmsLattice.GradientRatio(TpmsType.SchwarzP) + 4 * Math.Pow(2, -26), "level " + lattice.IsoValueUsed);
+                Assert.True(lattice.IsoValueUsed <= Math.Sqrt(3) * h / 2 + 2 * h / 256 * TpmsLattice.GradientRatio(TpmsType.SchwarzP) + 4 * Math.Pow(2, -22), "level " + lattice.IsoValueUsed);
                 var plain = Make(TpmsType.SchwarzP, TpmsStyle.SkeletalLow, 0.3, divisions, 2);
                 plain.Compute();
                 Assert.Equal(0.0, plain.IsoValueUsed);
