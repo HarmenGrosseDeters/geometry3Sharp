@@ -601,21 +601,21 @@ namespace g3
         {
             w.Pairs.Clear();
             edg.Trees[0].SelfPairs(task, w.Pairs);
+            // the per-pair tests first (they do not depend on the order), then the sort of the kept pairs
+            int n = 0;
             for (int i = 0; i < w.Pairs.Count; ++i) {
                 int x = edg.Ids[w.Pairs[i].a], y = edg.Ids[w.Pairs[i].b];
-                w.Pairs[i] = x < y ? new Index2i(x, y) : new Index2i(y, x);
-            }
-            w.Pairs.Sort((p, q) => p.a != q.a ? p.a.CompareTo(q.a) : p.b.CompareTo(q.b));
-            foreach (Index2i k in w.Pairs) {
-                Index2i ea = meshA.GetEdgeV(k.a), eb = meshA.GetEdgeV(k.b);
+                Index2i ea = meshA.GetEdgeV(x), eb = meshA.GetEdgeV(y);
                 if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b)
                     continue;
-                if (SubSteps > 1) {
-                    if (overlaps_some_sub_step(hullsA, 2, ea.a, ea.b, -1, hullsA, 2, eb.a, eb.b, -1) == false)
-                        continue;
-                }
-                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = k.a, Second = k.b });
+                if (SubSteps > 1 && overlaps_some_sub_step(hullsA, 2, ea.a, ea.b, -1, hullsA, 2, eb.a, eb.b, -1) == false)
+                    continue;
+                w.Pairs[n++] = x < y ? new Index2i(x, y) : new Index2i(y, x);
             }
+            w.Pairs.RemoveRange(n, w.Pairs.Count - n);
+            w.Pairs.Sort((p, q) => p.a != q.a ? p.a.CompareTo(q.a) : p.b.CompareTo(q.b));
+            foreach (Index2i k in w.Pairs)
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = k.a, Second = k.b });
         }
     }
 }
