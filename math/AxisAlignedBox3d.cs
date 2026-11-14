@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 
 namespace g3
@@ -42,12 +42,12 @@ namespace g3
         }
 
         public AxisAlignedBox3d(Vector3d vMin, Vector3d vMax) {
-            Min = new Vector3d(Math.Min(vMin.x, vMax.x), Math.Min(vMin.y, vMax.y), Math.Min(vMin.z, vMax.z));
-            Max = new Vector3d(Math.Max(vMin.x, vMax.x), Math.Max(vMin.y, vMax.y), Math.Max(vMin.z, vMax.z));
+            Min = new Vector3d(MathUtil.MinExact(vMin.x, vMax.x), MathUtil.MinExact(vMin.y, vMax.y), MathUtil.MinExact(vMin.z, vMax.z));
+            Max = new Vector3d(MathUtil.MaxExact(vMin.x, vMax.x), MathUtil.MaxExact(vMin.y, vMax.y), MathUtil.MaxExact(vMin.z, vMax.z));
         }
         public AxisAlignedBox3d(ref Vector3d vMin, ref Vector3d vMax) {
-            Min = new Vector3d(Math.Min(vMin.x, vMax.x), Math.Min(vMin.y, vMax.y), Math.Min(vMin.z, vMax.z));
-            Max = new Vector3d(Math.Max(vMin.x, vMax.x), Math.Max(vMin.y, vMax.y), Math.Max(vMin.z, vMax.z));
+            Min = new Vector3d(MathUtil.MinExact(vMin.x, vMax.x), MathUtil.MinExact(vMin.y, vMax.y), MathUtil.MinExact(vMin.z, vMax.z));
+            Max = new Vector3d(MathUtil.MaxExact(vMin.x, vMax.x), MathUtil.MaxExact(vMin.y, vMax.y), MathUtil.MaxExact(vMin.z, vMax.z));
         }
 
         public AxisAlignedBox3d(Vector3d vCenter, double fHalfWidth, double fHalfHeight, double fHalfDepth) {
@@ -201,45 +201,45 @@ namespace g3
         }
 
         public void Contain(Vector3d v) {
-            Min.x = Math.Min(Min.x, v.x);
-            Min.y = Math.Min(Min.y, v.y);
-            Min.z = Math.Min(Min.z, v.z);
-            Max.x = Math.Max(Max.x, v.x);
-            Max.y = Math.Max(Max.y, v.y);
-            Max.z = Math.Max(Max.z, v.z);
+            Min.x = MathUtil.MinExact(Min.x, v.x);
+            Min.y = MathUtil.MinExact(Min.y, v.y);
+            Min.z = MathUtil.MinExact(Min.z, v.z);
+            Max.x = MathUtil.MaxExact(Max.x, v.x);
+            Max.y = MathUtil.MaxExact(Max.y, v.y);
+            Max.z = MathUtil.MaxExact(Max.z, v.z);
         }
 
         public void Contain(ref Vector3d v) {
-            Min.x = Math.Min(Min.x, v.x);
-            Min.y = Math.Min(Min.y, v.y);
-            Min.z = Math.Min(Min.z, v.z);
-            Max.x = Math.Max(Max.x, v.x);
-            Max.y = Math.Max(Max.y, v.y);
-            Max.z = Math.Max(Max.z, v.z);
+            Min.x = MathUtil.MinExact(Min.x, v.x);
+            Min.y = MathUtil.MinExact(Min.y, v.y);
+            Min.z = MathUtil.MinExact(Min.z, v.z);
+            Max.x = MathUtil.MaxExact(Max.x, v.x);
+            Max.y = MathUtil.MaxExact(Max.y, v.y);
+            Max.z = MathUtil.MaxExact(Max.z, v.z);
         }
 
         public void Contain(AxisAlignedBox3d box) {
-            Min.x = Math.Min(Min.x, box.Min.x);
-            Min.y = Math.Min(Min.y, box.Min.y);
-            Min.z = Math.Min(Min.z, box.Min.z);
-            Max.x = Math.Max(Max.x, box.Max.x);
-            Max.y = Math.Max(Max.y, box.Max.y);
-            Max.z = Math.Max(Max.z, box.Max.z);
+            Min.x = MathUtil.MinExact(Min.x, box.Min.x);
+            Min.y = MathUtil.MinExact(Min.y, box.Min.y);
+            Min.z = MathUtil.MinExact(Min.z, box.Min.z);
+            Max.x = MathUtil.MaxExact(Max.x, box.Max.x);
+            Max.y = MathUtil.MaxExact(Max.y, box.Max.y);
+            Max.z = MathUtil.MaxExact(Max.z, box.Max.z);
         }
 
         public void Contain(ref AxisAlignedBox3d box) {
-            Min.x = Math.Min(Min.x, box.Min.x);
-            Min.y = Math.Min(Min.y, box.Min.y);
-            Min.z = Math.Min(Min.z, box.Min.z);
-            Max.x = Math.Max(Max.x, box.Max.x);
-            Max.y = Math.Max(Max.y, box.Max.y);
-            Max.z = Math.Max(Max.z, box.Max.z);
+            Min.x = MathUtil.MinExact(Min.x, box.Min.x);
+            Min.y = MathUtil.MinExact(Min.y, box.Min.y);
+            Min.z = MathUtil.MinExact(Min.z, box.Min.z);
+            Max.x = MathUtil.MaxExact(Max.x, box.Max.x);
+            Max.y = MathUtil.MaxExact(Max.y, box.Max.y);
+            Max.z = MathUtil.MaxExact(Max.z, box.Max.z);
         }
 
         public AxisAlignedBox3d Intersect(AxisAlignedBox3d box) {
             AxisAlignedBox3d intersect = new AxisAlignedBox3d(
-                Math.Max(Min.x, box.Min.x), Math.Max(Min.y, box.Min.y), Math.Max(Min.z, box.Min.z),
-                Math.Min(Max.x, box.Max.x), Math.Min(Max.y, box.Max.y), Math.Min(Max.z, box.Max.z));
+                MathUtil.MaxExact(Min.x, box.Min.x), MathUtil.MaxExact(Min.y, box.Min.y), MathUtil.MaxExact(Min.z, box.Min.z),
+                MathUtil.MinExact(Max.x, box.Max.x), MathUtil.MinExact(Max.y, box.Max.y), MathUtil.MinExact(Max.z, box.Max.z));
             if (intersect.Height <= 0 || intersect.Width <= 0 || intersect.Depth <= 0)
                 return AxisAlignedBox3d.Empty;
             else
