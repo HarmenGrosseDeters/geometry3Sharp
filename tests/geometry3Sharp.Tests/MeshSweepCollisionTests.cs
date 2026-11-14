@@ -69,6 +69,19 @@ namespace geometry3Sharp.Tests
             Assert.True(sep.EarliestTimeOfImpact <= 0.25 && sep.EarliestTimeOfImpact >= 0.25 - 1e-5, $"{sep.EarliestTimeOfImpact:R}");
         }
 
+        // pairs that hit the iteration limit are kept (they may be the first contact) and make the status IterationLimit
+        [Fact]
+        public void IterationLimit_PairsAreKept()
+        {
+            var sweep = approach(0.5, new CcdOptions { MaxIterations = 2 });
+            sweep.BlockSize = 3;
+            Assert.Equal(MeshSweepStatus.IterationLimit, sweep.Compute());
+            Assert.Contains(sweep.Contacts, c => c.Result.Status == CcdStatus.IterationLimit);
+            Assert.True(sweep.EarliestTimeOfImpact <= 0.5);
+            foreach (SweepContact c in sweep.Contacts)
+                Assert.True(c.Result.Status == CcdStatus.Collision || c.Result.Status == CcdStatus.IterationLimit);
+        }
+
         [Fact]
         public void Miss_IsNoCollision()
         {
@@ -166,8 +179,18 @@ namespace geometry3Sharp.Tests
             sweep.Compute();
             Assert.Equal(t1, sweep.EarliestTimeOfImpact);
             Assert.Equal(c1, sweep.Contacts);
+            Assert.True(sweep.CandidatePairCount > 0);
+            sweep.SetEndPositions(moved(a, x => new Vector3d(double.NaN, 0, 0)), moved(b, x => x));
+            Assert.Equal(MeshSweepStatus.InvalidInput, sweep.Compute());
+            Assert.Equal(0, sweep.CandidatePairCount);
+            Assert.Equal(0, sweep.CandidatePairs);
             sweep.SetEndPositions(moved(a, x => x + new Vector3d(0.2, 0, 0)), moved(b, x => x));
             Assert.Equal(MeshSweepStatus.NoCollision, sweep.Compute());
+            foreach (var bad in new Action<MeshSweepCollision>[] { x => x.BlockSize = 0, x => x.BlockSize = int.MaxValue, x => x.SelfTasks = 0, x => x.BatchPairs = 0 }) {
+                var t = new MeshSweepCollision(a, moved(a, x => x), b, moved(b, x => x));
+                bad(t);
+                Assert.Equal(MeshSweepStatus.InvalidInput, t.Compute());
+            }
             sweep.SetEndPositions(moved(a, x => x + new Vector3d(0.5, 0, 0)), moved(b, x => x));
             sweep.Compute();
             Assert.Equal(t1, sweep.EarliestTimeOfImpact);
@@ -193,6 +216,90 @@ namespace geometry3Sharp.Tests
             Assert.Equal(serial, run(true, true, true));
             Assert.Equal(serial, run(true, false, true));
             Assert.Equal(run(false, false, false), run(true, false, false));
+        }
+
+        // the jobs (blocks of query primitives, self edge-pair tasks): parallel equals serial and repeated runs, with
+        // many small jobs and with the default ones, for A against B and the self sweep; the contacts equal those of a
+        // single job (one block holding everything)
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Jobs_ParallelEqualsSerial(bool self)
+        {
+            DMesh3 a = sphere(Vector3d.Zero, 1, 6), b = sphere(new Vector3d(2.05, 0.2, 0.1), 1, 6);
+            DMesh3 m = a;
+            if (self) { m = new DMesh3(a); new MeshEditor(m).AppendMesh(b); }
+            int na = a.MaxVertexID;
+            Vector3d[] endM = moved(m, x => x.x < 1.02 ? x + new Vector3d(0.3, 0.04 * x.y, 0.02 * x.z) : x - new Vector3d(0.1, 0, 0));
+            Vector3d[] endA = moved(a, x => x + new Vector3d(0.3, 0.04 * x.y, 0.02 * x.z)), endB = moved(b, x => x - new Vector3d(0.1, 0, 0));
+            // order: null runs the loops in parallel (parallel = true) or on the calling thread (false); a value runs
+            // them one after the other in gParallel's serial order (0 as given, -1 backwards, else a seeded permutation)
+            (List<SweepContact>, double, long) run(bool parallel, int? order, bool all, int block, int tasks)
+            {
+                var s = self ? new MeshSweepCollision(m, endM) : new MeshSweepCollision(a, endA, b, endB);
+                s.Parallel = parallel; s.CollectAll = all; s.BlockSize = block; s.SelfTasks = tasks;
+                // small blocks also get small batches of candidate pairs (many batches)
+                if (block < 100) s.BatchPairs = 37;
+                s.Options = new CcdOptions { MinSeparation = 0.005 };
+                gParallel.SerialOnThisThread = order.HasValue;
+                gParallel.SerialOrderOnThisThread = order ?? 0;
+                try { s.Compute(); } finally { gParallel.SerialOnThisThread = false; gParallel.SerialOrderOnThisThread = 0; }
+                Assert.Equal(MeshSweepStatus.Collision, s.Status);
+                return (s.Contacts, s.EarliestTimeOfImpact, s.CandidatePairCount);
+            }
+            void same((List<SweepContact>, double, long) x, (List<SweepContact>, double, long) y)
+            {
+                Assert.Equal(x.Item1, y.Item1);
+                Assert.Equal(x.Item2, y.Item2);
+                Assert.Equal(x.Item3, y.Item3);
+            }
+            foreach (bool all in new[] { true, false }) {
+                // one job holding everything is the reference
+                var single = run(false, null, all, 1 << 20, 1);
+                Assert.NotEmpty(single.Item1);
+                // small jobs and batches: serial, parallel (repeated), backwards and permuted orders
+                same(single, run(false, null, all, 7, 9));
+                same(single, run(true, null, all, 7, 9));
+                same(single, run(true, null, all, 7, 9));
+                same(single, run(true, -1, all, 7, 9));
+                same(single, run(true, 12345, all, 7, 9));
+                if (all) {
+                    // the default jobs
+                    same(single, run(false, null, all, 128, 4096));
+                    same(single, run(true, null, all, 128, 4096));
+                }
+            }
+        }
+
+        // the self sweep over Similarity.All(): 2^k scales give the same contacts and times bit for bit; the other frames
+        // the same earliest time within the frame's resolution
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void SelfSweep_Invariance(string name)
+        {
+            Similarity sim = Similarity.ByName(name);
+            DMesh3 a = box(new Vector3d(-0.5, 0, 0), 1), b = box(new Vector3d(0.75, 0.25, 0.125), 1);
+            var both = new DMesh3(a);
+            int n = both.MaxVertexID;
+            new MeshEditor(both).AppendMesh(b);
+            MeshSweepCollision sweep(Func<Vector3d, Vector3d> f)
+            {
+                DMesh3 m = map(both, f);
+                var end = new Vector3d[both.MaxVertexID];
+                foreach (int vid in both.VertexIndices()) end[vid] = f(both.GetVertex(vid) + (vid < n ? new Vector3d(0.5, 0, 0) : Vector3d.Zero));
+                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5 };
+                Assert.Equal(MeshSweepStatus.Collision, s.Compute());
+                return s;
+            }
+            MeshSweepCollision r0 = sweep(x => x), r = sweep(sim.Apply);
+            if (sim.IsExact) {
+                Assert.Equal(r0.EarliestTimeOfImpact, r.EarliestTimeOfImpact);
+                Assert.Equal(r0.Contacts.Select(c => (c.Kind, c.First, c.Second, c.Result.TimeOfImpact, c.Result.Iterations)),
+                             r.Contacts.Select(c => (c.Kind, c.First, c.Second, c.Result.TimeOfImpact, c.Result.Iterations)));
+            } else {
+                double slack = 1e-5 + 256 * sim.Resolution(2) / 0.5;
+                Assert.True(r.EarliestTimeOfImpact <= 0.5 + 1e-12 && r.EarliestTimeOfImpact >= 0.5 - slack, $"{name}: {r.EarliestTimeOfImpact:R}");
+            }
         }
 
         // review #793: the smallest minimum separation still widens the broad phase's boxes
