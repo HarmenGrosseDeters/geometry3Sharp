@@ -125,13 +125,28 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      before (no result within the rounding changed); the independent review's run (6 seeds, 8- to 16-gons on -3..3 and -4..4): 100 / 1.
      Through the adapter (`BooleanPaths`, default grid; 1000 pairs of 16-gons on -4..4, seed 77, every combination, area and overlap
      by 64 samples): 43 wrong before (29 unions, 7 differences, 7 xors), 0 after, no overlaps.
-   - **Open, the same cleanup:** one Intersection (NonZero) of 1000 pairs of 16-gons is wrong before and after (an output of
-     negative area -0.076 for an exact 0.590; shrunk: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3) (-2,0)
-     (0,-2)). Cause: the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`) moves a
-     vertex by 1.3 units. Upstream removed that branch after 2.0.0 (commit `4da1564`, issue #1067, 2026-02-22; BSL-1.0, not in
-     2.0.0). Measured on top of the fix: 0 wrong results in all the campaigns above, but it also changes many results that were
-     right within the rounding (eg 15 of 1000 Xor NonZero results, 1 of them wrong before); alone, without the fix, it made the
-     unions worse (52 wrong of 3000 against 22). A follow-up decision, not part of the item 5 fix: issue #756.
+   - **Fixed in part 2026-11-13 (#756, owner decision 2026-11-13: option "c-guard"; `Clipper2MicroSelfIntersectionTests`),
+     the same cleanup:** the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`)
+     inserts a copy of the vertex two ahead. Shrunk case: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3)
+     (-2,0) (0,-2), Intersection NonZero: the insertion moves the path by 1.3 units and flips the ring (area +0.295 -> -0.038 in
+     the engine's units), the result was -0.076 for an exact 0.590. Fix: the insertion is undone when it flips the ring's
+     orientation, and the crossing goes to `DoSplitOp`. Exact oracle, 1000 pairs x 16 combinations (24-gons 500): no result that
+     was right changes; fixed are this case and a Xor NonZero of 24-gons on -2..2 (6.4559 -> exact 6.7892).
+     Measured first (#756): the branch is never taken with a move of at most one grid unit on these inputs (16-gons at 2^20: 173
+     hits, smallest move 114 389 units), so the option first decided, "only moves <= 1 unit", would have acted as upstream's
+     removal of the branch (`4da1564`, issue #1067, 2026-02-22, after 2.0.0): every failure fixed, but 2-3 % of the results
+     changed within the rounding, most of them less accurate (16-gons: 250 farther from the exact area, 88 closer). 4da1564 is
+     **not adopted** (owner 2026-11-13).
+   - **Known, open (option a, owner 2026-11-13): the insertions that cost area without flipping the ring.** The guard catches only
+     an insertion that flips its ring. The independent review of the fix measured the rest of the class on the raw engine (random
+     8- to 24-gons on -2..2 and -4..4, every clip type and fill rule, against the exact area): 9 wrong results of 320 000 at 2^20
+     (4 pairs; 26 before the fix) and 4 of 128 000 at 2^50 (11 before), all from this branch, about 3 per 100 000; through the
+     adapter 2 of 96 000 changed, both from wrong to right. The repros are in issue #756. One of them, the unshrunk pair of that case, 16-gons A = (2,3) (0,4) (-2,-1) (4,2) (-4,2)
+     (-1,-1) (-4,-2) (4,-4) (3,1) (-2,2) (0,-1) (-4,4) (-3,2) (2,-3) (0,0) (1,-1), B = (-2,1) (1,1) (4,0) (2,4) (1,-4) (-2,-3) (-2,0)
+     (0,-2) (-3,-2) (-4,-3) (0,0) (-1,-1) (2,1) (2,0) (1,3) (-2,1), Intersection NonZero: 13.838 for an exact 14.267. The same
+     insertion (vertex (-2,0), copy of (-2,-1)) costs 0.43 of area here without flipping the larger ring, so the guard does not
+     see it. Analysed for one bounded step: a bound on the area the insertion changes is the "distance from the edge <= 1" test,
+     which rejects the large moves that usually help (and gave 2 new wrong results); no clean criterion found.
    - **Open, found in the review of the fix (wrong before and after, not caused by it; issue #756):** a Union that is right on a
      2^20 grid and wrong on the adapter's grid (scale 2^38): A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4)
      (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4) (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1):

@@ -76,6 +76,11 @@ the time differ.
   - "the ray through the segment" needs `num ≈ 0, den ≤ tol`, which the cone test excludes.
 - So the hand-over sees exactly the cases where today's sum would return 1 or 2, or more. In the extra cases, today's
   sum then gives 0 and its value.
+- At L2's approximated centroid (pointError > 0), the leaf tests run at the approximation, not at the exact centroid
+  where the full sum runs. tree_term therefore requires 1 + a·b > 2 tol there instead of > tol: 1 + a·b moves by at most
+  about tol between the two points, so the full sum's status-1 test cannot fire at the exact centroid where the tree
+  admits (review of #813). The other tests are covered by fullBound: a failure of "ray through the segment" at the
+  exact point leaves hypot within about 3 tol, which makes fullBound refuse.
 
 ## 3. The sum over a cluster
 
@@ -186,6 +191,98 @@ The three callers of `antipodal_value` change as follows:
 **Exact-code rules.** ExactMeshBoolean is an exact file: no FMA, no float, no new parallel loop. The tree build is
 serial.
 
+## 4a. Implementation finding: rays on which the full sum gives no value
+
+Section 2 compares the tree's value with the full sum's value on the same ray. But the full sum can give no value on a
+ray: it returns status 2 when its bound exceeds 1e-6, for example for a ray just past a segment's end.
+- Today, such a ray is replaced by another one.
+- After 20 rays without a value, the piece is undecided and read as outside.
+- The first prototype decided such pieces by the tree. On 112798 this left 10 undecided pieces instead of 34, which is
+  more correct but not bit-identical.
+
+To keep the results identical, the tree also returns `fullBound`, an upper bound of the bound that the full sum gets
+with this ray at the exact point. Its value is used only where `fullBound <= 0.999e-6`, because then the full sum gives
+a value with this ray (`tree_decides`). The bound is built as follows:
+- **Leaves:** today's terms, with hypot lowered by twice their tol. This covers the displacement to the exact point.
+- **Segments of an accepted node:**
+  - for unit vectors, num² + den² = 2 (1 + A·B)(1 + A·x1)(1 + B·x1);
+  - with A and B in the cap of angular radius α, and β the smallest angle between −x1 and the cap (minus the margin),
+    hypot ≥ sqrt(2 (1 + cos 2α)) (1 − cos β);
+  - the |θ| of each of the node's terms is at most 2π, the bound of a principal value of 2 atan2.
+
+With this, 112798 has its base hash again (34 undecided). The property test checks that wherever fullBound admits a
+value, the full sum gives one within fullBound. It also covers rays just past a segment's end, where the full sum
+fails. Loosening the gate, or dropping it, then fails the test. **Owner 2026-11-13:** strict bit-identity now. Letting the tree decide the pieces that are undecided today (24 fewer
+counted as outside on 112798) is a later follow-up, open item 5 in section 6.
+
+The tree is built only for boundaries of at least 1000 segments (`AntipodalTreeMinSegments`). Below that size, the full
+sum is cheap and the tree did not pay: 124526 and 112798 have 134 and 164 segments.
+
+## 4b. The bounds as implemented (for the review)
+
+Notation: u = 2^-53 ≈ 1.1e-16. Every quantity is in the mesh's scaled grid units, the units of `FarPoints.Segments`.
+The names are those of the code: `AntipodalTree`, `antipodal_tree_value`, `tree_term`, `tree_decides`.
+
+**Node build** (`AntipodalTree.node`; count = the run's segments + 1 points):
+
+| quantity | computed as | why it is a bound |
+|---|---|---|
+| c | mean of the points | Any c serves: the fan from c spans the polygon inside the ball. Only r must refer to the stored c. |
+| R | max ‖v − c‖ · (1 + 1e-14) | ‖v − c‖ has a subtraction, 3 squares, 2 sums and a root: within 4u relative, so it is rounded up. |
+| AAbs | ½ Σ ‖(v − c) × (w − c)‖ · (1 + (count + 4) · 4.5e-16) | Each term is within about 6u; the sum of count + 1 terms is within (count + 1)u of the sum of sizes. The result is an upper bound. |
+| VaErr | ½ Σ ‖…‖ · (count + 8) · 4.5e-16 | Per-component error of va, as for AAbs but for the signed sum. |
+| Len | Σ ‖w − v‖ · (1 + (count + 4) · 4.5e-16) | An upper bound of the polygon's length. |
+| M1 | max ‖v‖₁ | Exact: abs and max only. |
+
+**Query of an accepted node** (`antipodal_tree_value`):
+- d = dn (1 − 1e-15), where dn = sqrt(dx² + dy² + dz²) is within 2.5u relative. So d is a lower bound of |c − p|.
+- dr = fl(d − r) can exceed the true d − r by u relative. The factor 1.01 on E covers the 3u that this causes in 1/dr³.
+- Acceptance: r < θ d. Then rd = r/d is rounded up, cos α = sqrt(1 − rd²) comes out smaller, and the cap is larger,
+  which is the safe direction.
+
+**The cone test** −x1·u < cos α − ε, with:
+- tolNode = 16 (2 (2.3e-16 (pm + M1) + pointError)/dr + 1e-15 + directionError). This bounds every node segment's
+  `tol` of today's sum, because la, lb ≥ d − r and the L1 sizes are ≤ pm + M1.
+- ε = 1e-12 + 2 sqrt(2 tolNode) + 4 (2.3e-16 M1 + δ)/dr + 2 directionError, with δ = 2.3e-16 pm + pointError, made
+  of these terms:
+  - **1e-12:** the roundings of u = dx/dn, of the dot product, and of cos α. These come to a few u.
+  - **2 sqrt(2 tolNode):** the angle within which today's "ray through the segment" test can fire, with a factor 2 for
+    margin.
+  - **4 (2.3e-16 M1 + δ)/dr:** the angular displacement of the exact points and of the exact p relative to the doubles.
+  - **2 directionError:** the error of x1 itself.
+
+**The node's error E** (steradians). The code multiplies the sum by 1.01.
+
+| term | source |
+|---|---|
+| AAbs · 2r / dr³ | the dipole remainder: the Jacobian of x/‖x‖³ has spectral norm 2/‖x‖³, and ‖x‖ ≥ d − r over the fan |
+| (2 · 2.3e-16 M1 + δ) · Len / dr² | moving the curve, or p, by ε changes a closed curve's solid angle by at most ε ∫‖dl‖/‖x‖² ≤ ε Len/dr² (Biot–Savart); the curve's points move by their rounding, p by δ |
+| √3 · VaErr / dr² | va's error times ‖f(c)‖ ≤ 1/d² |
+| (Σ\|va_i dx_i\|)/(dd dn) · 2e-15 | the dipole's own roundings: 3 products, 2 sums, 1 product and 1 division, within 8u of the sum of the sizes (not of \|ω\|, which can cancel) |
+| chord: `tree_term`'s termError + 2 · PortableAtan2Error | today's per-term error of the full sum |
+
+The total is today's: err + 2.3e-16 · terms · abs, divided by 4π, plus 2.3e-16 (abs/4π + |w|).
+
+**fullBound** (an upper bound of the bound of `antipodal_sum` with the same ray, at the exact point):
+- **Leaf terms:** 4 tol/(hypot − 2 tol) + 2 PortableAtan2Error, or ∞ if hypot ≤ 2 tol.
+  - At the exact point, today's tol is ≤ this tol, because it has no pointError or directionError.
+  - Its (num, den) differ by at most √2 tol, so its hypot is ≥ hypot − 2 tol.
+- **Node segments:**
+  - For unit vectors, num² + den² = 2 (1 + A·B)(1 + A·x1)(1 + B·x1).
+  - In the cap of angular radius α, the angle between A and B is ≤ 2α, so 1 + A·B ≥ 1 + cos 2α.
+  - 1 + A·x1 = 1 − cos ∠(A, −x1) ≥ 1 − cos β, with β = acos(−x1·u) − asin(rd) − 1e-9 − ε. This needs β > 0;
+    otherwise fullBound = ∞.
+  - So hypot ≥ hmin = sqrt(2 (1 + cos 2α)) (1 − cos β) (1 − 1e-12).
+  - Per segment: 4 tolU/(hmin − 2 tolU) + 2 PortableAtan2Error, with tolU = 1.01 tolNode. This is ∞ if hmin ≤ 2 tolU.
+  - acos, asin and cos are runtime functions. They only set this gate, whose margins (1e-9, ε, 1e-12) are far above
+    their ulp differences.
+- **Σ|θ| for the summation term:** |θ| + termError per leaf, and 2π per node segment, because a principal value of
+  2 atan2 is at most 2π. With 20000 segments this adds at most 2.3e-16 · 2e4 · 2π · 2e4 / 4π ≈ 4.6e-8.
+- **Total:** ((errU + 2.3e-16 · N · absU)/4π + 2.3e-16 (absU/4π + |w| + bound)) · 1.01.
+
+`tree_decides` accepts when |w − h| > bound + 2e-6 and fullBound ≤ 0.999e-6. Today's limit is 1e-6, so the full sum
+gives a value with this ray, and section 2 applies.
+
 ## 5. Tests and checks (for the PR)
 
 - **Equivalence on the hash gate.**
@@ -217,6 +314,9 @@ serial.
 3. Whether L2's carry margin from w_h (smaller than today) loses more carried pieces than the hierarchy saves. The PR
    measures it; the decisions are unaffected either way.
 4. θ and a second pass: measured, not argued.
+5. **Open item (owner 2026-11-13, follow-up):** the tree could also decide pieces where the full sum gives no value on
+   any ray, which today end up undecided and are read as outside. That is more correct but not bit-identical. Lever 1
+   keeps the gate; the follow-up drops it after its own review and hash change.
 
 ## Sources
 

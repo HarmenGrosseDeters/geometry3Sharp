@@ -44,6 +44,7 @@ SHARED = (
     "docs/ROBUSTNESS_SWEEP.md",      # RobustnessSweepTests
     "docs/design/EXACT_FALLBACK_MONOMIALS.md",
     "docs/design/FIXED_WIDTH_EXACT_POINTS.md",
+    "docs/design/DETERMINISM_PROOF.md",       # DeterminismScopeAnalyzerTests (the stage 0 ledger)
     "docs/design/INDIRECT_PREDICATES.md",
     "docs/design/MESHING2D_GOLDEN_FORMAT.md",
     "docs/design/MESHING2D_CATALOGUE.md",

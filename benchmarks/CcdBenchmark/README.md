@@ -6,7 +6,12 @@ Benchmark of `ContinuousCollision` and `MeshSweepCollision` (design note `docs/d
 dotnet run --project benchmarks/CcdBenchmark -c Release -- synthetic
 benchmarks/CcdBenchmark/fetch_sample.sh /tmp/ccdsample          # outside the repository, about 157 MB
 dotnet run --project benchmarks/CcdBenchmark -c Release -- sample /tmp/ccdsample [minSeparation]
+dotnet run --project benchmarks/CcdBenchmark -c Release -- sweep /tmp/ccdsample [minSeparation]
 ```
+
+`sweep`: the self sweep of each sample scene's two frames (`frames/*.ply`, also fetched by `fetch_sample.sh`), serial and
+parallel, with the time of the preparation and of the pair search and solve (`G3_SWEEP_SCENES`, `G3_SWEEP_BLOCK`,
+`G3_SWEEP_TASKS` select scenes and job sizes for experiments, `G3_SWEEP_SUBSTEPS` the sub-steps).
 
 `synthetic`: the stage-1 probe's queries (CCD.md 7.1) through the library, on the filter and the interval path, and sphere
 sweeps (A moving into B) with and without a minimum separation. `sample`: the Apache-2.0 sample of the ToI dataset
@@ -90,3 +95,42 @@ parallel are also split along their cross product, on every other level (CCD.md 
 
 Vertex-triangle rows unchanged (the same box counts). All 271 852 queries: 0 false negatives, 2 false positives, 116 µs
 and 223 boxes per query on average (186 µs and 365 boxes before the PR, same machine).
+
+## Parallel broad phase (2026-11-13, CCD.md 10.9)
+
+Raw: `results-sweep-ab-2026-11-13.csv` (master at 2ccb989c vs this branch, two alternating rounds in one job, parallel,
+4 cores; `results-sweep-ab-fused-2026-11-13.csv`: the rejected fused-jobs variant against master before #845):
+
+| scene | triangles | candidate pairs | master | batches |
+|---|---|---|---|---|
+| armadillo-rollers | 24 242 | 7 099 982 | 2.94-2.99 s | 2.32-2.40 s |
+| cloth-ball | 92 230 | 6 852 873 | 6.85-7.17 s | 6.00-6.24 s |
+| cloth-funnel | 18 484 | 41 089 | 0.088-0.099 s | 0.061-0.063 s |
+| n-body-simulation | 146 480 | 31 763 261 | 9.77-9.94 s | 7.13-7.40 s |
+| rod-twist | 79 864 | 2 489 604 | 2.37-2.39 s | 1.95-1.99 s |
+| puffer-ball | 1 064 216 | 249 805 425 | out of memory | 40.0 s (serial 112 s) |
+
+Serial times are unchanged within noise; candidates, contacts and the earliest time are the same as on master.
+
+## Sub-steps (2026-11-14, CCD.md 10.10, #866)
+
+Raw: `results-sweep-substeps-2026-11-14.csv` (`G3_SWEEP_SUBSTEPS=1` and `4`, one run each after a warm-up, 4 cores, the
+final code of the PR). SubSteps = 1 is the broad phase of 10.9 without the per-query sorts.
+
+| scene | candidates k=1 | candidates k=4 | parallel k=1 | parallel k=4 | serial k=1 | serial k=4 |
+|---|---|---|---|---|---|---|
+| armadillo-rollers | 7 099 982 | 1 127 562 | 1.87 s | 1.59 s | 6.48 s | 5.38 s |
+| cloth-ball | 6 852 873 | 2 450 850 | 5.56 s | 5.73 s | 20.8 s | 20.3 s |
+| cloth-funnel | 41 089 | 26 144 | 0.052 s | 0.061 s | 0.104 s | 0.104 s |
+| n-body-simulation | 31 763 261 | 4 832 461 | 5.67 s | 4.88 s | 18.5 s | 11.7 s |
+| rod-twist | 2 489 604 | 1 823 450 | 2.23 s | 1.90 s | 7.18 s | 6.79 s |
+| puffer-ball | 249 805 425 | 24 953 688 | 32.6 s | 19.9 s | 93.8 s | 50.7 s |
+
+The earliest time of impact and the contacts are the same for k = 1 and 4 in every scene. The container's speed varies
+by about 15 % between runs: over the runs during this PR (not all of the same code), puffer-ball took 28.1-33.2 s at k = 1 and
+18.2-20.5 s at k = 4 (parallel), the other scenes moved by up to 0.5 s. On master it took 40.0 s (10.9).
+
+Where the puffer-ball time goes at k = 4 (thread time, instrumented run): the self edge pairs of the whole-step tree
+(186M, filtered to 19M) about half, the vertex-triangle candidates (75M to 6M) a fifth, the narrow phase of the 25M
+candidates the rest; without tightening (`MaxTighteningIterations = 0`) the sweep is only about 1 s faster. k = 8 is
+slower (23.9 s: 8.4M candidates, but the filter and the hulls cost more).

@@ -333,6 +333,12 @@ namespace g3
         internal int TraceClusterPieces = 1 << 10;
         /// <summary> T5: a step across an edge only into a block of at most this many pieces (larger ones: their own reference) </summary>
         internal int TraceCrossMaxPieces = 4;
+        // lever 1 (docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md): the Antipodal boundary sum over a tree of the boundary
+        // chains, far clusters by their chord and dipole, used only where its certified interval decides the threshold of
+        // the full sum (the same result, bit for bit); its opening angle, and the smallest boundary that gets a tree; for tests
+        internal bool AntipodalHierarchical = true;
+        internal double AntipodalTheta = 0.25;
+        internal int AntipodalTreeMinSegments = 1000;
         /// <summary> T5: blocks of few pieces share the frame of the triangle they are reached from (off: one per triangle, for tests) </summary>
         internal bool TraceShareFrames = true;
         /// <summary> tests: evaluate the traced pieces directly as well and count the different thresholds (TracedMismatches) </summary>
@@ -537,6 +543,7 @@ namespace g3
             OpenWindingPerPiece = null;
             antipodalUndecided = 0;
             antipodalSnapped = 0;
+            hierUsed = hierFallbacks = 0;
             perPatchDecided = perPatchSaved = 0;
             PerPatchMismatches = 0;
             tracedCount = tracedDirect = tracedCarried = tracedExactCentroids = tracedCrossSteps = tracedCrossFallbacks = tracedCrossCandidates = tracedClusters = 0;
@@ -643,6 +650,9 @@ namespace g3
             // (L2: the pieces whose exact centroid was computed, where a filter failed or for the piece's own ray)
             Counts["l2_exact_centroids"] = tracedExactCentroids;
             Counts["antipodal_snapped"] = antipodalSnapped;
+            // (lever 1: the evaluations decided by the hierarchical sum, and those it handed to the full sum)
+            Counts["antipodal_hierarchical"] = hierUsed;
+            Counts["antipodal_hierarchical_fallbacks"] = hierFallbacks;
             Result = assemble(keep, flip);
             clock.Lap("assembly");
             if (Cancellation.IsCancellationRequested)
@@ -1121,6 +1131,8 @@ namespace g3
                     antipodalExact[m] = antipodal_exact(segments);
                     antipodalFar[m] = far_points(m, 64);
                     antipodalFar[m].Segments = antipodalFar[m].Shift > 0 ? antipodal_grid(segments, antipodalFar[m].Shift) : antipodalSegments[m];
+                    if (AntipodalHierarchical && segments.Length / 2 >= AntipodalTreeMinSegments)
+                        antipodalFar[m].Tree = AntipodalTree.Build(antipodalFar[m].Segments);
                 }
             }
             // the fast-winding trees of the other open meshes, concurrently (each is independent, built from its own
@@ -1984,7 +1996,7 @@ namespace g3
                                     rem[loc[q]] = -1;
                                     if (wanted == false)
                                         continue;
-                                    double w, bound, ge;
+                                    double w = 0, bound = 0, ge;
                                     Center cq = center(q);
                                     // (the boundary sum at the centroid's approximation: its error, sqrt(3) times the bound
                                     // per coordinate, enters the terms' errors, and the direction to the far point's)
@@ -2013,10 +2025,27 @@ namespace g3
                                     // does not snap either, and no half-integer lies between w and w_ref: the same
                                     // threshold. Else the exact centroid, rare)
                                     double roundingBound;
-                                    int status = antipodal_value(g, pm, x1, chi[loc[q]], segs, out w, out bound, out roundingBound,
+                                    // (lever 1: the hierarchical sum first, taken where its interval decides the threshold of the
+                                    // full sum at the exact centroid, design note section 2; else as before)
+                                    int status = -1;
+                                    if (farM.Tree != null) {
+                                        double wh, bh;
+                                        double fb;
+                                        if (antipodal_tree_value(g, pm, x1, chi[loc[q]], segs, farM.Tree, AntipodalTheta, pointError,
+                                                2 * pointError / toFar.Length, out wh, out bh, out fb) == 0 && tree_decides(wh, bh, fb)) {
+                                            w = wh;
+                                            bound = bh;
+                                            status = 0;
+                                            System.Threading.Interlocked.Increment(ref hierUsed);
+                                        } else
+                                            System.Threading.Interlocked.Increment(ref hierFallbacks);
+                                    }
+                                    if (status < 0) {
+                                    status = antipodal_value(g, pm, x1, chi[loc[q]], segs, out w, out bound, out roundingBound,
                                         pointError, 2 * pointError / toFar.Length, 1e-4);
                                     if (status == 0 && !(Math.Abs(w - (Math.Floor(w) + 0.5)) > bound + 2.002 * roundingBound && roundingBound <= 0.99e-6))
                                         status = 2;
+                                    }
                                     if (status != 0) {
                                         // (no value within the bound at the approximation, or undecided there: at the exact
                                         // centroid, as an Antipodal evaluation with this ray computes it)
@@ -3485,6 +3514,8 @@ namespace g3
             public int Shift;
             public double Scale = 1;
             public Vector3d[] Scaled, Segments;
+            // (lever 1: the tree over Segments' chains, null for a short boundary or with AntipodalHierarchical off)
+            public AntipodalTree Tree;
         }
 
         FarPoints far_points(int mesh, int count)
@@ -3715,6 +3746,19 @@ namespace g3
                 int chi = front_crossings(i, mesh, arr.Trees[mesh], null, stack, center, false, far, out j, 200 * attempt);
                 Vector3d x1 = -(far.Scaled[j] - p).Normalized;
                 double w, bound;
+                // (lever 1: the hierarchical sum first, taken where its interval decides the threshold of the full sum,
+                // which then does not snap: design note section 2)
+                if (far.Tree != null) {
+                    double wh, bh, fb;
+                    if (antipodal_tree_value(p, pm, x1, chi, far.Segments, far.Tree, AntipodalTheta, 0, 0, out wh, out bh, out fb) == 0 && tree_decides(wh, bh, fb)) {
+                        System.Threading.Interlocked.Increment(ref hierUsed);
+                        usedBound = bh;
+                        usedChi = chi;
+                        usedFar = j;
+                        return wh;
+                    }
+                    System.Threading.Interlocked.Increment(ref hierFallbacks);
+                }
                 int status = antipodal_value(p, pm, x1, chi, segments, out w, out bound);
                 if (status == 1) {
                     // (the centroid on or next to a segment: undecided whatever the ray)
@@ -3924,6 +3968,310 @@ namespace g3
         readonly Dictionary<int, ExactPoint3[]> antipodalExact = new Dictionary<int, ExactPoint3[]>();
         // values the Antipodal Method snapped to a half-integer (snap_half)
         long antipodalSnapped;
+        long hierUsed, hierFallbacks;
+
+        /// <summary>
+        /// Lever 1 (docs/design/EXACT_BOOLEAN_ANTIPODAL_HIERARCHICAL.md): the boundary chains of an Antipodal mesh and a
+        /// binary tree over each chain. A chain runs head to tail; every segment keeps its a -> b direction, and a vertex
+        /// with several outgoing segments starts another chain. A node is a run of consecutive segments of a chain. It
+        /// stores, in the units of the segments it was built from (FarPoints.Segments, the mesh's scale):
+        /// - its centre c, the mean of its points, and its radius r about it (rounded up);
+        /// - the vector area va and the unsigned area AAbs about c of the closed polygon of the run and its chord;
+        /// - the length Len of that polygon (rounded up) and the largest L1 norm M1 of its points.
+        /// Built once per mesh, serially; the queries only read it.
+        /// </summary>
+        internal sealed class AntipodalTree
+        {
+            internal const int LeafSegments = 4;
+            // per chain position, the segment's first index k in the segment array (its ends k and k + 1)
+            public int[] Seg;
+            public int[] Roots, Lo, Hi, Left, Right;
+            public double[] Cx, Cy, Cz, R, Vx, Vy, Vz, AAbs, Len, M1, VaErr;
+            readonly List<double> vaErr = new List<double>();
+            readonly List<double> cx = new List<double>(), cy = new List<double>(), cz = new List<double>(), rr = new List<double>(),
+                vx = new List<double>(), vy = new List<double>(), vz = new List<double>(), aa = new List<double>(), len = new List<double>(), m1 = new List<double>();
+            readonly List<int> lo = new List<int>(), hi = new List<int>(), left = new List<int>(), right = new List<int>();
+
+            public static AntipodalTree Build(Vector3d[] g)
+            {
+                int n = g.Length / 2;
+                var starts = new Dictionary<Vector3d, List<int>>();
+                var indegree = new Dictionary<Vector3d, int>();
+                for (int s = 0; s < n; ++s) {
+                    List<int> list;
+                    if (starts.TryGetValue(g[2 * s], out list) == false)
+                        starts[g[2 * s]] = list = new List<int>();
+                    list.Add(s);
+                    int c;
+                    indegree.TryGetValue(g[2 * s + 1], out c);
+                    indegree[g[2 * s + 1]] = c + 1;
+                }
+                var t = new AntipodalTree();
+                var used = new bool[n];
+                var order = new List<int>(n);
+                var chains = new List<int>();
+                // (chains from the segments whose start no segment ends at, then the loops)
+                for (int pass = 0; pass < 2; ++pass)
+                    for (int s0 = 0; s0 < n; ++s0) {
+                        if (used[s0] || (pass == 0 && indegree.ContainsKey(g[2 * s0])))
+                            continue;
+                        chains.Add(order.Count);
+                        int s = s0;
+                        while (s >= 0) {
+                            used[s] = true;
+                            order.Add(2 * s);
+                            int next = -1;
+                            List<int> list;
+                            if (starts.TryGetValue(g[2 * s + 1], out list))
+                                foreach (int q in list)
+                                    if (used[q] == false) {
+                                        next = q;
+                                        break;
+                                    }
+                            s = next;
+                        }
+                    }
+                chains.Add(order.Count);
+                t.Seg = order.ToArray();
+                var roots = new int[chains.Count - 1];
+                for (int c = 0; c + 1 < chains.Count; ++c)
+                    roots[c] = t.node(g, chains[c], chains[c + 1]);
+                t.Roots = roots;
+                t.Lo = t.lo.ToArray(); t.Hi = t.hi.ToArray(); t.Left = t.left.ToArray(); t.Right = t.right.ToArray();
+                t.Cx = t.cx.ToArray(); t.Cy = t.cy.ToArray(); t.Cz = t.cz.ToArray(); t.R = t.rr.ToArray();
+                t.Vx = t.vx.ToArray(); t.Vy = t.vy.ToArray(); t.Vz = t.vz.ToArray(); t.AAbs = t.aa.ToArray(); t.Len = t.len.ToArray(); t.M1 = t.m1.ToArray(); t.VaErr = t.vaErr.ToArray();
+                return t;
+            }
+
+            // the node of the chain positions lo .. hi - 1 and its subtree
+            int node(Vector3d[] g, int a, int b)
+            {
+                int k = lo.Count;
+                lo.Add(a); hi.Add(b); left.Add(-1); right.Add(-1);
+                // the points: the start of every segment and the end of the last
+                int count = b - a + 1;
+                Vector3d sum = Vector3d.Zero;
+                for (int q = a; q < b; ++q)
+                    sum += g[Seg[q]];
+                Vector3d last = g[Seg[b - 1] + 1];
+                sum += last;
+                Vector3d c = sum / count;
+                double r = 0, l1 = 0, length = 0, abs = 0, prods = 0;
+                Vector3d va = Vector3d.Zero;
+                for (int q = a; q <= b; ++q) {
+                    Vector3d v = q < b ? g[Seg[q]] : last, w = q + 1 < b ? g[Seg[q + 1]] : (q + 1 == b ? last : g[Seg[a]]);
+                    r = Math.Max(r, (v - c).Length);
+                    l1 = Math.Max(l1, Math.Abs(v.x) + Math.Abs(v.y) + Math.Abs(v.z));
+                    length += (w - v).Length;
+                    Vector3d cr = (v - c).Cross(w - c);
+                    va += cr;
+                    abs += cr.Length;
+                    prods += (v - c).Length * (w - c).Length;
+                }
+                cx.Add(c.x); cy.Add(c.y); cz.Add(c.z);
+                // (rounded up: the roundings of the differences, the squares and the root, relative a few ulps)
+                rr.Add(r * (1 + 1e-14));
+                vx.Add(0.5 * va.x); vy.Add(0.5 * va.y); vz.Add(0.5 * va.z);
+                // (the error of va per component, review of #813: a cross product of two rounded differences errs by a few
+                // u times |v - c| |w - c|, not times its own size, which can be about 0 on a nearly straight run; the sum
+                // of count + 1 of them adds (count + 1) u of the sum of their sizes: (count + 8) 4.5e-16 times the sum
+                // of |v - c| |w - c|, as an absolute bound; AAbs, rounded up by the same absolute amount, bounds the true
+                // unsigned area)
+                double vaError = 0.5 * prods * (count + 8) * 4.5e-16;
+                vaErr.Add(vaError);
+                aa.Add(0.5 * abs + vaError);
+                len.Add(length * (1 + (count + 4) * 4.5e-16));
+                m1.Add(l1);
+                if (b - a > LeafSegments) {
+                    int mid = (a + b) / 2;
+                    int l = node(g, a, mid), rt = node(g, mid, b);
+                    left[k] = l;
+                    right[k] = rt;
+                }
+                return k;
+            }
+        }
+
+        [ThreadStatic] static int[] antipodalTreeStack;
+
+        /// <summary>
+        /// lever 1: whether the tree's value w (bound, and fullBound, the upper bound of the full sum's bound with the same
+        /// ray) decides: the full sum then gives a value with this ray (fullBound below its limit 1e-6), the same threshold,
+        /// and does not snap (design note section 2). Else the full sum runs as before
+        /// </summary>
+        internal static bool tree_decides(double w, double bound, double fullBound)
+        {
+            return Math.Abs(w - (Math.Floor(w) + 0.5)) > bound + 2e-6 && fullBound <= 0.999e-6;
+        }
+
+        /// <summary>
+        /// Lever 1: the Antipodal value at p (as antipodal_value: grid doubles at the mesh's scale, pm its L1 size, x1, chi,
+        /// pointError and directionError) by the tree. A node is taken whole where r &lt; theta d and the cone test passes:
+        /// -x1 (the ray's direction) outside the cap of the node's ball seen from p, with the margin eps of the design note.
+        /// Its sum is then the chord term S(A_0, A_k) plus the dipole va . (c - p) / d^3 of the closed polygon, with the
+        /// remainder AAbs 2r / (d - r)^3 and the roundings in the error. A leaf block's segments are today's terms. 0 with
+        /// (w, bound), bound covering |w - w*| with every rounding, or 3 where a term fails a test or a norm is out of range:
+        /// the full sum then decides. The caller takes w only where |w - h| &gt; bound + 2e-6 (design note section 2)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int antipodal_tree_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, AntipodalTree t,
+            double theta, double pointError, double directionError, out double w, out double bound)
+        {
+            double fullBound;
+            return antipodal_tree_value(p, pm, x1, chi, segments, t, theta, pointError, directionError, out w, out bound, out fullBound);
+        }
+
+        /// <summary>
+        /// as above, and fullBound, an upper bound of the bound the full sum (antipodal_sum) gets with this ray at the exact
+        /// point: the leaves' terms with their hypot lowered by twice their tol (the displacement to the exact point), the
+        /// node's segments with hypot at least sqrt(2 (1 + cos 2 alpha)) (1 - cos beta) (num^2 + den^2 = 2 (1 + A.B)
+        /// (1 + A.x1) (1 + B.x1), beta the smallest angle between -x1 and the cap) and |theta| at most 2 pi per
+        /// segment (a principal value of 2 atan2). Where it is at most 1e-6 the full sum gives a value with this ray, so a value of the tree that
+        /// decides the threshold decides the full sum's: the caller requires it, so that a piece the full sum leaves
+        /// undecided (every ray above its bound) stays undecided (bit-identical)
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int antipodal_tree_value(Vector3d p, double pm, Vector3d x1, int chi, Vector3d[] segments, AntipodalTree t,
+            double theta, double pointError, double directionError, out double w, out double bound, out double fullBound)
+        {
+            w = 0.5;
+            bound = double.PositiveInfinity;
+            fullBound = double.PositiveInfinity;
+            double errU = 0, absU = 0;
+            int[] stack = antipodalTreeStack ?? (antipodalTreeStack = new int[256]);
+            double sum = 0, err = 0, abs = 0, th, te;
+            long terms = 0;
+            // (the displacement of p: its rounding and pointError, as a distance)
+            double delta = 2.3e-16 * pm + pointError;
+            foreach (int root in t.Roots) {
+                int sp = 0;
+                stack[sp++] = root;
+                while (sp > 0) {
+                    int k = stack[--sp];
+                    double dx = t.Cx[k] - p.x, dy = t.Cy[k] - p.y, dz = t.Cz[k] - p.z;
+                    double dd = dx * dx + dy * dy + dz * dz;
+                    if (!(dd >= 1e-200 && dd <= 1e300))
+                        return 3;
+                    double dn = Math.Sqrt(dd), d = dn * (1 - 1e-15), r = t.R[k];
+                    if (r < theta * d) {
+                        // (r rounded up, d down; the margin covers the roundings of u and of x1 . u, the displacement of p and of
+                        // the points, and exceeds sqrt(2 tol), the angle at which the full sum's "ray through the segment"
+                        // test can fire for a segment of the node, with tol bounded for the node)
+                        double dr = d - r;
+                        double tolNode = 16 * (2 * (2.3e-16 * (pm + t.M1[k]) + pointError) / dr + 1e-15 + directionError);
+                        double eps = 1e-12 + 2 * Math.Sqrt(2 * tolNode) + 4 * (2.3e-16 * t.M1[k] + delta) / dr + 2 * directionError;
+                        double rd = r / d, cosA = Math.Sqrt(1 - rd * rd);
+                        double minusX1U = -(x1.x * dx + x1.y * dy + x1.z * dz) / dn;
+                        if (minusX1U < cosA - eps) {
+                            Vector3d a0 = segments[t.Seg[t.Lo[k]]], ak = segments[t.Seg[t.Hi[k] - 1] + 1];
+                            if (tree_term(a0, ak, p, pm, x1, pointError, directionError, out th, out te) != 0)
+                                return 3;
+                            // (the full sum's terms of the node's segments: beta, the smallest angle between -x1 and a point
+                            // of the cap, with the margin; hypot from below; |theta| of a term at most pi times its side's
+                            // angle, at most its length over d - r)
+                            double gamma = Math.Acos(Math.Min(1, minusX1U)), alpha = Math.Asin(Math.Min(1, rd));
+                            double beta = gamma - alpha - 1e-9 - eps;
+                            int nk = t.Hi[k] - t.Lo[k];
+                            if (beta > 0) {
+                                double hmin = Math.Sqrt(2 * (1 + Math.Cos(2 * alpha))) * (1 - Math.Cos(beta)) * (1 - 1e-12);
+                                double tolU = tolNode * 1.01;
+                                // (at the exact point hypot is at least hmin - 2 tol: (num, den) move by at most sqrt 2 tol; the term's
+                                // error derivation needs hypot above 2 sqrt 2 tol, so at least 3 tolU here, whatever the gate's
+                                // constant; review of #813)
+                                errU += hmin > 3 * tolU ? nk * (4 * tolU / (hmin - 2 * tolU) + 2 * PortableAtan2Error) : double.PositiveInfinity;
+                            } else
+                                errU = double.PositiveInfinity;
+                            // (|theta| of any term is at most 2 pi: a principal value of 2 atan2)
+                            absU += 2 * Math.PI * nk;
+                            double omega = (t.Vx[k] * dx + t.Vy[k] * dy + t.Vz[k] * dz) / (dd * dn);
+                            double dr2 = dr * dr;
+                            // (the dipole's remainder, the displacement of p and of the points by the Biot-Savart bound of a
+                            // closed curve's solid angle, Len / (d - r)^2 per unit, and the roundings of the dipole term)
+                            // (va's error times |f| <= 1 / dr^2 per component, sqrt 3 of them; the dipole's roundings: three
+                            // products and two sums over dd dn, within 8 u of the sum of their sizes)
+                            double e = (t.AAbs[k] * 2 * r / (dr2 * dr) + (2 * 2.3e-16 * t.M1[k] + delta) * t.Len[k] / dr2
+                                + 1.7320508075688774 * t.VaErr[k] / dr2
+                                + (Math.Abs(t.Vx[k] * dx) + Math.Abs(t.Vy[k] * dy) + Math.Abs(t.Vz[k] * dz)) / (dd * dn) * 2e-15) * 1.01;
+                            sum += th + omega;
+                            abs += Math.Abs(th) + Math.Abs(omega);
+                            err += te + 2 * PortableAtan2Error + e;
+                            terms += 2;
+                            continue;
+                        }
+                    }
+                    if (t.Left[k] >= 0) {
+                        stack[sp++] = t.Right[k];
+                        stack[sp++] = t.Left[k];
+                        continue;
+                    }
+                    for (int q = t.Lo[k]; q < t.Hi[k]; ++q) {
+                        int s = t.Seg[q];
+                        double tt, hy;
+                        if (tree_term(segments[s], segments[s + 1], p, pm, x1, pointError, directionError, out th, out te, out tt, out hy) != 0)
+                            return 3;
+                        // (the full sum's term at the exact point: its tol is at most tt, having no pointError or
+                        // directionError, and its hypot is within sqrt 2 tt < 2 tt of hy)
+                        errU += hy > 3 * tt ? 4 * tt / (hy - 2 * tt) + 2 * PortableAtan2Error : double.PositiveInfinity;
+                        absU += Math.Abs(th) + te;
+                        sum += th;
+                        abs += Math.Abs(th);
+                        err += te + 2 * PortableAtan2Error;
+                        terms++;
+                    }
+                }
+            }
+            err += 2.3e-16 * terms * abs;
+            w = chi + sum / MathUtil.FourPI;
+            bound = err / MathUtil.FourPI + 2.3e-16 * (abs / MathUtil.FourPI + Math.Abs(w));
+            int all = segments.Length / 2;
+            fullBound = ((errU + 2.3e-16 * all * absU) / MathUtil.FourPI + 2.3e-16 * (absU / MathUtil.FourPI + Math.Abs(w) + bound)) * 1.01;
+            return 0;
+        }
+
+        // lever 1: one term of the boundary sum with its error, as antipodal_sum computes it; 3 where any of its tests fails,
+        // a norm is out of range or the term is ill-conditioned (tol above 0.005 of hypot): the full sum then decides
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int tree_term(Vector3d sa0, Vector3d sb0, Vector3d p, double pm, Vector3d x1, double pointError, double directionError,
+            out double theta, out double termError)
+        {
+            double tol, hypot;
+            return tree_term(sa0, sb0, p, pm, x1, pointError, directionError, out theta, out termError, out tol, out hypot);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static int tree_term(Vector3d sa0, Vector3d sb0, Vector3d p, double pm, Vector3d x1, double pointError, double directionError,
+            out double theta, out double termError, out double tol, out double hypot)
+        {
+            theta = 0;
+            termError = double.PositiveInfinity;
+            tol = hypot = 0;
+            Vector3d a = sa0 - p, b = sb0 - p;
+            double sa = a.x * a.x + a.y * a.y + a.z * a.z, sb = b.x * b.x + b.y * b.y + b.z * b.z;
+            if (!(sa >= 1e-200 && sa <= 1e300 && sb >= 1e-200 && sb <= 1e300))
+                return 3;
+            double la = Math.Sqrt(sa), lb = Math.Sqrt(sb);
+            double ea = (2.3e-16 * (pm + Math.Abs(sa0.x) + Math.Abs(sa0.y) + Math.Abs(sa0.z)) + pointError) / la;
+            double eb = (2.3e-16 * (pm + Math.Abs(sb0.x) + Math.Abs(sb0.y) + Math.Abs(sb0.z)) + pointError) / lb;
+            tol = 16 * (ea + eb + 1e-15 + directionError);
+            if (!(tol < 0.01))
+                return 3;
+            a /= la;
+            b /= lb;
+            // (at a displaced point, L2's approximated centroid, the full sum at the exact one must not take its status-1
+            // test 1 + a.b <= tol there either: 1 + a.b moves by at most about tol between the two, so twice tol; review
+            // of #813)
+            if (1 + a.Dot(b) <= ((pointError > 0 || directionError > 0) ? 2 * tol : tol))
+                return 3;
+            double num = a.Dot(b.Cross(x1)), den = 1 + a.Dot(b) + a.Dot(x1) + b.Dot(x1);
+            if (Math.Abs(num) <= tol && den <= tol)
+                return 3;
+            hypot = Math.Sqrt(num * num + den * den);
+            if (!(tol <= 0.005 * hypot))
+                return 3;
+            termError = 4 * tol / hypot;
+            theta = 2 * portable_atan2(num, den);
+            return 0;
+        }
 
         // the boundary segments of a mesh in grid coordinates (relative to the arrangement's centre, as doubles)
         Vector3d[] antipodal_grid(Vector3d[] segments)
