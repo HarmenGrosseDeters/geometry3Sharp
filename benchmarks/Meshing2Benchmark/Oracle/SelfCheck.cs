@@ -1522,12 +1522,12 @@ namespace Meshing2Acceptance
             }
             // 7b'. the gap band of O11 (MESHING2D_DECISIONS: points within the tolerance merged, beyond twice it kept, either in between;
             //     #864): B's far end moved to (12, 8 + d), its piece to (10, 8 + 6 d / 8), the triangle and the hidden vertex to x = 7 (the
-            //     piece's end then lies beyond the tolerance of A for d = 3/64, so A is not one of its own lines). With d between the tolerance (half the tube, 1/32) and the
-            //     tube (1/16) the mesher may keep A and B as two chains, so the piece is O11-unsplittable and the hidden vertex excused (before,
-            //     the coincidence test used the tube, called A and B nearly coincident lines and judged it: a false NotDelaunayGlobal on
-            //     projected octahedra); with d below the tolerance A and B are nearly coincident lines, which the mesher merges into pieces of
-            //     both and splits, so separate pieces are judged (here A is the piece's own line then; the coincidence test itself is pinned
-            //     in 7d by A' from 4.4 to 4.9)
+            //     piece's end then lies beyond the tolerance of A for d = 3/64, so A is not one of its own lines). With d between the
+            //     tolerance (half the tube, 1/32) and the tube (1/16) the mesher may keep A and B as two chains, so the piece is
+            //     O11-unsplittable and the hidden vertex excused (before, the coincidence test used the tube, called A and B nearly
+            //     coincident lines and judged it: a false NotDelaunayGlobal on projected octahedra); with d below the tolerance A and B are
+            //     nearly coincident lines, which the mesher merges into pieces of both and splits, so separate pieces are judged (here A
+            //     is the piece's own line then; the coincidence test itself is pinned in 7d by A' from 4.4 to 4.9)
             foreach (var (d, excused, what) in new[] {
                 (3.0 / 64, true, "O11-unsplittable: the other line's far end in the gap band (1.5 tolerances from the piece's own line) is excused"),
                 (1.0 / 64, false, "O11-unsplittable: the other line's far end within the tolerance (nearly coincident lines, merged by O11) is judged") }) {
@@ -1568,9 +1568,10 @@ namespace Meshing2Acceptance
             }
             // 7d. the local test on the piece itself, and the predicate's conditions. B runs from (4, 8) at slope m (5/128 unless stated), A' from (4.25, 8) to (12, 8),
             //     ending before it meets B (no apex, so no merge zone); the piece of B from x0 to x1 is a subsegment, a vertex below it lies
-            //     in the circumcircle of the triangle above it. Excused only when every split point the mesher may choose (the midpoint and
-            //     the concentric-shell points from either end) lies within half the tube (the mesher's tolerance) of A', the piece has an own
-            //     constraint, and A' meets it in at most one point. Judged:
+            //     in the circumcircle of the triangle above it. Both piece ends are input points, so the mesher's split point is the midpoint
+            //     on B (7d' takes a split point as an end). Excused only when it lies within half the tube (the mesher's tolerance) and the
+            //     rounding of the mesher's point and distance (1 + 2^-6) of A', the piece has an own constraint, and A' meets it in at most
+            //     one point. Judged:
             //     - a tube of 1/64 (the midpoint outside half of it); B alone; the edge not a subsegment; an explicit tolerance;
             //     - A' only from 4.4 to 5.1, 0.03 and 0.0225 below B: within the tolerance of both piece ends, so one of the piece's own;
             //     - A' from 4.4 to 4.9, 0.025 below B: both its ends within the tolerance of B, the piece's end at 5.0 not within it of A', so
@@ -1580,14 +1581,12 @@ namespace Meshing2Acceptance
             //     - A' from 3 to 12 crossing B under the piece at 3.6 degrees: both piece ends lie within the tolerance of A', so the mesher
             //       makes the piece one of A' too and splits it (second review);
             //     - slope 1/16: the split points lie within the tube but not within half of it;
-            //     - B horizontal (the piece of length 1/2: its shell points are its midpoint) and A' rising at 0.01 with the midpoint at
-            //       (1 - 2^-9) of the tolerance from it: between the margin and the tolerance; and A' with the piece's ends at 0.9 and
-            //       (1 + 2^-9) of the tolerance from it: within the margin of ownership, so A' counts as the piece's own;
-            //     - a piece of 1.4 at slope 0.035: the midpoint lies within half the tube, the shell point nearer B's far end does not;
+            //     - B horizontal and A' rising at 0.01 with the midpoint at (1 + 2^-5) of the tolerance from it: beyond the tolerance and
+            //       the rounding (excused at 1 - 2^-9 and at 1 + 2^-8, which the mesher may refuse in doubles, #870); and A' with the
+            //       piece's ends at 0.9 and (1 + 2^-9) of the tolerance from it: within the margin of ownership, so A' counts as the
+            //       piece's own;
             //     - A' alone: the piece lies on no constraint;
-            //     - B only from 4.4 to 5.1, within the tube of A', its far end in the gap band: excused (either, #864);
-            //     - the long piece again with the shared edge met from the other side first (the oracle takes the piece's ends in the
-            //       other order: the shell point outside half the tube is then the one from the first end).
+            //     - B only from 4.4 to 5.1, within the tube of A', its far end in the gap band: excused (either, #864).
             //     Excused also: B reaching 2^23 away with the piece's end 2^-30 off it, more than 16 ulps of the end, less than of B's far
             //     end (a split point is computed from the constraint's end; review of the first version)
             const double M = 5.0 / 128;   // (B's slope: the piece's far end 5/128 from A', beyond the tolerance 1/32, its split points within it)
@@ -1603,13 +1602,13 @@ namespace Meshing2Acceptance
                 (16, true, true, true, 0.0, 4.4, B(4.4) - 0.025, 4.9, B(4.9) - 0.025, M, 4.5, 5.0, false, false, "O11-unsplittable: a short constraint with both ends within the tolerance of the piece's own line, not its own, is nearly coincident with it (judged: merged, O11)", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 3.0, B(3) - 0.109375, 12.0, B(12) + 0.453125, M, 4.5, 5.0, false, false, "O11-unsplittable: a constraint crossing the piece's own at a tiny angle, both ends within the tolerance, is its own (judged)", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 1.0 / 16, 4.5, 5.0, false, false, "O11-unsplittable: split points within the tube but not within half of it are judged", 4.0, 0.0, false),
-                (16, true, true, true, 0.0, 4.25, 8.026190524253007, 12.0, 8.103690524253008, 0.0, 4.5, 5.0, false, false, "O11-unsplittable: a split point a hair inside the tolerance is judged (the mesher decides in doubles)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.026190524253007, 12.0, 8.103690524253008, 0.0, 4.5, 5.0, false, true, "O11-unsplittable: a split point a hair inside the tolerance is excused (refused)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.026373638876803, 12.0, 8.103873638876804, 0.0, 4.5, 5.0, false, true, "O11-unsplittable: a split point a hair beyond the tolerance, within the mesher's rounding of it, is excused (#870)", 4.0, 0.0, false),
+                (16, true, true, true, 0.0, 4.25, 8.027228173787844, 12.0, 8.104728173787844, 0.0, 4.5, 5.0, false, false, "O11-unsplittable: a split point beyond the tolerance and the mesher's rounding is judged (#870)", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 4.25, 8.026532521059163, 12.0, 8.075917068537814, 0.0, 4.5, 5.0, false, false, "O11-unsplittable: a piece with an end a hair beyond the tolerance of the other constraint counts it as its own (judged)", 4.0, 0.0, false),
-                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 0.035, 4.125, 5.525, false, false, "O11-unsplittable: a shell point outside half the tube is judged, the midpoint inside it", 4.0, 0.0, false),
                 (16, true, false, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, false, "O11-unsplittable: a piece on no input constraint is judged", 4.0, 0.0, false),
                 (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, true, true, "O11-unsplittable: a piece off its own long constraint by its rounding is excused", 4.0, 0.0, false),
-                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, true, "O11-unsplittable: a short own constraint within the tube of another, one end in the gap band, is excused (either, #864)", 4.4, 0.7, false),
-                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, 0.035, 4.125, 5.525, false, false, "O11-unsplittable: the same shell case with the piece's ends in the other order is judged", 4.0, 0.0, true) }) {
+                (16, true, true, true, 0.0, 4.25, 8.0, 12.0, 8.0, M, 4.5, 5.0, false, true, "O11-unsplittable: a short own constraint within the tube of another, one end in the gap band, is excused (either, #864)", 4.4, 0.7, false) }) {
                 double big = farB ? 1 << 24 : 16;
                 double bl = bLen == 0 ? (farB ? 1 << 23 : 8) : bLen;
                 double y0 = 8 + m * (x0 - 4), y1 = 8 + m * (x1 - 4) + (farB ? 1.0 / (1 << 30) : 0), xm = (x0 + x1) / 2, ym = 8 + m * (xm - 4);
@@ -1624,6 +1623,115 @@ namespace Meshing2Acceptance
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, tubeDenominator) });
                 must(what, report.ToString().Contains(flip ? "edge 9-8 is not locally Delaunay against 10" : "edge 8-9 is not locally Delaunay against 11") != excused
                     && (report.O11LocalExcused > 0) == excused, "report: " + report);
+            }
+            // 7d'. the mesher's split point next to an end that existed before refinement (#870): B at slope 0.035 from (4, 8), A' along y = 8
+            //     from 4.25; the piece of B from 4.125 to 5.525 (length 1.4): its midpoint and the shell point from its first end lie within
+            //     the tolerance of A', the shell point from its far end does not. An end that is an input point existed before refinement, an
+            //     output vertex near only B is a split point: the mesher's split point is the shell point from the input end, or the midpoint
+            //     when both ends are split points (before, the oracle needed all three within 127/128 of the tolerance and judged every case).
+            //     The piece from 4.3 to 5.7 has its shell point from 4.3 within the tolerance, its midpoint not: the power of two nearest
+            //     half the length is the only shell point (the other lies outside the middle third). An end that is a crossing (C, vertical
+            //     through 5.525) lies near two constraints, so it may have existed before refinement or not: both its shell point and the
+            //     midpoint are the mesher's possible points
+            //     The crossing case and the first case again scaled by 2^-600 (review of #870: the prefilter's pad underflowed there, so the
+            //     constraints near a piece were missed); in both crossing cases the crossing vertex lies 1/8 of the tolerance off C, as a
+            //     rounded crossing may
+            foreach (var (inputX0, inputX1, flip, x0, x1, crossX1, excused, what, sc) in new[] {
+                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: next to an input end the mesher's split point is the shell point from it, within the tolerance: excused (#870)", 1.0),
+                (false, true, false, 4.125, 5.525, false, false, "O11-unsplittable: next to an input end whose shell point lies outside the tolerance (the midpoint inside it) is judged (#870)", 1.0),
+                (false, true, true, 4.125, 5.525, false, false, "O11-unsplittable: the same with the piece's ends in the other order is judged (#870)", 1.0),
+                (false, false, false, 4.125, 5.525, false, true, "O11-unsplittable: between two split points the mesher's split point is the midpoint, within the tolerance: excused (#870)", 1.0),
+                (true, false, false, 4.3, 5.7, false, true, "O11-unsplittable: a shell point within the tolerance with the midpoint outside it is excused (#870)", 1.0),
+                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: next to a crossing end, which may have existed before refinement, its shell point outside the tolerance is judged (#870)", 1.0),
+                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: the crossing case at 2^-600 is judged (#870)", Math.Pow(2, -600)),
+                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: the shell point from an input end at 2^-600 is excused (#870)", Math.Pow(2, -600)) }) {
+                const double m7 = 0.035;
+                double b7(double x) => 8 + m7 * (x - 4);
+                double xm = (x0 + x1) / 2;
+                var inX = new List<double> { 0, 16, 16, 0, 4, 12, 4.25, 12 };
+                var inY = new List<double> { 0, 0, 16, 16, 8, b7(12), 8, 8 };
+                var exX = new List<double>(); var exY = new List<double>();
+                int at(bool asInput, double x)
+                {
+                    if (asInput) { inX.Add(x); inY.Add(b7(x)); return inX.Count - 1; }
+                    exX.Add(x); exY.Add(b7(x)); return -exX.Count;
+                }
+                int e0 = at(inputX0, x0), e1 = at(inputX1, x1);
+                inX.Add(xm); inY.Add(b7(xm) + 0.2734375); int top = inX.Count - 1;
+                inX.Add(xm); inY.Add(7.90625); int bottom = inX.Count - 1;
+                if (crossX1) { inX.Add(x1); inY.Add(7.5); inX.Add(x1); inY.Add(8.5); }
+                int n = inX.Count;
+                if (e0 < 0) e0 = n - 1 - e0; if (e1 < 0) e1 = n - 1 - e1;
+                for (int i = 0; i < inX.Count; ++i) { inX[i] *= sc; inY[i] *= sc; }
+                for (int i = 0; i < exX.Count; ++i) { exX[i] *= sc; exY[i] *= sc; }
+                if (crossX1) exX[e1 - n] += sc / 256;   // (1/8 of the tolerance off C: still near it, beyond the vertex box's padding)
+                var input = new Mesh2Input { X = inX.ToArray(), Y = inY.ToArray(), MinAngleDeg = 20 };
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(6, 7));
+                if (crossX1) input.Segments.Add(new SegmentInput(n - 2, n - 1));
+                var tris = flip ? new[] { new[] { e1, e0, bottom }, new[] { e0, e1, top } } : new[] { new[] { e0, e1, top }, new[] { e1, e0, bottom } };
+                var o = new Mesh2Output { Status = Mesh2Status.Success, VX = inX.Concat(exX).ToArray(), VY = inY.Concat(exY).ToArray(),
+                    InputToVertex = Enumerable.Range(0, n).ToArray(), Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
+                    Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, e0), new SubsegmentOutput(e0, e1), new SubsegmentOutput(e1, 5), new SubsegmentOutput(6, 7) } };
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) * Q.FromDouble(sc) });
+                string edge = flip ? "edge " + e1 + "-" + e0 + " is not locally Delaunay against " + top : "edge " + e0 + "-" + e1 + " is not locally Delaunay against " + bottom;
+                must(what, report.ToString().Contains(edge) != excused && (report.O11LocalExcused > 0) == excused, "report: " + report);
+            }
+            // 7d''. the mesher's split point lies on the piece's source, not on the chord between its ends (#870): B horizontal from (4, 8),
+            //     the piece's ends (input points) 1/4 of the tolerance below it, A' rising at 0.01 above it with the source's midpoint at
+            //     (1 - 2^-9) of the tolerance from it: refused, excused; the chord's midpoint is 1.25 tolerances from A'
+            {
+                double h = 1.0 / 128;
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8, 4.25, 8.026190524253007, 12, 8.103690524253008, 4.5, 8 - h, 5, 8 - h,
+                    4.75, 8.2734375, 4.75, 7.90625);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(6, 7));
+                input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 8, 9, 10 }, new[] { 9, 8, 11 } });
+                o.Subsegments.Add(new SubsegmentOutput(4, 8)); o.Subsegments.Add(new SubsegmentOutput(8, 9)); o.Subsegments.Add(new SubsegmentOutput(9, 5));
+                o.Subsegments.Add(new SubsegmentOutput(6, 7));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) });
+                must("O11-unsplittable: the split point on the piece's source within the tolerance, the chord's beyond it, is excused (#870)",
+                    !report.ToString().Contains("edge 8-9 is not locally Delaunay against 11") && report.O11LocalExcused > 0, "report: " + report);
+            }
+            // 7d'''. the other constraint at its merged ends (#870, review): the 7d case of a refused midpoint (1 - 2^-9 of the tolerance
+            //     from A'), with the first end of A' mapped to an input point 3/4 of the tolerance above it: the mesher measures against
+            //     the merged A', 1.7 tolerances from the midpoint, and splits the piece, so it is judged (before, the oracle used the input
+            //     ends of A')
+            {
+                var input = Points(0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8, 4.25, 8.026190524253007, 12, 8.103690524253008, 4.5, 8, 5, 8,
+                    4.75, 8.2734375, 4.75, 7.90625, 4.25, 8.026190524253007 + 0.0234375);
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(6, 7));
+                input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 8, 9, 10 }, new[] { 9, 8, 11 } });
+                o.InputToVertex[6] = 12;
+                o.Subsegments.Add(new SubsegmentOutput(4, 8)); o.Subsegments.Add(new SubsegmentOutput(8, 9)); o.Subsegments.Add(new SubsegmentOutput(9, 5));
+                o.Subsegments.Add(new SubsegmentOutput(12, 7));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) });
+                must("O11-unsplittable: a split point refused only by the other constraint's input ends, not by its merged ends, is judged (#870)",
+                    report.ToString().Contains("edge 8-9 is not locally Delaunay against 11") && report.O11LocalExcused == 0, "report: " + report);
+            }
+            // 7d''''. the excused 7d case scaled by 2^-1000: the tolerance 2^-1005 lies below the floor 2^-1001, where the mesher's
+            //     unscaled split point rounds absolutely (subnormal intermediates), so no excuse is given (#870, review)
+            {
+                double sc = Math.Pow(2, -1000), m = 5.0 / 128;
+                double[] xy = { 0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8 + 8 * m, 4.25, 8, 12, 8, 4.5, 8 + 0.5 * m, 5, 8 + m,
+                    4.75, 8 + 0.75 * m + 0.2734375, 4.75, 7.90625 };
+                var input = Points(xy.Select(c => c * sc).ToArray());
+                input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                input.Segments.Add(new SegmentInput(4, 5));
+                input.Segments.Add(new SegmentInput(6, 7));
+                input.MinAngleDeg = 20;
+                var o = Out(input, new[] { new[] { 8, 9, 10 }, new[] { 9, 8, 11 } });
+                o.Subsegments.Add(new SubsegmentOutput(4, 8)); o.Subsegments.Add(new SubsegmentOutput(8, 9)); o.Subsegments.Add(new SubsegmentOutput(9, 5));
+                o.Subsegments.Add(new SubsegmentOutput(6, 7));
+                var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) * Q.FromDouble(sc) });
+                must("O11-unsplittable: below the tolerance floor 2^-1001 no excuse is given (#870)",
+                    report.ToString().Contains("edge 8-9 is not locally Delaunay against 11") && report.O11LocalExcused == 0, "report: " + report);
             }
             // 3. a hole marker that snapping swept, here inside a contour that collapsed, is dropped, not obeyed (clean-room answer 6).
             //    Still obeyed: a marker in a contour that did not move, also next to a near-duplicate point merged into its corner, and a
