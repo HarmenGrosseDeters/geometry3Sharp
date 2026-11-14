@@ -244,6 +244,11 @@ if (op.Compute() == false)
   `Counts["antipodal_hierarchical"]` and `["antipodal_hierarchical_fallbacks"]` count the evaluations it decided and
   handed back. On the slow open models (union with the copy, 4 cores): 117959 111 -> 41 s, 122796 19.9 -> 10.6 s (the
   cost of the Antipodal path above is gone there), the 1087141 family about 46 -> 34 s each.
+- The tracing of the open winding (L2) allocates far less since lever 4 of the extreme-runtime study: no closure or
+  delegates per carried step, the frame's corners without the exact BigInteger point where the double difference is exact,
+  and the dot product signs on stack limbs. Bit-identical (38 hashes of the open models and five closed ones); on 117959
+  (union with the copy, 4 cores) the classification allocates 14.4 -> 7.9 GB and takes 23.9 -> 20.7 s, the run 33.2 ->
+  30.0 s; the 1087141 family about 26 -> 22.5 s, 1005586 47.6 -> 42.3 s.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
   (docs/design/EXACT_BOOLEAN_TAIL_55928.md).

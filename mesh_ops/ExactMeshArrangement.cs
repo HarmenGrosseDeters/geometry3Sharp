@@ -3201,6 +3201,27 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void QuerySegment(Vector3d p, Vector3d q, double pad, Action<int> f)
         {
+            var visitor = new ActionVisitor { F = f };
+            QuerySegment(p, q, pad, ref visitor);
+        }
+
+        /// <summary> receives the indices of QuerySegment (a struct: a query allocates no delegate) </summary>
+        internal interface IIndexVisitor
+        {
+            void Visit(int i);
+        }
+
+        struct ActionVisitor : IIndexVisitor
+        {
+            public Action<int> F;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public void Visit(int i) { F(i); }
+        }
+
+        /// <summary> QuerySegment with a struct visitor, in the same order </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void QuerySegment<TV>(Vector3d p, Vector3d q, double pad, ref TV f) where TV : struct, IIndexVisitor
+        {
             if (nodeCount == 0)
                 return;
             // (one stack per thread, reused: the queries of ExactMeshBoolean's tracing are many and short; a callback that
@@ -3216,7 +3237,7 @@ namespace g3
                 if (nodeLeft[node] < 0) {
                     for (int i = nodeStart[node]; i < nodeStart[node] + nodeSize[node]; ++i)
                         if (segment_hits(leafBox, i, p, q, pad))
-                            f(order[i]);
+                            f.Visit(order[i]);
                 } else {
                     stack.Push(nodeLeft[node]);
                     stack.Push(nodeRight[node]);

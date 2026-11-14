@@ -450,6 +450,11 @@ Open:
     - Tail: -3.2 % with gen0 and -1.6 % with server GC (the four 3 s models -8 to -19 %, 1088051 about -2 %).
     - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
       simplify about 30 %, setup 4 %.
+    - **Done (classification, L2's tracing):** the closure and delegates per `carried_crossings` call replaced by a
+      struct visitor, `LocalFrame.Corner` without the exact point where the double difference is exact, the remaining
+      BigInteger dot products on stack limbs, no copy for the projection query, one `carry_bound` box per thread.
+      Bit-identical; 117959 union: classification 14.4 -> 7.9 GB, 23.9 -> 20.7 s, run 33.2 -> 30.0 s. What allocates
+      there now: the `Center` per piece (about 5 %), the pierce candidates per step key, the per-frame dictionaries.
     - Next: presizing and reuse of scratch buffers in the arrangement, after the files are cleared.
     - Open (snap-rounding follow-up): reusing the `TriangleBoxTree` that `MeshRoundingRepair.rebuild_tree` builds again
       and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
