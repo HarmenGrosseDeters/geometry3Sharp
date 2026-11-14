@@ -62,7 +62,7 @@ namespace geometry3Sharp.Tests
         }
 
         /// <summary> under every similarity the mesher's result is accepted wherever the case survives the mapping; at the exact ones (2^k)
-        /// the output is the same, bit for bit </summary>
+        /// the output is the same, bit for bit (triangles and vertices) </summary>
         [Fact]
         public void ProjectedOctahedron_UnderEverySimilarity()
         {
@@ -75,7 +75,11 @@ namespace geometry3Sharp.Tests
                 Assert.True(o.Status == Mesh2Status.Success, s.Name);
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3 });
                 Assert.True(report.Ok, s.Name + ": " + report);
-                if (s.IsExact) Assert.Equal(o0.Triangles.Length, o.Triangles.Length);
+                if (s.IsExact) {
+                    // (bit for bit: the same triangles, and the vertices of the mapped input are the mapped vertices)
+                    Assert.Equal(o0.Triangles.SelectMany(t => t), o.Triangles.SelectMany(t => t));
+                    for (int i = 0; i < o0.VX.Length; ++i) Assert.Equal(s.Apply2d(new Vector2d(o0.VX[i], o0.VY[i])), new Vector2d(o.VX[i], o.VY[i]));
+                }
                 checkedCases++;
             }
             Assert.True(checkedCases > 4);

@@ -702,27 +702,29 @@ namespace Meshing2Acceptance
                     if (ownIds.Contains(k) || (!MayBeNear(k, ia) && !MayBeNear(k, ib))) continue;
                     var c = sources[k];
                     if (!candidates.All(p => Exact.Dist2ToSegment(c.a, c.b, p) <= half2)) continue;
-                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b, ownTol2))) continue;
+                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b, ownTol2, tube2))) continue;
                     return true;
                 }
                 return false;
             }
 
-            /// <summary> the ends of each segment that lie within the mesher's tolerance (a hair more: within2) of the other are more than
-            /// one point (nearly coincident lines, which O11 merges). The tolerance, not the tube: between the two the spec allows either
-            /// (MESHING2D_DECISIONS, the gap band: merged below the tolerance, kept beyond twice it), so lines that the mesher may keep apart
-            /// are not called coincident; with the tube the oracle withheld the O11 excuse from such pieces and judged the mesher's refusal
-            /// (#864: two constraints of a projected octahedron at 0.88 degrees, their far ends 1.65 tolerances apart) </summary>
-            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d, Q within2)
+            /// <summary> the ends of each segment that lie near the other (within near2: the mesher's tolerance and a hair) are more than one
+            /// point apart (by more than apart2: the tube): nearly coincident lines, which O11 merges and splits. Both thresholds keep the gap
+            /// band of MESHING2D_DECISIONS (merged below the tolerance, kept beyond twice it, either in between) on the mesher's side: an end
+            /// between the tolerance and the tube of the other line, and two near ends between the tolerance and the tube apart (which the
+            /// mesher may merge into one vertex), call no lines coincident, so the excuse is given there whichever the mesher did (#864: with
+            /// the tube for nearness the oracle judged two constraints of a projected octahedron whose far ends lie 1.65 tolerances apart).
+            /// The hair on near2 (2^-7) widens coincidence only, so it can withhold an excuse, never give one wrongly </summary>
+            bool MeetInMoreThanOnePoint(Pt a, Pt b, Pt c, Pt d, Q near2, Q apart2)
             {
                 var near = new List<Pt>();
-                if (Exact.Dist2ToSegment(c, d, a) <= within2) near.Add(a);
-                if (Exact.Dist2ToSegment(c, d, b) <= within2) near.Add(b);
-                if (Exact.Dist2ToSegment(a, b, c) <= within2) near.Add(c);
-                if (Exact.Dist2ToSegment(a, b, d) <= within2) near.Add(d);
+                if (Exact.Dist2ToSegment(c, d, a) <= near2) near.Add(a);
+                if (Exact.Dist2ToSegment(c, d, b) <= near2) near.Add(b);
+                if (Exact.Dist2ToSegment(a, b, c) <= near2) near.Add(c);
+                if (Exact.Dist2ToSegment(a, b, d) <= near2) near.Add(d);
                 for (int i = 0; i < near.Count; ++i)
                     for (int j = i + 1; j < near.Count; ++j)
-                        if (Exact.Len2(near[i], near[j]) > within2) return true;
+                        if (Exact.Len2(near[i], near[j]) > apart2) return true;
                 return false;
             }
 
