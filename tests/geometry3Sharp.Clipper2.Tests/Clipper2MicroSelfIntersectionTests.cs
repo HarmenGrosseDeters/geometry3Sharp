@@ -121,6 +121,9 @@ namespace geometry3Sharp.Clipper2.Tests
             // 3.9421 before
             { "24-gons on -2..2", ClipType.Difference, FillRule.Positive, new double[] { 1, -2, -1, 1, 1, -1, -1, 0, -1, -2, 2, 2, -1, 1, 0, -2 },
               new double[] { 1, -2, -1, 1, -2, -2, 2, -1, -1, 0, 2, -1, -1, -1, -2, 2 }, 3.9637784815803387 },
+            // found after the port of f774daf (6- and 16-gon on -4..4 shrunk): Xor EvenOdd, 16.9927 without the distance test
+            { "after the rounding port", ClipType.Xor, FillRule.EvenOdd, new double[] { -4, 0, -4, -4, -2, 4, 2, 4, -1, -2, -4, -1, -4, 4, 2, 3 },
+              new double[] { -3, 0, -2, 1, 3, 1 }, 17.206986346986344 },
             // 0.6470 before
             { "24- and 22-gon on -2..2", ClipType.Difference, FillRule.Negative, new double[] { 2, 1, 2, 0, -2, -2 },
               new double[] { 2, 0, -2, -2, 1, -1, -1, 0, -1, 2, 1, -1, -2, 1, 1, 0, 0, -1, -1, 2 }, 0.8612745098039215 },
@@ -143,25 +146,27 @@ namespace geometry3Sharp.Clipper2.Tests
         public void CopyBetweenOneAndTwoUnitsFromTheEdge_IsSplit()
         {
             // pins the bound of one grid unit (the far copies above are about 2^20 units away): on a lattice of step 2 grid
-            // units the copied vertex of this Union EvenOdd lies between one and 1.5 units from the edge's line; with the
-            // bound at 1.5 units or more the insertion is taken and the area is 57.5 against an exact 50.71, with 1 it is 48.5
-            double[] a = { 4, 8, 2, -8, 6, 8, 0, 2, 4, -2, -2, -4, 4, 8, 0, 6, 8, -8 }, b = { 0, -8, -2, -4, 4, 2, 0, -2 };
-            var (error, slack, area) = RawEngine(ClipType.Union, FillRule.EvenOdd, a, b, 0);
+            // units the copied vertex of this Union NonZero lies between one and 1.41 units from the edge's line; with the
+            // bound at 1.41 units or more the insertion is taken and the area is 24.375 against an exact 25.65 (in lattice
+            // units), with 1 it is 25.375 (re-derived after the port of the PolyClipping/Clipper2 rounding, f774daf)
+            double[] a = { -4, 4, -3, -4, -2, -4 }, b = { 2, -2, -4, 3, 4, 2, -3, -4, -3, -1, -1, 3 };
+            var (error, slack, area) = RawEngine(ClipType.Union, FillRule.NonZero, a, b, 1);
             Assert.True(error <= slack, "off by " + error + ", more than the rounding " + slack);
-            Assert.Equal(48.5, area);
+            Assert.Equal(25.375, area);
         }
 
         [Fact]
         public void OrientationGuard_OnAGridOfFewUnits()
         {
-            // With the distance test the orientation guard no longer acts at the adapter's magnitudes (no case in 1.6 million
-            // random results at 2^20 or 2^50), only where the vertices are a few grid units apart (a lattice of step 3 grid
-            // units, random 3- to 24-gons: a few results per 100 000, all within the rounding either way). This one, Difference
-            // NonZero in raw grid units, exact 58.50: 55.5 with the guard, 48.5 without it
-            double[] a = { -12, -12, 9, -3, 9, -12, -9, -6, 12, -9, -3, 3, 0, -12, 12, 6 }, b = { 3, -9, 12, 9, -12, 9 };
-            var (error, slack, area) = RawEngine(ClipType.Difference, FillRule.NonZero, a, b, 0);
+            // With the distance test the orientation guard no longer acts at the adapter's magnitudes, only where the
+            // vertices are a few grid units apart (since the port of f774daf: 7 of 2.4 million random results on lattices of
+            // step 1 to 3 grid units and at 2^20 and 2^50 changed, all within the rounding). This one, a lattice of step 3
+            // grid units, Xor NonZero, exact 54.95 grid units squared: 55 with the guard, 52.5 without it
+            double[] a = { 2, 2, -1, 1, -1, 2, 2, -2 }, b = { -2, 0, 1, 2, 0, -1, -1, 1, 2, 2, 2, -2, 2, 2, 0, -1 };
+            double[] Times3(double[] c) => c.Select(x => 3 * x).ToArray();
+            var (error, slack, area) = RawEngine(ClipType.Xor, FillRule.NonZero, Times3(a), Times3(b), 0);
             Assert.True(error <= slack, "off by " + error + ", more than the rounding " + slack);
-            Assert.Equal(55.5, area);
+            Assert.Equal(55, area);
         }
 
         [Theory]

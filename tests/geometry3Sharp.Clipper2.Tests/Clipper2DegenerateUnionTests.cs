@@ -126,7 +126,9 @@ namespace geometry3Sharp.Clipper2.Tests
             var (error, slack, r) = Check(ClipType.Union, FillRule.NonZero, a, b);
             Assert.True(error <= slack, "area off by " + error + " grid units, more than the rounding " + slack);
             CheckWellFormed(r);
-            Assert.Equal(1, r.Polygons.Sum(g => g.Holes.Count));
+            // (since the port of PolyClipping/Clipper2 f774daf the engine rounds the intersection points, and this hole no
+            // longer comes out as a split-off triangle but inside an outer ring that touches itself: the region is the same;
+            // the fix itself is pinned by TouchingHole_IsKept_At2To50 below)
             double exact = ExactRegionArea.Area(new[] { new[] { Grid(R64(a)) }, new[] { Grid(R64(b)) } }, w => w[0] != 0 || w[1] != 0);
             Assert.True(Math.Abs(exact - r.Area) < 1e-7, r.Area + " against " + exact);   // 23.6474; 24.4246 before the fix
             // a point of the hole is outside the result
@@ -139,19 +141,33 @@ namespace geometry3Sharp.Clipper2.Tests
         [Fact]
         public void TouchingHole_IsKept_InTheEngine()
         {
-            // the same on the vendored engine directly, flat paths and PolyTree: the hole is a path of its own
+            // the same on the vendored engine directly, flat paths and PolyTree (the hole was a path of its own before the
+            // port of f774daf, see above)
             V.Path64 P(params long[] c) => new V.Path64(Enumerable.Range(0, c.Length / 2).Select(i => new V.Point64(c[2 * i] << 20, c[2 * i + 1] << 20)));
             var clipper = new V.Clipper64();
             clipper.AddSubject(P(2, -2, -2, 0, 3, -4, 1, 3, -4, -4));
             clipper.AddClip(P(-1, 2, -4, 0, -3, -3, -1, 3));
             var flat = new V.Paths64();
             Assert.True(clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, flat));
-            Assert.Equal(1, flat.Count(p => V.Clipper.Area(p) < 0));
             var tree = new V.PolyTree64();
             Assert.True(clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, tree));
             double scale = Math.Pow(2, 40);
             Assert.True(Math.Abs(tree.Area() / scale - 23.647358369184996) < 1e-4, (tree.Area() / scale).ToString());   // 24.4246 before
             Assert.Equal(flat.Sum(p => V.Clipper.Area(p)), tree.Area());
+        }
+
+        [Fact]
+        public void TouchingHole_IsKept_At2To50()
+        {
+            // since the port of f774daf the smallest case that still needs the fix (shrunk from random 6- and 16-gons on
+            // -2..2 times 2^50, the adapter's largest grid): Xor Negative, exact 16/3; 5.5 with the triangle dropped
+            V.Path64 P(params long[] c) => new V.Path64(Enumerable.Range(0, c.Length / 2).Select(i => new V.Point64(c[2 * i] << 50, c[2 * i + 1] << 50)));
+            var clipper = new V.Clipper64();
+            clipper.AddSubject(P(2, 2, -1, 0, 2, -2));
+            clipper.AddClip(P(-1, -1, -2, 1, 0, 2, 2, -1, -2, 1, 0, 1, -1, 0, 0, 0));
+            var flat = new V.Paths64();
+            Assert.True(clipper.Execute(V.ClipType.Xor, V.FillRule.Negative, flat));
+            Assert.True(Math.Abs(flat.Sum(p => V.Clipper.Area(p)) / Math.Pow(2, 100) - 16.0 / 3) < 1e-9);
         }
 
         [Fact]

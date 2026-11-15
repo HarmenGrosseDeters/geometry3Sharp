@@ -14,8 +14,12 @@ namespace geometry3Sharp.Clipper2.Tests
     /// point for point and in the same order, and the same PolyTree nesting. Inputs: self-intersecting rings on a coarse
     /// lattice (vertices on other edges, collinear overlaps: the degenerate cases) and on a fine one (generic positions),
     /// and open polylines, at the magnitudes of the adapter's grid (±2^20 to ±2^50), with degenerate paths mixed in.
-    /// Since the fix of FINDINGS item 5 the booleans may differ, but only where the package's area is off the exact area
-    /// (ExactRegionArea) by more than the grid rounding and the vendored one is not (AssertFixes).
+    /// Since the vendored sources carry fixes (Clipper2Lib/README.md: FINDINGS item 5, #756 and, since the port of the
+    /// PolyClipping/Clipper2 rounding of intersection points, f774daf, most outputs), the contract is (owner 2026-11-15):
+    /// a boolean may differ only within the rounding (as below) or where the vendored area stays within the grid rounding of
+    /// the exact area (ExactRegionArea; AssertVendoredExact); offsets, Minkowski sums and the open paths of a clip, which have no exact oracle here, may
+    /// differ only within the rounding, ie by at most two grid units (Hausdorff distance of the paths) with an area within
+    /// the perimeter; everything without intersection points (SimplifyPaths, Area, bounds, point in polygon) stays identical.
     /// On net48 (Windows CI) this compares the netstandard2.0 builds; the net10.0 build of the vendored sources binds
     /// List.EnsureCapacity to the BCL method instead of Clipper2's extension, which changes only list capacities.
     /// </summary>
@@ -121,9 +125,9 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
-        public void Booleans_AreIdentical()
+        public void Booleans_DifferOnlyWhereTheVendoredStaysExact()
         {
-            int compared = 0, fixes = 0;
+            int compared = 0, differ = 0;
             foreach (var (a, b, _, name) in Pairs(11, 240))
                 foreach (Pkg.ClipType op in ClipTypes)
                     foreach (Pkg.FillRule fill in FillRules)
@@ -144,27 +148,92 @@ namespace geometry3Sharp.Clipper2.Tests
                             vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vFlat);
                             ++compared;
                             if (Text(pFlat) != Text(vFlat)) {
-                                // the item 5 fix: allowed only where it corrects the package
-                                AssertFixes(a, b, op, fill, pFlat, vFlat, where);
-                                ++fixes;
+                                AssertVendoredExact(a, b, op, fill, pFlat, vFlat, where);
+                                ++differ;
                                 continue;
                             }
                             Assert.True(Text(pTree) == Text(vTree), where);
                             Assert.True(Text(pOpen) == Text(vOpen), where);
                         }
             Assert.Equal(240 * 4 * 4 * 2, compared);
-            Assert.True(fixes < compared / 100, fixes + " differences");
+            Assert.True(differ > 0, "the data does not exercise the vendored fixes");
         }
 
-        /// <summary> the vendored result differs from the package's: the package's area must be off the exact area and the vendored one not </summary>
-        static void AssertFixes(Pkg.Paths64 a, Pkg.Paths64 b, Pkg.ClipType op, Pkg.FillRule fill, Pkg.Paths64 pOut, V.Paths64 vOut, string where)
+        /// <summary>
+        /// the vendored result differs from the package's: its area must be within the grid rounding of the exact area;
+        /// returns whether the package's was not
+        /// </summary>
+        static bool AssertVendoredExact(Pkg.Paths64 a, Pkg.Paths64 b, Pkg.ClipType op, Pkg.FillRule fill, Pkg.Paths64 pOut, V.Paths64 vOut, string where)
         {
+            // a difference within the rounding (paths at most two grid units apart, areas within the perimeter) needs no
+            // oracle: it changes no result by more than the rounding; only a larger one must be exact
+            {
+                var (pa, pp) = Measure(pOut);
+                var (va, _) = Measure(PackageBridge.ToPackage(vOut));
+                if (Math.Abs(pa - va) <= pp + 1 && Hausdorff(pOut, PackageBridge.ToPackage(vOut), true) <= 2) return false;
+            }
             double exact = ExactRegionArea.Area(new[] { Rings(a), Rings(b) }, Clipper2DegenerateUnionTests.Predicate(PackageBridge.ToAddon(op), PackageBridge.ToAddon(fill)));
             var (pArea, pPerimeter) = Measure(pOut);
             var (vArea, vPerimeter) = Measure(PackageBridge.ToPackage(vOut));
             where += ": exact " + exact + ", package " + pArea + ", vendored " + vArea;
             Assert.True(Math.Abs(vArea - exact) <= vPerimeter + 1, where + " (vendored off)");
-            Assert.True(Math.Abs(pArea - exact) > pPerimeter + 1, where + " (differs where the package is right)");
+            return Math.Abs(pArea - exact) > pPerimeter + 1;
+        }
+
+        /// <summary> the largest distance from a vertex of one path set to the other set's edges, both ways (paths closed or open) </summary>
+        static double Hausdorff(Pkg.Paths64 p, Pkg.Paths64 q, bool closed)
+        {
+            double OneWay(Pkg.Paths64 from, Pkg.Paths64 to)
+            {
+                double worst = 0;
+                foreach (Pkg.Path64 path in from)
+                    foreach (Pkg.Point64 v in path) {
+                        double best = double.PositiveInfinity;
+                        foreach (Pkg.Path64 other in to) {
+                            int n = other.Count;
+                            if (n == 1) best = Math.Min(best, Math.Sqrt((double)(v.X - other[0].X) * (v.X - other[0].X) + (double)(v.Y - other[0].Y) * (v.Y - other[0].Y)));
+                            for (int i = 0; i + 1 < n || (closed && n > 2 && i < n); ++i) {
+                                Pkg.Point64 s = other[i], t = other[(i + 1) % n];
+                                double dx = (double)t.X - s.X, dy = (double)t.Y - s.Y, px = (double)v.X - s.X, py = (double)v.Y - s.Y;
+                                double l2 = dx * dx + dy * dy, u = l2 == 0 ? 0 : Math.Max(0, Math.Min(1, (px * dx + py * dy) / l2));
+                                best = Math.Min(best, Math.Sqrt((px - u * dx) * (px - u * dx) + (py - u * dy) * (py - u * dy)));
+                            }
+                        }
+                        worst = Math.Max(worst, best);
+                    }
+                return worst;
+            }
+            if (p.Count == 0 || q.Count == 0) return p.Count == q.Count ? 0 : double.PositiveInfinity;
+            return Math.Max(OneWay(p, q), OneWay(q, p));
+        }
+
+        /// <summary> the vendored paths differ from the package's only within the rounding: two grid units and the area within the perimeter </summary>
+        static void AssertWithinRounding(Pkg.Paths64 pOut, Pkg.Paths64 vOut, bool closed, string where)
+        {
+            double h = Hausdorff(pOut, vOut, closed);
+            Assert.True(h <= 2, where + ": paths " + h + " grid units apart");
+            if (!closed) return;
+            var (pArea, pPerimeter) = Measure(pOut);
+            var (vArea, _) = Measure(vOut);
+            Assert.True(Math.Abs(pArea - vArea) <= pPerimeter + 1, where + ": area " + vArea + " against " + pArea);
+        }
+
+        static V.Paths64 FlattenV(V.PolyPath64 node)
+        {
+            var result = new V.Paths64();
+            void Walk(V.PolyPath64 n) { for (int i = 0; i < n.Count; ++i) { result.Add(n.Child(i).Polygon); Walk(n.Child(i)); } }
+            Walk(node);
+            return result;
+        }
+
+        static string PackageText(Pkg.Paths64 paths) => Text(paths);
+
+        static Pkg.Paths64 Flatten(Pkg.PolyPath64 node)
+        {
+            var result = new Pkg.Paths64();
+            void Walk(Pkg.PolyPath64 n) { for (int i = 0; i < n.Count; ++i) { result.Add(n.Child(i).Polygon); Walk(n.Child(i)); } }
+            Walk(node);
+            return result;
         }
 
         static (long x, long y)[][] Rings(Pkg.Paths64 paths) => paths.Select(p => p.Select(q => (q.X, q.Y)).ToArray()).ToArray();
@@ -183,13 +252,13 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
-        public void DegenerateBooleans_DifferOnlyWhereThePackageIsWrong()
+        public void DegenerateBooleans_DifferOnlyWhereTheVendoredStaysExact()
         {
-            // the vendored sources carry the fix of FINDINGS item 5 (Clipper2Lib/README.md): on inputs full of exact
-            // degeneracies (16-gons on the lattice -4..4) they may differ from the package only where the package's area
-            // is off the exact area (ExactRegionArea) by more than the grid rounding and theirs is not
+            // on inputs full of exact degeneracies (16-gons on the lattice -4..4) the vendored sources may differ from the
+            // package only where their area stays within the grid rounding of the exact area (ExactRegionArea); some of these
+            // results are wrong in the package (FINDINGS item 5)
             var rand = new Random(18);
-            int differ = 0;
+            int differ = 0, packageWrong = 0;
             for (int i = 0; i < 200; ++i) {
                 var a = new Pkg.Paths64 { RandomRing(rand, 16, 4) };
                 var b = new Pkg.Paths64 { RandomRing(rand, 16, 4) };
@@ -202,14 +271,14 @@ namespace geometry3Sharp.Clipper2.Tests
                         vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vOut);
                         if (Text(pOut) == Text(vOut)) continue;
                         ++differ;
-                        AssertFixes(a, b, op, fill, pOut, vOut, "pair " + i + ", " + op + " " + fill);
+                        if (AssertVendoredExact(a, b, op, fill, pOut, vOut, "pair " + i + ", " + op + " " + fill)) ++packageWrong;
                     }
             }
-            Assert.InRange(differ, 1, 200 * 16);   // the data does exercise the fix
+            Assert.True(packageWrong > 0, "the data does not exercise the fixes");   // differ counts the rounding too
         }
 
         [Fact]
-        public void OpenPaths_AreIdentical()
+        public void OpenPaths_DifferOnlyWithinTheRounding()
         {
             var rand = new Random(12);
             foreach (var (a, b, bits, name) in Pairs(13, 120)) {
@@ -224,14 +293,16 @@ namespace geometry3Sharp.Clipper2.Tests
                         var pOpen = new Pkg.Paths64(); var vOpen = new V.Paths64();
                         Assert.Equal(pc.Execute(op, fill, pTree, pOpen), vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vTree, vOpen));
                         string where = name + ", " + op + " " + fill;
-                        Assert.True(Text(pTree) == Text(vTree), where);
-                        Assert.True(Text(pOpen) == Text(vOpen), where);
+                        if (Text(pTree) != Text(vTree))
+                            AssertVendoredExact(a, b, op, fill, Flatten(pTree), FlattenV(vTree), where);
+                        if (Text(pOpen) != Text(vOpen))
+                            AssertWithinRounding(pOpen, PackageBridge.ToPackage(vOpen), false, where + " (open)");
                     }
             }
         }
 
         [Fact]
-        public void Offsets_AreIdentical()
+        public void Offsets_DifferOnlyWithinTheRounding()
         {
             var joins = new[] { Pkg.JoinType.Square, Pkg.JoinType.Bevel, Pkg.JoinType.Round, Pkg.JoinType.Miter };
             var ends = new[] { Pkg.EndType.Polygon, Pkg.EndType.Joined, Pkg.EndType.Butt, Pkg.EndType.Square, Pkg.EndType.Round };
@@ -255,22 +326,29 @@ namespace geometry3Sharp.Clipper2.Tests
                             vo.AddPaths(ToVendored(a), PackageBridge.ToVendored(join), PackageBridge.ToVendored(end));
                             // degenerate paths can make both throw (an empty open path): the same exception is the same outcome
                             string where = name + ", " + join + " " + end + " " + delta + " miter " + miter + " arc " + arc;
-                            Assert.True(Outcome(() => { var o = new Pkg.Paths64(); po.Execute(delta, o); return Text(o); })
-                                        == Outcome(() => { var o = new V.Paths64(); vo.Execute(delta, o); return Text(o); }), where);
-                            Assert.True(Outcome(() => { var t = new Pkg.PolyTree64(); po.Execute(delta, t); return Text(t); })
-                                        == Outcome(() => { var t = new V.PolyTree64(); vo.Execute(delta, t); return Text(t); }), where + " (tree)");
+                            Pkg.Paths64 pFlat = null, vFlat = null, pTree = null, vTree = null;
+                            string pOutcome = Outcome(() => { pFlat = new Pkg.Paths64(); po.Execute(delta, pFlat); return ""; });
+                            string vOutcome = Outcome(() => { var o = new V.Paths64(); vo.Execute(delta, o); vFlat = PackageBridge.ToPackage(o); return ""; });
+                            Assert.True(pOutcome == vOutcome, where + ": " + pOutcome + " against " + vOutcome);
+                            if (pFlat != null && vFlat != null && Text(pFlat) != PackageText(vFlat))
+                                AssertWithinRounding(pFlat, vFlat, true, where);
+                            pOutcome = Outcome(() => { var t = new Pkg.PolyTree64(); po.Execute(delta, t); pTree = Flatten(t); return ""; });
+                            vOutcome = Outcome(() => { var t = new V.PolyTree64(); vo.Execute(delta, t); vTree = PackageBridge.ToPackage(FlattenV(t)); return ""; });
+                            Assert.True(pOutcome == vOutcome, where + " (tree): " + pOutcome + " against " + vOutcome);
+                            if (pTree != null && vTree != null && Text(pTree) != PackageText(vTree))
+                                AssertWithinRounding(pTree, vTree, true, where + " (tree)");
                         }
         }
 
         [Fact]
-        public void MinkowskiSimplifyAndQueries_AreIdentical()
+        public void MinkowskiWithinTheRounding_SimplifyAndQueriesIdentical()
         {
             foreach (var (a, b, _, name) in Pairs(15, 50)) {
                 Pkg.Path64 pa = a[0], pb = b[0];
                 V.Path64 va = PackageBridge.ToVendored(pa), vb = PackageBridge.ToVendored(pb);
                 foreach (bool closed in new[] { false, true }) {
-                    Assert.True(Text(Pkg.Minkowski.Sum(pa, pb, closed)) == Text(V.Minkowski.Sum(va, vb, closed)), name + " sum " + closed);
-                    Assert.True(Text(Pkg.Minkowski.Diff(pa, pb, closed)) == Text(V.Minkowski.Diff(va, vb, closed)), name + " diff " + closed);
+                    AssertWithinRounding(Pkg.Minkowski.Sum(pa, pb, closed), PackageBridge.ToPackage(V.Minkowski.Sum(va, vb, closed)), true, name + " sum " + closed);
+                    AssertWithinRounding(Pkg.Minkowski.Diff(pa, pb, closed), PackageBridge.ToPackage(V.Minkowski.Diff(va, vb, closed)), true, name + " diff " + closed);
                     foreach (double eps in new[] { 0.0, 3e4, 4e5 })
                         Assert.True(Text(Pkg.Clipper.SimplifyPaths(a, eps, closed)) == Text(V.Clipper.SimplifyPaths(ToVendored(a), eps, closed)), name + " simplify " + eps + " " + closed);
                 }
