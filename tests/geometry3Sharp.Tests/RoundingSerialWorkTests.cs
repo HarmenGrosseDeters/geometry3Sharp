@@ -254,9 +254,12 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void LargestMagnitudeInsideTheRange_InTheLastTriangle_NotOutside()
         {
-            // 1e59 is inside the range (it makes the rest tiny against it; only the range is checked here)
-            MeshRoundingRepair r = Repair(WithIsolatedTriangle(-1, 1e59));
+            // 1e59 is inside the range (it makes the rest tiny against it; only the range is checked here, so no passes:
+            // the repair of a mesh that is all degenerate against 1e59 took 5 s)
+            var r = new MeshRoundingRepair(WithIsolatedTriangle(-1, 1e59)) { MaxPasses = 0, RemoveTinyComponents = false };
+            r.Apply();
             Assert.False(r.OutsideRange);
+            Assert.False(r.ScaleNotFinite);
         }
 
         [Fact]

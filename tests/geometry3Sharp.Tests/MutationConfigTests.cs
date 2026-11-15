@@ -17,7 +17,7 @@ namespace geometry3Sharp.Tests
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "PatchOpen open_winding_per_patch(", "List<int>[] trace_clusters(", "int front_winding(" },
-            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
 
@@ -121,21 +121,33 @@ namespace geometry3Sharp.Tests
             var filters = TestFilters(root);
             var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-4"]));
             Assert.Equal(8, shared.Count);
-            // (RoundingSerialWorkTests, 7 s: the parts with the per-triangle scans, the tree's boxes and
-            // remove_tiny_components)
-            const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests";
+            // (owner 2026-11-15, #843: the prefixes had grown the set to 339 tests, about 189 s, and every part timed out in
+            // its coverage pass: ExactMeshBooleanTests is the class itself, not the open-winding classes named after it,
+            // and the position search's tests, 10 s, run only where the search is, rounding-8)
+            Assert.Contains("FullyQualifiedName~ExactMeshBooleanTests.", shared);
+            Assert.Contains("FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch", shared);
+            // (RoundingSerialWorkTests: per part only the cases of its code, a few seconds each: the per-triangle scans of
+            // Apply and the range check, the tree's boxes, degenerate_triangles, remove_tiny_components)
+            const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
             var extras = new Dictionary<string, string[]>() {
-                ["stryker-mesh-rounding-1"] = new[] { serialWork },
-                ["stryker-mesh-rounding-2"] = new[] { serialWork },
-                ["stryker-mesh-rounding-3"] = new[] { serialWork },
+                ["stryker-mesh-rounding-1"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "OutsideRangeInOneTriangle",
+                    serialWork + "LargestMagnitudeInsideTheRange", serialWork + "Field_SerialEqualsParallel", serialWork + "NoPasses_OneBlock" },
+                ["stryker-mesh-rounding-2"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
+                    serialWork + "Field_Clean" },
+                ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean" },
+                // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
                 ["stryker-mesh-rounding-8"] = new[] {
-                    "FullyQualifiedName~ExactBooleanFarComponentTests",
-                    "FullyQualifiedName~ExactBooleanScaleDisparityTests",
                     "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
                     "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
-                    serialWork },
+                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch" },
+                // (fix_intersection to the end: the tolerances of the largest component and the ScaleDisparity guard of
+                // remove_tiny_components, and its component walk)
+                ["stryker-mesh-rounding-9"] = new[] {
+                    "FullyQualifiedName~ExactBooleanFarComponentTests",
+                    "FullyQualifiedName~ExactBooleanScaleDisparityTests",
+                    serialWork + "ConnectedComponents_SameOrder", serialWork + "Field_Clean", serialWork + "NoPasses_TinyDegenerate" },
             };
-            for (int i = 1; i <= 8; ++i) {
+            for (int i = 1; i <= 9; ++i) {
                 string part = "stryker-mesh-rounding-" + i;
                 var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
                 Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));
