@@ -795,6 +795,7 @@ Implemented from the published formulas and papers; no code taken from any libra
 | Sheet and skeletal ("solid network") lattices, level set offset, grading by a position dependent level | O. Al-Ketan, R. K. Abu Al-Rub, *Multifunctional mechanical metamaterials based on triply periodic minimal surface lattices*, Adv. Eng. Mater. 21 (2019) 1900524 |
 | Marching cubes | W. E. Lorensen, H. E. Cline, *Marching cubes: a high resolution 3D surface construction algorithm*, SIGGRAPH 1987 |
 | Enclosure of the exact solid by the contoured one (level pad, 1-Lipschitz field) | A. Jacobson, *A Sharp Conservative Offset for Marching Cubes*, arXiv:2609.13430 (see [design/CONSERVATIVE_MC_AUDIT.md](design/CONSERVATIVE_MC_AUDIT.md)) |
+| Two-type hybrid across a plane (`SecondType`, `Blend`, `SigmoidBlend`): the sigmoid weight `1 / (1 + exp(-k eta))` blending two TPMS fields in place; the blend of style fields with per-type levels, its Lipschitz bound and error term are our own derivation (design section 9) | Y. Fang, S. Yan, X. Xie, H. Wang, Y. Ke, X. Zhang, Z. Li, *In-plane hybrid design and mechanical properties of Ti-6Al-4V TPMS structures*, Sci. Rep. 16, 17947 (2026), DOI 10.1038/s41598-026-49318-0, CC BY 4.0 (eq. 2 to 6 read from the open-access text; their references Ren et al. 2021, Mater. Des. 210, 110062 and Gao et al. 2022, Mater. Des. 221, 110995 were not read); implemented from the formulas, nothing ported |
 
 ## Continuous collision detection (`ContinuousCollision`, `MeshSweepCollision`, design note `docs/design/CCD.md`)
 

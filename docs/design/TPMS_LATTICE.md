@@ -216,10 +216,10 @@ solid and the result is closed.
    reported `MeanWallThickness`.
 4. Lidinoid and graded cell size: not in the first PR (the Lidinoid was added afterwards; graded cell size follows).
 
-## 9. Hybrid of two types, in-plane (design only, nothing built; owner request 2026-11-15)
+## 9. Hybrid of two types, in-plane (owner request 2026-11-15; built, see 9.7)
 
 Question: can `TpmsLattice` and `g3cli tpms` blend two lattices, eg Gyroid and I-WP, `w(x) f_G + (1 - w(x)) f_IWP`, and what would
-it take. This section is a design; no code, no entry in `SOURCES.md` until it is built.
+it take. Sections 9.1 to 9.6 are the design as approved; 9.7 records the owner decisions, what was built and the corrections found while building.
 
 ### 9.1 What the paper says (read from its open-access text)
 
@@ -267,7 +267,7 @@ with one level would give neither parent its fraction (the level sets of `f_G` a
 transition the fraction is whatever the blend gives; it is reported (`RealizedVolumeFraction`), not promised. Sheets:
 `g = |f|` and `c = t`, the blend of two non-smooth but 1-Lipschitz terms is still Lipschitz.
 
-API (additive, one new member group; nothing changes when unset):
+API (additive, one new member group; nothing changes when unset; as built: `SecondType` and `Blend` of the class `TpmsBlendWeight`, see 9.7):
 
 - `TpmsType? SecondType` and `Func<Vector3d, double> BlendWeight` (local frame, values in [0, 1], 1 selects `Type`) with a
   library-derived bound `BlendGradientBound` (as `LinearGrade` does for the phase map: a delegate without a bound is allowed only
@@ -289,10 +289,15 @@ gradient bound of section 5 (gyroid `2 sqrt 3`, I-WP `6 sqrt 3`):
     Lh = (2 pi / L) max(G_A, G_B) J + (M_A + |c_A| + M_B + |c_B|) * Wmax,
 
 with `J` the Jacobian bound of the grade (1 without) and `Wmax` the bound of `|grad w|`. Gyroid / I-WP at `L = 1`, `k = 1` gives about
-`65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`, so the enclosure
-offset (`sqrt 3 h / 2` in field units, divided by `Lh`) hardly changes. The rounding error of an evaluation gets one more term,
-`(|g_A - c_A| + |g_B - c_B|) * eps_w` with `eps_w` a few ulps of `w` (the stable form above); it enters `EnclosureError` next to the
-existing terms. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
+`65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`; for a steep weight the bound grows with it (`Lh` is then dominated by the weight term, and the sliver
+guard is scaled by the phase part over `Lh`, see 9.7). The rounding error of an evaluation (`EnclosureErrorBlend`, with `u = 2^-53` and `msum >= |g_A - c_A| + |g_B - c_B|`, divided by `Lh s` like the single type term) is
+`64 u max(TermSum_A, TermSum_B)` for the two type evaluations (the weights sum to 1), plus `6 u msum` for the six rounding steps of the combination (`g_A - c_A`,
+`g_B - c_B`, `w (.)`, `1 - w`, `(1 - w)(.)` and the sum, each at most `u` times a value of at most `msum`), plus `eps_w msum` for the error `dw` of the weight times
+`|g_A - c_A - g_B + c_B| <= msum`, plus the phase term of `EnclosureError`. For `SigmoidBlend`, `eps_w` is a relative-error argument: `z = 2 eta / width` with `eta = p - offset` has a relative
+error of at most `2 u` (one rounding in the subtraction, one in the division; this also holds for `|offset| > s`, where an absolute argument fails); the propagated error of
+`tanh` is `sech^2(z) |z| 2 u <= 0.45 * 2 u = 0.9 u` (`max z sech^2 z = 0.4506`); a `tanh` within 2 ulp adds `2 u`, and `1 + tanh` and the product by 0.5 (exact) add `2 u`,
+so `dw <= 0.5 (0.9 u + 2 u + 2 u) = 2.5 u`. The code uses `eps_w = 8 u + 2 u s Wmax`: the `8 u` absorbs a `tanh` with an error of up to about 6 ulp (the platform libm is not specified), and the second term covers a delegate
+weight whose coordinate rounding is at most `2 u s`. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
 solid contains the exact blend `{h <= 0}` of the stated `w`.
 
 ### 9.3 Fit into `g3cli tpms`
@@ -307,8 +312,8 @@ New options, no default of an existing option changes: `second_type` (same names
 Unchanged and from the same mechanism: `Status Ok` only after `MeshRobustRepair.NotCleanReason` and the exact self-intersection
 check (the contouring path and the certificate do not know the field), closed, manifold, oriented, finite. Not promised, as for the
 constant lattice: topology of walls thinner than about two cubes; additionally the wall thickness inside the transition (the blend of
-two fields at different wall thickness is not a wall of either), so the resolution rule `Divisions >= 2 L / wall` is checked against the thinner of the two
-types. The sliver guard needs the `GradientRatio` of the field: use the larger of the two per-type ratios (conservative: a larger
+two fields at different wall thickness is not a wall of either); the resolution rule `Divisions >= 2 L / wall` is the caller's to apply against the thinner of the two
+types (the library does not check it for the hybrid, as it does not for the constant lattice). The sliver guard needs the `GradientRatio` of the field: use the larger of the two per-type ratios (conservative: a larger
 `Snap` only grows the solid, section 4), sampled ratio of the blend itself is a refinement, not needed. `Enclosure` keeps its
 preconditions (dyadic grid, box domain, constant fractions, the bound above).
 
@@ -341,3 +346,28 @@ blend does not: a possible second step, only after reading them.
 
 Decisions for the owner: the option spelling in 9.3; whether the checkerboard weight ships in the first PR or only the single plane;
 whether reading Ren 2021 and Gao 2022 comes first.
+
+### 9.7 Owner decisions (2026-11-15) and what was built
+
+1. Single plane only (`SigmoidBlend`); no `CheckerBlend` and no `blend_xy` in the first PR.
+2. CLI names as proposed: `second_type` and `blend 'axis,offset,width'`.
+3. Ren 2021 and Gao 2022 are read later, not before the build.
+
+Built as designed in 9.2 to 9.5 (`TpmsLattice.SecondType`, `Blend` (`TpmsBlendWeight`), `SigmoidBlend`, `SecondLevel`, `EnclosureErrorBlend`; `g3cli tpms`
+`second_type`, `blend`; `TpmsHybridTests`, `TpmsCliTests`; benchmark rows), with these differences from the text above:
+
+- The stable form `0.5 (1 + tanh(2 eta / width))` is used for exact symmetry `w(eta) + w(-eta) = 1`, not because the printed form fails: in IEEE doubles `1 / (1 + exp(+large))`
+  is 0, not NaN (`exp` overflows to infinity), so test 7 pins the saturation, the symmetry and the scale invariance of the weight, and cannot tell the two forms apart.
+- A weight delegate with an unknown gradient bound (NaN) leaves the weight term out of `Lh` and is refused with `Enclosure`; a weight outside [0, 1] is clamped (the
+  clamp keeps the bound).
+- Sliver guard: the larger of the two per-type `GradientRatio`s sizes `Snap` (pinned through the level pad under `Enclosure`).
+- Cost: about 1.15 times the constant sheet in `Compute` at 6 periods, the same allocation (benchmark README; before the sliver guard was scaled, below, 2.4 times).
+- Not done (as decided): the checkerboard weight and `blend_xy`; a hybrid of different periods; wall thickness control inside the transition.
+- Corrections from the independent review of the build: (a) the sliver guard is scaled by `max(G_A, G_B) 2 pi J / Lh` (at most 1): without it a steep weight (width much
+  below a cube) made `Snap * Lh` about one field unit and filled the pure halves of the lattice, while a larger guard "only grows the solid" was the (true but too
+  weak) argument of 9.4; the `Enclosure` pad shrinks with it too, so "the enclosure offset hardly changes" holds for every width; (b) a gradient bound of the weight that
+  is negative or infinite, or whose product with the value range overflows, is `InvalidOptions` for every hybrid (a negative one flipped the sign of the field, an
+  infinite one zeroed it and gave a solid box as `Ok`); (c) a weight that returns NaN anywhere gives `ContouringFailed` instead of holes; (d) the enclosure claim "contains the exact
+  blend of the stated `w`" holds for a delegate only if its bound and its rounding error (at most `8 u + 2 u s Wmax`) hold, which the library cannot check; the delegate must be pure and thread safe.
+- Test limits: the enclosure containment test samples near-surface points of the exact blend; the derived `Lh` (and so a dropped weight term) is pinned by an exact-value test
+  and a sampled-gradient bound, not by a worst-case-node construction as for the single point of `Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces`.
