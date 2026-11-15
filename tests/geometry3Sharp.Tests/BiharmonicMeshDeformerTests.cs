@@ -40,6 +40,32 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void StrictEuclideanAccuracy_UnchangedHandlesCertifiesLargeComponent()
+        {
+            var mesh = new DMesh3(MeshComponents.None); const int n = 5;
+            for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) mesh.AppendVertex(new Vector3d(x, y, 0));
+            for (int y = 0; y < n - 1; ++y) for (int x = 0; x < n - 1; ++x) {
+                int a = x + y * n, b = a + 1, d = a + n, c = d + 1;
+                mesh.AppendTriangle(a, b, c); mesh.AppendTriangle(a, c, d);
+            }
+            var target = mesh.GetVertex(0); target.x = -0.0;
+            var handles = new Dictionary<int, Vector3d> { [0] = target };
+            var solver = new BiharmonicMeshDeformer(mesh); solver.Options.RequireEuclideanAccuracy = true;
+            var result = solver.Compute(handles);
+            Assert.True(result.Converged, result.Status.ToString());
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, result.Accuracy);
+            Assert.Equal(0, result.PositionErrorBound);
+            Assert.Equal(BitConverter.DoubleToInt64Bits(target.x), BitConverter.DoubleToInt64Bits(result.Mesh.GetVertex(0).x));
+            foreach (int v in mesh.VertexIndices()) Assert.Equal(mesh.GetVertex(v), result.Mesh.GetVertex(v));
+            int isolated = mesh.AppendVertex(new Vector3d(10, 10, 10));
+            Assert.Equal(BiharmonicMeshDeformer.Status.UnanchoredComponent, solver.Compute(handles).Status);
+            handles[isolated] = mesh.GetVertex(isolated);
+            Assert.True(solver.Compute(handles).Converged);
+            handles[0] = target + Vector3d.AxisZ;
+            Assert.Equal(BiharmonicMeshDeformer.Status.AccuracyNotEstablished, solver.Compute(handles).Status);
+        }
+
+        [Fact]
         public void EuclideanAccuracy_ChecksEveryComponentSeparately()
         {
             var original = new[] { Vector3d.Zero, Vector3d.AxisX, new Vector3d(1e100, 0, 0), new Vector3d(2e100, 0, 0) };

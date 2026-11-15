@@ -138,6 +138,24 @@ namespace g3
                 if (s == 0) s = 1;
                 foreach (int v in component) { active[v] = true; componentRoot[v] = root; rest[v] = (original[v] - o) / s; }
             }
+            if (Options.RequireEuclideanAccuracy) {
+                bool unchanged = true;
+                foreach (var h in handles) if (h.Value != original[lookup[h.Key]]) { unchanged = false; break; }
+                if (unchanged) {
+                    foreach (int tid in Mesh.TriangleIndices()) {
+                        Index3i t = Mesh.GetTriangle(tid);
+                        if (!Area(original[lookup[t.a]], original[lookup[t.b]], original[lookup[t.c]])) {
+                            result.Status = Status.DegenerateTriangle; return result;
+                        }
+                    }
+                    var copy = new DMesh3(Mesh);
+                    foreach (var h in handles) copy.SetVertex(h.Key, h.Value);
+                    if (copy.HasVertexNormals) MeshNormals.QuickCompute(copy);
+                    result.Mesh = copy; result.Status = Status.Success;
+                    result.Accuracy = AccuracyAssessment.Certified; result.PositionErrorBound = 0;
+                    return result;
+                }
+            }
             var free = new int[n]; int count = 0;
             for (int i = 0; i < n; ++i) free[i] = fixedV[i] ? -1 : count++;
             ResultInfo NumericFallback()
