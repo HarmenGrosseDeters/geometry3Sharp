@@ -57,13 +57,13 @@ by priority; this section names only what is in flight.
 - **Alpha Wrap 3.0:** done ((B) #774 and #898 merged, 800 run passed; the adaptive alpha spike is a no-go, #924). Open:
   the default decisions for lever 6 K (#736) and the raw-size budget (#846). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Platform and CI:** draft PRs no longer run CI automatically (#952); the suite is faster (#954). In flight (CI
-  hygiene session 2): the coverage gate (red since 2026-11-14), the scheduled mutation runs (cancelled since
-  2026-11-09), the runtime-watch rule (#888). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+  hygiene session 2): the coverage gate (red since 2026-11-13), the scheduled mutation runs (every scheduled run
+  since 2026-11-02 cancelled, none after 2026-11-09), the runtime-watch rule (#888). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's remaining
   casts are open. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Local (owner machine, 2026-11-15/16):** the net48 vs net10 comparison (#929), the boolean candidate pairs and the
   thread scaling beyond 4 cores (#858). Finding so far: at 1 thread the boolean is about 45 % faster on 22370752 than
-  on 2026-11-14's master (likely #769, #881, #928); #772 alone is neutral.
+  on 2026-11-14's master (likely #769 and #881); #772 alone is neutral.
 - **Research:** ARAP / biharmonic deformation #896 / #897 (owner, ready 2026-11-16); contouring certificate stage 3
   merged (#946), refinement deferred (#944). [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
 - **Meshing2D, terrain, Clipper2:** nothing in flight; #870, #855, #854 closed; Clipper2 #955 deferred (owner

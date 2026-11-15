@@ -22,10 +22,9 @@ Part of the [roadmap](../ROADMAP.md).
 ### Open
 
 - **`TerrainGreedyTIN` with `MaxError = 0` never ends (#855, bugfix):** `Compute()` runs out of memory for a height of
-  -2.87e-223 with the default `MaxVertices`. Fix in draft #889 (repeated vertex insertion at zero error); the terrain
-  session takes it over.
+  -2.87e-223 with the default `MaxVertices`. Fixed by #889 (merged 2026-11-15).
 - **`TerrainGreedyTIN.RemoveVertices` ear choice (#854, bugfix):** an absolute 1e-12 tolerance, so the result is not
-  invariant under 2^k scaling. Fix in draft #890; the terrain session takes it over.
+  invariant under 2^k scaling. Fixed by #890 (merged 2026-11-15).
 - **Slope-map performance (2026-11-10, closed):** profiled for the slow-test triage (#514). Bit-identical cleanups in
   #517 (~1.1x). Measured and dropped: merging equal-label faces during insertion (not bit-identical in near-degenerate
   designs, net 1.4x), a divide-and-conquer lower envelope (exact, hash-identical on all benchmarks, but only <= 1.15x:

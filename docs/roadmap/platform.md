@@ -6,11 +6,11 @@ Part of the [roadmap](../ROADMAP.md).
   (machine checks, mutation shards, property tests), the CLI / MCP docs for the new operations, the Clipper2 adapter,
   the DAP audit, the test suite on other locales, and the release.
 - **Status (2026-11-15):** the CLI / MCP and its docs for the new operations are done (#284, #291, #299; the update
-  closed with #707; `tpms` #879 merged, `offset --method mesh_offset` #868 open); the issue-tracker fix list is complete
+  closed with #707; `tpms` #879 merged, `offset --method mesh_offset` #868 merged); the issue-tracker fix list is complete
   (2026-11-03). QA 2.0 rollout continuing (status table [QA20_STATUS.md](../design/QA20_STATUS.md), #635); the
   mutation 3.0 process and coverage-pass fix are in #615 (open). Determinism stage 0 (#871) and the exact fallback
   monomial kernels (#769) are merged. The Clipper2 vendoring line is done (#751, #826, #851, #874); Clipper2's
-  triangulation is not offered (owner decision). Open: the release, the net48 hang (#824, fix #883), the open fuzz
+  triangulation is not offered (owner decision). Open: the release, the net48 hang (#824; fix #883 merged, close if it does not come back), the open fuzz
   campaigns, a few small items; the list is at the [end of this page](#open-for-the-future-2026-11-15).
 - **Mutation tooling follow-ups (owner 2026-11-08, for the analyst's follow-up PR):** (1) make the coverage pass
   visible: check whether `--verbosity debug` / `trace` logs one line per test during capture and let the ticker count
@@ -453,10 +453,9 @@ maintainer with users to support; that pays off only then.
 
 Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism and casts), #789 (#934), #884
 (hausdorff shard), #868 (`g3cli offset --method mesh_offset`), the fuzz campaigns #623 / #624 and wave 3 #686, #756,
-#696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite: the
-Windows critical path about 7 min shorter).
+#696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite).
 
-1. Coverage gate red on master since 2026-11-14 (uncovered lines of #774 and #867): CI hygiene session 2 (2026-11-15).
+1. Coverage gate red on master since 2026-11-13 (uncovered lines of #774 and #867): CI hygiene session 2 (2026-11-15).
 2. Scheduled mutation runs: every scheduled run since 2026-11-02 is cancelled (none after 2026-11-09): same session.
 3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
    regression rule only, once a baseline exists: same session.

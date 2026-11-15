@@ -11,8 +11,9 @@ Part of the [roadmap](../ROADMAP.md).
   [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2, T1, the 55928 tail-case stage (#633) and T5 PR 2
   (#675, 2026-11-12) merged; option (A) merged (#766, 2026-11-13); the fuzz fixes #732 (#710) and #759 (#719) merged;
   lever 1, the hierarchical Antipodal sum, merged (#813, 2026-11-14); kernel P2 merged (#769, 2026-11-15) and
-  candidate B (#772, 2026-11-14). Open: the race fix #883 (#882), lever 4 #881, candidate D #893 (draft), T1b's
-  closing PR #843, the rounding-search bound #837 (draft).
+  candidate B (#772, 2026-11-14). The race fix #883 (#882), lever 4 #881, candidate D #893,
+  T1b's closing PR #843 and the rounding-search bound #837 merged on 2026-11-15; open: see the
+  [list at the end of this page](#open-for-the-future-2026-11-15).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
