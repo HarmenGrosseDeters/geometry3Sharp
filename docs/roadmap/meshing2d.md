@@ -45,20 +45,33 @@ script for the tiles 371800_5710600, 373600_5709000 and 381000_5710400 (UTM 32N,
 today by `corpus/fetch.py`. No GEOS- or CGAL-derived data. This unblocks the Herne items below; run-A outputs (produced by
 the fork) and stmlf stay blocked.
 
-- **SplitSegment speed: deferred, not dropped (upper-bound check, 2026-11-13).** On cq 373600 q30 (the Herne input from #722's script,
-  master 9a74dafe, three runs, net10.0 Release) the mesh takes 3.8 s, of which refinement is 3.1-3.3 s.
-  - SplitSegment is 0.83-0.98 s of that, about 27 %: 29232 calls, 28962 splits.
-  - Within SplitSegment: GridSplitPoint 0.49-0.62 s (about 65 % of it), Collect after the split 0.15-0.20 s, and
-    Unconstrain + RestoreDelaunay + InsertPoint + InsertPiece together about 0.12 s.
-  - The roadmap's earlier "3.4 s of 7.3 s" is out of date: refinement got faster after #384.
-  - Removing SplitSegment entirely would save at most 22 % of the mesh time; halving GridSplitPoint, realistically,
-    about 7 %. Neither reaches the <= 2x fork target (2.7x after #384) alone, but about 7 % is still a measurable gain
-    (owner, 2026-11-13). It is taken up together with the SplitTriangle measurement below: one speed PR for both, if
-    that measurement shows a gain worth its code, built with a benchmark row.
-- **SplitTriangle upper-bound check (open, measurement only).** SplitTriangle takes 1.71-1.83 s of the 3.2 s refinement
-  (53637 calls), including the segment splits it triggers. It is the larger target if speed is still wanted. The next
-  step is its own breakdown (circumcentre and off-centre choice, grid checks, insertion, Collect), measured on the
-  same input before anything is built. Effort S for the measurement.
+- **Mesher speed: dropped (measurement, 2026-11-15; coordinator 2026-11-15).** On cq 373600 q30 (the Herne input from #722's
+  script, master 817ceb8a, three runs, net10.0 Release, temporary Stopwatch instrumentation in a scratch worktree, nothing
+  committed; the output was byte-identical to master), refinement takes 3.0-3.4 s:
+  - SplitSegment 0.8-1.0 s (29232 calls), of it GridSplitPoint 0.49-0.62 s (measured 2026-11-13 on 9a74dafe, unchanged).
+  - SplitTriangle 1.4-1.8 s (53637 calls, 46327 insertions), of it the segment splits it triggers 0.13-0.18 s. Its own time
+    is almost all `BestCandidate`, 1.0-1.27 s (about 35 % of refinement). The circumcentre, off-centre, walk, encroachment,
+    pixel checks, insertion and Collect together take 0.2-0.3 s.
+  - Within BestCandidate (431229 candidate scores, about 10 candidates per choice):
+    - Score 0.58-0.71 s: cavity 0.18 s (1.98M cavity triangles), the angle test of the cavity's triangles 0.24-0.30 s, the
+      fan of new triangles 0.15 s, the walk to the candidate 0.06 s;
+    - the petal candidates 0.19 s;
+    - Insertable 0.14 s;
+    - the rest about 0.23 s.
+    - The angle test splits into the geometric part (MinSin2) 40 ms and the exact corner and SpansSmallAngle 133 ms (233170
+      of 439900 triangles below the angle).
+    - The existing score bound (a candidate that removes fewer bad triangles than the best score cannot win) cuts only 6370
+      candidates.
+  - **Bound:** removing BestCandidate entirely would save about 29 % of the mesh time; the GridSplitPoint cache of the old plan
+    at most about 12 %.
+  - **Why the bit-identical part is only 6-9 %:** the time is spread over many medium parts; none dominates. SpansSmallAngle
+    depends on the sources of each vertex's whole star (`SourcesAt`), which a split elsewhere can change, so its result
+    cannot be cached across choices without risking a different output; it can only be made allocation-free. Together with
+    reused buffers, a cheaper fan and petal, that is about 0.2-0.3 s, 6-9 % of the mesh.
+  - **More** would need fewer or different candidates (a smaller petal search, fewer arc points, a stronger bound that
+    drops candidates the current rule might pick). That changes the output (golden fingerprints, grading counts) and is an
+    owner decision for later. The <= 2x fork target stays open as a future goal.
+  - Not built: a bit-identical 6-9 % does not justify a PR with its review and CI cycle now (coordinator 2026-11-15).
 - **Fast-oracle leftovers** (no verdict of ours affected): 373600 q30 delaunay 9.8 s (pass on the remaining needles 7.5 s);
   corpus segments and conformity.
 - **Judging very large outputs of other producers:** the quality phase on the two Herne q20 fork outputs (1171 s, or no
@@ -261,7 +274,7 @@ Order: (1) one boundary index for coverage and conformity, (2) a source index an
 
 Left for a later pick-up: 373600 q30 delaunay 9.8 s = local test 1.9 + witness 0.9 + pass on the ~4400 remaining needles 7.5 (2.6 M in-circle hits, almost all merge-zone excused: ExcusedOffSegment 3.2, GridUnsplittable memo 3.1); corpus segments and conformity.
 
-Next mesher speed item outside grading: a SplitTriangle breakdown (measurement only), then one speed PR for SplitTriangle and SplitSegment (a GridSplitPoint cache, about 7 % of the mesh; 2026-11-13: SplitSegment is 27 % of 3.2 s refinement, at most 22 % of the mesh; see Open).
+Mesher speed outside grading: the SplitTriangle breakdown is done and the speed PR dropped (2026-11-15: BestCandidate is about 35 % of refinement, its bit-identical part only 6-9 % of the mesh; see Open).
 
 Oracle on large foreign outputs (reference run 2026-11-05: fork / triangle.c outputs of 200k-400k triangles with 170k-230k below the bound did not finish in 600 s): the quality phase hung in `CircumcentreBehindO11Unsplittable` → `Behind`, a scan of every subsegment per bad triangle (about 7 per second, about 9 h); fixed in #387 (the constructed point enters the subsegment grid by its interval; an unrefined 44k-triangle mesh at M3: quality 52 s -> 5 s, report identical).
 
