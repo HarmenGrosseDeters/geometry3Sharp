@@ -250,7 +250,7 @@ bounds per construction, the arrangement's input path from constructions, consum
 
 **T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change): closed by its bound** (coordinator
 2026-11-13, option 1; #843, open): the edit loop is 0.54 % of the operation time, so parallel edits save at most 0.4 %
-on 4 cores (`docs/design/EXACT_BOOLEAN_T1B_PROFILE.md` in #843). #843 instead parallelizes the serial work outside the
+on 4 cores ([EXACT_BOOLEAN_T1B_PROFILE.md](../design/EXACT_BOOLEAN_T1B_PROFILE.md)). #843 instead parallelizes the serial work outside the
 edits, bit-identical (rounding -15.7 %, boolean -4.7 % on 195 operations, 195 of 195 hashes equal). The original
 item: the library is unpublished, so
 changed rounding results are acceptable if they are not worse. Conditions: after D1 (#513) has landed, since both change the

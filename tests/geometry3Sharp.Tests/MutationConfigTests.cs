@@ -17,7 +17,7 @@ namespace geometry3Sharp.Tests
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "PatchOpen open_winding_per_patch(", "List<int>[] trace_clusters(", "int front_winding(" },
-            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
             ["mesh_ops/ExactMeshGeodesicDistance.cs"] = new[] { "void Add(" },
         };
@@ -120,16 +120,38 @@ namespace geometry3Sharp.Tests
             string root = RepoRoot();
             Assert.NotNull(root);
             var filters = TestFilters(root);
-            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-1"]));
+            var shared = new HashSet<string>(Alternatives(filters["stryker-mesh-rounding-4"]));
             Assert.Equal(8, shared.Count);
+            // (owner 2026-11-15, #843: the prefixes had grown the set to 339 tests, about 189 s, and every part timed out in
+            // its coverage pass: ExactMeshBooleanTests is the class itself, not the open-winding classes named after it,
+            // and the position search's tests, 10 s, run only where the search is, rounding-8)
+            Assert.Contains("FullyQualifiedName~ExactMeshBooleanTests.", shared);
+            Assert.Contains("FullyQualifiedName~MeshRoundingRepairTests&FullyQualifiedName!~MeshRoundingRepairTestsPositionSearch", shared);
+            // (RoundingSerialWorkTests: per part only the cases of its code, a few seconds each: the per-triangle scans of
+            // Apply and the range check, the tree's boxes, degenerate_triangles, remove_tiny_components)
+            const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
             var extras = new Dictionary<string, string[]>() {
+                // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
+                // rounding-12)
+                ["stryker-mesh-rounding-1"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "OutsideRangeInOneTriangle",
+                    serialWork + "LargestMagnitudeInsideTheRange", serialWork + "NoPasses_OneBlock" },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel" },
+                ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
+                    serialWork + "Field_Clean" },
+                ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean" },
+                // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
                 ["stryker-mesh-rounding-8"] = new[] {
+                    "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
+                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip",
+                    "FullyQualifiedName~MeshRoundingRepairTestsPositionSearch" },
+                // (fix_intersection to the end: the tolerances of the largest component and the ScaleDisparity guard of
+                // remove_tiny_components, and its component walk)
+                ["stryker-mesh-rounding-9"] = new[] {
                     "FullyQualifiedName~ExactBooleanFarComponentTests",
                     "FullyQualifiedName~ExactBooleanScaleDisparityTests",
-                    "FullyQualifiedName~RoundingExactPairsTests.SkippingSearch_SameAsFull_AndSkips&DisplayName!~FoldedCluster",
-                    "FullyQualifiedName~RoundingExactPairsTests.WithoutSharedPositionsTouch_NoSkip" },
+                    serialWork + "ConnectedComponents_SameOrder", serialWork + "Field_Clean", serialWork + "NoPasses_TinyDegenerate" },
             };
-            for (int i = 1; i <= 8; ++i) {
+            for (int i = 1; i <= 13; ++i) {
                 string part = "stryker-mesh-rounding-" + i;
                 var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
                 Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));
