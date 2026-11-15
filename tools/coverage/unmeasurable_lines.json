@@ -108,5 +108,33 @@
     ],
     "reason": "invariant guard in a hot, subtle file, kept on purpose (deleting gains nothing and would turn a broken invariant into a silent wrong result): same as the previous entry",
     "approved_in": "#594"
+  },
+  {
+    "file": "tools/g3cli/TpmsCommand.cs",
+    "text": "catch (OutOfMemoryException) {",
+    "after": [
+      "try { lattice.Compute(); }"
+    ],
+    "reason": "the out-of-memory handler of the node grid (8 bytes per node, max_cells up to 400 million): reaching it needs an allocation of several GB, which no test or coverage run can do reliably; the handler only turns the exception into a clean operation_failed result",
+    "approved_in": "#895"
+  },
+  {
+    "file": "tools/g3cli/TpmsCommand.cs",
+    "text": "throw new CommandException(ResultCodes.OperationFailed, \"out of memory for the grid (8 bytes per node): lower max_cells or divisions, or use a larger cell_size\");",
+    "after": [
+      "catch (OutOfMemoryException) {"
+    ],
+    "reason": "the out-of-memory handler of the node grid (8 bytes per node, max_cells up to 400 million): reaching it needs an allocation of several GB, which no test or coverage run can do reliably; the handler only turns the exception into a clean operation_failed result",
+    "approved_in": "#895"
+  },
+  {
+    "file": "tools/g3cli/TpmsCommand.cs",
+    "text": "throw new CommandException(ResultCodes.OperationFailed, \"tpms failed (\" + status + \"): \" + lattice.Message, failure);",
+    "after": [
+      "default:",
+      "throw new CommandException(ResultCodes.InvalidArguments, \"tpms: \" + lattice.Message, failure);"
+    ],
+    "reason": "the failure statuses ContouringFailed, NotClean, SelfIntersecting and Cancelled of TpmsLattice: the library retries shifted grids until the certificate passes and no input of the CLI cancels, so no cheap input reaches them (the library tests force them with the internal RejectAttempt hook, which the CLI cannot set); the branch only maps the status to operation_failed with tpms_status",
+    "approved_in": "#895"
   }
 ]

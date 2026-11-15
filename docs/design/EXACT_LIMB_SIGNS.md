@@ -1,7 +1,8 @@
-# Exact sign stages on stack limbs (candidate B of the exact-number study)
+# Exact sign stages on stack limbs (candidates B and D of the exact-number study)
 
-Status: built (2026-11-13): `math/ExactLimbSigns.cs` and its seven call sites in `ExactMeshBoolean`. Study: branch
-`runs/exact-numbers`, `REPORT.md` sections 3 (P3b) and 5b (the probe).
+Status: built (2026-11-13): `math/ExactLimbSigns.cs`, its seven call sites in `ExactMeshBoolean` (B, sections 1 to
+4) and its two in `ExactMeshArrangement` (D, section 5). Study: branch `runs/exact-numbers`, `REPORT.md` sections 3
+(P3b), 5b and 5e (the probes).
 
 ## 1. What and why
 
@@ -130,7 +131,88 @@ is parked until lever 1 (#767) has landed, which changes how often these stages 
 - The existing tests of `ExactMeshBoolean` (filtered against unfiltered results, the invariance over
   `Similarity.All()`, reuse, parallel against serial) cover the operation, whose results do not change.
 
-## 5. Sources
+## 5. The arrangement's Orient and InCircle beyond the fixed width (candidate D)
+
+`ExactMeshArrangement.Orient` and `InCircle` decide on fixed-width points with `FixedArith` (4 limbs per coordinate).
+For points beyond that width their last stage was a BigInteger determinant: `Det3` of the rows `(v[i], v[j], v.W)`
+for the orientation in the plane of the axes `i`, `j`, and for the in-circle test `Det3` of a row
+`(A s, B s, A^2 + B^2)` per point `v` of the triangle against the fourth point `d`, with `A = v[i] d.W - d[i] v.W`,
+`B` likewise with `j`, `s = v.W d.W` (the derivation is the comment in `InCircle`). On 55928 with its rotated copy
+this stage runs 12.4 million times in one operation and owns nearly half of its allocation.
+
+`ExactLimbSigns.Orient2` and `ExactLimbSigns.InCircle` evaluate the same determinants on stack limbs, with `load`
+and `det3` of section 2. A call that does not run on the stack (the limit below, netstandard2.0) evaluates the
+BigInteger determinant inside the kernel, as `Det4` does (`Orient2Big`, `InCircleBig` with the arrangement's former
+`incircle_row`): a caller cannot take a call beyond the limit for a zero. The two call sites only multiply by the
+projection's sign.
+
+Scratch space (the rules of section 2: a product takes the sum of its factors' limbs, a sum or difference at most one
+limb more than its longer operand):
+- `Orient2`, with `a`, `b`, `c` the limbs of the widest entry of each row: one 3 x 3 determinant, as a minor of
+  `Det4`: at most `5 a + 14 (b + c) + 11`. Allocated: `6 a + 15 (b + c) + 32` (`OrientScratch`).
+- `InCircle`. For a point `v` of the triangle let `t` be the limbs of its widest entry plus those of `d`'s widest
+  entry. Its row: `A` takes two products of at most `t` limbs and their difference of `t + 1`: `3 t + 1`, `B` the
+  same, `s` at most `t`; `A s` and `B s` at most `2 t + 1` each, `A^2` and `B^2` `2 t + 2` each, their sum
+  `2 t + 3`: `17 t + 11` for the row, whose entries have at most `2 t + 1`, `2 t + 1` and `2 t + 3` limbs. The
+  determinant of the rows of `p`, `q`, `r` (with `t_p`, `t_q`, `t_r`, and `u = 2 (t_q + t_r) + 4`): each of its first
+  two terms takes two products of at most `u` limbs, their difference `u + 1` and the product with an entry of the
+  first row `2 t_p + u + 2`: `4 u + 2 t_p + 3`; the third term two products of `u - 2`, their difference `u - 1` and
+  the product `2 t_p + u + 2`: `4 u + 2 t_p - 3`; the two sums of the terms `2 t_p + u + 3` and `2 t_p + u + 4`:
+  `14 u + 10 t_p + 10 = 10 t_p + 28 (t_q + t_r) + 66`. With the three rows: at most
+  `27 t_p + 45 (t_q + t_r) + 99`, for points of one width `m` (so `t = 2 m`) `234 m + 99`. Allocated:
+  `28 t_p + 46 (t_q + t_r) + 128` (`InCircleScratch`).
+- The limit is the one of `Det4`: operands and scratch space together at most `MaxDeterminantLimbs` = 4608 limbs
+  (36 KB of stack), compared in `long`. Rows of one width are on the stack up to 101 limbs for `Orient2` and points
+  of one width up to 17 limbs (1088 bits) for `InCircle`. The widest call of the measured models has 12 limbs for
+  the two widest operands together (about 1,500 limbs of scratch space).
+- The kernels are leaves: they call nothing but `FixedArith`, so the 36 KB are taken once on top of the caller of
+  `Orient` / `InCircle` (the triangulation, `ExactMeshBoolean`, `ExactPlanarSimplify`), whoever that is.
+
+Tests: `ExactLimbSignsTestsPlanar` (the kernels and their BigInteger forms against references written in the test:
+the 3 x 3 expansion for the orientation and, for the in-circle test, the 4 x 4 determinant of the lifted points,
+which is another formula than the kernel's; in the three projections, with collinear and cocircular points by
+construction and one unit off them, other homogeneous factors, the path and the scratch use of every call; signs
+known in advance (a counter-clockwise triangle, a point inside, on and outside its circle); the limits at 4608 and
+4609 limbs and one wide row or point in each position on both sides of the limit, in each projection and with a
+wider entry in the axis the determinant does not read; dense operands at the widest uniform size, which take at
+least `33 w` of `33 w + 11` and `117 t` of `117 t + 99` limbs; translation, 2^k scale and homogeneous factors keep
+the signs; no allocation) and `ExactBooleanWidePointTests` (through `ExactMeshBoolean` with every exact point kept
+as BigIntegers and the filters off, so that every Orient and InCircle on a constructed point takes this stage: the
+default mesh, triangle for triangle, for the three operations, under `Similarity.All()`, on a reused instance and
+with the loops serial; the union allocates 7 / 11 / 28 / 17 MB against 20 / 32 / 73 / 36 MB with the BigInteger
+determinants).
+
+Measured: before = the kernels of sections 1 to 4 (d555e22), after = this section on it. 4-core cloud container,
+.NET SDK 10.0.115, Release, workstation GC; alternating runs, medians (range in brackets); wall time with
+collections, the collector's pause and the allocation separately. Rows: branch `runs/exact-numbers`, `results/d2`
+(the probe before the build, a prototype on c0f8aa9: `results/d`, 371.0 -> 318.8 s on 55928) and `results/d4`.
+
+| stratum | operation | runs | before | after | change | GC pause | allocated |
+|---|---|---|---|---|---|---|---|
+| slow tail | 55928 with its rotated copy, difference | 5 | 352.8 s (349.1-376.2) | 310.4 s (291.8-331.3) | -12.0 % | 78.4 -> 63.0 s | 180.1 -> 93.8 GB |
+| slow tail | 107554, union | 5 | 23.5 s (23.2-25.1) | 23.5 s (22.1-24.3) | -0.1 % | 5.0 -> 5.1 s | 9.2 -> 8.8 GB |
+| slow tail | 107554, intersection | 5 | 17.9 s (17.6-18.2) | 17.6 s (17.2-18.3) | -1.2 % | 4.7 -> 4.6 s | 8.5 -> 8.0 GB |
+| slow tail | 107554, difference | 5 | 18.1 s (17.2-18.5) | 18.1 s (17.5-19.3) | 0.0 % | 4.7 -> 4.7 s | 8.5 -> 8.0 GB |
+| slow tail | 42327, union | 21 | 24.4 s (23.0-27.9) | 24.7 s (23.2-27.8) | +1.2 % | 3.7 -> 3.7 s | 7.6 -> 7.4 GB |
+| slow tail | 42327, intersection | 21 | 22.6 s (20.7-24.7) | 22.3 s (20.6-26.5) | -1.3 % | 3.7 -> 3.5 s | 7.3 -> 7.1 GB |
+| slow tail | 42327, difference | 21 | 22.7 s (20.7-25.2) | 23.0 s (21.1-27.6) | +1.3 % | 3.6 -> 3.8 s | 7.4 -> 7.2 GB |
+| normal | 20 pairs, 60 operations (sum of the medians) | 5 | 6.79 s (6.72-7.09) | 6.70 s (6.68-7.06) | -1.3 %, inside the run-to-run range | 0.14 -> 0.15 s | 2.36 -> 2.36 GB |
+| normal | 13 models with a rotated copy, 39 operations | 5 | 4.50 s (4.38-4.74) | 4.43 s (4.30-4.66) | -1.5 %, inside the range | 0.13 -> 0.13 s | 1.48 -> 1.48 GB |
+
+Result hashes and statuses are equal in every run. On 55928 (4 cores, collections included) the ranges of before
+and after do not overlap; 15 s of the 42 s are the collector's pause (86 GB less allocation). On 107554 and on the
+normal strata nothing changes beyond the run-to-run range: their points stay inside the fixed width, the stage is
+hardly reached. 42327 does not reach it either (its allocation drops by 0.2 GB); its rows are 21 processes per
+side (the 5 of the series with 107554 before it in the process, 5 with 107554 after it, 8 with 42327 alone, 3 of
+`results/d4`), because its classification time spreads between processes: 12 to 16 s for the same work (all
+counters, the allocation and the hash are equal), in 3 of 33 processes before and 5 of 33 after the median of the
+three operations is 14.4 s or more, with more CPU time and the same collector's pause. In the first series of 5
+that put three such processes on the after side (+2.1 / +9.1 / +10.3 % per operation), in the series with the
+order of the models reversed two on the before side (the sum of the six operations 129.7 -> 124.1 s). The spread
+is in the base and is not an effect of this change: it comes from the tiered JIT's dynamic PGO (#825: one union per
+process, 11 of 40 processes at 14.4 s or more by default, 0 of 40 with `DOTNET_TieredPGO=0`).
+
+## 6. Sources
 
 Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
 `ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).

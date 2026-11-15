@@ -1633,9 +1633,7 @@ namespace g3
                 if (fdet > err) { local.Decided++; return t.Sign; }
                 if (-fdet > err) { local.Decided++; return -t.Sign; }
             }
-            ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
-            BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
-            return det.Sign * t.Sign;
+            return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;
         }
 
         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
@@ -1715,29 +1713,9 @@ namespace g3
                 if (fdet > bound) { local.Decided++; return t.Sign; }
                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
             }
-            ExactPoint3 pd = Exact(s);
-            BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
-            incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
-            incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
-            incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
-            BigInteger det = ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl);
             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
             // may mirror the triangle, which flips the orientation of a, b, c and the sign
-            return det.Sign * t.Sign;
-        }
-
-        [MethodImpl(JitHints.Optimize)]
-        static void incircle_row(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
-        {
-            BigInteger A, B, s;
-            if (v.W.IsOne && d.W.IsOne) {
-                A = v[i] - d[i]; B = v[j] - d[j];
-                x = A; y = B;
-            } else {
-                A = v[i] * d.W - d[i] * v.W; B = v[j] * d.W - d[j] * v.W; s = v.W * d.W;
-                x = A * s; y = B * s;
-            }
-            l = A * A + B * B;
+            return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;
         }
 
         [MethodImpl(JitHints.Optimize)]

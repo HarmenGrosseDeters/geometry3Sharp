@@ -77,9 +77,9 @@ namespace g3
 
 		public Vector3i ToGrid(Vector3d point) {
 			return new Vector3i(
-				(int)Math.Floor(point.x / CellSize),
-				(int)Math.Floor(point.y / CellSize),
-				(int)Math.Floor(point.z / CellSize));
+				MathUtil.FloorToIntSaturating(point.x / CellSize),
+				MathUtil.FloorToIntSaturating(point.y / CellSize),
+				MathUtil.FloorToIntSaturating(point.z / CellSize));
 		}
 
         public Vector3d ToGridf(Vector3d point) {
@@ -121,9 +121,9 @@ namespace g3
 
 		public Vector3i ToGrid(Vector3d point) {
 			return new Vector3i(
-				(int)Math.Floor((point.x - Origin.x) / CellSize),
-				(int)Math.Floor((point.y - Origin.y) / CellSize),
-				(int)Math.Floor((point.z - Origin.z) / CellSize) );
+				MathUtil.FloorToIntSaturating((point.x - Origin.x) / CellSize),
+				MathUtil.FloorToIntSaturating((point.y - Origin.y) / CellSize),
+				MathUtil.FloorToIntSaturating((point.z - Origin.z) / CellSize) );
 		}
 
         public Vector3d ToGridf(Vector3d point) {
@@ -169,9 +169,9 @@ namespace g3
             Vector3f pointf = (Vector3f)point;
             pointf = GridFrame.ToFrameP(ref pointf);
             return new Vector3i(
-                (int)Math.Floor(pointf.x / CellSize.x),
-                (int)Math.Floor(pointf.y / CellSize.y),
-                (int)Math.Floor(pointf.z / CellSize.z));
+                MathUtil.FloorToIntSaturating(pointf.x / CellSize.x),
+                MathUtil.FloorToIntSaturating(pointf.y / CellSize.y),
+                MathUtil.FloorToIntSaturating(pointf.z / CellSize.z));
         }
 
         public Vector3d ToGridf(Vector3d point) {
