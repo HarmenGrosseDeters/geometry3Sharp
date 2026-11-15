@@ -57,8 +57,8 @@ priority; this section names only what is in flight.
   closes T1b; rounding-shard filters narrowed), draft #837 (rounding-search upper bound). The tail above 20 s is in #888.
   [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Alpha Wrap 3.0:** (B) round-based parallel carving #774 is merged (2026-11-15; `RoundWindow` 256 by default, 0 as
-  the opt-out); the 800 run follows on master. Part two, the parallel trial passes, is #898 (draft). Adaptive alpha is a
-  spike after 3.0 (#899). Wrap simplification certification #747 is partly done.
+  the opt-out); its 800 run passed (owner 2026-11-15). Part two, the parallel trial passes, is #898 (merged). Adaptive
+  alpha is a spike after 3.0 (#899). Wrap simplification certification #747 is done (first-pass guard: no-go).
   [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Determinism proof, option A:** stage 0 (analyzer rules G3D0001-9, #871) merged 2026-11-14. Open: #892 (#803,
   sign-of-zero Min / Max in `AxisAlignedBox3d`) and #891 (#804, saturating casts in the grid indexers), reviewed
