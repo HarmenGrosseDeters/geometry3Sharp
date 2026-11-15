@@ -7,6 +7,8 @@ name: T6 CGAL comparison
 # Two jobs, one thread and all cores for ours (CGAL is single-threaded). Raw rows go to the data branch runs/t6-cgal.
 # Case set and report: benchmarks/BooleanComparison/perf/t6.py. No mesh is committed.
 on:
+  push:   # TEMPORARY (owner's coordinating session): removed again before #922 is ready
+    branches: [claude/t6-cgal-measurement]
   workflow_dispatch:
     inputs:
       library_ref:
@@ -31,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.library_ref }}
+          ref: ${{ inputs.library_ref || 'master' }}
           path: lib
       - uses: actions/checkout@v4
         with:
@@ -64,7 +66,7 @@ jobs:
         run: |
           S=scripts/benchmarks/BooleanComparison
           if [ "${{ matrix.threads }}" = 1 ]; then export DOTNET_PROCESSOR_COUNT=1; PIN="taskset -c 0"; else PIN=""; fi
-          $PIN python3 $S/compare.py cases.jsonl results-${{ matrix.threads }}.jsonl --methods ours,cgal_epeck --timeout "${{ inputs.timeout_s }}" -j 1 --resume
+          $PIN python3 $S/compare.py cases.jsonl results-${{ matrix.threads }}.jsonl --methods ours,cgal_epeck --timeout "${{ inputs.timeout_s || 300 }}" -j 1 --resume
       - name: Report
         if: always()
         run: |
