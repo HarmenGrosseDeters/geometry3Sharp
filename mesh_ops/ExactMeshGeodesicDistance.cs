@@ -556,7 +556,9 @@ namespace g3
             // and the clip). Reviewed: with t1 = xc.Hi past the ray parallel to PQ the end values gave [0, ~0]
             if (!DenominatorCertain(s, t0, t1, P, Q) ||
                 double.IsInfinity(m0.Lo) || double.IsInfinity(m0.Hi) || double.IsInfinity(m1.Lo) || double.IsInfinity(m1.Hi)) {
-                u0 = 0; u1 = L2.Hi;             // a ray parallel to the edge is possible: the whole edge, nothing certain
+                // D may be 0 (a ray parallel to the edge within the clip, or only the interval's widening on a thin
+                // sliver) or an end crossing overflowed: the whole edge, nothing certain (precision lost, not soundness)
+                u0 = 0; u1 = L2.Hi;
             } else {
                 // the hull of both ends: the crossing of every clip point lies between its two end crossings
                 u0 = Math.Max(0, (I(Math.Min(m0.Lo, m1.Lo)) * L2).Lo); u1 = Math.Min(L2.Hi, (I(Math.Max(m0.Hi, m1.Hi)) * L2).Hi);

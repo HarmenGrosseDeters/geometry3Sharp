@@ -429,7 +429,7 @@ shrank to about [0, 0] while the true crossings covered the edge: `Lower` came o
 sliver mesh, h from 1e-8 to 1e-14; the S2 rule "a position not certainly strictly behind the edge's line gives the whole
 reachable edge" was missing, and S2 alone would not have been enough). Fix: `Mu`'s denominator, which is affine in t,
 is evaluated with t as the interval [t0, t1]; only if it certainly keeps its sign over the box and the clip are the end
-values used (their hull), otherwise the outer interval is the whole edge and the inner one empty. Tests: the reviewed
+values used (their hull), otherwise the outer interval is the whole edge and the inner one empty. On thin slivers the interval of the denominator can straddle 0 only through its widening, while the true one keeps its sign; such a child then also falls back to the whole edge, which loses precision (a wider `Lower`/`Upper` gap downstream) but not soundness. Tests: the reviewed
 mesh and its mirror (the right child), and a random family of slivers (heights 1e-6 to 1e-15 and a few ulps, sources
 beyond the sliver, obtuse faces) against the straight distance, which is the geodesic distance there. Also: `Status`
 is reset before each run; a vertex with a finite `Upper` but no lower bound ends the run with `LowerBoundMissing`
