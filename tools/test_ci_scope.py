@@ -23,12 +23,49 @@ class CiWorkflow(unittest.TestCase):
     def job(self, name):
         return re.search(r"\n  %s:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)" % name, self.text, re.S).group(1)
 
-    def test_master_runs_share_one_group_that_cancels(self):
-        # a group per SHA let every merge run to the end (20 runs piled up)
+    def test_master_runs_share_one_group_and_queue(self):
+        # a group per SHA let every merge run to the end (20 runs piled up); cancelling master runs lost commits' results
         block = re.search(r"\nconcurrency:\n(.*?)\n\n", self.text, re.S).group(1)
         self.assertNotIn("github.sha", block)
         self.assertIn("github.event.pull_request.number || github.ref", block)
-        self.assertIn("cancel-in-progress: true", block)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", block)
+
+    def test_draft_gate_is_on_scope_and_everything_needs_it(self):
+        header = self.job("scope").split("steps:")[0]
+        self.assertRegex(header, r"(^|\n)    if: github.event_name != 'pull_request' \|\| github.event.pull_request.draft == false\n")
+        # no labeled trigger: a skipped run of a ready PR would put a "skipped" check of the same name on a head SHA that has a real result
+        self.assertRegex(self.text, r"pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n")
+        self.assertNotIn("labeled", self.text.split("\njobs:\n")[0].replace("# ", "").split("pull_request:")[1].split("workflow_dispatch")[0])
+        names = re.findall(r"\n  ([a-z0-9-]+):\n(?:    [^\n]*\n|\s*#[^\n]*\n)*?    (?:runs-on|name|needs|if):", self.text.split("\njobs:\n")[1])
+        self.assertGreaterEqual(len(set(names)), 5)
+        for name in set(names) - {"scope"}:
+            self.assertRegex(self.job(name).split("steps:")[0], r"needs: (scope|\[scope)", name)
+
+    def gate(self, event_name, draft=False):
+        header = self.job("scope").split("steps:")[0]
+        expr = re.search(r"^    if: (.*)$", header, re.M).group(1)
+
+        class Ns:
+            pass
+
+        g = Ns()
+        g.event_name = event_name
+        g.event = Ns()
+        g.event.pull_request = Ns()
+        g.event.pull_request.draft = draft
+        py = expr.replace("&&", " and ").replace("||", " or ").replace("false", "False")
+        return bool(eval(py, {"github": g}))
+
+    def test_gate_event_matrix(self):
+        for ev in ("push", "workflow_dispatch"):
+            self.assertTrue(self.gate(ev, draft=False))
+        self.assertTrue(self.gate("pull_request", draft=False))
+        self.assertFalse(self.gate("pull_request", draft=True))
+
+    def test_skipped_runs_have_their_own_group(self):
+        # the only skipped run is one of a draft; it must not cancel a real run of the PR (a ready PR run under way, then a draft push)
+        group = re.search(r"\n  group: (.*)\n", self.text).group(1)
+        self.assertIn("github.event.pull_request.draft && '-skipped'", group)
 
     def test_windows_jobs_skip_drafts_like_isolated(self):
         condition = "github.event_name != 'pull_request' || github.event.pull_request.draft == false"
