@@ -161,7 +161,7 @@ Part of the [roadmap](../ROADMAP.md).
      (/ 64: 315 in wrong runs, 122 non-ball, 0 tube or transition). Built: growth of the failing clusters (remark 3 of
      Theorem 6), which certifies every non-ball cluster of a right run: clean T1 / 128 uncertified cells 651 -> 381,
      certified runs 8 -> 10 of 14 (all right runs but 104640); / 64 437 -> 301, 9 -> 12 (all right runs); never certified
-     wrong. Not built, by the stop rule: refinement for the thin features (upper bound one run, at 3-15 times the
+     wrong; the certificate 25-28 % of the contouring at / 128 (22-24 % before), 33-37 % at / 64 (24-30 %). Not built, by the stop rule: refinement for the thin features (upper bound one run, at 3-15 times the
      contouring time, section 4.8) and growth across transitions (upper bound 0: only a wrong run has such cells).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.

@@ -1198,8 +1198,8 @@ the three runs):
 - Every non-ball cluster of a right run is certified after growth. Left in right runs: 104640 at / 128 (the tube).
 - The wrong runs stay uncertified (116871, 472011 and 79961 at / 128; 116871 and 96773 at / 64), with grown blocks tried in
   them.
-- Cost: growth adds about 180-250 ms of block time on the clean T1 set at each size. The certificate goes from 23 % to
-  26-27 % of the contouring time at / 128, and from 26-28 % to 34-36 % at / 64. Most of it is single tries on large
+- Cost: growth adds about 180-250 ms of block time on the clean T1 set at each size. The certificate goes from 22-24 % to
+  25-28 % of the contouring time at / 128, and from 24-30 % to 33-37 % at / 64. Most of it is single tries on large
   regions, not repeated work: 113418 at / 64 grows one block that passes (108-158 ms more); 104640 at / 128 makes two
   tries that fail (62-79 ms); 116871 and 472011 25-45 ms each. Nothing changes on the CAD solids.
 - Hand mutants (the tests of this PR): no growth (its default in `MeshWindingNumberSolidify`), not taking in the clusters
