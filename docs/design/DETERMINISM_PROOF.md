@@ -265,18 +265,22 @@ marked as generated stays in), and the allow list with its registrations is
 | G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line, on the symbol that carries the attribute, with the argument that every element is written before it is read |
 | G3D0009 | the list is exact: an entry or registration that the kernel does not use, a malformed line, or a geometry3Sharp member whose declaration no longer has the pinned hash, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
-**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 108 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 113 external members (36 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
 
 **Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the twelve kernel files computes a
 function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
 clock, the culture, a hash seed or what an earlier call left in memory, given the reasons of the listed entries and the
 obligations below. With P4 (the kernel's predicates and exact constructions are defined by their inputs mathematically,
 and their correctness tests compare with oracles), every predicate returns the sign its specification defines. The
-reasons of the 31 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
+reasons of the 36 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
 `MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their declarations; the rules do not analyze those
-files (nor does G3E0001-4), but each entry pins the declaration it reviewed (`[body:h]`, an FNV-1a hash of its text with
-white space collapsed, the same on every runtime and target): a changed declaration fails the build (G3D0009) until it
-is reviewed again and the tag updated. What carries the claim:
+files (nor does G3E0001-4), but each entry pins the text of the declaration it reviewed (`[body:h]`, an FNV-1a hash of
+its tokens, comments and line breaks, indentation ignored; the same on every runtime, target and line-ending
+convention): a changed declaration fails the build (G3D0009) until it is reviewed again and the tag updated, and a
+pinned declaration may use geometry3Sharp members outside the kernel only if they are listed and pinned too (closure;
+it brought in `Index3i.a / b / c` and `PredicateStats.counters / Kind.Count`). Not covered by the pin: the containing
+type (struct or class, layout attributes), what the names bind to (usings, overload resolution), implicit enum values,
+and build switches (`G3_PREDICATE_STATS`). What carries the claim:
 
 - T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel's own code uses `+ - * /`, `Math.Sqrt`,
   `Math.Abs`, comparisons and bit reinterpretation (G3D0001 lists no libm member, no FMA, no `float`, which G3E0001-4

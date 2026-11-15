@@ -105,7 +105,10 @@ namespace G3ExactCodeAnalyzers
                     if (tag == "NET") e.NetOnly = true;
                     else if (tag == "sites") e.Sites = true;
                     else if (tag == "hash") e.Hash = true;
-                    else if (tag.StartsWith("body:", StringComparison.Ordinal) && tag.Length == 21 && tag.Substring(5).All(ch => "0123456789abcdef".IndexOf(ch) >= 0)) e.Body = tag.Substring(5);
+                    else if (tag.StartsWith("body:", StringComparison.Ordinal) && tag.Length == 21 && tag.Substring(5).All(ch => "0123456789abcdef".IndexOf(ch) >= 0)) {
+                        if (e.Body != null) list.Errors.Add(line + ": two [body:] tags");
+                        e.Body = tag.Substring(5);
+                    }
                     else list.Errors.Add(line + ": unknown tag [" + tag + "]");
                     r = r.Substring(close + 1).TrimStart();
                 }
@@ -670,30 +673,65 @@ namespace G3ExactCodeAnalyzers
         }
 
         /// <summary>
-        /// The hash of a member's declaration as reviewed: FNV-1a 64 over the UTF-8 text of its declarations (attributes,
-        /// signature and body, comments and #if branches included; runs of white space collapsed, so a re-indent keeps it),
-        /// in file order; the same on every runtime and target framework. For a field, its whole field declaration.
+        /// The hash of a member's declaration as reviewed: FNV-1a 64 over the UTF-8 text of its declaration syntax (the
+        /// attributes, signature and body; for a field its whole field declaration), token by token: token text verbatim
+        /// (string literals keep their spaces), comments, directives and disabled #if text verbatim, a line break as one
+        /// "\n" and other white space as one space where it separates two tokens, nothing at the start or end of a line
+        /// (so a re-indent or CRLF / LF checkout keeps the hash, a joined line does not). Not covered: the leading trivia
+        /// of the declaration (its doc comment), the containing type, what the names bind to. The parts of a member with
+        /// several declarations are sorted by their text. The same on every runtime and target framework.
         /// </summary>
         public static string BodyHash(ISymbol member)
         {
             var parts = new List<string>();
-            foreach (SyntaxReference r in member.DeclaringSyntaxReferences.OrderBy(x => x.SyntaxTree.FilePath, StringComparer.Ordinal).ThenBy(x => x.Span.Start)) {
+            foreach (SyntaxReference r in member.DeclaringSyntaxReferences) {
                 SyntaxNode n = r.GetSyntax();
                 if (n is VariableDeclaratorSyntax && n.Parent?.Parent is BaseFieldDeclarationSyntax fd)
                     n = fd;
-                parts.Add(n.ToString());
+                parts.Add(Canonical(n));
             }
+            parts.Sort(StringComparer.Ordinal);
+            unchecked {
+                ulong h = 14695981039346656037UL;
+                foreach (byte b in System.Text.Encoding.UTF8.GetBytes(string.Join("\n\n", parts))) { h ^= b; h *= 1099511628211UL; }
+                return h.ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary> the canonical text of a declaration (see BodyHash) </summary>
+        public static string Canonical(SyntaxNode n)
+        {
             var sb = new System.Text.StringBuilder();
-            bool space = false;
-            foreach (char ch in string.Join("\n", parts)) {
-                if (char.IsWhiteSpace(ch)) { space = true; continue; }
-                if (space && sb.Length > 0) sb.Append(' ');
-                space = false;
-                sb.Append(ch);
+            bool pendingSpace = false;
+            void Text(string t)
+            {
+                t = t.Replace("\r\n", "\n").Replace('\r', '\n');
+                if (t.Length == 0) return;
+                if (pendingSpace && sb.Length > 0 && sb[sb.Length - 1] != '\n') sb.Append(' ');
+                pendingSpace = false;
+                sb.Append(t);
             }
-            ulong h = 14695981039346656037UL;
-            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(sb.ToString())) { h ^= b; h *= 1099511628211UL; }
-            return h.ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
+            void Break()
+            {
+                pendingSpace = false;
+                if (sb.Length > 0 && sb[sb.Length - 1] != '\n') sb.Append('\n');
+            }
+            void Trivia(SyntaxTriviaList list)
+            {
+                foreach (SyntaxTrivia t in list) {
+                    if (t.IsKind(SyntaxKind.WhitespaceTrivia)) pendingSpace = true;
+                    else if (t.IsKind(SyntaxKind.EndOfLineTrivia)) Break();
+                    else if (t.HasStructure) { Text(t.ToFullString().TrimEnd()); Break(); }     // a directive (its own line)
+                    else { Text(t.ToFullString()); if (t.IsKind(SyntaxKind.SingleLineCommentTrivia)) Break(); }
+                }
+            }
+            SyntaxToken first = n.GetFirstToken(), last = n.GetLastToken();
+            foreach (SyntaxToken tok in n.DescendantTokens()) {
+                if (tok != first) Trivia(tok.LeadingTrivia);
+                Text(tok.Text);
+                if (tok != last) Trivia(tok.TrailingTrivia);
+            }
+            return sb.ToString().TrimEnd('\n');
         }
 
         static void OnEnd(CompilationAnalysisContext c, State s)
@@ -709,8 +747,31 @@ namespace G3ExactCodeAnalyzers
             // the members of this assembly outside the scope: their declarations as reviewed (a changed body needs a new review)
             foreach (DeterministicApiList.Entry e in s.List.Entries.Values.OrderBy(x => x.Line)) {
                 ISymbol m = DocumentationCommentId.GetFirstSymbolForDeclarationId(e.Id, s.Compilation);
-                if (m == null || !SymbolEqualityComparer.Default.Equals(m.ContainingAssembly, s.Compilation.Assembly) || m.DeclaringSyntaxReferences.Length == 0)
+                bool own = m != null && SymbolEqualityComparer.Default.Equals(m.ContainingAssembly, s.Compilation.Assembly) && m.DeclaringSyntaxReferences.Length > 0;
+                if (!own) {
+                    if (e.Body != null && m != null)
+                        c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "[body:] pins declarations of this assembly only; '" + e.Id + "' has none here"));
                     continue;
+                }
+                // closure: every geometry3Sharp member that the pinned declaration uses and that is declared outside the
+                // scope is itself on the list (and so pinned), so that a change of a callee cannot escape the review
+                foreach (SyntaxReference r in m.DeclaringSyntaxReferences) {
+                    SemanticModel model = s.Compilation.GetSemanticModel(r.SyntaxTree);
+                    foreach (SyntaxNode x in r.GetSyntax().DescendantNodesAndSelf()) {
+                        ISymbol used = (x is ExpressionSyntax || x is ConstructorInitializerSyntax) ? model.GetSymbolInfo(x).Symbol : null;
+                        if (used is IMethodSymbol um && um.ReducedFrom != null) used = um.ReducedFrom;
+                        if (used == null || !(used is IMethodSymbol || used is IPropertySymbol || used is IFieldSymbol || used is IEventSymbol))
+                            continue;
+                        if (SymbolEqualityComparer.Default.Equals(used.OriginalDefinition, m.OriginalDefinition) || !External(s, used)
+                            || !SymbolEqualityComparer.Default.Equals(used.ContainingAssembly, s.Compilation.Assembly))
+                            continue;
+                        string uid = used.OriginalDefinition.GetDocumentationCommentId();
+                        if (uid != null && s.List.Entries.ContainsKey(uid))
+                            s.UsedEntries[uid] = true;      // (used through a pinned declaration)
+                        else if (uid != null)
+                            c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, uid), e.Line, "the pinned declaration of '" + e.Id + "' uses '" + uid + "', which is not on the list (add and pin it, so that its changes are reviewed too)"));
+                    }
+                }
                 string h = BodyHash(m);
                 if (e.Body == null)
                     c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is a member of this assembly: review its declaration and pin it with [body:" + h + "]"));

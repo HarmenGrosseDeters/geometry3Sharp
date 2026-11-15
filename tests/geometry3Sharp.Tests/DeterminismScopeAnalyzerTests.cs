@@ -187,19 +187,83 @@ namespace geometry3Sharp.Tests
             ISymbol op = DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, library));
             string h = DeterminismScopeAnalyzer.BodyHash(op);
             Assert.Matches("^[0-9a-f]{16}$", h);
-            Func<string, List<Diagnostic>> unused = list => Analyze(source, list, library: library).Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId).ToList();
+            // (the operator reads X: by the closure rule X is listed and pinned too)
+            string x = "\nF:V.X ; [body:" + DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("F:V.X", Compile(source, true, library))) + "] storage";
+            Func<string, List<Diagnostic>> unused = list => Analyze(source, list + x, library: library).Where(d => d.Id == DeterminismScopeAnalyzer.UnusedId).ToList();
             // without a tag, and with a wrong one: reported, with the hash to pin
             Assert.Contains(unused("M:V.op_Addition(V,V) ; componentwise +"), x => x.GetMessage().Contains("[body:" + h + "]"));
             Assert.Contains(unused("M:V.op_Addition(V,V) ; [body:0000000000000000] componentwise +"), x => x.GetMessage().Contains("changed since its review"));
             Assert.Empty(unused("M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +"));
             // a re-indent keeps the hash, a changed body does not (and a BCL entry needs no tag)
-            string reindented = library.Replace("{ a.X += b.X; return a; }", "{\n        a.X += b.X;\n        return a;\n    }");
+            // (white space within a line; a changed line structure is a change, BodyHash_CanonicalText_AndAKnownAnswer)
+            string reindented = library.Replace("{ a.X += b.X; return a; }", "{   a.X +=\tb.X;  return a; }");
             Assert.Equal(h, DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, reindented))));
             string changed = library.Replace("a.X += b.X", "a.X -= b.X");
             Assert.NotEqual(h, DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, changed))));
-            Assert.Contains(Analyze(source, "M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +", library: changed),
+            Assert.Contains(Analyze(source, "M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +" + x, library: changed),
                 x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("changed since its review"));
             Assert.Empty(Analyze(Usings + "static class C { static double M(double x) { return Math.Sqrt(x); } }", "M:System.Math.Sqrt(System.Double) ; IEEE"));
+        }
+
+        static ISymbol Lib(string library, string id)
+        {
+            return DocumentationCommentId.GetFirstSymbolForDeclarationId(id, Compile("static class C { }", true, library));
+        }
+
+        // the canonical text: tokens verbatim, a line break as one line break, indentation and spacing as one space
+        [Fact]
+        public void BodyHash_CanonicalText_AndAKnownAnswer()
+        {
+            const string op = "public struct V { public double X; public static V operator +(V a, V b) {\r\n        a.X  +=  b.X; // sum\r\n        return a;\r\n    } }";
+            SyntaxNode decl = Lib(op, "M:V.op_Addition(V,V)").DeclaringSyntaxReferences[0].GetSyntax();
+            Assert.Equal("public static V operator +(V a, V b) {\na.X += b.X; // sum\nreturn a;\n}", DeterminismScopeAnalyzer.Canonical(decl));
+            // (FNV-1a 64 of that text, computed independently in Python: the hash is the same on every runtime and its algorithm is pinned)
+            Assert.Equal("c5e9b5f906a3d688", DeterminismScopeAnalyzer.BodyHash(Lib(op, "M:V.op_Addition(V,V)")));
+            // LF checkout and another indentation: the same; a joined line (the comment now swallows the statement): not
+            Assert.Equal(DeterminismScopeAnalyzer.BodyHash(Lib(op, "M:V.op_Addition(V,V)")),
+                DeterminismScopeAnalyzer.BodyHash(Lib(op.Replace("\r\n", "\n").Replace("        ", "\t"), "M:V.op_Addition(V,V)")));
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(op, "M:V.op_Addition(V,V)")),
+                DeterminismScopeAnalyzer.BodyHash(Lib(op.Replace("// sum\r\n        return a;", "// sum return a;\r\n return a;"), "M:V.op_Addition(V,V)")));
+            // spaces inside a string literal count; spaces between tokens do not, but a missing one between two tokens does
+            const string str = "public struct S { public override string ToString() { return string.Format(\"{0} {1}\", 1, 2); } }";
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(str, "M:S.ToString")), DeterminismScopeAnalyzer.BodyHash(Lib(str.Replace("{0} {1}", "{0}  {1}"), "M:S.ToString")));
+            const string neg = "public static class N { public static int F(int x, int y) { return x - -y; } }";
+            Assert.Contains("return x - -y;", DeterminismScopeAnalyzer.Canonical(Lib(neg, "M:N.F(System.Int32,System.Int32)").DeclaringSyntaxReferences[0].GetSyntax()));
+        }
+
+        // a field is pinned with its whole field declaration (all its declarators, its type and initializer)
+        [Fact]
+        public void BodyHash_FieldsTakeTheirWholeDeclaration()
+        {
+            const string f = "public struct P { public double X, Y; }";
+            Assert.Equal(DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.X")), DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.Y")));
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.X")), DeterminismScopeAnalyzer.BodyHash(Lib(f.Replace("X, Y", "X, Y2"), "F:P.X")));
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.X")), DeterminismScopeAnalyzer.BodyHash(Lib(f.Replace("double", "float"), "F:P.X")));
+        }
+
+        // closure: a pinned declaration may use members of this assembly outside the scope only if they are listed too
+        [Fact]
+        public void PinnedDeclarations_UseOnlyListedMembers()
+        {
+            const string library = "public struct V { public double X; public static double Twice(double a) { return a * 2; } public double T() { return Twice(X); } }";
+            const string source = "static class C { static double M(V a) { return a.T(); } }";
+            Func<string, string> pin = id => "[body:" + DeterminismScopeAnalyzer.BodyHash(Lib(library, id)) + "]";
+            string list = "M:V.T ; " + pin("M:V.T") + " calls Twice";
+            var d = Analyze(source, list, library: library).Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId).ToList();
+            Assert.Contains(d, x => x.GetMessage().Contains("'M:V.Twice(System.Double)', which is not on the list"));
+            Assert.Contains(d, x => x.GetMessage().Contains("'F:V.X', which is not on the list"));
+            // listed and pinned: clean, and counted as used (the scope does not call Twice itself)
+            list += "\nM:V.Twice(System.Double) ; " + pin("M:V.Twice(System.Double)") + " a * 2\nF:V.X ; " + pin("F:V.X") + " storage";
+            Assert.Empty(Analyze(source, list, library: library));
+        }
+
+        [Fact]
+        public void BodyTags_OnlyOnTheLibrarysMembers_AndOnce()
+        {
+            string source = Usings + "static class C { static double M(double x) { return Math.Sqrt(x); } }";
+            Assert.Contains(Analyze(source, "M:System.Math.Sqrt(System.Double) ; [body:0123456789abcdef] IEEE"), x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("pins declarations of this assembly only"));
+            Assert.Contains(Analyze(source, "M:System.Math.Sqrt(System.Double) ; [body:0123456789abcdef][body:0123456789abcdee] IEEE"), x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("two [body:] tags"));
+            Assert.Contains(Analyze(source, "M:System.Math.Sqrt(System.Double) ; [body:0123456789ABCDEF] IEEE"), x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("unknown tag"));
         }
 
         // arrays are lowered to an index loop: no enumerator member is used
