@@ -164,7 +164,9 @@ namespace gs
         /// certifies the contour or was not computed). With uncertified cells: inside the union of the certified cells, the
         /// contour differs from the level set only by a deformation that keeps every grid cell, face and edge in place
         /// (Theorem 1b); nothing is claimed inside the uncertified cells, and so nothing about the topology of the whole (a
-        /// handle can hide in one uncertified cell).
+        /// handle can hide in one uncertified cell). Cells that fail the per-cell test can still be certified as part of a
+        /// block (Theorem 6, section 7.10: a cluster of them that is a ball, in which the level set and the contour are both
+        /// disjoint disks); they are not listed here, and the deformation keeps such a block in place as a whole.
         /// </summary>
         public List<ContouringUncertifiedCell> UncertifiedCells = new List<ContouringUncertifiedCell>();
 
