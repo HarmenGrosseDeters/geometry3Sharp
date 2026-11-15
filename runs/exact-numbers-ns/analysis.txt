@@ -1,0 +1,8 @@
+== one thread (core 0, no concurrent GC)
+  t107554  base     runs 5  time 133.85 s (132.07-142.31) +0.0 %  classification 67.95 s (66.50-72.96)  GC 8.25 s  alloc 29.66 GB  hashes equal True
+  t107554  carcen   runs 5  time 132.65 s (128.59-137.78) -0.9 %  classification 66.39 s (64.53-68.58)  GC 10.01 s  alloc 26.24 GB  hashes equal True
+  t42327   base     runs 5  time 267.44 s (260.32-276.56) +0.0 %  classification 168.07 s (161.72-173.97)  GC 6.29 s  alloc 70.51 GB  hashes equal True
+  t42327   carcen   runs 5  time 224.31 s (221.81-245.13) -16.1 %  classification 123.91 s (120.74-140.53)  GC 5.56 s  alloc 27.10 GB  hashes equal True
+  npairs   base     runs 5  time 11.50 s (10.56-12.76) +0.0 %  classification 0.54 s (0.50-0.56)  GC 0.35 s  alloc 2.29 GB  hashes equal True
+  npairs   carcen   runs 5  time 11.18 s (10.73-12.14) -2.8 %  classification 0.51 s (0.48-0.54)  GC 0.34 s  alloc 2.29 GB  hashes equal True
+== 4 cores

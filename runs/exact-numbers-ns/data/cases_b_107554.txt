@@ -1,0 +1,1 @@
+copy copy_107554 /tmp/claude-0/-home-user-geometry3Sharp/e8d0715a-b248-5ce2-943c-5f0c0f935a8b/scratchpad/meshes/107554.stl 0,1,2
