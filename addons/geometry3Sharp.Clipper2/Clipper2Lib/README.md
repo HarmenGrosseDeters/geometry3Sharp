@@ -50,10 +50,17 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
     - Not ported: `4a3bf64` (keep clamped intersections inside the scanbeam): with the rounding of `f774daf` the C# engine
       did not reach that clamp on its upstream test or on 3.2 million random results (200 000 pairs of 3- to 6-gons with
       flat edges, 70 000 x 200 up to 2^52 x 2^30, and near-coincident rings, every clip type and fill rule), so it could
-      not be tested; the upstream test passes without it. Not taken either: the offset fixes `ca30beb` (empty paths; the
-      adapter passes none) and `6c7d083` (per-path state of `ClipperOffset`; not analysed for the adapter yet), `64a9ecc`
+      not be tested; the upstream test passes without it. Not taken either: the offset fix `ca30beb` (empty paths; the
+      adapter passes none), `64a9ecc`
       (offset output normalized to positive winding, a behaviour change of 593 lines), and the build, performance and
       triangulation commits.
+  - `6c7d083` "Stop ClipperOffset leaking per-path state" (2026-11-15, `Clipper.Offset.cs`, `DoGroupOffset`,
+    `OffsetOpenPath`, `DoRound`; tests `Clipper2OffsetStateTests`): the end type and the group delta are locals of a path
+    and a group, the normals are built before the single-point case, and a single point recomputes its arc steps under a
+    delta callback (`SetArcSteps`, with the C# 2.0.0 formula). Before, a 2-point Joined path gave the rest of its group open
+    ends: through the adapter, `OffsetPolyLines` with `EndType.Joined` gave 47 200 instead of 73 022 when a 2-point
+    polyline came first. Seen on the way, not changed: the C# 2.0.0 code drops the single points of a Polygon group (the
+    upstream test of this commit expects them offset, so `DeltaCallback_SeesTheNormalsOfItsOwnPath` uses an open group).
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the

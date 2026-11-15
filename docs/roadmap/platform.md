@@ -150,8 +150,9 @@ Part of the [roadmap](../ROADMAP.md).
   lattices) is fixed by a distance test in the same branch, and the adapter's tree conversion by three nesting rules (41 of
   160 000 adapter results wrong before, 0 after; FINDINGS item 5). Status 2026-11-15 (owner): three fixes of the C++
   Clipper2 (PolyClipping/Clipper2) ported to the vendored sources (`f774daf`, `ec5f2d4`, `f97d65d`; `4a3bf64` not reached in
-  C#), closing #756; the differential test now allows differences within the rounding or exact. Open: the offset fix
-  `6c7d083` not analysed for the adapter. Addon API
+  C#), closing #756; the differential test now allows differences within the rounding or exact. The offset fix
+  `6c7d083` (per-path state of `ClipperOffset`) affected the adapter (`OffsetPolyLines` with `EndType.Joined` depended on
+  the order of the lines) and is ported too. Addon API
   baseline: the first published addon version (owner 2026-11-13); until then a PR lists its breaks by hand.
   **Status 2026-11-15:** #851 (package removal, addon 2.0.0) and #874 (the c-guard: the micro branch is undone when it
   flips the ring's orientation) are merged; the remaining class (insertions that lose area without flipping the ring) was

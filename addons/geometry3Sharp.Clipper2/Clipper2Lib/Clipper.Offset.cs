@@ -101,7 +101,6 @@ namespace g3.Clipper2.Vendored
     private double _stepSin;
     private double _stepCos;
     private JoinType _joinType;
-    private EndType _endType;
     public double ArcTolerance { get; set; }
     public bool MergeGroups { get; set; }
     public double MiterLimit { get; set; }
@@ -465,20 +464,24 @@ namespace g3.Clipper2.Vendored
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    // geometry3Sharp change (port of PolyClipping/Clipper2 6c7d083, BSL-1.0): the arc steps for a delta, shared by
+    // DoGroupOffset, DoRound and the single-point case (the formula is the C# 2.0.0 one)
+    private void SetArcSteps(double delta)
+    {
+      double absDelta = Math.Abs(delta);
+      double arcTol = ArcTolerance > 0.01 ? ArcTolerance : absDelta * arc_const;
+      double stepsPer360 = Math.PI / Math.Acos(1 - arcTol / absDelta);
+      _stepSin = Math.Sin((2 * Math.PI) / stepsPer360);
+      _stepCos = Math.Cos((2 * Math.PI) / stepsPer360);
+      if (delta < 0.0) _stepSin = -_stepSin;
+      _stepsPerRad = stepsPer360 / (2 * Math.PI);
+    }
+
     private void DoRound(Path64 path, int j, int k, double angle)
     {
-      if (DeltaCallback != null)
-      {
-        // when DeltaCallback is assigned, _groupDelta won't be constant,
-        // so we'll need to do the following calculations for *every* vertex.
-        double absDelta = Math.Abs(_groupDelta);
-        double arcTol = ArcTolerance > 0.01 ? ArcTolerance : absDelta * arc_const;
-        double stepsPer360 = Math.PI / Math.Acos(1 - arcTol / absDelta);
-        _stepSin = Math.Sin((2 * Math.PI) / stepsPer360);
-        _stepCos = Math.Cos((2 * Math.PI) / stepsPer360);
-        if (_groupDelta < 0.0) _stepSin = -_stepSin;
-        _stepsPerRad = stepsPer360 / (2 * Math.PI);
-      }
+      // when DeltaCallback is assigned, _groupDelta won't be constant,
+      // so the arc steps need recalculating for *every* vertex.
+      if (DeltaCallback != null) SetArcSteps(_groupDelta);
 
       Point64 pt = path[j];
       PointD offsetVec = new PointD(_normals[k].x * _groupDelta, _normals[k].y * _groupDelta);
@@ -597,7 +600,7 @@ namespace g3.Clipper2.Vendored
       OffsetPolygon(group, path);
     }
 
-    private void OffsetOpenPath(Group group, Path64 path)
+    private void OffsetOpenPath(Group group, Path64 path, EndType endType)
     {
       pathOut = new Path64();
       int highI = path.Count - 1;
@@ -609,7 +612,7 @@ namespace g3.Clipper2.Vendored
       if (Math.Abs(_groupDelta) < Tolerance)
         pathOut.Add(path[0]);
       else
-        switch (_endType)
+        switch (endType)
         {
           case EndType.Butt:
             DoBevel(path, 0, 0);
@@ -637,7 +640,7 @@ namespace g3.Clipper2.Vendored
       if (Math.Abs(_groupDelta) < Tolerance)
         pathOut.Add(path[highI]);
       else
-        switch (_endType)
+        switch (endType)
         {
           case EndType.Butt:
             DoBevel(path, highI, highI);
@@ -663,8 +666,10 @@ namespace g3.Clipper2.Vendored
       {
         // a straight path (2 points) can now also be 'polygon' offset 
         // where the ends will be treated as (180 deg.) joins
-        if (group.lowestPathIdx < 0) _delta = Math.Abs(_delta);
-        _groupDelta = (group.pathsReversed) ? -_delta : _delta;
+        // geometry3Sharp change (port of 6c7d083): a group with no closed path is inflated, but no longer leaves _delta
+        // positive for the groups after it
+        double delta = group.lowestPathIdx >= 0 ? _delta : Math.Abs(_delta);
+        _groupDelta = (group.pathsReversed) ? -delta : delta;
       }
       else
         _groupDelta = Math.Abs(_delta);
@@ -672,17 +677,9 @@ namespace g3.Clipper2.Vendored
       double absDelta = Math.Abs(_groupDelta);
 
       _joinType = group.joinType;
-      _endType = group.endType;
 
       if (group.joinType == JoinType.Round || group.endType == EndType.Round)
-      {
-        double arcTol = ArcTolerance > 0.01 ? ArcTolerance : absDelta * arc_const;
-        double stepsPer360 = Math.PI / Math.Acos(1 - arcTol / absDelta);
-        _stepSin = Math.Sin((2 * Math.PI) / stepsPer360);
-        _stepCos = Math.Cos((2 * Math.PI) / stepsPer360);
-        if (_groupDelta < 0.0) _stepSin = -_stepSin;
-        _stepsPerRad = stepsPer360 / (2 * Math.PI);
-      }
+        SetArcSteps(_groupDelta);
 
       using List<Path64>.Enumerator pathIt = group.inPaths.GetEnumerator();
       while (pathIt.MoveNext())
@@ -691,6 +688,9 @@ namespace g3.Clipper2.Vendored
 
         pathOut = new Path64();
         int cnt = p.Count;
+        // geometry3Sharp change (port of 6c7d083): the normals of this path, also for a single point (whose delta callback
+        // saw the previous path's normals)
+        BuildNormals(p);
 
         switch (cnt)
         {
@@ -708,6 +708,8 @@ namespace g3.Clipper2.Vendored
             // single vertex so build a circle or square ...
             if (group.endType == EndType.Round)
             {
+              // DoRound may have left the arc steps of another path's delta (port of 6c7d083)
+              if (DeltaCallback != null) SetArcSteps(_groupDelta);
               int steps = (int) Math.Ceiling(_stepsPerRad * 2 * Math.PI);
               pathOut = Clipper.Ellipse(pt, absDelta, absDelta, steps);
 #if USINGZ
@@ -726,16 +728,15 @@ namespace g3.Clipper2.Vendored
             _solution.Add(pathOut);
             continue; // end of offsetting a single point 
           }
-          case 2 when group.endType == EndType.Joined:
-            _endType = (group.joinType == JoinType.Round) ?
-              EndType.Round :
-              EndType.Square;
-            break;
         }
 
+        // geometry3Sharp change (port of 6c7d083): the end type of this path only (a 2-point Joined path took open ends,
+        // and they were kept for the rest of its group)
+        EndType endType = group.endType;
+        if (cnt == 2 && endType == EndType.Joined)
+          endType = (group.joinType == JoinType.Round) ? EndType.Round : EndType.Square;
 
-        BuildNormals(p);
-        switch (_endType)
+        switch (endType)
         {
           case EndType.Polygon:
             OffsetPolygon(group, p);
@@ -744,7 +745,7 @@ namespace g3.Clipper2.Vendored
             OffsetOpenJoined(group, p);
             break;
           default:
-            OffsetOpenPath(group, p);
+            OffsetOpenPath(group, p, endType);
             break;
         }
       }
