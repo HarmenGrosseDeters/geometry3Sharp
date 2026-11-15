@@ -5,6 +5,9 @@
 #   ./run.ps1 -BData D:\bdata -WrapMeshes D:\wrap    the strata of strata.csv, 5 rounds
 #   ./run.ps1 -Stratum boolean-thingi-tail -Rounds 3 -Runtimes net10.0,net48,net10.0-pgo0
 #
+# Thread scaling (#858): -Scaling runs the strata named scaling-* (the 73 models of the pre-study, docs/design/EXACT_BOOLEAN_30_PRESTUDY.md,
+# SafeRounding on) at -ThreadCounts (default 1,2,4,6,12) for -ScalingRounds (default 3) rounds per runtime and records the per-phase times;
+# a long, overnight run. -Quick: 1 and 12 threads, 1 round. Threads are limited by the process affinity mask (cores 0..n-1) on both runtimes.
 # Runtimes: net10.0, net48, and net10.0-pgo0 (net10.0 with DOTNET_TieredPGO=0; any other net10.0-<suffix> is net10.0 with the
 # environment variables of -Net10Env, a hashtable). Threads: "all" cores, or "one" (the process runs on core 0).
 # Data is fetched at run time by the commands of the README (-BData, -WrapMeshes); nothing of it is part of the repository.
@@ -12,6 +15,10 @@
 param(
     [string[]]$Stratum = @(),
     [int]$Rounds = 5,
+    [switch]$Scaling,
+    [int[]]$ThreadCounts = @(1, 2, 4, 6, 12),
+    [int]$ScalingRounds = 3,
+    [switch]$Quick,
     [string[]]$Runtimes = @('net10.0', 'net48'),
     [string]$BData = $(if ($env:BDATA) { $env:BDATA } else { Join-Path $HOME 'bdata' }),
     [string]$WrapMeshes = '',
@@ -25,6 +32,8 @@ $here = $PSScriptRoot
 $bench = Split-Path -Parent $here
 $repo = Split-Path -Parent $bench
 if ($Smoke) { $Rounds = 1 }
+# -Quick: the short variant of the scaling matrix for a first check (1 and 12 threads, 1 repeat)
+if ($Quick) { $Scaling = $true; $ThreadCounts = @(1, 12); $ScalingRounds = 1 }
 if (-not $OutDir) { $OutDir = Join-Path $here ('results\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 $OutDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutDir)
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
@@ -49,7 +58,7 @@ function Get-ToolCommand([string]$kind, [string]$runtime) {
     return @{ File = 'dotnet'; Prefix = @((Join-Path $bench "$name\bin\Release\net10.0\$name.dll")) }
 }
 
-# --- one process, stdout as lines; extraEnv = environment variables of this run; Threads one = the process runs on core 0 -------------------
+# --- one process, stdout as lines; extraEnv = environment variables of this run; threads = all, or n: the process runs on cores 0..n-1 -------------------
 function Invoke-Tool([string]$kind, [string]$runtime, [string[]]$toolArgs, [hashtable]$extraEnv, [string]$threads, [string]$cwd) {
     $cmd = Get-ToolCommand $kind $runtime
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -65,12 +74,18 @@ function Invoke-Tool([string]$kind, [string]$runtime, [string[]]$toolArgs, [hash
         foreach ($k in $Net10Env.Keys) { $psi.EnvironmentVariables[$k] = [string]$Net10Env[$k] }
     }
     $p = [System.Diagnostics.Process]::Start($psi)
-    if ($threads -eq 'one') { try { $p.ProcessorAffinity = [IntPtr]1 } catch { Write-Warning "affinity: $_" } }
+    # n threads = the affinity mask of cores 0..n-1, set right after the start (the same on net10.0 and net48, which has no DOTNET_PROCESSOR_COUNT);
+    # the mask that the process reports back is recorded
+    $mask = ''
+    if ($threads -ne 'all') {
+        try { $p.ProcessorAffinity = [IntPtr]([int64]([math]::Pow(2, [int]$threads) - 1)) } catch { Write-Warning "affinity: $_" }
+    }
+    try { $mask = '0x{0:X}' -f [int64]$p.ProcessorAffinity } catch { $mask = '' }
     $errTask = $p.StandardError.ReadToEndAsync()
     $out = $p.StandardOutput.ReadToEnd()
     $p.WaitForExit()
     if ($p.ExitCode -ne 0) { Write-Warning ("exit code {0}: {1} {2}`n{3}" -f $p.ExitCode, $cmd.File, $psi.Arguments, $errTask.Result) }
-    return @{ Lines = @($out -split "`r?`n" | Where-Object { $_.Trim().Length -gt 0 }); ExitCode = $p.ExitCode }
+    return @{ Lines = @($out -split "`r?`n" | Where-Object { $_.Trim().Length -gt 0 }); ExitCode = $p.ExitCode; Mask = $mask }
 }
 
 function Get-Hash16([string[]]$parts) {
@@ -93,8 +108,27 @@ function Get-Strata {
         )
     }
     $all = @(Import-Csv (Join-Path $here 'strata.csv'))
+    # the scaling strata run with -Scaling (or when named); -Scaling alone runs only them
     if ($Stratum.Count -gt 0) { $all = @($all | Where-Object { $Stratum -contains $_.name }) }
+    elseif ($Scaling) { $all = @($all | Where-Object { $_.name -like 'scaling-*' }) }
+    else { $all = @($all | Where-Object { $_.name -notlike 'scaling-*' }) }
+    $expanded = @()
     foreach ($s in $all) {
+        if ($s.threads -eq 'scan') {
+            foreach ($n in $ThreadCounts) {
+                if ($n -gt [Environment]::ProcessorCount) { Write-Warning "$($s.name): $n threads skipped, the machine has $([Environment]::ProcessorCount) logical cores"; continue }
+                $expanded += [pscustomobject]@{ name = $s.name; kind = $s.kind; threads = [string]$n; options = $s.options; cases = $s.cases }
+            }
+        } else { $expanded += $s }
+    }
+    $all = $expanded
+    foreach ($s in $all) {
+        if ($s.cases -eq '{B30Ids}') {
+            # the 73 models of the pre-study as cases thingi/<id> (BooleanComparison export, #385 pairing), one id per line
+            $list = Join-Path $OutDir 'cases-b30.txt'
+            Get-Content (Join-Path $bench 'Boolean30Prestudy\results\scaling_ids.txt') | ForEach-Object { 'thingi/' + ($_ -split ' ')[0] } | Set-Content -Encoding ASCII $list
+            $s.cases = '@' + $list
+        }
         if ($s.cases -eq '{WrapMeshes}') {
             if (-not $WrapMeshes) { Write-Warning "$($s.name): skipped, -WrapMeshes is not set"; $s.cases = $null } else { $s.cases = $WrapMeshes }
         }
@@ -106,23 +140,26 @@ function Get-Strata {
 function Invoke-Stratum($s, [string]$runtime) {
     $rows = @()
     $threads = $s.threads
+    $mask = ''
     if ($s.kind -eq 'booleans') {
         # a case is a directory below $BData\cases (A.off, B.off), grid:<n>, or @<list file of the repository> with one case per line
         $caseArgs = @()
         foreach ($c in ($s.cases -split ' ')) {
-            if ($c.StartsWith('@')) { $caseArgs += (Join-Path $here ($c.Substring(1))) } else { $caseArgs += $c }
+            if ($c.StartsWith('@')) { $caseArgs += [IO.Path]::GetFullPath((Join-Path $here ($c.Substring(1)))) } else { $caseArgs += $c }
         }
         $cwd = Join-Path $BData 'cases'
         if (-not (Test-Path $cwd)) { New-Item -ItemType Directory -Force -Path $cwd | Out-Null }
-        $r = Invoke-Tool 'booleans' $runtime (@('profile', '--repeat', '1') + $caseArgs) @{} $threads $cwd
+        $r = Invoke-Tool 'booleans' $runtime (@('profile', '--repeat', '1') + @($s.options -split ' ' | Where-Object { $_ }) + $caseArgs) @{} $threads $cwd
+        $mask = $r.Mask
         foreach ($line in $r.Lines) {
             if (-not $line.StartsWith('{')) { continue }
             $j = $line | ConvertFrom-Json
-            if ($j.error) { return @{ Rows = $rows; Error = "case $($j.case): $($j.error)" } }
-            $rows += [pscustomobject]@{ case = $j.case; op = $j.op; ms = [double]($j.ms | Select-Object -First 1); hash = [string]$j.hash }
+            if ($j.error) { return @{ Rows = $rows; Error = "case $($j.case): $($j.error)"; Mask = $mask } }
+            $rows += [pscustomobject]@{ case = $j.case; op = $j.op; ms = [double]($j.ms | Select-Object -First 1); hash = [string]$j.hash; procs = $j.cores; phases = $j.phases_ms }
         }
     } elseif ($s.kind -eq 'small') {
         $r = Invoke-Tool 'small' $runtime (@('--hash') + ($s.cases -split '\|' | Where-Object { $_ })) @{} $threads $here
+        $mask = $r.Mask
         foreach ($line in ($r.Lines | Select-Object -Skip 1)) {
             $f = $line -split ','
             # input,mode,seconds,ok,wrap,wrap_triangles,result_triangles,...,hash
@@ -134,14 +171,15 @@ function Invoke-Stratum($s, [string]$runtime) {
         if (Test-Path $s.cases -PathType Container) { $files = @(Get-ChildItem $s.cases -File | Sort-Object Name | ForEach-Object { $_.FullName }) } else { $files = @($s.cases) }
         foreach ($f in $files) {
             $r = Invoke-Tool 'repair' $runtime @($f) @{ BENCH_REPAIR = 'wrap' } $threads $here
+            $mask = $r.Mask
             $line = $r.Lines | Where-Object { $_.StartsWith('{') } | Select-Object -Last 1
-            if (-not $line) { return @{ Rows = $rows; Error = "no result line for $f" } }
+            if (-not $line) { return @{ Rows = $rows; Error = "no result line for $f"; Mask = $mask } }
             $j = $line | ConvertFrom-Json
-            if ($j.status -notin @('ok', 'repaired', 'clean', $null) -and -not $j.after_hash) { return @{ Rows = $rows; Error = "$f : status $($j.status)" } }
+            if ($j.status -notin @('ok', 'repaired', 'clean', $null) -and -not $j.after_hash) { return @{ Rows = $rows; Error = "$f : status $($j.status)"; Mask = $mask } }
             $rows += [pscustomobject]@{ case = (Split-Path -Leaf $f); op = 'wrap'; ms = [double]$j.wrap_ms; hash = [string]$j.after_hash }
         }
     } else { throw "unknown kind $($s.kind)" }
-    return @{ Rows = $rows; Error = $null }
+    return @{ Rows = $rows; Error = $null; Mask = $mask }
 }
 
 # --- the runs ---------------------------------------------------------------------------------------------------------------------------
@@ -149,8 +187,11 @@ $strata = @(Get-Strata)
 if ($strata.Count -eq 0) { throw 'no stratum selected' }
 $runsCsv = Join-Path $OutDir 'runs.csv'
 $casesCsv = Join-Path $OutDir 'cases.csv'
-'stratum,runtime,round,threads,time_ms,hash,cases,status' | Set-Content -Encoding ASCII $runsCsv
-'stratum,runtime,round,threads,case,op,ms,hash' | Set-Content -Encoding ASCII $casesCsv
+$phasesCsv = Join-Path $OutDir 'phases.csv'
+'stratum,runtime,round,threads,mask,time_ms,hash,cases,status' | Set-Content -Encoding ASCII $runsCsv
+'stratum,runtime,round,threads,mask,case,op,ms,hash,procs' | Set-Content -Encoding ASCII $casesCsv
+# the phases of ExactMeshBoolean (PhaseMilliseconds, exclusive times as the pre-study's analyze_scaling.py reads them), one row per phase
+'stratum,runtime,round,threads,mask,case,op,phase,ms' | Set-Content -Encoding ASCII $phasesCsv
 $settings = [ordered]@{
     date = (Get-Date -Format 'o'); machine = $env:COMPUTERNAME; cores = [Environment]::ProcessorCount; os = [Environment]::OSVersion.VersionString
     dotnet = (& dotnet --version); rounds = $Rounds; runtimes = $Runtimes; net10Env = $Net10Env
@@ -162,7 +203,8 @@ $settings | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $OutDir 'sett
 $hashes = @{}   # stratum|threads -> runtime -> set of run hashes
 $failed = $false
 foreach ($s in $strata) {
-    foreach ($round in 1..$Rounds) {
+    $nRounds = if ($s.name -like 'scaling-*') { $ScalingRounds } else { $Rounds }
+    foreach ($round in 1..$nRounds) {
         # alternate: the runtime order flips every round
         $order = if ($round % 2 -eq 1) { $Runtimes } else { @($Runtimes[($Runtimes.Count - 1)..0]) }
         foreach ($runtime in $order) {
@@ -171,12 +213,18 @@ foreach ($s in $strata) {
             if ($res.Error) { $failed = $true }
             $time = 0.0 + ($res.Rows | Measure-Object -Property ms -Sum).Sum
             $hash = if ($res.Rows.Count -gt 0) { Get-Hash16 ($res.Rows | ForEach-Object { "$($_.case)/$($_.op)=$($_.hash)" }) } else { '-' }
-            "{0},{1},{2},{3},{4},{5},{6},{7}" -f $s.name, $runtime, $round, $s.threads, [math]::Round($time), $hash, $res.Rows.Count, $status | Add-Content -Encoding ASCII $runsCsv
+            "{0},{1},{2},{3},{4},{5},{6},{7},{8}" -f $s.name, $runtime, $round, $s.threads, $res.Mask, [math]::Round($time), $hash, $res.Rows.Count, $status | Add-Content -Encoding ASCII $runsCsv
             foreach ($row in $res.Rows) {
-                "{0},{1},{2},{3},{4},{5},{6},{7}" -f $s.name, $runtime, $round, $s.threads, $row.case, $row.op, [math]::Round($row.ms), $row.hash | Add-Content -Encoding ASCII $casesCsv
+                "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}" -f $s.name, $runtime, $round, $s.threads, $res.Mask, $row.case, $row.op, [math]::Round($row.ms), $row.hash, $row.procs | Add-Content -Encoding ASCII $casesCsv
+                if ($row.phases) {
+                    foreach ($ph in $row.phases.PSObject.Properties) {
+                        "{0},{1},{2},{3},{4},{5},{6},{7},{8}" -f $s.name, $runtime, $round, $s.threads, $res.Mask, $row.case, $row.op, $ph.Name, $ph.Value | Add-Content -Encoding ASCII $phasesCsv
+                    }
+                }
             }
-            Write-Host ("{0} {1} round {2}: {3} ms, hash {4}, {5}" -f $s.name, $runtime, $round, [math]::Round($time), $hash, $status)
-            $key = "$($s.name)|$($s.threads)"
+            Write-Host ("{0} t={1} {2} round {3}: {4} ms, hash {5}, {6}" -f $s.name, $s.threads, $runtime, $round, [math]::Round($time), $hash, $status)
+            # the scaling strata give one hash over all thread counts and runtimes (the results must not depend on the cores)
+            $key = if ($s.name -like 'scaling-*') { $s.name } else { "$($s.name)|$($s.threads)" }
             if (-not $hashes.ContainsKey($key)) { $hashes[$key] = @{} }
             if (-not $hashes[$key].ContainsKey($runtime)) { $hashes[$key][$runtime] = @{} }
             $hashes[$key][$runtime][$hash] = $true

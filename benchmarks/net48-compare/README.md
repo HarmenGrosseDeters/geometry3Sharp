@@ -5,7 +5,7 @@ machine, from the same sources, with the same cases, the same output rows and th
 
 | benchmark | strata | what is timed | hash |
 |---|---|---|---|
-| `BooleanComparison profile` | `boolean-cgal`, `boolean-thingi`, `boolean-thingi-tail` (42327, 107554), `boolean-nary` (`grid:5`, `grid:10`, the `nreal` / `narray` cases), each with all cores and with one core | `ExactMeshBoolean.Compute()`, `--repeat 1` after the warm-up of `profile` (sum over cases and operations) | `hash` of the result (vertex bits and triangles) |
+| `BooleanComparison profile` | `boolean-cgal`, `boolean-thingi`, `boolean-thingi-tail` (42327, 107554), `boolean-nary` (`grid:5`, `grid:10`, the `nreal` / `narray` cases), each with all cores and with one core (affinity mask 0x1) | `ExactMeshBoolean.Compute()`, `--repeat 1` after the warm-up of `profile` (sum over cases and operations) | `hash` of the result (vertex bits and triangles) |
 | `SmallInputWrapBenchmark --hash` | `wrap-small` | `MeshRobustRepair.Apply()` of the seven inputs, old and new mode | `hash` column (opt-in, the default rows are unchanged) |
 | `MeshRepairBenchmark`, `BENCH_REPAIR=wrap` | `wrap-repair` (the meshes of `-WrapMeshes`, one process each) | `wrap_ms` | `after_hash` |
 
@@ -93,9 +93,41 @@ Import-Csv runs.csv | Group-Object stratum, threads, runtime | ForEach-Object {
     '{0}: median {1} ms, range {2}-{3}' -f $_.Name, $t[[int][math]::Floor(($t.Count - 1) / 2)], $t[0], $t[-1] }
 ```
 
+## Thread scaling per phase (#858)
+
+`-Scaling` runs the stratum `scaling-b30` on both runtimes at 1, 2, 4, 6 and 12 threads, 3 rounds each (`-ThreadCounts`, `-ScalingRounds`): the 73
+models of the Exact Boolean 3.0 pre-study (`benchmarks/Boolean30Prestudy/results/scaling_ids.txt`, `docs/design/EXACT_BOOLEAN_30_PRESTUDY.md`
+section 1), the #385 pairing (B = A rotated 20 degrees and shifted, `BooleanComparison export`), union / intersection / difference, SafeRounding on,
+one timed run per operation after the warm-up. **The whole matrix is a long, overnight run** (the pre-study's 1-core pass alone took 1086 s per
+runtime, times 5 thread counts, 3 rounds and 2 runtimes, plus the 12-thread passes' own startup); nothing else may run on the machine.
+For a first check use the short variant: 1 and 12 threads, 1 round.
+
+```powershell
+# data: the 73 models, then the cases thingi\<id> as above (fetch_thingi.py pins the revision)
+python benchmarks\LevyClassification\fetch_thingi.py $HOME\bdata\b30-raw (Get-Content benchmarks\Boolean30Prestudy\results\scaling_ids.txt | ForEach-Object { ($_ -split ' ')[0] })
+# (export every model with BooleanComparison export <raw>\<id>.stl $HOME\bdata\cases\thingi\<id>, as in the loop above)
+
+benchmarks\net48-compare\run.ps1 -Scaling -Quick -BData $HOME\bdata                  # first check: 1 and 12 threads, 1 round
+benchmarks\net48-compare\run.ps1 -Scaling -BData $HOME\bdata -OutDir D:\scaling      # the whole matrix: 1, 2, 4, 6, 12 threads, 3 rounds, both runtimes
+python benchmarks\net48-compare\report.py D:\scaling [--subphases]                   # per runtime: time, speed-up and serial floor per phase and thread count
+```
+
+Threads are limited by the **process affinity mask** (cores 0..n-1, so mask 0x3F for 6 threads; `ProcessorAffinity` set right after the start) on both
+runtimes, not by `DOTNET_PROCESSOR_COUNT`, which net48 does not have; the mask the process reports back is the `mask` column of `runs.csv`,
+`cases.csv` and `phases.csv`, and `procs` in `cases.csv` is the `Environment.ProcessorCount` the tool saw (net10.0 follows the mask, net48 reports
+all cores, so a parallel loop sized by it runs more tasks than cores there; that is part of what is measured). Logical cores 0..n-1 may be hyper-threads
+of fewer physical cores: note the CPU topology with the results. A thread count above the machine's logical cores is skipped with a warning. The
+result hashes of the stratum must be equal at every thread count and on both runtimes (one hash over all runs; a difference exits with 1).
+
+`phases.csv` has one row per run, case, operation and phase (`phases_ms` of `ExactMeshBoolean`, in milliseconds). `report.py` sums a phase over
+the cases and operations of a run, takes the median over the rounds, and prints per runtime and phase the time at each thread count, the speed-up
+t1 / tn and the **serial floor**: t1 times the Amdahl serial fraction s fitted to all thread counts (t_n = t_1 (s + (1 - s) / n)), the time the
+phase keeps with any number of cores. The phases are the exclusive top-level phases as in `analyze_scaling.py` (assembly without simplify);
+`--subphases` adds `intersections.pairs`, `merge.points` and the others. A last table gives net48 against each net10.0 runtime per thread count.
+
 ## CI
 
 The `netstandard` job (`windows-latest`) builds the three benchmarks for both targets and runs `run.ps1 -Smoke` in Windows PowerShell and
 PowerShell 7: `grid:2` (n-ary boolean), the `62 B repro` of `SmallInputWrapBenchmark` (new mode) and the alpha wrap of a procedural octahedron,
 one round on each runtime, failing if a hash differs between net10.0 and net48. The job runs when one of the three benchmarks or this directory
-changes (`tools/ci_scope.py`, output `ps1`), and with the library tests. No timing is judged in CI.
+changes (`tools/ci_scope.py`, output `ps1`), and with the library tests; the Linux job runs the unit test of `report.py`. No timing is judged in CI.
