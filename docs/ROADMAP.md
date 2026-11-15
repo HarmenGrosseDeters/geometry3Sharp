@@ -101,11 +101,11 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 ## Next / queued
 
-In order, after the merges in flight (#883, #881, #893, #868, #843, #884, #898):
+In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
 - Meshing2D: the `QualityMesh2Candidate` provenance fields for #870's last dump.
 - Exact Boolean 3.0: re-measure candidate C after lever 1; the T6 check; then the thingi-pairs baseline and final runs
   (owner 2026-11-12).
-- Alpha Wrap 3.0: (B) part two, parallel trial passes; default decisions for lever 6 K (#736) and the raw-size budget
+- Alpha Wrap 3.0: (B) is complete (#774, #898, both merged 2026-11-15); default decisions for lever 6 K (#736) and the raw-size budget
   (#846) after an 800 run.
 - Determinism: #789 after #891 / #892.
 - Tests above 20 s: #696, #698, #866 and the #888 tail.
