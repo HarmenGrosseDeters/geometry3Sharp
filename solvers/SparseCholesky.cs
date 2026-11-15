@@ -135,6 +135,13 @@ namespace g3
             return factored;
         }
 
+        /// <summary>Independent ordering snapshot, new index to original index; numerical values are not included.</summary>
+        internal int[] CopyPermutation()
+        {
+            if (!factored) throw new InvalidOperationException("SparseCholesky: ordering requires a completed factorization");
+            return (int[])perm.Clone();
+        }
+
         /// <summary> solve A x = b (b is not modified; x and b may be the same array) </summary>
         public void Solve(double[] b, double[] x)
         {

@@ -29,6 +29,19 @@ namespace g3
             Add(rows[a],a,weight);Add(rows[b],b,weight);
             var negative=new I(-weight.Hi,-weight.Lo);Add(rows[a],b,negative);Add(rows[b],a,negative);
         }
+        internal static int[] InvertOrder(int[] order,int count)
+        {
+            if(count<1||count>400)return null;
+            var inverse=new int[count];
+            if(order==null) {for(int i=0;i<count;i++)inverse[i]=i;return inverse;}
+            if(order.Length!=count)return null;
+            var seen=new bool[count];
+            for(int i=0;i<count;i++) {
+                int old=order[i];if(old<0||old>=count||seen[old])return null;
+                seen[old]=true;inverse[old]=i;
+            }
+            return inverse;
+        }
         internal static bool TryVerify(DMesh3 mesh,List<int> ids,Dictionary<int,int> lookup,
             Vector3d[] original,Vector3d[] candidate,int[] roots,bool[] active,int[] free,int count,
             IReadOnlyDictionary<int,Vector3d> handles,double positionTolerance,double responseTolerance,out double bound)
@@ -38,7 +51,8 @@ namespace g3
         }
         internal static bool TryVerify(DMesh3 mesh,List<int> ids,Dictionary<int,int> lookup,
             Vector3d[] original,Vector3d[] candidate,int[] roots,bool[] active,int[] free,int count,
-            IReadOnlyDictionary<int,Vector3d> handles,double positionTolerance,double responseTolerance,out double bound,ref Prepared prepared)
+            IReadOnlyDictionary<int,Vector3d> handles,double positionTolerance,double responseTolerance,out double bound,ref Prepared prepared,
+            SparseCholesky orderingSource = null)
         {
             bound=double.NaN;int n=ids.Count;
             if(n<3 || n>400 || mesh.VertexCount!=n || mesh.TriangleCount>2000 || count<1 || count>=n) return false;
@@ -56,14 +70,17 @@ namespace g3
             if(!(scale>0)||!MathUtil.IsFinite(scale))return false;
             if(prepared!=null && !prepared.Matches(mesh,ids,original,free))prepared=null;
             try {
-                if(prepared==null)prepared=Prepare(mesh,ids,lookup,original,free,count,scale);
+                if(prepared==null) {
+                    if(orderingSource!=null && !orderingSource.IsValid)return false;
+                    prepared=Prepare(mesh,ids,lookup,original,free,count,scale,orderingSource==null ? null : orderingSource.CopyPermutation());
+                }
                 return prepared!=null && prepared.Check(candidate,handles,positionTolerance,responseTolerance,out bound);
             }
             catch(DivideByZeroException) {prepared=null;return false;}
             catch(BiharmonicCertificateRangeException) {prepared=null;return false;}
         }
         static Prepared Prepare(DMesh3 mesh,List<int> ids,Dictionary<int,int> lookup,Vector3d[] original,
-            int[] free,int count,double scale)
+            int[] free,int count,double scale,int[] order)
         {
             int n=ids.Count;var scaleI=I.FromDouble(scale);if(scaleI.Lo.Sign<=0)return null;
             var p=new I[n][];var rows=new Dictionary<int,I>[n];var mass=new I[n];
@@ -81,11 +98,12 @@ namespace g3
                 Edge(rows,a,b,half*Dot(Sub(p[a],p[c]),Sub(p[b],p[c]))/area);
                 var share=area/six;mass[a]=mass[a]+share;mass[b]=mass[b]+share;mass[c]=mass[c]+share;
             }
+            var inverse=InvertOrder(order,count);if(inverse==null)return null;
             var columns=new Dictionary<int,I>[count];for(int i=0;i<count;i++)columns[i]=new Dictionary<int,I>();
             long updates=0;int entriesStored=0;
             for(int k=0;k<n;k++) {
                 if(mass[k].Lo.Sign<=0)return null;
-                var entries=new List<KeyValuePair<int,I>>();foreach(var e in rows[k])if(free[e.Key]>=0)entries.Add(new KeyValuePair<int,I>(free[e.Key],e.Value));
+                var entries=new List<KeyValuePair<int,I>>();foreach(var e in rows[k])if(free[e.Key]>=0)entries.Add(new KeyValuePair<int,I>(inverse[free[e.Key]],e.Value));
                 for(int i=0;i<entries.Count;i++)for(int j=0;j<=i;j++) {
                     if(++updates>MaxUpdates)return null;
                     int row=Math.Max(entries[i].Key,entries[j].Key),col=Math.Min(entries[i].Key,entries[j].Key);

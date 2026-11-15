@@ -1,5 +1,23 @@
 # Biharmonic displacement benchmark (#886)
 
+## Reuse the existing numerical ordering for the interval proof
+
+The bounded sparse verifier now takes an independent permutation snapshot from the completed numerical SparseCholesky, validates its length/range/uniqueness and permutes only the interval Q matrix. It still proves positive shifted interval pivots from original coordinates; double factors are not proof evidence. Original L/M and per-output residuals retain their original indices. Prepared hits do not clone the permutation again. Natural ordering remains the direct verifier control.
+
+Reproduce with the `prepared_certificate_profile.py` command below, once against each library build. `ordering-{before,after}-profile.txt` records one same-machine experiment with five calls per case:
+
+| 400-vertex strict fixture | Before median ms (min–max) | After median ms (min–max) | Median allocated bytes before → after |
+| --- | ---: | ---: | ---: |
+| aligned, fresh cold | 371.541 (309.485–393.827) | 280.097 (267.274–349.452) | 229769272 → 179090224 |
+| aligned, paired fresh with changing targets | 340.502 (309.515–418.231) | 282.586 (241.560–453.495) | 229873496 → 179195888 |
+| rotated, paired fresh with changing targets | 404.428 (382.032–546.988) | 396.178 (370.440–456.317) | 270918104 → 222112864 |
+| aligned, same instance | 34.090 (28.396–76.287) | 34.912 (28.609–84.517) | 20247912 → 20249296 |
+| rotated, same instance | 45.870 (45.339–78.549) | 51.369 (43.842–91.991) | 26964496 → 26964496 |
+
+Cold allocation decreases by about 49–51 MB on these fixtures. Time ranges overlap, especially on the rotated fixture and prepared hits; this experiment does not establish a universal elapsed-time gain or no-regression guarantee. All three exported candidate hashes match before/after and pass the independent checker with both Euclidean conditions. The 400-vertex and all arithmetic/work budgets remain unchanged; this is not evidence of 10k/100k feasibility or meeting the cold budget.
+
+All 26 focused tests pass. They include permutation validation, independent snapshot ownership, a full certificate under a guaranteed nontrivial ordering with an identical bound to natural ordering, and wrong-size rejection. Independent delta review found no concrete error. `ordering-mutation-results.txt` records a green 26-test baseline and a killed duplicate-permutation-acceptance mutant in the named validation test, followed by restored original artifacts and a green rerun. Reproduce with `targeted_certificate_mutations.py <dotnet> <artifacts> <fresh-logs> --ordering`. This targeted check does not replace the incremental mutation gate; full readiness gates remain open.
+
 ## Numerical factor reuse paired with the geometric proof
 
 Strict sparse mode now retains the numerical Cholesky only after successful certification, paired with that exact Prepared snapshot. A hit requires the proof object identity and the complete live geometry/topology/free-map key. Each target update assembles a fresh RHS and checks the final original-data certificate. A changed proof clears the factor pair, including after a failed output check; tighter tolerances with unchanged geometry do not invalidate the matrix. Normal mode is unchanged.

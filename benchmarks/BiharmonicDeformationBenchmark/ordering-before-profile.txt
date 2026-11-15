@@ -1,0 +1,26 @@
+producer_sha256=a45cec991cea15841287c8dacbbeb38c6ad6430856b149d49000aa6ccdcbe4a5
+checker_sha256=b8002b6305dde9d2091f6dddaf3b7c0abc5b5410854dd7d64c689dea20178f48
+library_sha256=568ec914febdf02c954962352aedf2cb6370b6ced4edfc7579b193a74b628ca1
+first_compute_including_jit is not a warmed cold/preparation-only metric
+case=--certificate-profile aligned strict
+cold_compute_runs=5 median_ms=371.541 min_ms=309.485 max_ms=393.827 median_allocated_bytes=229769272 status=Success peak_working_set_bytes=193388544
+vertices=400 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=791ff754b0f7b19da164b253af448c7fbf9513f92fcf464a4ea7b0d3c19c4467
+euclidean_absolute=True euclidean_relative=True component_scope=fixture
+position_certificate=within_tolerance
+case=--certificate-reuse-profile aligned strict
+first_compute_including_jit_ms=982.896
+reuse_compute_runs=5 median_ms=34.090 min_ms=28.396 max_ms=76.287 median_allocated_bytes=20247912 status=Success peak_working_set_bytes=197615616
+paired_fresh_reference_runs=5 median_ms=340.502 min_ms=309.515 max_ms=418.231 median_allocated_bytes=229873496
+vertices=400 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=86a51c4dc66569aebff90bf83a916dc9e37db5d57580fe1cd3f40b860d0ed712
+euclidean_absolute=True euclidean_relative=True component_scope=fixture
+position_certificate=within_tolerance
+case=--certificate-reuse-profile rotated strict
+first_compute_including_jit_ms=1203.281
+reuse_compute_runs=5 median_ms=45.870 min_ms=45.339 max_ms=78.549 median_allocated_bytes=26964496 status=Success peak_working_set_bytes=198705152
+paired_fresh_reference_runs=5 median_ms=404.428 min_ms=382.032 max_ms=546.988 median_allocated_bytes=270918104
+vertices=400 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=7ad264167d8b0943ec0d609d9c5a786b2ddc75866922ccce19c7283bd16bcef0
+euclidean_absolute=True euclidean_relative=True component_scope=fixture
+position_certificate=within_tolerance

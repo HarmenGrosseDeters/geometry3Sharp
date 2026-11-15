@@ -322,7 +322,7 @@ namespace g3
                 var candidate = new Vector3d[n]; for (int i = 0; i < n; ++i) candidate[i] = output.GetVertex(ids[i]);
                 double bound;
                 bool established = BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
-                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate);
+                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate, candidateFactor);
                 if (preparedFactor != null && !ReferenceEquals(preparedFactor.Proof, preparedCertificate)) preparedFactor = null;
                 if (!established) {
                     result.Status = Status.AccuracyNotEstablished; return result;

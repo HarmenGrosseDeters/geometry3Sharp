@@ -14,7 +14,9 @@ import xml.etree.ElementTree as ET
 
 parser=argparse.ArgumentParser()
 parser.add_argument('dotnet');parser.add_argument('artifacts');parser.add_argument('logs')
-parser.add_argument('--factor',action='store_true',help='mutate numerical factor reuse instead of the certificate checks')
+selection=parser.add_mutually_exclusive_group()
+selection.add_argument('--factor',action='store_true',help='mutate numerical factor reuse instead of the certificate checks')
+selection.add_argument('--ordering',action='store_true',help='mutate permutation validation instead of the certificate checks')
 args=parser.parse_args()
 root=Path(__file__).resolve().parents[2]
 source=root/('mesh_ops/BiharmonicMeshDeformer.cs' if args.factor else 'mesh_ops/BiharmonicSparseCertificate.cs')
@@ -32,6 +34,8 @@ cache_key='if(prepared!=null && !prepared.Matches(mesh,ids,original,free))prepar
 mutants=[('skip_accuracy',condition,'if(false)return false;',verifier_test),
          ('omit_z',axis,axis.replace('axis<3','axis<2'),verifier_test),
          ('skip_cache_key',cache_key,'if(false)prepared=null;','PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity')]
+if args.ordering:
+    mutants=[('accept_duplicate_order','old<0||old>=count||seen[old]','old<0||old>=count','CertificateOrdering_ValidatesPermutationAndOwnsSnapshot')]
 if args.factor:
     mutants=[('disable_factor_reuse','bool reuseFactor = trialCandidate &&','bool reuseFactor = false && trialCandidate &&',verifier_test)]
 artifact_paths=(library,testlibrary,library.with_suffix('.pdb'),testlibrary.with_suffix('.pdb'))

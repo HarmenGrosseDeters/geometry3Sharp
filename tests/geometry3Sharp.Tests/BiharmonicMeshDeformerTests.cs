@@ -8,6 +8,22 @@ namespace geometry3Sharp.Tests
     public class BiharmonicMeshDeformerTests
     {
         [Fact]
+        public void CertificateOrdering_ValidatesPermutationAndOwnsSnapshot()
+        {
+            Assert.Equal(new[] {1,2,0}, BiharmonicSparseCertificate.InvertOrder(new[] {2,0,1},3));
+            Assert.Null(BiharmonicSparseCertificate.InvertOrder(new[] {0,0,2},3));
+            Assert.Null(BiharmonicSparseCertificate.InvertOrder(new[] {-1,0,1},3));
+            Assert.Null(BiharmonicSparseCertificate.InvertOrder(new[] {0,1,3},3));
+            Assert.Null(BiharmonicSparseCertificate.InvertOrder(new[] {0,1},3));
+            var factor = new SparseCholesky(3);
+            Assert.Throws<InvalidOperationException>(() => factor.CopyPermutation());
+            factor.Add(0,0,4);factor.Add(1,1,4);factor.Add(2,2,4);factor.Add(1,0,1);factor.Add(2,1,1);
+            Assert.True(factor.Factorize());var snapshot=factor.CopyPermutation();var pristine=factor.CopyPermutation();
+            Assert.NotNull(BiharmonicSparseCertificate.InvertOrder(snapshot,3));snapshot[0]=-1;
+            Assert.Equal(pristine,factor.CopyPermutation());
+            factor.Clear();Assert.Throws<InvalidOperationException>(() => factor.CopyPermutation());
+        }
+        [Fact]
         public void PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity()
         {
             var mesh = Patch(); var ids = new List<int>(mesh.VertexIndices()); var lookup = new Dictionary<int,int>();
@@ -113,6 +129,20 @@ namespace geometry3Sharp.Tests
             var candidate = new Vector3d[n*n]; for (int i = 0; i < n*n; i++) candidate[i] = result.Mesh.GetVertex(i);
             double bound;
             Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound));
+            double naturalBound = bound;
+            var orderSource = new SparseCholesky(count);
+            for (int i = 0; i < count; i++) { orderSource.Add(i,i,count+1); if (i > 0) orderSource.Add(i,0,1); }
+            Assert.True(orderSource.Factorize());
+            var order = orderSource.CopyPermutation(); bool nontrivial = false;
+            for (int i = 0; i < count; i++) nontrivial |= order[i] != i;
+            Assert.True(nontrivial);
+            BiharmonicSparseCertificate.Prepared ordered = null;
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound,ref ordered,orderSource));
+            Assert.Equal(BitConverter.DoubleToInt64Bits(naturalBound),BitConverter.DoubleToInt64Bits(bound));
+            var wrongSize = new SparseCholesky(1); wrongSize.Add(0,0,1); Assert.True(wrongSize.Factorize());
+            BiharmonicSparseCertificate.Prepared invalidOrder = null;
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound,ref invalidOrder,wrongSize));
+            Assert.Null(invalidOrder);
             var saved = candidate[1];
             for (int axis = 0; axis < 3; axis++) {
                 candidate[1] = saved; candidate[1][axis] += .01;

@@ -60,6 +60,16 @@ arithmetic, bit decoding and the audit itself remain trusted implementation.
 Without the audit, the documented IEEE execution assumptions remain prerequisites.
 Finite positive diagonals and gamma < 1 are enforced by input/size checks.
 
+The bounded production fixed-point verifier can instead use a cloned permutation
+from the numerical SparseCholesky. It validates length, range and uniqueness and
+uses its inverse only when assembling the interval matrix in the new ordering.
+Original L/M, handles, candidate and residual remain in their original indexing.
+No double factor value or numerical `IsValid` flag is used as a proof. Permutation
+preserves the spectrum; positive interval pivots remain the proof premise. A
+retained proof for unchanged geometry/free-map need not match a later proposal's
+ordering. The numerical ordering snapshot is read only when new preparation is
+needed, not copied for every target update.
+
 Reference: S. M. Rump, *Verification of Positive Definiteness*, BIT Numerical
 Mathematics 46 (2006), 433–452, https://www.tuhh.de/ti3/paper/rump/Ru06c.pdf.
 The prototype uses the theorem, not a source-code port. Interval assembly must

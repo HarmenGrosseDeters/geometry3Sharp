@@ -1,0 +1,12 @@
+command: DOTNET_CLI_HOME=/workspace/dotnet-user NUGET_PACKAGES=/workspace/nuget DOTNET_CLI_USE_MSBUILD_SERVER=0 python3 benchmarks/BiharmonicDeformationBenchmark/targeted_certificate_mutations.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts /tmp/bih-ordering-mutation-20261115 --ordering
+baseline: green; executed=26
+accept_duplicate_order: killed; executed=26 failed=1
+source and original library artifacts restored
+expected failed test: CertificateOrdering_ValidatesPermutationAndOwnsSnapshot
+restored test command: DOTNET_CLI_HOME=/workspace/dotnet-user /workspace/dotnet/dotnet vstest /workspace/arap-886-artifacts/bin/geometry3Sharp.Tests/release_net10.0/geometry3Sharp.Tests.dll --TestCaseFilter:FullyQualifiedName~BiharmonicMeshDeformerTests
+VSTest version 18.7.0 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    26, Skipped:     0, Total:    26, Duration: 1 s - geometry3Sharp.Tests.dll (net10.0)
