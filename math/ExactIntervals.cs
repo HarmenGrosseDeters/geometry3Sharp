@@ -77,8 +77,8 @@ namespace g3
             if (!(b.Lo > 0 || b.Hi < 0))
                 return whole;                   // b contains 0 (or is NaN)
             double q1 = a.Lo / b.Lo, q2 = a.Lo / b.Hi, q3 = a.Hi / b.Lo, q4 = a.Hi / b.Hi;
-            if (double.IsNaN(q1) || double.IsNaN(q2) || double.IsNaN(q3) || double.IsNaN(q4))
-                return whole;
+            // a NaN corner (infinity / infinity) propagates through Math.Min / Math.Max (on every target) into make(),
+            // which returns the whole line
             return make(Math.Min(Math.Min(q1, q2), Math.Min(q3, q4)), Math.Max(Math.Max(q1, q2), Math.Max(q3, q4)));
         }
 

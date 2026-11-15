@@ -88,6 +88,27 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void Interval_Division_AndSqrt_AreTight()
+        {
+            // an exact quotient or root gives the one-spacing widening, not the whole line
+            ExactInterval q = new ExactInterval(1, 2) / new ExactInterval(4, 8);
+            Assert.Equal(0.125, q.Lo, 1e-15); Assert.Equal(0.5, q.Hi, 1e-15);
+            Assert.True(q.Lo < 0.125 && q.Hi > 0.5);
+            ExactInterval n = new ExactInterval(1, 2) / new ExactInterval(-8, -4);
+            Assert.Equal(-0.5, n.Lo, 1e-15); Assert.Equal(-0.125, n.Hi, 1e-15);
+            ExactInterval r = ExactInterval.Sqrt(new ExactInterval(4, 9));
+            Assert.Equal(2, r.Lo, 1e-15); Assert.Equal(3, r.Hi, 1e-15);
+            var rnd = new Random(3);
+            for (int i = 0; i < 2000; ++i) {
+                double a = Rand(rnd), b = Rand(rnd);
+                if (b == 0 || !(Math.Abs(a / b) < 1e300) || a / b == 0) continue;   // below MaxValue, where the widening reaches infinity
+                ExactInterval qi = ExactInterval.Of(a) / ExactInterval.Of(b);
+                double m = Math.Abs(a / b);
+                Assert.True(qi.Hi - qi.Lo <= 8 * Math.Max(m * 2.3e-16, double.Epsilon), $"{a:R} / {b:R} -> [{qi.Lo:R}, {qi.Hi:R}]");
+            }
+        }
+
         [Theory]
         [InlineData(double.Epsilon, 3.0)]          // subnormal quotient
         [InlineData(double.Epsilon, 0.5)]          // twice the smallest subnormal
