@@ -216,6 +216,16 @@ namespace g3cli.Tests
             AssertError(exit, r, "invalid_arguments");
             (exit, r) = Run("tpms", output, "--max-cells", "100", "--compact");
             AssertError(exit, r, "invalid_arguments", "too_large");
+            (exit, r) = Run("tpms", output, "--origin", "0,nan,0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("finite", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--origin", "0,x,0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            (exit, r) = Run("tpms", output, "--max-cells", "400000001", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("max_cells", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--max-cells", "0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
             (exit, r) = Run("tpms", m.Path_("tpms_bad.xyz"), "--compact");
             AssertError(exit, r, "unknown_format");
             Assert.False(File.Exists(output));
