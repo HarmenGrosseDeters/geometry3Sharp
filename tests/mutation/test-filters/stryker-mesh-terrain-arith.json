@@ -1,0 +1,41 @@
+{
+ "format": 1,
+ "config": "a30e2c23f6371b387dffbdf895a0d6f37eee80507544094ede2da926c3a17c6f",
+ "timeouts": "one",
+ "terms": [
+  "ExactIntervalsTests",
+  "TerrainSlopeOracleTests"
+ ],
+ "kept": [
+  "geometry3Sharp.Tests.ExactIntervalsTests.Dyadic_RoundTripsDoubles",
+  "geometry3Sharp.Tests.ExactIntervalsTests.Interval_EnclosesTheExactResult",
+  "geometry3Sharp.Tests.ExactIntervalsTests.Interval_IsTight",
+  "geometry3Sharp.Tests.ExactIntervalsTests.Quotient_IsCorrectlyRounded",
+  "geometry3Sharp.Tests.ExactIntervalsTests.Quotient_SignsOfOverflowAndUnderflow",
+  "geometry3Sharp.Tests.ExactIntervalsTests.Quotient_Ties_AndSubnormals",
+  "geometry3Sharp.Tests.ExactIntervalsTests.Sign_DecidesOnlyStrictIntervals",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.Degenerate_And_Invalid_AreRejected",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.Degrees_ATriangleSteeperThanTheAngle_IsRejected",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.Degrees_AgainstTheDoubleTangent",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.Degrees_S_IsAProvenLowerBoundOfTheTangent",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.Degrees_TanLowerBound_DomainAndCache",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.Degrees_TheBoundsPremises",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.IsSupportedBy_MatchesTheDefinition_Random",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.NonFinite_And_DegenerateSupport_AreRejected",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.RandomNearTheLimit_AgreesWithRationals",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.S_IsNeverSteeperThanTheSpec",
+  "geometry3Sharp.Tests.TerrainSlopeOracleTests.SlopeSpec_Edges"
+ ],
+ "tests_in_report": 47,
+ "mutated_files": {
+  "math/ExactIntervals.cs": "6028ce854e51726a350dbda3faaf1fd1d4457da07611af307ebe894ba70c28c5",
+  "math/ExactSlopePredicates.cs": "4be1225db5a5455fd6e575a8ddbf9dc43123e9a8f54daeba91c838b282d72596",
+  "mesh_ops/TerrainSlope.cs": "0f64af1876f00862450847b9531bbdc53b69c26989880b58c62721fa9f8c4e6d"
+ },
+ "test_files": {
+  "tests/geometry3Sharp.Tests/ExactIntervalsTests.cs": "5de2c1fae509df3362e1b8c0b1b24fdfe492e753be5f0598a23d0b15dbc51081",
+  "tests/geometry3Sharp.Tests/TerrainSlopeOracleTests.cs": "60d8e9c5e7f1aa34878f047a12db89b79a9a6a2855aa606c675e3256faece46d"
+ },
+ "estimated_saving": 0.566,
+ "weighted_by_duration": true
+}

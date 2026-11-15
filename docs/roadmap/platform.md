@@ -158,8 +158,8 @@ Part of the [roadmap](../ROADMAP.md).
   from a report, `apply` with the staleness guard), wired into `full()` of `run_stryker.sh`; a stale filter (changed config,
   mutated file, test file, or a new test file naming the filter's classes) falls back to the full filter. Owner
   2026-11-13: `--timeouts one` is the default; the scheduled run of every Sunday (UTC) is unfiltered and checks it. Open: making the filter
-  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (follow-up PR, once full master reports exist for
-  arrangement / boolean / planar / overlay).
+  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (filters for envelope-1..3 and terrain-arith are checked in since
+  2026-11-15; renewals and the shards without a current full master report are open).
 - **`Vector2d` / `Vector3d.IsFinite` (owner 2026-11-12):** corrected to a component-wise check (today it tests the sum
   of the components, which overflows to infinity for large finite components); the fix is in work (branch
   `fix/vector-isfinite-components`).

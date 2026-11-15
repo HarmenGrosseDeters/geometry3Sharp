@@ -138,6 +138,17 @@ therefore a repeat of an earlier result for unchanged code, not a new one; **the
 check of record** (code that the mutated files call, test helpers and data files without a test of their own, and test files linked from outside the test project are not in the guard: a change there can make a kept test stop killing a
 mutant that a dropped test still kills). Measured on the stored reports of 2026-11-09 to 12 (test times of the master
 full run of 2026-11-13, so the numbers are a proxy): see [docs/roadmap/platform.md](../../docs/roadmap/platform.md).
+**Checked-in filters** (`test-filters/`, made 2026-11-15 from the newest full master reports with `--durations` of the master
+full run of 2026-11-13, `--timeouts one`): envelope-1 (9 of 21 tests, estimated saving of the mutant runs 93 %), envelope-2
+(9 of 21, 85 %), envelope-3 (10 of 21, 52 %), terrain-arith (18 of 47, 57 %). Not made, and why: envelope-4 (8 %) and
+terrain-overlay (19 %) are below 20 %; terrain-kernel (85 %) is already stale (new test file `TerrainSlopeLocalFrameTests.cs`
+names its classes); rounding-1..8 (76-100 %) are stale (`MeshRoundingRepair.cs` changed since the reports of 2026-11-11);
+arrangement, planar and boolean have no full master report (boolean is another session's, see its shard PRs). A filter is
+current only while the mutated and test files of its shard are unchanged, so these files go stale with the next edit of such
+a file: then the full filter runs and says so in the job summary (`full: ...`), nothing is lost. To renew one, download
+`mutation-report-mesh-<shard>` from the Sunday run (the unfiltered one) and run `make` as above, one PR per renewal round. The
+nested-class names (`Outer+Inner.Method`) are the ones of the trx and of Stryker's report; if a filter ever matched no test,
+the shard would fail its threshold loudly, and the Sunday run would show it.
 `G3_TEST_FILTERS=<dir>` reads the filter files from another directory (default `test-filters/`). Tests:
 `python3 test_narrow_tests.py`.
 
