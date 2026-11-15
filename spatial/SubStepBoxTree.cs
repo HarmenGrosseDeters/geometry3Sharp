@@ -47,7 +47,7 @@ namespace g3
                 Array.Copy(whole, 6L * i, leaf, o, 6);
                 fill(i, leaf, (int)(o + 6));
             });
-            int cap = 2 * (n / (LeafSize / 2)) + 3;
+            int cap = capacity(n);
             node = new double[checked((long)cap * Stride)];
             nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
             if (n > 0)
@@ -72,14 +72,26 @@ namespace g3
                 }
         }
 
+        // the nodes of a tree of n primitives: halving splits leave at least LeafSize / 2 in every leaf but a root leaf
+        static int capacity(int n) { return 2 * (n / (LeafSize / 2)) + 3; }
+
+        /// <summary> the doubles the leaves and nodes of a tree of n primitives with k sub-steps take </summary>
+        public static long Doubles(long n, int k)
+        {
+            return (n + 2 * (n / (LeafSize / 2)) + 3) * 6 * (k + 1);
+        }
+
         /// <summary> the number of primitives </summary>
         public int Count { get { return order.Length; } }
 
-        const int Block = 1024;
+        // the items per block of the parallel build (fixed, so the blocks depend only on the input; tests set smaller
+        // values to build small trees in parallel)
+        internal static volatile int BuildBlock = 1024;
         static void for_blocks(int n, bool parallel, Action<int> f)
         {
-            int blocks = (n + Block - 1) / Block;
-            Action<int> block = b => { for (int i = b * Block; i < Math.Min(n, (b + 1) * Block); ++i) f(i); };
+            int size = BuildBlock;
+            int blocks = (n + size - 1) / size;
+            Action<int> block = b => { for (int i = b * size; i < Math.Min(n, (b + 1) * size); ++i) f(i); };
             if (parallel && blocks > 1)
                 gParallel.ForRange(blocks, block);
             else
@@ -150,14 +162,58 @@ namespace g3
                 }
                 codes[i] = code;
             }
+            sort(codes, ord);
+            // one far box (or a centre that is not finite) squeezes the others into a few cells (fewer than n / 4
+            // distinct codes): the coordinates as ranks instead, so that it only takes the last rank (as TriangleBoxTree)
+            int distinct = n > 0 ? 1 : 0;
+            for (int i = 1; i < n; ++i)
+                if (codes[i] != codes[i - 1]) distinct++;
+            if (4 * distinct < n) {
+                uint[][] r = { ranks(whole, n, 0), ranks(whole, n, 1), ranks(whole, n, 2) };
+                for (int i = 0; i < n; ++i) {
+                    ord[i] = i;
+                    codes[i] = spread(r[0][i]) << 2 | spread(r[1][i]) << 1 | spread(r[2][i]);
+                }
+                sort(codes, ord);
+            }
+            return ord;
+        }
+
+        // by code, ties by index
+        static void sort(long[] codes, int[] ord)
+        {
+            int n = codes.Length;
             Array.Sort(codes, ord);
             for (int s0 = 0, s1; s0 < n; s0 = s1) {
                 for (s1 = s0 + 1; s1 < n && codes[s1] == codes[s0]; ++s1) { }
                 if (s1 - s0 > 1)
                     Array.Sort(ord, s0, s1 - s0);
             }
-            return ord;
         }
+
+        // per primitive, the rank of its centre's coordinate on the axis among all centres (as Array.Sort orders doubles:
+        // NaN first; equal values one rank), scaled to 0 .. 2^21 - 1
+        static uint[] ranks(double[] whole, int n, int axis)
+        {
+            var c = new double[n];
+            var idx = new int[n];
+            for (int i = 0; i < n; ++i) {
+                c[i] = 0.5 * whole[6 * i + axis] + 0.5 * whole[6 * i + 3 + axis];
+                idx[i] = i;
+            }
+            Array.Sort(c, idx);
+            var rank = new uint[n];
+            int first = 0;
+            for (int k = 0; k < n; ++k) {
+                if (k > 0 && c[k].CompareTo(c[k - 1]) != 0)
+                    first = k;
+                rank[idx[k]] = (uint)((long)first * 2097151 / Math.Max(1, n - 1));
+            }
+            return rank;
+        }
+
+        /// <summary> tests: the primitive at each leaf position (the tree's order) </summary>
+        internal int[] Order { get { return order; } }
 
         // the 21 bits of v at every third bit position
         static long spread(uint v)

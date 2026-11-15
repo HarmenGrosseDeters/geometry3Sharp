@@ -152,12 +152,13 @@ of collecting the candidates (the tree searches and the filter; `CandidateSecond
 | rod-twist | 1 823 450 | 5.92 s | 5.76 s | 1.78 s | 1.81 s | 0.48 → 0.62 s |
 | puffer-ball | 24 953 688 | 46.8 s | 32.7 s | 19.1 s | 10.6 s | 27.0 → 10.8 s |
 
-Candidates, status, earliest time of impact and contacts are the same on both paths in every scene. Over the runs of
+The candidate count, status, earliest time of impact and number of contacts are the same on both paths in every scene
+(the CSV records these; the pairs themselves are compared by `SubStepTree_EqualsFilterOnWholeStepPairs`). Over the runs of
 this PR puffer-ball took 29.9-32.7 s serial and 10.6-10.9 s parallel with the tree, 46.6-46.8 s and 16.5-19.7 s on the
 old path (the container varies by about 15 %).
 
 - puffer-ball: the candidate search goes from 27.0 s to 10.8 s serial; the preparation from 1.2 s to 2.5 s serial (the
-  trees' sub-step boxes, 6 (k + 1) doubles per triangle and edge; about 0.6 GB at k = 4). What is left serial is the
+  trees' sub-step boxes, leaves and nodes about 1.5 * 6 (k + 1) doubles per triangle and edge; about 1 GB at k = 4). What is left serial is the
   narrow phase, about 18.4 s for the 25M pairs (0.74 µs per pair): the floor of the serial sweep, #940.
 - cloth-funnel (small motion, 18k triangles) is slower by 75 ms serial and 25 ms parallel: the sub-step tests per node
   cull little there. A size threshold does not separate it from armadillo-rollers (24k triangles, 0.8 s faster), so

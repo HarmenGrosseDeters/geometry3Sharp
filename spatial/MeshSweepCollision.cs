@@ -80,8 +80,8 @@ namespace g3
         // whether the trees are SubStepBoxTrees (the sub-step filter inside the traversal; within MaxTreeDoubles), else
         // TriangleBoxTrees with the filter applied to their pairs
         bool subTree;
-        // the most doubles the leaves of the SubStepBoxTrees may take together (6 (SubSteps + 1) per primitive; 2^27:
-        // 1 GB); above it the filter runs on the pairs of the whole-step trees, with the same candidates (tests set
+        // the most doubles the SubStepBoxTrees may take together (leaves and nodes, SubStepBoxTree.Doubles: about
+        // 1.5 * 6 (SubSteps + 1) per triangle and edge; 2^27: 1 GB); above it the filter runs on the pairs of the whole-step trees, with the same candidates (tests set
         // smaller values)
         internal long MaxTreeDoubles = 1L << 27;
         // tests: whether the last Compute used the SubStepBoxTrees
@@ -190,14 +190,23 @@ namespace g3
             var jobs = new List<Job>();
             long hullDoubles = ((long)meshA.MaxVertexID + (self ? 0 : meshB.MaxVertexID)) * 6 * (SubSteps + 1);
             subFilter = SubSteps > 1 && hullDoubles <= MaxHullDoubles;
-            long treeDoubles = ((long)meshB.TriangleCount + (self ? 0 : meshA.TriangleCount) + meshB.EdgeCount) * 6 * (SubSteps + 1);
+            long treeDoubles = SubStepBoxTree.Doubles(meshB.TriangleCount, SubSteps) + (self ? 0 : SubStepBoxTree.Doubles(meshA.TriangleCount, SubSteps))
+                               + SubStepBoxTree.Doubles(meshB.EdgeCount, SubSteps);
             subTree = subFilter && treeDoubles <= MaxTreeDoubles;
-            if (subFilter) {
-                hullsA = sub_hulls(meshA, endA, half, parallel);
-                hullsB = self ? hullsA : sub_hulls(meshB, endB, half, parallel);
+            Prepared triB, triA, edgB;
+            // (the hulls are released on every exit, also when a build throws, eg out of memory)
+            try {
+                if (subFilter) {
+                    hullsA = sub_hulls(meshA, endA, half, parallel);
+                    hullsB = self ? hullsA : sub_hulls(meshB, endB, half, parallel);
+                }
+                triB = triangles(meshB, endB, hullsB, half, parallel);
+                triA = self ? null : triangles(meshA, endA, hullsA, half, parallel);
+                edgB = edges(meshB, endB, hullsB, half, parallel);
+            } catch {
+                hullsA = hullsB = null;
+                throw;
             }
-            Prepared triB = triangles(meshB, endB, hullsB, half, parallel), triA = self ? null : triangles(meshA, endA, hullsA, half, parallel);
-            Prepared edgB = edges(meshB, endB, hullsB, half, parallel);
             int[] vertsA = ids(meshA.VertexIndices()), vertsB = self ? null : ids(meshB.VertexIndices());
             int[] edgesA = self ? null : ids(meshA.EdgeIndices());
             add_blocks(jobs, JobKind.VertexTriangle, true, vertsA.Length);

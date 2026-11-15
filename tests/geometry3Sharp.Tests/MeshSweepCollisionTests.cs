@@ -567,7 +567,7 @@ namespace geometry3Sharp.Tests
             // a clear miss stays a miss
             Assert.Equal(MeshSweepStatus.NoCollision, approach(0.2, null, s.Apply).Compute());
         }
-            // #866: the sweep with the SubStepBoxTrees gives bit for bit the result of the sub-step filter on the pairs of the
+        // #866: the sweep with the SubStepBoxTrees gives bit for bit the result of the sub-step filter on the pairs of the
         // whole-step trees (MaxTreeDoubles below the trees' size, the earlier path): the same candidates, results, times,
         // status and contacts, for A against B (also one mesh against itself with other end positions) and the self
         // sweep, small and default jobs, with and without CollectAll and a minimum separation; the budget boundary
@@ -621,10 +621,12 @@ namespace geometry3Sharp.Tests
                             Assert.Equal(old.EarliestNearContactTime, tree.EarliestNearContactTime);
                             Assert.Equal(old.Contacts, tree.Contacts);
                         }
-                // the budget: the trees' leaves take 6 (k + 1) doubles per triangle and edge (both meshes' triangles,
-                // B's edges); at the budget the tree, one below the filter on the whole-step pairs, with equal results
+                // the budget: the trees' leaves and nodes (SubStepBoxTree.Doubles) of both meshes' triangles and B's
+                // edges; at the budget the tree, one below the filter on the whole-step pairs, with equal results
                 DMesh3 tm = mode == 1 ? m : a, tb = mode == 1 ? m : mode == 2 ? a : b;
-                long need = ((long)tb.TriangleCount + (mode == 1 ? 0 : tm.TriangleCount) + tb.EdgeCount) * 6 * 5;
+                long need = SubStepBoxTree.Doubles(tb.TriangleCount, 4) + (mode == 1 ? 0 : SubStepBoxTree.Doubles(tm.TriangleCount, 4))
+                            + SubStepBoxTree.Doubles(tb.EdgeCount, 4);
+                Assert.True(need > 1.4 * ((long)tb.TriangleCount + (mode == 1 ? 0 : tm.TriangleCount) + tb.EdgeCount) * 30, "the nodes are counted");
                 var atBudget = make(4, true, need, false);
                 var below = make(4, true, need - 1, false);
                 Assert.True(atBudget.UsedSubStepTree);
@@ -671,7 +673,7 @@ namespace geometry3Sharp.Tests
         // #866: SubStepBoxTree against brute force on random boxes of a coarse grid (many touching faces: the boxes are
         // closed): Query gives the boxes whose whole-step box and some sub-step box overlap the query's, once each; the
         // SelfPairTasks and SelfPairs give every such pair of different boxes exactly once, for any number of tasks;
-        // parallel and serial builds give the same output
+        // parallel builds (small build blocks) give the output of the serial build, in the same order
         [Theory]
         [InlineData(1)]
         [InlineData(3)]
@@ -709,8 +711,18 @@ namespace geometry3Sharp.Tests
                         if (overlap(x, xo + 6 * s, y, yo + 6 * s)) return true;
                     return false;
                 }
+                List<int> serialQueries = null;
+                List<(int, int)> serialPairs = null;
                 foreach (bool parallel in new[] { false, true }) {
-                    var tree = new SubStepBoxTree(whole, n, k, (i, dst, o) => Array.Copy(boxes, i * stride + 6, dst, o, 6 * k), parallel);
+                    SubStepBoxTree tree;
+                    int block = SubStepBoxTree.BuildBlock;
+                    SubStepBoxTree.BuildBlock = parallel ? 3 : block;
+                    try {
+                        tree = new SubStepBoxTree(whole, n, k, (i, dst, o) => Array.Copy(boxes, i * stride + 6, dst, o, 6 * k), parallel);
+                    } finally { SubStepBoxTree.BuildBlock = block; }
+                    var queries = new List<int>();
+                    var pairsInOrder = new List<(int, int)>();
+                    var qrnd = new Random(7);
                     Assert.Equal(n, tree.Count);
                     Assert.Equal(stride, tree.Stride);
                     int[] stack = null;
@@ -719,11 +731,13 @@ namespace geometry3Sharp.Tests
                         var q = new double[stride];
                         for (int s = 0; s <= k; ++s)
                             for (int c = 0; c < 3; ++c) {
-                                double lo = rnd.Next(12), hi = lo + rnd.Next(5);
+                                double lo = qrnd.Next(12), hi = lo + qrnd.Next(5);
                                 q[6 * s + c] = lo; q[6 * s + 3 + c] = hi;
                             }
                         var got = new List<int>();
                         tree.Query(q, got, ref stack, ref masks);
+                        queries.AddRange(got);
+                        queries.Add(-1);
                         var want = Enumerable.Range(0, n).Where(i => pair(boxes, i * stride, q, 0)).ToList();
                         Assert.Equal(want, got.OrderBy(i => i).ToList());
                     }
@@ -740,8 +754,52 @@ namespace geometry3Sharp.Tests
                             foreach (Index2i p in buf) got.Add((Math.Min(p.a, p.b), Math.Max(p.a, p.b)));
                         }
                         Assert.Equal(wantPairs, got.OrderBy(p => p).ToList());
+                        pairsInOrder.AddRange(got);
+                    }
+                    if (parallel) {
+                        Assert.Equal(serialQueries, queries);
+                        Assert.Equal(serialPairs, pairsInOrder);
+                    } else {
+                        serialQueries = queries;
+                        serialPairs = pairsInOrder;
                     }
                 }
+            }
+        }
+    
+        // #866 review: one far primitive (or an infinite box) does not squeeze the others into one Morton cell: the order
+        // stays spatial (the coordinates as ranks), so neighbours in the order are close; the results stay those of
+        // brute force
+        [Fact]
+        public void SubStepBoxTree_OutlierKeepsTheOrderSpatial()
+        {
+            var rnd = new Random(5);
+            int g = 16, n = g * g * g + 1;
+            var cells = Enumerable.Range(0, n - 1).OrderBy(i => rnd.Next()).ToArray();
+            foreach (double far in new[] { 1e300, double.PositiveInfinity }) {
+                var whole = new double[6 * n];
+                for (int i = 0; i < n - 1; ++i) {
+                    int c = cells[i];
+                    double x = c % g, y = c / g % g, z = c / (g * g);
+                    double[] b = { x, y, z, x + 0.5, y + 0.5, z + 0.5 };
+                    Array.Copy(b, 0, whole, 6 * i, 6);
+                }
+                double[] o = { far, far, far, double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity };
+                Array.Copy(o, 0, whole, 6 * (n - 1), 6);
+                var tree = new SubStepBoxTree(whole, n, 1, (i, dst, at) => Array.Copy(whole, 6 * i, dst, at, 6), false);
+                int[] ord = tree.Order;
+                double step = 0;
+                for (int i = 1; i < n - 1; ++i) {
+                    int p = ord[i - 1], q = ord[i];
+                    if (p == n - 1 || q == n - 1) continue;
+                    step += Math.Abs(whole[6 * p] - whole[6 * q]) + Math.Abs(whole[6 * p + 1] - whole[6 * q + 1]) + Math.Abs(whole[6 * p + 2] - whole[6 * q + 2]);
+                }
+                // (a Morton order of the grid moves about 1.7 cells per step; the shuffled index order about 16)
+                Assert.True(step / (n - 2) < 3, $"far {far}: mean step {step / (n - 2)}");
+                var got = new List<Index2i>();
+                foreach (Index2i t in tree.SelfPairTasks(16)) tree.SelfPairs(t, got);
+                // the grid boxes are apart (0.5 gaps), the outlier overlaps none of them in x (it starts at far)
+                Assert.Empty(got);
             }
         }
     }
