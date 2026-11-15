@@ -690,7 +690,7 @@ namespace geometry3Sharp.Tests
             // and truly parallel ones do not cross
             Assert.Equal(-1, K.Crossing(l1, K.PointLine(new Vector2d(0, 1), new Vector2d(1, 2))));
         }
-    
+
         // survivors of the terrain-kernel shard (mutation run 535, 2026-11-14)
 
         // the crossing of two lines is one vertex, in either order of the lines (the cache key orders the pair)
@@ -705,8 +705,7 @@ namespace geometry3Sharp.Tests
             Assert.True(k.IsAt(v, new Vector2d(1.0 / 3, 0)) == false);    // (1/3 is not a double: the exact crossing is not at it)
         }
 
-        // two crossings with the same rounded x but different exact x: CompareXY orders them by the exact values (on a
-        // fresh kernel, where no other predicate has made the vertices exact before)
+        // two crossings with the same rounded x but different exact x: CompareXY orders them by the exact values
         [Fact]
         public void CompareXY_SameRoundedX_UsesTheExactValues()
         {

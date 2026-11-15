@@ -427,10 +427,11 @@ namespace geometry3Sharp.Tests
             Assert.True(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, 0)));
             Assert.False(Slope.IsPlaneOnOrBelow(a, c, b, new Vector3d(3, 3, -1e-300)));
         }
-    
+
         // survivors of the terrain-arith shard (mutation run 535, 2026-11-14)
 
-        // 90 degrees is not a valid slope (the tangent is not finite); just below is
+        // 90 degrees is rejected (the explicit < 90 check, with a NaN tangent bound as backup); just below is valid. The
+        // 89.9 case is the one that kills mutants of the check; a < to <= mutant is equivalent (the NaN bound rejects 90)
         [Fact]
         public void Degrees90_IsNotValid()
         {

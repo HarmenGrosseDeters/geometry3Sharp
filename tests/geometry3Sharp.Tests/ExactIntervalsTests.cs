@@ -170,7 +170,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, ExactDyadic.Quotient(ExactDyadic.Of(-1), ExactDyadic.Of(-4)));
             Assert.Throws<DivideByZeroException>(() => ExactDyadic.Quotient(ExactDyadic.Of(1), ExactDyadic.Zero));
         }
-    
+
         // survivors of the terrain-arith shard (mutation run 535, 2026-11-14)
 
         // a NaN in only one bound (infinity minus infinity at the low end) gives the whole line, not a NaN bound
