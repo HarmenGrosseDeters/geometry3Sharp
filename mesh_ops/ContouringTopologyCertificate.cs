@@ -732,7 +732,6 @@ namespace g3
         /// </summary>
         public bool Block(IList<Vector3i> cells, int s)
         {
-            ensure_tables();
             int n = cells.Count;
             var index = new Dictionary<Vector3i, int>(n);
             for (int i = 0; i < n; ++i) index[cells[i]] = i;
@@ -742,7 +741,7 @@ namespace g3
             var Tc = new List<int>[n];
             long chi = 0;
             var insideFaceT = new Dictionary<GridFace, List<int>>();
-            cellM_ = new HashSet<int>[n];
+            var cellM_ = new HashSet<int>[n];
             var edgeCount = new Dictionary<GridSegment, List<int>>();
             for (int i = 0; i < n; ++i) {
                 Vector3i min = cells[i];
@@ -859,7 +858,6 @@ namespace g3
                 }
             return chi == components;
         }
-        HashSet<int>[] cellM_ = new HashSet<int>[0];
 
         // T(f) and M(f) of a face (the triangles of the mesh edges crossing it and those crossing its edges); false on
         // any degeneracy of the face or its edges ((G): a mesh edge meeting it otherwise than by crossing its interior,
@@ -1089,24 +1087,24 @@ namespace g3
                 if (!link_disk_or_sphere(mask)) return false;
             }
             // boundary faces (a cube of the union on one side only), connected through their edges
-            var faces = new List<KeyValuePair<int, Vector3i>>();
+            // (keys as value tuples: KeyValuePair has no hash of its own, a dictionary of them is quadratic)
+            var faces = new List<(int, Vector3i)>();
             foreach (var c in set)
                 for (int a = 0; a < 3; ++a)
                     for (int side = 0; side < 2; ++side) {
                         var nb = c; nb[a] += side == 0 ? -1 : 1;
                         if (set.Contains(nb)) continue;
                         var m = c; m[a] += side;
-                        faces.Add(new KeyValuePair<int, Vector3i>(a, m));
+                        faces.Add((a, m));
                     }
-            var owner = new Dictionary<KeyValuePair<int, Vector3i>, int>();
+            var owner = new Dictionary<(int, Vector3i), int>();
             var par = new int[faces.Count];
             for (int i = 0; i < par.Length; ++i) par[i] = i;
             for (int i = 0; i < faces.Count; ++i) {
-                int a = faces[i].Key, u = (a + 1) % 3, w = (a + 2) % 3;
-                Vector3i m = faces[i].Value, du = Vector3i.Zero, dw = Vector3i.Zero;
+                int a = faces[i].Item1, u = (a + 1) % 3, w = (a + 2) % 3;
+                Vector3i m = faces[i].Item2, du = Vector3i.Zero, dw = Vector3i.Zero;
                 du[u] = 1; dw[w] = 1;
-                var es = new[] { new KeyValuePair<int, Vector3i>(u, m), new KeyValuePair<int, Vector3i>(u, m + dw),
-                                 new KeyValuePair<int, Vector3i>(w, m), new KeyValuePair<int, Vector3i>(w, m + du) };
+                var es = new[] { (u, m), (u, m + dw), (w, m), (w, m + du) };
                 foreach (var e in es) {
                     int j;
                     if (owner.TryGetValue(e, out j)) uf_union(par, i, j); else owner[e] = i;

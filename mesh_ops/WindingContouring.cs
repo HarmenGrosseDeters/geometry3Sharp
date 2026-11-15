@@ -211,6 +211,7 @@ namespace gs
         // keeps every cell, face and edge in place (Theorem 1b).
         void certify(DualContouring dc)
         {
+            CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
             UncertifiedCells = new List<ContouringUncertifiedCell>();
             CertificateStatus = ContouringCertificateStatus.NotSupported;
             if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
@@ -329,7 +330,7 @@ namespace gs
                             if (d.ContainsKey(q) && seen.Add(q)) stack.Push(q);
                         }
                     }
-                    if (!block_candidate(dc, cluster, sz, B, d, meshSide)) continue;
+                    if (!block_candidate(dc.IsRefinedCell, cluster, sz, B, meshSide)) continue;
                     var keys = new HashSet<Vector3i>(cluster);
                     if (!ContouringTopologyCertificate.IsBall(keys)) continue;
                     cluster.Sort((a, b) => a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
@@ -353,17 +354,21 @@ namespace gs
         /// a difference throws. PatchCellsChecked / AmbiguousCellsChecked count the cells compared.
         /// </summary>
         [ThreadStatic] internal static bool CheckPatchesForTests;
-        [ThreadStatic] internal static int PatchCellsChecked, AmbiguousCellsChecked;
+        [ThreadStatic] internal static int PatchCellsChecked, AmbiguousCellsChecked, CoarsePatchCellsChecked;
         static void check_patches(DualContouring dc, CertificateGrid grid)
         {
             int B = grid.BinSize;
+            var none = new HashSet<(Vector3i, int)>();
             foreach (var kv in dc.CellVertexCountsForTests()) {
                 Vector3i min = kv.Key.Item1; int sz = kv.Key.Item2;
-                if (B > 1) continue;     // (uniform grids only: transitions are not what the block test reads)
+                // (the cells a block may hold: one size, no refinement transition in or next to them)
+                var key = new List<Vector3i> { new Vector3i(fdiv(min.x, sz), fdiv(min.y, sz), fdiv(min.z, sz)) };
+                if (!block_candidate(dc.IsRefinedCell, key, sz, B, none)) continue;
                 bool ambiguous;
                 int p = ContouringTopologyCertificate.CellPatchCount(grid, min, sz, out ambiguous);
                 if (p != kv.Value) throw new InvalidOperationException("patches " + p + " != cell vertices " + kv.Value + " at " + min);
                 PatchCellsChecked++;
+                if (B > 1) CoarsePatchCellsChecked++;
                 if (ambiguous) AmbiguousCellsChecked++;
             }
         }
@@ -372,7 +377,7 @@ namespace gs
 
         // the cluster (lattice keys of cells of size sz) and its neighbours lie on one lattice of that size, and no cell of it
         // is refused by the mesh side
-        internal static bool block_candidate(DualContouring dc, List<Vector3i> cluster, int sz, int B, Dictionary<Vector3i, int> d,
+        internal static bool block_candidate(Func<Vector3i, bool> isRefinedBin, List<Vector3i> cluster, int sz, int B,
             HashSet<(Vector3i, int)> meshSide)
         {
             foreach (Vector3i c in cluster) {
@@ -381,7 +386,7 @@ namespace gs
                 for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
                     Vector3i m = sz * new Vector3i(c.x + dx, c.y + dy, c.z + dz);
                     Vector3i bin = new Vector3i(fdiv(m.x, B), fdiv(m.y, B), fdiv(m.z, B));
-                    bool refinedBin = dc.IsRefinedCell(bin);
+                    bool refinedBin = isRefinedBin(bin);
                     if (sz == B ? refinedBin : !refinedBin) return false;
                     if (sz != B && sz != 1) return false;
                 }

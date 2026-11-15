@@ -194,7 +194,7 @@ namespace geometry3Sharp.Tests
             // the patches the block test reads from the pattern are the cell vertices DualContouring makes, cell by cell
             // (an oracle for the face rule: ambiguous faces must be among the cells compared)
             WindingContouring.CheckPatchesForTests = true;
-            WindingContouring.PatchCellsChecked = WindingContouring.AmbiguousCellsChecked = 0;
+            WindingContouring.PatchCellsChecked = WindingContouring.AmbiguousCellsChecked = WindingContouring.CoarsePatchCellsChecked = 0;
             try {
                 const double cell = 0.06;
                 Vector3d c = new Vector3d(0.0123, 0.0217, 0.0311);
@@ -202,7 +202,11 @@ namespace geometry3Sharp.Tests
                 foreach (DMesh3 m in new[] { Torus(c, 0.6, 0.4 * cell, 96, 8, Tilt), Torus(c, 0.6, 0.55 * cell, 96, 8, Tilt),
                     Union(Sphere(c - new Vector3d(0.465, 0, 0), 0.45, 24), Sphere(c + new Vector3d(0.465, 0, 0), 0.45, 24)) })
                     Solidify(m, 0, true, 0, cell);
+                // and a two-level grid (slabs with a hidden gap, refined around it): coarse and fine cells away from transitions
+                MeshWindingNumberSolidify r = Solidify(Union(PolyCube(4, 4, 1, (x, y, z) => true, 0.25, P0), PolyCube(4, 4, 1, (x, y, z) => true, 0.25, P0 + new Vector3d(0.0031, 0.0047, 0.2617))), 40, true);
+                Assert.True(r.RefineFactor > 1);
             } finally { WindingContouring.CheckPatchesForTests = false; }
+            Assert.True(WindingContouring.CoarsePatchCellsChecked > 100, "on the two-level grid " + WindingContouring.CoarsePatchCellsChecked);
             Assert.True(WindingContouring.PatchCellsChecked > 1000, "checked " + WindingContouring.PatchCellsChecked);
             Assert.True(WindingContouring.AmbiguousCellsChecked > 0, "ambiguous " + WindingContouring.AmbiguousCellsChecked + " of " + WindingContouring.PatchCellsChecked);
         }
@@ -266,8 +270,32 @@ namespace geometry3Sharp.Tests
             // a cluster with a cell the mesh side refused is not a block (the contour side reads Theorem 2's patches)
             var cluster = new List<Vector3i> { new Vector3i(3, 4, 5), new Vector3i(4, 4, 5) };
             var d = new Dictionary<Vector3i, int> { { cluster[0], 0 }, { cluster[1], 1 } };
-            Assert.True(WindingContouring.block_candidate(null, cluster, 1, 1, d, new HashSet<(Vector3i, int)>()));
-            Assert.False(WindingContouring.block_candidate(null, cluster, 1, 1, d, new HashSet<(Vector3i, int)> { (new Vector3i(4, 4, 5), 1) }));
+            Assert.True(WindingContouring.block_candidate(null, cluster, 1, 1, new HashSet<(Vector3i, int)>()));
+            Assert.False(WindingContouring.block_candidate(null, cluster, 1, 1, new HashSet<(Vector3i, int)> { (new Vector3i(4, 4, 5), 1) }));
+        }
+
+        [Fact]
+        public void BlockCandidate_TwoLevelGrid_OneLatticeOnly()
+        {
+            // bins of 4 fine cells; refined bins x >= 10. A coarse cluster needs unrefined bins all around it, a fine cluster
+            // refined ones; cells of other sizes are never blocks
+            const int B = 4;
+            Func<Vector3i, bool> refined = bin => bin.x >= 10;
+            var none = new HashSet<(Vector3i, int)>();
+            Assert.True(WindingContouring.block_candidate(refined, new List<Vector3i> { new Vector3i(5, 5, 5) }, B, B, none));
+            Assert.False(WindingContouring.block_candidate(refined, new List<Vector3i> { new Vector3i(9, 5, 5) }, B, B, none));      // a refined bin next to it
+            Assert.True(WindingContouring.block_candidate(refined, new List<Vector3i> { new Vector3i(4 * 12, 21, 21) }, 1, B, none));  // fine, inside refined bins
+            Assert.False(WindingContouring.block_candidate(refined, new List<Vector3i> { new Vector3i(4 * 10, 21, 21) }, 1, B, none)); // fine, next to an unrefined bin
+            Assert.False(WindingContouring.block_candidate(refined, new List<Vector3i> { new Vector3i(5, 5, 5) }, 2, B, none));
+        }
+
+        [Fact]
+        public void IsBall_LargeCluster_IsFast()
+        {
+            // a flat layer of 60 x 60 cells (a refused region along a face in a grid plane): linear, not quadratic in its faces
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Assert.True(ContouringTopologyCertificate.IsBall(Cells(0, 59, 0, 59, 0, 0)));
+            Assert.True(sw.ElapsedMilliseconds < 2000, sw.ElapsedMilliseconds + " ms");
         }
 
         // ---- end to end ----
@@ -341,8 +369,9 @@ namespace geometry3Sharp.Tests
                 if (got != truth) {
                     wrong++;
                     Assert.False(s.ContourTopologyCertified, name + ": certified, but " + got + " != " + truth);
+                    Assert.NotEmpty(s.UncertifiedCells);
+                    tried += s.CertificateBlocksTried;      // (blocks tried in the wrong runs themselves)
                 }
-                tried += s.CertificateBlocksTried;
             }
             Assert.True(wrong >= 3, "too few wrong results: " + wrong);
             Assert.True(tried > 0);
@@ -357,10 +386,23 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void WhollyInsideOutInput_IsNotCertified()
+        {
+            // a polycube with its normals inward: winding number -1 inside, the input's level set at 1/2 is empty; the contour
+            // (of the flipped copy) is the box, so nothing may be certified
+            DMesh3 m = ContouringTopologyCertificateTests.Reversed(PolyCube(3, 3, 2, (x, y, z) => true, 0.25, P0));
+            MeshWindingNumberSolidify s = Solidify(m, 40, true);
+            Assert.False(s.ContourTopologyCertified);
+            Assert.Equal(ContouringCertificateStatus.CellsUncertified, s.TopologyCertificateStatus);
+        }
+
+        [Fact]
         public void Invariance_Similarities()
         {
             // the 2^k scales: the same status, blocks and cells, bit for bit; the others: certified implies the right topology
-            foreach (var (name, m, res) in Tilted()) {
+            // (at / 24, where all three are certified with blocks: 3, 3 and 2 of them)
+            foreach (var (name, m, r32) in Tilted()) {
+                const int res = 24;
                 MeshWindingNumberSolidify b = Solidify(m, res, true);
                 string truth = WindingContouringCertificateTests.Truth(m);
                 foreach (Similarity sim in Similarity.All()) {

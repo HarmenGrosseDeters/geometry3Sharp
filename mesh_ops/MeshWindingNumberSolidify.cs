@@ -109,7 +109,9 @@ namespace gs
         /// identical coordinates) and the adaptive dual contouring (Adaptive, Methods.DualContouring), exact tests per grid
         /// cell that the level set of the input's winding number (its components across which the winding number steps
         /// from 0 to 1) and the contour cross the cell in the same way. TopologyCertified and UncertifiedCells report the
-        /// result. Off by default; it does not change the contour or the result.
+        /// result. Off by default; it does not change the contour or the result. The reference is the input as given: an
+        /// inside-out part (winding number -1 inside) is not on the level set, although the contouring makes it solid, so an
+        /// input with inside-out parts (or wholly inside out) is not certified where they are.
         /// </summary>
         public bool ComputeTopologyCertificate = false;
         /// <summary> (tests) the certificate's cell tests in parallel (the same result as serial, bit for bit) </summary>
