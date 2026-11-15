@@ -287,10 +287,16 @@ Open, gated or outside the domain (none has a procedural reproduction inside the
     removes it for 8 000 swept cases.
   - **#855** (the 27 `timeout-*`; one replayed): `Compute()` with `MaxError = 0` and a height of -2.87e-223 never ends and dies with out of memory
     (the default `MaxVertices` is `int.MaxValue`).
+- **`terrain-tin`, second run on the fixed library** (#889 and #890 merged, 30 minutes): the class of #854 and #855 is gone; the artifacts left (19 at the time of writing) were all one class,
+  `RemoveVertices` with a nonzero height or origin below 2^-200 (1e-171, 1e-241, 1e-286) beside heights of order 1: the squared error of an ear underflows in one of the two copies, so the
+  2^40 copy chooses another ear. That is outside the range of QA.md 2.5a, so it is a domain of the scale claim now (nonzero values of the grid, origin, cell and MaxError between 2^-200 and
+  2^150; every other claim is judged always). All 19 pass after the change.
 - **`mesh-cut`**: stopped by the session limit after about 50 minutes, 105 artifacts: 47 "the area changed", 12 `update_from_split: unsortable vertex?`, most
   with a dynamic range of 1e-130 and below inside the case (outside the range). The in-range class is a cut mesh that touches the target (vertices exactly on a
   face plane): **#856** (the same case at 2^108 .. 2^120 gives 14, 14, ... , an exception at 2^113, then 20 triangles; no contact gives 12 at every scale).
-  The class is in the target's domain, so the target keeps reporting it until `MeshMeshCut` handles touching input or the domain excludes contact (owner).
+  Decided by the owner (#856, merged as #867): contact is refused on request. The target now runs `MeshMeshCut` with `RefuseContact = true` and accepts
+  `ContactDetected` (checked: the same status in both runs, the target unchanged), judging only the transversal cuts. Replay of the 105 artifacts against it:
+  83 pass; the 22 left have a dynamic range of 1e-138 and below inside the case, or subnormal coordinates (below the range of QA.md 2.5a). 9 000 random inputs: no finding.
 - **`insert-polygon`** (30 minutes): 1 947 artifacts, **untriaged** (triage is a separate step). 120 sampled: 71 "the interior triangles cover X, the polygon Y",
   25 `find_cut_paths: how did this possibly happen?!?`, 9 `ArgumentOutOfRangeException` (index), 9 "triangles are selected or not against the centroid
   test", 2 `ConvexHull2: vertex is not finite`, 1 area change. Of 400 classified by the ratio of the smallest to the largest nonzero coordinate, most are far outside the

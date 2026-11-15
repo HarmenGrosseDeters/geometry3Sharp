@@ -831,6 +831,7 @@ public static partial class Program
         ExpectFinding("a TIN that depends on the run", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 0, 0, 1e-9, ShiftedBy(cube, 1), ScaledBy(cube, 2), 2), "two runs");
         ExpectFinding("a TIN that is not scale free", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 0, 0, 1e-9, cube, ShiftedBy(cube, 1), 2), "scaled TIN");
         CheckTerrain("t", true, cube, 0.5, 0.1, true, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2);
+        CheckTerrain("t", true, cube, 0.5, 0.1, true, 1, 0, 0.5, 1e-9, cube, ShiftedBy(cube, 1), 2, judgeScale: false);       // out of the range of the scale claim: not judged
         CheckTerrain("t", true, cube, 0.05, 0.1, false, 1, 0, 0.05, 1e-9, cube, ScaledBy(cube, 2), 2);
         ExpectFinding("a cut mesh with a vertex that is not finite", () => CheckMeshCut("t", true, false, 12, 20, 6, 6, true), "finite");
         ExpectFinding("an invalid cut mesh", () => CheckMeshCut("t", false, true, 12, 20, 6, 6, true), "valid");
@@ -838,6 +839,10 @@ public static partial class Program
         ExpectFinding("a cut mesh with another area", () => CheckMeshCut("t", true, true, 12, 20, 6, 5, true), "area");
         ExpectFinding("a cut that depends on the run", () => CheckMeshCut("t", true, true, 12, 20, 6, 6, false), "two runs");
         CheckMeshCut("t", true, true, 12, 20, 6, 6 * (1 + 1e-6), true);
+        ExpectFinding("a refusal of contact that changed the target", () => CheckMeshCutRefusal("t", true, true, false), "refused");
+        ExpectFinding("a refusal that differs between two runs", () => CheckMeshCutRefusal("t", true, false, true), "differs");
+        CheckMeshCutRefusal("t", true, true, true);
+        CheckMeshCutRefusal("t", false, false, false);
         ExpectFinding("an invalid mesh after Insert()", () => CheckInsertPolygon("t", false, 4, 4, 1, 1, 0), "valid");
         ExpectFinding("another area after Insert()", () => CheckInsertPolygon("t", true, 4, 3, 1, 1, 0), "area changed");
         ExpectFinding("interior triangles that do not cover the polygon", () => CheckInsertPolygon("t", true, 4, 4, 0.5, 1, 0), "interior");

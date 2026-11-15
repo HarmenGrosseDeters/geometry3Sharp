@@ -122,7 +122,7 @@ public static partial class Program
     /// the vertex limit stopped the insertion, and a second run and the run on the copy scaled by 2^40 give the same TIN bit for bit
     /// </summary>
     public static void CheckTerrain(string what, bool ok, DMesh3? result, double achieved, double maxError, bool vertexLimited, double areaRatio,
-        int clockwiseTriangles, double recomputedError, double tolerance, DMesh3? again, DMesh3? scaled, double scale)
+        int clockwiseTriangles, double recomputedError, double tolerance, DMesh3? again, DMesh3? scaled, double scale, bool judgeScale = true)
     {
         if (!ok || result == null)
             throw new Finding($"{what}: Compute() is false for a valid grid");
@@ -140,7 +140,7 @@ public static partial class Program
             throw new Finding($"{what}: AchievedError {achieved} is above MaxError {maxError}");
         if (again == null || !SameMesh(result, again, 1))
             throw new Finding($"{what}: two runs give different TINs");
-        if (scaled == null || !SameMesh(result, scaled, 1 / scale))
+        if (judgeScale && (scaled == null || !SameMesh(result, scaled, 1 / scale)))
             throw new Finding($"{what}: the 2^40 scaled run is not the scaled TIN");
     }
 
@@ -174,6 +174,10 @@ public static partial class Program
             ok = g.Compute();
             return g;
         }
+        // the scale claim holds for nonzero values between 2^-200 and 2^150 (QA.md 2.5a; the copy is 2^40 larger): a height of 1e-171 beside heights of 1 has a
+        // squared error that underflows in one of the two copies, so the ear choice of the removal differs (FINDINGS.md, third wave); the other claims are judged always
+        bool InRange(double v) => v == 0 || (Math.Abs(v) >= Pow2(-200) && Math.Abs(v) <= Pow2(150));
+        bool judgeScale = z.All(InRange) && InRange(x0) && InRange(y0) && InRange(cell) && InRange(maxError);
         TerrainGreedyTIN first = Gen(1, out bool ok1);
         TerrainGreedyTIN second = Gen(1, out _);
         double scale = Pow2(40);
@@ -206,7 +210,7 @@ public static partial class Program
                     recomputed = Math.Max(recomputed, best == double.MaxValue ? 0 : best);
                 }
         }
-        CheckTerrain(what, ok1, first.Result, first.AchievedError, maxError, limited, areaRatio, clockwise, recomputed, 1e-9 * Math.Max(diag, 1), second.Result, big.Result, scale);
+        CheckTerrain(what, ok1, first.Result, first.AchievedError, maxError, limited, areaRatio, clockwise, recomputed, 1e-9 * Math.Max(diag, 1), second.Result, big.Result, scale, judgeScale);
     }
 
     // ---- MeshMeshCut ----
@@ -248,20 +252,40 @@ public static partial class Program
             return;
         if (!(db >= Pow2(-16) && db <= Pow2(20)))
             return;
+        // the supported path is the opt-in refusal of contact (issue 856): a cut mesh that touches the target is refused with ContactDetected and the
+        // target unchanged; only the transversal cuts are judged (the default path, upstream's, is not robust on contact, QA.md 2.5a)
+        MeshMeshCut.CutStatus lastStatus = MeshMeshCut.CutStatus.Ok;
         DMesh3 Cut(out DMesh3 target)
         {
             target = new DMesh3(s.Norm);
-            new MeshMeshCut() { Target = target, CutMesh = cut }.Compute();
+            var op = new MeshMeshCut() { Target = target, CutMesh = cut, RefuseContact = true };
+            op.Compute();
+            lastStatus = op.Status;
             return target;
         }
         DMesh3 first, second;
+        MeshMeshCut.CutStatus status1, status2;
         try {
             first = Cut(out _);
+            status1 = lastStatus;
             second = Cut(out _);
+            status2 = lastStatus;
         } catch (Exception e) when (e.Message.Contains("find_intersections: found quantity 0") && Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") != "1") {
             return;     // the known class (FINDINGS.md): DMeshAABBTree3.find_intersections throws for an intersection of quantity 0 (coplanar triangles)
         }
+        CheckMeshCutRefusal(what, status1 == MeshMeshCut.CutStatus.ContactDetected, status2 == MeshMeshCut.CutStatus.ContactDetected, SameMesh(first, s.Norm, 1));
+        if (status1 == MeshMeshCut.CutStatus.ContactDetected)
+            return;     // refused: the contact class, not judged further
         CheckMeshCut(what, first.CheckValidity(true, FailMode.ReturnOnly), AllFinite(first), s.Norm.TriangleCount, first.TriangleCount, TotalArea(s.Norm), TotalArea(first), SameMesh(first, second, 1));
+    }
+
+    /// <summary> the refusal of contact (MeshMeshCut.RefuseContact): the same status in both runs, and a refused target is unchanged </summary>
+    public static void CheckMeshCutRefusal(string what, bool refused1, bool refused2, bool targetUnchanged)
+    {
+        if (refused1 != refused2)
+            throw new Finding($"{what}: the refusal of contact differs between two runs");
+        if (refused1 && !targetUnchanged)
+            throw new Finding($"{what}: the cut was refused (ContactDetected) but the target was changed");
     }
 
     // ---- MeshInsertPolygon ----

@@ -96,7 +96,7 @@ the four raw bytes after the queries, as for the second wave. `Targets3.cs`.
   vertex limit from the bytes). `Compute()` is true; the TIN is valid and finite, counter-clockwise in xy, its triangles tile the
   rectangle (areas add up to 1e-9), every grid node is within `AchievedError` of the TIN (recomputed), `AchievedError` is at most
   `MaxError` unless the vertex limit stopped it, and a second run and the 2^40 copy give the same TIN bit for bit.
-- `mesh-cut`: `MeshMeshCut` of A by B (B scaled with A). `Compute()` does not throw; the cut mesh is finite, valid, has not lost a triangle,
+- `mesh-cut`: `MeshMeshCut` of A by B (B scaled with A), run with `RefuseContact = true` (a refused cut, `ContactDetected`, must leave the target unchanged and be the same in two runs; only the transversal cuts are judged further). `Compute()` does not throw; the cut mesh is finite, valid, has not lost a triangle,
   covers the same area (1e-4) and a second run gives the same mesh.
 - `insert-polygon`: `MeshInsertPolygon` of the convex hull of A's xy (halved about its centre, with a hole from B's hull when it fits with room)
   into a grid mesh over A's box. When `Insert()` is true the mesh is valid, covers the same area, `InteriorTriangles` cover the polygon's
