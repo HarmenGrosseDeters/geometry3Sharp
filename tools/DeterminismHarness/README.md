@@ -51,3 +51,28 @@ beyond 2^53 (ties, near-ties, sticky bits beyond the top 64 bits, the overflow b
 runtime follows: truncation toward zero on .NET 10 and .NET Framework 4.8 alike, not round-to-nearest (run 43505530553).
 `probe.slope-degrees` and `terrain.slope-design*` cover the terrain slope design, which called the platform libm until
 #836 (issue 802) and must now be identical on every platform.
+
+## Kernel and allow list (net48 / net10.0 measurement)
+
+`kernel.*`, `ledger.*` and `boolean.rounding.*` (`Kernel.cs`) are the measurement of
+[DETERMINISM_PROOF.md](../../docs/design/DETERMINISM_PROOF.md) 5.3: the exact kernel's operations and the members of its allow
+list (`DeterministicApis.txt`, the G3D0009 ledger) on procedural inputs from a splitmix64 stream, and Booleans whose rounding meets
+exactly coplanar or near contacts.
+- **`kernel.*`:** the predicates (double, adaptive, the exact stages), `ExactPoint3`, `FixedPoint3` / `FixedArith`, `ExactLimbSigns`,
+  the triangle and ray predicates, the slope predicates, `ExactInterval` / `ExactDyadic`. The inputs are random,
+  nearly degenerate (a point moved by a few ulps off the exact line or plane), small integers (exact degeneracies) and repeated points,
+  with exponents from subnormal to huge. A predicate that throws on an input (an overflow to NaN) records the kind of exception as its
+  result.
+- **`ledger.*`:** the BCL members of the list on edge inputs: `Math.Sqrt / Abs / Sign / Min / Max / BigMul`, the bit conversions, the
+  `BigInteger` operations and its conversions from and to `double`.
+- **`boolean.rounding.*`:** two boxes sharing a face plane (a face contact, and overlapping coplanar faces), the second rotated by a
+  3-4-5 angle, at the scales 2^-30, 1 and 2^30, with and without `SafeRounding`; a sphere whose vertices lie a few ulps off a box face.
+
+The workflow runs them with every other case, and its `compare` job prints the table of the design note at the end of its log
+(`measurement_rows.py`: one row per case, the hash and value count per runtime, and whether they agree; the step "Measurement rows").
+Locally, from a directory of trace directories:
+
+```sh
+python3 tools/DeterminismHarness/measurement_rows.py <traces> > rows.md
+python3 -m unittest discover -s tools/DeterminismHarness -p 'test_measurement_rows.py'
+```

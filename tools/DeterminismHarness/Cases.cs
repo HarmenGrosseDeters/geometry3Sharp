@@ -48,6 +48,8 @@ namespace DeterminismHarness
             list.Add(new Case("io.stl-text", serial => IoStl()));
             // ---- runtime behaviour the specification leaves open, and the candidates of DETERMINISM_PROOF.md (Probes.cs)
             Probes.AddTo(list);
+            // ---- the exact kernel, the members of its allow list, Booleans with rounding (Kernel.cs)
+            Kernel.AddTo(list);
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
