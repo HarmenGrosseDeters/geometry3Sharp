@@ -258,10 +258,15 @@ jobs:
         include:
           - name: netstandard
             shard: a
-            filter: (FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Terrain)
+            filter: (FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Terrain|FullyQualifiedName~PointCloudSurfaceTests|FullyQualifiedName~RemesherSelfIntersectionTests|FullyQualifiedName~MeshFidelityMetricsTests|FullyQualifiedName~RoundingExactPairsTests|FullyQualifiedName~MeshRobustRepairTests|FullyQualifiedName~AlphaWrapQualityPassTests|FullyQualifiedName~RemeshSizingTests|FullyQualifiedName~TpmsLatticeTests|FullyQualifiedName~MeshRoundingRepairIncrementalTests)
           - name: netstandard-b
             shard: b
-            filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain)
+            filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain&FullyQualifiedName!~PointCloudSurfaceTests&FullyQualifiedName!~RemesherSelfIntersectionTests&FullyQualifiedName!~MeshFidelityMetricsTests&FullyQualifiedName!~RoundingExactPairsTests&FullyQualifiedName!~MeshRobustRepairTests&FullyQualifiedName!~AlphaWrapQualityPassTests&FullyQualifiedName!~RemeshSizingTests&FullyQualifiedName!~TpmsLatticeTests&FullyQualifiedName!~MeshRoundingRepairIncrementalTests)
+    # (2026-11-15, net10.0 summed durations of a full run after the Meshing2 self-check fix: a 1720 s, b 2462 s; the three classes after
+    # Terrain moved from b to a to balance the summed time. Shard b is the exact complement of a, so every test runs once. Before the fix
+    # a/b were 1912/2668 s; the Windows jobs took 28 and 31 min. The first split measured on net48 (PR #954): the test step took 682 s in
+    # a (1720 net10 s) and 1438 s in b (2462 net10 s), so net48 costs about 0.40 s per net10 second in a and 0.58 in b; six more classes
+    # (about 270 net10 s) moved from b to a.)
     # (2026-11-09: the terrain tests moved to shard a; the mesher tests got cheaper (sparse tag check), shard a was at 14 min and
     # shard b at 32. Summed net10.0 durations of the full run: a 2050 s, b 2113 s.)
     # (the filter's &Category!=Slow part is dead on a draft since the Windows jobs run only in the full tier; it stays for a manual run

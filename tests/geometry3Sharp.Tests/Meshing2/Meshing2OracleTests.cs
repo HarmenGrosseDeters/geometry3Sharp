@@ -10,13 +10,17 @@ namespace geometry3Sharp.Tests
     /// <summary>The oracle of the 2D mesher judges itself first. A weak oracle is the main risk of the acceptance process.</summary>
     public class Meshing2OracleTests
     {
-        public static IEnumerable<object[]> SelfCheckNames() => SelfCheck.Run().Select(i => new object[] { i.Name });
+        // SelfCheck.Run() runs every item (about 500) and returns them all: once per test row it was quadratic (a third of the
+        // suite's summed time), so the run is shared; every row still asserts its own item
+        internal static readonly Lazy<List<SelfCheck.Item>> Items = new Lazy<List<SelfCheck.Item>>(() => SelfCheck.Run());
+
+        public static IEnumerable<object[]> SelfCheckNames() => Items.Value.Select(i => new object[] { i.Name });
 
         [Theory]
         [MemberData(nameof(SelfCheckNames))]
         public void SelfCheck_Item_Passes(string name)
         {
-            var item = SelfCheck.Run().First(i => i.Name == name);
+            var item = Items.Value.First(i => i.Name == name);
             Assert.True(item.Passed, item.Detail);
         }
 
@@ -25,7 +29,7 @@ namespace geometry3Sharp.Tests
         {
             // a kind nothing provokes cannot be known to work; the listed ones need an input the self-check cannot build
             var notProvoked = new[] { Violation.CountOutOfRange }; // Fact below
-            var names = SelfCheck.Run().Select(i => i.Name).ToList();
+            var names = Items.Value.Select(i => i.Name).ToList();
             foreach (Violation kind in Enum.GetValues(typeof(Violation))) {
                 if (notProvoked.Contains(kind)) continue;
                 Assert.True(names.Any(n => n.EndsWith(" as " + kind)), "no broken result is rejected as " + kind);
