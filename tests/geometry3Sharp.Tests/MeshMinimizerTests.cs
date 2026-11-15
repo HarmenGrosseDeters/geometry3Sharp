@@ -280,7 +280,9 @@ namespace geometry3Sharp.Tests
                     if (x.TriangleCount < 3) { Interlocked.Increment(ref hangs); release.Wait(); }
                     return true;
                 };
-                var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromSeconds(2), MaxTimeouts = 1, SimplifyCoordinates = false };
+                // (the blocked call burns no CPU, so it ends at the wall ceiling: 3 s, not the default 2 minutes. A fast call takes
+                // milliseconds on a thread of its own; the CPU budget of 2 s is what a spinning call would hit)
+                var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromSeconds(2), PredicateWallCeiling = TimeSpan.FromSeconds(3), MaxTimeouts = 1, SimplifyCoordinates = false };
                 var r = MeshMinimizer.Minimize(m, fails, options);
                 Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
                 Assert.Equal(1, r.Timeouts);
