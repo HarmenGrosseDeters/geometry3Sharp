@@ -89,7 +89,7 @@ namespace geometry3Sharp.Clipper2.Tests
             // the upstream test of 4a3bf64 (the clip edge leaving -28785,-61 starts almost on the subject's flat edge, so
             // their intersection is computed just below the scanbeam, and clamping it used to leave it 6 units before that
             // vertex). 4a3bf64 itself is not ported: with the rounding of f774daf the C# engine does not reach that clamp
-            // on this input or on 800 000 random results tried (Clipper2Lib/README.md); the test passes with the other
+            // on this input or on 3.2 million random results tried (Clipper2Lib/README.md); the test passes with the other
             // fixes (it fails on master) and stays as a regression test
             var solution = Run(V.ClipType.Union, V.FillRule.EvenOdd, new V.Paths64 { P(-69425, 73, -33569, -35, -24000, -87) },
                 new V.Paths64 { P(-3862, 183, -33569, -35, -28785, -61, -26393, -75, -24000, -87) });
@@ -145,6 +145,10 @@ namespace geometry3Sharp.Clipper2.Tests
                     Assert.True(V.InternalClipper.GetLineIntersectPt(a, b, c, d, out V.Point64 reference));
                     Assert.Equal(reference, ip);
                 }
+            // a tie is rounded to even, as C++'s nearbyint: (0,0)-(13,2) crosses y = 1 at x = 6.5, which gives 6 (away from
+            // zero it would be 7)
+            Assert.True(V.InternalClipper.GetLineIntersectPt(new V.Point64(0, 0), new V.Point64(13, 2), new V.Point64(-10, 1), new V.Point64(20, 1), out V.Point64 tie));
+            Assert.Equal(new V.Point64(6, 1), tie);
             // the order of the second segment's ends matters in doubles at the adapter's magnitudes (found by a search)
             var e1 = new V.Point64(-732766039893, 267966786172); var e2 = new V.Point64(597744236310, 270007010941);
             var f1 = new V.Point64(233684498028, -105137564208); var f2 = new V.Point64(20054427145, -354628352677);

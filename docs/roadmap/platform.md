@@ -154,8 +154,8 @@ Part of the [roadmap](../ROADMAP.md).
   `6c7d083` not analysed for the adapter. Addon API
   baseline: the first published addon version (owner 2026-11-13); until then a PR lists its breaks by hand.
   **Status 2026-11-15:** #851 (package removal, addon 2.0.0) and #874 (the c-guard: the micro branch is undone when it
-  flips the ring's orientation) are merged. #756 stays open for the remaining class (insertions that lose area without
-  flipping the ring; repros in its last comment), documented as known (option (a)).
+  flips the ring's orientation) are merged; the remaining class (insertions that lose area without flipping the ring) was
+  fixed in #914, and #756 is closed by the ports above.
   **Owner decision: Clipper2's triangulation is not offered** through the `geometry3Sharp.Clipper2` adapter.
   `Clipper.Triangulation.cs` is vendored only because `Clipper.cs` refers to it and stays unused; upstream's later
   triangulation fixes (`6a36be1`) are not included (`Clipper2Lib/README.md`).

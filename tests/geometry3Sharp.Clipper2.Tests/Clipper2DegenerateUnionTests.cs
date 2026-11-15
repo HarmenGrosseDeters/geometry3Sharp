@@ -171,6 +171,31 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
+        public void KeptHole_IsNestedUnderItsPath_OnALattice()
+        {
+            // since the port of f774daf the input of KeptHole_IsNestedUnderItsPath no longer keeps a hole; this one does
+            // (found by a search, a lattice of step 2 grid units): the Union NonZero keeps the triangle (-2,1) (-2.5,-2)
+            // (-3.5,2.5) as a hole, and the PolyTree must nest it under its path (with its path's owner it came out as a
+            // negative path at the top level)
+            V.Path64 P(params long[] c) => new V.Path64(Enumerable.Range(0, c.Length / 2).Select(i => new V.Point64(2 * c[2 * i], 2 * c[2 * i + 1])));
+            var clipper = new V.Clipper64();
+            clipper.AddSubject(P(-4, 4, -2, -4, -3, -3));
+            clipper.AddClip(P(0, 0, -4, 3, -2, 1, -3, -4));
+            var tree = new V.PolyTree64();
+            Assert.True(clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, tree));
+            Assert.Equal(1, tree.Count);
+            var outer = (V.PolyPath64)tree.Child(0);
+            Assert.True(V.Clipper.Area(outer.Polygon!) > 0);
+            Assert.Equal(1, outer.Count);
+            Assert.True(outer.Child(0).IsHole);
+            Assert.Equal(-2.625 * 4, V.Clipper.Area(outer.Child(0).Polygon!));
+            var a = new[] { (-8L, 8L), (-4L, -8L), (-6L, -6L) };
+            var b = new[] { (0L, 0L), (-8L, 6L), (-4L, 2L), (-6L, -8L) };
+            double exact = ExactRegionArea.Area(new[] { new[] { a }, new[] { b } }, w => w[0] != 0 || w[1] != 0);
+            Assert.True(Math.Abs(tree.Area() - exact) <= 20, tree.Area() + " against " + exact);   // within the rounding
+        }
+
+        [Fact]
         public void KeptHole_IsNestedUnderItsPath()
         {
             // found in the review of the fix: the kept triangle (0,1) (-1.667,-0.667) (-2,0) was given its path's owner, so the

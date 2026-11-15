@@ -150,6 +150,19 @@ namespace geometry3Sharp.Clipper2.Tests
                             if (Text(pFlat) != Text(vFlat)) {
                                 AssertVendoredExact(a, b, op, fill, pFlat, vFlat, where);
                                 ++differ;
+                                // the tree: within the rounding of the package's or exact, its area that of the flat output (within the
+                                // rounding: the two outputs take different cleanup paths)
+                                AssertVendoredExact(a, b, op, fill, Flatten(pTree), FlattenV(vTree), where + " (tree)");
+                                var (flatArea, flatPerimeter) = Measure(PackageBridge.ToPackage(vFlat));
+                                Assert.True(Math.Abs(vTree.Area() - flatArea) <= flatPerimeter + 1, where + " (tree area " + vTree.Area() + " against " + flatArea + ")");
+                                // the nesting, as the adapter reads it: ToGeneralPolygons of the vendored tree (on a frame that
+                                // maps the grid to itself) has the area of the flat output, within the rounding (a tree can nest a
+                                // touching sliver differently from the package's; the adapter's rules sort that out)
+                                var polygons = new g3.Clipper2.ClipperFrame(new g3.Vector2d(0, 0), 1).ToGeneralPolygons(vTree);
+                                double converted = polygons.Sum(g => g.Outer.SignedArea + g.Holes.Sum(h => h.SignedArea));
+                                Assert.True(Math.Abs(converted - flatArea) <= flatPerimeter + 1, where + " (converted tree " + converted + " against " + flatArea + ")");
+                                if (Text(pOpen) != Text(vOpen))
+                                    AssertWithinRounding(pOpen, PackageBridge.ToPackage(vOpen), false, where + " (open)");
                                 continue;
                             }
                             Assert.True(Text(pTree) == Text(vTree), where);
@@ -180,7 +193,11 @@ namespace geometry3Sharp.Clipper2.Tests
             return Math.Abs(pArea - exact) > pPerimeter + 1;
         }
 
-        /// <summary> the largest distance from a vertex of one path set to the other set's edges, both ways (paths closed or open) </summary>
+        /// <summary>
+        /// the largest distance from a vertex of one path set to the other set's edges, both ways (paths closed or open), in
+        /// doubles: at the 2^50 grid the projection loses up to about half a grid unit, so the bound of two units used below
+        /// is about 2.5 there; it sees vertices only, the area check covers the inside
+        /// </summary>
         static double Hausdorff(Pkg.Paths64 p, Pkg.Paths64 q, bool closed)
         {
             double OneWay(Pkg.Paths64 from, Pkg.Paths64 to)

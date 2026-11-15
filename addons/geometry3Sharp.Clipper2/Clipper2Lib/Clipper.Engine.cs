@@ -2082,6 +2082,7 @@ namespace g3.Clipper2.Vendored
         (src, dst) = (dst, src);
       }
       for (int i = 0; i < n; ++i) list[i] = buf[src + i];
+      Array.Clear(buf, 0, 2 * n);   // the nodes refer to edges and output records: keep nothing alive after Execute
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
