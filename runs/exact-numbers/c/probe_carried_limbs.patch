@@ -1,0 +1,370 @@
+diff --git a/math/ExactLimbSigns.cs b/math/ExactLimbSigns.cs
+index 10e3bcc..2bb4be1 100644
+--- a/math/ExactLimbSigns.cs
++++ b/math/ExactLimbSigns.cs
+@@ -36,6 +36,152 @@ namespace g3
+         internal static long DeterminantScratch(int a, int b, int c, int d) { return 8L * a + 28L * b + 64L * ((long)c + d) + 96; }
+ 
+ #if NET
++        // ---- PROBE (candidate C, section 7 of the design note; local only): limbs carried beside the BigIntegers ----
++        internal static readonly bool CarriedOn = (Environment.GetEnvironmentVariable("EXACT_PROTO") ?? "").Contains("carried");
++        internal static readonly bool LimbCentroid = (Environment.GetEnvironmentVariable("EXACT_PROTO") ?? "").Contains("centroid");
++
++        /// <summary> four integers as sign-magnitude limbs in one array, converted once (public API of BigInteger only) </summary>
++        internal sealed class Carried
++        {
++            public readonly ulong[] L;
++            public readonly int O1, O2, O3;          // where the second, third and fourth integer start
++            public readonly int N0, N1, N2, N3;      // their significant limbs
++            public readonly int Neg;                 // bit k: integer k is negative
++            public Carried(ulong[] l, int o1, int o2, int o3, int n0, int n1, int n2, int n3, int neg) { L = l; O1 = o1; O2 = o2; O3 = o3; N0 = n0; N1 = n1; N2 = n2; N3 = n3; Neg = neg; }
++            public int Total { get { return N0 + N1 + N2 + N3; } }
++
++            public static Carried Of(BigInteger a, BigInteger b, BigInteger c, BigInteger d)
++            {
++                int ca = limbs_of(a), cb = limbs_of(b), cc = limbs_of(c), cd = limbs_of(d);
++                var l = new ulong[ca + cb + cc + cd];
++                fixed (ulong* p = l) {
++                    FixedInt fa = load(a, p, ca), fb = load(b, p + ca, cb), fc = load(c, p + ca + cb, cc), fd = load(d, p + ca + cb + cc, cd);
++                    return new Carried(l, ca, ca + cb, ca + cb + cc, fa.Len, fb.Len, fc.Len, fd.Len,
++                        (fa.Neg ? 1 : 0) | (fb.Neg ? 2 : 0) | (fc.Neg ? 4 : 0) | (fd.Neg ? 8 : 0));
++                }
++            }
++
++            // from four results that live in an arena (the limb centroid): one copy, no conversion
++            public static Carried Of(FixedInt a, FixedInt b, FixedInt c, FixedInt d)
++            {
++                var l = new ulong[Math.Max(1, a.Len + b.Len + c.Len + d.Len)];
++                fixed (ulong* p = l) {
++                    ulong* q = p;
++                    for (int k = 0; k < a.Len; ++k) *q++ = a.P[k];
++                    for (int k = 0; k < b.Len; ++k) *q++ = b.P[k];
++                    for (int k = 0; k < c.Len; ++k) *q++ = c.P[k];
++                    for (int k = 0; k < d.Len; ++k) *q++ = d.P[k];
++                }
++                return new Carried(l, a.Len, a.Len + b.Len, a.Len + b.Len + c.Len, a.Len, b.Len, c.Len, d.Len,
++                    (a.Neg ? 1 : 0) | (b.Neg ? 2 : 0) | (c.Neg ? 4 : 0) | (d.Neg ? 8 : 0));
++            }
++        }
++
++        /// <summary> the sign of A X + B Y + C Z - D W from carried limbs; false beyond the stack limit </summary>
++        [MethodImpl(JitHints.Optimize)]
++        [SkipLocalsInit]
++        internal static bool PlaneSide(Carried pl, Carried pt, out int sign)
++        {
++            int total = pl.Total + pt.Total;
++            if (total > MaxOperandLimbs) { sign = 0; return false; }
++            int scratch = SideScratch(total);
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            fixed (ulong* p = pl.L, q = pt.L) {
++                FixedInt fa = new FixedInt(p, pl.N0, (pl.Neg & 1) != 0), fb = new FixedInt(p + pl.O1, pl.N1, (pl.Neg & 2) != 0);
++                FixedInt fc = new FixedInt(p + pl.O2, pl.N2, (pl.Neg & 4) != 0), fd = new FixedInt(p + pl.O3, pl.N3, (pl.Neg & 8) != 0);
++                FixedInt fx = new FixedInt(q, pt.N0, (pt.Neg & 1) != 0), fy = new FixedInt(q + pt.O1, pt.N1, (pt.Neg & 2) != 0);
++                FixedInt fz = new FixedInt(q + pt.O2, pt.N2, (pt.Neg & 4) != 0), fw = new FixedInt(q + pt.O3, pt.N3, (pt.Neg & 8) != 0);
++                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
++                s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
++                sign = FixedArith.Sub(s, FixedArith.Mul(fd, fw, ref ar), ref ar).Sign;
++            }
++            return true;
++        }
++
++        /// <summary> the sign of A x + B y + C z - D for an integer point (W = 1), the plane from carried limbs </summary>
++        [MethodImpl(JitHints.Optimize)]
++        [SkipLocalsInit]
++        internal static bool PlaneSide(Carried pl, BigInteger x, BigInteger y, BigInteger z, out int sign)
++        {
++            int nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
++            int total = pl.Total + nx + ny + nz;
++            if (total > MaxOperandLimbs) { sign = 0; return false; }
++            ulong* buf = stackalloc ulong[nx + ny + nz];
++            int scratch = SideScratch(total);
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            FixedInt fx = load(x, buf, nx), fy = load(y, buf + nx, ny), fz = load(z, buf + nx + ny, nz);
++            fixed (ulong* p = pl.L) {
++                FixedInt fa = new FixedInt(p, pl.N0, (pl.Neg & 1) != 0), fb = new FixedInt(p + pl.O1, pl.N1, (pl.Neg & 2) != 0);
++                FixedInt fc = new FixedInt(p + pl.O2, pl.N2, (pl.Neg & 4) != 0), fd = new FixedInt(p + pl.O3, pl.N3, (pl.Neg & 8) != 0);
++                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
++                s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
++                sign = FixedArith.Sub(s, fd, ref ar).Sign;
++            }
++            return true;
++        }
++
++        /// <summary> the sign of the dot of the first three integers of a and b (two planes' normals) </summary>
++        [MethodImpl(JitHints.Optimize)]
++        [SkipLocalsInit]
++        internal static bool Dot(Carried a, Carried b, out int sign)
++        {
++            int total = a.N0 + a.N1 + a.N2 + b.N0 + b.N1 + b.N2;
++            if (total > MaxOperandLimbs) { sign = 0; return false; }
++            int scratch = SideScratch(total);
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            fixed (ulong* p = a.L, q = b.L) {
++                FixedInt fa = new FixedInt(p, a.N0, (a.Neg & 1) != 0), fb = new FixedInt(p + a.O1, a.N1, (a.Neg & 2) != 0), fc = new FixedInt(p + a.O2, a.N2, (a.Neg & 4) != 0);
++                FixedInt fx = new FixedInt(q, b.N0, (b.Neg & 1) != 0), fy = new FixedInt(q + b.O1, b.N1, (b.Neg & 2) != 0), fz = new FixedInt(q + b.O2, b.N2, (b.Neg & 4) != 0);
++                FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
++                sign = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar).Sign;
++            }
++            return true;
++        }
++
++        static BigInteger big(FixedInt v)
++        {
++            if (v.Len == 0) return BigInteger.Zero;
++            var r = new BigInteger(new ReadOnlySpan<byte>(v.P, 8 * v.Len), true, false);
++            return v.Neg ? -r : r;
++        }
++
++        /// <summary> PROBE: the unreduced centroid of three homogeneous points on stack limbs, and its carried limbs; false: too wide </summary>
++        [SkipLocalsInit]
++        internal static bool Centroid(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, out ExactPoint3 result, out Carried limbs)
++        {
++            result = default(ExactPoint3); limbs = null;
++            int* cp = stackalloc int[12];
++            cp[0] = limbs_of(a.X); cp[1] = limbs_of(a.Y); cp[2] = limbs_of(a.Z); cp[3] = limbs_of(a.W);
++            cp[4] = limbs_of(b.X); cp[5] = limbs_of(b.Y); cp[6] = limbs_of(b.Z); cp[7] = limbs_of(b.W);
++            cp[8] = limbs_of(c.X); cp[9] = limbs_of(c.Y); cp[10] = limbs_of(c.Z); cp[11] = limbs_of(c.W);
++            int total = 0, widest = 0;
++            for (int k = 0; k < 12; ++k) { total += cp[k]; if (cp[k] > widest) widest = cp[k]; }
++            // three products of two W (2 w each), nine products of 3 w, six sums of at most 3 w + 2, and 3 a.W wbc
++            int scratch = 60 * widest + 64;
++            if (total + scratch > MaxDeterminantLimbs) return false;
++            ulong* buf = stackalloc ulong[total + 1];
++            ulong* sc = stackalloc ulong[scratch];
++            var ar = new FixedArena(sc, scratch);
++            FixedInt* m = stackalloc FixedInt[12];
++            ulong* p = buf;
++            m[0] = load(a.X, p, cp[0]); p += cp[0]; m[1] = load(a.Y, p, cp[1]); p += cp[1]; m[2] = load(a.Z, p, cp[2]); p += cp[2]; m[3] = load(a.W, p, cp[3]); p += cp[3];
++            m[4] = load(b.X, p, cp[4]); p += cp[4]; m[5] = load(b.Y, p, cp[5]); p += cp[5]; m[6] = load(b.Z, p, cp[6]); p += cp[6]; m[7] = load(b.W, p, cp[7]); p += cp[7];
++            m[8] = load(c.X, p, cp[8]); p += cp[8]; m[9] = load(c.Y, p, cp[9]); p += cp[9]; m[10] = load(c.Z, p, cp[10]); p += cp[10]; m[11] = load(c.W, p, cp[11]);
++            FixedInt wbc = FixedArith.Mul(m[7], m[11], ref ar), wac = FixedArith.Mul(m[3], m[11], ref ar), wab = FixedArith.Mul(m[3], m[7], ref ar);
++            ulong three = 3;
++            FixedInt f3 = new FixedInt(&three, 1, false);
++            FixedInt x = FixedArith.Add(FixedArith.Add(FixedArith.Mul(m[0], wbc, ref ar), FixedArith.Mul(m[4], wac, ref ar), ref ar), FixedArith.Mul(m[8], wab, ref ar), ref ar);
++            FixedInt y = FixedArith.Add(FixedArith.Add(FixedArith.Mul(m[1], wbc, ref ar), FixedArith.Mul(m[5], wac, ref ar), ref ar), FixedArith.Mul(m[9], wab, ref ar), ref ar);
++            FixedInt z = FixedArith.Add(FixedArith.Add(FixedArith.Mul(m[2], wbc, ref ar), FixedArith.Mul(m[6], wac, ref ar), ref ar), FixedArith.Mul(m[10], wab, ref ar), ref ar);
++            FixedInt w = FixedArith.Mul(FixedArith.Mul(f3, m[3], ref ar), wbc, ref ar);
++            result = ExactPoint3.CreateUnreduced(big(x), big(y), big(z), big(w));
++            if (CarriedOn) limbs = Carried.Of(x, y, z, w);
++            return true;
++        }
++
+         // the limbs v needs: its two's complement bytes (one bit more than its magnitude), rounded up
+         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+         static int limbs_of(BigInteger v) { return (v.GetByteCount(false) + 7) >> 3; }
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index 3ecd66b..24be05d 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -110,8 +110,23 @@ namespace g3
+                 public Plane[] EdgePlanes;
+                 public double[] PlaneApprox;
+                 public int Axis, Sign;
++#if NET
++                public ExactLimbSigns.Carried Limbs;     // PROBE: the plane's coefficients as limbs, converted once
++#endif
+             }
+             public Plane P { get { return ensure().P; } }
++#if NET
++            /// <summary> PROBE: A, B, C, D of the plane as carried limbs (computed on first use; a race computes the same value twice) </summary>
++            internal ExactLimbSigns.Carried PlaneLimbs
++            {
++                get {
++                    PlaneData d = ensure();
++                    ExactLimbSigns.Carried l = d.Limbs;
++                    if (l == null) { l = ExactLimbSigns.Carried.Of(d.P.A, d.P.B, d.P.C, d.P.D); d.Limbs = l; }
++                    return l;
++                }
++            }
++#endif
+             /// <summary> edge k: Corners[k] -> Corners[k+1], plane through the edge perpendicular to the triangle </summary>
+             public Plane[] EdgePlanes
+             {
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index c938026..8a1d432 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -1225,7 +1225,7 @@ namespace g3
+                     var src = arr.Triangles[ot.Source];
+                     foreach (int ti in stack[i]) {
+                         var U = arr.Triangles[ti];
+-                        int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
++                        int dot = dot_normals(src, U);
+                         add(U.Mesh, (dot > 0) ? 1 : -1);
+                     }
+                 }
+@@ -1406,7 +1406,7 @@ namespace g3
+                     if (po.Evaluated[j] == false || po.Patch[i] != k)
+                         continue;
+                     if (center == null) {
+-                        center = new Center(centroid_point(output[i], false));
++                        center = new_center(output[i]);
+                         center.Input = arr.ToInputVector(center.P);
+                     }
+                     double bound;
+@@ -1688,7 +1688,7 @@ namespace g3
+             Vector3d[] segments;
+             if (antipodalSegments.TryGetValue(m, out segments)) {
+                 if (center == null) {
+-                    center = new Center(centroid_point(arr.Output[i], false));
++                    center = new_center(arr.Output[i]);
+                     center.Input = arr.ToInputVector(center.P);
+                 }
+                 return antipodal_front_winding(i, m, stack, segments, center);
+@@ -1709,7 +1709,7 @@ namespace g3
+                 if (antipodalSegments.TryGetValue(m, out segments)) {
+                     // (the exact centroid once per piece, for all meshes on this path)
+                     if (center == null) {
+-                        center = new Center(centroid_point(arr.Output[i], false));
++                        center = new_center(arr.Output[i]);
+                         center.Input = arr.ToInputVector(center.P);
+                     }
+                     w = antipodal_front_winding(i, m, stack, segments, center);
+@@ -3012,8 +3012,8 @@ namespace g3
+                         // (lever 4: each sign only where own_triangle_crossing reads it, an end in U's plane; on stack limbs)
+                         var U0 = B.arr.Triangles[ui];
+                         int own = own_triangle_crossing(a0, b0,
+-                            a0 != 0 ? 0 : ExactLimbSigns.Dot(Sp.NX, Sp.NY, Sp.NZ, U0.NX, U0.NY, U0.NZ),
+-                            b0 != 0 ? 0 : ExactLimbSigns.Dot(Sq.NX, Sq.NY, Sq.NZ, U0.NX, U0.NY, U0.NZ));
++                            a0 != 0 ? 0 : dot_normals(Sp, U0),
++                            b0 != 0 ? 0 : dot_normals(Sq, U0));
+                         if (own == 2)
+                             Degenerate = true;
+                         else
+@@ -3037,8 +3037,8 @@ namespace g3
+                 int a = B.local_side(U, ui, SrcP, InteriorSide, Cp, ref d0, ref d1, ref d2, ref Gp, e0, e1, e2, Lp),
+                     b = B.local_side(U, ui, SrcQ, InteriorSide, Cq, ref d0, ref d1, ref d2, ref Gq, e0, e1, e2, Lq);
+                 // (a centroid in the plane: the side its piece's front points to)
+-                int ae = a != 0 ? a : ExactLimbSigns.Dot(Sp.NX, Sp.NY, Sp.NZ, U.NX, U.NY, U.NZ);
+-                int be = b != 0 ? b : ExactLimbSigns.Dot(Sq.NX, Sq.NY, Sq.NZ, U.NX, U.NY, U.NZ);
++                int ae = a != 0 ? a : dot_normals(Sp, U);
++                int be = b != 0 ? b : dot_normals(Sq, U);
+                 if (ae == 0 || be == 0) { Degenerate = true; return; }
+                 if (ae == be) return;
+                 // (both centroids in the plane, on different sides of it: where the displaced segment crosses it is not
+@@ -3164,6 +3164,12 @@ namespace g3
+                 return -o;
+             if (ui == src || interiorSide(ui, src) == 0)
+                 return 0;
++#if NET
++            if (ExactLimbSigns.CarriedOn) {
++                int cs;
++                if (ExactLimbSigns.PlaneSide(U.PlaneLimbs, c.Limbs, out cs)) return cs;
++            }
++#endif
+             ExactPoint3 P = c.P;
+             return ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+         }
+@@ -3282,12 +3288,46 @@ namespace g3
+             return arr.AddPoint(centroid_point(ot, true));
+         }
+ 
++        // (PROBE: the dot of two triangles' normals from their carried limbs)
++        static int dot_normals(ExactMeshArrangement.InputTriangle s, ExactMeshArrangement.InputTriangle u)
++        {
++#if NET
++            if (ExactLimbSigns.CarriedOn) {
++                int r;
++                if (ExactLimbSigns.Dot(s.PlaneLimbs, u.PlaneLimbs, out r)) return r;
++            }
++#endif
++            return ExactLimbSigns.Dot(s.NX, s.NY, s.NZ, u.NX, u.NY, u.NZ);
++        }
++
++        Center new_center(ExactMeshArrangement.OutputTriangle ot)
++        {
++            object limbs;
++            ExactPoint3 p = centroid_point(ot, false, out limbs);
++            return new Center(p, limbs);
++        }
++
+         // the exact centroid of a piece (not added to the arrangement); canonical (reduced by the gcd) only if asked for:
+         // the ray of front_crossings needs only its value
+         [MethodImpl(JitHints.Optimize)]
+         ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot, bool canonical)
+         {
++            object limbs;
++            return centroid_point(ot, canonical, out limbs);
++        }
++
++        // (PROBE: limbs is the centroid's ExactLimbSigns.Carried when the limb centroid computed it, else null)
++        [MethodImpl(JitHints.Optimize)]
++        ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot, bool canonical, out object limbs)
++        {
++            limbs = null;
+             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
++#if NET
++            if (canonical == false && ExactLimbSigns.LimbCentroid) {
++                ExactPoint3 r; ExactLimbSigns.Carried l;
++                if (ExactLimbSigns.Centroid(a, b, c, out r, out l)) { limbs = l; return r; }
++            }
++#endif
+             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
+             if (canonical == false)
+                 return ExactPoint3.CreateUnreduced(
+@@ -3408,6 +3448,9 @@ namespace g3
+                     sides++;
+                     int sr = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, rx, ry, rz);
+                     if (sr == 2) {
++#if NET
++                        if (ExactLimbSigns.CarriedOn == false || ExactLimbSigns.PlaneSide(U.PlaneLimbs, Rp.X, Rp.Y, Rp.Z, out sr) == false)
++#endif
+                         sr = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, Rp.X, Rp.Y, Rp.Z);
+                         exactSides++;
+                     }
+@@ -3415,6 +3458,9 @@ namespace g3
+                     sides++;
+                     int sp = DisableFilters ? 2 : plane_side_filtered(U.PlaneApprox, gx, gy, gz);
+                     if (sp == 2) {
++#if NET
++                        if (ExactLimbSigns.CarriedOn == false || ExactLimbSigns.PlaneSide(U.PlaneLimbs, center.Limbs, out sp) == false)
++#endif
+                         sp = ExactLimbSigns.PlaneSide(U.P.A, U.P.B, U.P.C, U.P.D, P.X, P.Y, P.Z, P.W);
+                         exactSides++;
+                     }
+@@ -3466,6 +3512,24 @@ namespace g3
+             Vector3d grid;
+             bool hasGrid;
+             public Center(ExactPoint3 p) { this.p = p; hasP = true; }
++            public Center(ExactPoint3 p, object limbs) { this.p = p; hasP = true; this.limbs = limbs; }
++            object limbs;
++#if NET
++            /// <summary> PROBE: P as carried limbs (from the limb centroid, else converted once) </summary>
++            public ExactLimbSigns.Carried Limbs
++            {
++                get {
++                    if (same != null)
++                        return same.Limbs;
++                    if (limbs == null) {
++                        ExactPoint3 q = P;
++                        if (limbs == null)
++                            limbs = ExactLimbSigns.Carried.Of(q.X, q.Y, q.Z, q.W);
++                    }
++                    return (ExactLimbSigns.Carried)limbs;
++                }
++            }
++#endif
+             readonly LocalFrame frame;
+             // (L2: the exact centroid of a piece only when it is needed: a filter that fails, or the piece's own ray;
+             // the filters take it from its corners in the frame of its input triangle)
+@@ -3479,7 +3543,7 @@ namespace g3
+                     if (same != null)
+                         return same.P;
+                     if (hasP == false) {
+-                        p = owner.centroid_point(piece, false);
++                        p = owner.centroid_point(piece, false, out limbs);
+                         if (frame != null)
+                             System.Threading.Interlocked.Increment(ref owner.tracedExactCentroids);
+                         hasP = true;
+@@ -3757,7 +3821,7 @@ namespace g3
+                     continue;
+                 Index3i t = m.GetTriangle(U.Tid);
+                 w -= MathUtil.TriSolidAngle(m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), ref pv) / MathUtil.FourPI;
+-                int dot = ExactLimbSigns.Dot(src.NX, src.NY, src.NZ, U.NX, U.NY, U.NZ);
++                int dot = dot_normals(src, U);
+                 w -= (dot > 0) ? 0.5 : -0.5;
+             }
+             return w;
