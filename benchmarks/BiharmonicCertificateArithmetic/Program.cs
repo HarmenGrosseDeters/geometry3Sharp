@@ -86,6 +86,7 @@ readonly struct Interval
 class Program
 {
     static string PivotOutputPath;
+    static bool ScalarMode;
     static void Check(bool value,string message) { if(!value)throw new Exception(message); }
     static BigInteger Min4(BigInteger a,BigInteger b,BigInteger c,BigInteger d)=>BigInteger.Min(BigInteger.Min(a,b),BigInteger.Min(c,d));
     static BigInteger Max4(BigInteger a,BigInteger b,BigInteger c,BigInteger d)=>BigInteger.Max(BigInteger.Max(a,b),BigInteger.Max(c,d));
@@ -238,8 +239,10 @@ class Program
             Interval diag;if(!columns[i].TryGetValue(i,out diag))throw new FormatException("missing diagonal");
             columns[i][i]=diag-shiftI;
         }
-        if(Factor(columns,digest,shift.ToString("R",System.Globalization.CultureInfo.InvariantCulture),"mesh")) {
-            if(root.TryGetProperty("candidate_bits",out var candidateBits) && root.TryGetProperty("target_bits",out var targetBits))
+        string shiftText=shift.ToString("R",System.Globalization.CultureInfo.InvariantCulture);
+        if(ScalarMode ? ScalarCholesky.Verify(columns,digest,shiftText,PivotOutputPath) : Factor(columns,digest,shiftText,"mesh")) {
+            if(ScalarMode) Console.WriteLine("position_certificate=not_checked reason=experimental_scalar_matrix_only");
+            else if(root.TryGetProperty("candidate_bits",out var candidateBits) && root.TryGetProperty("target_bits",out var targetBits))
                 CheckResidual(coords,rows,mass,free,scaleI,shiftI,candidateBits,targetBits);
             else Console.WriteLine("position_certificate=not_checked reason=missing_candidate_or_targets");
         }
@@ -291,10 +294,12 @@ class Program
     }
     static void Main(string[] args)
     {
-        bool factor=args.Length>0 && (args[0]=="factor"||args[0]=="mesh");
+        if(args.Length==1 && args[0]=="scalar-selftest") { ScalarCholesky.SelfTest();return; }
+        ScalarMode=args.Length>0 && args[0]=="mesh-scalar";
+        bool factor=args.Length>0 && (args[0]=="factor"||args[0]=="mesh"||ScalarMode);
         Interval.Bits=factor ? int.Parse(args[1]) : args.Length>0?int.Parse(args[0]):512;
         if(Interval.Bits<16||Interval.Bits>4096)throw new ArgumentOutOfRangeException();
-        if(factor) { if(args.Length>3)PivotOutputPath=args[3];if(args[0]=="mesh")FactorMesh(args[2]);else FactorExport(args[2]); return; }
+        if(factor) { if(args.Length>3)PivotOutputPath=args[3];if(args[0]=="mesh"||ScalarMode)FactorMesh(args[2]);else FactorExport(args[2]); return; }
         var random=new Random(886);int cases=10000;
         var watch=Stopwatch.StartNew();
         for(int i=0;i<cases;i++) {

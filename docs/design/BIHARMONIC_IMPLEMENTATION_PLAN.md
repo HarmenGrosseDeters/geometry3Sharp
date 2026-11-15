@@ -2,7 +2,7 @@
 
 Status: implementation authorized; bounded dense/sparse production accuracy mode and standalone verification pilots in progress. The opt-in mode supports a dense solve up to 16 vertices or sparse verification up to 400 vertices in one active component, plus the proven zero-handle-motion path. Default representation-loss guards remain. This document records the direction of #897. The existing pilots are evidence for particular inputs, not release acceptance for general meshes.
 
-Update: the opt-in strict production mode now includes an independently reviewed sparse reference certificate for one active component with 17–400 vertices, 2000 triangles, 256 fractional bits and explicit integer/fill/update caps. The rotated 20x20 production candidate is now generated privately, certified from original geometry and final output, then returned; the independent .NET pilot confirms the same candidate. Default numerical guards remain. 25 focused tests pass. The sparse geometric certificate is now reused through a fully validated opaque rest snapshot, with fresh checks per output. Strict sparse numerical factor reuse is now linked to the same validated proof/key with fresh per-target RHS and output checks. Larger workloads, complete mutation/CI readiness and the cold performance budget remain open; this is not a scalable completion claim.
+Update: the opt-in strict production mode now includes an independently reviewed sparse reference certificate for one active component with 17–400 vertices, 2000 triangles, 256 fractional bits and explicit integer/fill/update caps. The rotated 20x20 production candidate is now generated privately, certified from original geometry and final output, then returned; the independent .NET pilot confirms the same candidate. Default numerical guards remain. 26 focused tests pass. The sparse geometric certificate is now reused through a fully validated opaque rest snapshot, with fresh checks per output. Strict sparse numerical factor reuse is now linked to the same validated proof/key with fresh per-target RHS and output checks. Larger workloads, complete mutation/CI readiness and the cold performance budget remain open; this is not a scalable completion claim.
 
 The complete sufficient proof is now in [BIHARMONIC_CERTIFICATE_PROOF.md](BIHARMONIC_CERTIFICATE_PROOF.md). The combined audited pilot passes the agreed absolute and relative Euclidean checks on a moving 400-vertex fixture and rejects the historical wrong tiny200 candidate. This closes the proof-composition gap for the represented pilot; production integration, general mesh validation and the large-mesh cost budget remain open.
 
@@ -56,6 +56,14 @@ Account for the extra scalar factorization as preparation cost, not as free vali
 2. Prototype only the prepared geometric bound and a per-target original-data residual, measuring complete cold/warm cost. Preserve resource limits for symbolic fill, operations, precision and memory; an assembly contribution limit alone does not bound factor fill.
 3. Integrate into the public deformer only after accuracy semantics, supported runtime arithmetic and the performance budget have explicit acceptance criteria. Keep the current guards until their replacement passes all counterexamples. A prototype success is not grounds to remove them.
 
+## Structural scaling and scalar pilot update (2026-11-15)
+
+The planned ordering reuse is implemented. The next structural probe uses the existing SparseCholesky ordering on the exact Q pattern; it counts 1049548 Q/Schur updates at 900 vertices and 7033172 at 2500, already above the current million-update production cap. At 10000 vertices the initial 96030 entries exceed the 50000-entry cap, and both orderings hit the separate 50-million-Schur diagnostic cap. Counters after that exit are partial lower bounds. No production limit was raised.
+
+In the independent interval pilot, shift 0.5 is inconclusive on the rotated 50x50 mesh, while 0.125 gives positive interval pivots. The separate C# scalar verifier now implements the existing paper/Python specification: exact integer midpoint-radius/trace correction, downward diagonal conversion and direct scalar division. The 2500-vertex five-run median matrix phase changes from 6246 to 276 ms, whole matrix run from 7445 to 1567 ms. These are fresh-process feasibility measurements including JIT/GC, not full production cold-budget acceptance; the phase boundaries and raw logs are in the benchmark README.
+
+Independent bounds review and complete exact small-trace replay pass after fixing partial-counter reporting and trace linkage/completeness. The C# pilot always withholds a position certificate and names its IEEE execution premise. The audit verifies the recorded interval matrix and operations, not independently the matrix's completeness against an external mesh. Its 2500-free-unknown and 50-million-product caps remain explicit. Next is end-to-end candidate/residual composition under the supported arithmetic contract and complete cost measurement, preserving default guards and strict production caps until accepted.
+
 ## Numerical-domain investigation (2026-11-15)
 
 The previous question conflated a release target with a numerical acceptance rule. Normal rotated workloads remain release targets. An individual candidate may be rejected when verification is inconclusive; persistent rejection of those workloads prevents release rather than redefining them as unsupported.
@@ -74,7 +82,7 @@ Existing SparseCholesky uses a supernodal factorization and a relative pivot ref
 
 Feasibility sequence: (1) specify and independently review the directed bounds and solver assumptions; (2) test the shifted binary64 verification on the existing 20x20 and 100x100 rotated fixtures and every extreme counterexample, with independent small references and bad-shift/bad-output controls; (3) measure complete cost against the plan's cold budget. Existing graph-path and absolute inverse-factor probes were too pessimistic on these fixtures, so repeating them is not the next step. Do not extrapolate the multiprecision 50x50 results to larger inputs.
 
-No performance result for this new verifier exists yet. If it is inconclusive or exceeds the budget, stop with that measured blocker. The choices then concern scope/budget or a different verified method; accepting known wrong outputs is not an option. SIMD does not resolve this decision.
+Historical feasibility question, now measured in the separate C# scalar pilot (2026-11-15; see the update above): it improves the matrix phase, while original-data interval assembly, runtime acceptance and end-to-end production integration remain open. If it is inconclusive or exceeds the budget, stop with that measured blocker. The choices then concern scope/budget or a different verified method; accepting known wrong outputs is not an option. SIMD does not resolve this decision.
 
 ## Goal and scope
 
@@ -86,7 +94,7 @@ The numerical deformer is the first deliverable. General exact arithmetic, a new
 
 Risk tier: M for numerical changes, L for new arithmetic or proven bounds. Owner review of this contract precedes implementation; independent review and bounds review apply before readiness.
 
-## Accuracy contract and proposed API
+## Historical API proposal (current implemented contract is in the proof)
 
 Separate three questions: whether the output is finite and meets the hard handles; whether it solves the floating-point system satisfactorily; whether its distance from the exact original-input minimizer has been proven small.
 

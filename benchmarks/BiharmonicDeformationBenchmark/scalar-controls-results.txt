@@ -1,0 +1,9 @@
+producer_sha256=bd5cc485a2f3cccc6fa0177cd9bc2c6e1ef4816e130fb65f93ea3720c72e443c
+checker_sha256=a8dccb4b54697aed0d58c943f9789a13049e2ea92a68785540050665071a7dab
+scalar_selftest=passed conversion_cases=2000 underflow_controls=5
+grid=3 exact_trace_audit=passed operations=14 counts={'mul': 4, 'sub': 4, 'div': 3, 'sqrt': 3} independent_python_matrix_check=True
+grid=3 bad_shift=rejected audit_negative_controls=5 position_certificate=not_checked
+grid=5 exact_trace_audit=passed operations=506 counts={'mul': 212, 'sub': 212, 'div': 67, 'sqrt': 15} independent_python_matrix_check=True
+grid=5 bad_shift=rejected audit_negative_controls=5 position_certificate=not_checked
+grid=7 exact_trace_audit=passed operations=3186 counts={'mul': 1436, 'sub': 1436, 'div': 279, 'sqrt': 35} independent_python_matrix_check=True
+grid=7 bad_shift=rejected audit_negative_controls=5 position_certificate=not_checked

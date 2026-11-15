@@ -1,5 +1,46 @@
 # Biharmonic displacement benchmark (#886)
 
+## Structural scaling diagnosis and separate scalar verifier
+
+The production certificate remains bounded to 400 vertices. `--certificate-structure <n> <natural|solver> <shift> rotated <fresh.json>` generates procedural original-data metadata without a deformation candidate. It reconstructs the complete L/Q **pattern**, including zero-valued triangle edges. Solver ordering comes from the existing SparseCholesky on a strictly diagonally dominant surrogate with the identical pattern. Only that permutation is used. Scalar elimination counts are checked against the numerical solver's symbolic factor count and, on small fixtures, an independent dense boolean elimination. This is not a deformation timing or a position certificate.
+
+The 50-million-Schur-update diagnostic cap stops the 100x100 cases. On early exit the counters are partial lower bounds and an unresolved entry-budget result is `unknown`. The production limits are never changed by this tool.
+
+| Rotated grid / vertices | Natural total Q/Schur updates | Solver total Q/Schur updates | Solver peak live entries |
+| --- | ---: | ---: | ---: |
+| 20x20 / 400 | 248292 | 187413 | 3747 |
+| 30x30 / 900 | 1361077 | 1049548 | 10696 |
+| 50x50 / 2500 | 11233947 | 7033172 | 39931 |
+| 100x100 / 10000 | incomplete, Schur cap | incomplete, Schur cap | at least 141059 |
+
+Thus the existing million-update production budget is already exceeded at 900 vertices; 10000 vertices start with 96030 Q entries, exceeding the 50000-entry budget before fill. In the independent interval pilot the fixed shift 0.5 is inconclusive at 2500 vertices; the smaller proposal 0.125 proves positive interval pivots. A failed pivot alone is not a proof that the original matrix is indefinite.
+
+The separate C# arithmetic pilot now offers `mesh-scalar 256 <json> [fresh-trace.jsonl]`. It implements the already specified scalar Cholesky recurrence and Rump trace correction from the paper, with exact integer radius/correction accounting in 2^-1074 units and downward-adjusted diagonals. Products are separate non-inlined calls, division is direct. Nonfinite/subnormal results, lost nonzero products/quotients and the minimum-normal product/quotient boundary are refused conservatively (even exactly normal results at that boundary). Its reference cap is 2500 free unknowns and 50 million products/symbolic pair updates. No public library mode, production budget or accuracy behavior changes.
+
+**Scope:** an unaudited successful scalar run assumes correctly rounded IEEE binary64 execution. It always prints `position_certificate=not_checked`, even if candidate fields are supplied. A small trace audit proves the recorded matrix's bounds and the complete scalar operation sequence, not the completeness of that matrix with respect to an external mesh or correctness on another runtime/input.
+
+Reproduce the experiment and controls (fresh processes, JIT/GC included; not the plan's warmed-process cold acceptance metric):
+
+```
+python3 benchmarks/BiharmonicDeformationBenchmark/certificate_structure_controls.py <dotnet> <producer.dll> <checker.dll>
+python3 benchmarks/BiharmonicDeformationBenchmark/scalar_certificate_controls.py <dotnet> <producer.dll> <checker.dll>
+python3 benchmarks/BiharmonicDeformationBenchmark/certificate_structure_profile.py <dotnet> <producer.dll> <checker.dll> --runs 5
+```
+
+Here producer is `BiharmonicDeformationBenchmark.dll` and checker is `BiharmonicCertificateArithmetic.dll`. Raw commands use the same artifact paths as the prepared-certificate command below. `structure-scalar-profile-results.txt` binds every matrix to its input hash and both DLL hashes. Both methods operate on the same original data, order and shift. Successful scalar product counts exactly match the independent interval update counts.
+
+| Vertices / shift | Interval phase median ms (range) | Scalar phase median ms (range) | Whole matrix-run median ms interval → scalar |
+| --- | ---: | ---: | ---: |
+| 400 / 0.5 | 459.536 (266.481–1289.418) | 48.634 (44.891–100.723) | 943.389 → 615.949 |
+| 900 / 0.5 | 1275.145 (1026.469–2189.384) | 149.507 (112.742–934.036) | 3010.362 → 1236.832 |
+| 2500 / 0.125 | 6246.097 (6033.724–16643.814) | 276.332 (265.383–354.610) | 7444.771 → 1566.827 |
+
+The interval phase includes its allocations/GC and numerical interval factorization. The scalar phase additionally includes midpoint/radius conversion, correction and symbolic work, with its allocations/GC. Whole matrix runs include original-data interval assembly; neither method runs a production candidate solve or its final-position residual here. Wide timing ranges limit universal claims. These results justify continuing the scalar path, not production release, the 15% budget, or 10k/100k feasibility.
+
+`scalar-controls-results.txt` records 2000 directed-conversion cases, five underflow controls and exact rational audits of 14/506/3186 operations on 3x3/5x5/7x7 fixtures. The independent dense recurrence must match every operation's order, operand/result bits and full trace length. Bad shifts, corrupted product rounding, missing trace/radius corrections, truncated traces and correctly rounded but falsely linked operations reject. `scalar-mutation-results.txt` records a source mutation omitting the trace correction, caught by the exact bound check, followed by restored bytes and green controls. Reproduce after a fresh baseline build, alone in a dedicated worktree, with `scalar_certificate_controls.py <dotnet> <producer.dll> <checker.dll> --mutation-artifacts <artifacts>`. These controls do not replace incremental Stryker or an end-to-end mesh certificate. Independent delta/bounds review found no remaining concrete defect after fixing partial-counter reporting and trace completeness.
+
+Next: connect actual larger production candidates and final-output residuals to the scalar proof under an explicit supported arithmetic contract, then measure full cold/warm cost. The original-data interval assembly remains a measured cost, not a fundamental lower bound. Keep default guards and current strict caps until those gates pass.
+
 ## Reuse the existing numerical ordering for the interval proof
 
 The bounded sparse verifier now takes an independent permutation snapshot from the completed numerical SparseCholesky, validates its length/range/uniqueness and permutes only the interval Q matrix. It still proves positive shifted interval pivots from original coordinates; double factors are not proof evidence. Original L/M and per-output residuals retain their original indices. Prepared hits do not clone the permutation again. Natural ordering remains the direct verifier control.

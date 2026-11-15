@@ -132,7 +132,7 @@ representability and audit cost can prevent practical certification. Production
 integration needs its own bounds review, resource limits, reference/mutation
 tests and cold/warm measurements. Geometry-only bounds may be reused only with
 an unchanged, complete rest snapshot and handle set; each output needs a fresh
-original-data residual and response check. The current 16-vertex production cap
+original-data residual and response check. The production size/resource caps
 must not be removed merely because this dimension-independent theorem holds.
 
 The separate C# fixed-point experiment uses the same two Euclidean comparisons
@@ -189,3 +189,11 @@ Commands and raw evidence live in the probe README. This is a concrete certifica
 for these represented inputs, not an extrapolation to the production candidate.
 Independent review found no concrete false-success derivation in this composition
 and required the single-component, ordered-anchor premise to be explicit.
+
+## C# scalar feasibility implementation (2026-11-15)
+
+The separate `BiharmonicCertificateArithmetic/ScalarCholesky` implements the scalar criterion above, not the production supernodal solver. For fixed-point precision at most 1074 bits, interval endpoints and binary64 midpoints are represented in exact 2^-1074 units. Symmetric radius row sums are exact integers. With positive midpoint trace T in those units, the correction is the upward integer quotient `T*(n+1)/(2^53-2*(n+1))`, exactly the stated `gamma/(1-gamma)` coefficient; its denominator is positive under the 2500-unknown cap. Each adjusted diagonal is converted downward from `B_ii-c-rho` by bit construction. Off-diagonals are the selected finite binary64 centers.
+
+The scalar recurrence includes structural fill even for zero values, performs direct division and separates products with a non-inlined method to prevent fused multiply/subtract contraction. It refuses nonfinite/subnormal results and any nonzero product/quotient rounded to zero; all products/quotients at the minimum-normal result boundary are refused conservatively, including valid exact results. Thus an accepted run excludes hidden subnormal exact products/quotients at that rounding boundary. The unaudited recurrence still assumes correctly rounded IEEE binary64 execution; runtime probes or small audited inputs do not prove this premise for every runtime/input. No production or positions certificate is returned by this experiment.
+
+For small fixtures the emitted matrix bounds are recomputed rationally and a separately formulated dense symbolic/scalar recurrence demands identical operation ordering, operand/result bits and full trace length. Each operation is checked against exact nearest-even cells. Incorrect rounding, omitted correction/radius, a truncated trace and an arithmetically valid but falsely linked operation reject. This verifies the recorded interval matrix and scalar execution, not independently the matrix's completeness with respect to the mesh. The original-data assembly retains its own review/reference premises. Bounds review found no remaining concrete error; targeted source mutation removing the correction is caught. Raw commands/evidence and costs are in the deformation benchmark README.
