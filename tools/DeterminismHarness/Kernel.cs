@@ -19,7 +19,8 @@ namespace DeterminismHarness
             list.Add(new Case("kernel.predicates.adaptive", serial => Adaptive()));
             list.Add(new Case("kernel.exactpoint", serial => ExactPoints()));
             list.Add(new Case("kernel.fixedpoint", serial => FixedPoints()));
-            list.Add(new Case("kernel.limbsigns", serial => LimbSigns()));
+            list.Add(new Case("kernel.limbsigns", serial => LimbSigns(false)));
+            list.Add(new Case("kernel.limbsigns.path", serial => LimbSigns(true)));
             list.Add(new Case("kernel.triangles", serial => Triangles()));
             list.Add(new Case("kernel.ray", serial => Rays()));
             list.Add(new Case("kernel.slope", serial => Slopes()));
@@ -65,17 +66,21 @@ namespace DeterminismHarness
 
         // point sets for the predicates: random, nearly collinear / coplanar / cocircular (a point on the exact
         // object moved by a few ulps), with exponents from subnormal to huge
-        static IEnumerable<Vector3d[]> Points3(Rng r, int n, int count)
+        // (the trace sections name the exponent and the kind of each input set, and its coordinates come first, under
+        // "<name>/in/...": a comparison then tells a different input from a different result, per class)
+        static readonly string[] Kinds = { "random", "near", "int", "repeat" };
+        static IEnumerable<Vector3d[]> Points3(Rng r, int n, int count, Trace t, string name)
         {
             int[] exps = { 0, -60, 60, -1000, 900, -1060 };
             for (int i = 0; i < count; ++i) {
                 int e = exps[i % exps.Length];
                 var p = new Vector3d[n];
                 for (int k = 0; k < n; ++k) p[k] = new Vector3d(ScaleB(r.Range(-1, 1), e), ScaleB(r.Range(-1, 1), e), ScaleB(r.Range(-1, 1), e));
-                switch (i % 4) {
+                int kind = (i / exps.Length) % 4;     // (every kind in every exponent class)
+                switch (kind) {
                     case 1:     // the last point on the line / plane of the first ones, then moved by ulps
-                        double t = r.Unit(), u = r.Unit();
-                        Vector3d q = p[0] + t * (p[1] - p[0]) + (n > 3 ? u * (p[2] - p[0]) : Vector3d.Zero);
+                        double s = r.Unit(), u = r.Unit();
+                        Vector3d q = p[0] + s * (p[1] - p[0]) + (n > 3 ? u * (p[2] - p[0]) : Vector3d.Zero);
                         p[n - 1] = new Vector3d(Ulps(q.x, r.Int(5) - 2), Ulps(q.y, r.Int(5) - 2), Ulps(q.z, r.Int(5) - 2));
                         break;
                     case 2:     // small integers: exact degeneracies
@@ -85,6 +90,10 @@ namespace DeterminismHarness
                         p[n - 1] = p[0];
                         break;
                 }
+                string cls = "e" + e + "/" + Kinds[kind];
+                t.Section(name + "/in/" + cls);
+                foreach (Vector3d v in p) t.Add(v);
+                t.Section(name + "/" + cls);
                 yield return p;
             }
         }
@@ -107,16 +116,11 @@ namespace DeterminismHarness
         static Trace Predicates()
         {
             var t = new Trace(); var r = new Rng(1);
-            t.Section("orient2d");
-            foreach (var p in Points3(r, 3, 3000)) t.Add(S(() => ExactPredicates.Orient2d(V2(p[0]), V2(p[1]), V2(p[2]))));
-            t.Section("orient3d");
-            foreach (var p in Points3(r, 4, 3000)) t.Add(S(() => ExactPredicates.Orient3d(p[0], p[1], p[2], p[3])));
-            t.Section("incircle");
-            foreach (var p in Points3(r, 4, 3000)) t.Add(S(() => ExactPredicates.InCircle(V2(p[0]), V2(p[1]), V2(p[2]), V2(p[3]))));
-            t.Section("insphere");
-            foreach (var p in Points3(r, 5, 2000)) t.Add(S(() => ExactPredicates.InSphere(p[0], p[1], p[2], p[3], p[4])));
-            t.Section("exact-stage");
-            foreach (var p in Points3(r, 5, 500)) {
+            foreach (var p in Points3(r, 3, 3000, t, "orient2d")) t.Add(S(() => ExactPredicates.Orient2d(V2(p[0]), V2(p[1]), V2(p[2]))));
+            foreach (var p in Points3(r, 4, 3000, t, "orient3d")) t.Add(S(() => ExactPredicates.Orient3d(p[0], p[1], p[2], p[3])));
+            foreach (var p in Points3(r, 4, 3000, t, "incircle")) t.Add(S(() => ExactPredicates.InCircle(V2(p[0]), V2(p[1]), V2(p[2]), V2(p[3]))));
+            foreach (var p in Points3(r, 5, 2000, t, "insphere")) t.Add(S(() => ExactPredicates.InSphere(p[0], p[1], p[2], p[3], p[4])));
+            foreach (var p in Points3(r, 5, 500, t, "exact-stage")) {
                 t.Add(S(() => ExactPredicates.Orient3dExact(p[0], p[1], p[2], p[3])));
                 t.Add(S(() => ExactPredicates.Orient2dExact(V2(p[0]), V2(p[1]), V2(p[2]))));
                 t.Add(S(() => ExactPredicates.InCircleExact(V2(p[0]), V2(p[1]), V2(p[2]), V2(p[3]))));
@@ -128,12 +132,9 @@ namespace DeterminismHarness
         static Trace Adaptive()
         {
             var t = new Trace(); var r = new Rng(2);
-            t.Section("orient2d");
-            foreach (var p in Points3(r, 3, 3000)) t.Add(S(() => AdaptivePredicates.Orient2d(p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y)));
-            t.Section("orient3d");
-            foreach (var p in Points3(r, 4, 3000)) t.Add(S(() => AdaptivePredicates.Orient3d(p[0].x, p[0].y, p[0].z, p[1].x, p[1].y, p[1].z, p[2].x, p[2].y, p[2].z, p[3].x, p[3].y, p[3].z)));
-            t.Section("incircle");
-            foreach (var p in Points3(r, 4, 3000)) t.Add(S(() => AdaptivePredicates.InCircle(p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y, p[3].x, p[3].y)));
+            foreach (var p in Points3(r, 3, 3000, t, "orient2d")) t.Add(S(() => AdaptivePredicates.Orient2d(p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y)));
+            foreach (var p in Points3(r, 4, 3000, t, "orient3d")) t.Add(S(() => AdaptivePredicates.Orient3d(p[0].x, p[0].y, p[0].z, p[1].x, p[1].y, p[1].z, p[2].x, p[2].y, p[2].z, p[3].x, p[3].y, p[3].z)));
+            foreach (var p in Points3(r, 4, 3000, t, "incircle")) t.Add(S(() => AdaptivePredicates.InCircle(p[0].x, p[0].y, p[1].x, p[1].y, p[2].x, p[2].y, p[3].x, p[3].y)));
             return t;
         }
 
@@ -197,24 +198,27 @@ namespace DeterminismHarness
             return t;
         }
 
-        static Trace LimbSigns()
+        // path: which branch ran (the stack limbs, used >= 0, exist under #if NET only: on .NET Framework every call takes
+        // the BigInteger expression, by design); else the signs, which must agree on every runtime
+        static Trace LimbSigns(bool path)
         {
             var t = new Trace(); var r = new Rng(5);
+            Action<int, int> rec = (sign, used) => t.Add(path ? (used >= 0 ? 1 : 0) : sign);
             foreach (int bits in new[] { 20, 64, 130, 255 }) {
                 t.Section("bits-" + bits);
                 for (int i = 0; i < 150; ++i) {
                     BigInteger a = r.Big(bits), b = r.Big(bits), c = r.Big(bits), x = r.Big(bits), y = r.Big(bits), z = r.Big(bits), w = BigInteger.Abs(r.Big(bits / 2)) + 1;
                     // d chosen so that the side is zero, then moved by one
                     BigInteger d = -(a * x + b * y + c * z) / w + (i % 3 - 1);
-                    int used;
-                    t.Add(ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w, out used)); t.Add(used >= 0);
-                    t.Add(ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, out used)); t.Add(used >= 0);
-                    t.Add(ExactLimbSigns.Dot(a, b, c, x, y, z, out used)); t.Add(used >= 0);
+                    int used, sg;
+                    sg = ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w, out used); rec(sg, used);
+                    sg = ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, out used); rec(sg, used);
+                    sg = ExactLimbSigns.Dot(a, b, c, x, y, z, out used); rec(sg, used);
                     ExactPoint3 p = Point(r, bits, 1), q = Point(r, bits, 9), s = Point(r, bits, 1), u = Point(r, bits, 3);
                     if (i % 4 == 0) u = ExactPoint3.CreateUnreduced(p.X + q.X - s.X, p.Y + q.Y - s.Y, p.Z + q.Z - s.Z, BigInteger.One);
-                    t.Add(ExactLimbSigns.Det4(p, q, s, u, out used)); t.Add(ExactLimbSigns.Det4Big(p, q, s, u));
-                    t.Add(ExactLimbSigns.Orient2(p, q, s, 0, 1, out used)); t.Add(ExactLimbSigns.Orient2Big(p, q, s, 2, 0));
-                    t.Add(ExactLimbSigns.InCircle(p, q, s, u, 1, 2, out used)); t.Add(ExactLimbSigns.InCircleBig(p, q, s, u, 1, 2));
+                    sg = ExactLimbSigns.Det4(p, q, s, u, out used); rec(sg, used); rec(ExactLimbSigns.Det4Big(p, q, s, u), -1);
+                    sg = ExactLimbSigns.Orient2(p, q, s, 0, 1, out used); rec(sg, used); rec(ExactLimbSigns.Orient2Big(p, q, s, 2, 0), -1);
+                    sg = ExactLimbSigns.InCircle(p, q, s, u, 1, 2, out used); rec(sg, used); rec(ExactLimbSigns.InCircleBig(p, q, s, u, 1, 2), -1);
                 }
             }
             return t;
@@ -225,7 +229,7 @@ namespace DeterminismHarness
         static Trace Triangles()
         {
             var t = new Trace(); var r = new Rng(6);
-            foreach (var p in Points3(r, 6, 3000)) {
+            foreach (var p in Points3(r, 6, 3000, t, "triangles")) {
                 Triangle3d a = Tri(p, 0), b = Tri(p, 3);
                 t.Add(S(() => ExactTriangleIntersection.Intersects(ref a, ref b)));
                 t.Add(S(() => ExactTriangleIntersection.IntersectsByEdges(ref a, ref b)));
@@ -245,7 +249,7 @@ namespace DeterminismHarness
         static Trace Rays()
         {
             var t = new Trace(); var r = new Rng(7);
-            foreach (var p in Points3(r, 5, 3000)) {
+            foreach (var p in Points3(r, 5, 3000, t, "ray")) {
                 Vector3d o = p[3], q = ExactRayTriangle.SecondPoint(o, p[4] - p[3]);
                 t.Add(q);
                 t.Add(S(() => ExactRayTriangle.EdgeSign(o, q, p[0], p[1])));
@@ -260,7 +264,7 @@ namespace DeterminismHarness
         static Trace Slopes()
         {
             var t = new Trace(); var r = new Rng(8);
-            foreach (var p in Points3(r, 3, 3000)) {
+            foreach (var p in Points3(r, 3, 3000, t, "slope")) {
                 double k1a = r.Range(-2, 2), k1b = r.Range(0.1, 2), k2a = (r.Int(3) == 0) ? k1a : r.Range(-2, 2), k2b = (r.Int(3) == 0) ? k1b : r.Range(0.1, 2);
                 bool deg;
                 t.Add(ExactSlopePredicates.SlopeSign(p[0], p[1], p[2], k1a, k1b, k2a, k2b, out deg)); t.Add(deg);
@@ -299,11 +303,17 @@ namespace DeterminismHarness
             var t = new Trace(); var r = new Rng(10);
             var xs = new List<double>(Edge);
             for (int i = 0; i < 2000; ++i) xs.Add(ScaleB(r.Range(-1, 1), r.Int(2100) - 1075));
-            t.Section("sqrt"); foreach (double x in xs) t.Add(Math.Sqrt(x));
-            t.Section("abs-sign"); foreach (double x in xs) { t.Add(Math.Abs(x)); if (!double.IsNaN(x)) t.Add(Math.Sign(x)); }
+            // (a NaN result in a section of its own, "<name>-nan": its bits, sign and payload, are not specified by IEEE 754
+            // and differ between processors; the kernel never lets a NaN reach a result)
+            Action<string, double> nan = (name, v) => { t.Section(double.IsNaN(v) ? name + "-nan" : name); t.Add(v); };
+            foreach (double x in xs) nan("sqrt", Math.Sqrt(x));
+            foreach (double x in xs) { nan("abs-sign", Math.Abs(x)); if (!double.IsNaN(x)) { t.Section("abs-sign"); t.Add(Math.Sign(x)); } }
             t.Section("isnan-isinf-finite"); foreach (double x in xs) { t.Add(double.IsNaN(x)); t.Add(double.IsInfinity(x)); t.Add(MathUtil.IsFinite(x)); }
-            t.Section("min-max");
-            foreach (double x in Edge) foreach (double y in Edge) { t.Add(Math.Min(x, y)); t.Add(Math.Max(x, y)); }
+            // (signed zeros and NaN apart: their Min / Max differ between .NET Framework and .NET, #803)
+            foreach (double x in Edge) foreach (double y in Edge) {
+                t.Section(double.IsNaN(x) || double.IsNaN(y) ? "min-max-nan" : (x == 0 && y == 0) ? "min-max-zeros" : "min-max");
+                t.Add(Math.Min(x, y)); t.Add(Math.Max(x, y));
+            }
             t.Section("min-max-int");
             foreach (long x in new long[] { long.MinValue, -1, 0, 1, long.MaxValue, int.MinValue, int.MaxValue })
                 foreach (long y in new long[] { long.MinValue, -1, 0, 7 }) { t.Add(Math.Min(x, y)); t.Add(Math.Max(x, y)); t.Add(Math.Abs(Math.Max(x, long.MinValue + 1))); }
@@ -311,8 +321,8 @@ namespace DeterminismHarness
             for (int i = 0; i < 500; ++i) { long a = (long)r.Next(), b = (long)r.Next(); t.Add(Math.BigMul((int)a, (int)b)); }
             t.Section("bits");
             foreach (double x in xs) t.Add(BitConverter.DoubleToInt64Bits(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x))));
-            t.Section("arith");     // the IEEE operations the kernel's filters are made of
-            for (int i = 0; i + 2 < xs.Count; ++i) { double a = xs[i], b = xs[i + 1], c = xs[i + 2]; t.Add(a * b - c); t.Add((a + b) * c); t.Add(a / (b == 0 ? 1 : b)); }
+            // the IEEE operations the kernel's filters are made of
+            for (int i = 0; i + 2 < xs.Count; ++i) { double a = xs[i], b = xs[i + 1], c = xs[i + 2]; nan("arith", a * b - c); nan("arith", (a + b) * c); nan("arith", a / (b == 0 ? 1 : b)); }
             return t;
         }
 
