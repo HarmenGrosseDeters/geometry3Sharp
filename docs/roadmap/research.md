@@ -130,7 +130,17 @@ Part of the [roadmap](../ROADMAP.md).
      inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
      general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
      4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
-     serial 33-34 %). Stage 2 (refinement driven by the certificate): no PR yet.
+     serial 33-34 %). Stage 2 (refinement driven by the certificate): spike 2026-11-15 (#923), **stopped by the stop rule**
+     ([CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) section 4.8; prototype on the archive branch
+     `claude/contouring-cert-stage2-spike`, not merged): on the clean T1 meshes at / 128, three levels certify 53 % of
+     the 2322 refused coarse cells at 15 times the contouring time, while 989 others become uncertified (2322 -> 2082
+     in total; / 64: 1269 -> 1232); certified runs 4 -> 6 of 14 (/ 64: 2 -> 6). It certifies thin features and one
+     wrong clean input (96773 at / 64); the rest are axis lines crossing L twice near silhouette edges (82-100 % of the
+     uncertified cells after three levels on the three meshes inspected, against 11-42 % of random surface cells),
+     which every finer grid has again. Refinement fixes the 5 wrong implicit-family results, certifying only one of
+     them (gap 0.5), and is not monotone (472011 at / 64 becomes wrong), always reported. Next (owner decision): stage
+     2a of the note, a proof of an edge lemma (a double crossing next to one silhouette edge, with no contour crossing,
+     removed by an isotopy of L supported in the cells around that edge), then stage 2 again on the thin-feature refusals; or stop at stage 1 (report only).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
@@ -555,7 +565,7 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2 (refinement driven by it); options B and C only after a reviewed proof.
+5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); the edge lemma for silhouette double crossings first (owner decision); options B and C only after a reviewed proof.
 6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
 7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
 8. #886: ARAP deformation, optionally biharmonic (research item 7).
