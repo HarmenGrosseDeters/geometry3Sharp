@@ -65,6 +65,35 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // #854 under Similarity.All(): a TIN of a height grid keeps z up, so a rotated frame is not applicable (the convention
+        // of TerrainGridTinTests); scale and translation map the grid. Every frame keeps the error bound at every node with a
+        // valid TIN; the 2^k frames give the same TIN bit for bit (the ear choice compares the errors exactly)
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void RemoveVertices_Plateau_Similarities(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) return;     // a grid cannot be rotated: not applicable
+            var random = new Random(283);
+            var heights = Enumerable.Range(0, 16).Select(_ => random.Next(3) + random.Next(3) * 1e-14).ToArray();
+            Func<Similarity, TerrainGreedyTIN> run = (f) => {
+                var tin = new TerrainGreedyTIN(heights.Select(z => f.Scale * z + f.Translation.z).ToArray(), 4, 4,
+                                               f.Translation.x, f.Translation.y, f.Scale) { MaxError = 0.5 * f.Scale, RemoveVertices = true };
+                Assert.True(tin.Compute());
+                Assert.True(tin.Result.CheckValidity());
+                return tin;
+            };
+            TerrainGreedyTIN g = run(s);
+            Assert.True(MaxNodeError(g) <= 0.5 * s.Scale * (1 + 1e-9) + 1e-9 * Math.Abs(s.Translation.z), $"{MaxNodeError(g)}");
+            if (s.IsExact) {
+                TerrainGreedyTIN r = run(Similarity.Identity);
+                Assert.Equal(r.Result.VertexCount, g.Result.VertexCount);
+                Assert.Equal(r.Result.TriangleCount, g.Result.TriangleCount);
+                foreach (int v in r.Result.VertexIndices()) Assert.Equal(s.Apply(r.Result.GetVertex(v)), g.Result.GetVertex(v));
+                foreach (int t in r.Result.TriangleIndices()) Assert.Equal(r.Result.GetTriangle(t), g.Result.GetTriangle(t));
+            }
+        }
+
         [Fact]
         public void RemoveVertices_SeededPlateausKeepTopologyAtPowerOfTwoScale()
         {
