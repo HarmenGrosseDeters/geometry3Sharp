@@ -921,10 +921,10 @@ namespace g3
                 double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // recompute j/k integer bounds of triangle w/o exact band
-                int j0 = MathUtil.Clamp((int)Math.Ceiling(MathUtil.Min(fjp, fjq, fjr)), 0, nj - 1);
-                int j1 = MathUtil.Clamp((int)Math.Floor(MathUtil.Max(fjp, fjq, fjr)), 0, nj - 1);
-                int k0 = MathUtil.Clamp((int)Math.Ceiling(MathUtil.Min(fkp, fkq, fkr)), 0, nk - 1);
-                int k1 = MathUtil.Clamp((int)Math.Floor(MathUtil.Max(fkp, fkq, fkr)), 0, nk - 1);
+                int j0 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Ceiling(MathUtil.Min(fjp, fjq, fjr))), 0, nj - 1);
+                int j1 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Floor(MathUtil.Max(fjp, fjq, fjr))), 0, nj - 1);
+                int k0 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Ceiling(MathUtil.Min(fkp, fkq, fkr))), 0, nk - 1);
+                int k1 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Floor(MathUtil.Max(fkp, fkq, fkr))), 0, nk - 1);
 
                 // and do intersection counts
                 for (int k = k0; k <= k1; ++k) {
@@ -932,7 +932,7 @@ namespace g3
                         double a, b, c;
                         if (point_in_triangle_2d(j, k, fjp, fkp, fjq, fkq, fjr, fkr, out a, out b, out c)) {
                             double fi = a * fip + b * fiq + c * fir; // intersection i coordinate
-                            int i_interval = (int)(Math.Ceiling(fi)); // intersection is in (i_interval-1,i_interval]
+                            int i_interval = MathUtil.ToIntSaturating(Math.Ceiling(fi)); // intersection is in (i_interval-1,i_interval] (saturating, #804)
                             if (i_interval < 0) {
                                 intersection_count.atomic_incdec(0, j, k, neg_x);
                             } else if (i_interval < ni) {
