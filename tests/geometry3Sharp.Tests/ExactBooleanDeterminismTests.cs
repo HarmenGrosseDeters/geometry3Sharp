@@ -151,10 +151,11 @@ namespace geometry3Sharp.Tests
         // issue 789: the hash of an exact point is seeded per process on .NET (BigInteger.GetHashCode), and it picks
         // the shard and bucket of the arrangement's point indexes and of the merge of equal points. The results must not
         // depend on it: the same bits under scrambled hashes (two salts) and with every point in one shard, serially and
-        // in parallel, on the inputs of this class
+        // in parallel, on the inputs of this class (the coplanar boxes once more with the points as BigIntegers: the
+        // rational index; the merge of three or more equal points is reached by both coplanar cases)
         public static IEnumerable<object[]> HashCases()
         {
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 5; ++i)
                 yield return new object[] { i };
         }
 
@@ -173,7 +174,11 @@ namespace geometry3Sharp.Tests
                 case 1: return (salt, one) => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Intersection) { SafeRounding = true, ComputeExactVertices = true,
                     ArrangementHashSalt = salt ? -7 : 0, ArrangementSingleShard = one };
                 case 2: return (salt, one) => new ExactMeshBoolean(boxes, ExactMeshBoolean.Operations.Union) { ArrangementHashSalt = salt ? 0x2545F491 : 0, ArrangementSingleShard = one };
-                default: return (salt, one) => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union) { ArrangementHashSalt = salt ? 1 : 0, ArrangementSingleShard = one };
+                case 3: return (salt, one) => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union) { ArrangementHashSalt = salt ? 1 : 0, ArrangementSingleShard = one };
+                // the points as BigIntegers (not in fixed width): the rational index and ExactHash take the seeded
+                // BigInteger hashes themselves
+                default: return (salt, one) => new ExactMeshBoolean(boxes, ExactMeshBoolean.Operations.Union) { FixedWidthPoints = false,
+                    ArrangementHashSalt = salt ? 0x68E31DA4 : 0, ArrangementSingleShard = one };
             }
         }
 
