@@ -111,6 +111,25 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884, #898):
 - Tests above 20 s: #696, #698, #866 and the #888 tail.
 - Fuzzing: #624 groups (c) to (f), #623 reader campaigns, wave-3 draft #686.
 
+## Order after Exact Boolean 3.0 (owner 2026-11-15)
+
+1. **Finish what runs.** Exact Boolean 3.0 (T1b #843, the mutation shards #913, the T6 check against CGAL #922, then the
+   two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914, then the port of four C++ fixes,
+   approved 2026-11-15, with the differential test relaxed to "differs only where the vendored code stays exact").
+2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files).
+3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
+   a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
+   it comes before the release; a no-go does not hold the release.
+4. **Scale-free robust repair** (hard problem 9): builds on 3, also output-changing; before the release only if the
+   rounding spike is a go.
+5. **Release** (owner decision): once the outputs are stable.
+6. **Tet meshing:** after the release; it builds on the alpha wrap and the rounding. Sharp features (hard problem 4)
+   only if CAD cases need them.
+
+Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
+measurement); a quality-aware manifold step in the alpha wrap (#919). Last, by "depth over breadth" (owner 2026-11-10):
+CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
+
 ## Later / research
 
 - Exact booleans, not scheduled: EMBER lever 2 (skip self-pairs of results certified free of self-intersections in chained

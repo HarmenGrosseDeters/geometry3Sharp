@@ -8,20 +8,22 @@ namespace g3
     /// <summary>
     /// Signs of small integer expressions on BigInteger operands, evaluated on stack limbs with FixedArith instead of
     /// BigInteger temporaries: the plane side A X + B Y + C Z - D W (and with W = 1), the dot of two integer vectors and
-    /// the 4 x 4 determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification). The
+    /// the 4 x 4 determinant of four homogeneous points (the exact stages of ExactMeshBoolean's classification), and
+    /// the planar orientation and in-circle determinants of homogeneous points (the last stages of
+    /// ExactMeshArrangement.Orient and InCircle, for points beyond the fixed width). The
     /// operands are copied into sign-magnitude limbs per call (no allocation), the arithmetic is the library's
     /// FixedArith, so the value is the same integer and the sign the same as the BigInteger expression's.
     /// A call whose stack need is above a limit uses the BigInteger expression: for the sides and the dot the sum of
     /// the operands' limbs above MaxOperandLimbs (one wide operand beside small ones stays on the stack), for the
-    /// determinant the operands' limbs and the scratch space above MaxDeterminantLimbs; so does netstandard2.0 (no
-    /// BigInteger.TryWriteBytes). The limits bound the stack of one call, which calls nothing but FixedArith: 13 KB
-    /// for a side or a dot, 36 KB for the determinant (docs/design/EXACT_LIMB_SIGNS.md, which derives the scratch space).
+    /// three determinants the operands' limbs and the scratch space above MaxDeterminantLimbs; so does netstandard2.0
+    /// (no BigInteger.TryWriteBytes). The limits bound the stack of one call, which calls nothing but FixedArith: 13 KB
+    /// for a side or a dot, 36 KB for a determinant (docs/design/EXACT_LIMB_SIGNS.md, which derives the scratch space).
     /// </summary>
     internal static unsafe class ExactLimbSigns
     {
         /// <summary> the sides and the dot run on the stack while their operands take at most this many 64-bit limbs in all </summary>
         internal const int MaxOperandLimbs = 320;
-        /// <summary> the determinant runs on the stack while its operands and its scratch space take at most this many limbs (36 KB) </summary>
+        /// <summary> a determinant (Det4, Orient2, InCircle) runs on the stack while its operands and its scratch space take at most this many limbs (36 KB) </summary>
         internal const int MaxDeterminantLimbs = 4608;
 
         /// <summary> the scratch limbs of a side or a dot whose operands take `total` limbs (the need is at most 4 total + 6) </summary>
@@ -253,6 +255,177 @@ namespace g3
 #endif
             used = -1;
             return Det4Big(a, b, c, d);
+        }
+
+        /// <summary>
+        /// the scratch limbs of the planar orientation for rows whose widest entries take a, b, c limbs (the need is at
+        /// most 5 a + 14 (b + c) + 11: one 3 x 3 determinant, as a minor of Det4)
+        /// </summary>
+        internal static long OrientScratch(int a, int b, int c) { return 6L * a + 15L * ((long)b + c) + 32; }
+
+        /// <summary>
+        /// the scratch limbs of the in-circle determinant; p, q, r: for each of the three points the limbs of its widest
+        /// entry plus those of the fourth point's widest entry (the need is at most 27 p + 45 (q + r) + 99)
+        /// </summary>
+        internal static long InCircleScratch(long p, long q, long r) { return 28L * p + 46L * (q + r) + 128; }
+
+        /// <summary>
+        /// The sign of the determinant with the rows (v[i], v[j], v.W) of a, b, c: the orientation of the three points
+        /// in the plane of the axes i, j (W > 0).
+        /// </summary>
+        internal static int Orient2(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
+        {
+            int used;
+            return Orient2(a, b, c, i, j, out used);
+        }
+
+        /// <summary> Orient2, and the scratch limbs it used (-1: the BigInteger form) </summary>
+        [MethodImpl(JitHints.Optimize)]
+#if NET
+        [SkipLocalsInit]
+#endif
+        internal static int Orient2(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j, out int used)
+        {
+#if NET
+            BigInteger ai = a[i], aj = a[j], bi = b[i], bj = b[j], ci = c[i], cj = c[j];
+            int* n = stackalloc int[9];
+            n[0] = limbs_of(ai); n[1] = limbs_of(aj); n[2] = limbs_of(a.W);
+            n[3] = limbs_of(bi); n[4] = limbs_of(bj); n[5] = limbs_of(b.W);
+            n[6] = limbs_of(ci); n[7] = limbs_of(cj); n[8] = limbs_of(c.W);
+            // (the sizes in long: a BigInteger has fewer than 2^26 limbs, so neither sum overflows)
+            long total = 0;
+            for (int k = 0; k < 9; ++k) total += n[k];
+            long need = OrientScratch(Math.Max(n[0], Math.Max(n[1], n[2])), Math.Max(n[3], Math.Max(n[4], n[5])), Math.Max(n[6], Math.Max(n[7], n[8])));
+            if (total + need <= MaxDeterminantLimbs) {
+                int scratch = (int)need;
+                ulong* buf = stackalloc ulong[(int)total];
+                ulong* sc = stackalloc ulong[scratch];
+                var ar = new FixedArena(sc, scratch);
+                ulong* p = buf;
+                FixedInt f0 = load(ai, p, n[0]); p += n[0];
+                FixedInt f1 = load(aj, p, n[1]); p += n[1];
+                FixedInt f2 = load(a.W, p, n[2]); p += n[2];
+                FixedInt f3 = load(bi, p, n[3]); p += n[3];
+                FixedInt f4 = load(bj, p, n[4]); p += n[4];
+                FixedInt f5 = load(b.W, p, n[5]); p += n[5];
+                FixedInt f6 = load(ci, p, n[6]); p += n[6];
+                FixedInt f7 = load(cj, p, n[7]); p += n[7];
+                FixedInt f8 = load(c.W, p, n[8]);
+                int sign = det3(f0, f1, f2, f3, f4, f5, f6, f7, f8, ref ar).Sign;
+                used = scratch - ar.Remaining;
+                return sign;
+            }
+#endif
+            used = -1;
+            return Orient2Big(a, b, c, i, j);
+        }
+
+        /// <summary> the BigInteger form of Orient2 (wide operands, netstandard2.0, and the tests' reference) </summary>
+        internal static int Orient2Big(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, int i, int j)
+        {
+            return ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W).Sign;
+        }
+
+#if NET
+        // the in-circle row of v against d: (A s, B s, A^2 + B^2) with A = v_i d_w - d_i v_w, B likewise, s = v_w d_w
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static void incircle_row(FixedInt vi, FixedInt vj, FixedInt vw, FixedInt di, FixedInt dj, FixedInt dw, ref FixedArena ar, out FixedInt x, out FixedInt y, out FixedInt l)
+        {
+            FixedInt A = FixedArith.Sub(FixedArith.Mul(vi, dw, ref ar), FixedArith.Mul(di, vw, ref ar), ref ar);
+            FixedInt B = FixedArith.Sub(FixedArith.Mul(vj, dw, ref ar), FixedArith.Mul(dj, vw, ref ar), ref ar);
+            FixedInt s = FixedArith.Mul(vw, dw, ref ar);
+            x = FixedArith.Mul(A, s, ref ar);
+            y = FixedArith.Mul(B, s, ref ar);
+            l = FixedArith.Add(FixedArith.Mul(A, A, ref ar), FixedArith.Mul(B, B, ref ar), ref ar);
+        }
+#endif
+
+        /// <summary>
+        /// The sign of the in-circle determinant of p, q, r against d in the plane of the axes i, j: the 3 x 3
+        /// determinant with a row (A s, B s, A^2 + B^2) per point v of p, q, r, A = v[i] d.W - d[i] v.W, B likewise
+        /// with j, s = v.W d.W (ExactMeshArrangement.InCircle derives it; W > 0).
+        /// </summary>
+        internal static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
+        {
+            int used;
+            return InCircle(p, q, r, d, i, j, out used);
+        }
+
+        /// <summary> InCircle, and the scratch limbs it used (-1: the BigInteger form) </summary>
+        [MethodImpl(JitHints.Optimize)]
+#if NET
+        [SkipLocalsInit]
+#endif
+        internal static int InCircle(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j, out int used)
+        {
+#if NET
+            BigInteger pi = p[i], pj = p[j], qi = q[i], qj = q[j], ri = r[i], rj = r[j], di = d[i], dj = d[j];
+            int* n = stackalloc int[12];
+            n[0] = limbs_of(pi); n[1] = limbs_of(pj); n[2] = limbs_of(p.W);
+            n[3] = limbs_of(qi); n[4] = limbs_of(qj); n[5] = limbs_of(q.W);
+            n[6] = limbs_of(ri); n[7] = limbs_of(rj); n[8] = limbs_of(r.W);
+            n[9] = limbs_of(di); n[10] = limbs_of(dj); n[11] = limbs_of(d.W);
+            // (the sizes in long, as in Orient2)
+            long total = 0;
+            for (int k = 0; k < 12; ++k) total += n[k];
+            // the widest entry of the fourth point, and with it of each of the three
+            long wd = Math.Max(n[9], Math.Max(n[10], n[11]));
+            long need = InCircleScratch(Math.Max(n[0], Math.Max(n[1], n[2])) + wd, Math.Max(n[3], Math.Max(n[4], n[5])) + wd, Math.Max(n[6], Math.Max(n[7], n[8])) + wd);
+            if (total + need <= MaxDeterminantLimbs) {
+                int scratch = (int)need;
+                ulong* buf = stackalloc ulong[(int)total];
+                ulong* sc = stackalloc ulong[scratch];
+                var ar = new FixedArena(sc, scratch);
+                ulong* b = buf;
+                FixedInt f0 = load(pi, b, n[0]); b += n[0];
+                FixedInt f1 = load(pj, b, n[1]); b += n[1];
+                FixedInt f2 = load(p.W, b, n[2]); b += n[2];
+                FixedInt f3 = load(qi, b, n[3]); b += n[3];
+                FixedInt f4 = load(qj, b, n[4]); b += n[4];
+                FixedInt f5 = load(q.W, b, n[5]); b += n[5];
+                FixedInt f6 = load(ri, b, n[6]); b += n[6];
+                FixedInt f7 = load(rj, b, n[7]); b += n[7];
+                FixedInt f8 = load(r.W, b, n[8]); b += n[8];
+                FixedInt f9 = load(di, b, n[9]); b += n[9];
+                FixedInt f10 = load(dj, b, n[10]); b += n[10];
+                FixedInt f11 = load(d.W, b, n[11]);
+                FixedInt ax, ay, al, bx, by, bl, cx, cy, cl;
+                incircle_row(f0, f1, f2, f9, f10, f11, ref ar, out ax, out ay, out al);
+                incircle_row(f3, f4, f5, f9, f10, f11, ref ar, out bx, out by, out bl);
+                incircle_row(f6, f7, f8, f9, f10, f11, ref ar, out cx, out cy, out cl);
+                int sign = det3(ax, ay, al, bx, by, bl, cx, cy, cl, ref ar).Sign;
+                used = scratch - ar.Remaining;
+                return sign;
+            }
+#endif
+            used = -1;
+            return InCircleBig(p, q, r, d, i, j);
+        }
+
+        /// <summary> the BigInteger form of InCircle (wide operands, netstandard2.0, and the tests' reference) </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal static int InCircleBig(ExactPoint3 p, ExactPoint3 q, ExactPoint3 r, ExactPoint3 d, int i, int j)
+        {
+            BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
+            incircle_row_big(p, d, i, j, out ax, out ay, out al);
+            incircle_row_big(q, d, i, j, out bx, out by, out bl);
+            incircle_row_big(r, d, i, j, out cx, out cy, out cl);
+            return ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl).Sign;
+        }
+
+        // the row of incircle_row in BigIntegers; with both W = 1 the factor s is 1
+        [MethodImpl(JitHints.Optimize)]
+        static void incircle_row_big(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
+        {
+            BigInteger A, B, s;
+            if (v.W.IsOne && d.W.IsOne) {
+                A = v[i] - d[i]; B = v[j] - d[j];
+                x = A; y = B;
+            } else {
+                A = v[i] * d.W - d[i] * v.W; B = v[j] * d.W - d[j] * v.W; s = v.W * d.W;
+                x = A * s; y = B * s;
+            }
+            l = A * A + B * B;
         }
 
         /// <summary> the BigInteger form of Det4 (wide operands, netstandard2.0, and the tests' reference) </summary>

@@ -116,7 +116,7 @@ Part of the [roadmap](../ROADMAP.md).
   where the incremental run stays mandatory. Other PRs merge on green CI and review; their shards run nightly on master
   (dispatch tasks), survivors become tasks of the area's next PR. The time rule stays a hard CI gate. Rule in CLAUDE.md.
 - **Scheduled workflows do not fire reliably** (found 2026-11-12; fix 2026-11-13: dispatch path plus guard, see
-  [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); open until the dispatcher tasks exist and ran once): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
+  [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); the dispatch is on time to about a minute since 2026-11-14, the cron lines stay 6.7 to 7.8 h late, measured in [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); done): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
   has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
   2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
   runs of the 3.0 process (#615) would depend on the same mechanism. Later on 2026-11-12 both fired, hours late:
@@ -178,8 +178,8 @@ Part of the [roadmap](../ROADMAP.md).
   from a report, `apply` with the staleness guard), wired into `full()` of `run_stryker.sh`; a stale filter (changed config,
   mutated file, test file, or a new test file naming the filter's classes) falls back to the full filter. Owner
   2026-11-13: `--timeouts one` is the default; the scheduled run of every Sunday (UTC) is unfiltered and checks it. Open: making the filter
-  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (follow-up PR, once full master reports exist for
-  arrangement / boolean / planar / overlay).
+  files in CI (a step after the nightly full run, stored like the baseline; touches the cache lines of the workflow), (filters for envelope-1..3 and terrain-arith are checked in since
+  2026-11-15; renewals and the shards without a current full master report are open).
 - **`Vector2d` / `Vector3d.IsFinite` (owner 2026-11-12): done (#705).** A component-wise check; before, it tested the
   sum of the components, which overflows to infinity for large finite components.
 - **Determinism proof, option A ([design/DETERMINISM_PROOF.md](../design/DETERMINISM_PROOF.md)):** stage 0 is merged
@@ -322,6 +322,11 @@ Tier: S, M. Parallel: up to 2 sessions
        review (about 10 000 inputs per target): remesher and reducer no finding, clipper2 one open class (a self-intersecting input ring gives an outer ring of
        negative area), quality-mesh2 two open classes (`AngleBelowBound` in every quality mode, about 1 in 700; `VertexUnused` / `SegmentMissing` at far or tiny coordinates). All pinned in
        FINDINGS.md and gated in the targets (`MESH_FUZZ_STRICT=1`), none fixed.
+    9. Fuzz targets, third wave (QA 2.0 gap list, 2026-11-12): `tools/MeshFuzzPilot` got `marching-cubes`, `terrain-tin`, `mesh-cut`, `insert-polygon` and `trim-loop`
+       (`Targets3.cs`, README "Third wave"), each with self-test contradictions, seeds and the `random` smoke command. Smoke runs (2 500 to 4 000 inputs per target and seed):
+       marching cubes and terrain no finding; the editing operations gave classes that are domains now or one gate (FINDINGS.md, third wave). The libFuzzer campaigns ran
+       (2026-11-13/15): bugfix issues #854 and #855 (terrain, fixed in #889 and #890) and #856 (`MeshMeshCut` contact, `RefuseContact` in #867); the 1 947 `insert-polygon`
+       artifacts are untriaged.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).

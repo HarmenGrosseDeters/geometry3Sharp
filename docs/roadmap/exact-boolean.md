@@ -452,8 +452,25 @@ Open:
   nothing; the exact point construction is 2.4 % / 4.9 % of the normal stratum's one-thread time (20 pairs / 13
   models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
   that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
-  15 % of the slow tail's one-thread time, nothing on the normal stratum) were parked until lever 1 landed;
-  it merged in #813 (2026-11-14), so the re-measurement is due (not recorded yet). Candidate D is draft #893 (above).
+  15 % of the slow tail's one-thread time, nothing on the normal stratum) were parked until lever 1 (#813) had
+  landed and measured again on 2026-11-15 ([design](../design/EXACT_LIMB_SIGNS.md), section 6): the bound is 9 % /
+  16 % of the one-thread time of 107554 / 42327 (lever 1 does not change how often these stages run there); a probe
+  that reads the operands from `BigInteger`'s own limbs and computes the centroid on stack limbs gains 6.3 % of the
+  one-thread time of the two models together (42327 -6.7 %, confirmed; 107554 -5.5 %, inside the run-to-run range)
+  and nothing on the normal stratum. Recommendation: go for that cheap form as one small PR, if the owner accepts
+  the access to `BigInteger`'s private fields behind a layout check; no-go for limbs threaded through the
+  classification. The owner declined that access (2026-11-15), and the route through the public API was probed the
+  same day (section 7): limbs converted once and carried beside the planes and the centres gain nothing alone; with
+  the limb centroid 42327 is 5.0 % faster on one thread in the median, not confirmed (the ranges overlap; its
+  classification is confirmed 9.7 % lower), 107554 3.6 %, the two together 4.5 %, 4 cores and the normal strata
+  nothing; hashes equal. A no-go by the 5 % line: the classification part of candidate C is closed and nothing of
+  it is built. The study ends with this. Candidate D is built
+  (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
+  BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
+  `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the
+  branch of B (4 cores, wall time with collections, median of 5): 55928 352.8 -> 310.4 s (-12.0 %, 15 s of it the
+  collector's pause, allocation 180 -> 94 GB); 107554, 42327 and the normal stratum unchanged within the run-to-run
+  range; hashes equal.
 - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
   its tail (4 cores, median of 5, alternating A/B, hashes equal):
   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
@@ -480,8 +497,12 @@ Open:
     - Tail: -3.2 % with gen0 and -1.6 % with server GC (the four 3 s models -8 to -19 %, 1088051 about -2 %).
     - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
       simplify about 30 %, setup 4 %.
-    - Done: presizing and reuse of scratch buffers in the arrangement, merged in #768 (2026-11-13, part one); the
-      classification's open-winding tracing follows in #881 (open).
+    - **Done (classification, L2's tracing):** the closure and delegates per `carried_crossings` call replaced by a
+      struct visitor, `LocalFrame.Corner` without the exact point where the double difference is exact, the remaining
+      BigInteger dot products on stack limbs, no copy for the projection query, one `carry_bound` box per thread.
+      Bit-identical; 117959 union: classification 14.4 -> 7.9 GB, 23.9 -> 20.7 s, run 33.2 -> 30.0 s. What allocates
+      there now: the `Center` per piece (about 5 %), the pierce candidates per step key, the per-frame dictionaries.
+    - Done (arrangement): presizing and reuse of scratch buffers, merged in #768 (2026-11-13, part one).
     - Open (snap-rounding follow-up): reusing the `TriangleBoxTree` that `MeshRoundingRepair.rebuild_tree` builds again
       and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
       `claude/lever4-arrangement-allocs`: the reuse constructor, the check for a released tree, two tests, and the

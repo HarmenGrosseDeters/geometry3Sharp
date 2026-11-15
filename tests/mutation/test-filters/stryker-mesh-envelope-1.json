@@ -1,0 +1,28 @@
+{
+ "format": 1,
+ "config": "2d3524d1bac7fb3fd48984e5a2b9750a8c63a3b632b1877fd8228ff46120889d",
+ "timeouts": "one",
+ "terms": [
+  "PolyhedralEnvelopeTests"
+ ],
+ "kept": [
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests+ContainsSegmentMesh0.ContainsSegment_MatchesIntervalOracle",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests+ContainsSegmentMesh1.ContainsSegment_MatchesIntervalOracle",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests+ContainsSegmentMesh2.ContainsSegment_MatchesIntervalOracle",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests+ContainsTriangleMesh2.ContainsTriangle_MatchesOracle",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests.ContainsSegment_CoplanarWithFacets",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests.Degenerate_UnderflowingEdges_KeepTheGuarantee",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests.Invariance_AllSimilarities",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests.Polyhedron_BoundsHold_APosteriori",
+  "geometry3Sharp.Tests.PolyhedralEnvelopeTests.Status_Cases"
+ ],
+ "tests_in_report": 21,
+ "mutated_files": {
+  "mesh_ops/PolyhedralEnvelope.cs": "16b60b984319720f22b91c1f78e1f2d2b648aedd20832bddfd287316c40d54a7"
+ },
+ "test_files": {
+  "tests/geometry3Sharp.Tests/PolyhedralEnvelopeTests.cs": "7d9d04b7140c2491f1949964ba16e93465b45ddb9d47f88227d4a63f65bbce7d"
+ },
+ "estimated_saving": 0.926,
+ "weighted_by_duration": true
+}
