@@ -125,9 +125,12 @@ Part of the [roadmap](../ROADMAP.md).
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
      (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
-     Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
-     `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
-     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833, merged), #815 (Lidinoid, #835, merged), #838 (sliver guard, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`, #860, merged), #814 (CLI / MCP, `tpms` command, PR #879). Hybrid of two types across a plane (`SecondType` / `Blend`, `second_type` / `blend`; design section 9 of the note, #900): owner approved 2026-11-15, built in one PR.
+     Built (merged 2026-11-13 to 2026-11-15): `TpmsLattice` with gyroid, P, D, Neovius, I-WP and Lidinoid, sheet / skeletal, box and closed-mesh domain, `WallThickness`,
+     `Enclosure` (#750, #835 Lidinoid, #838 sliver guard, #833 conservative-MC worst-case test), graded cell size (`Grade` / `PhaseMap`, #860), the `tpms` command of
+     `g3cli` and the MCP server (#879, coverage entries #895), and the two-type hybrid across a plane (`SecondType` / `Blend` / `SigmoidBlend`, design section 9 of the
+     note #900, build #907, from Fang et al. 2026); `benchmarks/TpmsLattice`. Open, not scheduled: reading Ren et al. 2021 and Gao et al. 2022 (owner: later; Elsevier,
+     they need to be provided) for a transition that keeps the wall thickness, the checkerboard weight and a hybrid of different periods (both dropped from the first hybrid PR),
+     and primary-source verification of the nodal Lidinoid formula (the Lidin and Larsson citation data are verified, the paper itself was not opened; see `SOURCES.md`).
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
