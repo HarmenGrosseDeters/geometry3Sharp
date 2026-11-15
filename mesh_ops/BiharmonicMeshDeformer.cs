@@ -16,7 +16,7 @@ namespace g3
         public enum AccuracyAssessment { NotEstablished, NotCertified, Certified }
         public class Settings {
             public double RelativeTolerance = 1e-8;
-            /// <summary>Request bounded Euclidean position and component response accuracy using the dense interval solver (at most 16 vertices).</summary>
+            /// <summary>Request bounded Euclidean position and component response accuracy. Dense solve up to 16 vertices; bounded sparse verification up to 400 vertices in one active component.</summary>
             public bool RequireEuclideanAccuracy = false;
             /// <summary>Maximum Euclidean position error relative to component rest radius in strict mode.</summary>
             public double PositionTolerance = 1e-8;
@@ -43,10 +43,10 @@ namespace g3
         public Settings Options = new Settings();
         public BiharmonicMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
 
-        static bool Add(Dictionary<int, double> row, int col, double value)
+        static bool Add(Dictionary<int, double> row, int col, double value, bool trial = false)
         {
             double old; row.TryGetValue(col, out old); double sum = old + value;
-            if (!MathUtil.IsFinite(sum) || (value != 0 && old != 0 && (sum == old || sum == value))) return false;
+            if (!MathUtil.IsFinite(sum) || (!trial && value != 0 && old != 0 && (sum == old || sum == value))) return false;
             row[col] = sum; return true;
         }
         static bool Area(Vector3d a, Vector3d b, Vector3d c)
@@ -66,16 +66,16 @@ namespace g3
             double m = MaxAbs(p); if (m == 0 || !MathUtil.IsFinite(m)) return m;
             p /= m; return m * Math.Sqrt(p.Dot(p));
         }
-        static bool Edge(Dictionary<int, double>[] rows, int a, int b, double w) {
-            return Add(rows[a], a, w) && Add(rows[b], b, w) && Add(rows[a], b, -w) && Add(rows[b], a, -w);
+        static bool Edge(Dictionary<int, double>[] rows, int a, int b, double w, bool trial = false) {
+            return Add(rows[a], a, w, trial) && Add(rows[b], b, w, trial) && Add(rows[a], b, -w, trial) && Add(rows[b], a, -w, trial);
         }
-        static bool Dot(Vector3d a, Vector3d b, out double result) {
+        static bool Dot(Vector3d a, Vector3d b, out double result, bool trial = false) {
             result = 0;
             for (int i = 0; i < 3; ++i) {
                 double term = a[i] * b[i];
-                if (term == 0 && a[i] != 0 && b[i] != 0) return false;
+                if (!trial && term == 0 && a[i] != 0 && b[i] != 0) return false;
                 double sum = result + term;
-                if (!MathUtil.IsFinite(sum) || (term != 0 && result != 0 && (sum == result || sum == term))) return false;
+                if (!MathUtil.IsFinite(sum) || (!trial && term != 0 && result != 0 && (sum == result || sum == term))) return false;
                 result = sum;
             }
             return true;
@@ -194,8 +194,10 @@ namespace g3
                         result.Status = Status.DegenerateTriangle; return result;
                     }
                 }
-                return NumericFallback();
+                if (n <= 16) return NumericFallback();
+                if (n > 400) { result.Status = Status.AccuracyNotEstablished; return result; }
             }
+            bool trialCandidate = Options.RequireEuclideanAccuracy && n > 16;
             var rows = new Dictionary<int, double>[n]; var mass = new double[n];
             for (int i = 0; i < n; ++i) rows[i] = new Dictionary<int, double>();
             foreach (int tid in Mesh.TriangleIndices()) {
@@ -210,7 +212,7 @@ namespace g3
                     result.Status = Area(original[a], original[b], original[c]) ? Status.NumericalRange : Status.DegenerateTriangle; return result;
                 }
                 double da, db, dc;
-                if (!Dot(ab, ac, out da) || !Dot(-ab, ac - ab, out db) || !Dot(-ac, ab - ac, out dc)) {
+                if (!Dot(ab, ac, out da, trialCandidate) || !Dot(-ab, ac - ab, out db, trialCandidate) || !Dot(-ac, ab - ac, out dc, trialCandidate)) {
                     return NumericFallback();
                 }
                 double wa = 0.5 * da / twiceArea;
@@ -220,7 +222,7 @@ namespace g3
                 if (!MathUtil.IsFinite(wa) || !MathUtil.IsFinite(wb) || !MathUtil.IsFinite(wc) || !(areaShare > 0)) {
                     result.Status = Status.NumericalRange; return result;
                 }
-                if (!Edge(rows, b, c, wa) || !Edge(rows, a, c, wb) || !Edge(rows, a, b, wc)) {
+                if (!Edge(rows, b, c, wa, trialCandidate) || !Edge(rows, a, c, wb, trialCandidate) || !Edge(rows, a, b, wc, trialCandidate)) {
                     return NumericFallback();
                 }
                 mass[a] += areaShare; mass[b] += areaShare; mass[c] += areaShare;
@@ -230,7 +232,7 @@ namespace g3
             foreach (var h in handles) {
                 int i = lookup[h.Key]; if (!active[i]) continue;
                 displacement[i] = h.Value - original[i];
-                if (!displacement[i].IsFinite || LostDifference(h.Value, original[i], displacement[i])) {
+                if (!displacement[i].IsFinite || (!trialCandidate && LostDifference(h.Value, original[i], displacement[i]))) {
                     return NumericFallback();
                 }
                 int root = componentRoot[i]; motionScale[root] = Math.Max(motionScale[root], MaxAbs(displacement[i]));
@@ -302,8 +304,17 @@ namespace g3
                 if (!position.IsFinite) { result.Status = Status.NonFiniteResult; return result; }
                 output.SetVertex(ids[i], position);
             }
+            if (trialCandidate) {
+                var candidate = new Vector3d[n]; for (int i = 0; i < n; ++i) candidate[i] = output.GetVertex(ids[i]);
+                double bound;
+                if (!BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
+                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound)) {
+                    result.Status = Status.AccuracyNotEstablished; return result;
+                }
+                result.PositionErrorBound = bound; result.Accuracy = AccuracyAssessment.Certified;
+            } else result.Accuracy = AccuracyAssessment.NotCertified;
             if (output.HasVertexNormals) MeshNormals.QuickCompute(output);
-            result.Mesh = output; result.Status = Status.Success; result.Accuracy = AccuracyAssessment.NotCertified; return result;
+            result.Mesh = output; result.Status = Status.Success; return result;
         }
     }
 }

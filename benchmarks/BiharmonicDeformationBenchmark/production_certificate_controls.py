@@ -45,7 +45,7 @@ def bits(value):return struct.unpack('>q',struct.pack('>d',value))[0]
 def number(raw):return struct.unpack('>d',struct.pack('>q',raw))[0]
 with tempfile.TemporaryDirectory(prefix='bih-production-') as directory:
  directory=Path(directory)
- for n,orientation,mode,expected in [(4,'aligned','normal',0),(4,'rotated','normal',0),(4,'rotated','strict',0),(20,'aligned','normal',0),(20,'rotated','normal',1),(20,'rotated','strict',1)]:
+ for n,orientation,mode,expected in [(4,'aligned','normal',0),(4,'rotated','normal',0),(4,'rotated','strict',0),(20,'aligned','normal',0),(20,'rotated','normal',1),(20,'rotated','strict',0)]:
   path=directory/f'{n}-{orientation}-{mode}.json'
   status='NumericalRange' if mode=='normal' else 'AccuracyNotEstablished'
   required=(f'mode={mode} orientation={orientation} status={status}',) if expected else (f'mode={mode} orientation={orientation} status=Success',)

@@ -2,6 +2,8 @@
 
 ## Independent check of production candidates
 
+The bounded sparse production verifier now extends strict mode to at most 400 vertices in one active component. `sparse-production-certificate-results.txt` records the updated harness: the actual rotated 20x20 strict output is `Success/Certified` and the separate fixed-point pilot confirms both Euclidean conditions for that same hash-bound candidate. The normal mode still rejects the fixture, retaining its previous loss guards. Corrupted x/y/z outputs and excessive shifts still reject. The older `production-certificate-results.txt` below documents the earlier limit and remains historical evidence. No 10k/100k certification or default-path speedup follows from this bounded reference integration.
+
 `--certificate` builds an explicit single-component procedural DMesh3, snapshots input positions and triangle IDs before `Compute`, and compares input and output topology/IDs and input bits after it. It serializes the actual output positions, handle targets and original input bits to a fresh JSON path; it never overwrites an existing path or exports a failed solve. The verifier rebuilds its own interval matrix and residual from those bits. The shift 0.5 is an untrusted proposal: the verifier independently proves or rejects it. The exporter is limited to compact generated grid IDs, not a general DMesh3 certificate API.
 
 Run after building `BiharmonicDeformationBenchmark` and `BiharmonicCertificateArithmetic` in Release:

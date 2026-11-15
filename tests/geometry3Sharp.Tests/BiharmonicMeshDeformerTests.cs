@@ -8,6 +8,84 @@ namespace geometry3Sharp.Tests
     public class BiharmonicMeshDeformerTests
     {
         [Fact]
+        public void FixedCertificateArithmetic_RejectsOversizedEndpoints()
+        {
+            var huge = System.Numerics.BigInteger.One << 4096;
+            Assert.Throws<BiharmonicCertificateRangeException>(() => new BiharmonicFixedInterval(huge, huge));
+            var tiny = BiharmonicFixedInterval.FromDouble(double.Epsilon);
+            Assert.Equal(System.Numerics.BigInteger.Zero, tiny.Lo);
+            Assert.Equal(System.Numerics.BigInteger.One, tiny.Hi);
+            var root = BiharmonicFixedInterval.Sqrt(BiharmonicFixedInterval.FromDouble(4));
+            Assert.Equal(BiharmonicFixedInterval.FromDouble(2).Lo, root.Lo);
+            Assert.Equal(root.Lo, root.Hi);
+        }
+        [Fact]
+        public void SparseVerifier_LargerComponentRejectsEveryAxisAndHandleCorruption()
+        {
+            const int n = 5; var mesh = new DMesh3(MeshComponents.None);
+            for (int y = 0; y < n; y++) for (int x = 0; x < n; x++) mesh.AppendVertex(new Vector3d((double)x / (n - 1), (double)y / (n - 1), 0));
+            for (int y = 0; y < n - 1; y++) for (int x = 0; x < n - 1; x++) {
+                int a = x + n*y, b = a + 1, d = a + n, c = d + 1; mesh.AppendTriangle(a,b,c); mesh.AppendTriangle(a,c,d);
+            }
+            var ids = new List<int>(mesh.VertexIndices()); var lookup = new Dictionary<int,int>();
+            var original = new Vector3d[n*n]; var roots = new int[n*n]; var active = new bool[n*n]; var free = new int[n*n];
+            var handles = new Dictionary<int,Vector3d>(); int count = 0;
+            for (int i = 0; i < n*n; i++) {
+                lookup[i] = i; original[i] = mesh.GetVertex(i); active[i] = true;
+                bool fixedV = i % n == 0 || i % n == n-1; free[i] = fixedV ? -1 : count++;
+                if (fixedV) handles[i] = original[i] + (i % n == n-1 ? new Vector3d(.04,-.03,.1) : Vector3d.Zero);
+            }
+            var solver = new BiharmonicMeshDeformer(mesh); solver.Options.RequireEuclideanAccuracy = true;
+            var result = solver.Compute(handles); Assert.True(result.Converged, result.Status.ToString());
+            var candidate = new Vector3d[n*n]; for (int i = 0; i < n*n; i++) candidate[i] = result.Mesh.GetVertex(i);
+            double bound;
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound));
+            var saved = candidate[1];
+            for (int axis = 0; axis < 3; axis++) {
+                candidate[1] = saved; candidate[1][axis] += .01;
+                Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound));
+            }
+            candidate[1] = saved; candidate[0].z += .01;
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound));
+        }
+        [Fact]
+        public void SparseVerifier_RejectsWrongFreePositionAndHandle()
+        {
+            var mesh = Patch(); var ids = new List<int>(mesh.VertexIndices());
+            var lookup = new Dictionary<int, int>(); var original = new Vector3d[4];
+            for (int i = 0; i < 4; i++) { lookup[ids[i]] = i; original[i] = mesh.GetVertex(ids[i]); }
+            var target = Targets(mesh); var candidate = (Vector3d[])original.Clone();
+            foreach (var h in target) candidate[lookup[h.Key]] = h.Value;
+            candidate[2].z = 0.75;
+            var roots = new[] { 0, 0, 0, 0 }; var active = new[] { true, true, true, true }; var free = new[] { -1, -1, 0, -1 };
+            double bound;
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh, ids, lookup, original, candidate, roots, active, free, 1, target, 1e-8, 1e-8, out bound));
+            candidate[2].z = 0;
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh, ids, lookup, original, candidate, roots, active, free, 1, target, 1e-8, 1e-8, out bound));
+            candidate[2].z = 0.75; candidate[1].z = 2;
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh, ids, lookup, original, candidate, roots, active, free, 1, target, 1e-8, 1e-8, out bound));
+        }
+        [Fact]
+        public void StrictSparseCertificate_RotatedTwentyGridPreservesTranslation()
+        {
+            var mesh = new DMesh3(MeshComponents.None); const int n = 20;
+            var rotation = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 31);
+            for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x)
+                mesh.AppendVertex(rotation * new Vector3d((double)x / (n - 1), (double)y / (n - 1), 0));
+            for (int y = 0; y < n - 1; ++y) for (int x = 0; x < n - 1; ++x) {
+                int a = x + n * y, b = a + 1, d = a + n, c = d + 1;
+                mesh.AppendTriangle(a, b, c); mesh.AppendTriangle(a, c, d);
+            }
+            var handles = new Dictionary<int, Vector3d>(); var move = new Vector3d(0.04, -0.03, 0.1);
+            for (int y = 0; y < n; ++y) { int a = n * y, b = a + n - 1; handles[a] = mesh.GetVertex(a) + move; handles[b] = mesh.GetVertex(b) + move; }
+            var solver = new BiharmonicMeshDeformer(mesh); solver.Options.RequireEuclideanAccuracy = true;
+            var result = solver.Compute(handles);
+            Assert.True(result.Converged, result.Status.ToString());
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, result.Accuracy);
+            Assert.True(result.Mesh.CheckValidity());
+            foreach (int id in mesh.VertexIndices()) Assert.True(result.Mesh.GetVertex(id).Distance(mesh.GetVertex(id) + move) < 1e-8);
+        }
+        [Fact]
         public void EuclideanAccuracy_RejectsLostResponseAndUsesComponentScale()
         {
             var original = new[] { Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY };

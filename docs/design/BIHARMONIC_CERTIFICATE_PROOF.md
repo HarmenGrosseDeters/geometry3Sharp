@@ -135,6 +135,24 @@ absolute check is an additional conservative rejection gate.
 
 ## Implementation evidence
 
+The bounded production reference path in `BiharmonicSparseCertificate` reconstructs
+these objects directly from the deformer arrays and DMesh3 triangle enumeration.
+It accepts one active connected component, at most 400 vertices and 2000 triangles,
+and fixes interval fractional precision at 256 bits. Each signed endpoint is
+limited to 512 bytes; checked arithmetic rejects a larger result. Fixed-point
+division by an interval containing zero is inconclusive. Sparse Q/factor storage
+is limited to 50000 live dictionary entries and Q/Schur updates to 1000000. These
+are explicit structural/arithmetic budgets, not a claim to enforce a particular
+managed heap size or wall-clock deadline. Other storage is bounded by the vertex
+and triangle caps. A successful positive-pivot proof for the fixed trial mu=0.5
+is required; failure does not establish that A is indefinite.
+
+Only the explicitly requested strict mode may form a trial candidate despite
+completely rounded-away summands. That candidate remains local until this proof,
+including final world rounding and both Euclidean comparisons, succeeds. Default
+numerical mode retains the old guards. Multiple active components and unsupported
+sizes currently remain inconclusive rather than sharing one response norm.
+
 `euclidean_certificate.assess` consumes exactly one component, ordered by original
 vertex ID, so its first point is the stated rest anchor. It does not infer graph
 membership or establish its input error bounds. `interval_ldl_pilot.py --euclidean`
