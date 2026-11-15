@@ -216,7 +216,9 @@ Part of the [roadmap](../ROADMAP.md).
 - **Later:** screened Poisson for point clouds (#887), mitered feature-preserving offsets, quad remeshing, deformation
   (#886), sparse SDF grids, AI bridges. Not scheduled. (Tet meshing, TPMS and batch queries left this list: built, see
   items 1, 3 and 5.)
-- **Open research questions:** practical 3D snap rounding (research draft #721: note, probes, Z3 lemma), the
+- **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
+  ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
+  variant designed 2026-11-15; owner 2026-11-15: no-go before the release, it stays a design), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -405,7 +407,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, draft #721), 11 (the
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, #721), 11 (the
 proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged; issue #859 open). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
 Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
 Not now: 1 alone, 4, 5 (tet), 7, 14.
@@ -434,8 +436,24 @@ Ordered by expected value for the library.
    - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
-     Status 2026-11-15: research draft #721 (hard problems 1 and 3: note, probes, Z3 lemma), not merged; no recommendation
-     to the owner recorded yet.
+   - Result (2026-11-12, research note [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md), #721, with item 3): no
+     guarantee found (literature: Diazzi et al. 2023 call it unsolved). The empty-ball filter is closed (the pair tests
+     it could clear are 8 % of the rounding in the median); its directional form (a separating-axis prefilter, lemma
+     checked with Z3) is correct and gains −1.6 % in a real A/B, not built. Idea 3 survives: after D1 a random search
+     over representable positions with the triangles unchanged makes 29 of the 35 generated leftovers clean within the
+     drift left (15 with single-vertex moves that each improve). On the real leftovers (the 5 operations of the D1
+     cohort that the rounding leaves) single-vertex moves that each remove a defect make 4 of 5 clean. Owner
+     2026-11-12: built in its simple variant (enumerated single-vertex moves that each remove a defect) as the position
+     search of #755 (merged 2026-11-13, [SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md) section 9).
+   - Plateau variant (2026-11-15, the note's section 10; a design, no library code): chains of single-vertex steps
+     that keep the defect counts, committed only when a step removes a defect and rolled back otherwise; termination,
+     the bound and the counts checked with Z3 (`tools/Z3Pilot/plateau_search.py`, 9 mutants SAT). Probe on what the
+     rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
+     2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 with a defect left by the rounding, all
+     open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
+     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
+     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
+     release does not depend on it). **Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -454,14 +472,28 @@ Ordered by expected value for the library.
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
    - **Done:** merged 2026-11-11 as 69f13be3 (#513, counted as Boolean 2.1), after its 8 rounding mutation shards passed
      ([exact-boolean.md](exact-boolean.md)).
-3. **Rounding cost on large or rotated results.**
-   - Measured:
-     - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
-     - rounding a 520k-triangle result costs 3-5 s, so 519511 / 1517923 are documented exceptions to the 5 s target.
+3. **Rounding cost: box-neighbour enumeration and linear setup** (restated 2026-11-12, owner; before: "rounding cost on
+   large or rotated results").
+   - Measured before (2026-11-01 to 11-08, out of date since #327, #335, #397, L1, the dirty tree and D1):
+     - SafeRounding was 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
+     - rounding a 520k-triangle result cost 3-5 s; 519511 / 1517923 are documented exceptions to the 5 s target.
    - The architecture survey (EMBER, BSPs, Cherchi 2022, Manifold, Lévy 2024) found no candidate that produces doubles
      with a no-intersection guarantee.
-   - Question: is there a rounding scheme that is sub-linear in the result size for local edits (incremental
-     self-intersection search, certified clearances)? Shares leads with item 1.
+   - Result (2026-11-12, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md)): the figures above are out of date.
+     On master 46529be the rounding is 1-69 % of a boolean on 33 rotated operations (median 23 %); 519511 union 4.7 of
+     17.0 s. Clean large results: the first search is the largest part (59-98 % of it on 519511, 1517923 and 668056, 22-43 %
+     on 1063860), and it is the enumeration of 20-355 box neighbours per query triangle (long thin triangles on tilted
+     faces), not exact arithmetic. Dirty rotated results: the
+     evaluations, and on 1368057 / 42327 union work after the evaluation limit. No sub-linear scheme: edits are local
+     already, the first search is linear in the rounded triangles. Found: stopping the passes at the limit gives
+     rounding −33 %, booleans −9 %, 33 of 33 hashes identical (changes `SmallestRejectedDrift`; owner decision, option
+     1 of the note); `near` is 14-56 % of the rounding where edits are evaluated (not diagnosed).
+   - The old question (a rounding scheme sub-linear in the result size, by an incremental search or certified
+     clearances) is answered: no, and the certificates do not pay (the note, sections 5.1 to 5.4).
+   - Open now: (a) done: the passes stop proposing at the evaluation limit (#725, merged 2026-11-12; the drift-only
+     variant was measured and dropped, the note, section 5.5); (b) the box-neighbour enumeration of the first search on results with long thin
+     triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
+     (d) the tree and the setup over all triangles where few are rounded.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
    - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
    - Closed without gain:
@@ -571,7 +603,9 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-1. #721 (draft): practical 3D snap rounding and rounding cost (hard problems 1 and 3); a recommendation to the owner.
+1. #721: practical 3D snap rounding and rounding cost (hard problems 1 and 3). Options 1 and 2 are built (#725, #755);
+   the plateau variant of option 2 is designed ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10) and
+   not built: owner 2026-11-15, no-go before the release, no spike; it stays a design. Open as research: a guarantee.
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
