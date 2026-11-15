@@ -1,6 +1,7 @@
 // Standalone procedural integration probe, not a library certificate API.
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using g3;
@@ -47,6 +48,36 @@ static class ProductionCandidateExport
         var solver = new BiharmonicMeshDeformer(mesh);
         solver.Options.RequireEuclideanAccuracy = args[3] == "strict";
         var result = solver.Compute(handles);
+        if (args[0] == "--certificate-profile") {
+            // First Compute warmed up the runtime; every measured call uses a new
+            // deformer and includes its uncached validation/assembly/solve/check.
+            var times = new List<double>(); var allocations = new List<long>();
+            for (int run = 0; run < 5; run++) {
+                long allocated = GC.GetTotalAllocatedBytes(true); var timer = Stopwatch.StartNew();
+                var cold = new BiharmonicMeshDeformer(mesh); cold.Options.RequireEuclideanAccuracy = args[3] == "strict";
+                var next = cold.Compute(handles); timer.Stop();
+                allocations.Add(GC.GetTotalAllocatedBytes(true) - allocated); times.Add(timer.Elapsed.TotalMilliseconds);
+                if (next.Status != result.Status || next.Accuracy != result.Accuracy || next.Iterations != result.Iterations ||
+                    next.UsedIntervalFallback != result.UsedIntervalFallback ||
+                    BitConverter.DoubleToInt64Bits(next.Residual) != BitConverter.DoubleToInt64Bits(result.Residual) ||
+                    BitConverter.DoubleToInt64Bits(next.PositionErrorBound) != BitConverter.DoubleToInt64Bits(result.PositionErrorBound) ||
+                    (next.Mesh == null) != (result.Mesh == null)) throw new InvalidOperationException("non-deterministic result");
+                if (next.Mesh != null) {
+                    if (next.Mesh.VertexCount != result.Mesh.VertexCount || next.Mesh.TriangleCount != result.Mesh.TriangleCount)
+                        throw new InvalidOperationException("result counts changed between runs");
+                    for (int i = 0; i < originalPositions.Length; i++)
+                        if (!SameBits(next.Mesh.GetVertex(i), result.Mesh.GetVertex(i))) throw new InvalidOperationException("positions changed between runs");
+                    foreach (int id in result.Mesh.TriangleIndices()) {
+                        if (!next.Mesh.IsTriangle(id)) throw new InvalidOperationException("triangle IDs changed between runs");
+                        var a = next.Mesh.GetTriangle(id); var b = result.Mesh.GetTriangle(id);
+                        if (a.a != b.a || a.b != b.b || a.c != b.c) throw new InvalidOperationException("topology changed between runs");
+                    }
+                }
+                result = next;
+            }
+            times.Sort(); allocations.Sort();
+            Console.WriteLine($"cold_compute_runs=5 median_ms={times[2]:F3} min_ms={times[0]:F3} max_ms={times[4]:F3} median_allocated_bytes={allocations[2]} status={result.Status} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64}");
+        }
         Console.WriteLine($"vertices={mesh.VertexCount} mode={args[3]} orientation={args[2]} status={result.Status} accuracy={result.Accuracy} fallback={result.UsedIntervalFallback}");
         if (mesh.VertexCount != originalPositions.Length || mesh.TriangleCount != originalFaces.Count)
             throw new InvalidOperationException("input counts changed");

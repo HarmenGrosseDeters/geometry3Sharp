@@ -9,13 +9,15 @@ internal readonly struct BiharmonicFixedInterval
 {
     public readonly BigInteger Lo, Hi;
     public const int Bits = 256;
+    static readonly BigInteger MinimumEndpoint = -(BigInteger.One << 4095);
+    static readonly BigInteger MaximumEndpoint = (BigInteger.One << 4095) - BigInteger.One;
     public static BigInteger Scale => BigInteger.One << Bits;
     public BiharmonicFixedInterval(BigInteger lo, BigInteger hi) {
         if (lo > hi) throw new ArgumentException();
         // Fractional precision is not an integer-size budget. Bound the signed
         // endpoint representations separately; transient products are at most
         // twice this bit length before they are rounded and checked again.
-        if (lo.ToByteArray().Length > 512 || hi.ToByteArray().Length > 512) throw new BiharmonicCertificateRangeException();
+        if (lo < MinimumEndpoint || hi > MaximumEndpoint) throw new BiharmonicCertificateRangeException();
         Lo=lo; Hi=hi;
     }
     static BigInteger Floor(BigInteger numerator, BigInteger denominator)

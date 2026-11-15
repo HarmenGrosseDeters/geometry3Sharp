@@ -12,6 +12,11 @@ namespace geometry3Sharp.Tests
         {
             var huge = System.Numerics.BigInteger.One << 4096;
             Assert.Throws<BiharmonicCertificateRangeException>(() => new BiharmonicFixedInterval(huge, huge));
+            var limit = System.Numerics.BigInteger.One << 4095;
+            var endpoints = new BiharmonicFixedInterval(-limit, limit - 1);
+            Assert.Equal(-limit, endpoints.Lo); Assert.Equal(limit - 1, endpoints.Hi);
+            Assert.Throws<BiharmonicCertificateRangeException>(() => new BiharmonicFixedInterval(-limit - 1, 0));
+            Assert.Throws<BiharmonicCertificateRangeException>(() => new BiharmonicFixedInterval(0, limit));
             var tiny = BiharmonicFixedInterval.FromDouble(double.Epsilon);
             Assert.Equal(System.Numerics.BigInteger.Zero, tiny.Lo);
             Assert.Equal(System.Numerics.BigInteger.One, tiny.Hi);
@@ -37,6 +42,17 @@ namespace geometry3Sharp.Tests
             }
             var solver = new BiharmonicMeshDeformer(mesh); solver.Options.RequireEuclideanAccuracy = true;
             var result = solver.Compute(handles); Assert.True(result.Converged, result.Status.ToString());
+            var repeated = solver.Compute(handles); Assert.True(repeated.Converged);
+            foreach (int id in ids) Assert.Equal(result.Mesh.GetVertex(id), repeated.Mesh.GetVertex(id));
+            var changedHandles = new Dictionary<int, Vector3d>(handles);
+            changedHandles[n - 1] += new Vector3d(.01, .02, -.01);
+            changedHandles[n + 1] = original[n + 1] + new Vector3d(0, 0, .02);
+            var reused = solver.Compute(changedHandles);
+            var freshSolver = new BiharmonicMeshDeformer(mesh); freshSolver.Options.RequireEuclideanAccuracy = true;
+            var fresh = freshSolver.Compute(changedHandles);
+            Assert.True(reused.Converged, reused.Status.ToString()); Assert.True(fresh.Converged);
+            foreach (int id in ids) Assert.Equal(fresh.Mesh.GetVertex(id), reused.Mesh.GetVertex(id));
+            foreach (var h in changedHandles) Assert.Equal(h.Value, reused.Mesh.GetVertex(h.Key));
             var candidate = new Vector3d[n*n]; for (int i = 0; i < n*n; i++) candidate[i] = result.Mesh.GetVertex(i);
             double bound;
             Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound));

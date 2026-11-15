@@ -1,0 +1,23 @@
+producer_sha256=15b7b98a5dc9cfe438f5aa84452e7ccfac2fedb411e8682568311fc1d59ffea0
+checker_sha256=b8002b6305dde9d2091f6dddaf3b7c0abc5b5410854dd7d64c689dea20178f48
+library_sha256=311b78538d50336ef8be01beae5cf6111043d47384044eca731c123febcd0e5e
+one warmup then five sequential fresh deformers; fixture generation excluded
+case=aligned normal
+cold_compute_runs=5 median_ms=18.883 min_ms=11.998 max_ms=31.602 median_allocated_bytes=2138368 status=Success peak_working_set_bytes=55472128
+vertices=400 mode=normal orientation=aligned status=Success accuracy=NotCertified fallback=False
+candidate_sha256=791ff754b0f7b19da164b253af448c7fbf9513f92fcf464a4ea7b0d3c19c4467
+euclidean_absolute=True euclidean_relative=True component_scope=fixture
+position_certificate=within_tolerance
+case=aligned strict
+cold_compute_runs=5 median_ms=362.351 min_ms=355.591 max_ms=453.313 median_allocated_bytes=229735744 status=Success peak_working_set_bytes=195231744
+vertices=400 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=791ff754b0f7b19da164b253af448c7fbf9513f92fcf464a4ea7b0d3c19c4467
+euclidean_absolute=True euclidean_relative=True component_scope=fixture
+position_certificate=within_tolerance
+case=rotated strict
+cold_compute_runs=5 median_ms=475.917 min_ms=438.087 max_ms=531.921 median_allocated_bytes=270779496 status=Success peak_working_set_bytes=191492096
+vertices=400 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=f85730f5706102c956a8d31ec49722497bacacf2ecb8b542bef9179d447697f8
+euclidean_absolute=True euclidean_relative=True component_scope=fixture
+position_certificate=within_tolerance
+aligned_candidate_bits_identical=True

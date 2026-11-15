@@ -1,5 +1,35 @@
 # Biharmonic displacement benchmark (#886)
 
+## Cold profile and exact endpoint-limit optimization
+
+`--certificate-profile` performs one warmup then five sequential fresh-deformer Computes. Input generation, output comparisons and export are outside the timer; uncached validation, assembly, solve and verification are inside. It checks status/accuracy/iteration/residual/bound metadata, vertex bits and topology across repetitions. Allocation is process-wide cumulative allocation during each Compute; PeakWorkingSet is the process high-water mark including generation and warmup. Only successful, independently certified candidates are compared.
+
+```
+DOTNET_CLI_HOME=/workspace/dotnet-user python3 benchmarks/BiharmonicDeformationBenchmark/cold_certificate_profile.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll /workspace/arap-886-artifacts/bin/BiharmonicCertificateArithmetic/release/BiharmonicCertificateArithmetic.dll
+```
+
+One same-machine before/after experiment replaces per-interval `ToByteArray().Length` checks with exact cached bounds -2^4095 and 2^4095-1, representing the same signed 512-byte range. Independent review checked equivalence and tests cover both accepted endpoints and their first excluded neighbors. Logs are `cold-profile-{before,after}-endpoint-check.txt`.
+
+| 400-vertex fixture | Before median ms (min–max) | After median ms (min–max) | Median allocated bytes before → after |
+| --- | ---: | ---: | ---: |
+| aligned, normal | 18.875 (11.476–34.180) | 18.883 (11.998–31.602) | 2138368 → 2138368 |
+| aligned, strict | 463.393 (430.370–531.891) | 362.351 (355.591–453.313) | 329410312 → 229735744 |
+| rotated, strict | 544.109 (506.058–597.811) | 475.917 (438.087–531.921) | 380574728 → 270779496 |
+
+All profiled candidate hashes match the pre-optimization production candidates in `sparse-production-certificate-results.txt`. Both Euclidean checks pass in the separate verifier. This demonstrates fewer allocations and lower medians for these strict fixtures, not a universal runtime or peak-memory improvement. The strict cold path still greatly exceeds the proposed 15% normal-path budget; this does not establish 10k/100k feasibility.
+
+## Targeted certificate mutations and reuse
+
+The 25-vertex verifier test now repeats Compute, changes a target and adds an interior handle, then compares against a fresh instance and exact handles. `certificate-mutation-results.txt` records two hand mutants: skipping final accuracy acceptance and omitting z from the residual-error sum. Each is killed by both direct verifier-negative tests; the original 24-test baseline passes before and after restoring artifacts.
+
+For reproduction, first freshly build the original library and test project, then run the script alone in a dedicated worktree with fresh logs:
+
+```
+python3 benchmarks/BiharmonicDeformationBenchmark/targeted_certificate_mutations.py <dotnet> <artifacts-directory> <fresh-log-directory>
+```
+
+The script requires identical original library/test-copy DLLs and existing PDBs, checks its own green baseline, and requires the named expected verifier test to fail in TRX for each mutant. It temporarily modifies one source file and the two library copies and restores original bytes in finally. A hard process kill can prevent restoration. These two hand mutants are targeted evidence and do not replace the incremental Stryker/bounds readiness gate.
+
 ## Independent check of production candidates
 
 The bounded sparse production verifier now extends strict mode to at most 400 vertices in one active component. `sparse-production-certificate-results.txt` records the updated harness: the actual rotated 20x20 strict output is `Success/Certified` and the separate fixed-point pilot confirms both Euclidean conditions for that same hash-bound candidate. The normal mode still rejects the fixture, retaining its previous loss guards. Corrupted x/y/z outputs and excessive shifts still reject. The older `production-certificate-results.txt` below documents the earlier limit and remains historical evidence. No 10k/100k certification or default-path speedup follows from this bounded reference integration.
@@ -12,7 +42,7 @@ Run after building `BiharmonicDeformationBenchmark` and `BiharmonicCertificateAr
 DOTNET_CLI_HOME=/workspace/dotnet-user python3 benchmarks/BiharmonicDeformationBenchmark/production_certificate_controls.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll /workspace/arap-886-artifacts/bin/BiharmonicCertificateArithmetic/release/BiharmonicCertificateArithmetic.dll
 ```
 
-`production-certificate-results.txt` records a single local run, executable/library/source hashes, SDK, candidate hashes and the dirty source base; the hashes identify executed artifacts but do not by themselves prove which sources were used to build them. The independent verifier certifies actual 4x4 aligned/rotated outputs and the actual 20x20 aligned production output against the Euclidean absolute and component-relative contract. The harness requires the explicit certificate and solver statuses in addition to exit codes. All three separately corrupted free coordinates and an excessive trial shift reject; an existing export is not overwritten. The 20x20 rotated solver still returns `NumericalRange` in normal mode and `AccuracyNotEstablished` in strict mode, so no certificate is claimed for it. The 20x20 aligned verifier takes about 1.33 s and 190 MB peak process working set in this single run, excluding solver/export time. This is not evidence of large-mesh performance or production integration; the checker consumes JSON and validates one listed connected component rather than a live arbitrary DMesh3. Independent review checked the snapshot, topology, handles and exporter.
+`production-certificate-results.txt` records a single local run, executable/library/source hashes, SDK, candidate hashes and the dirty source base; the hashes identify executed artifacts but do not by themselves prove which sources were used to build them. The independent verifier certifies actual 4x4 aligned/rotated outputs and the actual 20x20 aligned production output against the Euclidean absolute and component-relative contract. The harness requires the explicit certificate and solver statuses in addition to exit codes. All three separately corrupted free coordinates and an excessive trial shift reject; an existing export is not overwritten. In that historical run, the 20x20 rotated solver returned `NumericalRange` in normal mode and `AccuracyNotEstablished` in strict mode; the later sparse integration described above now certifies strict mode. The 20x20 aligned verifier takes about 1.33 s and 190 MB peak process working set in this single run, excluding solver/export time. This is not evidence of large-mesh performance or production integration; the checker consumes JSON and validates one listed connected component rather than a live arbitrary DMesh3. Independent review checked the snapshot, topology, handles and exporter.
 
 On the rotated 20x20 input, `ProductionAssemblyDiagnostic` replays the assembly loss guards after verifying that `Compute` did not mutate the input. It reproduces a row guard at triangle 0, row/column (0,0): the accumulated value is approximately -3.035e-17 and adding 0.5000000000000001 rounds to the latter. The replay checks the preceding finite area and weights but is not an instrumented production execution; other NumericalRange paths exist. This is evidence for the guard mechanism, not evidence that discarding the smaller term is safe. The strict-mode rejection is independently caused by its current whole-mesh fallback cap. Independent review checked the replay against the compact single-component fixture.
 
