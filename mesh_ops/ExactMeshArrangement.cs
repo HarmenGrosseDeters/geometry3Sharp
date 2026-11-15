@@ -2941,8 +2941,10 @@ namespace g3
             nodeBox = new double[6 * cap];
             nodeStart = new int[cap]; nodeSize = new int[cap]; nodeLeft = new int[cap]; nodeRight = new int[cap];
             if (n > 0) {
-                if (median == false && n >= ParallelBuildFrom)
+                if (median == false && n >= ParallelBuildFrom) {
+                    ParallelBuildsOnThisThread++;
                     build_parallel(n);
+                }
                 else {
                     var nodes = new Nodes(nodeBox, nodeStart, nodeSize, nodeLeft, nodeRight);
                     build(nodes, 0, n);
@@ -2969,7 +2971,14 @@ namespace g3
 
         // from this many boxes on the tree is built (Morton order, codes, sort, nodes) in parallel over fixed blocks and
         // subtrees, to the same tree as the serial build (tests set it)
-        internal static volatile int ParallelBuildFrom = 262144;
+        // (8192, down from 262144: the operands of a boolean have 1k-100k triangles, so their trees, and the result's tree in SafeRounding,
+        // were built serially; the parallel tree is the serial one node for node, so only the time changes. Above the median split's 4096
+        // boxes; benchmarks/BooleanComparison/README.md, "Thread scaling: the tree build threshold")
+        internal const int DefaultParallelBuildFrom = 8192;
+        internal static volatile int ParallelBuildFrom = DefaultParallelBuildFrom;
+        internal const int MedianSplitLimit = MedianSplitBelow;
+        // for tests: the parallel builds started on this thread
+        [ThreadStatic] internal static int ParallelBuildsOnThisThread;
         const int BlockSize = 4096;
         static int blocks(int n) { return (n + BlockSize - 1) / BlockSize; }
         // the top of the tree down to this depth is built serially, the subtrees below it in parallel

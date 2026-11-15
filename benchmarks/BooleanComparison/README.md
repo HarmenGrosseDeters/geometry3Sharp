@@ -743,6 +743,31 @@ Thingi10K cohort models × 3 operations, 4 cores, best of 2 rounds, all result h
 | 668056 / 668057 union | 6.5 / 6.0 s | 4.9 / 5.1 s |
 | 519511 union | 36.4 s | 28.4 s |
 
+## Thread scaling: the tree build threshold (November 2026)
+
+`TriangleBoxTree` builds its tree (Morton codes, the sort, the nodes) in parallel from `ParallelBuildFrom` boxes on, to the same tree as the serial build
+(node for node, `BoxTreeParallelBuildTests`). The threshold was 262 144, so the trees of every operand of 1k-100k triangles (the input trees of the
+arrangement and SafeRounding's tree of the result) were built serially: 17 % of the 4-thread time of the T6 set
+([docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md)). It is now 8192 (above the median split's 4096 boxes, which stays serial).
+Callers of the constant: the constructor (the build and the copy of the leaf boxes), `morton_order` and `sort_codes` (only reached for trees above the median split);
+the trees of fewer than 8192 boxes, among them every small dirty tree of SafeRounding, are unchanged.
+
+A/B on the T6 set (98 pairs, 294 booleans, SafeRounding on, warm, `profile --repeat 2`, the faster run per boolean, sums), the thresholds interleaved in
+3 rounds (order reversed in round 2), 4-vCPU container; `--tree-parallel-from <n>` sets the threshold; raw rows
+[perf/tree_threshold_2026-11-15/](perf/tree_threshold_2026-11-15/):
+
+| threads | threshold | totals of the 3 rounds (ms) | mean | against 262144 | trees phase | rounding phase |
+|---|---|---|---|---|---|---|
+| 1 | 262144 (before) | 35715 / 36711 / 34792 | 35739 | – | 2135 | 7535 |
+| 1 | 8192 | 34928 / 34992 / 35160 | 35027 | −2.0 % | 2078 | 7383 |
+| 1 | 4096 (effective 4097) | 36690 / 34574 / 35639 | 35634 | −0.3 % | 2047 | 7525 |
+| 4 | 262144 (before) | 20073 / 18570 / 18983 | 19209 | – | 1684 | 4121 |
+| 4 | **8192** | 18619 / 18370 / 18066 | 18352 | **−4.5 %** | 998 | 3726 |
+| 4 | 4096 (effective 4097) | 18841 / 18518 / 17795 | 18385 | −4.3 % | 988 | 3797 |
+
+At 1 thread the difference is noise (±3 %); at 4 threads the trees phase falls by 41 % and the rounding by 10 %, the whole by 4.5 %. 8192 and 4097 do not differ; 8192
+is kept (smaller trees gain little from the parallel build). All 18 files give the same result hash for every one of the 294 booleans (1 and 4 threads, three thresholds).
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
