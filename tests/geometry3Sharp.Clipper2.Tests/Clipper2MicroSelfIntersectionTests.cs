@@ -75,5 +75,104 @@ namespace geometry3Sharp.Clipper2.Tests
                         Assert.Equal(rp.Vertices.Select(v => s.Scale * v), rm.Vertices);
             }
         }
+    
+
+        // ---- the micro fix moves the path by at most one grid unit (2026-11-15) ----
+
+        /// <summary>
+        /// The raw engine on the inputs times 2^shift against the exact area of the region: (error, rounding slack, area), in grid
+        /// units squared; the slack is the result's perimeter plus one, the error a rounded intersection point can cause.
+        /// </summary>
+        static (double error, double slack, double area) RawEngine(ClipType op, FillRule rule, double[] a, double[] b, int shift = 20)
+        {
+            (long x, long y)[] Grid(double[] c) => Enumerable.Range(0, c.Length / 2).Select(i => ((long)c[2 * i] << shift, (long)c[2 * i + 1] << shift)).ToArray();
+            V.Path64 Path((long x, long y)[] r) => new V.Path64(r.Select(p => new V.Point64(p.x, p.y)));
+            var ga = Grid(a); var gb = Grid(b);
+            var clipper = new V.Clipper64();
+            clipper.AddSubject(Path(ga));
+            clipper.AddClip(Path(gb));
+            var result = new V.Paths64();
+            Assert.True(clipper.Execute((V.ClipType)(int)op, (V.FillRule)(int)rule, result));
+            double area = 0, perimeter = 0;
+            foreach (V.Path64 p in result) {
+                area += V.Clipper.Area(p);
+                for (int i = 0; i < p.Count; ++i) {
+                    V.Point64 s = p[i], t = p[(i + 1) % p.Count];
+                    perimeter += Math.Sqrt((double)(t.X - s.X) * (t.X - s.X) + (double)(t.Y - s.Y) * (t.Y - s.Y));
+                }
+            }
+            double exact = ExactRegionArea.Area(new[] { new[] { ga }, new[] { gb } }, Clipper2DegenerateUnionTests.Predicate(op, rule));
+            return (Math.Abs(area - exact), perimeter + 1, area / Math.Pow(2, 2 * shift));
+        }
+
+        // Shrunk from the remaining wrong results of #756 (random 3- to 24-gons on -2..2 and -4..4): the branch's edge
+        // (op2.prev, op2) crosses the next two edges far from the copied vertex, and the insertion cut the triangle
+        // (op2.prev, copy, op2) off the region. Exact areas from ExactRegionArea; "before" is master's engine.
+        public static TheoryData<string, ClipType, FillRule, double[], double[], double> FarCopies => new TheoryData<string, ClipType, FillRule, double[], double[], double> {
+            // 0.0709 before
+            { "16-gons of #756", ClipType.Intersection, FillRule.NonZero, new double[] { 0, 4, -2, -1, 4, 2, -4, 2, -1, -1, -4, -2, 1, -1 },
+              new double[] { 1, -4, -2, -3, -2, 0, 0, -2, -1, -1 }, 0.5708683473389355 },
+            // 0.8333 before
+            { "16-gons on -4..4", ClipType.Difference, FillRule.Negative, new double[] { -4, -1, 3, -1, -2, 0, 2, 0, -2, 4, 4, -2 },
+              new double[] { 4, -1, -3, 3, -1, 4 }, 5.5 },
+            // 20.2233 before
+            { "16- and 9-gon on -4..4", ClipType.Xor, FillRule.Positive, new double[] { 4, 4, -3, 2, 2, -3 },
+              new double[] { -4, -2, 2, 0, -1, 3, 4, 4, -3, 2, 0, -3, -2, 4 }, 22.223316871615733 },
+            // 3.9421 before
+            { "24-gons on -2..2", ClipType.Difference, FillRule.Positive, new double[] { 1, -2, -1, 1, 1, -1, -1, 0, -1, -2, 2, 2, -1, 1, 0, -2 },
+              new double[] { 1, -2, -1, 1, -2, -2, 2, -1, -1, 0, 2, -1, -1, -1, -2, 2 }, 3.9637784815803387 },
+            // 0.6470 before
+            { "24- and 22-gon on -2..2", ClipType.Difference, FillRule.Negative, new double[] { 2, 1, 2, 0, -2, -2 },
+              new double[] { 2, 0, -2, -2, 1, -1, -1, 0, -1, 2, 1, -1, -2, 1, 1, 0, 0, -1, -1, 2 }, 0.8612745098039215 },
+        };
+
+        [Theory]
+        [MemberData(nameof(FarCopies))]
+        public void FarCopy_IsSplitInstead(string name, ClipType op, FillRule rule, double[] a, double[] b, double exact)
+        {
+            var (error, slack, area) = RawEngine(op, rule, a, b);
+            Assert.True(error <= slack, name + ": raw engine off by " + error + " grid units, more than the rounding " + slack);
+            Assert.True(Math.Abs(area - exact) < 1e-5, name + ": " + area);
+            // through the adapter (its own grid)
+            var (e, s, r) = Clipper2DegenerateUnionTests.Check(op, rule, Ring(a), Ring(b), new Random(3));
+            Assert.True(e <= s, name + ": adapter off by " + e + " grid units, more than the rounding " + s);
+            Assert.True(Math.Abs(r.Area - exact) < 1e-6, name + ": adapter " + r.Area);
+        }
+
+        [Fact]
+        public void OrientationGuard_OnAGridOfFewUnits()
+        {
+            // With the distance test the orientation guard no longer acts at the adapter's magnitudes (no case in 1.6 million
+            // random results at 2^20 or 2^50), only where the vertices are a few grid units apart (a lattice of step 3 grid
+            // units, random 3- to 24-gons: a few results per 100 000, all within the rounding either way). This one, Difference
+            // NonZero in raw grid units, exact 58.50: 55.5 with the guard, 48.5 without it
+            double[] a = { -12, -12, 9, -3, 9, -12, -9, -6, 12, -9, -3, 3, 0, -12, 12, 6 }, b = { 3, -9, 12, 9, -12, 9 };
+            var (error, slack, area) = RawEngine(ClipType.Difference, FillRule.NonZero, a, b, 0);
+            Assert.True(error <= slack, "off by " + error + ", more than the rounding " + slack);
+            Assert.Equal(55.5, area);
+        }
+
+        [Theory]
+        [MemberData(nameof(Similarity.Names2D), MemberType = typeof(Similarity))]
+        public void FarCopy_UnderSimilarity(string name)
+        {
+            // as RingFlippedByTheMicroFix_UnderSimilarity, for the first case above
+            Similarity s = Similarity.ByName(name);
+            Polygon2d a = Ring(0, 4, -2, -1, 4, 2, -4, 2, -1, -1, -4, -2, 1, -1), b = Ring(1, -4, -2, -3, -2, 0, 0, -2, -1, -1);
+            Polygon2d Map(Polygon2d p) => new Polygon2d(p.Vertices.Select(s.Apply2d));
+            var (_, _, plain) = Clipper2DegenerateUnionTests.Check(ClipType.Intersection, FillRule.NonZero, a, b);
+            var (error, slack, mapped) = Clipper2DegenerateUnionTests.Check(ClipType.Intersection, FillRule.NonZero, Map(a), Map(b));
+            Assert.True(error <= slack, name + ": area off by " + error + " grid units, more than the rounding " + slack);
+            double rounding = slack / (mapped.Frame.Scale * mapped.Frame.Scale);
+            Assert.True(Math.Abs(mapped.Area - s.Scale * s.Scale * plain.Area) <= rounding + 1e-9 * s.Scale * s.Scale * plain.Area,
+                name + ": area " + mapped.Area + " against " + s.Scale * s.Scale * plain.Area);
+            if (s.Angle2d == 0 && s.Translation.x == 0 && s.Translation.y == 0 && Clipper2DegenerateUnionTests.IsPowerOfTwo(s.Scale)) {
+                Assert.Equal(plain.Polygons.Count, mapped.Polygons.Count);
+                for (int i = 0; i < plain.Polygons.Count; ++i)
+                    foreach (var (rp, rm) in new[] { plain.Polygons[i].Outer }.Concat(plain.Polygons[i].Holes)
+                                 .Zip(new[] { mapped.Polygons[i].Outer }.Concat(mapped.Polygons[i].Holes), (x, y) => (x, y)))
+                        Assert.Equal(rp.Vertices.Select(v => s.Scale * v), rm.Vertices);
+            }
+        }
     }
 }

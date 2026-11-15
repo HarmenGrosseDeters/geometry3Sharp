@@ -2986,12 +2986,18 @@ private void DoHorizontal(Active horz)
     // geometry3Sharp change (#756, owner decision 2026-11-13): FixSelfIntersects' branch for "adjacent intersections
     // (ie a micro self-intersection)" inserts a copy of the vertex two ahead before op2. It is kept (upstream added it
     // for #960 in 272eb9b and removed it for #1067 in 4da1564, which is not adopted here: without it most results
-    // within the rounding get slightly less accurate), but undone when it flips the orientation of the ring: then the
-    // insertion reshaped the path instead of removing a twist (an Intersection gave a ring of negative area), and the
-    // crossing goes to DoSplitOp as every other crossing does. Returns true if the insertion was made (op2 then moves
-    // on as before), false if it was undone (op2 unchanged).
-    private bool MicroFixKeepsOrientation(ref OutPt op2)
+    // within the rounding get slightly less accurate), but taken only where it is a micro fix:
+    // - the copied vertex lies within one grid unit of the line of the edge (op2.prev, op2), so that the insertion moves
+    //   the path by at most a grid unit, the rounding that makes such a twist (2026-11-15). Farther away, the edge really
+    //   crosses the next two edges, and the insertion cuts the triangle (op2.prev, copy, op2) off the region, or adds it:
+    //   the result was off by that triangle's area (Intersection 13.838 for an exact 14.267);
+    // - and the insertion does not flip the orientation of the ring (2026-11-13): then it reshaped the path instead of
+    //   removing a twist (an Intersection gave a ring of negative area).
+    // Otherwise the crossing goes to DoSplitOp as every other crossing does. Returns true if the insertion was made (op2
+    // then moves on as before), false if not (op2 unchanged).
+    private bool TryMicroFix(ref OutPt op2)
     {
+      if (Clipper.PerpendicDistFromLineSqrd(op2.next!.next!.pt, op2.prev.pt, op2.pt) > 1) return false;
       double before = Area(op2);
       OutPt dup = DuplicateOp(op2, false);
       dup.pt = dup.next!.next!.next!.pt;
@@ -3022,9 +3028,9 @@ private void DoHorizontal(Active horz)
         {
           if (InternalClipper.SegsIntersect(op2.prev.pt,
                   op2.pt, op2.next.next!.pt, op2.next.next.next!.pt) &&
-              MicroFixKeepsOrientation(ref op2))
+              TryMicroFix(ref op2))
           {
-            // adjacent intersections (ie a micro self-intersection): done by MicroFixKeepsOrientation
+            // adjacent intersections (ie a micro self-intersection): done by TryMicroFix
           }
           else
           {
