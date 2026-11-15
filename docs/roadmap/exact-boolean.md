@@ -377,6 +377,49 @@ final run at the end of Boolean 2.0 together with the control run (WP5). Results
 runner's data branch. #418 merged 2026-11-09; no result of either run is recorded here. Owner 2026-11-12: both runs are still wanted,
 queued behind Exact Boolean 3.0.
 
+**T6 measurement (runner, 2026-11-15; ours vs CGAL EPECK on 1k-100k triangles): no-go, the gap is 3.6-4.2x at the median, not <= 2x.**
+Workflow `t6-cgal.yml` (workflow_dispatch, GitHub-hosted `ubuntu-latest` with 4 cores, `cgal_bool` built unchanged from apt `libcgal-dev`, run as a black box;
+the CGAL package version was not recorded), master at `dbfea7c`, run 43711354899. Set: the fixed 100-pair CGAL sample (`pairs_cgal_sample.csv`) restricted
+to A + B in 1k-100k triangles: 98 pairs (27 in 1k-10k, 71 in 10k-100k; the 2 pairs above 100k are left out, no top-up needed), 3 operations, 294 operations
+per configuration; one process per boolean, booleans alone as in every class of this harness, `-j 1`. Ours once with 1 thread
+(`DOTNET_PROCESSOR_COUNT=1`, `taskset -c 0`) and once with all 4 cores; CGAL is single-threaded and ran in both jobs. Ratio = ours ms / CGAL EPECK ms per operation.
+Raw rows: branch `runs/t6-cgal`, `run-43711354899/`.
+
+| threads | bucket (A + B) | pairs | median ratio | p90 | max | ours clean | CGAL clean | refused / failed / timeout (both) |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 1k-10k | 27 | 4.37 | 9.38 | 24.00 | 72/81 | 66/81 | 0 |
+| 1 | 10k-100k | 71 | 4.21 | 8.14 | 13.44 | 198/213 | 155/213 | 0 |
+| 1 | all | 98 | 4.23 | 8.43 | 24.00 | 270/294 | 221/294 | 0 |
+| 4 | 1k-10k | 27 | 4.00 | 8.75 | 25.00 | 72/81 | 66/81 | 0 |
+| 4 | 10k-100k | 71 | 3.55 | 6.54 | 10.44 | 198/213 | 155/213 | 0 |
+| 4 | all | 98 | 3.61 | 7.09 | 25.00 | 270/294 | 221/294 | 0 |
+
+"Clean" counts results with an empty `NotCleanReason`; the other operations are empty results (9 + 15 per configuration, both methods agree, volume-consistent),
+for CGAL also `degenerate triangles` (6 + 43; no other reason). **All-clean: yes**, every one of our 294 results is clean or correctly empty, with no refusal, failure
+or timeout, in both configurations; CGAL EPECK produced degenerate triangles in 49 of 294 operations (17 %) and no refusal or failure on this set.
+
+Robustness of the ratio: CGAL's time is an integer number of ms, so the ratios of the fast operations are coarse (the maxima 24-25 are 25 ms vs 1 ms on a 22-triangle
+intersection). Restricted to operations with CGAL >= 50 ms (151 / 136 operations): median 3.40 / 2.70, p90 5.91 / 4.52, max 9.41 / 6.68 (1 thread / 4 cores). Sum of our times
+over the sum of CGAL's: 2.99 / 2.29 in 1k-10k and 3.52 / 2.86 in 10k-100k. Only 14 % (1 thread) and 19 % (4 cores) of the operations are within 2x. The 4 cores gain
+about 15-25 % over 1 thread on these sizes.
+
+Worst ratios with CGAL >= 50 ms (the five worst of the unrestricted list are 13-25x on operations of 1-4 ms for CGAL and are quantization-bound), phases in ms, 4 cores:
+
+| pair | op | ours / CGAL ms | ratio | result tris | largest phases |
+|---|---|---|---|---|---|
+| p0694_1514502+43651 | union | 521 / 78 | 6.68 | 60746 | intersections 291, rounding 95, assembly 51, setup 33, classification 22 |
+| p0694_1514502+43651 | difference | 494 / 74 | 6.68 | 52620 | intersections 286, rounding 82, assembly 45, setup 33 |
+| p0861_80557+285607 | difference | 330 / 53 | 6.23 | 59414 | rounding 104, intersections 83, assembly 46, setup 38 |
+| p0861_80557+285607 | union | 359 / 59 | 6.08 | 70760 | rounding 125, intersections 84, assembly 54, setup 38 |
+| p0738_237739+777037 | union | 338 / 60 | 5.63 | 35464 | rounding 157, intersections 69, assembly 30, merge 25 |
+
+The unrestricted worst five (1k-10k pairs p0521, p0300) take 13-82 ms for ours, of which `intersections` is 4-38 ms, `classification` 5-7 ms and `rounding` up to 21 ms, against 1-4 ms for CGAL: a
+fixed cost per operation that is small in absolute terms and large in the ratio on small inputs.
+
+**Verdict T6: no-go on the target as written** ("close the gap to CGAL EPECK on 1k-100k to <= 2x"): median 4.2x (1 thread) and 3.6x (4 cores), p90 7-8x, in both size
+buckets; the "only all-clean method" half holds (ours clean or correctly empty 294/294, CGAL 17 % degenerate). To reach 2x the median has to drop by about 45 % (4 cores) to 53 % (1 thread);
+the profile points at the pair search of `intersections` and at `rounding`. Nothing was optimised here; no mesh or input is committed (fetched at run time).
+
 **Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
 #425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
 the PRs merge one by one with normal CI. Done differently: the queue merged as one integration PR, #446 (2026-11-09,

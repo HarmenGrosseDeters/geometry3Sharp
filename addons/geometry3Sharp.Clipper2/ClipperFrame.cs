@@ -246,7 +246,7 @@ namespace g3.Clipper2
             for (int i = 0; i < n; ++i) {
                 holeOf[i] = -1;
                 var e = entries[i];
-                if (e.treeHole && e.parent >= 0) {
+                if (e.treeHole) {   // (a top-level path is never a tree hole: the flag follows the kept depth)
                     var parent = entries[e.parent];
                     bool sameSign = parent.area != 0 && e.area != 0 && (parent.area > 0) == (e.area > 0);
                     if (!sameSign && holeOf[e.parent] < 0) holeOf[i] = e.parent;

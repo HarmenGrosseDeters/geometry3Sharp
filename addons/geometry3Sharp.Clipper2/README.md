@@ -34,9 +34,10 @@ if (!free.Ok)
   flipping a ring or cutting a triangle off it, and the conversion of the result tree now nests holes that touch their outer
   ring or another hole (a vertex rounded to the grid point beside the edge): through this package, 10 000 random pairs of
   16- and 24-gons on such lattices in every operation and fill rule gave 41 wrong areas of 160 000 before and 0 after.
-  Still open (listed there, area within the rounding): needle rings narrower than a grid unit can be nested under a ring
-  they lie beside (2 of those 160 000), and far from the origin (UTM coordinates with a small scale) such slivers can come
-  out with zero or negative area after the rounding back to doubles.
+  Since 2026-11-15 the copy also carries three fixes of the C++ Clipper2 (PolyClipping/Clipper2, rounded intersection
+  points among them; Clipper2Lib/README.md), which change most results within the rounding; on that campaign: 0 wrong
+  and 0 structurally broken results. Still open (listed there): far from the origin (UTM coordinates with a small scale)
+  slivers can come out with zero or negative area after the rounding back to doubles.
 - API checks: the package has no `PackageValidationBaselineVersion` yet (owner 2026-11-13: the first published version of
   this package becomes the baseline). Until a version is published, a PR that changes the public API lists the breaks from a
   local strict validation against master's pack (as #851 did for 2.0).

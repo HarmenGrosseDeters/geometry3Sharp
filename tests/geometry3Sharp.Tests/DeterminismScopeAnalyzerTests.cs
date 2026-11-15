@@ -402,6 +402,64 @@ namespace geometry3Sharp.Tests
             Assert.Empty(Analyze(source, "if M:C.A ; 2 ; T.A ; x"));
         }
 
+        // an #if around whole members belongs to the first member after the block, and an #if around an attribute to its
+        // member: the same on every target, although the disabled members do not exist on one of them
+        [Fact]
+        public void ConditionalBlocks_BelongToTheSameMember_OnEveryTarget()
+        {
+            const string source = @"static class C {
+#if NET
+            static int Helper() { return 1; }
+#endif
+            static int A() { return 0; }
+#if NET
+            [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
+            static int B() { return 0; }
+        }";
+            const string list = "M:System.Runtime.CompilerServices.SkipLocalsInitAttribute.#ctor ; [NET] x\nskiplocalsinit M:C.B ; x\n";
+            foreach (bool net in new[] { true, false })
+                Assert.Equal(new[] { "M:C.A", "M:C.B" }, Ids(Analyze(source, list, net), DeterminismScopeAnalyzer.ConditionalId).OrderBy(x => x, StringComparer.Ordinal));
+        }
+
+        // whole members under an #if hold no block (they do not exist on every target): two such blocks in a row, and an
+        // #if inside a conditional member, belong to the member after them; an #if in a body stays with its member
+        [Fact]
+        public void ConditionalBlocks_InsideConditionalMembers_BelongToTheMemberAfterThem()
+        {
+            const string source = @"static class C {
+#if NET
+            static int A() { return 1; }
+#endif
+#if NET
+            static int B() { return 2; }
+#endif
+            static int D() { return 0; }
+#if NET
+            static int H() {
+#if DEBUG
+                return 3;
+#else
+                return 4;
+#endif
+            }
+#endif
+            static int M() {
+#if NET
+                return 5;
+#endif
+                return 6;
+            }
+            static int Z() { return 0; }
+        }";
+            foreach (bool net in new[] { true, false }) {
+                var d = Analyze(source, "", net).Where(x => x.Id == DeterminismScopeAnalyzer.ConditionalId).ToList();
+                Assert.Equal(2, d.Count(x => x.GetMessage().Contains("'M:C.D'")));
+                Assert.Equal(3, d.Count(x => x.GetMessage().Contains("'M:C.M'")));
+                Assert.Equal(5, d.Count);
+            }
+        }
+
         // ---- G3D0007: directives that switch rules off or change what is compiled ----
 
         [Theory]
@@ -604,7 +662,7 @@ namespace geometry3Sharp.Tests
         /// <summary> the kernel files of stage 0 (issue 859); a file missing from the .editorconfig section falls out of the proof </summary>
         public static readonly string[] Kernel = {
             "math/ExactIntervals.cs", "math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/ExactRayTriangle.cs", "math/ExactSlopeKernel.cs",
-            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/Generated/IndirectPredicates.cs",
+            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/ExactLimbSigns.cs", "math/Generated/IndirectPredicates.cs",
             "math/Generated/DoublePredicates.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
