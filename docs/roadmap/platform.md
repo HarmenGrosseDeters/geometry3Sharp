@@ -79,7 +79,7 @@ Part of the [roadmap](../ROADMAP.md).
   reason; ClippedRegion and BandRepair move only that frame's row to Nightly ("the frame needs 3 builds by design,
   TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
   **Status 2026-11-15:** of the tests above 20 s, #692, #693, #694, #695 and #697 are closed; #696 (TerrainSlope frame
-  rows) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
+  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
   is new. The runtime watch runs (scheduled run 2026-11-14 green); its tracking issue is #888 (28 outliers of 35 cases on
   master e741c130; the cases over 20 s include `boolean-thingi-55928-union` at 481 s and two alpha wrap pipes at 56-78 s).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the

@@ -85,10 +85,19 @@ namespace geometry3Sharp.Tests
 
         // every frame succeeds with the same result as the late check; the 2^k frames as the identity, scaled, bit for
         // bit, with the same skips
+        // The frame "rotated, scale 1e-3, utm" (a design of centimetres at UTM coordinates: three builds by design, TERRAIN.md 5.8.1, #696)
+        // costs 2-3 times the other frames (alone 16 s with the late check, early + late and the reference) and runs in the Nightly test
+        // Similarities_ExtremeFrame: the run is the check
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
-        public void Similarities(string name)
+        [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
+        public void Similarities(string name) => SimilaritiesCheck(name);
+
+        [Trait("Category", "Nightly")]
+        [Fact]
+        public void Similarities_ExtremeFrame() => SimilaritiesCheck(Similarity.RotatedUtmMillimetre.Name);
+
+        void SimilaritiesCheck(string name)
         {
             Similarity s = Similarity.ByName(name);
             if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);
