@@ -10,7 +10,7 @@ import gzip, json, sys, collections
 
 def load(path):
     rows = {}
-    for l in (gzip.open(path, "rt") if path.endswith(".gz") else open(path)):
+    for l in (gzip.open(path, "rt", encoding="utf-8-sig") if path.endswith(".gz") else open(path, encoding="utf-8-sig")):
         l = l.strip()
         if not l.startswith("{"):
             continue

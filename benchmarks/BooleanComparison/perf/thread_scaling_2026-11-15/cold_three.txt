@@ -1,0 +1,15 @@
+Cold (one process per run, one case per process), the three cases named by the earlier session, 2026-11-15, 4-vCPU container, master 3b2ea3c.
+Command: DOTNET_PROCESSOR_COUNT=n taskset -c 0..n-1 dotnet BooleanComparison.dll profile --repeat 1 --safe-rounding --ops <op> <case dir>
+(the faster of 3 processes by boolean time; probe build with G3_SERIAL_PROBE=1 for the R.* columns). Values in ms.
+case op threads boolean rounding_phase R.rebuild_tree R.pairs_all R.degenerate R.scales R.tiny R.passes for_triangles
+p0466 difference 1 547 160 46 21 20 13 20 10 39
+p0466 difference 4 406 126 41 11  9 14 22  4 17
+p0861 union      1 447 133 63  5 13 15  0  0 27
+p0861 union      4 341 105 52  7  5 15  0  0 12
+p0974 union      1 606 174 40 52 17 13 17  8 36
+p0974 union      4 400 139 46 27  8 14 17  3 15
+With --tree-parallel-from 4096 (same hashes; one run of 3 each, noise included), rounding phase 1 thr / 4 thr, default -> switch:
+p0466 difference 167->153 / 129->113   p0861 union 139->187 / 127->100   p0974 union 203->170 / 117->110
+`run` command, cold, best of 3 (rounding ms 1 thr / 4 thr): p0466 union 132/107, intersection 54/41, difference 161/137;
+p0861 union 127/113, intersection 1/1, difference 115/110; p0974 union 182/118, intersection 19/10, difference 74/55.
+Warm rank of the three by rounding time at 1 thread among the 294 booleans: p0974 union 12th, p0466 difference 13th, p0861 union 49th (the largest: p0887 union 272 ms).

@@ -22,12 +22,13 @@ PARTS = ["input", "setup.points", "setup.triangles", "intersections.trees", "int
 def load(paths):
     rows = {}
     for path in paths:
-        for l in (gzip.open(path, "rt") if path.endswith(".gz") else open(path)):
+        for l in (gzip.open(path, "rt", encoding="utf-8-sig") if path.endswith(".gz") else open(path, encoding="utf-8-sig")):
             l = l.strip()
             if not l.startswith("{"):
                 continue
             j = json.loads(l)
             if "phases_ms" not in j or not j.get("ok", True):
+                print(f"warning: {path}: a row without phases or with ok=false is skipped ({j.get('case')} {j.get('op')})", file=sys.stderr)
                 continue
             key = (j["case"], j["op"])
             ms = min(j["ms"]) if isinstance(j["ms"], list) else j["ms"]

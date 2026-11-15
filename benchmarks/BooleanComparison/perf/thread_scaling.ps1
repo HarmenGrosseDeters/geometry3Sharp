@@ -7,9 +7,8 @@
 #   ./thread_scaling.ps1                                        the T6 set (98 pairs, 294 booleans), threads 1,2,4,8,12, 3 rounds, net10.0
 #   ./thread_scaling.ps1 -Set t6,three -Runtimes net10.0,net48  both sets and both runtimes (net48 runs on Windows only)
 #
-# Sets: t6 = the 98 pairs of perf/t6.py (1k-100k triangles in total, the case set of the T6 comparison with CGAL); three = the three slowest roundings
-# among them: p0466_203344+80414, p0861_80557+285607, p0974_97674+472023 (union / intersection / difference, each; the large rounding times are
-# the union of 0861 and 0974 and the difference of 0466). Thingi10K is fetched at run time from huggingface into -Data (about 300 MB), no mesh
+# Sets: t6 = the 98 pairs of perf/t6.py (1k-100k triangles in total, the case set of the T6 comparison with CGAL); three = the three cases with the largest rounding time in the cold
+# measurement of the earlier session, among them: p0466_203344+80414, p0861_80557+285607, p0974_97674+472023 (union / intersection / difference, each). Thingi10K is fetched at run time from huggingface into -Data (about 300 MB), no mesh
 # is part of the repository.
 #
 # Threads: the process runs on n logical processors, set as an affinity mask right after the start (a 6-core machine with SMT shows 12 logical
@@ -27,7 +26,7 @@ param(
     [string[]]$Runtimes = @('net10.0'),
     [int]$Stride = 1,
     [int]$Limit = 0,
-    [string]$Data = $(if ($env:BDATA) { Join-Path $env:BDATA 't6' } else { Join-Path $HOME 'bdata\t6' }),
+    [string]$Data = $(if ($env:BDATA) { Join-Path $env:BDATA 't6' } else { Join-Path (Join-Path $HOME 'bdata') 't6' }),
     [string]$OutDir = '',
     [string]$Python = '',
     [switch]$NoBuild,
@@ -39,7 +38,7 @@ $here = $PSScriptRoot
 $bc = Split-Path -Parent $here
 $repo = Split-Path -Parent (Split-Path -Parent $bc)
 $threeNames = @('p0466_203344+80414', 'p0861_80557+285607', 'p0974_97674+472023')
-if (-not $OutDir) { $OutDir = Join-Path $here ('results-scaling\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
+if (-not $OutDir) { $OutDir = Join-Path (Join-Path $here 'results-scaling') (Get-Date -Format 'yyyyMMdd-HHmmss') }
 if ($Python -eq '') {
     foreach ($c in @('python3', 'python')) { if (Get-Command $c -ErrorAction SilentlyContinue) { $Python = $c; break } }
     if ($Python -eq '') { $Python = 'python3' }
@@ -47,12 +46,12 @@ if ($Python -eq '') {
 # (powershell -File passes 'a,b' as one string: lists are split here)
 $Set = @($Set | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Runtimes = @($Runtimes | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-$ThreadCounts = @($ThreadCounts | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { [int]$_ })
+[int[]]$tcList = @($ThreadCounts | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { [int]$_ })
 foreach ($s in $Set) { if (@('t6', 'three') -notcontains $s) { throw "unknown set $s (t6, three)" } }
 foreach ($r in $Runtimes) { if (@('net10.0', 'net48') -notcontains $r) { throw "unknown runtime $r (net10.0, net48)" } }
 $logical = [Environment]::ProcessorCount
 $threads = @()
-foreach ($n in $ThreadCounts) {
+foreach ($n in $tcList) {
     if ($n * $Stride -gt $logical) { Write-Warning "$n threads with stride ${Stride}: skipped, the machine has $logical logical processors"; continue }
     $threads += $n
 }
@@ -69,11 +68,12 @@ function Get-Mask([int]$n) {
 $proj = Join-Path $bc 'BooleanComparison.csproj'
 function Get-Tool([string]$runtime) {
     if ($runtime -eq 'net48') {
-        $dir = Join-Path $OutDir 'tool\net48'
+        $dir = Join-Path (Join-Path $OutDir 'tool') 'net48'
         return @{ File = (Join-Path $dir 'BooleanComparison.exe'); Prefix = @() }
     }
-    return @{ File = 'dotnet'; Prefix = @((Join-Path $OutDir 'tool\net10.0\BooleanComparison.dll')) }
+    return @{ File = 'dotnet'; Prefix = @((Join-Path (Join-Path (Join-Path $OutDir 'tool') 'net10.0') 'BooleanComparison.dll')) }
 }
+function Fmt([string]$f, [object[]]$a) { return [string]::Format([Globalization.CultureInfo]::InvariantCulture, $f, $a) }
 function Quote([string]$a) { if ($a -match '[\s"]') { return '"' + ($a -replace '"', '\"') + '"' } return $a }
 
 $cases = New-Object System.Collections.ArrayList
@@ -104,11 +104,11 @@ if (-not $DryRun) {
         & dotnet build $proj -c Release -v q -nologo @extra
         if ($LASTEXITCODE -ne 0) { throw 'build failed' }
     }
-    $bin = Join-Path $bc 'bin\Release'
+    $bin = Join-Path (Join-Path $bc 'bin') 'Release'
     foreach ($r in $Runtimes) {
         $src = Join-Path $bin $r
         if (-not (Test-Path $src)) { throw "no build output $src (run without -NoBuild)" }
-        $dst = Join-Path $OutDir "tool\$r"
+        $dst = Join-Path (Join-Path $OutDir 'tool') $r
         New-Item -ItemType Directory -Force -Path $dst | Out-Null
         Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
     }
@@ -117,10 +117,10 @@ if (-not $DryRun) {
     $manifest = Join-Path $Data 'cases.jsonl'
     if (-not (Test-Path $pairs)) { & $Python (Join-Path $here 't6.py') pairs $pairs; if ($LASTEXITCODE -ne 0) { throw 'pairs failed' } }
     if (-not $NoFetch) { & $Python (Join-Path $here 't6.py') fetch $Data $pairs; if ($LASTEXITCODE -ne 0) { throw 'fetch failed' } }
-    if (-not (Test-Path $manifest)) { & $Python (Join-Path $bc 'data\thingi_pairs.py') manifest $pairs $Data $manifest; if ($LASTEXITCODE -ne 0) { throw 'manifest failed' } }
+    if (-not (Test-Path $manifest)) { & $Python (Join-Path (Join-Path $bc 'data') 'thingi_pairs.py') manifest $pairs $Data $manifest; if ($LASTEXITCODE -ne 0) { throw 'manifest failed' } }
     # export every case once (A.off, B.off), with net10.0 (the same files for all runtimes)
-    $exportTool = @((Join-Path $OutDir 'tool\net10.0\BooleanComparison.dll'))
-    if (-not (Test-Path $exportTool[0])) { $exportTool = @((Join-Path $bc 'bin\Release\net10.0\BooleanComparison.dll')) }
+    $exportTool = @((Join-Path (Join-Path (Join-Path $OutDir 'tool') 'net10.0') 'BooleanComparison.dll'))
+    if (-not (Test-Path $exportTool[0])) { $exportTool = @((Join-Path (Join-Path (Join-Path (Join-Path $bc 'bin') 'Release') 'net10.0') 'BooleanComparison.dll')) }
     foreach ($line in (Get-Content $manifest)) {
         if ($line.Trim().Length -eq 0) { continue }
         $c = $line | ConvertFrom-Json
@@ -128,13 +128,12 @@ if (-not $DryRun) {
         if (-not (Test-Path (Join-Path $d 'B.off'))) {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
             $tp = @($c.thingi_pair)
-            $a = @($exportTool) + @('thingi-pair', $tp[0], $tp[1], $d) + @($tp[2..($tp.Count - 1)])
+            $a = @($exportTool) + @('thingi-pair', $tp[0], $tp[1], $d) + @($tp | Select-Object -Skip 2)
             & dotnet @a | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "export of $($c.name) failed" }
         }
         [void]$cases.Add($c.name)
     }
-    if ($Limit -gt 0) { $cases = New-Object System.Collections.ArrayList(, @($cases | Select-Object -First $Limit)) }
 }
 else {
     Write-Host "  cases        the 98 pairs of the T6 set (names from $Data\cases.jsonl); set 'three': $($threeNames -join ', ')"
@@ -143,6 +142,7 @@ else {
 # the case list files (one case directory per line)
 function Write-List([string]$sn) {
     $names = if ($sn -eq 'three') { @($cases | Where-Object { $threeNames -contains $_ }) } else { @($cases) }
+    if ($Limit -gt 0) { $names = @($names | Select-Object -First $Limit) }
     $list = Join-Path $OutDir "cases-$sn.txt"
     $names | ForEach-Object { Join-Path $exportDir $_ } | Set-Content -Encoding ASCII $list
     return @{ List = $list; Count = $names.Count }
@@ -174,15 +174,16 @@ function Invoke-Profile($sn, $combo, [int]$round) {
     }
     $p = [System.Diagnostics.Process]::Start($psi)
     $got = ''
-    try { $p.ProcessorAffinity = [IntPtr]$mask } catch { Write-Warning "affinity: $_" }
+    $affErr = $null
+    try { $p.ProcessorAffinity = [IntPtr]$mask } catch { $affErr = "affinity not set: $_"; Write-Warning $affErr }
     try { $got = '0x{0:X}' -f [int64]$p.ProcessorAffinity } catch { }
     $errTask = $p.StandardError.ReadToEndAsync()
     $out = $p.StandardOutput.ReadToEnd()
     $p.WaitForExit()
     if ($p.ExitCode -ne 0) { Write-Warning ("exit code {0}: {1}`n{2}" -f $p.ExitCode, $psi.Arguments, $errTask.Result) }
-    $raw = Join-Path $OutDir ("raw\{0}_{1}_t{2}_r{3}.jsonl" -f $sn, $combo.Runtime, $combo.Threads, $round)
-    Set-Content -Encoding UTF8 -Path $raw -Value $out
-    return @{ Lines = @($out -split "`r?`n" | Where-Object { $_.StartsWith('{') }); ExitCode = $p.ExitCode; Mask = $got }
+    $raw = Join-Path (Join-Path $OutDir 'raw') ("{0}_{1}_t{2}_r{3}.jsonl" -f $sn, $combo.Runtime, $combo.Threads, $round)
+    [IO.File]::WriteAllText($raw, $out, (New-Object Text.UTF8Encoding $false))
+    return @{ Lines = @($out -split "`r?`n" | Where-Object { $_.StartsWith('{') }); ExitCode = $p.ExitCode; Mask = $got; AffinityError = $affErr }
 }
 
 if (-not $DryRun) {
@@ -210,21 +211,25 @@ for ($round = 1; $round -le $Rounds; $round++) {
             foreach ($line in $res.Lines) {
                 $j = $line | ConvertFrom-Json
                 if ($j.error) { $err = "case $($j.case): $($j.error)"; break }
+                if ($j.ok -eq $false -or [string]$j.hash -eq '-' -or [string]$j.hash -eq '') { $err = "case $($j.case) $($j.op): boolean failed (status $($j.status))"; break }
+                # net10.0: the process must have seen exactly the requested processors (DOTNET_PROCESSOR_COUNT); a mismatch is a wrong thread count under the right label
+                if ($combo.Runtime -eq 'net10.0' -and [int]$j.cores -ne $combo.Threads) { $err = "case $($j.case): the process saw $($j.cores) processors, expected $($combo.Threads)"; break }
                 $ms = [double](@($j.ms) | Measure-Object -Minimum).Minimum
                 $rows += [pscustomobject]@{ case = (Split-Path -Leaf $j.case); op = $j.op; ms = $ms; hash = [string]$j.hash; phases = $j.phases_ms }
             }
+            if ($res.AffinityError -and -not $err) { $err = $res.AffinityError }
             if ($res.ExitCode -ne 0 -and -not $err) { $err = "exit code $($res.ExitCode)" }
             if ($rows.Count -ne ($lists[$sn].Count * 3) -and -not $err) { $err = "$($rows.Count) rows, expected $($lists[$sn].Count * 3)" }
             if ($err) { $failed = $true }
             $status = if ($err) { 'error: ' + ($err -replace '[,\r\n]', ' ') } else { 'ok' }
             $time = [math]::Round(0.0 + ($rows | Measure-Object -Property ms -Sum).Sum)
-            "{0},{1},{2},{3},{4},{5},{6},{7}" -f $sn, $combo.Runtime, $round, $combo.Threads, $res.Mask, $time, $rows.Count, $status | Add-Content -Encoding ASCII (Join-Path $OutDir 'runs.csv')
+            (Fmt "{0},{1},{2},{3},{4},{5},{6},{7}" @($sn, $combo.Runtime, $round, $combo.Threads, $res.Mask, $time, $rows.Count, $status)) | Add-Content -Encoding ASCII (Join-Path $OutDir 'runs.csv')
             foreach ($row in $rows) {
                 $rm = if ($row.phases -and $row.phases.PSObject.Properties['rounding']) { $row.phases.rounding } else { '' }
-                "{0},{1},{2},{3},{4},{5},{6},{7},{8}" -f $sn, $combo.Runtime, $round, $combo.Threads, $row.case, $row.op, [math]::Round($row.ms, 1), $row.hash, $rm | Add-Content -Encoding ASCII (Join-Path $OutDir 'cases.csv')
+                (Fmt "{0},{1},{2},{3},{4},{5},{6},{7},{8}" @($sn, $combo.Runtime, $round, $combo.Threads, $row.case, $row.op, [math]::Round($row.ms, 1), $row.hash, $rm)) | Add-Content -Encoding ASCII (Join-Path $OutDir 'cases.csv')
                 if ($row.phases) {
                     foreach ($ph in $row.phases.PSObject.Properties) {
-                        "{0},{1},{2},{3},{4},{5},{6},{7}" -f $sn, $combo.Runtime, $round, $combo.Threads, $row.case, $row.op, $ph.Name, $ph.Value | Add-Content -Encoding ASCII (Join-Path $OutDir 'phases.csv')
+                        (Fmt "{0},{1},{2},{3},{4},{5},{6},{7}" @($sn, $combo.Runtime, $round, $combo.Threads, $row.case, $row.op, $ph.Name, $ph.Value)) | Add-Content -Encoding ASCII (Join-Path $OutDir 'phases.csv')
                     }
                 }
                 [void]$all.Add([pscustomobject]@{ set = $sn; runtime = $combo.Runtime; round = $round; threads = $combo.Threads; key = "$($row.case)/$($row.op)"; ms = $row.ms; hash = $row.hash })
@@ -255,7 +260,7 @@ foreach ($sn in $Set) {
             foreach ($k in ($g | Group-Object key)) { $sum += ($k.Group | Measure-Object -Property ms -Minimum).Minimum; $cnt++ }
             if ($null -eq $base) { $base = $sum; $n0 = $n }
             $sp = $base / $sum
-            $line = "{0},{1},{2},{3},{4},{5},{6}" -f $sn, $r, $n, $cnt, [math]::Round($sum), [math]::Round($sp, 2), [math]::Round($sp / ($n / $n0), 2)
+            $line = Fmt "{0},{1},{2},{3},{4},{5},{6}" @($sn, $r, $n, $cnt, [math]::Round($sum), [math]::Round($sp, 2), [math]::Round($sp / ($n / $n0), 2))
             $line | Add-Content -Encoding ASCII (Join-Path $OutDir 'summary.csv')
             Write-Host ("{0} {1} {2,2} threads: {3,8} ms, x{4:N2} (efficiency {5:N2})" -f $sn, $r, $n, [math]::Round($sum), $sp, ($sp / ($n / $n0)))
         }

@@ -13,7 +13,7 @@ contention) and a lower bound for what a parallel loop gains.
 import gzip, json, sys
 
 def opener(p):
-    return gzip.open(p, "rt") if p.endswith(".gz") else open(p)
+    return gzip.open(p, "rt", encoding="utf-8-sig") if p.endswith(".gz") else open(p, encoding="utf-8-sig")
 
 def load(path):
     rows = {}
