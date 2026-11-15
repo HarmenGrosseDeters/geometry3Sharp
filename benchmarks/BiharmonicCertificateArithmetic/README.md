@@ -1,5 +1,19 @@
 # Experimental binary interval arithmetic and LDLᵀ
 
+## Euclidean accuracy contract
+
+The `mesh` mode independently rebuilds L/M/Q from its binary64 JSON fixture and now checks both the per-vertex absolute Euclidean error and the component-wide relative free-response condition in [BIHARMONIC_CERTIFICATE_PROOF.md](../../docs/design/BIHARMONIC_CERTIFICATE_PROOF.md). Squared comparisons use integer interval endpoints and conservative lower bounds for the rest radius and candidate response. The earlier per-axis tolerance remains an additional conservative gate. The fixed-point tolerance is the lower enclosure of binary64 `1e-8`; the Python pilot now uses that same binary64 value. An independent bounds review checked the integer scales and component assumptions.
+
+The JSON mesh mode requires that its supplied vertices form one connected component; it checks connectivity from faces and rejects disconnected inputs. Index zero remains the local rest anchor. It cannot prove that the exported list and order match an external DMesh3, or that its candidate came from the library. Those remain integration requirements; this executable is still a pilot.
+
+After building the project, run a reproducible Python/.NET comparison, tiny200 regression and disconnected control with:
+
+```
+DOTNET_CLI_HOME=/workspace/dotnet-user python3 benchmarks/BiharmonicCertificateArithmetic/run_euclidean_controls.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicCertificateArithmetic/release/BiharmonicCertificateArithmetic.dll
+```
+
+The script writes generated JSON only to a temporary directory. The recorded single run is in `euclidean-results.txt`: both implementations accept the 20x20 xyz fixture, reject the lost tiny200 response (absolute passes, relative fails), and the C# pilot rejects a disconnected input. Its 20x20 C# mesh check took about 1.26 s and 191 MB peak working set, excluding Python fixture generation; this is not an end-to-end library benchmark or a large-mesh guarantee. Independent review checked the connectivity and bounds comparisons. Existing x/y/z, handle and over-shift controls also reject on the current build.
+
 This standalone .NET 10 probe is **not used by the library**. It represents interval endpoints as arbitrary-size integers with a fixed binary fractional scale. Arithmetic rounds outward; square roots use integer square root. The probe checks multiplication, division, square-root and binary64 conversion enclosures with exact integer inequalities on 10,000 deterministically generated mixed-scale cases per precision. It also checks zero-crossing division, exact square roots and decimal endpoint order. An independent reviewer inspected the arithmetic and factorization.
 
 ```

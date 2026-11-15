@@ -1,5 +1,18 @@
 # Path-bound feasibility probe
 
+## Complete Euclidean certificate on the moving fixture
+
+The argument in [BIHARMONIC_CERTIFICATE_PROOF.md](../../../docs/design/BIHARMONIC_CERTIFICATE_PROOF.md) connects original-coordinate interval assembly, a verified spectral gap, final-output residuals and exact absolute/relative Euclidean comparisons. `--euclidean` selects the agreed component response contract; the existing default remains the historical per-coordinate absolute check.
+
+```
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40 0.5 0 scalar-audit --motion=xyz --euclidean
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 3 700 0.5 0 scalar-audit --fixture=tiny200 --wrong-known-candidate --euclidean
+```
+
+The first run passes both squared comparisons for 400 vertices / 360 free unknowns, taking 6.480 s in this single run. The second rejects solely on relative response despite satisfying the absolute position budget. Repeating the second command with `tiny150` and `lost-handle` rejects those candidates too. Raw logs are `bih-proof20.txt` and `bih-proof-{tiny150,tiny200,lost-handle}.txt`. The general theorem has no 16-vertex limit; production currently still does. This is evidence for represented procedural meshes and their SciPy candidates, not production integration or a scalable time-budget guarantee.
+
+Controls use `10 40 0.5 0.0001 scalar-audit --motion=xyz --euclidean --perturb-axis=x` (repeat for y/z), and `10 40 1.5 0 scalar-audit --motion=xyz --euclidean` for the excessive shift. All reject; logs are `bih-proof-bad-{x,y,z,shift}.txt`. Eight Python tests pass via `python3 -m unittest discover -s benchmarks/BiharmonicDeformationBenchmark/certificate_probe -p 'test_*.py'`. In-memory mutations forcing the absolute or relative check to pass are each caught. Independent bounds review confirmed the composition, subject to the explicit single-component, ascending-vertex-ID ordering and original-data enclosure premises. `assess()` is not a standalone mesh validator and must not be called with unproven bounds or combined disconnected components.
+
 ## Trace-bound feasibility indicator
 
 `probe.py` in `eigen` mode now prints an approximate version of the simple trace-based Cholesky error term from Rump, *Verification of Positive Definiteness* (2006), section 3, https://www.tuhh.de/ti3/paper/rump/Ru06c.pdf. With `OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/probe.py 20 0 eigen`, the indicator is 1.77e-7 against a proposed shift of 1.14; the same command with `100` yields 0.00368 against 0.0448 (about 8.2%). These are single exploratory evaluations of the SciPy-assembled matrix on this machine. The calculation uses the unshifted trace as an approximation, omits outward rounding and the underflow term, and does not establish that the sparse library's factorization satisfies the paper's assumptions. The numerical shift is not a proven lower eigenvalue. It also excludes uncertainty in original geometry assembly, the world-coordinate residual and final rounding. No positive-definiteness or position certificate follows from these numbers. The 100x100 result suggests that the simple trace bound deserves a properly rounded, independently reviewed experiment before attempting production integration.

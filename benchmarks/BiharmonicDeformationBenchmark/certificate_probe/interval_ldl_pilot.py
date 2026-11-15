@@ -11,9 +11,10 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 
-motion="z"; perturb_axis=2; fixture="grid"; wrong_known_candidate=False
+motion="z"; perturb_axis=2; fixture="grid"; wrong_known_candidate=False; euclidean=False
 for arg in sys.argv[1:]:
  if arg.startswith("--fixture="): fixture=arg.split("=",1)[1]
+ elif arg == "--euclidean": euclidean=True
  elif arg == "--wrong-known-candidate": wrong_known_candidate=True
  elif arg.startswith("--motion="): motion=arg.split("=",1)[1]
  elif arg.startswith("--perturb-axis="):
@@ -220,7 +221,13 @@ for axis,displacement in enumerate(displacements):
  print(f'axis={axis} interval_residual_norm_upper={residual_upper} normalized_error_upper={bound}')
 error_upper=max(errors)
 print(f'maximum_normalized_error_upper={error_upper} requested_tolerance=1e-8 perturb={perturb} perturb_axis={perturb_axis} motion={motion}')
-if error_upper>D('1e-8'):
+if euclidean:
+ from euclidean_certificate import assess
+ absolute_ok, relative_ok, e2, s2, d2 = assess(points.tolist(),candidate.tolist(),free,scale,errors)
+ print(f'euclidean_absolute={absolute_ok} euclidean_relative={relative_ok} exact_squared_comparisons=True')
+ if not (absolute_ok and relative_ok):
+  print('position_certificate=not_established reason=euclidean_contract');sys.exit(2)
+elif error_upper>D('1e-8'):
  print('position_certificate=not_established');sys.exit(2)
 if pivot_file is not None:
  with open(sys.argv[6],"rb") as f: input_digest=hashlib.sha256(f.read()).hexdigest()

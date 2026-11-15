@@ -1,6 +1,8 @@
 # Biharmonic implementation plan
 
-Status: implementation authorized; standalone verification pilots in progress. Production behavior is unchanged. This document defines the proposed next direction of #897. The existing pilots are evidence for particular inputs, not release acceptance for general meshes.
+Status: implementation authorized; bounded production accuracy mode and standalone verification pilots in progress. The opt-in production mode supports at most 16 vertices except the proven zero-handle-motion path; default representation-loss guards remain. This document records the direction of #897. The existing pilots are evidence for particular inputs, not release acceptance for general meshes.
+
+The complete sufficient proof is now in [BIHARMONIC_CERTIFICATE_PROOF.md](BIHARMONIC_CERTIFICATE_PROOF.md). The combined audited pilot passes the agreed absolute and relative Euclidean checks on a moving 400-vertex fixture and rejects the historical wrong tiny200 candidate. This closes the proof-composition gap for the represented pilot; production integration, general mesh validation and the large-mesh cost budget remain open.
 
 Owner authorized implementation on 2026-11-15, subject to stopping on unresolved implementation questions. The numerical-domain investigation below resolves the previously offered binary choice: retain normal rotated meshes as an acceptance target and investigate a bounded sensitivity filter; do not weaken the extreme-case gates. Its performance and solver applicability remain feasibility gates, not established results.
 
@@ -8,7 +10,7 @@ Prototype progress: a separate scalar verification recurrence avoids transferrin
 
 Contract blocker from the extreme-fixture probe: at 700 decimal digits, a candidate that loses the tiny200 response entirely still satisfies the proposed absolute normalized position budget (bound 6.43e-99 versus 1e-8). The production regression explicitly requires NumericalRange. Preserve its rejection guard pending a decision about absolute position error versus relative preservation of tiny motion; an absolute certificate alone cannot justify removing it. Lost-handle and tiny150 wrong candidates reject. Raw commands/results are in the probe README.
 
-## Proposed conceptual resolution (not implemented or owner-approved)
+## Accuracy contract and historical conceptual alternatives
 
 Owner decision: on 2026-11-15, use absolute Euclidean position error per free vertex together with relative Euclidean free-response error per connected component. Do not use independent per-axis relative thresholds, which depend on the coordinate frame. This supersedes the per-axis option below. The owner authorized implementation; all claims still require their stated bounds and tests.
 

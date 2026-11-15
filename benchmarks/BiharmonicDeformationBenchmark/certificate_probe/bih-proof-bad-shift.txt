@@ -1,0 +1,4 @@
+fixture=grid grid=10 vertices=100 free=80 precision=40 numeric_eigen_estimate=8.93286819303 mu=13.3993022895 mu_binary64=0x1.acc715985a3e2p+3
+interval_matrix_radius_infinity_upper=6.145718228902441468405274629947845534266E-13 (conditional on interval assembly)
+scalar_shifted_matrix_check=False arithmetic_audited=True failed_pivot=54 c=1.89405264056e-09 radius=6.23310345864e-13 elapsed_factor_seconds=0.234
+position_certificate=not_established reason=matrix_check

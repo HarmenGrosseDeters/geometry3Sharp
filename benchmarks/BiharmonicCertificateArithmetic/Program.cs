@@ -96,6 +96,20 @@ class Program
     static Interval[] Sub(Interval[] a,Interval[] b)=>new[]{a[0]-b[0],a[1]-b[1],a[2]-b[2]};
     static Interval Dot(Interval[] a,Interval[] b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
     static Interval[] Cross(Interval[] a,Interval[] b)=>new[]{a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]};
+    static int FindRoot(int[] parent,int vertex)
+    {
+        while(parent[vertex]!=vertex) { parent[vertex]=parent[parent[vertex]];vertex=parent[vertex]; }
+        return vertex;
+    }
+    static void Union(int[] parent,int a,int b)
+    {
+        a=FindRoot(parent,a);b=FindRoot(parent,b);if(a!=b)parent[b]=a;
+    }
+    static Interval Square(Interval value)
+    {
+        var product=value*value;
+        return new Interval(value.Lo.Sign<=0 && value.Hi.Sign>=0 ? BigInteger.Zero : BigInteger.Max(BigInteger.Zero,product.Lo),product.Hi);
+    }
     static void Edge(Dictionary<int,Interval>[] rows,int a,int b,Interval w)
     {
         Add(rows[a],a,w);Add(rows[b],b,w);Add(rows[a],b,new Interval(-w.Hi,-w.Lo));Add(rows[b],a,new Interval(-w.Hi,-w.Lo));
@@ -126,6 +140,7 @@ class Program
                 gradient[e.Key][axis]=gradient[e.Key][axis]+e.Value*lap[axis]/mass[k];
         }
         var tolerance=Interval.FromDouble(1e-8);bool all=true;
+        BigInteger errorSquared=BigInteger.Zero;
         for(int axis=0;axis<3;axis++) {
             BigInteger sum=0;
             for(int i=0;i<n;i++)if(free[i]>=0) {
@@ -133,9 +148,29 @@ class Program
             }
             BigInteger norm=Interval.IntegerSqrt(sum);if(norm*norm<sum)norm++;
             BigInteger rem;var bound=BigInteger.DivRem(norm*Interval.Scale,shift.Lo,out rem);if(!rem.IsZero)bound++;
+            errorSquared+=bound*bound;
             Console.WriteLine($"axis={axis} residual_norm_upper_scaled={norm} normalized_error_upper_scaled={bound} bits={Interval.Bits}");
             if(bound>tolerance.Lo)all=false;
         }
+        // The fixture is a single component ordered with its root at index zero.
+        // Each squared norm has a conservative lower endpoint; the accumulated
+        // per-axis residual bounds give an upper squared Euclidean error.
+        BigInteger restSquaredLower=BigInteger.Zero,responseSquaredLower=BigInteger.Zero;
+        for(int i=0;i<n;i++) {
+            var rest=new Interval(0,0);var response=new Interval(0,0);
+            for(int axis=0;axis<3;axis++) {
+                var delta=(Interval.FromDouble(original[i][axis])-Interval.FromDouble(original[0][axis]))/scale;
+                rest=rest+Square(delta);
+                if(free[i]>=0)response=response+Square(displacement[i][axis]);
+            }
+            restSquaredLower=BigInteger.Max(restSquaredLower,rest.Lo);
+            if(free[i]>=0)responseSquaredLower=BigInteger.Max(responseSquaredLower,response.Lo);
+        }
+        BigInteger unit=Interval.Scale,tol=tolerance.Lo;
+        bool absoluteOk=restSquaredLower.Sign>0 && errorSquared*unit<=tol*tol*restSquaredLower;
+        bool relativeOk=errorSquared*(unit+tol)*(unit+tol)<=tol*tol*responseSquaredLower*unit;
+        Console.WriteLine($"euclidean_absolute={absoluteOk} euclidean_relative={relativeOk} component_scope=fixture");
+        all &= absoluteOk && relativeOk;
         Console.WriteLine(all ? "position_certificate=within_tolerance" : "position_certificate=not_established");
         if(!all)Environment.ExitCode=2;
     }
@@ -172,15 +207,20 @@ class Program
             for(int k=0;k<3;k++)p[i][k]=(Interval.FromDouble(coords[i][k])-Interval.FromDouble(coords[0][k]))/scaleI;
         }
         var half=Interval.FromDouble(0.5);var six=Interval.FromDouble(6);
+        var components=new int[n];for(int i=0;i<n;i++)components[i]=i;
         foreach(var face in root.GetProperty("faces").EnumerateArray()) {
             int a=face[0].GetInt32(),b=face[1].GetInt32(),c=face[2].GetInt32();
             if(a<0||b<0||c<0||a>=n||b>=n||c>=n||a==b||a==c||b==c)throw new FormatException("face");
+            Union(components,a,b);Union(components,a,c);
             var ab=Sub(p[b],p[a]);var ac=Sub(p[c],p[a]);var cross=Cross(ab,ac);var area=Interval.Sqrt(Dot(cross,cross));
             if(area.Lo.Sign<=0) { Console.WriteLine("status=uncertain reason=area");Environment.ExitCode=1;return; }
             Edge(rows,b,c,half*Dot(ab,ac)/area);
             Edge(rows,a,c,half*Dot(Sub(p[a],p[b]),Sub(p[c],p[b]))/area);
             Edge(rows,a,b,half*Dot(Sub(p[a],p[c]),Sub(p[b],p[c]))/area);
             var share=area/six;mass[a]=mass[a]+share;mass[b]=mass[b]+share;mass[c]=mass[c]+share;
+        }
+        for(int i=1;i<n;i++)if(FindRoot(components,i)!=FindRoot(components,0)) {
+            Console.WriteLine("status=uncertain reason=disconnected");Environment.ExitCode=1;return;
         }
         var columns=new Dictionary<int,Interval>[nf];for(int i=0;i<nf;i++)columns[i]=new Dictionary<int,Interval>();
         for(int k=0;k<n;k++) {
