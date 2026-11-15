@@ -36,13 +36,34 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
     the line of the edge it is inserted on (`PerpendicDistFromLineSqrd` <= 1); farther away the insertion cut a triangle off
     the region. This also changes a few results that were right, within the rounding (92 of 1.6 million at 2^20), so the
     vendored engine can differ from the package there too; the differential test's inputs hit none of them.
+  - Fixes of the C++ Clipper2 after the archive, ported (2026-11-15, owner 2026-11-15; PolyClipping/Clipper2, the C++
+    continuation by Seth Hillbrand, BSL-1.0; the C# code is translated from the C++ diffs, each marked "geometry3Sharp change
+    (port of ...)", with the upstream tests translated in `Clipper2UpstreamFixesTests`):
+    - `f774daf` "Round intersection points and sort them stably" (`Clipper.Core.cs`, `GetLineIntersectPt`: both segments
+      are evaluated from their bottom end and the point is rounded, ToEven like C++'s `nearbyint`, instead of truncated;
+      `Clipper.Engine.cs`, `ProcessIntersectList`: a stable merge sort instead of `List.Sort`). This changes most outputs
+      within the rounding.
+    - `ec5f2d4` "Order edges leaving a shared vertex by direction" (`Clipper.Engine.cs`, `UpdateEdgeIntoAEL`).
+    - `f97d65d` "Stop CheckSplitOwner recursing forever on cyclic splits" (`Clipper.Engine.cs`, `CheckSplitOwner`): the
+      same result wherever the old code terminates; no input that reaches a cycle in the C# code was found, so no test
+      fails without it.
+    - Not ported: `4a3bf64` (keep clamped intersections inside the scanbeam): with the rounding of `f774daf` the C# engine
+      did not reach that clamp on its upstream test or on 3.2 million random results (200 000 pairs of 3- to 6-gons with
+      flat edges, 70 000 x 200 up to 2^52 x 2^30, and near-coincident rings, every clip type and fill rule), so it could
+      not be tested; the upstream test passes without it. Not taken either: the offset fixes `ca30beb` (empty paths; the
+      adapter passes none) and `6c7d083` (per-path state of `ClipperOffset`; not analysed for the adapter yet), `64a9ecc`
+      (offset output normalized to positive winding, a behaviour change of 593 lines), and the build, performance and
+      triangulation commits.
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the
   NuGet package side by side (booleans in every clip type, fill rule and PreserveCollinear setting, open paths,
   offsets in every join and end type, Minkowski sums and differences, SimplifyPaths, Area, bounds, point in polygon)
-  and requires the same output point for point (since the item 5 fix: except where the package's area is off the exact
-  area and the vendored one is not, `DegenerateBooleans_DifferOnlyWhereThePackageIsWrong`), at the adapter's magnitudes (±2^20 to ±2^50) and with degenerate
+  and, since the ported rounding (owner 2026-11-15), requires: a boolean that differs is within the rounding of the
+  package's (paths at most two grid units apart, areas within the perimeter) or within the rounding of the exact area
+  (`ExactRegionArea`); offsets, Minkowski sums and open paths differ only within the rounding; everything without
+  intersection points (SimplifyPaths, Area, bounds, point in polygon) is identical; at the adapter's magnitudes (±2^20 to
+  ±2^50) and with degenerate
   paths. The review of #751 compared the netstandard2.0 build with the package's DLL by IL: the same types, members
   and method bodies, apart from a method-group delegate cache of the newer compiler in `ConvertHorzSegsToJoins`. In the
   net10.0 build, `x.EnsureCapacity(n)` (`Clipper.Engine.cs`, `ClipperEngine.AddPathsToVertexList`) binds to
