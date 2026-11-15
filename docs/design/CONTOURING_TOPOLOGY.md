@@ -1,6 +1,6 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+Status: **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written 2026-11-15.** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
 item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
 1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. The study changed no library code (stage 1 did, #779); the study's measurement is
@@ -392,6 +392,11 @@ Theorem 1 applies to the moved surface. That is a new statement and needs a proo
 any code, like stage 0. With it, stage 2's refinement would be left with the thin-feature refusals, which it does
 certify.
 
+Stage 2a (2026-11-15, section 7.10): the lemma is proved in a stronger and simpler form, Theorem 6: the refused cells
+are merged into blocks (unions of cells that are balls), Theorem 1 is applied to the coarser complex, and a block is
+tested by two exact counts (L by the triangles, mesh edges and vertices meeting it; the contour by its patches). The
+finger move is then implicit, and no moved surface is constructed.
+
 ## 5. Stages
 
 | stage | what | size | gate |
@@ -399,7 +404,7 @@ certify.
 | 0 | the lemma and the mesh side written as a full proof: **done, section 7** (2026-11-13; it corrected the cell test, section 4.3); reviewed by a second session on #749, findings worked in; open: the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
 | 1 | class P, report only: `TopologyCertified` and the uncertified cells on `WindingContouring` / `MeshWindingNumberSolidify` for clean inputs; exact (E), (F), (C) by counting (section 7.4) | M (tier L rules: exact code) | never true on a wrong result (sections 2.1, 2.2 and a fuzz run); certified share and time reported; a spike first measures the check time against the DC phases |
 | 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule. **Spike 2026-11-15: stopped** (section 4.8): it certifies the thin features, not the double crossings at silhouette edges, which come back at every level; needs the edge lemma of section 4.8 first (stage 2a) | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
-| 2a | the edge lemma of section 4.8 (a double crossing next to one silhouette edge, with no contour crossing, removed by an isotopy of L supported in the cells around that edge), as a proof, independently reviewed; then stage 2 on the remaining refusals | S, docs | the proof holds |
+| 2a | the edge lemma of section 4.8, as a proof, independently reviewed; then stage 2 on the remaining refusals. **Written 2026-11-15 as Theorem 6 (section 7.10, blocks of cells)**; upper bound: 93-100 % of the refused cells of the clean T1 meshes lie in clusters that can be blocks; go for stage 2 as blocks first, refinement after | S, docs | the proof holds |
 | 3 | class S: the interval interface, the built-in shapes and operators, the certificate in `DualContouring` (dense and two-level) | M | the families of 2.1 certified from 2 cells on; the gyroid gets a certified reference |
 | 4 | class W: defect edges, the gradient bound, "topology changed only near the defects" | M-L, research | decided after stage 2 on the 6 inputs that are not clean and the 800 run's solidify fallbacks |
 | 5 | optional: the non-local relaxation of Plantinga-Vegter / Lin-Yap (fewer refinements at tangencies) | M | only if stage 2 / 3 show refinement chains that matter: stage 2's spike shows them (section 4.8, the silhouette edges) |
@@ -877,3 +882,178 @@ statement this approach can prove for a broken input.
 
 Conclusion for option C: the partial statement is provable with Theorems 1b, 3, 5 and Lemmas 9.1, 9.2 once items 1
 and 2 exist; item 3 is a limit of the approach, not a gap in the proof.
+
+### 7.10 Theorem 6: blocks of cells (stage 2a, 2026-11-15)
+
+Why: stage 2's spike (section 4.8) showed that most refused cells are grid edges crossed twice by L next to a
+silhouette edge of L, and that refinement creates such edges again at every level. Geometrically, the double crossing
+is a cap of L that the contour does not see and that a *finger move* (pushing the cap across the edge, an isotopy of L
+supported near the cap) removes. Instead of constructing the moved surface, which would need constructed points, this
+section changes the complex: the refused cells are merged into larger cells (*blocks*), the edges and faces inside a
+block are no longer cells, and Theorem 1 is applied to the coarser complex. The finger move then happens inside the
+proof of Theorem 1 (its cone extension in the block). Nothing below is new topology; the new parts are that the coarser
+complex qualifies and that compatibility with it is decided exactly by counting.
+
+**Setting.** K is the grid of section 7.1 (uniform or two-level). A *block* is a union R of 3-cells of K that is a PL
+3-ball. A face, edge or node of K is *inside* R if its relative interior lies in the interior of R, and *on* R if it
+lies in the boundary sphere of R. Let R_1 .. R_k be blocks whose interiors are pairwise disjoint. K' consists of the
+blocks, the 3-cells of K in no block, and the faces, edges and nodes of K inside no block.
+
+**Lemma 6.1.** K' is a complex as Theorem 1 needs it: every 3-cell is a PL ball whose boundary is a union of faces,
+edges and nodes of K', every face is a rectangle whose boundary is a union of edges and nodes of K', and two cells of
+K' meet in a union of cells of K'.
+
+*Proof.* The boundary sphere of R is a union of faces of K: a point of it lies in a cell of R and in the closure of a
+point outside R, so in a face of a cell of R that is not shared with another cell of R; these faces, their edges and
+nodes are on R, hence inside no block (interiors are disjoint, and a face inside R_j would have its relative interior
+in the interior of R_j, which misses R). Two cells of K' meet in a union of faces, edges and nodes of K that lie in the
+boundary of both, so inside no block. Faces and edges of K' are those of K. ∎
+
+The proof of Theorem 1 uses, of the 3-cells, only that each is a PL ball whose boundary is made of lower cells
+(remark 1 of section 7.2): step 4 applies (A) to the ball and the cone extension and the Alexander trick to the balls
+of its cut; the faces are still rectangles (steps 2 and 3 are unchanged). So **Theorem 1 holds for K'**: two surfaces
+compatible with K' with the same pattern are ambient isotopic, by a homeomorphism that maps every block and every
+other cell of K' onto itself.
+
+**What compatibility with K' asks.** On the faces and edges of K' and in the cells of K that are in no block: (E), (F),
+(C) and the pattern, as before. In a block R: (C), that the surface meets R in disjoint disks with their boundaries on
+the boundary sphere and their interiors inside. Nothing is asked of the faces, edges and nodes inside R: an edge
+inside R may be crossed twice, a face inside R may carry a closed curve, a node inside R may lie anywhere.
+
+**Lemma 6.2 (a surface in a block, by counting).** Let F be a compact PL surface in R that is a 2-manifold with
+boundary F ∩ ∂R (properly embedded). F is a set of disjoint disks properly embedded in R if and only if every
+component of F meets ∂R and χ(F) equals the number of components.
+
+*Proof.* A component that meets ∂R is a compact connected surface with nonempty boundary, embedded in R^3 and so
+orientable, with χ = 2 - 2g - b <= 1, and χ = 1 exactly for the disk (g = 0, b = 1). The sum of the χ of the components
+is χ(F); it equals their number exactly if each is 1. ∎
+
+Without the condition "every component meets ∂R" a closed component (a sphere, χ = 2) could hide an annulus (χ = 0);
+with it, the test is one sum and a component count.
+
+**Lemma 6.3 (L in a block).** Let L be a closed manifold triangle mesh without self-intersections (Theorem 3), and let
+(G) of section 7.4 hold for every face on R (with all its edges and nodes). Then:
+
+(a) L ∩ R is a compact 2-manifold with boundary L ∩ ∂R, properly embedded.
+
+(b) χ(L ∩ R) = Σ_t χ(t ∩ R) - Σ_m χ(m ∩ R) + |V(R)|, the sums over the triangles t and the mesh edges m of L, V(R) the
+mesh vertices in R; and χ(t ∩ R) (likewise χ(m ∩ R)) is computed from the cells c_1 .. c_n of K in R by inclusion and
+exclusion, χ(t ∩ R) = Σ over the nonempty sets J of cells of R of (-1)^(|J|+1) [t meets c_J], c_J the intersection
+of the cells of J (a box, a rectangle, a segment, a point or empty; convex).
+
+(c) The components of L ∩ R are the classes of the pieces (t, c), t a triangle meeting the cell c of R, under: (t, c) ~
+(t, c') if t meets c ∩ c'; (t, c) ~ (t', c) if t and t' share a mesh edge that meets c or a mesh vertex in c. A
+component meets ∂R if one of its pieces has t meeting a face on R.
+
+*Proof.* (a) A point x of L ∩ ∂R lies, by (G), in the relative interior of a face on R or in the relative interior of
+an edge on R (no mesh vertex is on ∂R, no triangle contains a node). In the first case either x is inside a triangle,
+whose plane is not the face's plane near x (a triangle in that plane would have a mesh edge in the plane meeting the
+face, or the face would lie inside the triangle with its nodes), or x is on a mesh edge that crosses the face's plane
+(it does not lie in it); in both cases L crosses the plane at x, and L ∩ R near x is a half disk. In the second case x
+is inside a triangle t (no mesh edge meets an edge on R), t is not in a plane containing that edge (else it would
+contain a node of the edge or a mesh edge would meet it), so t crosses the edge's line at x; R is near x a wedge of
+angle π/2, π or 3π/2 around the edge, and a plane crossing the wedge's edge meets the wedge in a planar sector, a half
+disk at x. Inside R, L is a 2-manifold. (b) As in the lemma of section 7.4, L ∩ R is the union of the compact
+polyhedra t ∩ R, two of which meet exactly in m ∩ R for a common mesh edge m or in a common vertex in R (no
+self-intersections); χ is additive (χ_c(A \ B) = χ(A) - χ(B) for compact polyhedra B ⊂ A), so summing over the open
+triangles, open edges and vertices as in section 7.4 gives the formula; there convexity was used only for χ(t ∩ X) = 1,
+here χ(t ∩ R) is the inclusion and exclusion over the cover of t ∩ R by the convex sets t ∩ c_i (χ is a valuation on
+compact polyhedra, χ of a nonempty compact convex set is 1). (c) L ∩ R is the union of the nonempty convex, hence
+connected, sets t ∩ c; two of them meet exactly if they share a point of t ∩ t' ∩ c ∩ c', and the two rules generate
+exactly that relation (if t = t', the common point is in c ∩ c'; if t ≠ t', it is on a common mesh edge or vertex m,
+and (t, c) ~ (t, c') ~ (t', c') through m ∩ c ∩ c'). The components of a finite union of connected sets are the classes
+of the "meet" relation. A component has boundary exactly where it meets ∂R, which by (a) is in the faces on R. ∎
+
+All of this is decided by the predicates of section 7.4 (a triangle or a mesh edge against a box, a rectangle, a
+segment or a point; a mesh vertex in a box), on the doubles of L and of the grid: no constructed point.
+
+**Lemma 6.4 (the contour in a block).** Let D satisfy (H1)-(H4) (Theorem 2, including option B's fans and the
+transitions). Then D ∩ R is a compact 2-manifold properly embedded in R, its components are the classes of the patches
+of the cells of R under "joined by an arc of D on a face inside R", a component meets ∂R if one of its patches has an
+arc on a face on R, and
+
+χ(D ∩ R) = P - A + Z,
+
+with P the patches of the cells of R, A the arcs of D on the faces inside R (one per segment of the face rule) and Z
+the crossed edges inside R.
+
+*Proof.* By Theorem 2, D is compatible with K: in each cell of R it is one disk per patch, on each face a set of arcs,
+on each edge at most one point, so D is a 2-manifold that crosses every face and edge on R as in (a) of Lemma 6.3, and
+properly embedded. Decompose D ∩ R into the open patch disks (χ_c = 1 each), the open arcs on the faces in R (-1 each)
+and the crossing points on the edges in R (+1 each); the arcs and points on R make up D ∩ ∂R, a union of circles, of
+χ = 0. So χ(D ∩ R) = P - A + Z. Two patches of cells of R meet only along an arc on a common face or in a crossing
+point of an edge inside R, which is the end of arcs on faces inside R joining the patches around that edge in turn
+(Theorem 2 (e)); so the components are the stated classes. ∎
+
+P, A and Z are read off the contour's pattern (the node signs and the face rule): no geometry. With option B's face
+vertices an ambiguous face carries two arcs; each is one segment of the face rule.
+
+**Theorem 6.** Let R_1 .. R_k be blocks with disjoint interiors, and suppose:
+
+1. every cell of K in no block passes the test of Theorem 3 (with its faces and edges) and the mesh side of Theorem 2
+   (it is certified, section 4.1);
+2. every face on a block (with its edges and nodes) passes (G), (E), (F) and the pairing of Theorem 3 (true when it is
+   a face of a certified cell outside the blocks);
+3. in every block R, by Lemmas 6.2 and 6.3, every component of L ∩ R meets ∂R and χ(L ∩ R) is their number;
+4. in every block R, by Lemmas 6.2 and 6.4, every component of D ∩ R meets ∂R and P - A + Z is their number;
+5. D satisfies (H1)-(H4), and no cell of a block is refused by the mesh side.
+
+Then the contour D is ambient isotopic to the level set L, by a homeomorphism that maps every block and every other
+cell of K' onto itself.
+
+*Proof.* By Lemma 6.1, K' is a complex for Theorem 1. L is compatible with K': on the cells, faces and edges of K' that
+are those of K by 1 and 2 and Theorem 3, in the blocks by 3, Lemma 6.3 (a) and Lemma 6.2. D is compatible with K': on the
+faces and edges by Theorem 2, in the cells of K outside the blocks by Theorem 2, in the blocks by 4, Lemma 6.4 and
+Lemma 6.2. The patterns agree: on the edges and faces of K' they are compared by the tests of 1 and 2 (the crossing
+counts and the pairing on faces with four crossings); inside a block there is no pattern. Theorem 1 on K'. ∎
+
+Remarks.
+
+1. **The partial statement.** Theorem 1b holds with K' as well: with blocks for some refused clusters and the rest
+   refused, the certified cells and blocks are kept in place, each as a whole. The locality is the block's, not the
+   cell's.
+2. **A block must be a ball.** A cluster of refused cells around a closed silhouette loop (a ridge around a hole) is a
+   solid torus, and no single block covers it; two blocks cut across the loop need a face on both that passes (E) and
+   (F), which a band of refusals usually does not offer. Such runs stay uncertified. The ball test for a union R of grid
+   cells is exact and combinatorial: R is a 3-manifold with boundary if at every node v of R the link of v in R (the
+   cells of R that contain v, seen on a small sphere around v: octants on the uniform grid, quarter or half spheres for a
+   coarse cell at a node in the middle of its side) is a disk or the whole sphere (this also covers the edges: two
+   opposite quadrants around an edge make the link of its end nodes pinch at the edge's direction; points inside faces
+   are always fine); then ∂R is a closed surface with χ(∂R) = 2 χ(R), so if ∂R is
+   connected and χ(R) = V - E + F - C = 1, ∂R is a sphere and R, the closure of its bounded side (A), is a ball.
+3. **Which blocks.** The theorem holds for any choice; the choice is the implementation's. The natural one is the
+   clusters of refused cells (cells sharing a face, an edge or a node), grown by certified neighbours where the ball
+   test fails: every face on such a cluster then lies on a certified cell outside it, so condition 2 holds without a
+   new test, and only 3 and 4 are new. A wrong contour can never pass: if it did, Theorem 1 on K' would make it isotopic
+   to L.
+4. **What it does not cover.** Mesh-side refusals (5): the block test reads the patches of Theorem 2, which needs
+   the mesh side in the block's cells. Thin features the contour lost: L has a part in the block that D does not, so
+   either a face on the block sees L where D has no crossing (condition 2 fails, the block grows) or the part is closed
+   inside the block (condition 3 fails). Those need refinement, which section 4.8 found effective for them.
+5. **Sources.** Theorem 1 and Lemmas 6.2-6.4 use only (J), (A), the cone extension and the Alexander trick (section 7),
+   the classification of compact surfaces by orientability, genus and boundary components, the additivity of the
+   Euler characteristic (a valuation on compact polyhedra; Hadwiger), and χ(∂M) = 2 χ(M) for a compact 3-manifold M
+   (Poincaré duality, any algebraic topology text). The finger move is the classical removal of two intersection points
+   of an arc with a surface along a disk (a Whitney-type move), named here only as the picture.
+
+**Upper bound (probe, not a test of conditions 3 and 4).** Archive branch `claude/contouring-cert-merge-probe`
+(commit 6fca9a4), `benchmarks/ContouringCertificate clusters` on the stage-1 runs (default `MeshWindingNumberSolidify`
+with the certificate, master 668a704 plus the probe, 4 cores): the uncertified cells grouped into clusters (cells that
+share a face, an edge or a node), and the Euler characteristic of each cluster's union (1 is necessary for a ball).
+
+| clean T1 | cell | uncertified cells | in clusters with χ = 1 | runs where all clusters have χ = 1 | largest cluster (cells) |
+|---|---|---|---|---|---|
+| 14 inputs | / 64 | 1269 | 1184 (93 %) | 13 of 14 | 135 |
+| 14 inputs | / 128 | 2322 | 2322 (100 %) | 14 of 14 | 116 |
+
+So the shape of the refused regions does not stand in the way: nearly every refused cell lies in a small cluster
+that can be a block. Box blocks only (bounding boxes, merged until disjoint) would cover much less (at / 128, 31 % of
+the cells in boxes at most 4 cells wide, 40 % at most 8), because the silhouette bands run diagonally; so blocks are
+general unions of cells, as Theorem 6 allows. What the probe cannot say is how many blocks pass conditions 3 and 4;
+the wrong runs (3 of 14 at / 128) must fail them, by the theorem.
+
+**Go / no-go for stage 2.** Go, in this order, each step gated by its numbers: (1) the block test (Lemmas 6.2-6.4, the
+ball test, the clusters as blocks) in the library, report only, measured on the stage-1 set (certified runs, and the
+cells left), against the bound above; (2) refinement of section 4.8 only for what the blocks leave (the thin features),
+if (1) leaves enough of them to matter. Stop rule: if (1) certifies less than half of the refused cells on the clean T1
+meshes at / 128, report and stop.
