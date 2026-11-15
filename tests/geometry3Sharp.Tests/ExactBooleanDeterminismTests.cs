@@ -148,6 +148,60 @@ namespace geometry3Sharp.Tests
                 });
         }
 
+        // issue 789: the hash of an exact point is seeded per process on .NET (BigInteger.GetHashCode), and it picks
+        // the shard and bucket of the arrangement's point indexes and of the merge of equal points. The results must not
+        // depend on it: the same bits under scrambled hashes (two salts) and with every point in one shard, serially and
+        // in parallel, on the inputs of this class
+        public static IEnumerable<object[]> HashCases()
+        {
+            for (int i = 0; i < 4; ++i)
+                yield return new object[] { i };
+        }
+
+        static Func<bool, bool, ExactMeshBoolean> HashCase(int i)
+        {
+            DMesh3 box = Box(new Vector3d(-1.2, -1.1, -0.9), new Vector3d(0.3, 0.6, 1.1));
+            DMesh3 sphere = Sphere(new Vector3d(-0.6, -0.5, 0.2), 0.7, 6);
+            var boxes = new List<DMesh3>();
+            for (int a = 0; a < 2; ++a)
+                for (int b = 0; b < 2; ++b)
+                    boxes.Add(Box(new Vector3d(0.9 * a, 0.9 * b, 0), new Vector3d(0.9 * a + 1, 0.9 * b + 1, 1)));
+            var touching = new List<DMesh3>() { Box(new Vector3d(0, 0, 0), new Vector3d(1, 1, 1)), Box(new Vector3d(1, 1, -0.2), new Vector3d(2, 2, 1.3)),
+                Sphere(new Vector3d(1.05, 0.93, 0.5), 0.15, 5) };
+            switch (i) {
+                case 0: return (salt, one) => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Difference) { ArrangementHashSalt = salt ? 0x5BD1E995 : 0, ArrangementSingleShard = one };
+                case 1: return (salt, one) => new ExactMeshBoolean(box, sphere, ExactMeshBoolean.Operations.Intersection) { SafeRounding = true, ComputeExactVertices = true,
+                    ArrangementHashSalt = salt ? -7 : 0, ArrangementSingleShard = one };
+                case 2: return (salt, one) => new ExactMeshBoolean(boxes, ExactMeshBoolean.Operations.Union) { ArrangementHashSalt = salt ? 0x2545F491 : 0, ArrangementSingleShard = one };
+                default: return (salt, one) => new ExactMeshBoolean(touching, ExactMeshBoolean.Operations.Union) { ArrangementHashSalt = salt ? 1 : 0, ArrangementSingleShard = one };
+            }
+        }
+
+        static string Print(ExactMeshBoolean b)
+        {
+            Assert.True(b.Compute(), b.Error);
+            return Fingerprint(b.Result) + ((b.ResultExactVertices != null) ? "|" + string.Join(";", b.ResultExactVertices.Select(p => $"{p.X},{p.Y},{p.Z},{p.W}")) : "");
+        }
+
+        [Theory]
+        [MemberData(nameof(HashCases))]
+        public void PointHashes_DoNotAffectTheResult(int i)
+        {
+            Func<bool, bool, ExactMeshBoolean> make = HashCase(i);
+            ExactMeshBoolean reference = make(false, false);
+            string expected = Print(reference);
+            ResultChecks.AssertClosed(reference.Result);
+            foreach (var mode in new[] { (true, false), (false, true), (true, true) }) {
+                Assert.True(expected == Print(make(mode.Item1, mode.Item2)), $"parallel, salt {mode.Item1}, one shard {mode.Item2}");
+                gParallel.SerialOnThisThread = true;
+                try {
+                    Assert.True(expected == Print(make(mode.Item1, mode.Item2)), $"serial, salt {mode.Item1}, one shard {mode.Item2}");
+                } finally {
+                    gParallel.SerialOnThisThread = false;
+                }
+            }
+        }
+
         [Fact]
         public void CoplanarBoxes_RepeatedRuns_BitIdentical()
         {

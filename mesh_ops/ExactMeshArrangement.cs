@@ -386,6 +386,25 @@ namespace g3
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
         const int Shards = 64;
+        /// <summary>
+        /// for tests (issue 789): a salt for the hashes of exact points (0: their own hashes). The hash of an exact
+        /// point is seeded per process on .NET (BigInteger.GetHashCode); a non-zero salt scrambles every hash of a
+        /// point, and with it the shard and the bucket it lands in, so that a test can show that no result depends on
+        /// them. SingleShard puts every point into the first shard.
+        /// </summary>
+        internal int HashSalt;
+        internal bool SingleShard;
+        [MethodImpl(JitHints.Optimize)]
+        int salted(int h)
+        {
+            if (HashSalt == 0)
+                return h;
+            ulong z = (uint)(h ^ HashSalt) * 0x9E3779B97F4A7C15UL;
+            z = (z ^ (z >> 29)) * 0xBF58476D1CE4E5B9UL;
+            return (int)(z ^ (z >> 32));
+        }
+        [MethodImpl(JitHints.Optimize)]
+        int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
         readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
         readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
         readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
@@ -402,7 +421,7 @@ namespace g3
         {
             public readonly ExactPoint3 P;
             public readonly int Hash;
-            public HashedPoint(ExactPoint3 p) { P = p; Hash = p.GetHashCode(); }
+            public HashedPoint(ExactPoint3 p, int hash) { P = p; Hash = hash; }
             public bool Equals(HashedPoint o) { return Hash == o.Hash && P.Equals(o.P); }
             public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
             public override int GetHashCode() { return Hash; }
@@ -413,7 +432,7 @@ namespace g3
         {
             FixedPoint3 P;
             public readonly int Hash;
-            public FixedKey(ref FixedPoint3 p) { P = p; Hash = p.Hash(); }
+            public FixedKey(ref FixedPoint3 p, int hash) { P = p; Hash = hash; }
             public bool Equals(FixedKey o)
             {
                 return Hash == o.Hash && FixedPoint3.SameValue(ref P, ref o.P);
@@ -495,8 +514,8 @@ namespace g3
             FixedPoint3 f;
             if (FixedWidthPoints && FixedPoint3.TryCreateLimbs(p, out f)) {
                 // (the representation is a function of the value: a point in this index is never in the other)
-                var fk = new FixedKey(ref f);
-                var fshard = fixedIndex[(fk.Hash & 0x7FFFFFFF) % Shards];
+                var fk = new FixedKey(ref f, salted(f.Hash()));
+                var fshard = fixedIndex[shard_of(fk.Hash)];
                 lock (fshard) {
                     int id;
                     if (fshard.TryGetValue(fk, out id))
@@ -509,8 +528,8 @@ namespace g3
                     return id;
                 }
             }
-            var hp = new HashedPoint(p);
-            var shard = rationalIndex[(hp.Hash & 0x7FFFFFFF) % Shards];
+            var hp = new HashedPoint(p, salted(p.GetHashCode()));
+            var shard = rationalIndex[shard_of(hp.Hash)];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(hp, out id))
@@ -538,7 +557,7 @@ namespace g3
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a) + Tiny;
             }
-            var shard = keyIndex[(key.GetHashCode() & 0x7FFFFFFF) % Shards];
+            var shard = keyIndex[shard_of(salted(key.GetHashCode()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(key, out id))
@@ -602,7 +621,7 @@ namespace g3
         internal int ExactHash(int id)
         {
             int r = exact_ref(id);
-            return (r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode();
+            return salted((r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode());
         }
 
         // point ids compared by their exact points
