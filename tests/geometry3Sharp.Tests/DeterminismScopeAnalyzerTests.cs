@@ -257,6 +257,55 @@ namespace geometry3Sharp.Tests
             Assert.Empty(Analyze(source, list, library: library));
         }
 
+        // the closure sees what the operations use beyond the symbols of the expressions: a user-defined implicit
+        // conversion, the Deconstruct of a positional pattern; and reports each member once
+        [Fact]
+        public void PinnedDeclarations_Closure_CoversImplicitConversionsAndPatterns()
+        {
+            const string library = @"public struct W { public double Y;
+                public static implicit operator V(W w) { V v; v.X = w.Y; return v; }
+                public void Deconstruct(out double a, out double b) { a = Y; b = Y; } }
+            public struct V { public double X;
+                public double T(W w) { V v = w; if (w is (var p, var q)) return v.X + X + p + q; return w.Y + w.Y; } }";
+            const string source = "static class C { static double M(V a, W w) { return a.T(w); } }";
+            string list = "M:V.T(W) ; [body:" + DeterminismScopeAnalyzer.BodyHash(Lib(library, "M:V.T(W)")) + "] x\nF:V.X ; [body:"
+                + DeterminismScopeAnalyzer.BodyHash(Lib(library, "F:V.X")) + "] storage";
+            var d = Analyze(source, list, library: library).Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId).Select(x => x.GetMessage()).ToList();
+            Assert.Single(d, x => x.Contains("'M:W.op_Implicit(W)~V', which is not on the list"));
+            Assert.Single(d, x => x.Contains("'M:W.Deconstruct(System.Double@,System.Double@)', which is not on the list"));
+            Assert.Single(d, x => x.Contains("'F:W.Y', which is not on the list"));
+            Assert.Equal(3, d.Count);
+        }
+
+        // an #if in a pinned declaration (around a leading attribute, and in the body): the same text and hash whichever
+        // branch the target compiles; a change in either branch changes it on both targets
+        [Fact]
+        public void BodyHash_TheSameWhicheverBranchTheTargetCompiles()
+        {
+            const string library = @"public struct V { public double X;
+#if NET
+            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+#endif
+            public double T() {
+#if NET
+                return X  *  2; /* net
+                     branch */
+#else
+                return X + X; // portable
+#endif
+            } }";
+            Func<string, bool, ISymbol> t = (lib, net) => DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.T", Compile("static class C { }", net, lib));
+            string canonical = DeterminismScopeAnalyzer.Canonical(t(library, true).DeclaringSyntaxReferences[0].GetSyntax());
+            Assert.Equal(canonical, DeterminismScopeAnalyzer.Canonical(t(library, false).DeclaringSyntaxReferences[0].GetSyntax()));
+            Assert.StartsWith("#if NET\n[System.Runtime", canonical);
+            Assert.Contains("return X * 2; /* net\n                     branch */\n#else\nreturn X + X; // portable\n#endif", canonical);
+            string h = DeterminismScopeAnalyzer.BodyHash(t(library, true));
+            Assert.Equal(h, DeterminismScopeAnalyzer.BodyHash(t(library, false)));
+            foreach (string changed in new[] { library.Replace("X + X", "X - X"), library.Replace("X  *  2", "X * 3"), library.Replace("AggressiveInlining", "NoInlining") })
+                foreach (bool net in new[] { true, false })
+                    Assert.NotEqual(h, DeterminismScopeAnalyzer.BodyHash(t(changed, net)));
+        }
+
         [Fact]
         public void BodyTags_OnlyOnTheLibrarysMembers_AndOnce()
         {

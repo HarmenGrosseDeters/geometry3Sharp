@@ -275,8 +275,8 @@ and their correctness tests compare with oracles), every predicate returns the s
 reasons of the 36 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
 `MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their declarations; the rules do not analyze those
 files (nor does G3E0001-4), but each entry pins the text of the declaration it reviewed (`[body:h]`, an FNV-1a hash of
-its tokens, comments and line breaks, indentation ignored; the same on every runtime, target and line-ending
-convention): a changed declaration fails the build (G3D0009) until it is reviewed again and the tag updated, and a
+its tokens, comments and line breaks, the indentation between tokens ignored, a disabled `#if` branch tokenized as if
+it were active; the same on every runtime, target and line-ending convention): a changed declaration fails the build (G3D0009) until it is reviewed again and the tag updated, and a
 pinned declaration may use geometry3Sharp members outside the kernel only if they are listed and pinned too (closure;
 it brought in `Index3i.a / b / c` and `PredicateStats.counters / Kind.Count`). Not covered by the pin: the containing
 type (struct or class, layout attributes), what the names bind to (usings, overload resolution), implicit enum values,

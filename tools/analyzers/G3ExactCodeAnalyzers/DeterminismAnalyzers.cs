@@ -359,12 +359,9 @@ namespace G3ExactCodeAnalyzers
                 && n.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T && n.TypeArguments[0].SpecialType == SpecialType.System_Decimal));
         }
 
-        static void OnOperation(OperationAnalysisContext c, State s)
+        /// <summary> the members an operation calls or reads (its own; not those of its children) </summary>
+        static void UsedMembers(IOperation op, Compilation compilation, List<ISymbol> used)
         {
-            IOperation op = c.Operation;
-            if (!InScope(s, op.Syntax.SyntaxTree))
-                return;
-            var used = new List<ISymbol>();
             switch (op) {
                 case IInvocationOperation i: used.Add(i.TargetMethod); break;
                 case IObjectCreationOperation o: if (o.Constructor != null) used.Add(o.Constructor); break;
@@ -381,7 +378,7 @@ namespace G3ExactCodeAnalyzers
                     break;      // (a pseudo id, HiddenCall)
                 case ILockOperation _:
                     // lowered to Monitor.Enter(object, ref bool) and Monitor.Exit(object)
-                    INamedTypeSymbol monitor = s.Compilation.GetTypeByMetadataName("System.Threading.Monitor");
+                    INamedTypeSymbol monitor = compilation.GetTypeByMetadataName("System.Threading.Monitor");
                     if (monitor != null)
                         foreach (ISymbol m in monitor.GetMembers())
                             if (m is IMethodSymbol mm && ((mm.Name == "Enter" && mm.Parameters.Length == 2 && mm.Parameters[1].RefKind == RefKind.Ref) || (mm.Name == "Exit" && mm.Parameters.Length == 1)))
@@ -407,10 +404,19 @@ namespace G3ExactCodeAnalyzers
                     break;
                 case IUsingDeclarationOperation _:
                 case IUsingOperation _:
-                    INamedTypeSymbol disp = s.Compilation.GetSpecialType(SpecialType.System_IDisposable);
+                    INamedTypeSymbol disp = compilation.GetSpecialType(SpecialType.System_IDisposable);
                     foreach (ISymbol m in disp.GetMembers("Dispose")) used.Add(m);
                     break;
             }
+        }
+
+        static void OnOperation(OperationAnalysisContext c, State s)
+        {
+            IOperation op = c.Operation;
+            if (!InScope(s, op.Syntax.SyntaxTree))
+                return;
+            var used = new List<ISymbol>();
+            UsedMembers(op, s.Compilation, used);
             ISymbol holder = Holder(c.ContainingSymbol);
             string holderId = holder?.GetDocumentationCommentId() ?? "";
             string hidden = HiddenCall(op);
@@ -675,11 +681,13 @@ namespace G3ExactCodeAnalyzers
         /// <summary>
         /// The hash of a member's declaration as reviewed: FNV-1a 64 over the UTF-8 text of its declaration syntax (the
         /// attributes, signature and body; for a field its whole field declaration), token by token: token text verbatim
-        /// (string literals keep their spaces), comments, directives and disabled #if text verbatim, a line break as one
-        /// "\n" and other white space as one space where it separates two tokens, nothing at the start or end of a line
-        /// (so a re-indent or CRLF / LF checkout keeps the hash, a joined line does not). Not covered: the leading trivia
-        /// of the declaration (its doc comment), the containing type, what the names bind to. The parts of a member with
-        /// several declarations are sorted by their text. The same on every runtime and target framework.
+        /// (string literals keep their spaces), comments and directives verbatim (inside a /* */ comment its indentation
+        /// counts), the text of a disabled #if branch tokenized as if it were active, a line break as one "\n" and other
+        /// white space as one space where it separates two tokens, nothing at the start or end of a line (so a re-indent
+        /// between tokens or a CRLF / LF checkout keeps the hash, a joined line does not). Not covered: the leading trivia
+        /// of the declaration before its first directive (its doc comment), the containing type, what the names bind to.
+        /// The parts of a member with several declarations are sorted by their text. The same on every runtime and target
+        /// framework, whichever #if branch the target compiles.
         /// </summary>
         public static string BodyHash(ISymbol member)
         {
@@ -722,10 +730,26 @@ namespace G3ExactCodeAnalyzers
                     if (t.IsKind(SyntaxKind.WhitespaceTrivia)) pendingSpace = true;
                     else if (t.IsKind(SyntaxKind.EndOfLineTrivia)) Break();
                     else if (t.HasStructure) { Text(t.ToFullString().TrimEnd()); Break(); }     // a directive (its own line)
+                    else if (t.IsKind(SyntaxKind.DisabledTextTrivia))
+                        // the branch #if switches off on this target: tokenized as if it were active, so that every
+                        // target gives the same text
+                        foreach (SyntaxToken d in SyntaxFactory.ParseTokens(t.ToFullString())) {
+                            Trivia(d.LeadingTrivia);
+                            Text(d.Text);
+                            Trivia(d.TrailingTrivia);
+                        }
                     else { Text(t.ToFullString()); if (t.IsKind(SyntaxKind.SingleLineCommentTrivia)) Break(); }
                 }
             }
             SyntaxToken first = n.GetFirstToken(), last = n.GetLastToken();
+            // before the first token: from its first directive on (an #if around a leading attribute: on a target that
+            // switches the attribute off, the whole block is trivia of the first token)
+            SyntaxTriviaList lead = first.LeadingTrivia;
+            int fromDirective = -1;
+            for (int i = 0; i < lead.Count && fromDirective < 0; ++i)
+                if (lead[i].IsDirective) fromDirective = i;
+            if (fromDirective >= 0)
+                Trivia(SyntaxFactory.TriviaList(lead.Skip(fromDirective)));
             foreach (SyntaxToken tok in n.DescendantTokens()) {
                 if (tok != first) Trivia(tok.LeadingTrivia);
                 Text(tok.Text);
@@ -755,10 +779,24 @@ namespace G3ExactCodeAnalyzers
                 }
                 // closure: every geometry3Sharp member that the pinned declaration uses and that is declared outside the
                 // scope is itself on the list (and so pinned), so that a change of a callee cannot escape the review
+                // (the operations, with the members OnOperation counts, implicit conversions, foreach and patterns
+                // included; and the symbols of the expressions, for what has no operation, eg attribute arguments)
+                var seen = new HashSet<string>(StringComparer.Ordinal);
                 foreach (SyntaxReference r in m.DeclaringSyntaxReferences) {
                     SemanticModel model = s.Compilation.GetSemanticModel(r.SyntaxTree);
+                    var uses = new List<ISymbol>();
                     foreach (SyntaxNode x in r.GetSyntax().DescendantNodesAndSelf()) {
-                        ISymbol used = (x is ExpressionSyntax || x is ConstructorInitializerSyntax) ? model.GetSymbolInfo(x).Symbol : null;
+                        IOperation root = model.GetOperation(x);
+                        if (root != null && root.Parent == null)
+                            foreach (IOperation o in root.DescendantsAndSelf())
+                                UsedMembers(o, s.Compilation, uses);
+                        if (x is ExpressionSyntax || x is ConstructorInitializerSyntax) {
+                            ISymbol sy = model.GetSymbolInfo(x).Symbol;
+                            if (sy != null) uses.Add(sy);
+                        }
+                    }
+                    foreach (ISymbol u in uses) {
+                        ISymbol used = u;
                         if (used is IMethodSymbol um && um.ReducedFrom != null) used = um.ReducedFrom;
                         if (used == null || !(used is IMethodSymbol || used is IPropertySymbol || used is IFieldSymbol || used is IEventSymbol))
                             continue;
@@ -766,9 +804,11 @@ namespace G3ExactCodeAnalyzers
                             || !SymbolEqualityComparer.Default.Equals(used.ContainingAssembly, s.Compilation.Assembly))
                             continue;
                         string uid = used.OriginalDefinition.GetDocumentationCommentId();
-                        if (uid != null && s.List.Entries.ContainsKey(uid))
+                        if (uid == null || !seen.Add(uid))
+                            continue;
+                        if (s.List.Entries.ContainsKey(uid))
                             s.UsedEntries[uid] = true;      // (used through a pinned declaration)
-                        else if (uid != null)
+                        else
                             c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, uid), e.Line, "the pinned declaration of '" + e.Id + "' uses '" + uid + "', which is not on the list (add and pin it, so that its changes are reviewed too)"));
                     }
                 }
