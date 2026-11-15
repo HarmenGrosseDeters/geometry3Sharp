@@ -107,7 +107,7 @@ Part of the [roadmap](../ROADMAP.md).
   where the incremental run stays mandatory. Other PRs merge on green CI and review; their shards run nightly on master
   (dispatch tasks), survivors become tasks of the area's next PR. The time rule stays a hard CI gate. Rule in CLAUDE.md.
 - **Scheduled workflows do not fire reliably** (found 2026-11-12; fix 2026-11-13: dispatch path plus guard, see
-  [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); open until the dispatcher tasks exist and ran once): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
+  [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); the dispatch is on time to about a minute since 2026-11-14, the cron lines stay 6.7 to 7.8 h late, measured in [QA.md 2.12](../QA.md#212-scheduled-runs-dispatch-path-and-guard-2026-11-13); done): `coverage.yml` (cron `41 3 * * *`, on master since #434, 2026-11-11)
   has no scheduled run yet, none on 2026-11-12; `nightly.yml` (cron `23 2 * * *`) has one scheduled run, created
   2026-11-11 09:36 UTC instead of 02:23, and none on 2026-11-12 (GitHub Actions run list). The nightly mutation
   runs of the 3.0 process (#615) would depend on the same mechanism. Later on 2026-11-12 both fired, hours late:
