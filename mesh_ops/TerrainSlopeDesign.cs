@@ -2150,7 +2150,8 @@ namespace gs
         static void fans(ExactSlopeKernel kernel, InPiece pc, Vector3d apex, Vector3d other, double center, double half,
                          double theta, int nTheta, double R, SlopeSpec sb, List<StripRef> strips, List<int> planes, List<double> angles)
         {
-            int m0 = (int)Math.Ceiling((center - half) / theta), m1 = (int)Math.Floor((center + half) / theta);
+            // (saturating: a NaN half angle, from coordinates near the double range, gives the same steps on every runtime, #804)
+            int m0 = MathUtil.FloorToIntSaturating(Math.Ceiling((center - half) / theta)), m1 = MathUtil.FloorToIntSaturating((center + half) / theta);
             var used = new HashSet<StripRef>();
             for (int m = m0; m <= m1; ++m) {
                 // (the angle of grid step m, the same double for every piece)

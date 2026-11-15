@@ -61,7 +61,7 @@ namespace geometry3Sharp.Tests
         public void CrossingGridCell_TheSameOnEveryRuntime(double v, int expected)
         {
             Assert.Equal(expected, ExactMeshBoolean.CrossingGrid.cell(v, 0, 1, 10));
-            // (a cell width of 0 or below the coordinates' scale gives an infinite or NaN quotient as well)
+            // (an infinite cell width, which the grid's constructor puts in place of a zero or NaN width: cell 0)
             Assert.Equal(0, ExactMeshBoolean.CrossingGrid.cell(v, 0, double.PositiveInfinity, 10));
         }
 
