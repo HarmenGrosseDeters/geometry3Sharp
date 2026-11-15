@@ -14,6 +14,8 @@
 //     --safe-rounding                        SafeRounding = true (reports rounding_clean and rounding_limit, ie
 //                                            Rounding.EvaluationLimitReached)
 //     --rounding-max-pair-tests <n>          RoundingMaxPairTests (the rounding's pair-test budget; default 5M)
+//     --tree-parallel-from <n>               TriangleBoxTree.ParallelBuildFrom = n (default 262144: trees of fewer boxes are built
+//                                            serially; the tree, and so every result, is the same, see docs/perf/BOOLEAN_THREAD_SCALING.md)
 //     --antipodal-unlimited                  AntipodalMaxBoundarySegments and AntipodalMaxTriangles unlimited (the
 //                                            open-operand classification on the Antipodal path everywhere; T5 option A)
 // Filter failures are counted only by a library built with -p:G3PredicateStats=true (PredicateStats); in a normal
@@ -37,6 +39,7 @@ static class Profile
         int repeat = 3;
         bool exact = false, safe = false, antipodalUnlimited = false, median = false;
         long maxPairTests = -1;
+        int treeParallelFrom = -1;
         var cases = new List<string>();
         for (int i = 0; i < args.Length; ++i) {
             if (args[i] == "--ops") ops = args[++i].Split(',').ToList();
@@ -46,6 +49,7 @@ static class Profile
             else if (args[i] == "--antipodal-unlimited") antipodalUnlimited = true;
             else if (args[i] == "--median") median = true;
             else if (args[i] == "--rounding-max-pair-tests") maxPairTests = long.Parse(args[++i]);
+            else if (args[i] == "--tree-parallel-from") treeParallelFrom = int.Parse(args[++i]);
             else if (File.Exists(args[i]) && Directory.Exists(args[i]) == false)
                 cases.AddRange(File.ReadAllLines(args[i]).Select(l => l.Trim()).Where(l => l.Length > 0 && l.StartsWith("#") == false));
             else cases.Add(args[i]);
@@ -54,6 +58,8 @@ static class Profile
             ["union"] = ExactMeshBoolean.Operations.Union, ["intersection"] = ExactMeshBoolean.Operations.Intersection,
             ["difference"] = ExactMeshBoolean.Operations.Difference };
 
+        if (treeParallelFrom >= 0)
+            TriangleBoxTree.ParallelBuildFrom = treeParallelFrom;
         // warm-up (JIT), as in `run`
         DMesh3 w1 = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6 }.Generate().MakeDMesh();
         DMesh3 w2 = new DMesh3(w1);

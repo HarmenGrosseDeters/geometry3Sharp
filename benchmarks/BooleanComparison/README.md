@@ -743,6 +743,42 @@ Thingi10K cohort models × 3 operations, 4 cores, best of 2 rounds, all result h
 | 668056 / 668057 union | 6.5 / 6.0 s | 4.9 / 5.1 s |
 | 519511 union | 36.4 s | 28.4 s |
 
+## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
+
+The question: what limits the speedup of `ExactMeshBoolean` with the number of threads (the analysis and the lever list:
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md)). `perf/thread_scaling.ps1` runs the T6 case set (the 98 pairs of
+`perf/t6.py`, 294 booleans, SafeRounding on) or the three slowest roundings (`-Set three`: p0466_203344+80414, p0861_80557+285607,
+p0974_97674+472023) at 1, 2, 4, 8 and 12 threads on net10.0 (and net48, Windows only), the combinations alternated round by round, and writes
+the phase times and the result hashes to CSV. Thingi10K is fetched at run time (about 300 MB, outside the repository); the script needs `python3`
+(or `python`) and the .NET 10 SDK, in Windows PowerShell 5.1 or PowerShell 7.
+
+```powershell
+# the plan and the exact commands, nothing runs
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -DryRun
+# a short check of the setup: 3 cases, 1 round (fetches the models, builds, exports the cases)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set three -Rounds 1 -Limit 3 -ThreadCounts 1,2
+# the run: T6 and the three cases, 1/2/4/8/12 threads, 3 rounds (1 h on a 6-core machine; resumable by -OutDir only as a new run)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set t6,three -Rounds 3 -OutDir D:\scaling
+# net48 as well (builds with -p:BenchNet48=true)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set t6 -Runtimes net10.0,net48 -Rounds 3 -OutDir D:\scaling48
+# one physical core per thread on a machine with SMT (up to 6 threads on a 6-core / 12-thread CPU)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -ThreadCounts 1,2,4,6 -Stride 2
+```
+
+Output in `-OutDir`: `runs.csv` (one row per process), `cases.csv` (best time and hash of each boolean), `phases.csv` (phase times of the fastest run of
+each boolean), `summary.csv` (sum of the best times per thread count, speedup, efficiency), `raw\*.jsonl`, `settings.json`. The exit code is 1 if
+a run failed or one boolean has two different hashes over all threads, runtimes and rounds (the drift check; the hash covers vertex ids, coordinates
+and triangles). Phase tables and the Amdahl bounds from the raw rows:
+
+```powershell
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --bound 1=D:\scaling\raw\t6_net10.0_t1_r1.jsonl,D:\scaling\raw\t6_net10.0_t1_r2.jsonl 4=D:\scaling\raw\t6_net10.0_t4_r1.jsonl 12=D:\scaling\raw\t6_net10.0_t12_r1.jsonl
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --hashes 1=...\t6_net10.0_t1_r1.jsonl 12=...\t6_net10.0_t12_r1.jsonl
+```
+
+Threads are limited by the affinity mask of the process (and `DOTNET_PROCESSOR_COUNT` on net10.0): `-Stride 1` takes logical processors 0..n-1,
+which are SMT pairs on a CPU with hyper-threading, so 2 threads there are one physical core. Times are warm (one process per thread count and round
+runs all cases after a warm-up, `profile`); one-process-per-boolean cold times are those of `compare.py`.
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
