@@ -141,6 +141,9 @@ M:System.Threading.Monitor.Exit(System.Object) ; [sites] the lock statement: as 
 // ---- sites of the restricted entries ----
 site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactInterval.op_Multiply(g3.ExactInterval,g3.ExactInterval) ; an interval bound: make() replaces a zero bound by -2^-1074 / +2^-1074 (Down / Up), so the sign of zero never survives
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.op_Multiply(g3.ExactInterval,g3.ExactInterval) ; an interval bound, zero replaced by make() as for Min
+site M:System.Math.Min(System.Double,System.Double) @ M:g3.ExactInterval.op_Division(g3.ExactInterval,g3.ExactInterval) ; an interval bound: make() replaces a zero bound by -2^-1074 / +2^-1074 (Down / Up), so the sign of zero never survives
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.op_Division(g3.ExactInterval,g3.ExactInterval) ; an interval bound, zero replaced by make() as for Min
+site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.Sqrt(g3.ExactInterval) ; Max(0, a.Lo) feeds Math.Sqrt, whose +-0 result make() replaces by -2^-1074; Max(0, r.Lo) with r.Lo from make(), never zero, so the operands never tie and the result is +0 or r.Lo on every runtime
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactInterval.Square(g3.ExactInterval) ; both operands > 0 here (a.Lo < 0 < a.Hi), no zero; the result is squared into a bound
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactRayTriangle.SecondPoint(g3.Vector3d,g3.Vector3d) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the maxima only feed comparisons and an exponent
 site M:System.Math.Max(System.Double,System.Double) @ M:g3.ExactSlopeKernel.GradientBound(System.Int32) ; operands are Math.Abs values (never -0): the same bits on both runtimes; the bound is returned

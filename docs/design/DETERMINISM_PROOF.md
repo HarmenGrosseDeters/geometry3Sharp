@@ -265,7 +265,7 @@ marked as generated stays in), and the allow list with its registrations is
 | G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line, on the symbol that carries the attribute, with the argument that every element is written before it is read |
 | G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
-**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 108 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 108 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (21 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
 
 **Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the twelve kernel files computes a
 function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
