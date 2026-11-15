@@ -272,6 +272,14 @@ def config_edit_moves_only_spans(old_text, new_text):
         return False
 
 
+def test_class(term):
+    """the test class a positive FullyQualifiedName term names: `~C.M` or `~C`, or `=Namespace.C.M` (an exact method)"""
+    if term.startswith("FullyQualifiedName="):
+        parts = term[len("FullyQualifiedName="):].split(".")
+        return parts[-2] if len(parts) >= 2 else parts[0]
+    return term.split("~")[1].split(".")[0]
+
+
 def load_configs(directory=HERE):
     """name of the config -> (config path, mutated paths, test paths)"""
     configs = {}
@@ -283,8 +291,9 @@ def load_configs(directory=HERE):
         sources = {re.sub(r"\{.*\}$", "", m).replace("**/", "") for m in config["mutate"]}
         # "FullyQualifiedName~MeshRoundingRepairTests.ExactVertices" -> the file of class MeshRoundingRepairTests;
         # "A&FullyQualifiedName!~B" narrows A: only the positive terms name test classes
-        terms = [t for alt in config["test-case-filter"].split("|") for t in alt.split("&")]
-        classes = {t.split("~")[1].split(".")[0] for t in terms if "!~" not in t}
+        # "(FullyQualifiedName=geometry3Sharp.Tests.C.M&DisplayName~row)" (coverage_select.py) -> class C
+        terms = [t.strip("()") for alt in config["test-case-filter"].split("|") for t in alt.split("&")]
+        classes = {test_class(t) for t in terms if t.startswith("FullyQualifiedName") and "!~" not in t}
         configs[name] = ("tests/mutation/" + os.path.basename(path), sources, {TESTS + c + ".cs" for c in classes})
     return configs
 

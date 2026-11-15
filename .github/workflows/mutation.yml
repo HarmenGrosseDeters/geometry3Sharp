@@ -51,6 +51,10 @@ on:
       - 'tests/geometry3Sharp.Tests/PolyhedralEnvelopeTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactMeshBoolean*Tests.cs'
       - 'tests/geometry3Sharp.Tests/ExactBoolean*Tests.cs'
+      # (the classes of the boolean parts' coverage-based sets, coverage_select.py: also names with a suffix after Tests)
+      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanTests*.cs'
+      - 'tests/geometry3Sharp.Tests/ExactMeshBooleanNaryTests*.cs'
+      - 'tests/geometry3Sharp.Tests/ExactBooleanOpenInputTests*.cs'
       - 'tests/geometry3Sharp.Tests/ExactFilterBoundTests.cs'
       - 'tests/geometry3Sharp.Tests/ExactArrangementScalingTests.cs'
       - 'tests/geometry3Sharp.Tests/BoxTreeMortonTests.cs'
