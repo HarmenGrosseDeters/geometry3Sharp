@@ -127,6 +127,39 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(b.CertificateGrownCells, s.CertificateGrownCells);
                     Assert.Equal(b.CertificateBlockCells, s.CertificateBlockCells);
                     Assert.Equal(b.UncertifiedCells.Count, s.UncertifiedCells.Count);
+                    // the contour, scaled exactly
+                    Assert.Equal(b.Result.VertexCount, s.Result.VertexCount);
+                    Assert.Equal(b.Result.TriangleCount, s.Result.TriangleCount);
+                    foreach (int v in b.Result.VertexIndices()) Assert.Equal(sim.Apply(b.Result.GetVertex(v)), s.Result.GetVertex(v));
+                }
+            }
+        }
+
+        [Fact]
+        public void Invariance_Similarities_UncertifiedCells()
+        {
+            // where growth leaves cells (one round on box51 at / 20, and a wrong contour): the same boxes and reasons, scaled
+            // exactly, at the 2^k scales
+            Matrix3d T51 = Matrix3d.AxisAngleD(Vector3d.AxisZ, 51) * Matrix3d.AxisAngleD(Vector3d.AxisX, 28.5);
+            var cases = new (DMesh3, int, int, double)[] {
+                (Box(new Vector3d(0.01, 0.02, 0.03), new Vector3d(0.6, 0.4, 0.3), T51), 20, 1, 0),
+                (Torus(new Vector3d(0.0123, 0.0217, 0.0311), 0.6, 0.015, 96, 8, Tilt), 0, 2, 0.06),
+            };
+            foreach (var (m, res, rounds, cell) in cases) {
+                MeshWindingNumberSolidify b = Solidify(m, res, rounds, cell, cell > 0 ? 0 : 2);
+                Assert.NotEmpty(b.UncertifiedCells);
+                foreach (Similarity sim in Similarity.All()) {
+                    if (!sim.IsExact) continue;
+                    DMesh3 mm = new DMesh3(m);
+                    MeshTransforms.PerVertexTransform(mm, sim.Apply);
+                    MeshWindingNumberSolidify s = Solidify(mm, res, rounds, cell * sim.Scale, cell > 0 ? 0 : 2);
+                    Assert.Equal(b.TopologyCertificateStatus, s.TopologyCertificateStatus);
+                    Assert.Equal(b.UncertifiedCells.Count, s.UncertifiedCells.Count);
+                    for (int i = 0; i < b.UncertifiedCells.Count; ++i) {
+                        Assert.Equal(b.UncertifiedCells[i].Reason, s.UncertifiedCells[i].Reason);
+                        Assert.Equal(sim.Apply(b.UncertifiedCells[i].Box.Min), s.UncertifiedCells[i].Box.Min);
+                        Assert.Equal(sim.Apply(b.UncertifiedCells[i].Box.Max), s.UncertifiedCells[i].Box.Max);
+                    }
                 }
             }
         }
@@ -166,6 +199,10 @@ namespace geometry3Sharp.Tests
                         Assert.Equal(reference.CertificateBlocksGrown, s.CertificateBlocksGrown);
                         Assert.Equal(reference.CertificateGrownCells, s.CertificateGrownCells);
                         Assert.Equal(reference.UncertifiedCells.Count, s.UncertifiedCells.Count);
+                        Assert.Equal(reference.CertificateClustersTakenIn, s.CertificateClustersTakenIn);
+                        Assert.Equal(reference.CertificateBlocksTakenIn, s.CertificateBlocksTakenIn);
+                        Assert.Equal(reference.Result.TriangleCount, s.Result.TriangleCount);
+                        foreach (int v in reference.Result.VertexIndices()) Assert.Equal(reference.Result.GetVertex(v), s.Result.GetVertex(v));
                     }
             }
         }

@@ -427,7 +427,7 @@ namespace gs
                 foreach (int ci in failed)
                     if (!blockOf.ContainsKey(clusters[ci][0]) || !blockAlive[blockOf[clusters[ci][0]]])
                         CertificateBlockLeft[why[ci]] += clusters[ci].Count;
-                if (CheckBlocksForTests) check_blocks(blocks, blockAlive, clusters, d);
+                if (CheckBlocksForTests) check_blocks(blocks, blockAlive, clusters, d, tested, grid, sz);
             }
             var left = new List<int>(refused.Count);
             foreach (int i in refused) if (!certified.Contains(i)) left.Add(i);
@@ -436,13 +436,13 @@ namespace gs
 
         /// <summary>
         /// (tests) check what Theorem 6 asks of the blocks certified (with growth): pairwise disjoint, every cluster wholly in
-        /// one of them or in none, and on every face on a block the cell inside or the cell outside is not refused; a
-        /// violation throws. BlocksChecked counts the blocks checked.
+        /// one of them or in none, on every face on a block the cell inside or the cell outside is not refused, and every
+        /// cell of a block that the stage-1 tests did not see has equal node signs; a violation throws. BlocksChecked counts the blocks checked.
         /// </summary>
         [ThreadStatic] internal static bool CheckBlocksForTests;
         [ThreadStatic] internal static int BlocksChecked;
         static void check_blocks(List<HashSet<Vector3i>> blocks, List<bool> alive, List<List<Vector3i>> clusters,
-            Dictionary<Vector3i, int> refusedCells)
+            Dictionary<Vector3i, int> refusedCells, HashSet<(Vector3i, int)> tested, CertificateGrid grid, int sz)
         {
             var owner = new Dictionary<Vector3i, int>();
             for (int bk = 0; bk < blocks.Count; ++bk) {
@@ -451,6 +451,9 @@ namespace gs
                 foreach (Vector3i c in blocks[bk]) {
                     if (owner.ContainsKey(c)) throw new InvalidOperationException("blocks overlap at " + c);
                     owner[c] = bk;
+                    // a cell the stage-1 tests did not see is met by neither L nor the contour
+                    if (!refusedCells.ContainsKey(c) && !tested.Contains((sz * c, sz)) && !uniform_signs(grid, sz * c, sz))
+                        throw new InvalidOperationException("an untested cell with a sign change in a block at " + c);
                 }
                 foreach (Vector3i c in blocks[bk])
                     for (int a = 0; a < 3; ++a)
