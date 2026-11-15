@@ -1,6 +1,6 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **study and proofs; nothing built here.** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+Status: **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
 item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
 1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. No library code changed; the measurement is
@@ -299,6 +299,9 @@ no minimum count; what is left at the limit is reported. This subsumes the hidde
 violated (E)). It needs no balanced octree: the lemma is stated on the two-level grid B's face vertices already
 handle.
 
+Stage 2 spike (2026-11-15, section 4.8): this refinement does **not** certify most refused cells; the stop rule
+applied and stage 2 was not built.
+
 ### 4.6 Tests and oracles
 
 - Truth by construction (the shapes of section 2.1) and the exact truth of clean meshes (2.2): the certificate must
@@ -322,16 +325,74 @@ handle.
 - Class W: the Biot-Savart bound over the defect edges per cell near them; nothing for clean regions.
 - No cost when the option is off; results are unchanged where nothing is refined.
 
+### 4.8 Stage 2 spike: refinement driven by the certificate (2026-11-15, stopped)
+
+Prototype (archive branch `claude/contouring-cert-stage2-spike`, commit d69cb8d, not for merge): after the existing
+hidden-gap and non-manifold rounds of `WindingContouring.contour_local`, the coarse cells of the uncertified cells join
+the refined region (with `RefineMargin`); where an uncertified cell is already refined, the region goes one level
+deeper; repeated until certified, up to refine level k (factor 2^k), at most 6 rounds; on the global path (region
+above `MaxLocalFraction`) the cell size is halved while uncertified. Measured with `benchmarks/ContouringCertificate`
+`refine` on the stage-1 set (clean T1 meshes and CAD solids, `MeshWindingNumberSolidify` adaptive, cleanup and reduction
+off) and on the feature-width families of section 2.1 meshed by marching cubes (clean meshes, so the exact truth is
+known). "Left": coarse cells refused by stage 1 that still hold an uncertified cell; "new": coarse cells uncertified
+after the refinement that stage 1 did not refuse. Contour ms summed over the inputs, one run, 4 cores.
+
+| set | cell | refused coarse cells (k = 0) | k = 1 left / new | k = 2 left / new | k = 3 left / new | certified runs k = 0, 1, 2, 3 | wrong results k = 0, 1, 2, 3 | contour ms k = 0, 1, 2, 3 |
+|---|---|---|---|---|---|---|---|---|
+| CAD solids (6) | / 64 | 44 | 44 / 0 | 44 / 0 | 22 / 0 | 5, 5, 5, 5 | 0, 0, 0, 0 | 1148, 1257, 1050, 1517 |
+| CAD solids (6) | / 128 | 0 | - | - | - | 6, 6, 6, 6 | 0, 0, 0, 0 | 3115, 2753, 2910, 2966 |
+| T1 clean (14) | / 64 | 1269 | 913 / 152 | 812 / 294 | 788 / 441 | 2, 3, 5, 5 | 2, 3, 3, 3 | 3933, 7575, 16153, 45278 |
+| T1 clean (14) | / 128 | 2322 | 1343 / 285 | 1172 / 617 | 1093 / 989 | 4, 5, 5, 6 | 3, 2, 2, 2 | 8055, 23598, 45812, 119272 |
+
+- **Most refused cells stay refused.** On the clean T1 meshes at / 128, three levels certify 53 % of the refused coarse
+  cells and cost 15 times the contouring, and 989 coarse cells become uncertified that were not before: the
+  uncertified coarse cells go from 2322 to 2082 (/ 64: from 1269 to 1229). Certified runs go from 4 to 6 of 14.
+- What refinement does certify: thin features (43551, 1582399 and 57714 at / 64, 64983 and 109459 at / 128 are certified
+  after 1-3 levels; the gap of 0.5 cells below after one).
+- **Why the rest cannot be certified by refinement: silhouette edges.** Where the two triangles of a mesh edge have
+  normals with components of opposite sign along a grid axis, the axis lines close to the edge enter one triangle and
+  leave the other, with the two crossings at a distance proportional to the line's distance from the edge. Every grid
+  edge on such a line within about one cell of the edge holds both crossings, violating (E); refinement splits those
+  edges, but the finer grid has new lines closer to the edge. The fine uncertified cells double with each level
+  (94664 at / 128: 225, 284, 818, 1698; 116871 at / 64: 483, 932, 2147, 4317), so in coarse cells the refused band along
+  the silhouettes stays. Measured at k = 3 (/ 128): of the uncertified cells, 94 % (94664), 82 % (104640) and 100 % (73088)
+  meet a silhouette edge, against 11 %, 42 % and 28 % of cubes of the same size at random points of the surface. The
+  CAD solids are mostly axis-aligned, so they have few silhouette edges along a grid axis, which is why they are certified.
+  A PL surface has silhouette edges for every axis direction unless its faces are parallel to the axes; for a smooth
+  level set (class S) the same happens at a constant number of cells per tangency, the case section 1 lists as the
+  known non-termination of subdivision methods.
+- Refinement does fix wrong topology without certifying it: on the implicit families (torus, tunnel, gap, rod, shell; k =
+  0.5, 1, 2 cells; seed 0; / 48) the 5 wrong results (tunnel 0.5 and 1, gap 0.5, rod 0.5 and 1) are right after at most 2
+  levels, but only gap 0.5 and shell 2 become certified (4 of 15 certified at k = 3, against 2 at k = 0); 98 % (1203 of 1232) of the
+  remaining uncertified cells meet a silhouette edge. It is not monotone either: 472011 at / 64 is right unrefined and
+  wrong at k = 1, 2, 3 (genus 1, 8, 4 for 0), and 116871 gets further from its truth (3 components, at / 128 7, 10, 21);
+  all of these stay reported, so the certificate is never wrong.
+- Cost: the clean T1 contouring at / 128 takes 2.9, 5.7 and 14.8 times as long for k = 1, 2, 3 (the two-level grid
+  refines the whole region by the deepest level any of its cells needs).
+
+How others solve it: subdivision methods refine at tangencies without end (Snyder; Plantinga & Vegter; the termination
+analyses of Burr et al., section 1); Lin, Yap and Yu (*Non-local isotopic approximation of nonsingular surfaces*, CAD
+45(2), 2013, abstract and the NYU preprint) stop earlier by a non-local isotopy argument and note that local
+construction rules are then no longer sufficient; Varadhan et al. 2004 refine "complex" cells (an edge crossed more than
+once) for polyhedral inputs, with no termination statement found. This is stage 5 of section 5.
+
+What would certify these cells is not more refinement but a weaker edge condition: a lemma that a grid edge crossed
+twice by L close to one silhouette mesh edge, where the contour sees no crossing, can be removed by an isotopy of L
+supported in the cells around that edge (a finger move off the edge) that keeps the other cells compatible, so that
+Theorem 1 applies to the moved surface. That is a new statement and needs a proof (and an independent review) before
+any code, like stage 0. With it, stage 2's refinement would be left with the thin-feature refusals, which it does
+certify.
+
 ## 5. Stages
 
 | stage | what | size | gate |
 |---|---|---|---|
 | 0 | the lemma and the mesh side written as a full proof: **done, section 7** (2026-11-13; it corrected the cell test, section 4.3); reviewed by a second session on #749, findings worked in; open: the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
 | 1 | class P, report only: `TopologyCertified` and the uncertified cells on `WindingContouring` / `MeshWindingNumberSolidify` for clean inputs; exact (E), (F), (C) by counting (section 7.4) | M (tier L rules: exact code) | never true on a wrong result (sections 2.1, 2.2 and a fuzz run); certified share and time reported; a spike first measures the check time against the DC phases |
-| 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
+| 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule. **Spike 2026-11-15: stopped** (section 4.8): it certifies the thin features, not the double crossings at silhouette edges, which are most refused cells; needs the edge lemma of section 4.8 first | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
 | 3 | class S: the interval interface, the built-in shapes and operators, the certificate in `DualContouring` (dense and two-level) | M | the families of 2.1 certified from 2 cells on; the gyroid gets a certified reference |
 | 4 | class W: defect edges, the gradient bound, "topology changed only near the defects" | M-L, research | decided after stage 2 on the 6 inputs that are not clean and the 800 run's solidify fallbacks |
-| 5 | optional: the non-local relaxation of Plantinga-Vegter / Lin-Yap (fewer refinements at tangencies) | M | only if stage 2 / 3 show refinement chains that matter |
+| 5 | optional: the non-local relaxation of Plantinga-Vegter / Lin-Yap (fewer refinements at tangencies) | M | only if stage 2 / 3 show refinement chains that matter: stage 2's spike shows them (section 4.8, the silhouette edges) |
 
 Stages 0-2 make `WindingContouring` a certified path for clean inputs (the alpha wrap's sharp-feature variant and
 the repair of meshes whose defects are elsewhere); stage 3 serves TPMS and implicit inputs; stage 4 is the repair
