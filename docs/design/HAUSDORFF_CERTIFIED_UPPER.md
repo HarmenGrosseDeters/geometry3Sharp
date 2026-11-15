@@ -311,7 +311,16 @@ of the coordinates of the distance to the triangle. It does not cancel. Three ch
   distance (≈1e-16 here: the exact distance is 0). The gap then ended up to that much above `tol`.
   - When that difference, slack = max(Lower, prune) − max(CertifiedLower, the first direction's CertifiedLower), is at
     most tol/2, the triangles above max(Lower, prune) + tol − slack are refined further.
+  - The pass is capped at the first pass's subdivisions (at least one batch) and never changes `Converged` (review). Where
+    it stops early, `Compute` decides from the reported gap.
   - Pruning is unchanged.
+- **Refinement stops at a stuck triangle's bound** (review): target = max(goal, stuck). `Upper` ≥ stuck anyway, so
+  refining below it cannot lower `Upper`, and `Converged` is false then (stuck > goal). Without this, a tolerance near
+  the rounding of the certified bounds on touching meshes (1e-15 at coordinates of 1) refined to `MaxSubdivisions`.
+  Before #873 the 1e-9 floor stopped such runs early.
+- **`Compute` checks the reported gap unconditionally:** `Converged` is false where UpperBound − LowerBound > tol.
+  Before, this was only where the certified lower bound was below the computed one. This is what the doc of `Converged`
+  states.
 
 **Soundness: no new error bound.**
 - **The certified path (`CertifiedUpper`).** Its bounds are B1–B6 as before, evaluated at whatever points, triangles
@@ -357,7 +366,15 @@ of the coordinates of the distance to the triangle. It does not cancel. Three ch
   - the tree search against brute force;
   - an empty filter;
   - the cascade across an edge with `PointDistance`.
-- **Mutation.** 10 mutants of the change, all killed: the old nearest pick; d by the form; `PointDistance` off;
+- **Mutation.** The review fixes added 4 more mutants:
+  - **Killed:** the stuck stop dropped (`UlpTolerance_StaysBounded`, CertifiedUpper: 100k subdivisions).
+  - **Surviving, equivalent on the tested inputs:**
+    - the second pass's cap removed;
+    - the second pass setting `Converged` on its cap. Both are guards: the cap is not reached where the pass can close the
+      gap.
+    - the stuck test of `finish` against the target: equivalent through the unconditional gap check of `Compute`.
+
+  The first 10 mutants of the change, all killed: the old nearest pick; d by the form; `PointDistance` off;
   `point_distance` by the form; no second pass; no slack in it; the first direction's certified bound replaced by its
   computed one; the tree keeping the first triangle; no box descent; the tol/2 cut set to 0.
 

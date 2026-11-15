@@ -203,9 +203,10 @@ namespace gs
             // distance may be below the meshes' (scaled) by less than 2^-1072; every certified triangle bound is at least 2^-537 and
             // ends with a rounding up, at least about 2^-590 above its exact value, which covers it; HAUSDORFF_CERTIFIED_UPPER.md
             // section 8)
-            // where the certified lower bound is below the computed one (a rounded point off the triangles, #738), the gap to the upper
-            // bound may exceed the tolerance
-            if (lower < computed && !(upper - lower <= tol))
+            // the reported gap decides (the directions stop on their computed Lower, or at a stuck triangle's bound, or capped in the
+            // second pass; where the certified lower bound is below the computed one, a rounded point off the triangles (#738) or a
+            // distance of about 1e-16 where the exact one is 0 (#873), the gap to the upper bound may exceed the tolerance)
+            if (!(upper - lower <= tol))
                 Converged = false;
             // back to the meshes' scale (exact; an unresolved bound, double.MaxValue, stays MaxValue). A distance beyond MaxValue
             // (meshes near opposite ends of the double range) has no bounds in doubles: refused, the outputs NaN
@@ -432,9 +433,13 @@ namespace gs
             // owner.Subdivisions when this direction started
             int startSubdivisions;
 
-            // the refinement stops where every triangle's bound is within the tolerance (less slack) of max(Lower, prune)
+            // the refinement stops where every triangle's bound is within the tolerance (less slack) of max(Lower, prune), or not above
+            // stuck: Upper is at least stuck anyway, so refining below it cannot lower Upper (and Converged is false then, finish).
+            // Without it a tolerance near the rounding of the certified bounds on touching meshes (eg 1e-15 at coordinates of 1, where
+            // the distances are about 1e-16 since #873) refined to MaxSubdivisions with the gap held open by a stuck triangle
             double slack = 0;
-            double target() { return threshold() + tol - slack; }
+            double goal() { return threshold() + tol - slack; }
+            double target() { return Math.Max(goal(), stuck); }
 
             // refine until every bound is within target(), or until owner.Subdivisions reaches stop (or CancelF); then Converged is set
             // false if setConverged
@@ -495,7 +500,7 @@ namespace gs
 
             void finish(DeviationMaxHeap<Index3i> heap)
             {
-                if (stuck > target())
+                if (stuck > goal())
                     Converged = false;
                 // dropped triangles were below max(Lower, prune), so for the pruned (second) direction this is
                 // only an upper bound where it is above prune, which is all the symmetric distance needs

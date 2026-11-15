@@ -78,6 +78,26 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        /// <summary> the contract Converged => UpperBound - LowerBound <= Tolerance, at tolerances down to below the subdivision
+        /// points' rounding (where triangles get stuck with their bounds), on parallel grids, whose computed and certified lower
+        /// bounds agree (2^-33, exact), so Compute's own gap check does not cover a wrong Converged of a direction </summary>
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public void ParallelGrids_ConvergedOnlyWithinTheTolerance(bool cert)
+        {
+            const double exact = 1.0 / (1L << 33);
+            DMesh3 a = Grid(4, 0.2, 18), b = Grid(5, 0.3, 19, exact);
+            int converged = 0, open = 0;
+            foreach (bool sym in new[] { true, false })
+                foreach (double tol in new[] { 1e-17, 1e-16, 4e-16, 1e-15, 1e-14 }) {
+                    var h = Run(a, b, tol, cert, sym);
+                    Assert.True(h.LowerBound <= exact && exact <= h.UpperBound, $"{sym} {tol}: [{h.LowerBound:R}, {h.UpperBound:R}]");
+                    if (h.Converged) { converged++; Assert.True(h.UpperBound - h.LowerBound <= tol, $"{sym} {tol}: [{h.LowerBound:R}, {h.UpperBound:R}]"); }
+                    else open++;
+                }
+            Assert.True(converged > 0 && open > 0, $"{converged} converged, {open} not");
+        }
+
         /// <summary> under every similarity: bit for bit at the exact ones (2^k scales); otherwise the vertices round off the plane by
         /// about a resolution, and the result converges within a tolerance of a few resolutions </summary>
         [Theory]
@@ -159,21 +179,24 @@ namespace geometry3Sharp.Tests
             Assert.True(CertifiedPointMeshDistance.AtLeastDistance(h.WorstPointOnB ? a : b, h.WorstPoint, h.UpperBound + 1e-15));
         }
 
-        /// <summary> a tolerance of a few ulps, below the rounding of the distances of points on the other mesh (about 1.1e-16 at
-        /// coordinates of 1): the run stays bounded (the second refinement pass, against the certified lower bound, is capped by the
-        /// first) and the interval holds, converged or not </summary>
+        /// <summary> tolerances of a few ulps, near the rounding of the distances of points on the other mesh (about 1.1e-16 at
+        /// coordinates of 1) and of the subdivision points: the run stays bounded (refinement stops at a stuck triangle's bound, which
+        /// Upper keeps anyway; the second pass, against the certified lower bound, is capped by the first) and the interval holds,
+        /// converged or not </summary>
         [Theory]
         [InlineData(false)] [InlineData(true)]
         public void UlpTolerance_StaysBounded(bool cert)
         {
             DMesh3 a = Grid(4, 0.2, 16), b = Grid(5, 0.3, 17);
             var coarse = Run(a, b, 1e-12, cert);
-            foreach (double tol in new[] { 1e-16, 2e-16, 4e-16 }) {
+            foreach (double tol in new[] { 1e-16, 4e-16, 1e-15, 2e-15, 4e-15, 1e-14, 1e-13 }) {
                 var h = Run(a, b, tol, cert);
                 Assert.Equal(0, h.LowerBound);
-                Assert.True(h.UpperBound >= 0 && h.UpperBound <= 1e-12, $"{tol}: {h.UpperBound:R}");
                 Assert.True(h.Subdivisions <= 8 * coarse.Subdivisions + 2048, $"{tol}: {h.Subdivisions} vs {coarse.Subdivisions}");
+                Assert.True(h.UpperBound >= 0 && h.UpperBound < 1, $"{tol}: {h.UpperBound:R}");
                 if (h.Converged) Assert.True(h.UpperBound - h.LowerBound <= tol);
+                // (from about 20 ulps the subdivision points' rounding no longer holds it open)
+                if (tol >= 4e-15) Assert.True(h.Converged && h.UpperBound <= tol, $"{tol}: [{h.LowerBound:R}, {h.UpperBound:R}]");
             }
         }
     }
