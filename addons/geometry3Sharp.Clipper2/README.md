@@ -23,8 +23,8 @@ if (!free.Ok)
 - Precision: each call maps its inputs to an integer grid fitted to their bounds (`ClipperFrame`; origin at the
   bounds center, power-of-two scale, 2^40 grid units across the half extent plus the offset margin by default).
   Vertices are snapped or rounded to that grid (spacing about 1e-12 times the extent). The grid is never finer than the
-  doubles of the coordinates: with half extent plus margin at most 2^e and the largest |coordinate| plus half extent at
-  most 2^E, the effective resolution is max(2^(e - PrecisionBits), 2^(E - 53)), so about max(extent * 2^-40,
+  doubles of the coordinates: with half extent plus margin at most 2^e and the larger |coordinate| of the bounds center
+  plus half extent plus margin below 2^E, the effective resolution is max(2^(e - PrecisionBits), 2^(E - 53)), so about max(extent * 2^-40,
   |coordinate| * 2^-53) by default. The second term acts only beyond about 8192 times the extent from zero (a 2 m design
   at UTM coordinates: 2^-30 m, about 1 nm, instead of 2^-40 m); there the result vertices are grid points exactly. The
   documented tolerance (half the resolution per coordinate, plus the rounding of the bounds center) holds with this

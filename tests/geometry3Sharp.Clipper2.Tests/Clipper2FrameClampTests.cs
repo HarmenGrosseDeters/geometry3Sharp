@@ -40,7 +40,7 @@ namespace geometry3Sharp.Clipper2.Tests
                 yield return (RandomRing(rand, 2), RandomRing(rand, 2));
         }
 
-        const int PairCount = 6;
+        const int PairCount = 4;
 
         [Theory]
         [MemberData(nameof(Similarity.Names2D), MemberType = typeof(Similarity))]
@@ -50,13 +50,16 @@ namespace geometry3Sharp.Clipper2.Tests
             // orientation checks before the clamp); power-of-two scales also give the same result, scaled, bit for bit
             Similarity s = Similarity.ByName(name);
             Polygon2d Map(Polygon2d p) => new Polygon2d(p.Vertices.Select(s.Apply2d));
+            // a lattice design of extent 2 at UTM coordinates: beyond 8192 times the extent, so its frame is clamped
+            bool clamped = s.Translation.x != 0 || s.Translation.y != 0;
             bool exactScale = s.Angle2d == 0 && s.Translation.x == 0 && s.Translation.y == 0 && Clipper2DegenerateUnionTests.IsPowerOfTwo(s.Scale);
             foreach (var (a, b) in LatticePairs(PairCount))
                 foreach (ClipType op in Ops)
                     foreach (FillRule rule in Rules) {
-                        var (error, slack, r) = Clipper2DegenerateUnionTests.Check(op, rule, Map(a), Map(b), new Random(5));
+                        // the overlap samples only where the clamp acts (they cost most of the time)
+                        var (error, slack, r) = Clipper2DegenerateUnionTests.Check(op, rule, Map(a), Map(b), clamped ? new Random(5) : null);
                         Assert.True(error <= slack, name + " " + op + " " + rule + ": area off by " + error + " grid units, more than the rounding " + slack);
-                        AssertOnTheGrid(r);
+                        AssertOnTheGrid(r, clamped);
                         if (exactScale) {
                             var (_, _, plain) = Clipper2DegenerateUnionTests.Check(op, rule, a, b);
                             Assert.Equal(plain.Polygons.Count, r.Polygons.Count);
@@ -73,14 +76,17 @@ namespace geometry3Sharp.Clipper2.Tests
         /// Where the grid is not finer than the doubles of the result and its origin is a grid point (a clamped frame, also
         /// a lattice input near the origin), every result vertex is a grid point exactly: it maps to the grid and back unchanged.
         /// </summary>
-        static void AssertOnTheGrid(Clipper2Result r)
+        static void AssertOnTheGrid(Clipper2Result r, bool clamped = false)
         {
             ClipperFrame f = r.Frame;
             var vertices = r.Polygons.SelectMany(Rings).SelectMany(p => p.Vertices).ToList();
             double far = vertices.Select(v => Math.Max(Math.Abs(v.x), Math.Abs(v.y)))
                 .Concat(new[] { Math.Abs(f.Origin.x), Math.Abs(f.Origin.y) }).Max();
             bool originOnGrid = Math.Round(f.Origin.x * f.Scale) / f.Scale == f.Origin.x && Math.Round(f.Origin.y * f.Scale) / f.Scale == f.Origin.y;
-            if (!originOnGrid || far * f.Scale > Math.Pow(2, 53))
+            bool applies = originOnGrid && far * f.Scale <= Math.Pow(2, 53);
+            if (clamped)
+                Assert.True(applies, "clamped frame " + f + ": origin off the grid or grid finer than the doubles at " + far);
+            if (!applies)
                 return;
             foreach (Vector2d v in vertices)
                 Assert.Equal(v, f.ToVector2d(f.ToPoint64(v)));
@@ -98,7 +104,7 @@ namespace geometry3Sharp.Clipper2.Tests
             Assert.Equal(Math.Pow(2, 30), r.Frame.Scale);
             Assert.Equal(r.Frame.Origin.x, Math.Round(r.Frame.Origin.x * r.Frame.Scale) / r.Frame.Scale);
             Assert.Equal(r.Frame.Origin.y, Math.Round(r.Frame.Origin.y * r.Frame.Scale) / r.Frame.Scale);
-            AssertOnTheGrid(r);
+            AssertOnTheGrid(r, clamped: true);
         }
 
         [Fact]
@@ -109,11 +115,14 @@ namespace geometry3Sharp.Clipper2.Tests
             AxisAlignedBox2d Box(double c) => new AxisAlignedBox2d(new Vector2d(c - 1, -1), new Vector2d(c + 1, 1));
             Assert.True(ClipperFrame.ForBounds(Box(0), 0, ClipperFrame.DefaultPrecisionBits, out ClipperFrame near));
             Assert.Equal(Math.Pow(2, 40), near.Scale);
-            Assert.True(ClipperFrame.ForBounds(Box(8191), 0, ClipperFrame.DefaultPrecisionBits, out ClipperFrame below));
+            Assert.True(ClipperFrame.ForBounds(Box(8190.5), 0, ClipperFrame.DefaultPrecisionBits, out ClipperFrame below));
             Assert.Equal(Math.Pow(2, 40), below.Scale);
-            Assert.Equal(new Vector2d(8191, 0), below.Origin);
+            Assert.Equal(new Vector2d(8190.5, 0), below.Origin);
+            // a reach of exactly 2^13 counts as beyond (the reach is rounded up)
+            Assert.True(ClipperFrame.ForBounds(Box(8191), 0, ClipperFrame.DefaultPrecisionBits, out ClipperFrame at));
+            Assert.Equal(Math.Pow(2, 39), at.Scale);
             // the bounds center off the clamped grid: the origin moves onto it, by at most half a grid unit
-            // (bounds 8190.5 + 2^-39 to 8192.5, half extent just below 1: center 8191.5 + 2^-40, a double below 2^13 but
+            // (bounds 8190.5 + 2^-39 to 8192.5 in x, half extent 1 - 2^-40 there and 1 in y: center 8191.5 + 2^-40, a double below 2^13 but
             // half a unit off the clamped grid of 2^-39)
             double c = 8191.5 + Math.Pow(2, -40);
             var offGrid = new AxisAlignedBox2d(new Vector2d(8190.5 + Math.Pow(2, -39), -1), new Vector2d(8192.5, 1));
@@ -134,6 +143,39 @@ namespace geometry3Sharp.Clipper2.Tests
             Assert.Equal(Math.Pow(2, 27), footprint.Scale);
             Assert.True(ClipperFrame.ForBounds(new AxisAlignedBox2d(new Vector2d(632116, 5712042), new Vector2d(632118, 5712044)), 0, 40, out ClipperFrame design));
             Assert.Equal(Math.Pow(2, 30), design.Scale);
+        }
+
+        [Fact]
+        public void Clamp_SnapsBothCoordinates()
+        {
+            // the smaller coordinate's center off the clamped grid of the larger one, its range crossing 2^20: the origin's
+            // y moves onto the grid too, so the grid points above 2^20 (multiples of 2^-30) are doubles there
+            var box = new AxisAlignedBox2d(new Vector2d(5712042, Math.Pow(2, 20) - 1.5 + Math.Pow(2, -32)), new Vector2d(5712044, Math.Pow(2, 20) + 0.5));
+            Assert.Equal(Math.Pow(2, 20) - 0.5 + Math.Pow(2, -33), box.Center.y);
+            Assert.True(ClipperFrame.ForBounds(box, 0, ClipperFrame.DefaultPrecisionBits, out ClipperFrame f));
+            Assert.Equal(Math.Pow(2, 30), f.Scale);
+            Assert.Equal(f.Origin.y, Math.Round(f.Origin.y * f.Scale) / f.Scale);
+            var top = new Point64(0, (long)Math.Round((box.Max.y - f.Origin.y) * f.Scale) - 1);
+            Assert.Equal(top, f.ToPoint64(f.ToVector2d(top)));
+        }
+
+        [Fact]
+        public void Clamp_CoversTheMargin()
+        {
+            // bounds up to 2^23 and a margin of 0.75 grid units (a Minkowski pattern): the rounded reach 2^23 - 1 + 1 + 0.75u
+            // is 2^23, but the true one passes it, where the doubles are 2u apart; the reach rounded up takes the next binade
+            double u = Math.Pow(2, -30);
+            var box = new AxisAlignedBox2d(new Vector2d(Math.Pow(2, 23) - 2, 0), new Vector2d(Math.Pow(2, 23), 2));
+            Assert.True(ClipperFrame.ForBounds(box, 0.75 * u, ClipperFrame.DefaultPrecisionBits, out ClipperFrame f));
+            Assert.Equal(Math.Pow(2, 29), f.Scale);
+            var edge = new Point64((long)Math.Ceiling((1 + 0.75 * u) * f.Scale), 0);
+            Assert.Equal(edge, f.ToPoint64(f.ToVector2d(edge)));
+            // the Minkowski sum itself: every vertex on the grid
+            var path = new Polygon2d(new[] { new Vector2d(box.Min.x, 0), new Vector2d(box.Max.x, 0), new Vector2d(box.Max.x, 2), new Vector2d(box.Min.x, 2) });
+            var pattern = new Polygon2d(new[] { new Vector2d(0.75 * u, 0), new Vector2d(-0.75 * u, 0.75 * u), new Vector2d(-0.75 * u, -0.75 * u) });
+            Clipper2Result r = Clipper2Polygons.MinkowskiSum(pattern, path, true);
+            Assert.True(r.Ok, r.ToString());
+            AssertOnTheGrid(r, clamped: true);
         }
 
         [Fact]

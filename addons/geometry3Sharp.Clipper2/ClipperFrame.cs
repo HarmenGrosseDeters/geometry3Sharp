@@ -21,9 +21,9 @@ namespace g3.Clipper2
     /// so the results are the same, scaled, bit for bit. Translated inputs give the same integers up to the rounding of
     /// the subtraction. With the default of 40 bits the grid spacing is the input extent times 2^-40 (about 1e-12):
     /// 5 nm for a 10 km footprint at UTM coordinates. The grid is never finer than the doubles of the coordinates: with
-    /// half extent (plus margin) at most 2^e and |coordinate| + half extent at most 2^E, Resolution = max(2^(e - bits),
-    /// 2^(E - 53)). The second term acts only for coordinates more than about 2^(53 - bits) times the extent from zero (8192
-    /// at 40 bits, eg a millimetre design at UTM coordinates: 2^-30, about 1 nm); then the Origin is a grid point and every
+    /// half extent + margin at most 2^e and |Origin| (the larger coordinate of the bounds center) + half extent + margin
+    /// below 2^E, Resolution = max(2^(e - bits), 2^(E - 53)). The second term acts only for coordinates more than about
+    /// 2^(53 - bits) times the extent from zero (8192 at 40 bits, eg a millimetre design at UTM coordinates: 2^-30, about 1 nm); then the Origin is a grid point and every
     /// grid point is a double, so results map back to doubles exactly.
     /// </summary>
     public readonly struct ClipperFrame
@@ -67,7 +67,8 @@ namespace g3.Clipper2
         /// The frame for inputs within bounds, with room for a margin around them (offset distance, Minkowski pattern
         /// size): Origin = bounds center, Scale = the largest power of two with (half extent + margin) * Scale &lt;= 2^bits.
         /// False if the bounds are empty or not finite, if a coordinate plus the extent (and margin) exceeds the double
-        /// range, or if the scale is outside the double range (extents below about 1e-290).
+        /// range, or if the scale is outside the double range (extents below about 1e-290 near zero; far from zero the grid
+        /// is clamped to the doubles there, see the summary of the struct).
         /// </summary>
         public static bool ForBounds(AxisAlignedBox2d bounds, double margin, int precisionBits, out ClipperFrame frame)
         {
@@ -95,11 +96,13 @@ namespace g3.Clipper2
             // integer result come out as rings of zero or reversed orientation (eg a millimetre design at UTM
             // coordinates). The clamp only acts if the coordinates exceed the extent by about 2^(53 - precisionBits)
             // (8192 at the default 40 bits); then the origin moves onto the grid (at most half a grid unit).
-            int top = CeilExponent(Math.Max(Math.Abs(origin.x), Math.Abs(origin.y)) + extent);
+            // reach = |Origin| + half extent + margin, rounded up: the rounded sum can lie below a power of two that the
+            // true reach (eg of a Minkowski pattern) passes, where the doubles are twice as far apart
+            int top = CeilExponent(NextUp(Math.Max(Math.Abs(origin.x), Math.Abs(origin.y)) + extent));
             double coarsest = PowerOfTwo(53 - top);
             if (coarsest < scale) {
                 scale = coarsest;   // >= 2^-971: coordinates are below 2^1024
-                // The clamp acts only for extent < 2^(top - 3) (at most 50 bits), so the larger origin coordinate lies in
+                // The clamp acts only for extent <= 2^(top - 4) (at most 50 bits), so the larger origin coordinate lies in
                 // [2^(top-1), 2^top), where every double is a grid point already, or just below 2^(top-1), where the move
                 // (at most half a grid unit) keeps it and the extent below 2^top: the coordinates stay where the grid points are doubles.
                 origin = new Vector2d(Math.Round(origin.x * scale) / scale, Math.Round(origin.y * scale) / scale);
@@ -394,6 +397,12 @@ namespace g3.Clipper2
         }
 
         /// <summary> 2^n for -1022 &lt;= n &lt;= 1023, otherwise 0 or infinity </summary>
+        /// <summary> the next double above a positive finite x (Math.BitIncrement is not in netstandard2.0) </summary>
+        internal static double NextUp(double x)
+        {
+            return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1);
+        }
+
         internal static double PowerOfTwo(int n)
         {
             if (n > 1023) return double.PositiveInfinity;
