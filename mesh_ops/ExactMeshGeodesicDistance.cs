@@ -28,7 +28,7 @@ namespace g3
     /// </summary>
     internal sealed class ExactMeshGeodesicDistance
     {
-        public enum Result { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, PositionTooWide }
+        public enum Result { NotComputed, Ok, NoSource, NonManifoldInput, DegenerateTriangles, WindowLimit, PositionTooWide, LowerBoundMissing }
 
         public readonly DMesh3 Mesh;
         /// <summary> limit on the windows created; passing it ends Compute with WindowLimit (never with a wrong bound). The count
@@ -172,9 +172,10 @@ namespace g3
 
         // the corner angle at p between u = a - p and w = b - p, enclosed: atan2(|u x w|, u . w) by CoreMath.Atan2 at the
         // corners of the argument box (the box lies in y > 0, so its directions form an arc whose ends are corners), widened
-        // by two spacings on each side. CoreMath.Atan2 is the CORE-MATH port, documented as correctly rounded (error at most
-        // half a spacing; docs/SOURCES.md, "Correctly rounded sin, cos, atan2, exp, log"); the widening by two spacings
-        // leaves a margin of 1.5 spacings beyond that bound.
+        // by two spacings on each side. An assumption, not a proof: CoreMath.Atan2 is the CORE-MATH port, and its correct
+        // rounding (error at most half a spacing) is an empirical claim backed by bit-exact tests against a BigInteger
+        // reference, random and on the hard-to-round cases (docs/SOURCES.md, "Correctly rounded sin, cos, atan2, exp, log"),
+        // not re-derived for the port. The widening by two spacings leaves a margin of 1.5 spacings beyond that claim.
         ExactInterval CornerAngle(int p, int a, int b) => CornerAngle(Mesh.GetVertex(p), Mesh.GetVertex(a), Mesh.GetVertex(b));
 
         internal static ExactInterval CornerAngle(Vector3d P, Vector3d A, Vector3d B)
@@ -205,6 +206,8 @@ namespace g3
         {
             if (Mesh.IsBoundaryVertex(v)) return 1;
             var fan = Fan(v);
+            // a walk that stopped early (or wrapped twice) does not see every corner: never certainly convex
+            if (fan.Count != Mesh.GetVtxTriangleCount(v)) return 1;
             ExactInterval sum = I(0);
             for (int i = 0; i < fan.Count; ++i) sum = sum + CornerAngle(v, fan[i], fan[(i + 1) % fan.Count]);
             // Math.PI is the double below pi, so 2 * Math.PI (an exact doubling) is below 2 pi
@@ -220,6 +223,7 @@ namespace g3
             // NaN until a successful run copies its bounds in, so a failure (or an exception) never leaves values that look valid
             Lower = new double[n]; Upper = new double[n];
             for (int v = 0; v < n; ++v) { Lower[v] = double.NaN; Upper[v] = double.NaN; }
+            Status = Result.NotComputed;        // also if run throws: never the old Ok next to NaN arrays
             Status = run(sources);
             return Status;
         }
@@ -264,6 +268,9 @@ namespace g3
                 if (key > up[v]) continue;
                 foreach (int u in Mesh.VtxVerticesItr(v)) { double c = (I(up[v]) + Len(v, u)).Hi; if (c < up[u]) { up[u] = c; pq.Enqueue(u, c); } }
             }
+            // a vertex with a path (finite Upper) but no lower bound is a gap in the propagation, not an unreachable vertex
+            for (int v = 0; v < n; ++v)
+                if (Mesh.IsVertex(v) && up[v] < double.PositiveInfinity && !(lo[v] < double.PositiveInfinity)) return Result.LowerBoundMissing;
             for (int v = 0; v < n; ++v)
                 if (Mesh.IsVertex(v) && lo[v] < double.PositiveInfinity && up[v] < double.PositiveInfinity) { Lower[v] = lo[v]; Upper[v] = up[v]; }
             return Result.Ok;
@@ -443,7 +450,8 @@ namespace g3
             if (c.O1 >= L.Lo) SetLower(b, db.Lo);
             if (c.I1 > c.I0) {
                 if (c.I0 <= 0) SetUpper(a, da.Hi);
-                if (c.I1 >= L.Hi) SetUpper(b, db.Hi);
+                // no counterpart for b: inner intervals are clipped to at most L.Lo < L.Hi, and I1 >= L.Lo would not
+                // prove that the inner part reaches b (reviewed); b's bound is the path below
                 // a real path: to the nearest inner point, then along the edge
                 SetUpper(a, (Fn(c, s, c.I0, c.I0) + I(c.I0)).Hi);
                 SetUpper(b, (Fn(c, s, c.I1, c.I1) + (L - I(c.I1))).Hi);
@@ -475,6 +483,14 @@ namespace g3
         {
             ExactInterval rx = I(t) - s.X, ry = -s.Y, ex = Q.X - P.X, ey = Q.Y - P.Y, dx = s.X - P.X, dy = s.Y - P.Y;
             return (dx * ry - dy * rx) / (ex * ry - ey * rx);
+        }
+
+        // the denominator of Mu, ex * ry - ey * rx, certainly nonzero for every source in the box s and every t in [t0, t1]
+        static bool DenominatorCertain(P2 s, double t0, double t1, P2 P, P2 Q)
+        {
+            ExactInterval rx = new ExactInterval(t0, t1) - s.X, ry = -s.Y, ex = Q.X - P.X, ey = Q.Y - P.Y;
+            ExactInterval d = ex * ry - ey * rx;
+            return d.Lo > 0 || d.Hi < 0;
         }
 
         // the window w's disk carried into the frame of the edge (pa, pb) whose ends are at the boxes PA, PB in w's frame;
@@ -534,10 +550,16 @@ namespace g3
             Index2i ev = Mesh.GetEdgeV(e); ExactInterval L2 = Len(ev.a, ev.b);
             double u0, u1, v0 = 1, v1 = 0;      // outer and inner parameters from p (inner empty if v0 > v1)
             ExactInterval m0 = Mu(s, t0, P, Q), m1 = Mu(s, t1, P, Q);
-            if (double.IsInfinity(m0.Lo) || double.IsInfinity(m0.Hi) || double.IsInfinity(m1.Lo) || double.IsInfinity(m1.Hi)) {
+            // Mu(s, t) is a ratio of two functions affine in t, so for a fixed s it is monotone in t wherever its
+            // denominator D keeps its sign; only then do the end values bound the crossings of the whole clip [t0, t1].
+            // D is evaluated with t as the interval [t0, t1] (it is affine in t: the interval encloses it over the box
+            // and the clip). Reviewed: with t1 = xc.Hi past the ray parallel to PQ the end values gave [0, ~0]
+            if (!DenominatorCertain(s, t0, t1, P, Q) ||
+                double.IsInfinity(m0.Lo) || double.IsInfinity(m0.Hi) || double.IsInfinity(m1.Lo) || double.IsInfinity(m1.Hi)) {
                 u0 = 0; u1 = L2.Hi;             // a ray parallel to the edge is possible: the whole edge, nothing certain
             } else {
-                u0 = Math.Max(0, (m0 * L2).Lo); u1 = Math.Min(L2.Hi, (m1 * L2).Hi);
+                // the hull of both ends: the crossing of every clip point lies between its two end crossings
+                u0 = Math.Max(0, (I(Math.Min(m0.Lo, m1.Lo)) * L2).Lo); u1 = Math.Min(L2.Hi, (I(Math.Max(m0.Hi, m1.Hi)) * L2).Hi);
                 if (ti1 > ti0) {
                     ExactInterval n0 = Mu(s, ti0, P, Q), n1 = Mu(s, ti1, P, Q);
                     if (!double.IsInfinity(n0.Hi) && !double.IsInfinity(n1.Lo)) { v0 = Math.Max(0, (n0 * L2).Hi); v1 = Math.Min(L2.Lo, (n1 * L2).Lo); }

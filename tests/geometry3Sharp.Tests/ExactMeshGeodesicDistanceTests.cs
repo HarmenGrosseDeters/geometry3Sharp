@@ -326,6 +326,85 @@ namespace geometry3Sharp.Tests
             Assert.Equal(fresh.Lower, g.Lower); Assert.Equal(fresh.Upper, g.Upper); Assert.Equal(fresh.Windows, g.Windows);
         }
 
+        // reviewed (2026-11-15): a source within about its disk radius of an edge line, behind a sliver next to an obtuse
+        // face. The child clip t1 = xc.Hi lies past the ray parallel to the next edge, so the end values of Mu are no
+        // bound of the crossings (Mu is not monotone over the clip): Lower[x] came out above the straight distance.
+        // The mirror covers the right child. In the plane the chord is a lower bound of the geodesic distance.
+        [Theory]
+        [InlineData(1e-7, false)] [InlineData(1e-8, false)] [InlineData(1e-10, false)] [InlineData(1e-12, false)] [InlineData(1e-14, false)]
+        [InlineData(1e-7, true)] [InlineData(1e-8, true)] [InlineData(1e-10, true)] [InlineData(1e-12, true)] [InlineData(1e-14, true)]
+        public void SourceNearAnEdgeLine_LowerStaysBelowTheChord(double h, bool mirror)
+        {
+            Func<double, double> X = x => mirror ? 1 - x : x;
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(X(0), 0, 0)), b = m.AppendVertex(new Vector3d(X(1), 0, 0));
+            int c = m.AppendVertex(new Vector3d(X(-0.43), 0.0094, 0)), v = m.AppendVertex(new Vector3d(X(0.0716), -h, 0));
+            int x = m.AppendVertex(new Vector3d(X(-0.4), 0.00766, 0));
+            foreach (var t in new[] { new Index3i(a, v, b), new Index3i(a, b, c), new Index3i(a, c, x) })
+                Assert.True(m.AppendTriangle(mirror ? new Index3i(t.a, t.c, t.b) : t) >= 0);
+            var g = Run(m, v);
+            foreach (int u in m.VertexIndices()) {
+                ExactInterval d = Dist(m.GetVertex(v), m.GetVertex(u));
+                Assert.True(g.Lower[u] <= d.Hi, $"vertex {u}: Lower {g.Lower[u]:R} above the chord {d.Hi:R}");
+                Assert.True(g.Upper[u] >= d.Lo, $"vertex {u}: Upper {g.Upper[u]:R} below the chord {d.Lo:R}");
+            }
+        }
+
+        // reviewed: an adversarial family around the finding above. Slivers of height 1e-6 to 1e-15 (or a few ulps) between
+        // an edge and an obtuse face, with the source on the far side of the sliver; x lies beyond the edge ac (no fold)
+        // and the straight segment from the source to x crosses ab and then ac inside both, so the planar chord is the
+        // geodesic distance of x (cases near the ends are skipped) and an enclosure of it bounds Lower and Upper. The old
+        // clip fails a share of the cases.
+        [Fact]
+        public void Slivers_NextToObtuseFaces_EncloseTheStraightDistance()
+        {
+            var rnd = new Random(7);
+            int asserted = 0;
+            for (int it = 0; it < 400; ++it) {
+                bool mirror = (it & 1) == 1;
+                Func<double, double> X = x => mirror ? 1 - x : x;
+                double h = (it % 3) == 0 ? (1 + rnd.Next(16)) * Math.Pow(2, -52 - rnd.Next(4)) : Math.Pow(10, -6 - 9 * rnd.NextDouble());
+                double cy = 0.002 + 0.02 * rnd.NextDouble(), cx = -0.1 - 0.6 * rnd.NextDouble();
+                double xx = cx * (0.3 + 0.7 * rnd.NextDouble()), xy = cy * xx / cx * (0.3 + 0.65 * rnd.NextDouble());
+                double vx = 0.02 + 0.9 * rnd.NextDouble();
+                // the segment v -> x crosses the line through a and c at the parameter k of a -> c
+                double dx = xx - vx, dy = xy + h, den = cx * dy - cy * dx;
+                double k = (vx * dy - (-h) * dx) / den;
+                if (!(k > 1e-6 && k < 1 - 1e-6)) continue;
+                var m = new DMesh3();
+                int a = m.AppendVertex(new Vector3d(X(0), 0, 0)), b = m.AppendVertex(new Vector3d(X(1), 0, 0));
+                int c = m.AppendVertex(new Vector3d(X(cx), cy, 0)), v = m.AppendVertex(new Vector3d(X(vx), -h, 0));
+                int x = m.AppendVertex(new Vector3d(X(xx), xy, 0));
+                foreach (var t in new[] { new Index3i(a, v, b), new Index3i(a, b, c), new Index3i(a, c, x) })
+                    Assert.True(m.AppendTriangle(mirror ? new Index3i(t.a, t.c, t.b) : t) >= 0);
+                var g = new ExactMeshGeodesicDistance(m);
+                if (g.Compute(new[] { v }) != ExactMeshGeodesicDistance.Result.Ok) continue;
+                ++asserted;
+                ExactInterval d = Dist(m.GetVertex(v), m.GetVertex(x));
+                Assert.True(g.Lower[x] <= d.Hi, $"case {it} (h {h:R}): Lower {g.Lower[x]:R} above the straight distance {d.Hi:R}");
+                Assert.True(g.Upper[x] >= d.Lo, $"case {it} (h {h:R}): Upper {g.Upper[x]:R} below the straight distance {d.Lo:R}");
+                foreach (int u in m.VertexIndices())
+                    Assert.True(g.Upper[u] >= Dist(m.GetVertex(v), m.GetVertex(u)).Lo, $"case {it}: vertex {u} Upper below the chord");
+            }
+            Assert.True(asserted > 150, $"only {asserted} of 400 cases asserted");
+        }
+
+        [Fact]
+        public void Status_IsReset_WhenComputeThrows()
+        {
+            DMesh3 m = Grid(2, 5, (x, y) => 0);
+            var g = Run(m, 12);
+            Assert.Throws<InvalidOperationException>(() => g.Compute(Throwing()));
+            Assert.Equal(ExactMeshGeodesicDistance.Result.NotComputed, g.Status);
+            Assert.True(double.IsNaN(g.Lower[12]) && double.IsNaN(g.Upper[12]));
+        }
+
+        static IEnumerable<int> Throwing()
+        {
+            yield return 12;
+            throw new InvalidOperationException("source enumeration fails");
+        }
+
         [Fact]
         public void ForcedCompaction_OfDeadWindows_ChangesNothing()
         {

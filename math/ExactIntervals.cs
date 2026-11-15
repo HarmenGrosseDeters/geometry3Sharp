@@ -67,9 +67,10 @@ namespace g3
         /// a / b; the whole line if b contains 0. Division is correctly rounded in IEEE 754 binary64 on every target
         /// (net10.0, netstandard2.0, net48 64-bit with SSE2), so a quotient is within half a spacing of the exact value
         /// and the one-spacing widening of make() encloses it, also for subnormal and overflowing quotients (an
-        /// overflow to infinity widens to [MaxValue, infinity], and the exact quotient is at least MaxValue). With the
-        /// x87 unit of 32-bit net48 the quotient is first rounded to 64 bits and then to 53: the error stays below
-        /// half a spacing plus 2^-11 of it, below the one-spacing widening.
+        /// overflow to infinity widens to [MaxValue, infinity], and the exact quotient is at least MaxValue). Not tested:
+        /// the x87 unit of 32-bit net48 (no 32-bit test run). There the quotient would be rounded to 64 bits and then to
+        /// 53, by the usual double-rounding argument within half a spacing plus 2^-11 of it, below the one-spacing
+        /// widening; extended exponent range and subnormals are not covered by that argument.
         /// </summary>
         [MethodImpl(JitHints.Optimize)]
         public static ExactInterval operator /(ExactInterval a, ExactInterval b)

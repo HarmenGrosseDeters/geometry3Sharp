@@ -407,8 +407,9 @@ the grazing rule (Appendix A.5) are reviewed; A8 is withdrawn.
 pattern of `.editorconfig`: a deliberate `Math.FusedMultiplyAdd` fails the build with RS0030 and G3E0003). It implements
 A1-A6, subsumption and the terminal windows (M1); flat vertices are pseudo-sources (S1 / A5); **A7 is not shipped**.
 `ExactInterval` got division and square root (correctly rounded in IEEE 754 on every target; tests at the subnormal and
-overflow edges). Corner angles for the pseudo-source test use `CoreMath.Atan2` (documented as correctly rounded, at most
-half a spacing; widened by two spacings). The direction error of A.2 uses the bound 2 asin z <= 2 z / sqrt(1 - z^2)
+overflow edges). Corner angles for the pseudo-source test use `CoreMath.Atan2`, widened by two spacings. Its correct
+rounding (at most half a spacing) is an assumption: an empirical claim of the port, backed by bit-exact tests against a
+BigInteger reference (`docs/SOURCES.md`), not a proof; the widening leaves a margin of 1.5 spacings beyond it. The direction error of A.2 uses the bound 2 asin z <= 2 z / sqrt(1 - z^2)
 instead of `Math.Asin`, so no libm function enters and the bits are the same on every platform
 (`tools/DeterminismHarness` case `geodesic.exact`); the file is on the G3E0004 list of `.editorconfig`, so a platform
 libm call fails the build. The result arrays are NaN until a successful run (`Status` is `NotComputed` meanwhile), so
@@ -419,6 +420,21 @@ merges on a plane over `Similarity.All()`); the disk of a box uses the sum of th
 underflow). The steps' bounds have direct tests against exact references (`ExactDyadic`): the disk of a box, the frame
 change of a disk with adversarially wide boxes at the scales 1, 1e-150 and 1e150, and the corner angles at known and
 hard atan2 arguments. `MaxWindows` is checked between propagation steps, so `Windows` can end slightly above it.
+
+**Exact-code review (2026-11-15).** A child window's outer interval came from the values of `Mu` (the crossing of the
+ray from the source through (t, 0) with the next edge) at the ends of its clip [t0, t1], which assumes `Mu` monotone in
+t. With the source within about its disk radius of the edge line, the clip end t1 = xc.Hi can lie past the ray
+parallel to the next edge; `Mu` then changes branch inside the clip, its end values stay finite, and the outer interval
+shrank to about [0, 0] while the true crossings covered the edge: `Lower` came out above the distance (a five-vertex
+sliver mesh, h from 1e-8 to 1e-14; the S2 rule "a position not certainly strictly behind the edge's line gives the whole
+reachable edge" was missing, and S2 alone would not have been enough). Fix: `Mu`'s denominator, which is affine in t,
+is evaluated with t as the interval [t0, t1]; only if it certainly keeps its sign over the box and the clip are the end
+values used (their hull), otherwise the outer interval is the whole edge and the inner one empty. Tests: the reviewed
+mesh and its mirror (the right child), and a random family of slivers (heights 1e-6 to 1e-15 and a few ulps, sources
+beyond the sliver, obtuse faces) against the straight distance, which is the geodesic distance there. Also: `Status`
+is reset before each run; a vertex with a finite `Upper` but no lower bound ends the run with `LowerBoundMissing`
+instead of a silent NaN; a fan walk that stopped early never classifies a vertex as convex; the correct rounding of
+`CoreMath.Atan2` is stated as the assumption it is (empirical, backed by bit-exact tests, not a proof).
 
 **Why A7 is not shipped (an open item: A7 with duplicate control).** The constructive continuation windows of A7 are
 sound (reviewed), but on exactly flat regions they duplicate the ordinary windows: the ordinary windows already carry
