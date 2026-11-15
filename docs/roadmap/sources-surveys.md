@@ -5,7 +5,9 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** libraries and papers that may serve open items: geogram (owner 2026-11-03), other permissive libraries
   (survey 2026-11-03), RWTH Aachen papers (survey 2026-11-05), award-winning papers (October 2026 survey), PaMO
   (survey 2026-11-08).
-- **Status:** documented only; nothing in these lists is read or planned unless an item below says so.
+- **Status (checked 2026-11-15):** documented only; nothing in these lists is read or planned unless an item below says
+  so. Since the surveys, `MeshOffset` (#799) and an opt-in alpha wrap feature pass (#736) were merged; the full
+  Thingi10K run that two of the orders below wait for is still the draft #385.
 - **Related:** [SOURCES.md](../SOURCES.md) (what was used and how), the licence rules in
   [CLAUDE.md](../../CLAUDE.md).
 
@@ -17,7 +19,8 @@ Part of the [roadmap](../ROADMAP.md).
   LICENSE file found, not used until one is found.
 - **RWTH Aachen papers:** documented only; the order if one is picked up is at the end of
   [their section](#rwth-aachen-papers-survey-2026-11-05).
-- **Award-winning papers:** documented only. The affine heat method stopped at its gate (#371); generalized winding
+- **Award-winning papers:** documented only. The affine heat method stopped at its accuracy gate (#371, closed
+  unmerged; the PR preserves the prototype and its findings); generalized winding
   numbers for rational curves are Phase 5 next research item 3 ([research.md](research.md#phase-5-candidates-from-recent-research)).
 - **Other alpha-wrap implementations (survey 2026-11-08, noted only, owner):**
   [alecjacobson/alpha-wrap](https://github.com/alecjacobson/alpha-wrap) is a self-declared clean-room, CGAL-free
@@ -83,7 +86,7 @@ PaMO against Alpha Wrap 2.0 (our numbers: the 800 sample at 300/3000 and the T1 
 | no self-intersections | measured (float test, 0 misses on their sample, heuristic at shared vertices) | guaranteed: exact predicates per collapse |
 | distance to the input | none guaranteed; measured HD/CD | offset band; simplification certified within half the offset (one-sided Hausdorff upper bound) |
 | resolution | voxel grid, R = 256 on [0,1]³ | α and offset relative to the bounding box (default 300/3000) |
-| sharp features | stage 3 pulls vertices to the input; limited by fixed connectivity | none recovered (follow-up in the roadmap) |
+| sharp features | stage 3 pulls vertices to the input; limited by fixed connectivity | none recovered at the survey date; since #736 (2026-11-13) an opt-in sharp-feature pass, `AlphaWrapFeaturePass` |
 | triangle quality | shape term in the cost; Table 1 min angle 3.0° | quality guard in the reducer; target p01 ≥ 10° and no triangle below 0.5° or above 170° |
 | time | 1-2 s per mesh (GPU) | median about 7 s per mesh (4-core CPU, warm, T1 subset) |
 
@@ -181,7 +184,7 @@ Documented only, nothing planned yet.
 | Paper | Fit for us | Code |
 |---|---|---|
 | Nehring-Wirxel, Trettner, Kobbelt, *Fast Exact Booleans for Iterated CSG using Octree-Embedded BSPs*, Computer-Aided Design 135, 2021 (arXiv 2103.02486) | high for long chains of booleans (sweeps, milling simulation): a volumetric octree of BSPs over planes, fixed 256-bit integer arithmetic, up to 2.5 M mesh-plane cuts per second on one core. The EMBER group's predecessor; it is the chained-boolean case of EMBER idea 2 above. A patent check as for EMBER | none found |
-| Campen, Kobbelt, *Polygonal Boundary Evaluation of Minkowski Sums and Swept Volumes*, CGF 29(5) (SGP), 2010 | high next to `MeshOffset` ("Later"): exact 3D Minkowski sums, offsets and swept volumes along a rigid motion, manifold and watertight; computes only in cells that hold boundary. We have 2D Minkowski sums only (Clipper2 add-on) | none (the authors' web service is offline) |
+| Campen, Kobbelt, *Polygonal Boundary Evaluation of Minkowski Sums and Swept Volumes*, CGF 29(5) (SGP), 2010 | high next to `MeshOffset` (merged in #799, 2026-11-13): exact 3D Minkowski sums, offsets and swept volumes along a rigid motion, manifold and watertight; computes only in cells that hold boundary. We have 2D Minkowski sums only (Clipper2 add-on) | none (the authors' web service is offline) |
 | Campen, Kobbelt, *Exact and Robust (Self-)Intersections for Polygonal Meshes*, CGF 29(2) (EG), 2010 | medium: an adaptive octree plus nested plane-based BSPs only in the cells with intersections, exact in fixed precision. Gives booleans and **outer hulls for mesh repair**: a candidate next to `MeshAutoRepair` and alpha wrap for "keep the outside, drop inner junk" | none found |
 | Bischoff, Pavic, Kobbelt, *Automatic Restoration of Polygon Models*, TOG 24(4), 2005; Bischoff, Kobbelt, *Structure Preserving CAD Model Repair*, EG 2005 | medium: octree-volumetric repair that guarantees a closed manifold within a tolerance ε to the input and closes holes up to a size ρ. The CAD variant repairs only the critical regions (gaps, overlaps) volumetrically and keeps the rest of the tessellation. A design check for the repair pipeline: local volumetric repair instead of a global wrap | none found |
 | Kobbelt, Botsch, Schwanecke, Seidel, *Feature Sensitive Surface Extraction from Volume Data* (Extended Marching Cubes), SIGGRAPH 2001 | medium: sharp features from a directed distance field plus normals inside the marching-cubes structure. Compare with our `DualContouring` (QEF, `Reducer` probabilistic quadrics) before deciding anything; possibly only a SOURCES note | none |
@@ -191,9 +194,9 @@ Documented only, nothing planned yet.
 | Speetzen, Kobbelt, *Freeform Shape Fabrication by Kerfing Stiff Materials*, CGF 43, 2024 | low: kerf patterns to bend sheet material into free-form shapes (fabrication) | not checked |
 
 Order if one is picked up:
-1. The Minkowski / swept volume paper together with the `MeshOffset` decision, because both are offsets on our exact boolean kernel.
-2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run.
-3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task.
+1. The Minkowski / swept volume paper next to `MeshOffset` (the decision is made: A1 merged in #799), because both are offsets on our exact boolean kernel.
+2. The octree-BSP paper when chained booleans become a goal, with the EMBER re-evaluation after the full Thingi10K run (draft #385).
+3. The outer-hull and volumetric repair papers as design input for the repair pipeline after the Thingi10K bugfix task (its status is unverified).
 
 #### Award-winning papers (October 2026 survey)
 
@@ -218,3 +221,14 @@ With a permissive implementation (portable, see Licenses):
 | Soliman, Sharp, *The Affine Heat Method*, CGF 2025 | SGP 2025 best paper | geometry-central (MIT, `LogMapStrategy::AffineLocal`) | high: a more accurate log map, above all near the cut locus; an upgrade of `VectorHeatMethod` |
 | Spainhour, Gunderman, Weiss, *Robust Containment Queries over Collections of Rational Parametric Curves via Generalized Winding Numbers*, TOG 2024 | SIGGRAPH 2024 best paper | Axom (BSD) | high: inside / outside of regions bounded by NURBS and Bézier curves (`NURBSCurve2`, CAD contours); follow-up for trimmed NURBS surfaces (2025) |
 | Trettner, Bommes, Kobbelt, *Geodesic Distance Computation via Virtual Source Propagation*, CGF 2021 | SGP 2021 second place | MIT (C++ library of the authors) | medium: geodesic distances next to the heat method |
+
+### Open for the future (2026-11-15)
+
+1. Full Thingi10K run (draft #385): the EMBER re-evaluation and the octree-BSP paper wait for it.
+2. The Minkowski / swept volume paper (Campen, Kobbelt 2010) next to `MeshOffset` (#799); not scheduled.
+3. Geogram: the rows of its table are to check first, none read yet; a port is a decision with an A/B.
+4. Other permissive libraries: each row to check, none read yet; PyMesh, ManifoldPlus and Directional wait for a LICENSE file.
+5. Generalized winding numbers for rational curves (Phase 5 next research item 3, [research.md](research.md#phase-5-candidates-from-recent-research)).
+6. The outer-hull and volumetric repair papers, as design input for the repair pipeline (after the Thingi10K bugfix task, status unverified).
+7. PaMO probe ideas: none planned; a patent check comes first.
+8. alecjacobson/alpha-wrap as a second alpha wrap reference: not scheduled (owner: not now).

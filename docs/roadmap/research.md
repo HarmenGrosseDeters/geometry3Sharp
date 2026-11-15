@@ -4,11 +4,14 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** items that are not scheduled: the "Later" list, the Phase 5 candidates from recent research, the open
   research questions, and the SMT pilot.
-- **Status (2026-11-12):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
-  stopped at its gate (#371). Since then: batch queries stage 2 (#448), intersection-free dual contouring options A and
-  B (#552, #572), geodesic Bézier curves (#540), point clouds step C1 (#580) merged; the D1 drift rule (hard problem 2)
-  built in #513; the batch-query caller switches profiled and closed (#678). Not started: collision detection, tet meshing
-  beyond stage 0 (#487), TPMS, the rest of the Later list.
+- **Status (2026-11-15):** Phase 5 #1 (paths, loops, Bézier curves #540) and #7 (#374) done, #5 stopped (#331), the
+  affine heat method stopped at its gate (#371). Merged: batch queries stage 2 (#448; callers profiled and closed, #678),
+  intersection-free dual contouring options A and B (#552, #572), point clouds step C1 (#580), the D1 drift rule (#513);
+  since 2026-11-12: TPMS lattices with follow-ups (#750, #833, #835, #838, #860, CLI #879), CCD stages 1 and 2 (#778,
+  #793, follow-ups #845, #857, #872), tet meshing stages 1 and 2 (#775, #821) with the fTetWild comparison (#885),
+  `ContourLoft` stage 1 (#741), the contouring topology study and certificate stage 1 (#749, #779), mesh offset A1
+  (#799), the sharp-feature pass K (#736), determinism proof stage 0 (#776, #786, #810, #871). Open issues for items 6
+  and 7: #887 (screened Poisson) and #886 (ARAP deformation).
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -20,8 +23,8 @@ Part of the [roadmap](../ROADMAP.md).
   builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
   list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
   item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
-  item 9 (`ContourLoft`) stage 1 started (owner 2026-11-12, own session); items 2 (collision detection) and 7
-  (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
+  item 9 (`ContourLoft`) stage 1 merged (#741); items 2 (collision detection) and 7
+  (deformation) moved to Later (item 2 was since built, #793; item 7 is issue #886); item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
   feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
   upper bound, design note) started, then built up to step C1 (#580, see item 6); item 3 (tet meshing) waits until the alpha wrap has sharp features.
   Must-win hard problems: see the corrected list at the head of "Hard open problems" below (9, 3 with 1, 11).
@@ -66,8 +69,12 @@ Part of the [roadmap](../ROADMAP.md).
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
      is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
      first, then 2-3 days with an Opus-level review of the bounds.
-     Stage 1 note (2026-11-13, for the owner's decision): [design/CCD.md](../design/CCD.md) (Tight-Inclusion MIT,
+     Stage 1 note (#778, merged 2026-11-13): [design/CCD.md](../design/CCD.md) (Tight-Inclusion MIT,
      implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
+     Stage 2 merged (#793, 2026-11-13): `ContinuousCollision` and `MeshSweepCollision`, with the bound review fixes.
+     Follow-ups merged: nearly parallel edges (#845), a parallel fused broad and narrow phase (#857), sub-steps in the
+     broad phase (#872, 2026-11-14). Open: #866, the 1M-triangle ToI frame takes 41 s parallel / 121 s serial against the
+     20 s rule (still open after #872; current time unverified).
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -87,9 +94,12 @@ Part of the [roadmap](../ROADMAP.md).
      surface as boundary), stage 0 running. Sharp features are the main gap for FEM on CAD parts: shared item with
      Alpha Wrap 3.0 (lever 6, dual contouring).
      Status 2026-11-09: stage 0 done (#487: inside cells exactly valid on 40/40 Thingi meshes, raw quality not FEM-ready,
-     wrap surfaces on real meshes down to 12° dihedral). Owner: stage 1 waits for the fTetWild black-box comparison on
-     the same 40 meshes (runner job on runs/tet-meshing) and for sharp features in the alpha wrap; without sharp edges
-     probably not worth building.
+     wrap surfaces on real meshes down to 12° dihedral).
+     Status 2026-11-15: stage 1 (`MeshTetrahedralization`, Delaunay refinement of the wrap's inside, #775) and stage 2
+     (`TetMeshImprover`, flips and smoothing with exact boundary vertex moves, #821) merged 2026-11-13; the fTetWild
+     black-box comparison is TET_MESHING.md section 12 (#885, 2026-11-14). On the 40 meshes: ours stage 2 40 valid (our
+     definition), 16 with every tet >= 10°, p01 >= 10° on all 40; fTetWild 33 valid, 34 with every tet >= 10°. The
+     target (every tet >= 10° on 100 %) is not reached; see hard problem 5.
   4. Intersection-free dual contouring (owner 2026-11-09: its own session, probably Opus; owner 2026-11-10: the next
      Phase 5 item, ahead of items 1-3, since it extends existing operations rather than a new topic), M: details in
      [Hard open problems](#hard-open-problems-candidates-for-a-stronger-model), item 13. Ranked here because it
@@ -116,41 +126,41 @@ Part of the [roadmap](../ROADMAP.md).
      partial statement is provable (inside the certified cells the result differs from the level set by a
      deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
      yet; no cell at a defect edge can be certified.
-     Stage 1 (draft #779, 2026-11-13): `MeshWindingNumberSolidify.ComputeTopologyCertificate` (adaptive DC, clean
+     Stage 1 (#779, merged 2026-11-13): `MeshWindingNumberSolidify.ComputeTopologyCertificate` (adaptive DC, clean
      inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
      general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
      4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
-     serial 33-34 %).
+     serial 33-34 %). Stage 2 (refinement driven by the certificate): no PR yet.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
      (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
      Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
      `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
-     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833, merged), #815 (Lidinoid, #835, merged), #838 (sliver guard, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`, #860, merged), #814 (CLI / MCP, `tpms` command, PR #879).
+     Merged 2026-11-13 (#750). Follow-ups, all merged: #817 (conservative-MC worst-case test, #833), #815 (Lidinoid, #835), the sliver guard (#838, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`, #860), #814 (CLI / MCP, `tpms` command, #879, 2026-11-14). Item 5 is done.
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
-     points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request.
+     points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; it is now issue #887 (codex, open).
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
-  8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
+     Issue #886 (codex, open): ARAP, optionally biharmonic.
+  8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one
      application. Stage 1: two closed polygons in parallel planes -> a triangulated band by the optimal graph search
      of Fuchs, Kedem & Uselton 1977 (also Keppel 1975, Christiansen & Sederberg 1978), with a pluggable cost (minimum
      area, maximum volume, custom) and a pluggable per-triangle admissibility test; a status when no admissible band
      exists; optional caps through `QualityMesh2` for a closed solid; invariance, reuse and an independent procedural
-     oracle. Stage 2 (L): several contours per plane and branching (Ekoule, Peyrin & Odet 1991; Meyers, Skinner &
+     oracle. Stage 2 (L, not started): several contours per plane and branching (Ekoule, Peyrin & Odet 1991; Meyers, Skinner &
      Sloan 1992; Barequet & Sharir 1996; Bajaj, Coyle & Lin 1996; topology-constrained: Zou et al. 2015), with
      Clipper2 for overlapping contours. Applications: terrain bench strings to a TIN under the exact slope oracle
      ([design/TERRAIN.md](../design/TERRAIN.md) §9.2: plain lofting has no slope guarantee), medical / orthotics
      (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
      the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
-     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 started
-     (owner 2026-11-12: own session; library and short prior-art check, design note, then build). Stage 1 built in #741
-     (2026-11-12, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
+     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 merged in
+     #741 (2026-11-13, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
      `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
      oracle).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
@@ -176,12 +186,14 @@ Part of the [roadmap](../ROADMAP.md).
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
-- **Phase 5 table:** #1 Bézier curves done (#540, 2026-11-10); #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
-  #3 not planned (use Clipper2); #6 stays later (no caller yet).
+- **Phase 5 table:** #1 Bézier curves done (#540, 2026-11-10); #2 the paper's envelope algorithm open; #4 (constrained
+  Delaunay tetrahedrization) not started, tet meshing went the wrap route instead (item 3); #8 CCD built from the
+  Tight-Inclusion paper (#793); #6, #9, #10 not started; #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
-- **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
-  tetrahedral meshing, TPMS, sparse SDF grids, batch ray / point queries, AI bridges. Not scheduled.
-- **Open research questions:** practical 3D snap rounding (next probes: ideas 1 and 3 of #368), the
+- **Later:** screened Poisson for point clouds (#887), mitered feature-preserving offsets, quad remeshing, deformation
+  (#886), sparse SDF grids, AI bridges. Not scheduled. (Tet meshing, TPMS and batch queries left this list: built, see
+  items 1, 3 and 5.)
+- **Open research questions:** practical 3D snap rounding (research draft #721: note, probes, Z3 lemma), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -355,7 +367,7 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
-  Later item (coordinator 2026-11-13, #802): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
+  `TerrainSlope*` moved to `CoreMath` (#836, closing #802). Later item (coordinator 2026-11-13): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
   (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
   about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
@@ -370,8 +382,8 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12), 11 (the proof
-part, after the net48 / net10 measurement). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, draft #721), 11 (the
+proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged; issue #859 open). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
 Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
 Not now: 1 alone, 4, 5 (tet), 7, 14.
 
@@ -399,6 +411,8 @@ Ordered by expected value for the library.
    - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
+     Status 2026-11-15: research draft #721 (hard problems 1 and 3: note, probes, Z3 lemma), not merged; no recommendation
+     to the owner recorded yet.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -460,6 +474,9 @@ Ordered by expected value for the library.
      SimplifyAlphaWrap (AW3 work, tier M, one PR, exact KeepClearOf input test; prototype patch on runs/sharp-features);
      default on or off after the 800 run; corners and split retries in a follow-up. Separate small PR:
      WindingContouring.PostProcess with the pipeline's quality guard instead of 0.05 (> 170° triangles 17934 -> 52).
+     K merged as the opt-in `AlphaWrapFeaturePass` (#736, 2026-11-13); TET_MESHING.md section 13 checks whether its
+     surfaces serve tet stage 1. The default after the 800 run, the follow-ups and the small PR: state unverified here
+     (see [alpha-wrap-and-repair.md](alpha-wrap-and-repair.md)).
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:
@@ -467,6 +484,8 @@ Ordered by expected value for the library.
      - sliver exudation that keeps the bound.
    - The theory is spread over Cheng-Dey-Shewchuk 2012 and needs a design that fits our exact-authoritative points.
    - [design/TET_MESHING.md](../design/TET_MESHING.md).
+   - Status 2026-11-15: stages 1 and 2 merged (#775, #821); on the 40 Thingi10K meshes 16 have every tet >= 10° and all 40
+     have p01 >= 10° (section 12, #885). The floor on 100 % is still open.
 6. **Meshing2D: the small-angle cascade without a weaker guarantee.**
    - Shewchuk's Terminator breaks the circumcentre link but leaves skinny triangles outside the oracle's excuse
      region.
@@ -484,7 +503,9 @@ Ordered by expected value for the library.
    - The open cohort also has 736 ops > 5 s.
    - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
      parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
-     (exact Antipodal Method merged in #539; per-patch evaluation L1 merged in #633, 2026-11-12; T5 PR 2 in draft #675).
+     (exact Antipodal Method merged in #539; per-patch evaluation L1 merged in #633, 2026-11-12; T5 PR 2 merged in #675,
+     2026-11-12; open inputs to the Antipodal Method up to 20000 boundary segments, #766, and its hierarchical boundary
+     sum, #813, merged 2026-11-13/14).
    - A stronger-model review of the classification design pays here.
 9. **Robust repair at extreme scale disparity (F1b / F1c).**
    - Problem: cleanups relative to all triangles erode or drop far parts. Design note
@@ -498,9 +519,14 @@ Ordered by expected value for the library.
     - The paper's envelope algorithm (Phase 5 #2) is still open.
     - Question: a conservative bound that is cheap enough per collapse and still certifies the ε-envelope; the base for
       the envelope-guaranteed pipeline above ([hotspots.md](hotspots.md)).
+    - Related open issues: #848 (certify the patch bound of `TriangleDeviationBounds`, for
+      `MeshHausdorffDistance.CertifiedUpper`) and #873 (coplanar meshes stall at Upper about 2e-9 with Converged false).
 11. **Bit-for-bit determinism across runtimes and CPUs** (net48 / net10, x64 / ARM, parallel paths).
     - Needed: a systematic method to prove which paths are reproducible (not only test them), as a basis for
       certification use.
+    - Status 2026-11-15: proof study (#776), schedule adversary and runtime probes (#786, results #810), stage 0
+      closed-world analyzer rules for the exact kernel (#871, issue #859) merged. Open: #859, #789 (seeded `ExactPoint3`
+      hashes), #803 / #804 (net48 / net10 audits).
 12. **Mutation-testing cost of the rounding module.**
     - A full rounding run takes up to 5 h per part; the 19-term filter would need about 11 parts.
     - Question: a sound selection of tests and mutants that keeps the kill signal at a fraction of the runner time
@@ -519,3 +545,16 @@ Ordered by expected value for the library.
     ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), T4 closed).
 
 Not on this list: problems with a measured, working lever or a bug fix in progress and no open design question.
+
+### Open for the future (2026-11-15)
+
+1. #721 (draft): practical 3D snap rounding and rounding cost (hard problems 1 and 3); a recommendation to the owner.
+2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
+3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
+4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
+5. Contouring topology certificate stage 2 (refinement driven by it); options B and C only after a reviewed proof.
+6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
+7. #887: point clouds step C2, screened Poisson on `PointCloudSurface` (research item 6).
+8. #886: ARAP deformation, optionally biharmonic (research item 7).
+9. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands).
+10. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).
