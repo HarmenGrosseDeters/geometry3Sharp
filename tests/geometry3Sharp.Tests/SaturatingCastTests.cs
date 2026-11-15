@@ -47,6 +47,51 @@ namespace geometry3Sharp.Tests
             Assert.Equal(expected, MathUtil.FloorToIntSaturating(x));
         }
 
+        [Theory]
+        [InlineData(double.NaN, 0, 0L)]
+        [InlineData(double.PositiveInfinity, int.MaxValue, long.MaxValue)]
+        [InlineData(double.NegativeInfinity, int.MinValue, long.MinValue)]
+        [InlineData(1e300, int.MaxValue, long.MaxValue)]
+        [InlineData(-1e300, int.MinValue, long.MinValue)]
+        [InlineData(2.9, 2, 2L)]
+        [InlineData(-2.9, -2, -2L)]         // (truncation toward zero, as the cast)
+        [InlineData(-0.0, 0, 0L)]
+        [InlineData(3e9, int.MaxValue, 3000000000L)]
+        [InlineData(2147483647.5, int.MaxValue, 2147483647L)]
+        [InlineData(-2147483648.5, int.MinValue, -2147483648L)]
+        [InlineData(9223372036854775808.0, int.MaxValue, long.MaxValue)]          // 2^63
+        [InlineData(9223372036854774784.0, int.MaxValue, 9223372036854774784L)]   // the largest double below 2^63
+        [InlineData(-9223372036854775808.0, int.MinValue, long.MinValue)]         // -2^63
+        public void ToIntAndLongSaturating_TruncateAndSaturate(double x, int i, long l)
+        {
+            Assert.Equal(i, MathUtil.ToIntSaturating(x));
+            Assert.Equal(l, MathUtil.ToLongSaturating(x));
+        }
+
+        // the sites outside the exact scope (#804): infinite and NaN coordinates give the net10 result everywhere
+        [Fact]
+        public void TriangleBinsGrid_InfiniteBounds_InsertDoesNotThrow()
+        {
+            // (ROBUSTNESS_SWEEP R36: a +Inf vertex of MeshInsertPolygon; net48 threw from the bin list's size)
+            var grid = new TriangleBinsGrid2d(new AxisAlignedBox2d(0, 0, double.PositiveInfinity, 1), 16);
+            Vector2d a = new Vector2d(0, 0), b = new Vector2d(1, 0), c = new Vector2d(0, 1);
+            grid.InsertTriangle(0, ref a, ref b, ref c);
+            Assert.Equal(new AxisAlignedBox2d(0, 0, double.PositiveInfinity, 1), grid.Bounds);
+        }
+
+        [Fact]
+        public void IntegerBoxContain_NonFinite_Saturates()
+        {
+            var box = new AxisAlignedBox3i(new Vector3i(1, 1, 1), new Vector3i(2, 2, 2));
+            box.Contain(new Vector3d(double.NaN, double.PositiveInfinity, double.NegativeInfinity));
+            Assert.Equal(new Vector3i(0, 1, int.MinValue), box.Min);
+            Assert.Equal(new Vector3i(2, int.MaxValue, 2), box.Max);
+            var box2 = new AxisAlignedBox2i(new Vector2i(1, 1), new Vector2i(2, 2));
+            box2.Contain(new Vector3d(double.NaN, 1e300, 0));
+            Assert.Equal(new Vector2i(0, 1), box2.Min);
+            Assert.Equal(new Vector2i(2, int.MaxValue), box2.Max);
+        }
+
         // the cell of ExactMeshBoolean's crossing grid: clamped to [0, count - 1], NaN in cell 0
         [Theory]
         [InlineData(double.NaN, 0)]
