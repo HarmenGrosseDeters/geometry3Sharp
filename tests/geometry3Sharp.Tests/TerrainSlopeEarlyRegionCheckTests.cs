@@ -93,6 +93,14 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
         public void Similarities(string name) => SimilaritiesCheck(name);
 
+        [Fact]
+        public void ExtremeFrame_IsTheOnlyFrameOutOfThePrTier()
+        {
+            var pr = Similarity.NamesExceptExtremeFrame().Select(a => (string)a[0]).ToList();
+            Assert.DoesNotContain(Similarity.RotatedUtmMillimetre.Name, pr);
+            Assert.Equal(Similarity.Names().Select(a => (string)a[0]).OrderBy(x => x), pr.Concat(new[] { Similarity.RotatedUtmMillimetre.Name }).OrderBy(x => x));
+        }
+
         [Trait("Category", "Nightly")]
         [Fact]
         public void Similarities_ExtremeFrame() => SimilaritiesCheck(Similarity.RotatedUtmMillimetre.Name);

@@ -76,7 +76,7 @@ Part of the [roadmap](../ROADMAP.md).
   **Owner 2026-11-12, Terrain Slope rows in the rotated/1e-3/utm frame:** no library change (a first-δ shortcut was
   approved, then withdrawn: the formula gives no fraction, so it would be a constant tuned on one design; TERRAIN.md
   5.8.1 states the limit, `LocalFrame` is the remedy). Rows of that frame at or under 10 s alone get Slow with the
-  reason; ClippedRegion and BandRepair move only that frame's row to Nightly ("the frame needs 3 builds by design,
+  reason; ClippedRegion, BandRepair and EarlyRegionCheck move only that frame's row to Nightly ("the frame needs 3 builds by design,
   TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
   **Status 2026-11-15:** of the tests above 20 s, #692, #693, #694, #695 and #697 are closed; #696 (TerrainSlope frame
   rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
