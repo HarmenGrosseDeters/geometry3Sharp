@@ -71,7 +71,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the triangles of a mesh as sorted coordinate strings (the same mesh: the same list)
-        static List<string> Triangles(DMesh3 m)
+        internal static List<string> Triangles(DMesh3 m)
         {
             var list = new List<string>();
             foreach (int t in m.TriangleIndices()) {
