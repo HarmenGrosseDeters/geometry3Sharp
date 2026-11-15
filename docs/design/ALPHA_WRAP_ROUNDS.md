@@ -200,10 +200,21 @@ size criterion are the same).
    takes chunks too and waits only for chunks that were taken, so a descheduled worker (other computations at the same
    time, eg a parallel test run) does not hold a round up. Indices go in contiguous chunks: one index at a time made
    neighbouring gate objects share cache lines across threads.
-6. The parallel trial passes (pinch / manifold, second PR) are whole-label passes (`cells_moved_by_manifold_step`:
-   pocket removal, manifold step on a copy, stars): they are deterministic functions of the labels, so the parallel
-   version must reproduce the serial result bit for bit (per-chunk results merged in a fixed chunk order); no guarantee
-   changes and no output change.
+6. The trial passes (pinch refinement and manifold step: `cells_moved_by_manifold_step`, `remove_pockets`,
+   `build_stars`, `make_manifold`) run in parallel with the result of the serial passes bit for bit; they change no
+   guarantee and no output (master's pinned results are unchanged with every pass in parallel):
+   - stars: by vertex ranges; each part scans all cells and counts and fills only the stars of its vertices, so each
+     star lists its cells by increasing id, as the serial fill (a first version with atomic counters and slots, then a
+     sort per star, was no faster than serial: 4.3 s on 860049 either way);
+   - pockets: a level-synchronous search from the outside cells on the box; the reached set (the outside region
+     connected to the box) does not depend on the order, the flipped cells are collected per block of ids and joined in
+     block order, which is the order of the serial scan;
+   - the manifold step's vertex checks: before its loop, the queued vertices are checked in parallel for "the check
+     changes nothing" (no result facet around v, or v away from the box with every edge v-x on two result facets that
+     form one cycle). The check reads only the labels of v's star (a facet through v separates two cells of the star),
+     so the result stays valid until a cell of the star flips; flipped cells mark their vertices, and those, as every
+     vertex not prechecked, take the serial path. The loop's order, counters and limits are unchanged.
+   The passes run in parallel from 16384 cells (4 per queued vertex for the precheck); smaller ones stay serial.
 
 ## 6. Tests (build PR)
 

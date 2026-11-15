@@ -1716,3 +1716,20 @@ on 4 threads than on one (memory access over a triangulation of up to 7.6 M cell
 (`core/WorkerTeam.cs`), `Parallel.For` per round phase kept only about 2 of the 4 threads busy (49998: carve 14.7 s
 against 10.3 s with the team). 16 cores were not available here; the next lever for the tail is the parallel trial
 passes (second PR).
+
+### Lever (B), part 2: the trial passes in parallel (2026-11-14)
+
+The pinch refinement's and the manifold step's passes run in parallel (the stars by vertex ranges, the pocket search
+level-synchronous, the manifold step's vertex checks prechecked; [ALPHA_WRAP_ROUNDS.md](../../docs/design/ALPHA_WRAP_ROUNDS.md)
+section 5). The result is the serial passes' bit for bit: 50 / 50 outputs equal to the round-based carving alone. The run and
+corpus are those of the section above: 4 cores, `wrappipe`; master 58644af, the round-based carving, and both levers together.
+
+| | tail 20: master | rounds | rounds + trials | normal 30: master | rounds | rounds + trials |
+|---|---:|---:|---:|---:|---:|---:|
+| pipeline sum / max | 760 s / 87.9 s | 603 s / 81.5 s | 515 s / 68.7 s (1.47x) | 179 s / 8.5 s | 163 s / 6.8 s | 153 s / 6.4 s (1.17x) |
+| wrap sum / max | 544 s / 66.7 s | 401 s / 62.2 s | 326 s / 50.3 s (1.67x) | 109 s / 5.1 s | 92 s / 3.8 s | 83 s / 3.4 s (1.30x) |
+
+On 860049 (the trial-heaviest tail mesh) the trials fall from 14.5 s to 6.9 s and the final manifold step from 1.8 s to
+0.55 s. Of the remaining trial time, about 3 s goes to the pocket searches, and the local trials with few seed vertices
+stay serial. A first version of the stars with atomic counters was no faster than serial (4.3 s either way, memory bound);
+the vertex-range version scans the cells once per part.
