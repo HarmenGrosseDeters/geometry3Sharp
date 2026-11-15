@@ -31,6 +31,13 @@ the commands (section 9):
   culling (`CandidateCulling.cs`), an upper bound outside the library.
 - `lattice <case> [seconds] [seed]`: a random search over representable positions with the triangles unchanged on what
   SafeRounding leaves (`LatticeProbe.cs`; `LATTICE_MAX_MOVED=1`, `LATTICE_PLATEAU=0` for the ablations).
+  For the plateau variant of the position search (the note, section 10, 2026-11-15; not built): `LATTICE_GRID=8` draws
+  from the 26 x 8 candidates of the built search, `LATTICE_STRICT=1` keeps a step only if it adds no defect,
+  `LATTICE_STALL=<B>` rolls the steps since the last improvement back after B evaluations without one,
+  `LATTICE_TARGET=degenerate` searches the degenerate triangles only (real leftovers, whose results also hold
+  contacts). Tables: `trace/summarize.py plateau | leftovers`; raw output `trace/results/plateau_*_2026-11-15.jsonl` and
+  `thingi400_rounding_2026-11-15.jsonl` (what SafeRounding leaves on the 400 self-unions). The lemma:
+  `tools/Z3Pilot/plateau_search.py`.
 
 ## Sets
 

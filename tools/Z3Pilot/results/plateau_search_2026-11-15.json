@@ -1,0 +1,115 @@
+{
+ "T_reject": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "T_reject_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "T_sideways": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "T_sideways_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "T_commit": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "T_commit_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "T_chain_ends": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "T_chain_ends_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "T_new_round": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "T_new_round_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_T_sideways_counts_as_a_move": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_T_reject_not_counted": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_T_sideways_refunds_the_draws": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_T_new_round_without_a_move": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "A_sideways_keeps_both_counts": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "A_improving_lowers_the_sum_and_raises_neither": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "A_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_A_sideways_by_the_sum": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_A_improving_by_the_sum": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "R_rollback_of_1_steps": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "R_rollback_of_2_steps": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "R_rollback_of_3_steps": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "mutant_R_first_entry_first": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_R_journal_of_new_positions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "D_bound_after_a_step": {
+  "expected": "unsat",
+  "got": "unsat"
+ },
+ "D_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "mutant_D_sideways_without_the_check": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "P2_draws_at_most_B_S_N0_(N0+1)/2_(exact_integers,_not_Z3)": {
+  "expected": "holds, attained",
+  "got": "holds, attained",
+  "cases": 63
+ }
+}

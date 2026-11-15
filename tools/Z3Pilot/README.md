@@ -659,6 +659,31 @@ and not recommended for building (the note, 5.3); `test_separating_axis.py` hold
 `benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
 `results/separating_axis_2026-11-12.json`.
 
+## Pilot 8: the plateau variant of the position search (a design, not library code)
+
+`plateau_search.py` checks the argument of docs/design/SNAP_ROUNDING_3D.md section 10 for a position search that also
+takes steps with equal defect counts (not built; the acceptance rule and the rollback are prototyped in
+`benchmarks/SnapRoundingExperiment/LatticeProbe.cs`). A chain of such steps is committed only when a step removes a
+defect, and undone after `B` draws or `K` sideways steps.
+- T, termination: the measure (defects, "the round committed a chain", chains left, draws left) falls
+  lexicographically in each of the five transitions and stays within fixed bounds (5 UNSAT with satisfiable
+  assumptions; the well-foundedness of the order is the bridge).
+- A, the counts: a sideways step keeps the number of degenerate triangles and of intersecting pairs, an improving
+  step lowers the sum and raises neither (bridge: the defects away from the moved vertex are unchanged).
+- R, the rollback: a journal of up to three steps undone the last first restores every position, also when a vertex
+  moved twice.
+- D, the bound: a step is applied only if checked, so the largest bound stays within `L`.
+- P2 (exact integers, not Z3): the longest run from `N0` defects with `S` chains per defect and `B` draws per chain has
+  `B S N0 (N0 + 1) / 2` draws, found by exhaustive search for `N0 <= 6`.
+
+Nine mutants are SAT: a sideways step that counts as a move of the round, a rejected draw that is not counted, a
+sideways step that refunds the draws, a new round after a round without a commit, acceptance by the sum of the counts
+(twice), the journal undone the first entry first, a journal of the new positions, a sideways step without the bound
+check. Not modelled: the candidates and their seeded order (any sequence terminates), the invariance under scaling
+(the candidates are those of the built search), and the state besides the positions that a build must restore (the
+note, 10.5). 27 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
+`test_plateau_search.py` also checks that no state but the end is stuck, and holds a source contract on the probe.
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and

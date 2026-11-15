@@ -14,6 +14,16 @@
 // vertices only. Ablations: LATTICE_MAX_MOVED=1 (one vertex at a time), LATTICE_PLATEAU=0 (only moves that
 // remove a defect). A clean end shows that such a configuration exists; no clean end shows nothing beyond
 // this search.
+//
+// The plateau rule of the note's section 10 (a prototype of its acceptance rule, not of its order of candidates):
+// LATTICE_STRICT=1 keeps a step only if it adds no defect (the defects at the moved vertices after the step are a
+// subset of those before; local counts only), so a step with an equal count leaves the set of defects as it was;
+// LATTICE_STALL=<B> ends the search after B evaluations without a step that removes a defect and puts the steps since
+// the last such step back (the chain is rolled back: the result differs from the start only by chains that removed a
+// defect). LATTICE_TARGET=degenerate (with LATTICE_STRICT=1) searches the degenerate triangles only, the defects that the
+// rounding leaves on the Thingi10K self-unions: the count that must fall is theirs, and no step may add a defect of
+// any kind (contacts of the exact result, which the probe counts as intersecting pairs, are neither searched nor
+// counted as removed).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -42,7 +52,16 @@ static class LatticeProbe
         // LATTICE_GRID=<n>: candidates from a fixed set (26 axis directions, sizes the drift left / 2^j, j < n) instead of random vectors
         int gridSizes = int.Parse(Environment.GetEnvironmentVariable("LATTICE_GRID") ?? "0");
         bool grid = gridSizes > 0;
-        int before = Defects(m, eps, out List<int> defectTris), defects = before;
+        bool strict = Environment.GetEnvironmentVariable("LATTICE_STRICT") == "1";
+        bool degenerateOnly = Environment.GetEnvironmentVariable("LATTICE_TARGET") == "degenerate";
+        if (degenerateOnly && strict == false)
+            throw new ArgumentException("LATTICE_TARGET=degenerate needs LATTICE_STRICT=1");
+        int stall = int.Parse(Environment.GetEnvironmentVariable("LATTICE_STALL") ?? "0");
+        int sinceImproving = 0, rolledBack = 0, longestChain = 0, chain = 0;
+        bool stalled = false;
+        var journal = new List<KeyValuePair<int, Vector3d>>();   // the steps since the last one that removed a defect
+        int allBefore = Defects(m, eps, out List<int> defectTris, false);
+        int before = degenerateOnly ? Defects(m, eps, out defectTris, true) : allBefore, defects = before;
         int evaluations = 0, accepted = 0, improving = 0;
         double farthest = 0;
         var clock = Stopwatch.StartNew();
@@ -50,7 +69,7 @@ static class LatticeProbe
         double span = Math.Log(Math.Max(left / ulp, 2), 2);
         // large meshes: the defects are counted at the moved vertices only, against a box tree of the triangles' boxes
         // at the start grown by the drift left (no vertex moves farther, so the boxes stay supersets)
-        bool local = m.TriangleCount > 2000 || Environment.GetEnvironmentVariable("LATTICE_LOCAL") == "1";
+        bool local = m.TriangleCount > 2000 || strict || Environment.GetEnvironmentVariable("LATTICE_LOCAL") == "1";
         TriangleBoxTree tree = null;
         var treeTids = new List<int>();
         if (local) {
@@ -109,6 +128,7 @@ static class LatticeProbe
                     if (e.Value.Length > 200 * eps && Cross(m, e.Key).Dot(e.Value) <= 0) { ok = false; break; }
             int now = defects + 1;
             List<int> nowTris = null;
+            bool addsNone = true;
             if (ok && local) {
                 // only the triangles at the moved vertices change: their defects before (positions put back) and after
                 var after = moved.Select(v => m.GetVertex(v)).ToArray();
@@ -116,6 +136,11 @@ static class LatticeProbe
                 var was = LocalDefects(m, eps, tris, tree, treeTids);
                 for (int i = 0; i < moved.Count; ++i) m.SetVertex(moved[i], after[i]);
                 var isNow = LocalDefects(m, eps, tris, tree, treeTids);
+                addsNone = isNow.IsSubsetOf(was);
+                if (degenerateOnly) {
+                    was.RemoveWhere(k => k >= 0);
+                    isNow.RemoveWhere(k => k >= 0);
+                }
                 now = defects - was.Count + isNow.Count;
                 var set = new HashSet<int>(defectTris);
                 foreach (long k in was) { if (k < 0) set.Remove((int)~k); else { set.Remove((int)(k >> 32)); set.Remove((int)(k & 0xffffffff)); } }
@@ -126,30 +151,50 @@ static class LatticeProbe
                 nowTris.Sort();
                 evaluations++;
             } else if (ok) {
-                now = Defects(m, eps, out nowTris);
+                now = Defects(m, eps, out nowTris, false);
                 evaluations++;
             }
-            if (ok && (now < defects || (plateau && now == defects))) {
+            if (ok) sinceImproving++;
+            if (ok && (strict == false || addsNone) && (now < defects || (plateau && now == defects))) {
                 for (int i = 0; i < moved.Count; ++i) {
                     if (start.ContainsKey(moved[i]) == false) start[moved[i]] = saved[i];
                     farthest = Math.Max(farthest, m.GetVertex(moved[i]).Distance(start[moved[i]]));
                 }
                 accepted++;
-                if (now < defects) improving++;
+                if (now < defects) {
+                    improving++;
+                    longestChain = Math.Max(longestChain, chain);
+                    sinceImproving = 0; chain = 0; journal.Clear();
+                } else {
+                    chain++;
+                    for (int i = 0; i < moved.Count; ++i) journal.Add(new KeyValuePair<int, Vector3d>(moved[i], saved[i]));
+                }
                 defects = now; defectTris = nowTris;
                 // (local counts: the whole mesh again when the list runs empty or the count reaches 0)
                 if (local && (defects <= 0 || defectTris.Count == 0))
-                    defects = Defects(m, eps, out defectTris);
+                    defects = Defects(m, eps, out defectTris, degenerateOnly);
             } else
                 for (int i = 0; i < moved.Count; ++i)
                     m.SetVertex(moved[i], saved[i]);
+            if (stall > 0 && sinceImproving >= stall) { stalled = true; break; }
         }
+        // the steps of an unfinished chain are put back, the last first (always with LATTICE_STALL, at a stall or at
+        // the time limit)
+        if (stall > 0 && defects > 0) {
+            for (int i = journal.Count - 1; i >= 0; --i) m.SetVertex(journal[i].Key, journal[i].Value);
+            rolledBack = journal.Count;
+            defects = Defects(m, eps, out defectTris, degenerateOnly);
+        }
+        int allAfter = Defects(m, eps, out List<int> unused, false);
         string reasons = gs.MeshRobustRepair.NotCleanReasons(m);
         return "{\"case\":\"" + name + "\",\"ok\":true,\"tris\":" + m.TriangleCount + ",\"drift_used\":" + (r.MaxDrift / r.MaxLength).ToString("F3", ci)
             + ",\"defects_before\":" + before + ",\"defects_after\":" + defects + ",\"clean\":" + (reasons == "" ? "true" : "false")
             + ",\"reasons\":\"" + reasons + "\",\"evaluations\":" + evaluations + ",\"accepted\":" + accepted + ",\"improving\":" + improving
             + ",\"moved_vertices\":" + start.Count + ",\"farthest_of_left\":" + (left > 0 ? farthest / left : 0).ToString("G3", ci)
-            + ",\"grid\":" + gridSizes + ",\"local\":" + (local ? "true" : "false") + ",\"max_moved\":" + maxMoved + ",\"plateau\":" + (plateau ? "true" : "false") + ",\"seconds\":" + clock.Elapsed.TotalSeconds.ToString("F1", ci) + "}";
+            + ",\"grid\":" + gridSizes + ",\"local\":" + (local ? "true" : "false") + ",\"max_moved\":" + maxMoved + ",\"plateau\":" + (plateau ? "true" : "false")
+            + ",\"limit\":" + (r.EvaluationLimitReached ? "true" : "false") + ",\"left_degenerate\":" + r.RemainingDegenerate + ",\"left_pairs\":" + r.RemainingIntersections + ",\"search_moves\":" + r.PositionSearchMoves
+            + ",\"target\":\"" + (degenerateOnly ? "degenerate" : "all") + "\",\"all_defects_before\":" + allBefore + ",\"all_defects_after\":" + allAfter
+            + ",\"seed\":" + seed + ",\"strict\":" + (strict ? "true" : "false") + ",\"stall\":" + stall + ",\"stalled\":" + (stalled ? "true" : "false") + ",\"rolled_back\":" + rolledBack + ",\"longest_chain\":" + longestChain + ",\"seconds\":" + clock.Elapsed.TotalSeconds.ToString("F1", ci) + "}";
     }
 
     // the defects that involve the triangles of `tris`: ~t for a degenerate triangle t, (a << 32) | b for an intersecting
@@ -189,7 +234,7 @@ static class LatticeProbe
     }
 
     // degenerate triangles plus intersecting pairs, and the triangles of both (each once)
-    static int Defects(DMesh3 m, double eps, out List<int> tris)
+    static int Defects(DMesh3 m, double eps, out List<int> tris, bool degenerateOnly)
     {
         var set = new HashSet<int>();
         int n = 0;
@@ -198,7 +243,8 @@ static class LatticeProbe
             var T = new Triangle3d(m.GetVertex(tv.a), m.GetVertex(tv.b), m.GetVertex(tv.c));
             if (m.GetTriArea(t) < eps || ExactTriangleIntersection.IsDegenerate(ref T)) { set.Add(t); n++; }
         }
-        foreach (Index2i p in gs.MeshRepairMetrics.SelfIntersectionPairs(m)) { set.Add(p.a); set.Add(p.b); n++; }
+        if (degenerateOnly == false)
+            foreach (Index2i p in gs.MeshRepairMetrics.SelfIntersectionPairs(m)) { set.Add(p.a); set.Add(p.b); n++; }
         tris = set.ToList();
         tris.Sort();
         return n;
