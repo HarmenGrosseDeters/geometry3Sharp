@@ -260,10 +260,11 @@ namespace DeterminismHarness
                 t.Section(currentSection + "/filter");
                 long f = S(() => TriangleTriangleFilter.BeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv));
                 t.Add(f);
-                // (whether a certain answer of the filter is the exact test's: 1 agrees, 2 Undecided; must not differ)
-                t.Section(currentSection + "/filter-agrees");
+                // (1 if the filter gives a certain answer that is not the exact test's, else 0, Undecided included:
+                // must be 0 on every configuration, whichever answers the filter gives)
+                t.Section(currentSection + "/filter-wrong");
                 long exact = S(() => ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv));
-                t.Add(f == TriangleTriangleFilter.Undecided ? 2 : (f == exact ? 1 : 0));
+                t.Add(f != TriangleTriangleFilter.Undecided && f != exact ? 1 : 0);
             }
             return t;
         }
