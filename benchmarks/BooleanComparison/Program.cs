@@ -214,13 +214,13 @@ static class Program
         foreach (var o in ops.Values)
             Configure(new ExactMeshBoolean(w1, w2, o)).Compute();
         int gc0 = GC.CollectionCount(0), gc2 = GC.CollectionCount(2);
-        TimeSpan pause0 = GC.GetTotalPauseDuration();
+        TimeSpan pause0 = NetCompat.GcPause();
         var sw = Stopwatch.StartNew();
         var boolean = Configure(new ExactMeshBoolean(a, b, ops[op]));
         bool ok = boolean.Compute();
         long ms = sw.ElapsedMilliseconds;
         var gc = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen2"] = GC.CollectionCount(2) - gc2,
-            ["pause_ms"] = (long)(GC.GetTotalPauseDuration() - pause0).TotalMilliseconds };
+            ["pause_ms"] = (long)(NetCompat.GcPause() - pause0).TotalMilliseconds };
         if (ok)
             WriteOFF(boolean.Result, fout);
         var r = new Dictionary<string, object> { ["ms"] = ms, ["ok"] = ok, ["phases"] = boolean.PhaseMilliseconds, ["counts"] = boolean.Counts, ["gc"] = gc };

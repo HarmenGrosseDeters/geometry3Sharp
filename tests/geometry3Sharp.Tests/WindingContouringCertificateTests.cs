@@ -329,6 +329,26 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void InsideOutPart_IsNotCertified()
+        {
+            // an inside-out part has winding number -1 inside: it is not on the input's level set, but the contouring flips
+            // it into a solid (WindingContouring.OrientedCopy). The certificate compares with the input's own level set, so
+            // the result (two components against one) is not certified. (It compared with the flipped copy and certified
+            // this result: axis-parallel faces, nothing refused; found by the block test's fuzz run, #935.)
+            DMesh3 box = PolyCube(3, 3, 2, (x, y, z) => true, 0.25, P0);
+            DMesh3 m = Union(box, Reversed(PolyCube(2, 2, 2, (x, y, z) => true, 0.25, P0 + new Vector3d(1.5031, 0.0047, 0.0117))));
+            MeshWindingNumberSolidify s = Solidify(m, 40);
+            Assert.NotEqual(Truth(m), Topology(s.Result));
+            Assert.False(s.ContourTopologyCertified);
+            Assert.Equal(ContouringCertificateStatus.CellsUncertified, s.TopologyCertificateStatus);
+            Assert.NotEmpty(s.UncertifiedCells);
+            // the same box without the inside-out part: certified and right
+            MeshWindingNumberSolidify ok = Solidify(box, 40);
+            Assert.Equal(ContouringCertificateStatus.Certified, ok.TopologyCertificateStatus);
+            Assert.Equal(Truth(box), Topology(ok.Result));
+        }
+
+        [Fact]
         public void Certificate_DoesNotChangeTheResult()
         {
             DMesh3 thin = Torus(new Vector3d(0.01, 0.02, 0.03), 0.6, 0.05, 96, 12, Tilt);

@@ -386,6 +386,27 @@ namespace g3
         // implicit point ids by construction and rational point ids by value, in shards (by hash) so that threads adding
         // points rarely wait for each other (the classification adds the pieces' centroids in parallel)
         const int Shards = 64;
+        /// <summary>
+        /// for tests (issue 789): a salt for the hashes of exact points (0: their own hashes). The hash of an exact
+        /// point is seeded per process on .NET (BigInteger.GetHashCode); a non-zero salt scrambles the hashes of the
+        /// rational and fixed-width points (their shard and their bucket in it, and ExactHash of the merge) and the
+        /// shard of the implicit points (their bucket keeps PointKey's own hash, which is not seeded), so that a test
+        /// can show that no result depends on them. SingleShard puts every point into the first shard. Both are set
+        /// before the first point is added.
+        /// </summary>
+        internal int HashSalt;
+        internal bool SingleShard;
+        [MethodImpl(JitHints.Optimize)]
+        int salted(int h)
+        {
+            if (HashSalt == 0)
+                return h;
+            ulong z = (uint)(h ^ HashSalt) * 0x9E3779B97F4A7C15UL;
+            z = (z ^ (z >> 29)) * 0xBF58476D1CE4E5B9UL;
+            return (int)(z ^ (z >> 32));
+        }
+        [MethodImpl(JitHints.Optimize)]
+        int shard_of(int h) { return SingleShard ? 0 : (h & 0x7FFFFFFF) % Shards; }
         readonly Dictionary<PointKey, int>[] keyIndex = make_shards<PointKey>();
         readonly Dictionary<HashedPoint, int>[] rationalIndex = make_shards<HashedPoint>();
         readonly Dictionary<FixedKey, int>[] fixedIndex = make_shards<FixedKey>();
@@ -402,7 +423,7 @@ namespace g3
         {
             public readonly ExactPoint3 P;
             public readonly int Hash;
-            public HashedPoint(ExactPoint3 p) { P = p; Hash = p.GetHashCode(); }
+            public HashedPoint(ExactPoint3 p, int hash) { P = p; Hash = hash; }
             public bool Equals(HashedPoint o) { return Hash == o.Hash && P.Equals(o.P); }
             public override bool Equals(object o) { return o is HashedPoint h && Equals(h); }
             public override int GetHashCode() { return Hash; }
@@ -413,7 +434,7 @@ namespace g3
         {
             FixedPoint3 P;
             public readonly int Hash;
-            public FixedKey(ref FixedPoint3 p) { P = p; Hash = p.Hash(); }
+            public FixedKey(ref FixedPoint3 p, int hash) { P = p; Hash = hash; }
             public bool Equals(FixedKey o)
             {
                 return Hash == o.Hash && FixedPoint3.SameValue(ref P, ref o.P);
@@ -495,8 +516,8 @@ namespace g3
             FixedPoint3 f;
             if (FixedWidthPoints && FixedPoint3.TryCreateLimbs(p, out f)) {
                 // (the representation is a function of the value: a point in this index is never in the other)
-                var fk = new FixedKey(ref f);
-                var fshard = fixedIndex[(fk.Hash & 0x7FFFFFFF) % Shards];
+                var fk = new FixedKey(ref f, salted(f.Hash()));
+                var fshard = fixedIndex[shard_of(fk.Hash)];
                 lock (fshard) {
                     int id;
                     if (fshard.TryGetValue(fk, out id))
@@ -509,8 +530,8 @@ namespace g3
                     return id;
                 }
             }
-            var hp = new HashedPoint(p);
-            var shard = rationalIndex[(hp.Hash & 0x7FFFFFFF) % Shards];
+            var hp = new HashedPoint(p, salted(p.GetHashCode()));
+            var shard = rationalIndex[shard_of(hp.Hash)];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(hp, out id))
@@ -538,7 +559,7 @@ namespace g3
                 a = x.ApproxVector3d();
                 e = 4 * U * max_abs(a) + Tiny;
             }
-            var shard = keyIndex[(key.GetHashCode() & 0x7FFFFFFF) % Shards];
+            var shard = keyIndex[shard_of(salted(key.GetHashCode()))];
             lock (shard) {
                 int id;
                 if (shard.TryGetValue(key, out id))
@@ -602,7 +623,7 @@ namespace g3
         internal int ExactHash(int id)
         {
             int r = exact_ref(id);
-            return (r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode();
+            return salted((r > 0) ? fixedPoints[r - 1].Hash() : exactPoints[id].P.GetHashCode());
         }
 
         // point ids compared by their exact points
@@ -1633,9 +1654,7 @@ namespace g3
                 if (fdet > err) { local.Decided++; return t.Sign; }
                 if (-fdet > err) { local.Decided++; return -t.Sign; }
             }
-            ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
-            BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
-            return det.Sign * t.Sign;
+            return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;
         }
 
         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
@@ -1715,29 +1734,9 @@ namespace g3
                 if (fdet > bound) { local.Decided++; return t.Sign; }
                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
             }
-            ExactPoint3 pd = Exact(s);
-            BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
-            incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
-            incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
-            incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
-            BigInteger det = ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl);
             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
             // may mirror the triangle, which flips the orientation of a, b, c and the sign
-            return det.Sign * t.Sign;
-        }
-
-        [MethodImpl(JitHints.Optimize)]
-        static void incircle_row(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
-        {
-            BigInteger A, B, s;
-            if (v.W.IsOne && d.W.IsOne) {
-                A = v[i] - d[i]; B = v[j] - d[j];
-                x = A; y = B;
-            } else {
-                A = v[i] * d.W - d[i] * v.W; B = v[j] * d.W - d[j] * v.W; s = v.W * d.W;
-                x = A * s; y = B * s;
-            }
-            l = A * A + B * B;
+            return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -3201,6 +3200,27 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void QuerySegment(Vector3d p, Vector3d q, double pad, Action<int> f)
         {
+            var visitor = new ActionVisitor { F = f };
+            QuerySegment(p, q, pad, ref visitor);
+        }
+
+        /// <summary> receives the indices of QuerySegment (a struct: a query allocates no delegate) </summary>
+        internal interface IIndexVisitor
+        {
+            void Visit(int i);
+        }
+
+        struct ActionVisitor : IIndexVisitor
+        {
+            public Action<int> F;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public void Visit(int i) { F(i); }
+        }
+
+        /// <summary> QuerySegment with a struct visitor, in the same order </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void QuerySegment<TV>(Vector3d p, Vector3d q, double pad, ref TV f) where TV : struct, IIndexVisitor
+        {
             if (nodeCount == 0)
                 return;
             // (one stack per thread, reused: the queries of ExactMeshBoolean's tracing are many and short; a callback that
@@ -3216,7 +3236,7 @@ namespace g3
                 if (nodeLeft[node] < 0) {
                     for (int i = nodeStart[node]; i < nodeStart[node] + nodeSize[node]; ++i)
                         if (segment_hits(leafBox, i, p, q, pad))
-                            f(order[i]);
+                            f.Visit(order[i]);
                 } else {
                     stack.Push(nodeLeft[node]);
                     stack.Push(nodeRight[node]);

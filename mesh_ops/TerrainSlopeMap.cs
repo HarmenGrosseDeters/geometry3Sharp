@@ -1236,7 +1236,7 @@ namespace gs
                 return a.x != b.x ? a.x.CompareTo(b.x) : a.y.CompareTo(b.y);
             });
             var grid = new Dictionary<long, List<Vector2d>>(EdgeKeyComparer.Instance);
-            Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
+            Func<double, long> cell = (x) => MathUtil.FloorToLongSaturating(x / radius);     // (NaN and overflow: the same cell on every runtime, #804)
             foreach (Vector2d p in order) {
                 long cx = cell(p.x), cy = cell(p.y);
                 Vector2d best = p;

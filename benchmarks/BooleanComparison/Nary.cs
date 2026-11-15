@@ -99,7 +99,7 @@ static class Nary
             var rand = new Random(1);
             for (int k = 0; k < n; ++k) {
                 DMesh3 s = new Sphere3Generator_NormalizedCube() { Radius = 0.5 + 0.5 * rand.NextDouble(), EdgeVertices = 16 }.Generate().MakeDMesh();
-                MeshTransforms.Translate(s, new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()) * Math.Cbrt(n));
+                MeshTransforms.Translate(s, new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble()) * NetCompat.Cbrt(n));
                 cubes.Add(s);
             }
             expected = double.NaN;

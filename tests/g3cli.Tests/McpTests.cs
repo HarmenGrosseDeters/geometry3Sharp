@@ -272,6 +272,12 @@ namespace g3cli.Tests
             r = Handle(server, Call(2, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_off2.obj"), ["distance"] = 0.0, ["cell_size"] = 0.25, ["root_mode"] = "linear_edges" }));
             Assert.True(B(r["result"]["isError"]));
             Assert.Equal("linear_edges_precondition", S(r["result"]["structuredContent"]["offset_status"]));
+            r = Handle(server, Call(3, "offset", new JsonObject() { ["input"] = m.Cube, ["output"] = m.Path_("mcp_off3.obj"), ["distance"] = 0.5, ["cell_size"] = 0.1, ["method"] = "mesh_offset" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            sc = r["result"]["structuredContent"];
+            Assert.Equal("band", S(sc["enclosure_claim"]));
+            Assert.True(B(sc["band_certified"]));
+            Assert.True(B(sc["self_intersection_free"]));
         }
 
         [Fact]
@@ -347,6 +353,10 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal("ok", S(r["result"]["structuredContent"]["tpms_status"]));
             Assert.True(B(r["result"]["structuredContent"]["mesh"]["closed"]));
+            r = Handle(server, Call(3, "tpms", new JsonObject() {
+                ["output"] = m.Path_("mcp_tpms_hybrid.stl"), ["type"] = "gyroid", ["second_type"] = "iwp", ["blend"] = "0,0.75,0.5", ["divisions"] = 12, ["box_max"] = "1.5,1.5,1.5" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("iwp", S(r["result"]["structuredContent"]["second_type"]));
             r = Handle(server, Call(2, "tpms", new JsonObject() { ["output"] = m.Path_("mcp_tpms2.stl"), ["divisions"] = 2 }));
             Assert.True(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));

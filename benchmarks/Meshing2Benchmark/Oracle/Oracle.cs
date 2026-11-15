@@ -655,20 +655,19 @@ namespace Meshing2Acceptance
             /// The piece predicate, decided exactly, on the constraints as the mesher has them (their ends where it merged them: the output
             /// vertices of their input points; one merged to a point is left out, which only withholds excuses: the mesher still refuses
             /// a split point near that point):
-            /// - its own constraints: those that hold both ends within the mesher's tolerance (a hair more): the mesher makes such vertices
-            ///   vertices of the constraint and merges the sources of the shared piece; this also covers a split point that rounding put
-            ///   off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of a hull
-            ///   edge has none here and is judged);
-            ///   Not proven: that the mesher's list of the piece's sources is among them. A split point of a merged piece lies on its
-            ///   first source and may be up to twice the tolerance from another of its sources, which the mesher then skips in
-            ///   NearOtherSource while this predicate may count it as refusing (review of #870; the rule is older than #870). Taking
-            ///   every constraint within twice the tolerance as a possible source instead excuses none of the fuzz cases of #864 and #870
-            ///   (the other leg of a narrow wedge lies within it), so the output would have to name the pieces' sources (#870 follow-up);
+            /// - its own constraints: the piece's sources as the output reports them (Mesh2Output.SubsegmentSources, ReportedSources: the
+            ///   first is the one the mesher splits on; a report is believed only if each source holds both ends within the tolerance, a
+            ///   hair more). Without a report (a foreign producer): those that hold both ends within that tolerance: the mesher makes such
+            ///   vertices vertices of the constraint and merges the sources of the shared piece; this also covers a split point that
+            ///   rounding put off its own constraint, by far less than the tolerance (review of the first version). At least one (a piece of
+            ///   a hull edge has none and is judged). Without a report it is not proven that the mesher's list of the piece's sources is
+            ///   among them (a split point of a merged piece may lie up to twice the tolerance from another of its sources, which the
+            ///   mesher skips in NearOtherSource while this predicate may count it as refusing; review of #870); the report closes that;
             /// - the mesher's split point (QualityMesh2.SplitSegment, #870): on the piece's first source, between the projections of its
             ///   ends, at the midpoint or, next to the one end that existed before refinement (input points and crossings), at the power of
-            ///   two from that end nearest the middle (concentric shells). The output names neither the first source nor which ends
-            ///   existed before, so every own constraint and every end status the ends allow is taken, and each such point must be
-            ///   refused;
+            ///   two from that end nearest the middle (concentric shells). Which ends existed before comes from the output
+            ///   (Mesh2Output.ExistedBeforeRefinement, checked in KindOfEnd); where the output does not say it, or which source is first,
+            ///   every own constraint and every end status the ends allow is taken, and each such point must be refused;
             /// - refused: a constraint that is not one of its own (not a hull edge: the mesher's NearOtherSource knows input constraints
             ///   only, and skips the piece's sources) within the mesher's tolerance of it (half the tube: 2^-41 against the tube's 2^-40 of
             ///   the magnitude), widened by the derived rounding of the mesher's point and distance (O11RefusalSlack2). With a tube given to
@@ -690,19 +689,23 @@ namespace Meshing2Acceptance
                 var ms = MergedSources();
                 var own = new List<(Pt a, Pt b)>();
                 var ownIds = new HashSet<int>();
-                for (int k = 0; k < ms.Count; ++k) {
-                    if (ms[k] == null || !MergedNear(k, ia) || !MergedNear(k, ib)) continue;
-                    var c = ms[k].Value;
-                    if (Exact.Dist2ToSegment(c.a, c.b, pa) <= ownTol2 && Exact.Dist2ToSegment(c.a, c.b, pb) <= ownTol2) { own.Add(c); ownIds.Add(k); }
-                }
+                // the piece's sources as the producer reports them (first the one it splits on), or else every constraint near both ends
+                int reported = ReportedSources(ia, ib, ownTol2, own, ownIds);
+                if (reported == 0) return false;
+                if (reported < 0)
+                    for (int k = 0; k < ms.Count; ++k) {
+                        if (ms[k] == null || !MergedNear(k, ia) || !MergedNear(k, ib)) continue;
+                        var c = ms[k].Value;
+                        if (Exact.Dist2ToSegment(c.a, c.b, pa) <= ownTol2 && Exact.Dist2ToSegment(c.a, c.b, pb) <= ownTol2) { own.Add(c); ownIds.Add(k); }
+                    }
                 if (own.Count == 0) return false;
                 // the mesher's split point: on the piece's first source, at the fraction of the piece between the projections of its
-                // ends; which source is first, and which ends existed before refinement, the output does not say, so every possibility
+                // ends; where the output does not say which source is first or which ends existed before refinement, every possibility
                 // must be refused (a hair is the rounding of the mesher's point and distance, O11RefusalSlack2)
                 var fractions = SplitFractions(ia, ib);
                 if (fractions == null) return false;
                 Q refused2 = tol2 * O11RefusalSlack2;
-                foreach (var w in own)
+                foreach (var w in reported > 0 ? own.Take(1) : own)
                     foreach (var (f, fromA) in fractions) {
                         Pt p = PointOnSource(w.a, w.b, fromA ? pa : pb, fromA ? pb : pa, f);
                         bool any = false;
@@ -796,20 +799,66 @@ namespace Meshing2Acceptance
             ///   the crossings it was computed from: at most 0.71 u of the magnitude per crossing, and the hair (2^-6 of the tolerance,
             ///   64 u) covers about 90 nested ones;
             /// - so one within it of at most one constraint is a split point; one within it of two or more may be either (review of #870).
+            /// With the output's report (Mesh2Output.ExistedBeforeRefinement, #870 d6710852): a vertex reported as made by refinement is a
+            /// split point; one reported as existing before is one if it lies within the tolerance of two constraints, else it can be no
+            /// crossing and the report is not believed (either).
             /// </summary>
             EndKind KindOfEnd(int id)
             {
                 inSet = inSet ?? new HashSet<int>(map);
                 if (inSet.Contains(id)) return EndKind.Before;
+                bool? reported = o.ExistedBeforeRefinement != null && o.ExistedBeforeRefinement.Length == v.Length ? o.ExistedBeforeRefinement[id] : (bool?)null;
+                if (reported == false) return EndKind.Steiner;
                 var ms = MergedSources();
                 Q near2 = o11Tol2 * O11RefusalSlack2;
                 int near = 0;
                 for (int k = 0; k < ms.Count && near < 2; ++k)
                     if (ms[k] != null && MergedNear(k, id) && Exact.Dist2ToSegment(ms[k].Value.a, ms[k].Value.b, v[id]) <= near2) ++near;
-                return near < 2 ? EndKind.Steiner : EndKind.Unknown;
+                if (near < 2) return reported == true ? EndKind.Unknown : EndKind.Steiner;
+                return reported == true ? EndKind.Before : EndKind.Unknown;
             }
 
             HashSet<int> inSet;
+
+            Dictionary<long, int> subsegmentIndex;
+            Dictionary<int, int> sourceOfInput;
+
+            /// <summary>
+            /// The sources the producer reports for piece ia-ib (Mesh2Output.SubsegmentSources, #870), as indices of the merged constraints,
+            /// the first (the one the mesher splits on) first: 1 if reported and believed; -1 if not reported (or not usable: the lengths
+            /// do not match); 0 if reported but not believed, which gives no excuse: a first source that is no input constraint the
+            /// oracle has (a hull edge or a constraint of no extent) or that does not hold both ends within the tolerance (the mesher
+            /// splits only such pieces on it). A later source only leaves the refusing constraints (and joins the coincidence filter),
+            /// which can only withhold an excuse, so it is not checked: one the oracle does not have is skipped, and one away from an end
+            /// is kept (after splits on the first source, a merged piece's end may lie up to twice the tolerance from another source).
+            /// Trusted without a check: that the list is complete (an own source left out would count as refusing) and, in KindOfEnd,
+            /// the report of a vertex near two constraints; both need the mesher's state, which the output does not carry
+            /// </summary>
+            int ReportedSources(int ia, int ib, Q ownTol2, List<(Pt a, Pt b)> own, HashSet<int> ownIds)
+            {
+                var rs = o.SubsegmentSources;
+                if (rs == null || o.Subsegments == null || rs.Length != o.Subsegments.Count) return -1;
+                if (subsegmentIndex == null) {
+                    subsegmentIndex = new Dictionary<long, int>();
+                    for (int i = 0; i < o.Subsegments.Count; ++i) subsegmentIndex[SubKey(o.Subsegments[i].A, o.Subsegments[i].B)] = i;
+                    sourceOfInput = new Dictionary<int, int>();
+                    for (int k = 0; k < sources.Count; ++k) sourceOfInput[sources[k].sourceId] = k;
+                }
+                if (!subsegmentIndex.TryGetValue(SubKey(ia, ib), out int si) || rs[si] == null || rs[si].Length == 0) return 0;
+                var ms = MergedSources();
+                for (int j = 0; j < rs[si].Length; ++j) {
+                    // (a hull edge or a constraint of no extent after the first: the mesher's NearOtherSource skips it, and the oracle
+                    // counts neither as refusing)
+                    if (!sourceOfInput.TryGetValue(rs[si][j], out int k) || ms[k] == null) {
+                        if (j == 0) return 0;
+                        continue;
+                    }
+                    var c = ms[k].Value;
+                    if (j == 0 && (Exact.Dist2ToSegment(c.a, c.b, v[ia]) > ownTol2 || Exact.Dist2ToSegment(c.a, c.b, v[ib]) > ownTol2)) return 0;
+                    if (ownIds.Add(k)) own.Add(c);
+                }
+                return 1;
+            }
 
             /// <summary>
             /// The fractions of the mesher's split point (QualityMesh2.SplitSegment), each with the end it is measured from: the midpoint,

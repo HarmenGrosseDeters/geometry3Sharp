@@ -26,12 +26,14 @@ done since and what is open.
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
-- Draft PRs run the library tests with `--filter "Category!=Slow"` on Linux only; the Windows jobs (`netstandard`,
-  `netstandard-b`: net48 / netstandard2.0 tests, the Clipper2 package on net48, the PowerShell regression) and `isolated` /
-  `time-rule` are skipped on a draft (2026-11-13, runner load; check locally with the net48 build of the CLAUDE.md list). A PR that
-  is ready for review (`ready_for_review` starts the run), every push to master and manual runs run everything.
-  `FULL_TIER` in `ci.yml` is the switch for the Slow tier. Master runs: one concurrency group per ref with cancel-in-progress, so
-  only the newest master commit runs to the end; an older commit's run shows as cancelled.
+- A draft PR gets no CI (2026-11-15, runner load: most runs of drafts were cancelled by the next push; the gate is the `if:` of the job
+  `scope`, the other jobs need it; a skipped run of a draft has its own concurrency group, so it cannot cancel a real run). On demand:
+  `workflow_dispatch` (Actions tab, or `gh workflow run ci.yml --ref <branch>`; the checks attach to the head commit), which runs
+  everything. A PR that is ready for review (`ready_for_review` starts the run), every push to master and manual runs run all jobs;
+  check a draft locally with the CLAUDE.md list (with the net48 build). `FULL_TIER` in `ci.yml` is the switch for the Slow tier: it is
+  true for every run that exists now (the draft conditions of `isolated`, `time-rule` and the Windows jobs stay as a second guard).
+  PR runs cancel on a new push. Master and manual runs: one concurrency group per ref without cancel-in-progress (they queue; GitHub keeps
+  one pending run, so a burst of merges runs the first and the newest commit; the newest covers all merged changes).
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
@@ -474,9 +476,38 @@ is queued or running today (UTC date), or already succeeded. Rules:
   of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs: a late cron
   waits for the dispatched full run and is then skipped by the guard instead of cancelling hours of work.
 - `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
-- Master CI runs: `ci.yml` has one concurrency group per ref with cancel-in-progress, so only the newest master commit runs to the
-  end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
-  the commits since the last green (or finished) run.
+- Master CI runs: `ci.yml` has one concurrency group per ref without cancel-in-progress (2026-11-15: master runs queue; GitHub keeps the
+  run under way and the newest pending one, so a burst of merges skips the middle commits' runs, cancelled as pending). A regression of
+  such a commit shows at a later commit: when a master run is red, bisect over the commits since the last green run.
+
+**Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
+
+| Workflow | Starter | Planned | Created | Delay |
+|---|---|---|---|---|
+| `nightly.yml` | cron, 11-13 | 02:23 | 09:43:42 | +7 h 20 min |
+| `nightly.yml` | cron, 11-14 | 02:23 | 09:06:24 (guard skipped it: 15 s, work jobs skipped) | +6 h 43 min |
+| `nightly.yml` | dispatch, 11-14 | 02:27 | 02:27:54 | +1 min |
+| `nightly.yml` | dispatch, 11-15 | 02:27 | 03:27:38 | +1 h 01 min (cause not visible in the history) |
+| `coverage.yml` | cron, 11-13 | 03:41 | 11:30:11 | +7 h 49 min |
+| `coverage.yml` | cron, 11-14 | 03:41 | 10:53:36 (ran 15 min: the dispatch run of that day had failed, so it did not count) | +7 h 12 min |
+| `coverage.yml` | dispatch, 11-14 | 03:45 | 03:46:11 | +1 min |
+| `coverage.yml` | dispatch, 11-15 | 03:45 | 03:45:47 | +1 min |
+| `mutation.yml` | dispatch, 11-14 | 01:20 | 01:21:18 | +1 min |
+
+- The cron lines are still 6.7 to 7.8 hours late (no cron run of 2026-11-15 existed at 07:56 UTC, 5.5 h after the nightly's
+  02:23): the diagnosis holds. The dispatch is on time to within about a minute, except one nightly dispatch an hour late.
+- The guard did its job: the nightly cron run of 11-14 is green with all work jobs skipped, 15 s; the coverage cron of 11-14
+  ran because the earlier run of the day had failed (as designed).
+- Not on the schedule: `mutation.yml` was dispatched on 11-14 at 03:15 (green, 1 h 53 min) and 04:45 (cancelled after 25 min), and on
+  11-15 at 03:27 (cancelled after 3 min); a 01:20 run exists only for 11-14 (cancelled after 35 min). Why they were cancelled is not
+  visible in the history. The only complete dispatch run since the cap of 6 took 1 h 53 min, so the estimate of about 17 h
+  for a full run of all 25 shards is not confirmed or refuted yet.
+- `coverage.yml` ended red in every run since 11-12 (the changed-line gate, a separate matter).
+- Queue wait of PR CI jobs (`created_at` to `started_at`) before the runner relief (13 Nov afternoon, one mutation PR run and one master
+  run in progress): `linux` 93 min, `isolated` 103 min, `netstandard-b` 67 min, `scope` 1 to 11 min. After the cap of 6, the
+  cancelling master group and the draft skip (15 Nov morning, two PR runs): `linux` 11 and 16 min, `isolated` 0.3 and 4.6 min,
+  `netstandard-b` 11.5 min, `scope` 0.1 and 16 min, `time-rule` 0.02 and 4.4 min. About a sixth to a tenth of the former wait, still
+  not zero on a morning with several PR runs at once; two runs are a sample, not a statistic.
 
 ### 2.13 Hang diagnosis of the Windows net48 shards (#824)
 

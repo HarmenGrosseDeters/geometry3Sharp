@@ -215,3 +215,159 @@ solid and the result is closed.
 3. `WallThickness` as a first-order convenience in the first PR (it is approximate). Recommended: yes, with the
    reported `MeanWallThickness`.
 4. Lidinoid and graded cell size: not in the first PR (the Lidinoid was added afterwards; graded cell size follows).
+
+## 9. Hybrid of two types, in-plane (owner request 2026-11-15; built, see 9.7)
+
+Question: can `TpmsLattice` and `g3cli tpms` blend two lattices, eg Gyroid and I-WP, `w(x) f_G + (1 - w(x)) f_IWP`, and what would
+it take. Sections 9.1 to 9.6 are the design as approved; 9.7 records the owner decisions, what was built and the corrections found while building.
+
+### 9.1 What the paper says (read from its open-access text)
+
+Source: Fang, Yan, Xie, Wang, Ke, Zhang, Li, "In-plane hybrid design and mechanical properties of Ti-6Al-4V TPMS structures",
+Sci. Rep. 16, 17947 (2026), DOI 10.1038/s41598-026-49318-0, CC BY 4.0. The formulas below are quoted from the article text;
+the equation numbers are the paper's.
+
+- Uniform parents (2), (3), with `X = 2 pi x` etc. (one period per unit length, the same for both): gyroid `sin X cos Y + sin Y cos Z + sin Z cos X = C`,
+  I-WP `2[cos X cos Y + cos Y cos Z + cos Z cos X] - [cos 2X + cos 2Y + cos 2Z] = C`. `C` shifts the level set and sets the relative
+  density; `C = 0` is the standard shell. These are the same nodal forms as section 3.
+- Connection (4), (5), for `m` cells in a row along x and then along y:
+  `gamma_n = (1 - A_1)(phi_1 - phi_2) + (1 - A_2)(phi_2 - phi_3) + ... + (1 - A_{m-1}) phi_{m-1} + A_{m-1} phi_m` (x),
+  `f = gamma_1 B_1 + gamma_2 B_1 B_2 + gamma_3 B_2 B_3 + ... + gamma_{m-1} B_{m-2} B_{m-1} + gamma_m B_{m-1}` (y), with the `phi_i` the
+  parent fields of the cells in order. For two cells (`m = 2`) the x form reads (my reading of the printed sum, not verified for larger
+  `m`) `(1 - A_1) phi_1 + A_1 phi_2`: a convex blend of the two parent fields. The printed sums are not reproduced here beyond this
+  case; the build needs only the two-parent blend with a weight, which is what they reduce to.
+- Weight (6): the sigmoid `alpha(x, y, z) = 1 / (1 + exp(-k eta(x, y, z)))`, range (0, 1), `eta = 0` the midpoint of the transition, `k` the steepness.
+  They compare `k = 0.5, 1, 5` (Fig. 1b, c): `k = 1` gives the smoothest interface and the lowest stress concentration (the stress claim is
+  from their FE runs, not ours); `k = 5` is abrupt, `k = 0.5` distorts the parent cells over a wide zone. The text does not define
+  `eta` (a coordinate or signed distance to the interface plane, presumably in units of the cell) and does not state the unit of `k`;
+  the table of specimen sizes is an image that the text extraction does not contain.
+- Layout: two hybrids on a 4 x 4 x 4 cell array, G-IWP-1 (gyroid and I-WP side by side along x, the same in every layer) and
+  G-IWP-2 (the order reversed in the next layer: a checkerboard); the thickness (relative density) is uniform, relative density gradients
+  are named as future work.
+- Continuity: the paper says "seamless", "geometric continuity", and does not name a class. From the construction: a convex
+  combination of two analytic fields with an analytic weight is analytic (`C^infinity`), and the weight is never exactly 0 or 1, so
+  there is no compact transition zone (each parent is only recovered up to `exp(-k |eta|)`); a hard switch (`max`, a
+  step) would be `C^0` only. The mechanical results and the "no abrupt change" argument are theirs; the geometric properties above
+  are consequences of the formulas, not claims of the paper.
+- Not read: Ren et al. 2021 (Mater. Des. 210, 110062, transition boundaries of multi-TPMS lattices) and Gao et al. 2022
+  (Mater. Des. 221, 110995, configuration-varying TPMS with geometric continuity): both are Elsevier articles that the session's
+  allowed hosts do not serve. Nothing here is taken from them; if the owner wants the comparison (a transition that keeps the
+  wall thickness or the level constant through the zone), they need to be read before the build.
+
+### 9.2 Fit into `TpmsLattice`
+
+Blend the **style fields, each with its own level**, not the raw `f`: with `g_X = style value of type X (f, |f| or -f)` and `c_X` its
+level for the target fraction from the existing per-type quantile table (section 3),
+
+    h(p) = w(p) (g_A(p) - c_A) + (1 - w(p)) (g_B(p) - c_B),   solid S = {h <= 0}.
+
+In the zones where `w` is near 1 or 0 the solid is the pure A or B lattice with exactly the requested volume fraction, so the
+per-type table stays the only table (no table for the pair, and no `VolumeFractionAt` per position needed). Blending the raw `f`
+with one level would give neither parent its fraction (the level sets of `f_G` and `f_IWP` are not balanced the same way). In the
+transition the fraction is whatever the blend gives; it is reported (`RealizedVolumeFraction`), not promised. Sheets:
+`g = |f|` and `c = t`, the blend of two non-smooth but 1-Lipschitz terms is still Lipschitz.
+
+API (additive, one new member group; nothing changes when unset; as built: `SecondType` and `Blend` of the class `TpmsBlendWeight`, see 9.7):
+
+- `TpmsType? SecondType` and `Func<Vector3d, double> BlendWeight` (local frame, values in [0, 1], 1 selects `Type`) with a
+  library-derived bound `BlendGradientBound` (as `LinearGrade` does for the phase map: a delegate without a bound is allowed only
+  without `Enclosure`). Helpers `SigmoidBlend(axis or normal, offset, width)` (the weight of (6) with `eta` the signed distance
+  along the normal in length units and `k = 4 / width`, so the slope at the midpoint is `1 / width` and the 10 % to 90 % zone is `2 ln 9 / k = 1.10 width` wide, `|grad w| <= k / 4 = 1 / width`) and `CheckerBlend(A, B)` (the layout of G-IWP-2: `w = A B + (1 - A)(1 - B)`
+  of two sigmoids along x and y, `|grad w| <= sqrt(kx^2 + ky^2) / 4`; this combination is mine, the paper builds the checkerboard with its
+  sums (4), (5)). `w` is evaluated in a numerically stable form (`0.5 (1 + tanh(k eta / 2))`; the printed `1 / (1 + exp(-k eta))` overflows for large `-k eta`).
+- Both types share `CellSize` and `Rotation` (the paper does the same); different periods per type are a non-goal (the phase map is
+  per field and the transition would have no meaning). A `Grade` (graded cell size) applies to both fields at once: allowed, the
+  Jacobian bound enters the bound below unchanged.
+- `Compute()`: the quantile levels `c_A, c_B` and the area ratios come from the existing caches (per type); the field is
+  `F = max(h / Lh, d)` with `d` the domain distance as today.
+
+**Lipschitz bound for `Enclosure`** (the one new thing to prove). With `M_X = sum of the absolute values of the terms` of `f_X` (the
+code has it for the rounding error: gyroid 3, I-WP 9, so `|g_X - c_X| <= M_X + |c_X|`), phase scale `2 pi / L`, and `G_X` the
+gradient bound of section 5 (gyroid `2 sqrt 3`, I-WP `6 sqrt 3`):
+
+    grad h = w grad g_A + (1 - w) grad g_B + (g_A - c_A - g_B + c_B) grad w,
+    Lh = (2 pi / L) max(G_A, G_B) J + (M_A + |c_A| + M_B + |c_B|) * Wmax,
+
+with `J` the Jacobian bound of the grade (1 without) and `Wmax` the bound of `|grad w|`. Gyroid / I-WP at `L = 1`, `k = 1` gives about
+`65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`; for a steep weight the bound grows with it (`Lh` is then dominated by the weight term, and the sliver
+guard is scaled by the phase part over `Lh`, see 9.7). The rounding error of an evaluation (`EnclosureErrorBlend`, with `u = 2^-53` and `msum >= |g_A - c_A| + |g_B - c_B|`, divided by `Lh s` like the single type term) is
+`64 u max(TermSum_A, TermSum_B)` for the two type evaluations (the weights sum to 1), plus `6 u msum` for the six rounding steps of the combination (`g_A - c_A`,
+`g_B - c_B`, `w (.)`, `1 - w`, `(1 - w)(.)` and the sum, each at most `u` times a value of at most `msum`), plus `eps_w msum` for the error `dw` of the weight times
+`|g_A - c_A - g_B + c_B| <= msum`, plus the phase term of `EnclosureError`. For `SigmoidBlend`, `eps_w` is a relative-error argument: `z = 2 eta / width` with `eta = p - offset` has a relative
+error of at most `2 u` (one rounding in the subtraction, one in the division; this also holds for `|offset| > s`, where an absolute argument fails); the propagated error of
+`tanh` is `sech^2(z) |z| 2 u <= 0.45 * 2 u = 0.9 u` (`max z sech^2 z = 0.4506`); a `tanh` within 2 ulp adds `2 u`, and `1 + tanh` and the product by 0.5 (exact) add `2 u`,
+so `dw <= 0.5 (0.9 u + 2 u + 2 u) = 2.5 u`. The code uses `eps_w = 8 u + 2 u s Wmax`: the `8 u` absorbs a `tanh` with an error of up to about 6 ulp (the platform libm is not specified), and the second term covers a delegate
+weight whose coordinate rounding is at most `2 u s`. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
+solid contains the exact blend `{h <= 0}` of the stated `w`.
+
+### 9.3 Fit into `g3cli tpms`
+
+New options, no default of an existing option changes: `second_type` (same names as `type`; unset = no hybrid), `blend`
+`'axis,offset,width'` for the single plane (axis 0..2, local frame) or `blend_xy` `'x_offset,x_width,y_offset,y_width'` for the checkerboard
+(the exact spelling is the owner's call: it is new CLI surface). Result fields: `second_type`, the two levels, `blend_gradient_bound`.
+`max_cells`, `domain` and `enclosure` behave as today (`enclosure` with a domain mesh stays refused).
+
+### 9.4 Guarantees to keep
+
+Unchanged and from the same mechanism: `Status Ok` only after `MeshRobustRepair.NotCleanReason` and the exact self-intersection
+check (the contouring path and the certificate do not know the field), closed, manifold, oriented, finite. Not promised, as for the
+constant lattice: topology of walls thinner than about two cubes; additionally the wall thickness inside the transition (the blend of
+two fields at different wall thickness is not a wall of either); the resolution rule `Divisions >= 2 L / wall` is the caller's to apply against the thinner of the two
+types (the library does not check it for the hybrid, as it does not for the constant lattice). The sliver guard needs the `GradientRatio` of the field: use the larger of the two per-type ratios (conservative: a larger
+`Snap` only grows the solid, section 4), sampled ratio of the blend itself is a refinement, not needed. `Enclosure` keeps its
+preconditions (dyadic grid, box domain, constant fractions, the bound above).
+
+### 9.5 Tests the build needs
+
+Each with a mutation that must fail it, as in section 7:
+
+1. `w = 1` everywhere reproduces the pure `Type` mesh bit for bit, `w = 0` the pure `SecondType` (kills a swapped weight and a dropped level).
+2. A single plane with a wide transition: far from it, the realized fraction of each half is the target of its type (tolerance as in section 7); between
+   them the mesh is clean (closed, manifold, `NotCleanReason == null`, no self-intersection) for gyroid / I-WP at several `k` and all three styles.
+3. Independent field copy in the test plus a winding-number oracle on points near the interface (as `TpmsLatticeTests` does for the constant lattice).
+4. `Similarity.All()` invariance (`Harness/Invariance.cs`): the 2^k scales give the same mesh bit for bit, with `k` and the offsets given in scaled
+   length units (the product `k * eta` is then identical), rotation / translation via the frame as for the constant lattice.
+5. Reuse (`Compute()` twice on one instance) and determinism (parallel = serial, repeated runs).
+6. `Enclosure`: the recipe test (a solid contains the exact blend at the worst places, as `Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces`)
+   for the blend, with a steep `k` so that the weight term of `Lh` matters; a mutation that drops the `Wmax` term must fail it. Refusals: a
+   weight delegate without a bound, `Enclosure` with a domain mesh.
+7. Stable weight: `k eta` of +-800 gives 1 / 0 without NaN (kills the printed form).
+8. CLI: option mapping against the library called directly (as `TpmsCliTests`), errors write nothing, MCP argument types.
+9. Benchmark row in `benchmarks/TpmsLattice` (two types evaluate both fields: expect about twice the field time of one type, the domain distance and the certificate unchanged).
+
+### 9.6 Effort and risks
+
+One PR, library about 250 lines (weight helpers, blend in the field, the bound and the `EnclosureError` term), CLI about 100,
+tests about 500, design notes and `SOURCES.md` (this paper, CC BY 4.0, the idea only; the sigmoid is textbook). Roughly 1.5 to 2 days of agent
+work including the review. Risks: (a) the volume fraction inside the transition is not controlled (reported only); (b) the enclosure
+bound is conservative where `k` is large; (c) the paper's `eta` and `k` units are not stated, so our `width` parametrisation is ours and
+should not be presented as the paper's `k`; (d) Ren / Gao may offer a transition that keeps the wall thickness, which this simple
+blend does not: a possible second step, only after reading them.
+
+Decisions for the owner: the option spelling in 9.3; whether the checkerboard weight ships in the first PR or only the single plane;
+whether reading Ren 2021 and Gao 2022 comes first.
+
+### 9.7 Owner decisions (2026-11-15) and what was built
+
+1. Single plane only (`SigmoidBlend`); no `CheckerBlend` and no `blend_xy` in the first PR.
+2. CLI names as proposed: `second_type` and `blend 'axis,offset,width'`.
+3. Ren 2021 and Gao 2022 are read later, not before the build.
+
+Built as designed in 9.2 to 9.5 (`TpmsLattice.SecondType`, `Blend` (`TpmsBlendWeight`), `SigmoidBlend`, `SecondLevel`, `EnclosureErrorBlend`; `g3cli tpms`
+`second_type`, `blend`; `TpmsHybridTests`, `TpmsCliTests`; benchmark rows), with these differences from the text above:
+
+- The stable form `0.5 (1 + tanh(2 eta / width))` is used for exact symmetry `w(eta) + w(-eta) = 1`, not because the printed form fails: in IEEE doubles `1 / (1 + exp(+large))`
+  is 0, not NaN (`exp` overflows to infinity), so test 7 pins the saturation, the symmetry and the scale invariance of the weight, and cannot tell the two forms apart.
+- A weight delegate with an unknown gradient bound (NaN) leaves the weight term out of `Lh` and is refused with `Enclosure`; a weight outside [0, 1] is clamped (the
+  clamp keeps the bound).
+- Sliver guard: the larger of the two per-type `GradientRatio`s sizes `Snap` (pinned through the level pad under `Enclosure`).
+- Cost: about 1.15 times the constant sheet in `Compute` at 6 periods, the same allocation (benchmark README; before the sliver guard was scaled, below, 2.4 times).
+- Not done (as decided): the checkerboard weight and `blend_xy`; a hybrid of different periods; wall thickness control inside the transition.
+- Corrections from the independent review of the build: (a) the sliver guard is scaled by `max(G_A, G_B) 2 pi J / Lh` (at most 1): without it a steep weight (width much
+  below a cube) made `Snap * Lh` about one field unit and filled the pure halves of the lattice, while a larger guard "only grows the solid" was the (true but too
+  weak) argument of 9.4; the `Enclosure` pad shrinks with it too, so "the enclosure offset hardly changes" holds for every width; (b) a gradient bound of the weight that
+  is negative or infinite, or whose product with the value range overflows, is `InvalidOptions` for every hybrid (a negative one flipped the sign of the field, an
+  infinite one zeroed it and gave a solid box as `Ok`); (c) a weight that returns NaN anywhere gives `ContouringFailed` instead of holes; (d) the enclosure claim "contains the exact
+  blend of the stated `w`" holds for a delegate only if its bound and its rounding error (at most `8 u + 2 u s Wmax`) hold, which the library cannot check; the delegate must be pure and thread safe.
+- Test limits: the enclosure containment test samples near-surface points of the exact blend; the derived `Lh` (and so a dropped weight term) is pinned by an exact-value test
+  and a sampled-gradient bound, not by a worst-case-node construction as for the single point of `Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces`.

@@ -20,6 +20,25 @@ bound, tolerance 1e-2 of the bound; it includes removed components), removed com
 and the method, and the exact d-separation certificate (`tests/geometry3Sharp.Tests/Harness/SeparationCertificate.cs`:
 disjoint features farther apart than 2e = √3 ulp of the largest coordinate; `uncertified` counts the pairs closer).
 
+## Rounding cost and the leads of 3D snap rounding (2026-11-12)
+
+The measurements of [docs/design/SNAP_ROUNDING_3D.md](../../docs/design/SNAP_ROUNDING_3D.md), which holds the tables and
+the commands (section 9):
+- `trace/`: `instrument.py` patches `MeshRoundingRepair.cs` in a throw-away worktree (never committed to the library)
+  with a phase trace, a separating-axis prefilter and a stop at the evaluation limit behind environment variables;
+  `run_trace.sh`, `run_ab.sh`, `summarize.py`; raw output in `trace/results/`.
+- `cull <case dir> <operation>`: the first full self-intersection search of a rounded result with tighter candidate
+  culling (`CandidateCulling.cs`), an upper bound outside the library.
+- `lattice <case> [seconds] [seed]`: a random search over representable positions with the triangles unchanged on what
+  SafeRounding leaves (`LatticeProbe.cs`; `LATTICE_MAX_MOVED=1`, `LATTICE_PLATEAU=0` for the ablations).
+  For the plateau variant of the position search (the note, section 10, 2026-11-15; not built): `LATTICE_GRID=8` draws
+  from the 26 x 8 candidates of the built search, `LATTICE_STRICT=1` keeps a step only if it adds no defect,
+  `LATTICE_STALL=<B>` rolls the steps since the last improvement back after B evaluations without one,
+  `LATTICE_TARGET=degenerate` searches the degenerate triangles only (real leftovers, whose results also hold
+  contacts). Tables: `trace/summarize.py plateau <rows> [<run safe rows>]` and `leftovers <rows>`; raw output `trace/results/plateau_*_2026-11-15.jsonl` and
+  `thingi400_rounding_2026-11-15.jsonl` (what SafeRounding leaves on the 400 self-unions). The lemma:
+  `tools/Z3Pilot/plateau_search.py`.
+
 ## Sets
 
 All generated in code (`tests/geometry3Sharp.Tests/Harness/DegenerateFamilies.cs`), no mesh files:

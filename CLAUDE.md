@@ -7,7 +7,7 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Rules
 
-- Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
+- Everything is in English: answers to the user, messages between sessions, code, comments, commit messages, PRs and docs.
 - Times for the user are given in the Europe/Berlin time zone (CET / CEST), not in UTC, eg "08:40 (Berlin)".
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
   (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
@@ -90,17 +90,21 @@ the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workf
 python3 test_select_shards.py && python3 test_baseline.py && python3 test_incremental.py && python3 test_suggest_split.py
 ```
 
+Push discipline (owner 2026-11-15, runner load: most CI runs were cancelled by the next push): push once per finished step,
+after the local checks; collect review fixes into one push; do not push while the PR's CI runs, unless the push fixes a failure
+it showed.
+
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
-is marked ready for review; the CI of every push runs it on GitHub anyway.
+is marked ready for review; the CI of every push of a ready PR runs it on GitHub anyway (a draft has none).
 
-CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the Linux library tests without the tests tagged
-`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length) and skips the Windows / net48 jobs (so build the net48 test
-project locally before the push), a PR that is ready for review and master run
-all of them; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
+A draft PR gets no GitHub CI, so the local checks above are the gate of a draft. For a run on GitHub, start `ci.yml` by hand
+(Actions tab, or `gh workflow run ci.yml --ref <branch>`; the checks attach to the head commit; manual runs run the full tier).
+CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a PR that is ready for review, master and manual runs
+run all of the jobs; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
 (`tools/ci_scope.py`). Locally: `dotnet test ... --filter "Category!=Slow"` for the quick set.
 
-Every push gets a PR; watch its CI and fix red CI right away. CI runs on pull requests and on master only (a branch
+Every push gets a PR; watch its CI (a draft has none) and fix red CI right away. CI runs on pull requests and on master only (a branch
 without a PR, or a PR with a merge conflict, which GitHub does not run: resolve the conflict, or start it with
 `workflow_dispatch`), and a new push cancels the PR's run under way.
 

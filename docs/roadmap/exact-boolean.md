@@ -5,11 +5,14 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `ExactMeshBoolean` / `ExactMeshArrangement`, SafeRounding, boolean performance (fixed-width points,
   predicate compiler, indirect predicates, cheaper constructions), the Exact Boolean 2.0 milestone, external corpora
   (manifold, Thingi10K, EMBER-style pairs), EMBER and the mesh-kernel paper, allocations, GPU and SIMD.
-- **Status (2026-11-12):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
-  reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full rounding mutation shards passed; the sign-off
-  run below was made on its head. The full rounding-1..8 run on master follows the merge. Exact Boolean 3.0 in
-  progress (see [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2 and T1 merged; the 55928 tail-case stage merged (#633, 2026-11-12, d6f6fe9d);
-  T5 PR 2 in progress (#675, draft).
+- **Status (2026-11-15):** milestone "ExactMeshBoolean 1.0" reached on 2026-11-01. Milestone "Exact Boolean 2.0"
+  reached on 2026-11-11: D1 (#513; counted as Exact Boolean 2.1, owner 2026-11-12) merged as 69f13be3 after its 8 full
+  rounding mutation shards passed; the sign-off run below was made on its head. Exact Boolean 3.0 in progress (see
+  [3.0 progress](#exact-boolean-30-progress)): T3a, T3, T3b, T2, T1, the 55928 tail-case stage (#633) and T5 PR 2
+  (#675, 2026-11-12) merged; option (A) merged (#766, 2026-11-13); the fuzz fixes #732 (#710) and #759 (#719) merged;
+  lever 1, the hierarchical Antipodal sum, merged (#813, 2026-11-14); kernel P2 merged (#769, 2026-11-15) and
+  candidate B (#772, 2026-11-14). Open: the race fix #883 (#882), lever 4 #881, candidate D #893 (draft), T1b's
+  closing PR #843, the rounding-search bound #837 (draft).
 - **Related:** [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md),
   [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md),
   [design/BOOLEAN_PROPERTY_TESTS.md](../design/BOOLEAN_PROPERTY_TESTS.md),
@@ -122,7 +125,10 @@ and the exact-code review with every new bound checked stay per PR; the full sha
 master (survivors are tasks of the area's next PR); the 3.0 completion gate is a full run of every touched shard above its
 threshold on master, on GitHub or run locally by the owner (a script under `tests/mutation` writes a result JSON with the head
 sha, a CI check validates it). The boolean and arrangement shards are split finer so that each stays well under the 6 h job
-limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per step (CLAUDE.md).
+limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per step (CLAUDE.md). The workflow PR for
+this process, #615, is still open (2026-11-15). The test filter `FullyQualifiedName~ExactMeshBooleanTests` of the
+boolean-1..4 shards now also matches 8 newer open-winding classes, so their coverage pass times out (seen on #883); the
+fix is a narrower filter, applied in #883 and to the rounding shards of #843.
 
 #### Exact Boolean 3.0 progress
 
@@ -191,21 +197,22 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
     Difference, 4 cores: 973 s -> about 370-420 s (classification 772 -> 224-254 s, triangulation 172 -> 116 s,
     allocations 534 -> 200 GB), hash 61550C3C2F352E72 unchanged. `MaxOpenWindingEvaluations` is not needed. Open
     candidates (not in this stage): an allocation-free limb kernel for the 12.43M remaining BigInteger InCircle stages
-    (estimated -20 to -30 s); the GC setting of the application (474 -> 358 s, documented in OPERATIONS.md).
+    (estimated -20 to -30 s; now candidate D, draft #893: 55928 -12 %, 352.8 -> 310.4 s); the GC setting of the application (474 -> 358 s, documented in OPERATIONS.md).
 - **S3, sharing A's setup across the Bi** (owner 2026-11-11: later, after the 3.0 targets are reached; wait for now):
   the snap grid of A matches the first boolean's in only part of the booleans (terrain 1-83 of 200, CAD 100k 29 of 50,
   CAD 10k 309 of 500), so in general only A's box tree is shareable (about 2.1 s serial on CAD); effort about half a day
   for the tree, 1.5-2 days for the points per grid class.
 - **T3 (#593): merged 2026-11-11** (f92f1c62). `MeshRoundingRepair` returns `OutsideRange` (mesh untouched, not clean)
   outside [2^-200, 2^200] or for subnormal coordinates; the boolean keeps its exact result there but `RoundingClean` is
-  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory merged 2026-11-11 (#619, 5c0be691: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction; the 1.2 KB peak target is not met on cross150, 1.6-1.9 KB, where implicit points and output pieces dominate, out of reach of the layout levers). T1 scaling levers merged 2026-11-11 (#631, 6c5cb9ac; bit-identical, hashes equal; 4-core cloud, median of 5): lever 1, input preparation (open-addressing weld and one edge table, inputs prepared concurrently): flipped soup 1 core 387 -> 185 ms, 4 cores 151 -> 92, open soup 4 cores 91 -> 30; lever 2, parallel `TriangleBoxTree` build from 262144 boxes (same tree node for node): 600k triangles per mesh 138 -> 94 ms; lever 3 (assembly / ExactPlanarSimplify) dropped, at most 3-4 % of the op (`benchmarks/Boolean30Prestudy/results/t1_summary.md`). The 55928 tail-case stage merged 2026-11-12 (#633, d6f6fe9d; see its bullet above; the exact-code review of the new bounds in 22eb5903). Then T5 / T1b per the execution order below.
-- **T5 PR 2 (Antipodal): in progress** (#675, draft, 2026-11-12): carry the open winding across input-triangle edges; the
-  cost count on the slow open models is done (numbers in the PR).
+  false. T3b (#616) merged 2026-11-11 (9c2342f6). T2 memory merged 2026-11-11 (#619, 5c0be691: box trees release their boxes and, after the classification, themselves; `InputTriangle` as a handle on arrays; corners from the input points; sph300: 391 -> 208 B retained, peak 1.05-1.26 -> 0.83-1.01 KB per input triangle, hashes equal; lever 1 dropped, see the pre-study correction; the 1.2 KB peak target is not met on cross150, 1.6-1.9 KB, where implicit points and output pieces dominate, out of reach of the layout levers). T1 scaling levers merged 2026-11-11 (#631, 6c5cb9ac; bit-identical, hashes equal; 4-core cloud, median of 5): lever 1, input preparation (open-addressing weld and one edge table, inputs prepared concurrently): flipped soup 1 core 387 -> 185 ms, 4 cores 151 -> 92, open soup 4 cores 91 -> 30; lever 2, parallel `TriangleBoxTree` build from 262144 boxes (same tree node for node): 600k triangles per mesh 138 -> 94 ms; lever 3 (assembly / ExactPlanarSimplify) dropped, at most 3-4 % of the op (`benchmarks/Boolean30Prestudy/results/t1_summary.md`). The 55928 tail-case stage merged 2026-11-12 (#633, d6f6fe9d; see its bullet above; the exact-code review of the new bounds in 22eb5903). T5 PR 2 merged 2026-11-12 (#675); T1b is closed by its bound (#843, open, see T1b below).
+- **T5 PR 2 (Antipodal): merged 2026-11-12** (#675, a8c39f3f): carry the open winding across input-triangle edges; the
+  cost count on the slow open models is in the PR.
   Reference check (c) done: with both switches lifted, Antipodal matches the direct GWN sum at every piece where FWN and
   Antipodal differ and the reference decides (117959: 1818, 122796: 43; FWN right at none); T5 faster on 7 of 10 models
-  (323 vs 595 s), 122796 2x slower (14.7 vs 7.5 s). **Owner 2026-11-12: option (A), lift both switches** in a follow-up PR
-  after #675 merges, with an OPERATIONS.md note on the cost (boundary segments times boundary sums).
-- **Fuzz findings (#624 group a, 2026-11-12), queue after #675, serial:** (1) #710 (bugfix): `ExactMeshBoolean`
+  (323 vs 595 s), 122796 2x slower (14.7 vs 7.5 s). **Owner 2026-11-12: option (A), lift both switches**: merged 2026-11-13 in #766 (open inputs to the
+  Antipodal Method up to 20000 boundary segments), with an OPERATIONS.md note on the cost.
+- **Fuzz findings (#624 group a, 2026-11-12): all done.** #710 fixed by #732 (2026-11-12), #719 by #759 (2026-11-13),
+  (A) merged in #766 (2026-11-13), #711 by P2 (#769, 2026-11-15). The original queue, serial: (1) #710 (bugfix): `ExactMeshBoolean`
   difference throws in `ExactTriangulation2.InsertConstraint` ("constraint was not inserted") on two cubes at ~3.7e-223
   with one corner at ~1.8e-284; first, a crash on finite input; (1b) #719 (coverage round 2, #716): the Antipodal
   open-mesh classification changes when one coordinate moves by 2^-1000 (union 1080 -> 1118 triangles; unit result with
@@ -229,7 +236,10 @@ limit. Remaining 3.0 steps (T3b onward) come as one PR per stage, one commit per
   identical, on the 33 rotated operations 28 identical, 2 newly clean, rounding +2.4 %); the D1 cohort acceptance run
   over all 5413 models (16 239 operations; `runs/position-search-cohort`, SAFE_ROUNDING.md section 9) is passed: no
   operation newly unclean, 16 232 rounding-clean results identical, 4 newly clean, MaxDrift within the bound;
-  (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
+  (3) research.md problem 3 restated; (4) the plateau variant of (2), 2026-11-15 (the note's section 10: design,
+  Z3 lemma, probe on what the rounding leaves today): it can gain 1 of the 16 239 cohort operations and no clean result
+  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; owner 2026-11-15: no-go before the release, no
+  spike, the rule stays a design. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
@@ -238,7 +248,11 @@ the original double inputs, so chained operations stay exact without rounding be
 coplanar faces stay mergeable). Effort L (4-8 weeks); starts with a design analysis on the strongest model (bit-length
 bounds per construction, the arrangement's input path from constructions, consumers: chained booleans, tet meshing).
 
-**T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change):** the library is unpublished, so
+**T1b, parallel SafeRounding edits (owner 2026-11-10: allowed, results may change): closed by its bound** (coordinator
+2026-11-13, option 1; #843, open): the edit loop is 0.54 % of the operation time, so parallel edits save at most 0.4 %
+on 4 cores ([EXACT_BOOLEAN_T1B_PROFILE.md](../design/EXACT_BOOLEAN_T1B_PROFILE.md)). #843 instead parallelizes the serial work outside the
+edits, bit-identical (rounding -15.7 %, boolean -4.7 % on 195 operations, 195 of 195 hashes equal). The original
+item: the library is unpublished, so
 changed rounding results are acceptable if they are not worse. Conditions: after D1 (#513) has landed, since both change the
 rounding; deterministic over thread counts and runs (fixed spatial partition, ordered commit); gate: a cohort run on the
 16 239 target operations with no op newly unclean, unclean count and MaxDrift distribution not worse, time measured.
@@ -363,6 +377,49 @@ final run at the end of Boolean 2.0 together with the control run (WP5). Results
 runner's data branch. #418 merged 2026-11-09; no result of either run is recorded here. Owner 2026-11-12: both runs are still wanted,
 queued behind Exact Boolean 3.0.
 
+**T6 measurement (runner, 2026-11-15; ours vs CGAL EPECK on 1k-100k triangles): no-go, the gap is 3.6-4.2x at the median, not <= 2x.**
+Workflow `t6-cgal.yml` (workflow_dispatch, GitHub-hosted `ubuntu-latest` with 4 cores, `cgal_bool` built unchanged from apt `libcgal-dev`, run as a black box;
+the CGAL package version was not recorded), master at `dbfea7c`, run 43711354899. Set: the fixed 100-pair CGAL sample (`pairs_cgal_sample.csv`) restricted
+to A + B in 1k-100k triangles: 98 pairs (27 in 1k-10k, 71 in 10k-100k; the 2 pairs above 100k are left out, no top-up needed), 3 operations, 294 operations
+per configuration; one process per boolean, booleans alone as in every class of this harness, `-j 1`. Ours once with 1 thread
+(`DOTNET_PROCESSOR_COUNT=1`, `taskset -c 0`) and once with all 4 cores; CGAL is single-threaded and ran in both jobs. Ratio = ours ms / CGAL EPECK ms per operation.
+Raw rows: branch `runs/t6-cgal`, `run-43711354899/`.
+
+| threads | bucket (A + B) | pairs | median ratio | p90 | max | ours clean | CGAL clean | refused / failed / timeout (both) |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 1k-10k | 27 | 4.37 | 9.38 | 24.00 | 72/81 | 66/81 | 0 |
+| 1 | 10k-100k | 71 | 4.21 | 8.14 | 13.44 | 198/213 | 155/213 | 0 |
+| 1 | all | 98 | 4.23 | 8.43 | 24.00 | 270/294 | 221/294 | 0 |
+| 4 | 1k-10k | 27 | 4.00 | 8.75 | 25.00 | 72/81 | 66/81 | 0 |
+| 4 | 10k-100k | 71 | 3.55 | 6.54 | 10.44 | 198/213 | 155/213 | 0 |
+| 4 | all | 98 | 3.61 | 7.09 | 25.00 | 270/294 | 221/294 | 0 |
+
+"Clean" counts results with an empty `NotCleanReason`; the other operations are empty results (9 + 15 per configuration, both methods agree, volume-consistent),
+for CGAL also `degenerate triangles` (6 + 43; no other reason). **All-clean: yes**, every one of our 294 results is clean or correctly empty, with no refusal, failure
+or timeout, in both configurations; CGAL EPECK produced degenerate triangles in 49 of 294 operations (17 %) and no refusal or failure on this set.
+
+Robustness of the ratio: CGAL's time is an integer number of ms, so the ratios of the fast operations are coarse (the maxima 24-25 are 25 ms vs 1 ms on a 22-triangle
+intersection). Restricted to operations with CGAL >= 50 ms (151 / 136 operations): median 3.40 / 2.70, p90 5.91 / 4.52, max 9.41 / 6.68 (1 thread / 4 cores). Sum of our times
+over the sum of CGAL's: 2.99 / 2.29 in 1k-10k and 3.52 / 2.86 in 10k-100k. Only 14 % (1 thread) and 19 % (4 cores) of the operations are within 2x. The 4 cores gain
+about 15-25 % over 1 thread on these sizes.
+
+Worst ratios with CGAL >= 50 ms (the five worst of the unrestricted list are 13-25x on operations of 1-4 ms for CGAL and are quantization-bound), phases in ms, 4 cores:
+
+| pair | op | ours / CGAL ms | ratio | result tris | largest phases |
+|---|---|---|---|---|---|
+| p0694_1514502+43651 | union | 521 / 78 | 6.68 | 60746 | intersections 291, rounding 95, assembly 51, setup 33, classification 22 |
+| p0694_1514502+43651 | difference | 494 / 74 | 6.68 | 52620 | intersections 286, rounding 82, assembly 45, setup 33 |
+| p0861_80557+285607 | difference | 330 / 53 | 6.23 | 59414 | rounding 104, intersections 83, assembly 46, setup 38 |
+| p0861_80557+285607 | union | 359 / 59 | 6.08 | 70760 | rounding 125, intersections 84, assembly 54, setup 38 |
+| p0738_237739+777037 | union | 338 / 60 | 5.63 | 35464 | rounding 157, intersections 69, assembly 30, merge 25 |
+
+The unrestricted worst five (1k-10k pairs p0521, p0300) take 13-82 ms for ours, of which `intersections` is 4-38 ms, `classification` 5-7 ms and `rounding` up to 21 ms, against 1-4 ms for CGAL: a
+fixed cost per operation that is small in absolute terms and large in the ratio on small inputs.
+
+**Verdict T6: no-go on the target as written** ("close the gap to CGAL EPECK on 1k-100k to <= 2x"): median 4.2x (1 thread) and 3.6x (4 cores), p90 7-8x, in both size
+buckets; the "only all-clean method" half holds (ours clean or correctly empty 294/294, CGAL 17 % degenerate). To reach 2x the median has to drop by about 45 % (4 cores) to 53 % (1 thread);
+the profile points at the pair search of `intersections` and at `rounding`. Nothing was optimised here; no mesh or input is committed (fetched at run time).
+
 **Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,
 #425, #426 on an integration branch (Boolean session) once #403 is merged and the master baselines are seeded; then
 the PRs merge one by one with normal CI. Done differently: the queue merged as one integration PR, #446 (2026-11-09,
@@ -373,7 +430,7 @@ decisions above): the ExactPredicates throw near ±1e308 (fixed: robustness swee
 
 #### Other open items
 
-Checked against the owner's decisions and git on 2026-11-12.
+Checked against the owner's decisions, git and the open PRs and issues on 2026-11-15.
 
 Open:
 
@@ -384,13 +441,27 @@ Open:
 - **Degeneracy criterion (`DegenerateArea` = 1e-12 × diag²):** its motivating cases 119829 / 119830 are clean since D1
   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
-- **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
-  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
+- **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): built as candidate D of the
+  exact-number study, draft #893 (2026-11-15): the arrangement's Orient and InCircle beyond the fixed width on stack
+  limbs; 55928 difference 352.8 -> 310.4 s (-12 %, 86 GB less allocation), other strata unchanged, hashes equal.
+- **Race on `windingTrees` near 1e308** (#882, bug): fix in #883 (open; CI green, its boolean-1..4 mutation shards time
+  out in the coverage pass, see the 3.0 process above).
+- **Measurement issues:** #825 (under dynamic PGO, the .NET default, 42327's classification is 8 % slower in the median
+  and 15-25 % slower in a quarter of the processes; boolean A/Bs now run with `DOTNET_TieredPGO=0`); #858 (thread
+  scaling beyond 4 cores on a 6-core / 12-thread desktop). #789: `ExactPoint3` hashes are seeded per process, so the
+  shard choice must not affect results (needs a test).
+- **Runtime watch** (#726 merged 2026-11-13; first report #888, on e741c130, no baseline yet): 10 of the 12 Thingi10K
+  boolean cases are above the 20 s hard limit (519511 and 498458 are not), eg 55928 union 480.7 s, difference 463.0 s,
+  1005586 union 56.6 s, 117959 union 39.9 s.
 - **Extreme-runtime boolean levers (owner 2026-11-12, study #734, `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`):**
   (1) a hierarchical antipodal boundary sum (Barnes-Hut far field with a certified fallback to the full sum, decisions
-  unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression), design note and
-  bound review first; (4) boolean allocations (the >= 10 % trigger of the settled item below is met: GC 11.3 % of the
-  inventory, 23-27 % on four ops). Both go into the serial exact-code queue after the #719 fix and (A) (T3a; #711 is replaced by P2, see below), ranked by measured gain.
+  unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression): design note
+  merged in #767 (2026-11-13), built and merged in #813 (2026-11-14); (4) boolean allocations (the >= 10 % trigger of the settled item below is met: GC 11.3 % of the
+  inventory, 23-27 % on four ops): part one in the arrangement merged in #768 (2026-11-13); the open-winding tracing in
+  #881 (open; 117959 33.2 -> 30.0 s, 18.3 -> 11.9 GB allocated, 38 of 38 hashes equal).
+  The rounding-search levers of the study's section 8 have an upper bound in draft #837: about 2 % on the normal
+  stratum, 2-3 % on the tail for lever 1, about 20 % on rotated CAD parts for lever 2 (`near`); the tree rebuilds
+  (8.2 %) are a larger target. #837 also saw 67709 union at 21.5 s under option A (9.0 s before).
   (3) A cost-weighted rounding budget for #711-type inputs (a `BigInteger` stage counts as k pair tests; #711 rounding
   15.6 s to 3.0 / 0.66 s; bit-identical on inputs without `BigInteger` stages) is approved and built in
   `MeshRoundingRepair` after #725, after a check of the 60 slow fuzz units; dropped 2026-11-12 in favour of P2 (below), re-measured once P2 is on master. Server GC advice goes into OPERATIONS.md.
@@ -412,7 +483,12 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
-  Candidate B is built (2026-11-13, #772): the classification's exact sign stages (plane side, normal dot, the
+  P2 is built and merged (#769, 2026-11-15, 97909549): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
+  by the monomial pass ([design](../design/EXACT_FALLBACK_MONOMIALS.md)); on master a7693fd the 61 units of the #711
+  class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
+  shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
+  (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
+  Candidate B is merged (#772, 2026-11-14): the classification's exact sign stages (plane side, normal dot, the
   4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
   ([design](../design/EXACT_LIMB_SIGNS.md)). Measured against master 683fb2c (4 cores, wall time with collections,
   median of 5): slow tail 42327 -15 to -17 % per operation (three quarters of it the collector's pause, 12.8 GB less
@@ -422,8 +498,25 @@ Open:
   nothing; the exact point construction is 2.4 % / 4.9 % of the normal stratum's one-thread time (20 pairs / 13
   models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
   that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
-  15 % of the slow tail's one-thread time, nothing on the normal stratum) are parked until lever 1 (#767) has
-  landed, which changes how often these stages run, and are measured again then.
+  15 % of the slow tail's one-thread time, nothing on the normal stratum) were parked until lever 1 (#813) had
+  landed and measured again on 2026-11-15 ([design](../design/EXACT_LIMB_SIGNS.md), section 6): the bound is 9 % /
+  16 % of the one-thread time of 107554 / 42327 (lever 1 does not change how often these stages run there); a probe
+  that reads the operands from `BigInteger`'s own limbs and computes the centroid on stack limbs gains 6.3 % of the
+  one-thread time of the two models together (42327 -6.7 %, confirmed; 107554 -5.5 %, inside the run-to-run range)
+  and nothing on the normal stratum. Recommendation: go for that cheap form as one small PR, if the owner accepts
+  the access to `BigInteger`'s private fields behind a layout check; no-go for limbs threaded through the
+  classification. The owner declined that access (2026-11-15), and the route through the public API was probed the
+  same day (section 7): limbs converted once and carried beside the planes and the centres gain nothing alone; with
+  the limb centroid 42327 is 5.0 % faster on one thread in the median, not confirmed (the ranges overlap; its
+  classification is confirmed 9.7 % lower), 107554 3.6 %, the two together 4.5 %, 4 cores and the normal strata
+  nothing; hashes equal. A no-go by the 5 % line: the classification part of candidate C is closed and nothing of
+  it is built. The study ends with this. Candidate D is built
+  (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
+  BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
+  `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the
+  branch of B (4 cores, wall time with collections, median of 5): 55928 352.8 -> 310.4 s (-12.0 %, 15 s of it the
+  collector's pause, allocation 180 -> 94 GB); 107554, 42327 and the normal stratum unchanged within the run-to-run
+  range; hashes equal.
 - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
   its tail (4 cores, median of 5, alternating A/B, hashes equal):
   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
@@ -450,7 +543,12 @@ Open:
     - Tail: -3.2 % with gen0 and -1.6 % with server GC (the four 3 s models -8 to -19 %, 1088051 about -2 %).
     - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
       simplify about 30 %, setup 4 %.
-    - Next: presizing and reuse of scratch buffers in the arrangement, after the files are cleared.
+    - **Done (classification, L2's tracing):** the closure and delegates per `carried_crossings` call replaced by a
+      struct visitor, `LocalFrame.Corner` without the exact point where the double difference is exact, the remaining
+      BigInteger dot products on stack limbs, no copy for the projection query, one `carry_bound` box per thread.
+      Bit-identical; 117959 union: classification 14.4 -> 7.9 GB, 23.9 -> 20.7 s, run 33.2 -> 30.0 s. What allocates
+      there now: the `Center` per piece (about 5 %), the pierce candidates per step key, the per-frame dictionaries.
+    - Done (arrangement): presizing and reuse of scratch buffers, merged in #768 (2026-11-13, part one).
     - Open (snap-rounding follow-up): reusing the `TriangleBoxTree` that `MeshRoundingRepair.rebuild_tree` builds again
       and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
       `claude/lever4-arrangement-allocs`: the reuse constructor, the check for a released tree, two tests, and the
@@ -469,8 +567,8 @@ Settled:
   to 309 bits, centroids up to 807 bits; #633, 2026-11-12); the Int384 planes spike gave about 0 % in total. Deleting the
   branches after #633 is an owner question.
 - **`coplanar_stack` worst-case latency:** not built, closed (owner 2026-11-01; CHEAPER_CONSTRUCTIONS.md section 10a).
-- **Boolean allocations / `ArrayPool`:** superseded by 3.0 T2 (#619) and the #633 GC measurement (server GC is the
-  application's choice, OPERATIONS.md); pooling was measured without gain; no new dependency.
+- **`ArrayPool`:** pooling was measured without gain; no new dependency. Memory went into 3.0 T2 (#619); server GC
+  is the application's choice (OPERATIONS.md). Allocations as such were reopened as lever 4 (#768 merged, #881 open).
 - **Boolean performance leftovers:** planes in fixed width dropped (see above); the generator for the envelope predicates
   done (ENVELOPE.md section 6); the slow `exact.resolve` on 67709 / 42327 diagnosed (CHEAPER_CONSTRUCTIONS.md section 10a).
 - **Open inputs, winding propagated across patches** (branch `claude/exact-boolean-gwn-propagation`): superseded by the
@@ -491,7 +589,7 @@ Continues, at the owner's request.
 
 Done: `AddPoint` shards (#222).
 
-Next, in order: fixed-width exact points, 4 limbs (#223: cherchi / cgal −8 %, Thingi10K −11 %, n-ary −26 %, all hashes identical); then the **predicate compiler on fixed-width inputs**, stacked on #223 and started without waiting for its mutation runs: regenerate the arrangement's `InCircle` / `Orient` from the generator of #221 with the exact bit bounds of the 4-limb points, so that the `BigInteger` fallback (about half of the calls with the grid-fitted bounds of #221) mostly disappears; the fallback rate is a reported metric. The generator stays an offline tool with a checked-in, reviewable output and an up-to-date test, not a Roslyn source generator, because the bounds review needs the generated code in the diff. The grid-fitted `ArrInCircle` of #221 is not merged. Later: planes / CSR (section 12 of the fixed-width design), and the generator reused for the envelope predicates (stage 7). Hand-over and ranked candidates: [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md). Exact code: bounds review and mutation runs on every PR.
+Built in this order (all merged by 2026-11-01): fixed-width exact points, 4 limbs (#223: cherchi / cgal −8 %, Thingi10K −11 %, n-ary −26 %, all hashes identical); then the **predicate compiler on fixed-width inputs**, stacked on #223 and started without waiting for its mutation runs: regenerate the arrangement's `InCircle` / `Orient` from the generator of #221 with the exact bit bounds of the 4-limb points, so that the `BigInteger` fallback (about half of the calls with the grid-fitted bounds of #221) mostly disappears; the fallback rate is a reported metric. The generator stays an offline tool with a checked-in, reviewable output and an up-to-date test, not a Roslyn source generator, because the bounds review needs the generated code in the diff. The grid-fitted `ArrInCircle` of #221 is not merged. Later: planes / CSR (section 12 of the fixed-width design; dropped, see Settled), and the generator reused for the envelope predicates (stage 7; done). Hand-over and ranked candidates: [perf/EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md). Exact code: bounds review and mutation runs on every PR.
 
 **Status 2026-11-01:** #223 (fixed-width points) and #248 (pair search by a self-join of the box tree, cgal + Thingi10K −7.9 %) wait for their mutation runs; the compiler (#244) and the indirect predicates (#246 / #250 / #257, LPI / TPI filter 47-86 ns against 3-7 µs to construct, no expansion stage) are stacked on them. CSR is dropped as a step of its own (1-2 %); a GC trace on cherchi decides later. Cheaper exact constructions merged in #256 (2026-11-01; cgal + Thingi10K −5.5 %; coplanar_stack not built, owner); the session is archived. #246 (indirect predicates step a) merges next; its stack #250 → #257 → #258 → #263 → #268 follows as internal code (envelope stopped). On 2026-11-01 the owner chose not to wait for PR mutation runs of #246, #251 and #256: a full run on master after the merges is their gate and the baseline, and a shard below its threshold becomes a follow-up fix
 
@@ -503,7 +601,7 @@ Its own session, kept apart from the performance work (performance must stay bit
 
 **Status 2026-11-01:** (4) merged in #249 (bit-identical on the boolean hashes); `IntrTriangle3Triangle3` exact for coplanar and nearly parallel pairs, merged in #253; (1) as the displacement bound D′ (edits refused beyond 1e-5·diag), merged in #251 on 2026-11-01: **milestone "ExactMeshBoolean 1.0" reached** (#223, #244, #248, #249, #251, #253). 1b (strip zip) merged; the UTM tolerance (ulp term, vertex removal, strict mode) merged in #287 on 2026-11-02. The pass-through API merged in #294 (2026-11-02); the CLI exposes the options.
 
-Next: the snap-rounding experiment (options A, then B) in a fresh session, from the handoff in [design/SAFE_ROUNDING.md §6](../design/SAFE_ROUNDING.md#6-handoff-for-the-snap-rounding-experiment-2026-11-02); (3) concept in [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md)
+Then: the snap-rounding experiment (options A, then B; measured and closed in #313, below) in a fresh session, from the handoff in [design/SAFE_ROUNDING.md §6](../design/SAFE_ROUNDING.md#6-handoff-for-the-snap-rounding-experiment-2026-11-02); (3) concept in [design/SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md)
 
 **Snap-rounding experiment (owner 2026-11-02):** prototypes A (extended Milenkovic–Sacks) and B (Valque-Lazard, drift-bounded) behind off-by-default options; go / no-go fixed in advance: B default-on only if it raises the clean share on the Thingi10K self-unions measurably within the drift and Hausdorff bounds at acceptable time; A only for a remainder only A fixes; otherwise measured and closed. First a bugfix for SafeRounding's 2^k invariance (absolute thresholds in MeshRoundingRepair).
 
@@ -530,7 +628,7 @@ Tier: L. Parallel: 1 large session, when a large slot is free (after meshing or 
   Open inputs give consistently oriented results also where an open boundary lies on an edge that other pieces
   meet (no inside/outside choice fits all pieces there): pieces that run such an edge the same way are not joined,
   the result is open along it (`ConflictEdges`).
-- [ ] Open inputs: generalized winding numbers propagated across patches (integer jumps across patches, "same value"
+- [x] (Superseded by #528, #539 and #633 L1; see Settled.) Open inputs: generalized winding numbers propagated across patches (integer jumps across patches, "same value"
   for the sides that face each other around an edge, merged in order of increasing difference of the estimates
   while they agree within a tolerance) instead of one independent estimate per patch. It only moves the cracks
   where patches cross the missing surface of an open input; the orientation is consistent without it. Synthetic
@@ -553,7 +651,8 @@ Tier: L. Parallel: 1 large session, when a large slot is free (after meshing or 
   `ComputeExactVertices` (exact rational coordinates). `MeshRobustRepair` uses it in its exact stage: Thingi10K
   `robust` 265 → 270 repaired (same build, with and without).
 
-- [ ] Exact boolean performance, ranked ideas in [EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md), section 3. The first idea, exact
+- [x] (Superseded; see Settled: fixed width does not reach, P2 #769 and the limb kernels #772 / #893 replace the
+  `BigInteger` stages.) Exact boolean performance, ranked ideas in [EXACT_BOOLEAN_PERFORMANCE.md](../perf/EXACT_BOOLEAN_PERFORMANCE.md), section 3. The first idea, exact
   arithmetic without `BigInteger`, starts from two unmerged branches: `claude/int256-spike` (`Int384` planes, not for merging as it is) and
   `claude/collinear-shortcut` (reviewed, with tests, at most 2 % on the input classes, below the 10 % bar). Exact code, so it goes to the owner. Keep both branches.
 
@@ -591,3 +690,23 @@ bound decides. Item (B), a batched or dual-tree fast winding number per patch: m
 per-piece query work (the near-field triangle terms are 70-78 % of it; Exact Boolean 3.0 pre-study,
 docs/design/EXACT_BOOLEAN_30_PRESTUDY.md section 5, PR #532): not planned. The remaining lever is what is evaluated: (C), the
 exact Antipodal Method (LEVY_CLASSIFICATION.md 4.2, after the owner decision and patent check), or fewer queries.
+
+### Open for the future (2026-11-15)
+
+1. Race on `windingTrees` near 1e308: fix #883 (issue #882); narrow the boolean-1..4 shard filter so the coverage pass ends.
+2. Lever 4, allocations of the open-winding tracing: #881 (open).
+3. Candidate D, the arrangement's Orient / InCircle beyond the fixed width on stack limbs: draft #893 (55928 -12 %).
+4. SafeRounding work outside the edits, bit-identical, which also closes T1b: #843 (open; narrower rounding-shard filters).
+5. The tail above the 20 s hard limit: 55928 (about 460-480 s), 1005586, 112798, 117959, 42327 and others (#888).
+6. Rounding: the rounding-search levers (upper bound in draft #837) and reuse of the `TriangleBoxTree` in `rebuild_tree` (reference 3ec47ffb).
+7. Candidate C (centroid and plane coefficients as limbs in the classification): re-measure now that lever 1 (#813) is merged.
+8. Measurement issues: dynamic PGO slowdown #825; thread scaling beyond 4 cores #858.
+9. Determinism obligation for `ExactPoint3` hash seeding: a test (#789).
+10. The Exact Boolean 3.0 mutation process PR: #615 (open).
+11. The thingi-pairs baseline and final runs, after Exact Boolean 3.0 (owner 2026-11-12).
+12. Research: 3D snap rounding #721 (the plateau variant of the position search: no-go before the release, owner
+    2026-11-15); draft: Thingi10K full-corpus harness #385.
+13. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
+    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
+    2026-11-15; #867 fixes the contact case of the float cut).
+14. Not scheduled: S3 (sharing A's setup across the Bi), EMBER lever 2, Exact Boolean 4.0 (exact output with provenance), mesh-kernel ideas.

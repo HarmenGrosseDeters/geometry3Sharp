@@ -236,7 +236,7 @@ x64 and as a 32-bit process; .NET 10.0.15), 61 cases.
 | R1 | platform libm in `TerrainSlope*` | **real**: `TerrainSlopeDesign` with a Ratio slope and a libm-free input differs in 20 of 15302 result values between windows net10 and windows net48, and between linux net10 and windows net10 (linux net10 and windows net48 agree). Cause, by moving each of the 15 reached call sites by one ulp: `Cos / Sin` of the fan directions (`TerrainSlopeDesign.cs:1716`), which define the planes given to the exact kernel; the other sites feed decisions and bounds and did not flip | #802 (owner decision: libm rule for `TerrainSlope*`, the one line only, or outside L1) |
 | R4 | `Math.Min / Max` on zeros | confirmed: `Min(-0, +0)` and `Max(+0, -0)` differ (.NET Framework returns the second operand, .NET the IEEE 754-2019 result); with a NaN operand both agree. Six sites of the exact scope can pass the zero to a result value | #803 |
 | R5 | `double -> integer` casts | confirmed: 63 of 150 probed casts of NaN and out-of-range values differ (.NET saturates, NaN gives 0; .NET Framework gives the minimum value). The audit found one site that a valid input drives out of range (`TerrainSlopeDesign.cs:1090`) | #804, #808 |
-| R7 | hash values | confirmed: `BigInteger` (so `ExactPoint3`), `ValueTuple` and `string` hashes differ between any two runs on .NET 10 and are fixed on .NET Framework; `double.GetHashCode` differs between the runtimes for 1 of 8 probed values. No Boolean result depends on them on any configuration | #789 (the obligation needs a test that perturbs the hash) |
+| R7 | hash values | confirmed: `BigInteger` (so `ExactPoint3`), `ValueTuple` and `string` hashes differ between any two runs on .NET 10 and are fixed on .NET Framework; `double.GetHashCode` differs between the runtimes for 1 of 8 probed values. No Boolean result depends on them on any configuration | #789: `ExactBooleanDeterminismTests.PointHashes_DoNotAffectTheResult` perturbs the hashes of the arrangement's point indexes and of its merge of equal points (two salts, and every point in one shard; serial and parallel; a choice of the representative of equal points that mixes the hash value with the id fails it). Enumeration order is no channel: `Dictionary` / `HashSet` enumerate their entries in insertion order (with the free list of removals) on both runtimes, whatever the hashes (an implementation fact, R8); the channel is a use of the hash value itself, and nothing iterates the shards. This is the stage 2 ledger entry of R7 for `ExactMeshArrangement`. Not perturbed, lookup-only by inspection (ids handed out by `Count` in insertion order, never enumerated): the `BigInteger` tuple keys of `ExactPlanarSimplify` (`groups`, `planes`), the `ValueTuple` plane buckets and the `Vector3d` index of `ExactMeshArrangement` |
 | R8 | enumeration order of `Dictionary` / `HashSet` | the same on both runtimes after inserts, after removals, after refills, after set operations and `TrimExcess`, also for keys with seeded hashes; different only for a `HashSet` emptied by `Remove` and refilled | none; the rule stays (the order is unspecified), the two `.Values` sites of the Boolean rest on behaviour that held here |
 | R10 | seeded `System.Random` | the same sequence on both runtimes | none; the rule stays (not promised) |
 | R11 | order of equal keys after the unstable sorts, `BinarySearch` among duplicates | the same on both runtimes for 16 to 20000 elements and six overloads | none; the rule stays |
@@ -251,30 +251,36 @@ them. They belong to the stage 2 ledger.
 ### 5.2 Stage 0: the exact kernel as a closed world (#859)
 
 Option A, stage 0, is built: the analyzers G3D0001-9 (`tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs`)
-are errors in the eleven kernel files of section 6.1 (`.editorconfig`; generated code is analyzed too, so a kernel file
+are errors in the thirteen kernel files of section 6.1 (with `math/ExactLimbSigns.cs`, the stack-limb signs that `ExactMeshBoolean` calls, added after #871) (`.editorconfig`; generated code is analyzed too, so a kernel file
 marked as generated stays in), and the allow list with its registrations is
 `DeterministicApis.txt` at the repository root.
 
 | rule | checks | registration |
 |---|---|---|
-| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the eleven files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`), calls whose target is chosen at run time (delegate and function-pointer invocations) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
+| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the thirteen files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`), calls whose target is chosen at run time (delegate and function-pointer invocations) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
 | G3D0002 (R4, R7, R13, R14) | a restricted entry is used only where allowed: `[sites]` entries (`Math.Min / Max` of doubles, `(double)BigInteger`, `Vector3d.ToString`, `[ThreadStatic]`, `Interlocked`, `Volatile`, `Monitor`) only in registered members; `[hash]` entries, and every `GetHashCode` call (also of the kernel's own types, whose dispatch the analyzer does not follow), only inside a `GetHashCode` override or an `IEqualityComparer<T>.GetHashCode` implementation | a `site` line per member with its justification |
 | G3D0005 (R6) | every `#if` / `#elif` block, counted per member | an `if` line with the count and the test that checks both branches |
 | G3D0006 (R5) | every conversion of a `double` to an integer type or enum (also nullable, and `foreach` element conversions), counted per member | a `cast` line with the count and the guard |
 | G3D0007 | no `#pragma warning disable` of these rules (or of all), of RS0030 or G3E, no `#define`, `#undef`, `#line` in the kernel; reported again at the start of the scope's first file, where no pragma reaches | none |
 | G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line, on the symbol that carries the attribute, with the argument that every element is written before it is read |
-| G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
+| G3D0009 | the list is exact: an entry or registration that the kernel does not use, a malformed line, or a geometry3Sharp member whose declaration no longer has the pinned hash, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
-**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 107 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 18 conditional-compilation blocks in 18 members; 2 `double` to integer conversions in 1 member(s); 9 `[SkipLocalsInit]` members.
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 116 external members (37 of them geometry3Sharp members declared outside the kernel, 11 only on the `#if NET` side), 9 restricted to registered sites (21 sites), 1 restricted to `GetHashCode` implementations; 36 conditional-compilation blocks in 30 members; 2 `double` to integer conversions in 1 member(s); 18 `[SkipLocalsInit]` members.
 
-**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the eleven kernel files computes a
+**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the thirteen kernel files computes a
 function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
 clock, the culture, a hash seed or what an earlier call left in memory, given the reasons of the listed entries and the
 obligations below. With P4 (the kernel's predicates and exact constructions are defined by their inputs mathematically,
 and their correctness tests compare with oracles), every predicate returns the sign its specification defines. The
-reasons of the 31 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
-`MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their bodies today: those files are not checked by
-the rules (nor by G3E0001-4). Extending the scope to exactly these declarations is stage 1 work. What carries the claim:
+reasons of the 37 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
+`MathUtil.IsFinite`, `JitHints`, `PredicateStats`, `ExactMeshArrangement.Det4`) are a review of their declarations; the rules do not analyze those
+files (nor does G3E0001-4), but each entry pins the text of the declaration it reviewed (`[body:h]`, an FNV-1a hash of
+its tokens, comments and line breaks, the indentation between tokens ignored, a disabled `#if` branch tokenized as if
+it were active; the same on every runtime, target and line-ending convention): a changed declaration fails the build (G3D0009) until it is reviewed again and the tag updated, and a
+pinned declaration may use geometry3Sharp members outside the kernel only if they are listed and pinned too (closure;
+it brought in `Index3i.a / b / c` and `PredicateStats.counters / Kind.Count`). Not covered by the pin: the containing
+type (struct or class, layout attributes), what the names bind to (usings, overload resolution), implicit enum values,
+and build switches (`G3_PREDICATE_STATS`). What carries the claim:
 
 - T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel's own code uses `+ - * /`, `Math.Sqrt`,
   `Math.Abs`, comparisons and bit reinterpretation (G3D0001 lists no libm member, no FMA, no `float`, which G3E0001-4
@@ -303,13 +309,73 @@ guards the growth of the chunk table only, and a slot is written by the one thre
 `ExactPoint3` is seeded per process on .NET (R7) and reaches hash containers only, whose consumers are stages 1 and 2.
 The two branches of the generated `__dec` / `__bits` are checked against one oracle on each runtime (the net48 job), not
 against each other (the generator inlines the portable loop); the other seven `#if NET` members are compared with their
-portable twins value by value on .NET (`KernelPortableBranchTests`), the nine `[SkipLocalsInit]` members run on a stack
+portable twins value by value on .NET (`KernelPortableBranchTests`), the eighteen `[SkipLocalsInit]` members run on a stack
 filled with patterns against a zeroed one (`SkipLocalsInitKernelTests`). Found while building it: the hand-made list of 72
 members missed the two implicit `int` / `long` to `BigInteger` conversions and the `lock` of `FixedPointStore.Add`, and
 did not count the 31 members of geometry3Sharp outside the kernel; no `Math.Min / Max` site of the kernel lets the sign
 of a zero reach a value (interval bounds go through `make`, which replaces a zero bound by -2^-1074 / +2^-1074; the other
 sites compare, or take `Math.Abs` values). The only kernel change: `trailing_zeros` and `leading_zeros` became internal,
 so that the branch test can call them.
+
+### 5.3 Measurement: the exact kernel and its allow list on net48 and net10.0 (2026-11-15)
+
+**Cases.** The harness cases `kernel.*`, `ledger.*` and `boolean.rounding.*` (`tools/DeterminismHarness/Kernel.cs`, README "Kernel
+and allow list") run:
+- the kernel's operations: the predicates and their exact stages, `ExactPoint3`, `FixedPoint3`, `ExactLimbSigns`, the triangle, ray
+  and slope predicates, the intervals;
+- the members of its allow list (`DeterministicApis.txt`) on edge inputs;
+- Booleans whose rounding meets coplanar and near contacts.
+
+**Inputs.** All inputs are procedural, from a splitmix64 stream. The point sets of the predicates come in exponent classes from subnormal
+(2^-1060) to 2^900, as random, nearly degenerate (a point moved by a few ulps off a line or plane), small-integer (exact degeneracies, no
+exponent) and repeated sets. The other cases have their own classes:
+- bit lengths for `ExactPoint3`, `FixedPoint3` and `ExactLimbSigns`, with exact zeros and steps of one;
+- exponents -100..100 plus `double.Epsilon` and -0 for the intervals.
+
+**Runs.** The `compare` job of `determinism.yml` prints the hash and value count per case and configuration (`measurement_rows.py`). The
+table below summarizes them with the per-section counts of `compare --brief` and the analysis.
+- Round 1: run 43719418661 (head 41b734a).
+- Round 2 (head 21b83f6): new input classes (every kind in every exponent class), the inputs in the trace, and `kernel.limbsigns.path`
+  split off (compare job 132841141622).
+- Rounds 3 and 4: runs 43726025267 and 43732107965. Only the trace sections changed, so the hashes are those of round 2.
+- Round 5 (run 43734524750) and round 6 (run 43736653039, head 76925c4: only the filter flag changed): after the review, `kernel.limbsigns` with true zero sides and degenerate sets,
+  `boolean.rounding.*` and `kernel.slope` with their inputs in the trace, and the filter's agreement with the exact test
+  (`/filter-wrong`).
+
+**Configurations.** The columns are Linux and Windows net10.0, Windows net48 64-bit and 32-bit (x87, the legacy JIT, run serially only),
+and Linux arm64 net10.0. Each comparison is between serial runs. In addition:
+- serial equals parallel on Linux and Windows net10.0 and on net48 64-bit;
+- the processor counts 1, 2, 3 and 8 (Linux x64) and 1 and 3 (arm64) give the same results;
+- the one exception is `probe.hash-seeded`, by design.
+
+| case | net10 linux / windows | net48 x64 | net48 x86 | arm64 | explanation |
+|---|---|---|---|---|---|
+| `kernel.predicates.double`, `.adaptive`, `kernel.exactpoint`, `kernel.fixedpoint`, `kernel.limbsigns`, `kernel.slope`, `kernel.intervals`, `ledger.biginteger`, `probe.bigint-double`, `probe.double-bigint` | = | = | = | = | the same bits in every class of each case (the classes above) |
+| `boolean.*.exact`, `.saferounding`, `boolean.box-sphere`, `boolean.rounding.*` | = | = | = | = | the inputs and the Boolean results agree, including the rounding and the status. The rounding cases are coplanar contacts at 2^-30, 1 and 2^30, with and without `SafeRounding`, and a near contact |
+| `kernel.limbsigns.path` | = | differs | differs | = | which branch ran: the stack limbs are `#if NET` only, and .NET Framework takes the BigInteger expression. The signs (`kernel.limbsigns`) agree, as registered (G3D0005) |
+| `kernel.triangles` | = | = | differs (34 values) | = | only `TriangleTriangleFilter.BeyondShared` at 2^900 (section `/filter`): *Undecided* on one runtime, a certain answer on the other. The filter projects along the dominant axis of A's floating-point normal (`by_projection`). At 2^900 the cross product overflows to infinity or NaN with SSE2; in an x87 register it may stay finite (inferred, not isolated by a probe), so another axis is chosen. Every later decision is an exact `Orient2d`, and a projection that separates along any axis proves the 3D separation, so both answers are valid. `/filter-wrong` (1 where a certain answer of the filter is not the exact test's) is 0 on every configuration, net48 x86 included (round 6), and all the exact tests agree |
+| `kernel.ray` | = | = | differs (37 values) | = | the second point of the ray (`ExactRayTriangle.SecondPoint`, a double computation, `/secondpoint`), for subnormal inputs only: 22 values in 12 sets. With SSE2 only `direction * 2^m` rounds there. The difference is consistent with x87 carrying the unrounded product into the sum and rounding twice when it stores the result (not isolated by a probe). A different second point is a different ray, so its exact signs may differ, and they do only there: the 15 differing signs are those of 3 of these 12 sets (`repeat` sets #407, #1295 and #1391 of run 43732107965, 5 signs each: a ray through a vertex, where any change of direction changes the answer). No sign differs in a set whose second point agrees, and the exact predicates agree on x86 for every subnormal input (`kernel.predicates.*`) |
+| `ledger.math` | = | 2 values | 2 values | 979 values | net48: `Math.Min / Max` of opposite zeros (`min-max-zeros`, R4, #803; the kernel's result values use `MathUtil.MinExact / MaxExact`). arm64: only the bits of NaN results (`sqrt-nan` 977, `arith-nan` 2). ARM's default NaN has no sign bit and x64's has one, and IEEE 754 leaves the payload and sign open. NaN results are outside the claim's input domain (section 2, R18) |
+| `probe.cast-range`, `probe.minmax-zero` | = | differ | differ | = | the measured runtime facts of R5 and R4 (#804, #803) |
+| `boolean.union.libm-input` | windows differs from linux | = linux | differs | = linux | the input is made with the platform libm (`Math.Sin`), so the input differs; libm is R1 |
+
+Conclusions:
+1. **For the same double inputs, the exact kernel gives the same results on every runtime and processor measured.** That covers every
+   sign, every exact value and every Boolean result, in the input classes above. The differences are:
+   - a branch flag, by design;
+   - a filter's *Undecided*;
+   - a double approximation that defines a ray;
+   - NaN bits;
+   - the known `Min` / `Max` and cast facts of R4 and R5, which the allow list already restricts.
+2. **32-bit .NET Framework (x87, R2, T4) is a different floating-point machine at the edges of the range.** Its precision control is 53
+   bits there, so in the normal range it rounds as SSE2 does. Intermediate overflow and gradual underflow behave differently.
+   - Inside the kernel this reaches only values whose role is approximate: a filter's decision to defer, and the ray's second point.
+   - Results that take such a value as their *input* can differ for subnormal or near-overflow coordinates on net48 x86. These are the
+     winding ray of the Boolean, and the public ray queries that define their ray by `SecondPoint` (`DMeshAABBTree3`, `IntrRay3Triangle3`).
+   - The stage 1 and 2 obligations of these consumers have to show that the result does not depend on the ray chosen, or state the input
+     range. Owner decision C4 keeps 32-bit outside the claim for float code; whether it also stays outside for subnormal and
+     near-overflow coordinates is an owner decision.
+3. **No timing**: speed on net48 is the owner's local comparison (#929).
 
 ## 6. Proposal
 

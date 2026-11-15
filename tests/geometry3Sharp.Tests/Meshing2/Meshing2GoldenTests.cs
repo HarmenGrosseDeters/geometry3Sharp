@@ -42,33 +42,56 @@ namespace geometry3Sharp.Tests
             Assert.Equal(text, file.Write());
         }
 
-        [Trait("Category", "Slow")]
-        [Fact]
-        public void M3_RecordedRows_AreReproduced()
+        // M3 and M3Constrained: a theory row per recorded case (the whole file in one test took 11-14 s alone, over the 10 s rule; every
+        // case is independent). The set checks (the rows are the cases, every row has a reason, the file round-trips) are cheap facts.
+        static readonly Lazy<GoldenFile> M3Golden = new Lazy<GoldenFile>(() => GoldenFile.Parse(File.ReadAllText(Path.Combine(Dir, "m3.json"))));
+        static readonly Lazy<List<Mesh2Case>> M3Cases = new Lazy<List<Mesh2Case>>(() => Catalogue.Rows()
+            .Where(r => r.Case != null && r.Case.Milestone == Milestone.M3 && r.State == CaseState.Covered && !r.Slow).Select(r => r.Case).ToList());
+        static string M3ConstrainedText => File.ReadAllText(Path.Combine(Dir, "m3-constrained.json")).Replace("\r\n", "\n");
+        static readonly Lazy<GoldenFile> M3ConstrainedGolden = new Lazy<GoldenFile>(() => GoldenFile.Parse(M3ConstrainedText));
+        static readonly Lazy<List<Mesh2Case>> M3ConstrainedCases = new Lazy<List<Mesh2Case>>(() => ConstrainedGoldenCases.Ci());
+
+        public static IEnumerable<object[]> M3Ids() => M3Golden.Value.Rows.Select(r => new object[] { r.Case });
+        public static IEnumerable<object[]> M3ConstrainedIds() => M3ConstrainedGolden.Value.Rows.Select(r => new object[] { r.Case });
+
+        static void CheckRow(GoldenFile file, List<Mesh2Case> cases, string id)
         {
-            // the covered catalogue rows of milestone M3 except the slow ones, as `golden check --milestone M3` takes them
-            var file = GoldenFile.Parse(File.ReadAllText(Path.Combine(Dir, "m3.json")));
-            var cases = Catalogue.Rows().Where(r => r.Case != null && r.Case.Milestone == Milestone.M3 && r.State == CaseState.Covered && !r.Slow).Select(r => r.Case).ToList();
-            Assert.True(file.Rows.Count == cases.Count && cases.Count >= 20, file.Rows.Count + " rows for " + cases.Count + " covered cases");
-            Assert.All(file.Rows, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason), row.Case));
-            var problems = GoldenProcess.Check(file, cases, CandidateRegistry.For(Milestone.M3));
+            var one = new GoldenFile { Rows = file.Rows.Where(r => r.Case == id).ToList() };
+            Assert.Single(one.Rows);
+            var problems = GoldenProcess.Check(one, cases.Where(c => c.Id == id), CandidateRegistry.For(Milestone.M3));
             Assert.True(problems.Count == 0, string.Join("\n", problems));
         }
 
-        [Trait("Category", "Slow")]
         [Fact]
-        public void M3Constrained_RecordedRows_AreReproduced()
+        public void M3_RecordedRows_AreTheCoveredCases()
         {
-            string text = File.ReadAllText(Path.Combine(Dir, "m3-constrained.json")).Replace("\r\n", "\n");
-            var file = GoldenFile.Parse(text);
-            var cases = ConstrainedGoldenCases.Ci();
+            // the covered catalogue rows of milestone M3 except the slow ones, as `golden check --milestone M3` takes them
+            var file = M3Golden.Value;
+            var cases = M3Cases.Value;
+            Assert.True(file.Rows.Count == cases.Count && cases.Count >= 20, file.Rows.Count + " rows for " + cases.Count + " covered cases");
+            Assert.Equal(cases.Select(c => c.Id).OrderBy(x => x, StringComparer.Ordinal), file.Rows.Select(r => r.Case).OrderBy(x => x, StringComparer.Ordinal));
+            Assert.All(file.Rows, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason), row.Case));
+        }
+
+        [Theory]
+        [MemberData(nameof(M3Ids))]
+        public void M3_RecordedRow_IsReproduced(string id) => CheckRow(M3Golden.Value, M3Cases.Value, id);
+
+        [Fact]
+        public void M3Constrained_RecordedRows_AreTheCases()
+        {
+            var file = M3ConstrainedGolden.Value;
+            var cases = M3ConstrainedCases.Value;
             Assert.True(cases.Count >= 30, "too few constrained catalogue cases: " + cases.Count);
             Assert.Equal(cases.Count, file.Rows.Count);
+            Assert.Equal(cases.Select(c => c.Id).OrderBy(x => x, StringComparer.Ordinal), file.Rows.Select(r => r.Case).OrderBy(x => x, StringComparer.Ordinal));
             Assert.All(file.Rows, row => Assert.False(string.IsNullOrWhiteSpace(row.Reason), row.Case));
-            Assert.Equal(text, file.Write());
-            var problems = GoldenProcess.Check(file, cases, CandidateRegistry.For(Milestone.M3));
-            Assert.True(problems.Count == 0, string.Join("\n", problems));
+            Assert.Equal(M3ConstrainedText, file.Write());
         }
+
+        [Theory]
+        [MemberData(nameof(M3ConstrainedIds))]
+        public void M3Constrained_RecordedRow_IsReproduced(string id) => CheckRow(M3ConstrainedGolden.Value, M3ConstrainedCases.Value, id);
 
         [Fact]
         public void M3Constrained_InputsAreDistinct_AndCatalogueIsUnchanged()

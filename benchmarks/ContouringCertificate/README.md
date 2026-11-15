@@ -150,3 +150,47 @@ level-set classification, the bins, the cell lists, the cell tests and the mesh 
 Against the serial path (commit 3) at / 128: the clean T1 meshes from 33-34 % to 16-19 %, the solids from 17-21 % to
 12 %. The target (15 % at most) is met on the solids, not quite on the clean T1 meshes; at / 64 the contouring is short
 and the fixed costs (the bins, the clean copy) weigh more. Chunks of 2 or 1 per core were not faster (three runs each).
+
+## Stage 2 spike: refinement driven by the certificate (2026-11-15, stopped)
+
+Prototype and the `refine` mode of this benchmark on the archive branch `claude/contouring-cert-stage2-spike`
+(commit d69cb8d; not merged: the library side is a prototype, and this mode needs it). The results and the reason for
+the stop are in the design note, section 4.8. Commands (on that branch, master 164f143 plus the spike, 4 cores):
+
+```
+dotnet build benchmarks/ContouringCertificate -c Release
+B="dotnet run -c Release --no-build --project benchmarks/ContouringCertificate --"
+$B refine refine.jsonl mesh:all <dir>/<id>.stl... -- 64,128           # the stage-1 set, k = 0..3 levels
+$B refine imp.jsonl imp:<torus|tunnel|gap|rod|shell>:<0.5|1|2>@0... -- 48   # implicit families meshed by marching cubes
+SIL_BASE=1 $B refine base.jsonl <dir>/94664.stl <dir>/104640.stl <dir>/73088.stl -- 128,1024   # silhouette baseline
+```
+
+Per run: the default solidify without the certificate, then with it at `CertificateRefineLevels` 0 (stage 1), 1, 2, 3:
+status, uncertified cells (and how many meet a silhouette edge of L), the stage-1 coarse cells still uncertified and
+the new ones, the result's topology against the exact truth, contour ms.
+
+## Stage 2: the block test (Theorem 6, #935)
+
+```
+bash benchmarks/ContouringCertificate/run_blocks.sh <work dir>      # the runner job: fetch, build, `solid` three times, table
+python3 benchmarks/ContouringCertificate/analyze_blocks.py <work dir>/blocks_rep{1,2,3}.jsonl
+```
+
+`solid` now runs each input three times: without the certificate (contour ms), with it and without blocks (stage 1, the
+`on_` fields), and with blocks (`blocks_` fields: status, uncertified cells, blocks tried and certified, the blocks phase).
+The table (three runs on a runner alone, raw rows on `runs/contouring-cert-blocks` 2de2753) is in the design note,
+section 7.11: clean T1 at / 128 uncertified cells 2322 -> 651, certified runs 4 -> 8 of 14, never certified wrong; the
+certificate 23-26 % of the contouring time with blocks, 16-20 % without.
+
+## Stage 3: growth of the blocks (remark 3 of Theorem 6, #944)
+
+```
+bash benchmarks/ContouringCertificate/run_growth.sh <work dir>      # the runner job: fetch, build, `solid` three times, tables
+python3 benchmarks/ContouringCertificate/analyze_growth.py <work dir>/growth_rep{1,2,3}.jsonl
+```
+
+`solid` runs each input four times: without the certificate, with it and without blocks (stage 1, `on_`), with blocks as
+they are (stage 2, `blocks_`, `CertificateGrowRounds = 0`) and with grown blocks (stage 3, `grow_`, the default 2 rounds).
+For the last two it also writes `*_left_by`, the cells left by why their cluster was not certified (mesh side,
+transition, not a ball, level-set count, contour count), and the grown blocks and the cells they added. `analyze_blocks.py`
+still reads these rows (stage 1 against stage 2). Results in the design note, section 7.12.

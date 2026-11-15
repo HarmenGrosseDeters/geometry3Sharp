@@ -106,7 +106,9 @@ namespace geometry3Sharp.Tests
         {
             var tm = new MeshTetrahedralization(Input("torus thin"));
             Assert.True(tm.Compute());
-            Assert.True(tm.Counts["improve_boundary_moves"] > 50 && tm.Counts["improve_boundary_refused_input"] > 5,
+            // (refusals: the moves the input test stops on this fixture; 3 with the round-based carving of Alpha Wrap 3.0 lever (B),
+            // #774, whose torus wrap differs, more with the serial carving: the bound only shows that the refusal path is taken)
+            Assert.True(tm.Counts["improve_boundary_moves"] > 50 && tm.Counts["improve_boundary_refused_input"] >= 2,
                 tm.Counts["improve_boundary_moves"] + " / " + tm.Counts["improve_boundary_refused_input"]);
             Invariants(tm);
             var fixedBoundary = new MeshTetrahedralization(Input("torus thin")) { BoundarySlideFactor = 0 };
