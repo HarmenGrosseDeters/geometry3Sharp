@@ -63,7 +63,8 @@ namespace g3
             cutTargetOp = new MeshMeshCut() {
                 Target = new DMesh3(Target),
                 CutMesh = Tool,
-                VertexSnapTol = VertexSnapTol
+                VertexSnapTol = VertexSnapTol,
+                RefuseContact = false       // touching input is handled as before (shared faces are common)
             };
             cutTargetOp.Compute();
             cutTargetOp.RemoveContained();
@@ -72,7 +73,8 @@ namespace g3
             cutToolOp = new MeshMeshCut() {
                 Target = new DMesh3(Tool),
                 CutMesh = Target,
-                VertexSnapTol = VertexSnapTol
+                VertexSnapTol = VertexSnapTol,
+                RefuseContact = false
             };
             cutToolOp.Compute();
             cutToolOp.RemoveContained();
