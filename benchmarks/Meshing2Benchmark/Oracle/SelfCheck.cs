@@ -1636,15 +1636,26 @@ namespace Meshing2Acceptance
             //     The crossing case and the first case again scaled by 2^-600 (review of #870: the prefilter's pad underflowed there, so the
             //     constraints near a piece were missed); in both crossing cases the crossing vertex lies 1/8 of the tolerance off C, as a
             //     rounded crossing may
-            foreach (var (inputX0, inputX1, flip, x0, x1, crossX1, excused, what, sc) in new[] {
-                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: next to an input end the mesher's split point is the shell point from it, within the tolerance: excused (#870)", 1.0),
-                (false, true, false, 4.125, 5.525, false, false, "O11-unsplittable: next to an input end whose shell point lies outside the tolerance (the midpoint inside it) is judged (#870)", 1.0),
-                (false, true, true, 4.125, 5.525, false, false, "O11-unsplittable: the same with the piece's ends in the other order is judged (#870)", 1.0),
-                (false, false, false, 4.125, 5.525, false, true, "O11-unsplittable: between two split points the mesher's split point is the midpoint, within the tolerance: excused (#870)", 1.0),
-                (true, false, false, 4.3, 5.7, false, true, "O11-unsplittable: a shell point within the tolerance with the midpoint outside it is excused (#870)", 1.0),
-                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: next to a crossing end, which may have existed before refinement, its shell point outside the tolerance is judged (#870)", 1.0),
-                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: the crossing case at 2^-600 is judged (#870)", Math.Pow(2, -600)),
-                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: the shell point from an input end at 2^-600 is excused (#870)", Math.Pow(2, -600)) }) {
+            //     With the output reporting which vertices existed before refinement (Mesh2Output.ExistedBeforeRefinement, #870 d6710852):
+            //     a crossing (C through 4.125) at the first end and an input point at the far end: unreported, the crossing may be a split
+            //     point, so the shell point from the far end, outside the tolerance, is judged; reported as existing before, both ends did and
+            //     the midpoint is the mesher's point (excused). The crossing at the far end reported as a split point is one (both ends split
+            //     points: the midpoint, excused). An end reported as existing before that lies near one constraint only is no crossing and
+            //     not believed: on the piece from 4.2 (0.05 from A') to 5.65, between two split points, the shell point from 4.2 lies
+            //     within the tolerance of A', the midpoint (1.04 tolerances) does not, so either is judged
+            foreach (var (inputX0, inputX1, flip, x0, x1, crossX1, excused, what, sc, beforeCross, crossX0) in new (bool, bool, bool, double, double, bool, bool, string, double, bool?, bool)[] {
+                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: next to an input end the mesher's split point is the shell point from it, within the tolerance: excused (#870)", 1.0, null, false),
+                (false, true, false, 4.125, 5.525, false, false, "O11-unsplittable: next to an input end whose shell point lies outside the tolerance (the midpoint inside it) is judged (#870)", 1.0, null, false),
+                (false, true, true, 4.125, 5.525, false, false, "O11-unsplittable: the same with the piece's ends in the other order is judged (#870)", 1.0, null, false),
+                (false, false, false, 4.125, 5.525, false, true, "O11-unsplittable: between two split points the mesher's split point is the midpoint, within the tolerance: excused (#870)", 1.0, null, false),
+                (true, false, false, 4.3, 5.7, false, true, "O11-unsplittable: a shell point within the tolerance with the midpoint outside it is excused (#870)", 1.0, null, false),
+                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: next to a crossing end, which may have existed before refinement, its shell point outside the tolerance is judged (#870)", 1.0, null, false),
+                (false, false, false, 4.125, 5.525, true, false, "O11-unsplittable: the crossing case at 2^-600 is judged (#870)", Math.Pow(2, -600), null, false),
+                (true, false, false, 4.125, 5.525, false, true, "O11-unsplittable: the shell point from an input end at 2^-600 is excused (#870)", Math.Pow(2, -600), null, false),
+                (false, true, false, 4.125, 5.525, false, false, "O11-unsplittable: a crossing end and an input end, unreported: the crossing may be a split point, the shell point from the input end outside the tolerance is judged (#870)", 1.0, null, true),
+                (false, true, false, 4.125, 5.525, false, true, "O11-unsplittable: the same with the crossing reported as existing before refinement: the midpoint within the tolerance is excused (#870)", 1.0, true, true),
+                (false, false, false, 4.125, 5.525, true, true, "O11-unsplittable: next to a crossing-near end the output reports as a split point, the midpoint within the tolerance is excused (#870)", 1.0, false, false),
+                (false, false, false, 4.2, 5.65, false, false, "O11-unsplittable: an end reported as existing before refinement near one constraint only is not believed (judged, #870)", 1.0, true, false) }) {
                 const double m7 = 0.035;
                 double b7(double x) => 8 + m7 * (x - 4);
                 double xm = (x0 + x1) / 2;
@@ -1660,20 +1671,26 @@ namespace Meshing2Acceptance
                 inX.Add(xm); inY.Add(b7(xm) + 0.2734375); int top = inX.Count - 1;
                 inX.Add(xm); inY.Add(7.90625); int bottom = inX.Count - 1;
                 if (crossX1) { inX.Add(x1); inY.Add(7.5); inX.Add(x1); inY.Add(8.5); }
+                if (crossX0) { inX.Add(x0); inY.Add(7.5); inX.Add(x0); inY.Add(8.5); }
                 int n = inX.Count;
                 if (e0 < 0) e0 = n - 1 - e0; if (e1 < 0) e1 = n - 1 - e1;
                 for (int i = 0; i < inX.Count; ++i) { inX[i] *= sc; inY[i] *= sc; }
                 for (int i = 0; i < exX.Count; ++i) { exX[i] *= sc; exY[i] *= sc; }
                 if (crossX1) exX[e1 - n] += sc / 256;   // (1/8 of the tolerance off C: still near it, beyond the vertex box's padding)
+                if (crossX0) exX[e0 - n] += sc / 256;
                 var input = new Mesh2Input { X = inX.ToArray(), Y = inY.ToArray(), MinAngleDeg = 20 };
                 input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
                 input.Segments.Add(new SegmentInput(4, 5));
                 input.Segments.Add(new SegmentInput(6, 7));
-                if (crossX1) input.Segments.Add(new SegmentInput(n - 2, n - 1));
+                if (crossX1 || crossX0) input.Segments.Add(new SegmentInput(n - 2, n - 1));
                 var tris = flip ? new[] { new[] { e1, e0, bottom }, new[] { e0, e1, top } } : new[] { new[] { e0, e1, top }, new[] { e1, e0, bottom } };
                 var o = new Mesh2Output { Status = Mesh2Status.Success, VX = inX.Concat(exX).ToArray(), VY = inY.Concat(exY).ToArray(),
                     InputToVertex = Enumerable.Range(0, n).ToArray(), Triangles = tris, Neighbours = NeighboursOf(tris), BadTriangles = new int[0],
                     Subsegments = new List<SubsegmentOutput> { new SubsegmentOutput(4, e0), new SubsegmentOutput(e0, e1), new SubsegmentOutput(e1, 5), new SubsegmentOutput(6, 7) } };
+                if (beforeCross != null) {
+                    o.ExistedBeforeRefinement = Enumerable.Range(0, o.VX.Length).Select(i => i < n).ToArray();
+                    o.ExistedBeforeRefinement[crossX1 ? e1 : e0] = beforeCross.Value;   // (the crossing end, else the first)
+                }
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) * Q.FromDouble(sc) });
                 string edge = flip ? "edge " + e1 + "-" + e0 + " is not locally Delaunay against " + top : "edge " + e0 + "-" + e1 + " is not locally Delaunay against " + bottom;
                 must(what, report.ToString().Contains(edge) != excused && (report.O11LocalExcused > 0) == excused, "report: " + report);
@@ -1714,6 +1731,47 @@ namespace Meshing2Acceptance
                 var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) });
                 must("O11-unsplittable: a split point refused only by the other constraint's input ends, not by its merged ends, is judged (#870)",
                     report.ToString().Contains("edge 8-9 is not locally Delaunay against 11") && report.O11LocalExcused == 0, "report: " + report);
+            }
+            // 7d'''''. the piece's sources as the output reports them (Mesh2Output.SubsegmentSources, #870): B horizontal from (4, 8), the
+            //     piece from 4.5 to 5 (input ends: the midpoint on its first source), the tolerance 1/32:
+            //     - A' rising at 0.0064 with the piece's ends at 0.9 and (1 + 2^-9) of the tolerance from it and the midpoint at 0.95: by
+            //       geometry it may be one of the piece's sources (judged); reported as [B] it is another constraint and refuses (excused);
+            //       reported as [B, A'] it is the piece's own (judged); a hull edge first, or a reported source the oracle does not have, is
+            //       not believed (judged);
+            //     - S2 parallel to B 0.9 tolerances above it and C ending 0.95 tolerances below the midpoint on B, 1.85 below the point on
+            //       S2: reported as [B, S2] only the point on the first source counts, which C refuses (excused); as [S2, B] the point on
+            //       S2 counts, which nothing refuses (judged); reported as [C], which ends near the piece's middle, it is not believed
+            //       (judged: on C's line, B would refuse)
+            {
+                const double tolerance = 1.0 / 32;
+                foreach (var (third, list, excused, what) in new (bool, int[], bool, string)[] {
+                    (false, new[] { 0 }, true, "O11-unsplittable: a constraint within the ownership margin that the output does not report as the piece's source refuses (excused, #870)"),
+                    (false, new[] { 0, 1 }, false, "O11-unsplittable: the same reported as the piece's source is its own (judged, #870)"),
+                    (false, new[] { -1, 0 }, false, "O11-unsplittable: a reported hull edge as the first source is not believed (judged, #870)"),
+                    (false, new[] { 0, 9 }, false, "O11-unsplittable: a reported source the input does not have is not believed (judged, #870)"),
+                    (true, new[] { 2 }, false, "O11-unsplittable: a reported source that does not hold both piece ends within the tolerance is not believed (judged, #870)"),
+                    (true, new[] { 0, 1 }, true, "O11-unsplittable: only the split point on the first reported source counts (excused, #870)"),
+                    (true, new[] { 1, 0 }, false, "O11-unsplittable: the split point on the first reported source, refused by nothing, is judged (#870)") }) {
+                    var xy = new List<double> { 0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8 };
+                    if (third) xy.AddRange(new[] { 4.25, 8 + 0.9 * tolerance, 12, 8 + 0.9 * tolerance });
+                    else xy.AddRange(new[] { 4.25, 8.026532521059163, 12, 8.075917068537814 });
+                    xy.AddRange(new[] { 4.5, 8, 5, 8, 4.75, 8.2734375, 4.75, 7.90625 });
+                    if (third) xy.AddRange(new[] { 4.75, 8 - 0.95 * tolerance, 2.75, 6 - 0.95 * tolerance });
+                    var input = Points(xy.ToArray());
+                    input.Rings.Add(new RingInput(new[] { 0, 1, 2, 3 }, false));
+                    input.Segments.Add(new SegmentInput(4, 5));
+                    input.Segments.Add(new SegmentInput(6, 7));
+                    if (third) input.Segments.Add(new SegmentInput(12, 13));
+                    input.MinAngleDeg = 20;
+                    var o = Out(input, new[] { new[] { 8, 9, 10 }, new[] { 9, 8, 11 } });
+                    o.Subsegments.Add(new SubsegmentOutput(4, 8)); o.Subsegments.Add(new SubsegmentOutput(8, 9)); o.Subsegments.Add(new SubsegmentOutput(9, 5));
+                    o.Subsegments.Add(new SubsegmentOutput(6, 7));
+                    var sources = new List<int[]> { new[] { 0 }, list, new[] { 0 }, new[] { 1 } };
+                    if (third) { o.Subsegments.Add(new SubsegmentOutput(12, 13)); sources.Add(new[] { 2 }); }
+                    o.SubsegmentSources = sources.ToArray();
+                    var report = Oracle.Check(input, o, new OracleExpect { Milestone = Milestone.M3, Tube = new Q(1, 16) });
+                    must(what, report.ToString().Contains("edge 8-9 is not locally Delaunay against 11") != excused && (report.O11LocalExcused > 0) == excused, "report: " + report);
+                }
             }
             // 7d''''. the excused 7d case scaled by 2^-1000: the tolerance 2^-1005 lies below the floor 2^-1001, where the mesher's
             //     unscaled split point rounds absolutely (subnormal intermediates), so no excuse is given (#870, review)
