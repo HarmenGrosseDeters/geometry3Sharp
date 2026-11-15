@@ -166,6 +166,25 @@ namespace g3cli.Tests
             Assert.NotEqual(count(0), I(r["mesh"]["triangles"]));
         }
 
+        [Theory]
+        [InlineData("schwarz_p", TpmsType.SchwarzP)]
+        [InlineData("schwarz_d", TpmsType.SchwarzD)]
+        [InlineData("neovius", TpmsType.Neovius)]
+        [InlineData("lidinoid", TpmsType.Lidinoid)]
+        [InlineData("gyroid", TpmsType.Gyroid)]
+        public void Hybrid_EverySecondTypeNameSelectsItsType(string name, TpmsType expected)
+        {
+            // (a different first type, so that second type gyroid is not the pure lattice either)
+            var (exit, r) = Run("tpms", m.Path_("tpms_second_" + name + ".obj"), "--type", "schwarz_p", "--second-type", name, "--blend", "0,1,0.5", "--divisions", "8", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(name, S(r["second_type"]));
+            var direct = new TpmsLattice { Type = TpmsType.SchwarzP, SecondType = expected, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), CellSize = 1, Divisions = 8,
+                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+        }
+
         [Fact]
         public void Hybrid_WorksWithEnclosureOnADyadicGrid()
         {
