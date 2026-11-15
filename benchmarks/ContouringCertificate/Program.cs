@@ -21,6 +21,7 @@ class Program
     {
         if (args.Length == 1 && args[0] == "predicates") { PredicateTiming.Run(); return 0; }
         if (args.Length >= 3 && args[0] == "solid") return SolidMain(args);
+        if (args.Length >= 3 && args[0] == "clusters") { clusterMode = true; return SolidMain(args); }
         if (args.Length < 3 || args[0] != "spike") { Console.Error.WriteLine("usage: ContouringCertificate spike <out.jsonl> <input>... [-- res,...]"); return 2; }
         string outFile = args[1];
         var inputs = new List<string>();
@@ -85,8 +86,11 @@ class Program
         return 0;
     }
 
+    static bool clusterMode;
+
     static void Solid(string input, int res, Dictionary<string, object> r)
     {
+        if (clusterMode) { Clusters(input, res, r); return; }
         DMesh3 mesh = input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
         r["in_tris"] = mesh.TriangleCount;
         double diag = mesh.CachedBounds.DiagonalLength;
@@ -117,6 +121,105 @@ class Program
             r["refined_cells"] = s.RefinedCells; r["refine_factor"] = s.RefineFactor;
             if (s.Result != null) r["result_sig"] = Sig(MeshTopologySummary.Compute(s.Result).ComponentList.Select(c => c.Genus));
         }
+    }
+
+    // Upper bound of merging uncertified cells into box blocks (design note section 7.10): the uncertified cells of the
+    // default solidify with the certificate, clustered (closed boxes that touch), each cluster replaced by its bounding box,
+    // boxes that touch merged again until none touch. Every face and edge on a final box's boundary then lies on a cell
+    // outside all boxes, which the certificate certified, so it passes; whether the parts of L and of the contour in the
+    // box are disks is not tested here (an upper bound). Per cap (largest box side in cells of the solidify's cell size):
+    // the uncertified cells in boxes within the cap, and whether the run would be certified.
+    static void Clusters(string input, int res, Dictionary<string, object> r)
+    {
+        DMesh3 mesh = input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
+        r["in_tris"] = mesh.TriangleCount;
+        double diag = mesh.CachedBounds.DiagonalLength;
+        var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = true };
+        s.Compute();
+        r["status"] = s.TopologyCertificateStatus.ToString();
+        r["refine_factor"] = s.RefineFactor;
+        var cells = s.UncertifiedCells;
+        r["uncertified"] = cells.Count;
+        if (cells.Count == 0) return;
+        double h = double.MaxValue; Vector3d anchor = cells[0].Box.Min;
+        foreach (var c in cells) { h = Math.Min(h, c.Box.Width); anchor = new Vector3d(Math.Min(anchor.x, c.Box.Min.x), Math.Min(anchor.y, c.Box.Min.y), Math.Min(anchor.z, c.Box.Min.z)); }
+        int n = cells.Count;
+        var lo = new Vector3i[n]; var hi = new Vector3i[n];
+        for (int i = 0; i < n; ++i) {
+            Vector3d a = (cells[i].Box.Min - anchor) / h, b = (cells[i].Box.Max - anchor) / h;
+            lo[i] = new Vector3i((int)Math.Round(a.x), (int)Math.Round(a.y), (int)Math.Round(a.z));
+            hi[i] = new Vector3i((int)Math.Round(b.x), (int)Math.Round(b.y), (int)Math.Round(b.z));
+        }
+        bool touch(Vector3i l1, Vector3i h1, Vector3i l2, Vector3i h2) =>
+            l1.x <= h2.x && l2.x <= h1.x && l1.y <= h2.y && l2.y <= h1.y && l1.z <= h2.z && l2.z <= h1.z;
+        // boxes: start with one per cell, merge touching ones into their hull until none touch
+        var bl = new List<Vector3i>(lo); var bh = new List<Vector3i>(hi); var cnt = Enumerable.Repeat(1, n).ToList();
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (int i = 0; i < bl.Count && !changed; ++i)
+                for (int j = i + 1; j < bl.Count; ++j)
+                    if (touch(bl[i], bh[i], bl[j], bh[j])) {
+                        bl[i] = new Vector3i(Math.Min(bl[i].x, bl[j].x), Math.Min(bl[i].y, bl[j].y), Math.Min(bl[i].z, bl[j].z));
+                        bh[i] = new Vector3i(Math.Max(bh[i].x, bh[j].x), Math.Max(bh[i].y, bh[j].y), Math.Max(bh[i].z, bh[j].z));
+                        cnt[i] += cnt[j];
+                        bl.RemoveAt(j); bh.RemoveAt(j); cnt.RemoveAt(j);
+                        changed = true; break;
+                    }
+            // (restart the scan after each merge: a grown box may touch earlier ones)
+        }
+        double unit = h * s.RefineFactor;   // the solidify's cell size, in fine cells: RefineFactor
+        r["boxes"] = bl.Count;
+        foreach (int cap in new[] { 2, 3, 4, 6, 8 }) {
+            int inCap = 0; bool all = true;
+            for (int i = 0; i < bl.Count; ++i) {
+                Vector3i d = bh[i] - bl[i];
+                double side = Math.Max(d.x, Math.Max(d.y, d.z)) * h / unit;
+                if (side <= cap + 1e-9) inCap += cnt[i]; else all = false;
+            }
+            r["cells_cap" + cap] = inCap;
+            r["run_cap" + cap] = all;
+        }
+        var sides = new List<double>();
+        for (int i = 0; i < bl.Count; ++i) { Vector3i d = bh[i] - bl[i]; sides.Add(Math.Max(d.x, Math.Max(d.y, d.z)) * h / unit); }
+        r["max_side"] = sides.Max();
+        // general blocks: clusters of the uncertified cells (as unit cubes of the finest cell, 26-connected), and the
+        // Euler characteristic of each cluster's union (1 for a ball; 0 for a solid torus around a ridge loop)
+        var cubes = new Dictionary<Vector3i, int>();     // unit cube -> reported cell
+        for (int i = 0; i < n; ++i)
+            for (int z = lo[i].z; z < hi[i].z; ++z) for (int y = lo[i].y; y < hi[i].y; ++y) for (int x = lo[i].x; x < hi[i].x; ++x)
+                cubes[new Vector3i(x, y, z)] = i;
+        var comp = new Dictionary<Vector3i, int>(); int nc = 0;
+        foreach (var start in cubes.Keys) {
+            if (comp.ContainsKey(start)) continue;
+            var stack = new Stack<Vector3i>(); stack.Push(start); comp[start] = nc;
+            while (stack.Count > 0) {
+                var c = stack.Pop();
+                for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                    var q = new Vector3i(c.x + dx, c.y + dy, c.z + dz);
+                    if (cubes.ContainsKey(q) && !comp.ContainsKey(q)) { comp[q] = nc; stack.Push(q); }
+                }
+            }
+            nc++;
+        }
+        // chi = V - E + F - C per component (elements keyed by doubled coordinates of their centers)
+        var elems = new HashSet<(int, Vector3i)>(); var chi = new long[nc]; var cellsOf = new List<HashSet<int>>();
+        for (int k = 0; k < nc; ++k) cellsOf.Add(new HashSet<int>());
+        foreach (var kv in comp) {
+            Vector3i c = kv.Key; int k = kv.Value; cellsOf[k].Add(cubes[c]);
+            for (int dz = 0; dz <= 2; ++dz) for (int dy = 0; dy <= 2; ++dy) for (int dx = 0; dx <= 2; ++dx) {
+                var key = new Vector3i(2 * c.x + dx, 2 * c.y + dy, 2 * c.z + dz);
+                int odd = (dx & 1) + (dy & 1) + (dz & 1);     // 0 vertex, 1 edge, 2 face, 3 cube
+                if (elems.Add((k, key))) chi[k] += (odd % 2 == 0) ? 1 : -1;
+            }
+        }
+        int ballCells = 0, ballClusters = 0, maxCluster = 0;
+        for (int k = 0; k < nc; ++k) {
+            maxCluster = Math.Max(maxCluster, cellsOf[k].Count);
+            if (chi[k] == 1) { ballCells += cellsOf[k].Count; ballClusters++; }
+        }
+        r["clusters"] = nc; r["clusters_chi1"] = ballClusters; r["cells_chi1"] = ballCells; r["max_cluster_cells"] = maxCluster;
+        r["run_chi1"] = ballClusters == nc;
     }
 
     // vertices with identical coordinates merged (exact: the geometry and the winding number do not change)
