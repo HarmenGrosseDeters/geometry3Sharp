@@ -33,6 +33,13 @@ namespace geometry3Sharp.Tests
                         lo = i == 7 ? new Vector3d(1e12, 1e12, 1e12) : new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble());
                         size = new Vector3d(1e-3, 1e-3, 1e-3);
                         break;
+                    case "inverted":    // boxes with min > max (AxisAlignedBox3d.Empty, as the mesh boxes of an empty mesh) and half-NaN boxes
+                        lo = new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble());
+                        size = new Vector3d(1e-2, 1e-2, 1e-2);
+                        if (i % 5 == 0) { boxes.Add(AxisAlignedBox3d.Empty); continue; }
+                        if (i % 7 == 0) { boxes.Add(new AxisAlignedBox3d(double.NaN, lo.y, lo.z, lo.x + 1e-2, lo.y + 1e-2, lo.z + 1e-2)); continue; }
+                        if (i % 11 == 0) { boxes.Add(new AxisAlignedBox3d(lo.x + 1e-2, lo.y, lo.z, lo.x, lo.y + 1e-2, lo.z + 1e-2)); continue; }
+                        break;
                     case "nonfinite":
                         lo = new Vector3d(rand.NextDouble(), rand.NextDouble(), rand.NextDouble());
                         size = new Vector3d(1e-3, 1e-3, 1e-3);
@@ -60,7 +67,7 @@ namespace geometry3Sharp.Tests
 
         public static IEnumerable<object[]> Cases()
         {
-            foreach (string kind in new[] { "uniform", "grid", "same", "far", "nonfinite" })
+            foreach (string kind in new[] { "uniform", "grid", "same", "far", "nonfinite", "inverted" })
                 foreach (int n in new[] { 5000, 13007 })
                     yield return new object[] { kind, n };
         }

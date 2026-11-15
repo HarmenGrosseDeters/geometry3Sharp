@@ -3065,8 +3065,10 @@ namespace g3
             AxisAlignedBox3d box = AxisAlignedBox3d.Empty;
             for (int c = 0; c < 2; ++c) {
                 int ch = c == 0 ? left : right;
-                box.Contain(new AxisAlignedBox3d(new Vector3d(all.Box[6 * ch], all.Box[6 * ch + 1], all.Box[6 * ch + 2]),
-                    new Vector3d(all.Box[6 * ch + 3], all.Box[6 * ch + 4], all.Box[6 * ch + 5])));
+                // (the six-number constructor keeps the box as stored: the vector constructor orders min and max, which an inverted box
+                // (AxisAlignedBox3d.Empty) or one with a NaN in only one of them would not survive; the serial build unions the boxes as they are)
+                box.Contain(new AxisAlignedBox3d(all.Box[6 * ch], all.Box[6 * ch + 1], all.Box[6 * ch + 2],
+                    all.Box[6 * ch + 3], all.Box[6 * ch + 4], all.Box[6 * ch + 5]));
             }
             put(all.Box, id, box);
             return id;
