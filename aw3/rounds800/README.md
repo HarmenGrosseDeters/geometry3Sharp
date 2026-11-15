@@ -14,7 +14,8 @@ quality fields are evaluated.
 | meshes with final min < 2° / < 3° / < 5° | 3 / 15 / 72 | 3 / 17 / 61 |
 | raw p01 median / worst | 20.11 / 14.23 | 20.09 / 14.04 |
 | raw min worst | 0.72 | 1.01 |
-| unsimplified (final p01 > 15) | 25 | 25 |
+| unsimplified (final triangles = raw triangles) | 0 | 0 |
+| final p01 > 15 (simplified, but weakly) | 25 | 25 |
 
 Paired per-mesh head − base: final p01 median +0.001 (mean −0.004), final min median 0.000 (mean +0.027),
 raw p01 median −0.016. Head better / worse: p01 407 / 392, min 390 / 376. Largest per-mesh min angle changes −5.3° / +6.1°.
