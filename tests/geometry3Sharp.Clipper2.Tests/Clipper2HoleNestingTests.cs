@@ -42,7 +42,9 @@ namespace geometry3Sharp.Clipper2.Tests
             var (error, slack, r) = Clipper2DegenerateUnionTests.Check(op, rule, Ring(a), Ring(b), new Random(4));
             Assert.True(error <= slack, name + ": area off by " + error + " grid units, more than the rounding " + slack);
             Assert.True(Math.Abs(r.Area - exact) < 1e-6, name + ": " + r.Area);
-            Assert.Contains(r.Polygons, g => g.Holes.Count > 0);
+            // (since the port of PolyClipping/Clipper2 f774daf, which rounds the intersection points, some of these holes
+            // come out inside an outer ring that touches itself instead of as paths of their own; the rules are pinned on
+            // hand-built trees in Clipper2ResultOrientationTests)
         }
 
         [Theory]
