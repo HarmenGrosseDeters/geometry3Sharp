@@ -1183,13 +1183,28 @@ closing algorithm*, Pattern Recognit. Lett. 23(5), 2002, abstract). Here the gro
 own: Theorem 6 holds for any blocks, and the exact ball test and the two counts decide each one. So a plain dilation with
 a check at the end is enough. It also fills small holes: the solid tori of remark 2 around a bump.
 
-Measured (local probe, counts; times: runner job `benchmarks/ContouringCertificate/run_growth.sh`, below):
+Measured (runner job `benchmarks/ContouringCertificate/run_growth.sh` at c7ea64f, three runs alone on the machine, 4
+cores, raw rows on `runs/contouring-cert-growth` a2cc29a; the counts are the same in every run and as in the local probe;
+`MeshWindingNumberSolidify` adaptive, default refinement, cleanup and reduction off; ms summed over the inputs, min-max of
+the three runs):
 
-| clean T1 | cell | uncertified cells: blocks -> grown | certified runs: blocks -> grown (right runs) | wrong and certified |
-|---|---|---|---|---|
-| 14 inputs | / 128 | 651 -> 381 | 8 -> 10 (of 11) | 0 |
-| 14 inputs | / 64 | 437 -> 301 | 9 -> 12 (of 12) | 0 |
+| set | cell | runs | uncertified cells: blocks -> grown | certified runs: stage 1, blocks, grown | wrong results | wrong and certified | grown blocks (cells added) | contour ms | certificate ms: blocks -> grown | of it blocks ms: blocks -> grown |
+|---|---|---|---|---|---|---|---|---|---|---|
+| CAD solids | / 64 | 6 | 0 -> 0 | 5, 6, 6 | 0 | 0 | 0 (0) | 686-1113 | 241-254 -> 181-230 | 37-52 -> 24-37 |
+| T1 clean | / 64 | 14 | 437 -> 301 | 2, 9, 12 | 2 | 0 | 7 (1482) | 2877-3049 | 744-852 -> 1005-1063 | 54-101 -> 235-281 |
+| CAD solids | / 128 | 6 | 0 -> 0 | 6, 6, 6 | 0 | 0 | 0 (0) | 2706-2964 | 251-355 -> 267-356 | 0 -> 0 |
+| T1 clean | / 128 | 14 | 651 -> 381 | 4, 8, 10 | 3 | 0 | 11 (1745) | 5264-5463 | 1208-1273 -> 1385-1448 | 65-150 -> 321-354 |
 
 - Every non-ball cluster of a right run is certified after growth. Left in right runs: 104640 at / 128 (the tube).
 - The wrong runs stay uncertified (116871, 472011 and 79961 at / 128; 116871 and 96773 at / 64), with grown blocks tried in
   them.
+- Cost: growth adds about 180-250 ms of block time on the clean T1 set at each size. The certificate goes from 23 % to
+  26-27 % of the contouring time at / 128, and from 26-28 % to 34-36 % at / 64. Most of it is single tries on large
+  regions, not repeated work: 113418 at / 64 grows one block that passes (108-158 ms more); 104640 at / 128 makes two
+  tries that fail (62-79 ms); 116871 and 472011 25-45 ms each. Nothing changes on the CAD solids.
+- Hand mutants (the tests of this PR): no growth (its default in `MeshWindingNumberSolidify`), not taking in the clusters
+  or the blocks a layer reaches, keeping the blocks a grown block took in, a cap of 10 cells, face neighbours only, and
+  not counting the grown cells are killed. Survivors, all by design: the equal-signs guard for cells the stage-1 tests
+  did not see (every cell with a sign change is a contour cell, so it never fires; `check_blocks` asserts it), and two
+  shortcuts that only save work (stop growing at a transition or a mesh-side refusal; skip a cluster another grown block
+  took in).
