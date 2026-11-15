@@ -11,9 +11,17 @@ namespace g3
     /// </summary>
     public class BiharmonicMeshDeformer
     {
-        public enum Status { Success, InvalidInput, UnanchoredComponent, DegenerateTriangle, NumericalRange, LinearSolveFailed, NonFiniteResult, ResourceLimit }
+        public enum Status { Success, InvalidInput, UnanchoredComponent, DegenerateTriangle, NumericalRange, LinearSolveFailed, NonFiniteResult, ResourceLimit, AccuracyNotEstablished }
+        /// <summary>Whether the returned positions have an independently bounded error.</summary>
+        public enum AccuracyAssessment { NotEstablished, NotCertified, Certified }
         public class Settings {
             public double RelativeTolerance = 1e-8;
+            /// <summary>Request bounded Euclidean position and component response accuracy using the dense interval solver (at most 16 vertices).</summary>
+            public bool RequireEuclideanAccuracy = false;
+            /// <summary>Maximum Euclidean position error relative to component rest radius in strict mode.</summary>
+            public double PositionTolerance = 1e-8;
+            /// <summary>Maximum relative error in the largest free-vertex displacement per component in strict mode.</summary>
+            public double ResponseTolerance = 1e-8;
             /// <summary>Upper bound on assembled triangular outer-product contributions, before duplicate entries are compressed.</summary>
             public long MaxMatrixContributions = 10000000;
         }
@@ -21,12 +29,14 @@ namespace g3
             public Status Status;
             public DMesh3 Mesh;
             public int Iterations;
-            /// <summary>Maximum free-vertex gradient divided by an absolute contribution bound; NaN for a certified interval fallback.</summary>
+            /// <summary>Maximum free-vertex gradient divided by an absolute contribution bound; NaN if not evaluated, including the interval fallback and fully fixed meshes.</summary>
             public double Residual;
             /// <summary>Whether the result was obtained by the bounded interval fallback.</summary>
             public bool UsedIntervalFallback;
-            /// <summary>Largest certified position error divided by its component rest scale; zero on the ordinary path.</summary>
+            /// <summary>Largest certified coordinate error divided by its component rest scale; NaN when unavailable.</summary>
             public double PositionErrorBound;
+            /// <summary>Certification of the returned position bound, separate from numerical convergence.</summary>
+            public AccuracyAssessment Accuracy;
             public bool Converged { get { return Status == Status.Success; } }
         }
         public DMesh3 Mesh;
@@ -73,9 +83,12 @@ namespace g3
         /// <summary>Compute from the current mesh and handle targets; repeated calls do not mutate the input.</summary>
         public ResultInfo Compute(IReadOnlyDictionary<int, Vector3d> handles)
         {
-            var result = new ResultInfo { Status = Status.InvalidInput };
+            var result = new ResultInfo { Status = Status.InvalidInput, Residual = double.NaN, PositionErrorBound = double.NaN,
+                Accuracy = AccuracyAssessment.NotEstablished };
             if (Mesh == null || Mesh.VertexCount == 0 || handles == null || Options == null ||
-                !(Options.RelativeTolerance > 0) || !MathUtil.IsFinite(Options.RelativeTolerance) || Options.MaxMatrixContributions <= 0) return result;
+                !(Options.RelativeTolerance > 0) || !MathUtil.IsFinite(Options.RelativeTolerance) || Options.MaxMatrixContributions <= 0 ||
+                (Options.RequireEuclideanAccuracy && (!(Options.PositionTolerance > 0) || !MathUtil.IsFinite(Options.PositionTolerance) ||
+                !(Options.ResponseTolerance > 0) || !MathUtil.IsFinite(Options.ResponseTolerance)))) return result;
             var ids = new List<int>(Mesh.VertexIndices()); int n = ids.Count;
             var lookup = new Dictionary<int, int>(n); var original = new Vector3d[n];
             var rest = new Vector3d[n]; var fixedV = new bool[n];
@@ -97,7 +110,8 @@ namespace g3
                 var allFixed = new DMesh3(Mesh);
                 foreach (var h in handles) allFixed.SetVertex(h.Key, h.Value);
                 if (allFixed.HasVertexNormals) MeshNormals.QuickCompute(allFixed);
-                result.Mesh = allFixed; result.Status = Status.Success; return result;
+                result.Mesh = allFixed; result.Status = Status.Success; result.Accuracy = AccuracyAssessment.Certified;
+                result.PositionErrorBound = 0; return result;
             }
             // Normalize each component independently to preserve scale invariance and avoid
             // interactions between distant or differently sized components.
@@ -131,13 +145,18 @@ namespace g3
                 Vector3d[] points; double bound;
                 if (!BiharmonicIntervalFallback.TrySolve(Mesh, ids, lookup, original, componentRoot, active, free,
                     count, handles, Options.RelativeTolerance, out points, out bound)) {
-                    result.Status = Status.NumericalRange; return result;
+                    result.Status = Options.RequireEuclideanAccuracy ? Status.AccuracyNotEstablished : Status.NumericalRange; return result;
+                }
+                if (Options.RequireEuclideanAccuracy && !BiharmonicIntervalFallback.MeetsEuclideanAccuracy(
+                    original, points, componentRoot, active, free, bound, Options.PositionTolerance, Options.ResponseTolerance)) {
+                    result.Status = Status.AccuracyNotEstablished; return result;
                 }
                 var copy = new DMesh3(Mesh);
                 for (int i = 0; i < n; ++i) copy.SetVertex(ids[i], points[i]);
                 if (copy.HasVertexNormals) MeshNormals.QuickCompute(copy);
                 result.Mesh = copy; result.Status = Status.Success; result.Iterations = 1;
                 result.UsedIntervalFallback = true; result.PositionErrorBound = bound; result.Residual = double.NaN;
+                result.Accuracy = AccuracyAssessment.Certified;
                 return result;
             }
             // Every Laplacian row contains at most the vertex and its topological
@@ -149,6 +168,15 @@ namespace g3
                 long add = nf * (nf + 1) / 2;
                 if (add > Options.MaxMatrixContributions - contributions) { result.Status = Status.ResourceLimit; return result; }
                 contributions += add;
+            }
+            if (Options.RequireEuclideanAccuracy) {
+                foreach (int tid in Mesh.TriangleIndices()) {
+                    Index3i t = Mesh.GetTriangle(tid);
+                    if (!Area(original[lookup[t.a]], original[lookup[t.b]], original[lookup[t.c]])) {
+                        result.Status = Status.DegenerateTriangle; return result;
+                    }
+                }
+                return NumericFallback();
             }
             var rows = new Dictionary<int, double>[n]; var mass = new double[n];
             for (int i = 0; i < n; ++i) rows[i] = new Dictionary<int, double>();
@@ -257,7 +285,7 @@ namespace g3
                 output.SetVertex(ids[i], position);
             }
             if (output.HasVertexNormals) MeshNormals.QuickCompute(output);
-            result.Mesh = output; result.Status = Status.Success; return result;
+            result.Mesh = output; result.Status = Status.Success; result.Accuracy = AccuracyAssessment.NotCertified; return result;
         }
     }
 }

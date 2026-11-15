@@ -61,6 +61,52 @@ namespace g3
         static void Edge(ExactInterval[,] l, int a, int b, ExactInterval w) {
             l[a,a] = l[a,a] + w; l[b,b] = l[b,b] + w; l[a,b] = l[a,b] - w; l[b,a] = l[b,a] - w;
         }
+        // Sufficient component-wise Euclidean check for a coordinate-wise certified
+        // normalized bound. All comparisons, including original/output subtraction,
+        // are exact dyadic operations; no rounded square root or norm is needed.
+        internal static bool MeetsEuclideanAccuracy(Vector3d[] original, Vector3d[] output,
+            int[] root, bool[] active, int[] free, double bound, double positionTolerance, double responseTolerance)
+        {
+            int n = original.Length;
+            if (n == 0 || n > MaxVertices || output.Length != n || root.Length != n || active.Length != n || free.Length != n ||
+                !MathUtil.IsFinite(bound) || bound < 0 || !MathUtil.IsFinite(positionTolerance) || !(positionTolerance > 0) ||
+                !MathUtil.IsFinite(responseTolerance) || !(responseTolerance > 0)) return false;
+            bool anyFree = false;
+            for (int i = 0; i < n; ++i) {
+                if (free[i] >= 0) { if (!active[i]) return false; anyFree = true; }
+                if (active[i] && (root[i] < 0 || root[i] >= n || !active[root[i]] || root[root[i]] != root[i])) return false;
+            }
+            if (!anyFree) return false;
+            var zero = ExactDyadic.Of(0); var one = ExactDyadic.Of(1); var three = ExactDyadic.Of(3);
+            var b = ExactDyadic.Of(bound); var pt = ExactDyadic.Of(positionTolerance); var rt = ExactDyadic.Of(responseTolerance);
+            for (int r = 0; r < n; ++r) if (active[r] && root[r] == r) {
+                double s = 0; var restSquared = zero; var responseSquared = zero; bool hasFree = false;
+                for (int i = 0; i < n; ++i) if (active[i] && root[i] == r) {
+                    if (!original[i].IsFinite || !output[i].IsFinite) return false;
+                    var roundedDelta = original[i] - original[r];
+                    if (!roundedDelta.IsFinite) return false;
+                    s = Math.Max(s, MaxAbs(roundedDelta));
+                    var lengthSquared = zero; var restLengthSquared = zero;
+                    for (int k = 0; k < 3; ++k) {
+                        var restDelta = ExactDyadic.Of(original[i][k]) - ExactDyadic.Of(original[r][k]);
+                        restLengthSquared = restLengthSquared + restDelta * restDelta;
+                        var d = ExactDyadic.Of(output[i][k]) - ExactDyadic.Of(original[i][k]);
+                        lengthSquared = lengthSquared + d * d;
+                    }
+                    if (ExactDyadic.Compare(restLengthSquared, restSquared) > 0) restSquared = restLengthSquared;
+                    if (free[i] >= 0) {
+                        hasFree = true;
+                        if (ExactDyadic.Compare(lengthSquared, responseSquared) > 0) responseSquared = lengthSquared;
+                    }
+                }
+                if (!hasFree || !(s > 0) || restSquared.Sign <= 0) return false;
+                var e = b * ExactDyadic.Of(s); var errorSquared = three * e * e;
+                if (ExactDyadic.Compare(errorSquared, pt * pt * restSquared) > 0) return false;
+                var relativeFactor = one + rt;
+                if (ExactDyadic.Compare(errorSquared * relativeFactor * relativeFactor, rt * rt * responseSquared) > 0) return false;
+            }
+            return true;
+        }
         // The output enclosure is required to be within RelativeTolerance times the
         // component's rest scale plus eight ULPs of the final world coordinate.
         internal static bool TrySolve(DMesh3 mesh, List<int> ids, Dictionary<int,int> lookup,

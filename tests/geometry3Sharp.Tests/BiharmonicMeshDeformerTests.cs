@@ -7,6 +7,50 @@ namespace geometry3Sharp.Tests
 {
     public class BiharmonicMeshDeformerTests
     {
+        [Fact]
+        public void EuclideanAccuracy_RejectsLostResponseAndUsesComponentScale()
+        {
+            var original = new[] { Vector3d.Zero, Vector3d.AxisX, Vector3d.AxisY };
+            var root = new[] { 0, 0, 0 }; var active = new[] { true, true, true }; var free = new[] { -1, -1, 0 };
+            var output = (Vector3d[])original.Clone();
+            Assert.False(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, root, active, free, 1e-12, 1e-8, 1e-8));
+            output[2] += new Vector3d(0.01, 0.02, 0.03);
+            Assert.True(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, root, active, free, 1e-12, 1e-8, 1e-8));
+            Assert.False(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, root, active, free, 1e-7, 1e-8, 1e-8));
+            Assert.False(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, root, active, free, double.NaN, 1e-8, 1e-8));
+            Assert.False(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, root, new[] { false, false, false }, free, 0, 1e-8, 1e-8));
+            var rotate = Matrix3d.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 31);
+            for (int i = 0; i < original.Length; ++i) { original[i] = rotate * original[i]; output[i] = rotate * output[i]; }
+            Assert.True(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, root, active, free, 1e-12, 1e-8, 1e-8));
+        }
+
+        [Fact]
+        public void StrictEuclideanAccuracy_ReportsCertifiedSolutionOrAccuracyFailure()
+        {
+            var mesh = Patch(); var solver = new BiharmonicMeshDeformer(mesh);
+            solver.Options.RequireEuclideanAccuracy = true;
+            var result = solver.Compute(Targets(mesh));
+            Assert.True(result.Converged, result.Status.ToString());
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, result.Accuracy);
+            Assert.True(result.Mesh.GetVertex(2).Distance(new Vector3d(1, 1, 0.75)) < 1e-8);
+            solver.Options.ResponseTolerance = 1e-20;
+            var strict = solver.Compute(Targets(mesh));
+            Assert.Equal(BiharmonicMeshDeformer.Status.AccuracyNotEstablished, strict.Status);
+            Assert.Null(strict.Mesh);
+        }
+
+        [Fact]
+        public void EuclideanAccuracy_ChecksEveryComponentSeparately()
+        {
+            var original = new[] { Vector3d.Zero, Vector3d.AxisX, new Vector3d(1e100, 0, 0), new Vector3d(2e100, 0, 0) };
+            var output = (Vector3d[])original.Clone();
+            output[1] += new Vector3d(0, 0.01, 0); output[3] += new Vector3d(0, 1e98, 0);
+            var roots = new[] { 0, 0, 2, 2 }; var active = new[] { true, true, true, true }; var free = new[] { -1, 0, -1, 1 };
+            Assert.True(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, roots, active, free, 1e-12, 1e-8, 1e-8));
+            output[3] = original[3];
+            Assert.False(BiharmonicIntervalFallback.MeetsEuclideanAccuracy(original, output, roots, active, free, 1e-12, 1e-8, 1e-8));
+        }
+
         static DMesh3 Patch()
         {
             var m = new DMesh3(MeshComponents.None);
@@ -25,6 +69,8 @@ namespace geometry3Sharp.Tests
             var mesh = Patch(); var target = Targets(mesh);
             var result = new BiharmonicMeshDeformer(mesh).Compute(target);
             Assert.True(result.Converged, $"{result.Status} {result.Residual:R}");
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.NotCertified, result.Accuracy);
+            Assert.True(double.IsNaN(result.PositionErrorBound));
             Assert.True(result.Mesh.CheckValidity());
             Assert.True(result.Mesh.GetVertex(2).Distance(new Vector3d(1, 1, 0.75)) < 1e-12);
             foreach (var h in target) Assert.Equal(h.Value, result.Mesh.GetVertex(h.Key));
@@ -60,6 +106,7 @@ namespace geometry3Sharp.Tests
                 Assert.True(result.Converged, $"{s.Name}: {result.Status}, {result.Residual:R}");
                 if (result.UsedIntervalFallback) {
                     usedFallback = true;
+                    Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, result.Accuracy);
                     Assert.True(double.IsNaN(result.Residual));
                     Assert.True(result.PositionErrorBound >= 0 && !double.IsInfinity(result.PositionErrorBound));
                 }
@@ -92,6 +139,11 @@ namespace geometry3Sharp.Tests
             var result = new BiharmonicMeshDeformer(mesh).Compute(handles);
             Assert.True(result.Converged, result.Status.ToString());
             Assert.True(result.UsedIntervalFallback);
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, result.Accuracy);
+            var strictSolver = new BiharmonicMeshDeformer(mesh); strictSolver.Options.RequireEuclideanAccuracy = true;
+            var strictResult = strictSolver.Compute(handles);
+            Assert.True(strictResult.Converged, strictResult.Status.ToString());
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, strictResult.Accuracy);
             foreach (var h in handles) Assert.Equal(h.Value, result.Mesh.GetVertex(h.Key));
             foreach (int v in mesh.VertexIndices()) {
                 Assert.True(result.Mesh.GetVertex(v).IsFinite);
@@ -103,11 +155,17 @@ namespace geometry3Sharp.Tests
             var overLimit = new BiharmonicMeshDeformer(mesh).Compute(handles);
             Assert.Equal(BiharmonicMeshDeformer.Status.NumericalRange, overLimit.Status);
             Assert.Null(overLimit.Mesh);
+            var strictOverLimit = strictSolver.Compute(handles);
+            Assert.Equal(BiharmonicMeshDeformer.Status.AccuracyNotEstablished, strictOverLimit.Status);
+            Assert.Null(strictOverLimit.Mesh);
         }
         [Fact]
         public void InvalidAndUnanchoredInputs_ReportStatus()
         {
             var m = Patch(); var solver = new BiharmonicMeshDeformer(m);
+            var invalid = solver.Compute(null);
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.NotEstablished, invalid.Accuracy);
+            Assert.True(double.IsNaN(invalid.PositionErrorBound)); Assert.True(double.IsNaN(invalid.Residual));
             Assert.Equal(BiharmonicMeshDeformer.Status.InvalidInput, solver.Compute(null).Status);
             Assert.Equal(BiharmonicMeshDeformer.Status.InvalidInput, solver.Compute(new Dictionary<int, Vector3d> { [99] = Vector3d.Zero }).Status);
             Assert.Equal(BiharmonicMeshDeformer.Status.UnanchoredComponent, solver.Compute(new Dictionary<int, Vector3d>()).Status);
@@ -121,6 +179,10 @@ namespace geometry3Sharp.Tests
             m.AppendVertex(Vector3d.Zero); m.AppendVertex(Vector3d.AxisX); m.AppendVertex(2 * Vector3d.AxisX); m.AppendTriangle(0, 1, 2);
             var result = new BiharmonicMeshDeformer(m).Compute(new Dictionary<int, Vector3d> { [0] = Vector3d.Zero });
             Assert.Equal(BiharmonicMeshDeformer.Status.DegenerateTriangle, result.Status); Assert.Null(result.Mesh);
+            var strict = new BiharmonicMeshDeformer(m); strict.Options.RequireEuclideanAccuracy = true;
+            Assert.Equal(BiharmonicMeshDeformer.Status.DegenerateTriangle, strict.Compute(new Dictionary<int, Vector3d> { [0] = Vector3d.Zero }).Status);
+            Assert.Equal(BiharmonicMeshDeformer.Status.UnanchoredComponent, strict.Compute(new Dictionary<int, Vector3d>()).Status);
+            Assert.Equal(BiharmonicMeshDeformer.Status.InvalidInput, strict.Compute(new Dictionary<int, Vector3d> { [99] = Vector3d.Zero }).Status);
         }
         [Fact]
         public void FullyConstrained_RigidMotionIsExact()
@@ -129,6 +191,8 @@ namespace geometry3Sharp.Tests
             var targets = new Dictionary<int, Vector3d>();
             foreach (int v in mesh.VertexIndices()) targets[v] = rot * mesh.GetVertex(v) + Vector3d.AxisZ;
             var result = new BiharmonicMeshDeformer(mesh).Compute(targets);
+            Assert.Equal(BiharmonicMeshDeformer.AccuracyAssessment.Certified, result.Accuracy);
+            Assert.Equal(0, result.PositionErrorBound); Assert.True(double.IsNaN(result.Residual));
             Assert.True(result.Converged); foreach (var h in targets) Assert.Equal(h.Value, result.Mesh.GetVertex(h.Key));
         }
         [Fact]
