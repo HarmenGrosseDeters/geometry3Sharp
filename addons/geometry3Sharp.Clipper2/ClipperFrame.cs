@@ -196,13 +196,18 @@ namespace g3.Clipper2
         /// <summary>
         /// The polygons of a Clipper2 PolyTree: one GeneralPolygon2d per outer boundary, with its holes; islands inside a hole are
         /// polygons of their own. Outer boundaries are counterclockwise and holes clockwise: each ring is oriented by its grid area
-        /// (the conversion to double does not change that except for rings of a few grid units of area far from the origin). The
+        /// (the conversion to double does not change that except for rings of a few grid units of area far from the origin); a path
+        /// of zero grid area whose vertices all lie on one line bounds nothing and is dropped (its children go to its parent; a
+        /// zero-area path that is not collinear, eg a figure eight of two equal lobes, is kept as before). The
         /// tree decides outer or hole, except where it is certainly wrong, which a self-touching or self-overlapping result makes it:
         /// a path nested as a hole that has the area sign of its parent is a region of its own (subtracting it would drop its area);
-        /// a path of negative area at the top level of the tree is a hole of the smallest positive path that contains it (all its
-        /// vertices on or inside, one of its vertices or edge midpoints strictly inside), and a filled lobe of negative winding
-        /// (reversed to an outer boundary) if none does. Such a path is then no polygon of its own, so the polygons are the tree's
-        /// outer boundaries in pre-order, minus the reclassified ones, plus the reclassified ones nested as holes.
+        /// a path of negative area nested in a hole as an island but not inside it (see Contains) is another hole of that hole's
+        /// outer boundary if that contains it (two holes that touch: filling it would add its area; inside the hole it is a filled
+        /// island of winding -1), and otherwise is treated as a path at the top level; a path of negative area at the top level of the tree is a hole of the smallest positive
+        /// path that contains it (all its vertices on or inside, one of its vertices or edge midpoints strictly inside), and a filled
+        /// lobe of negative winding (reversed to an outer boundary) if none does. Such a path is then no polygon of its own, so the
+        /// polygons are the tree's outer boundaries in pre-order, minus the reclassified ones, plus the reclassified ones nested as
+        /// holes.
         /// </summary>
         internal List<GeneralPolygon2d> ToGeneralPolygons(PolyTree64 tree)
         {
@@ -211,7 +216,10 @@ namespace g3.Clipper2
             {
                 for (int i = 0; i < node.Count; ++i) {
                     PolyPath64 child = node.Child(i);
-                    entries.Add((child.Polygon, Clipper.Area(child.Polygon), child.IsHole, parent));
+                    double area = Clipper.Area(child.Polygon);
+                    if (area == 0 && AllCollinear(child.Polygon)) { Collect(child, parent); continue; }   // bounds nothing: dropped
+                    // hole or not by the depth among the kept paths (PolyPath64.IsHole counts a dropped path too)
+                    entries.Add((child.Polygon, area, parent >= 0 && !entries[parent].treeHole, parent));
                     Collect(child, entries.Count - 1);
                 }
             }
@@ -219,23 +227,37 @@ namespace g3.Clipper2
             int n = entries.Count;
             var holeOf = new int[n];            // -1: an outer boundary
             List<int> positives = null;         // by area, for the negative paths at the top level of the tree
+            // the smallest positive path that holds path i (by Contains), -1 if none
+            int SmallestHolder(int i)
+            {
+                if (positives == null)
+                    positives = Enumerable.Range(0, n).Where(j => entries[j].area > 0).OrderBy(j => entries[j].area).ToList();
+                var e = entries[i];
+                Rect64 box = Clipper.GetBounds(e.path);
+                foreach (int j in positives) {
+                    if (entries[j].area <= -e.area) continue;       // a hole is smaller than what holds it
+                    Rect64 outer = Clipper.GetBounds(entries[j].path);
+                    // the bounds with Contains' tolerance of one grid unit
+                    if (box.left < outer.left - 1 || box.right > outer.right + 1 || box.top < outer.top - 1 || box.bottom > outer.bottom + 1) continue;
+                    if (Contains(entries[j].path, e.path)) return j;
+                }
+                return -1;
+            }
             for (int i = 0; i < n; ++i) {
                 holeOf[i] = -1;
                 var e = entries[i];
-                if (e.treeHole) {
+                if (e.treeHole && e.parent >= 0) {
                     var parent = entries[e.parent];
                     bool sameSign = parent.area != 0 && e.area != 0 && (parent.area > 0) == (e.area > 0);
                     if (!sameSign && holeOf[e.parent] < 0) holeOf[i] = e.parent;
+                } else if (e.parent >= 0 && e.area < 0 && entries[e.parent].area < 0 && holeOf[e.parent] >= 0
+                           && !Contains(entries[e.parent].path, e.path)) {
+                    // beside its hole: a hole of the hole's outer boundary if that holds it
+                    int outer = holeOf[e.parent];
+                    holeOf[i] = Contains(entries[outer].path, e.path) ? outer : SmallestHolder(i);
                 } else if (e.parent < 0 && e.area < 0) {
-                    if (positives == null)
-                        positives = Enumerable.Range(0, n).Where(j => entries[j].area > 0).OrderBy(j => entries[j].area).ToList();
-                    Rect64 box = Clipper.GetBounds(e.path);
-                    foreach (int j in positives) {
-                        if (entries[j].area <= -e.area) continue;       // a hole is smaller than what holds it
-                        Rect64 outer = Clipper.GetBounds(entries[j].path);
-                        if (box.left < outer.left || box.right > outer.right || box.top < outer.top || box.bottom > outer.bottom) continue;
-                        if (Contains(entries[j].path, e.path)) { holeOf[i] = j; break; }
-                    }
+                    // (also a tree hole whose parent, a path of zero area, was dropped)
+                    holeOf[i] = SmallestHolder(i);
                 }
             }
             // a hole whose holder is itself a hole (a candidate that was reclassified later) is an outer boundary
@@ -257,17 +279,20 @@ namespace g3.Clipper2
 
         /// <summary>
         /// The path lies in the holder: every vertex is on it or inside (the even-odd test, or a non-zero winding for a self-overlapping
-        /// holder), and some vertex or edge midpoint is strictly inside, so that a path spanning a notch with its corners on the
-        /// holder's boundary is not taken for a hole. The holder's coordinates are doubled (they are below 2^52) so that an edge
+        /// holder, or within one grid unit of the holder's boundary: a vertex of a hole that touches the holder's edge can be rounded to
+        /// the grid point beside it), and some vertex or edge midpoint is strictly inside, so that a path spanning a notch with its
+        /// corners on the holder's boundary is not taken for a hole. The holder's coordinates are doubled (they are below 2^52) so that an edge
         /// midpoint is a grid point and no integer division moves it; the winding number uses double cross products, exact up to 2^53, so
         /// it can misjudge a point one grid unit outside an edge only for a frame set explicitly near the limit of 2^52. The cost is the product of the vertex counts, with the bounding boxes as the only prefilter; it is
-        /// paid only for a negative path at the top level of the tree, which Clipper2 reports for degenerate input only
+        /// paid only for a negative path at the top level of the tree or nested as an island in a hole, which Clipper2 reports for
+        /// degenerate input only
         /// </summary>
         static bool Contains(Path64 holder, Path64 path)
         {
             var doubled = new Path64(holder.Count);
             foreach (Point64 h in holder) doubled.Add(new Point64(2 * h.X, 2 * h.Y));
-            bool Inside(Point64 q) => Clipper.PointInPolygon(q, doubled) != PointInPolygonResult.IsOutside || Winding(doubled, q) != 0;
+            bool Inside(Point64 q) => Clipper.PointInPolygon(q, doubled) != PointInPolygonResult.IsOutside || Winding(doubled, q) != 0
+                                      || NearBoundary(doubled, q, 2);   // one grid unit, doubled
             bool Strict(Point64 q)
             {
                 PointInPolygonResult where = Clipper.PointInPolygon(q, doubled);
@@ -281,6 +306,34 @@ namespace g3.Clipper2
                 strict |= Strict(q2) || Strict(new Point64(q.X + next.X, q.Y + next.Y));
             }
             return strict;
+        }
+
+        /// <summary> whether every vertex lies on one line (exact: Clipper2's 128-bit product comparison) </summary>
+        static bool AllCollinear(Path64 path)
+        {
+            int k = 1;
+            while (k < path.Count && path[k] == path[0]) ++k;
+            for (int i = k + 1; i < path.Count; ++i)
+                if (!InternalClipper.IsCollinear(path[0], path[k], path[i])) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// whether a point is within the given distance of an edge of a closed path, in doubles: exact enough at the default
+        /// frame (coordinates about 2^40; error about 2^-11 unit), but for an explicit frame near the limit of 2^52 the
+        /// cancellation in the projection costs several units, so the one-unit tolerance there is approximate
+        /// </summary>
+        static bool NearBoundary(Path64 path, Point64 p, double distance)
+        {
+            for (int i = 0; i < path.Count; ++i) {
+                Point64 a = path[i], b = path[(i + 1) % path.Count];
+                double dx = (double)b.X - a.X, dy = (double)b.Y - a.Y, px = (double)p.X - a.X, py = (double)p.Y - a.Y;
+                double length2 = dx * dx + dy * dy;
+                double t = length2 == 0 ? 0 : Math.Max(0, Math.Min(1, (px * dx + py * dy) / length2));
+                double ex = px - t * dx, ey = py - t * dy;
+                if (ex * ex + ey * ey <= distance * distance) return true;
+            }
+            return false;
         }
 
         /// <summary> the winding number of a path around a point (the crossing rule; double cross products, as Clipper2's own) </summary>

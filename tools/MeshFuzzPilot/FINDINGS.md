@@ -137,23 +137,49 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      removal of the branch (`4da1564`, issue #1067, 2026-02-22, after 2.0.0): every failure fixed, but 2-3 % of the results
      changed within the rounding, most of them less accurate (16-gons: 250 farther from the exact area, 88 closer). 4da1564 is
      **not adopted** (owner 2026-11-13).
-   - **Known, open (option a, owner 2026-11-13): the insertions that cost area without flipping the ring.** The guard catches only
-     an insertion that flips its ring. The independent review of the fix measured the rest of the class on the raw engine (random
-     8- to 24-gons on -2..2 and -4..4, every clip type and fill rule, against the exact area): 9 wrong results of 320 000 at 2^20
-     (4 pairs; 26 before the fix) and 4 of 128 000 at 2^50 (11 before), all from this branch, about 3 per 100 000; through the
-     adapter 2 of 96 000 changed, both from wrong to right. The repros are in issue #756. One of them, the unshrunk pair of that case, 16-gons A = (2,3) (0,4) (-2,-1) (4,2) (-4,2)
-     (-1,-1) (-4,-2) (4,-4) (3,1) (-2,2) (0,-1) (-4,4) (-3,2) (2,-3) (0,0) (1,-1), B = (-2,1) (1,1) (4,0) (2,4) (1,-4) (-2,-3) (-2,0)
-     (0,-2) (-3,-2) (-4,-3) (0,0) (-1,-1) (2,1) (2,0) (1,3) (-2,1), Intersection NonZero: 13.838 for an exact 14.267. The same
-     insertion (vertex (-2,0), copy of (-2,-1)) costs 0.43 of area here without flipping the larger ring, so the guard does not
-     see it. Analysed for one bounded step: a bound on the area the insertion changes is the "distance from the edge <= 1" test,
-     which rejects the large moves that usually help (and gave 2 new wrong results); no clean criterion found.
-   - **Open, found in the review of the fix (wrong before and after, not caused by it; issue #756):** a Union that is right on a
-     2^20 grid and wrong on the adapter's grid (scale 2^38): A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4)
-     (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4) (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1):
-     NonZero 27.971 against an exact 29.718 (the package's engine gives the same), EvenOdd and Negative off by the same 1.747; not
-     analysed. The review also reported results where the engine is right and `ClipperFrame.ToGeneralPolygons` fails to nest a
-     negative top-level path (its `Contains` has no tolerance for a vertex up to one grid unit outside its holder; eg a Difference
-     Positive of 14.45 against an exact 10.99); not pinned.
+   - **Fixed 2026-11-15 (the rest of the #756 class; `Clipper2MicroSelfIntersectionTests.FarCopy_*`): the insertions that cost
+     area without flipping the ring.** Before, the guard caught only an insertion that flips its ring; the review of #756 had
+     measured the rest at about 3 per 100 000 results on degenerate lattices (repros in issue #756). Cause, traced on those
+     repros: the branch's edge (prev, op2) crosses the next two edges far from the copied vertex, so the insertion (prev, copy,
+     op2) is no twist removal but cuts the triangle (prev, copy, op2) off the region; every wrong result was off by exactly that
+     triangle's area (eg the unshrunk 16-gons of #756, Intersection NonZero: 13.838 for an exact 14.267, triangle 0.43). Fix: the
+     branch is taken only if the copied vertex lies within one grid unit of the line of that edge (Clipper2's own
+     `PerpendicDistFromLineSqrd` <= 1), so that the insertion moves the path by at most the rounding that makes a micro
+     self-intersection; otherwise the crossing goes to `DoSplitOp`. The orientation guard stays (it now acts only where vertices
+     are a few grid units apart: `OrientationGuard_OnAGridOfFewUnits`). Note: the "move" measured for #756 (smallest 114 389
+     units) is the distance between the vertex and its copy, not from the edge's line; most hits are within one unit of the line,
+     so this test keeps most insertions, unlike upstream's removal of the branch. (The bounded step of #756 had reported 2 new
+     wrong results for a distance test; this one, measured as below, gave none.)
+     Exact oracle on the raw engine, random 3- to 24-gons on -2..2 and -4..4 (one seed per pair, 16 combinations each), before ->
+     after: 2^20, 100 000 pairs: 36 wrong -> 0, 92 right results changed within the rounding (21 closer to the exact area, 71
+     farther; in a run of 30 000 pairs the largest error of such a result went from 0.11 to 0.15 of the rounding slack); 2^50,
+     20 000 pairs: 4 -> 0 (6 changed right); fixed sizes, 20 000 pairs each: 16-gons on -4..4 8 -> 0, 24-gons on -2..2 27 -> 0,
+     12-gons on -1..1 7 -> 0, 8-gons on -3..3 0 -> 0 (8 changed right); 8-gons on -64..64, random 3- to 16-gons on -64..64
+     (20 000 pairs) and 3- to 12-gons on -1000..1000 (100 000 pairs): nothing changed. On lattices of step 1 and 3 grid
+     units (every vertex a few units from the next, where the grid tolerance of the oracle is loose) 56 and 112 of 320 000 results
+     changed, 1 each from within to beyond the oracle's slack (a region of under 7 grid units squared that comes out empty).
+   - **Fixed 2026-11-15 in the adapter (`ClipperFrame.ToGeneralPolygons`; `Clipper2HoleNestingTests`), found while measuring the
+     above:** through the adapter (random 16-gons on -4..4 and 24-gons on -2..2, 10 000 pairs, every combination, the exact area of
+     the snapped input) 41 of 160 000 results were wrong, 7 of them from the engine (fixed above) and 34 where the engine's tree is
+     right in area (its signed areas sum to the exact area) but the conversion filled a hole: (1) a negative top-level path that
+     touches its holder's edge with a vertex rounded to the grid point just outside (`Contains` had no tolerance; the case the
+     review of #756 reported); (2) a negative path that the tree nests as an island in a hole although it lies beside the hole,
+     touching it. Fix: `Contains` (and its bounds prefilter) takes a vertex within one grid unit of the holder's boundary as on it; a
+     negative island that is not inside its hole (`Contains`) is another hole of that hole's outer boundary if that contains it,
+     and otherwise is treated as a top-level path (inside the hole it stays a filled island of winding -1,
+     `Tree_NegativeIslandInsideAHole_IsAFilledIsland`); and a path of zero grid area whose vertices are collinear (a sliver,
+     which came out as an outer ring that is not counterclockwise) is dropped, its children moving up (the review of the fix
+     found that a dropped top-level path's hole child crashed the conversion; a zero-area figure eight is kept as before).
+     Each rule has a hand-built tree test in `Clipper2ResultOrientationTests`. After: 0 wrong of 160 000. The Union the review of #756 found
+     (A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4) (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4)
+     (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1), NonZero 27.971 for an exact 29.718 on the
+     adapter's grid) is exact now (`UnionOfTheReviewOf756_IsExact`).
+   - **Open (2026-11-15, area within the rounding):** 2 of those 160 000 results fail the structural check of the tests: needle
+     rings narrower than a grid unit that the tree nests under a path they lie beside (a hole vertex outside its outer ring; Xor
+     Positive of pair 5351 and Xor Negative of pair 869 of that campaign, `new Random(pair)`, 16-gons on -4..4 for even pairs and
+     24-gons on -2..2 for odd ones). And at UTM coordinates with scale 1e-3 the rounding of the grid points back to doubles (an ulp
+     of 5.7e6 is 2.6e5 grid units there) turns such slivers into rings of zero or negative area in doubles (the limit stated in
+     `ToGeneralPolygons`' summary; two cases of `HoleIsCutOut_UnderSimilarity` leave that similarity out for it).
    - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
