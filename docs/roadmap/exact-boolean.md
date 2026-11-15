@@ -435,7 +435,12 @@ Open:
   one-thread time of the two models together (42327 -6.7 %, confirmed; 107554 -5.5 %, inside the run-to-run range)
   and nothing on the normal stratum. Recommendation: go for that cheap form as one small PR, if the owner accepts
   the access to `BigInteger`'s private fields behind a layout check; no-go for limbs threaded through the
-  classification. The study ends with this. Candidate D is built
+  classification. The owner declined that access (2026-11-15), and the route through the public API was probed the
+  same day (section 7): limbs converted once and carried beside the planes and the centres gain nothing alone; with
+  the limb centroid 42327 is 5.0 % faster on one thread in the median, not confirmed (the ranges overlap; its
+  classification is confirmed 9.7 % lower), 107554 3.6 %, the two together 4.5 %, 4 cores and the normal strata
+  nothing; hashes equal. A no-go by the 5 % line: the classification part of candidate C is closed and nothing of
+  it is built. The study ends with this. Candidate D is built
   (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
   BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
   `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the
