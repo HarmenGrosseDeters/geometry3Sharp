@@ -314,8 +314,11 @@ of the coordinates of the distance to the triangle. It does not cancel. Three ch
   - The pass is capped at the first pass's subdivisions (at least one batch) and never changes `Converged` (review). Where
     it stops early, `Compute` decides from the reported gap.
   - Pruning is unchanged.
-- **Refinement stops at a stuck triangle's bound** (review): target = max(goal, stuck). `Upper` ≥ stuck anyway, so
-  refining below it cannot lower `Upper`, and `Converged` is false then (stuck > goal). Without this, a tolerance near
+- **Refinement stops below a stuck triangle's bound** (review): target = max(goal, stuck − 2 tol). `Upper` ≥ stuck
+  anyway. No later point can raise `Lower` above the largest bound on the heap (a point's distance is at most its
+  triangle's bound, up to rounding), so once that is ≤ stuck − 2 tol the goal stays below stuck. The gap then stays
+  open whatever is refined (`Converged` false). A run that converged before converges the same way. (The second review:
+  a stop at stuck itself could end a run that later Lower values would have closed.) Without this, a tolerance near
   the rounding of the certified bounds on touching meshes (1e-15 at coordinates of 1) refined to `MaxSubdivisions`.
   Before #873 the 1e-9 floor stopped such runs early.
 - **`Compute` checks the reported gap unconditionally:** `Converged` is false where UpperBound − LowerBound > tol.

@@ -83,8 +83,9 @@ namespace gs
         /// distance queries, which can put it below the exact distance near the surface (see Compute) </summary>
         public double LowerBound, UpperBound;
         /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF, or if
-        /// the subdivision points' rounding keeps the gap open); the upper bound, and so the gap, up to the floating-point evaluation of
-        /// the distance queries unless CertifiedUpper </summary>
+        /// the subdivision points' rounding keeps the gap open; the gap is compared in doubles, so an absolute tolerance below an ulp of
+        /// the distance may not converge); the upper bound, and so the gap, up to the floating-point evaluation of the distance queries
+        /// unless CertifiedUpper </summary>
         public bool Converged;
         /// <summary> point where the lower bound is attained (on A, or on B if WorstPointOnB), and its closest point on the other mesh </summary>
         public Vector3d WorstPoint, WorstPointClosest;
@@ -433,13 +434,15 @@ namespace gs
             // owner.Subdivisions when this direction started
             int startSubdivisions;
 
-            // the refinement stops where every triangle's bound is within the tolerance (less slack) of max(Lower, prune), or not above
-            // stuck: Upper is at least stuck anyway, so refining below it cannot lower Upper (and Converged is false then, finish).
+            // the refinement stops where every triangle's bound is within the tolerance (less slack) of max(Lower, prune), or at most
+            // stuck - 2 tol: Upper is at least stuck anyway, and no later point can raise Lower above the largest bound (a point's
+            // distance is at most its triangle's bound, up to rounding), so the goal stays below stuck and the gap open whatever is
+            // refined (Converged false, finish); a run that converged before still does, with the same result (review of #873).
             // Without it a tolerance near the rounding of the certified bounds on touching meshes (eg 1e-15 at coordinates of 1, where
             // the distances are about 1e-16 since #873) refined to MaxSubdivisions with the gap held open by a stuck triangle
             double slack = 0;
             double goal() { return threshold() + tol - slack; }
-            double target() { return Math.Max(goal(), stuck); }
+            double target() { return Math.Max(goal(), stuck - 2 * tol); }
 
             // refine until every bound is within target(), or until owner.Subdivisions reaches stop (or CancelF); then Converged is set
             // false if setConverged

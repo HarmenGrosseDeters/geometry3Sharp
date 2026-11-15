@@ -78,9 +78,9 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        /// <summary> the contract Converged => UpperBound - LowerBound <= Tolerance, at tolerances down to below the subdivision
-        /// points' rounding (where triangles get stuck with their bounds), on parallel grids, whose computed and certified lower
-        /// bounds agree (2^-33, exact), so Compute's own gap check does not cover a wrong Converged of a direction </summary>
+        /// <summary> parallel grids 2^-33 apart at tolerances down to below the subdivision points' rounding (where triangles get stuck
+        /// with their bounds): the interval contains the exact distance whether converged or not, and Converged implies the gap is
+        /// within the tolerance; both outcomes occur </summary>
         [Theory]
         [InlineData(false)] [InlineData(true)]
         public void ParallelGrids_ConvergedOnlyWithinTheTolerance(bool cert)
@@ -189,6 +189,8 @@ namespace geometry3Sharp.Tests
         {
             DMesh3 a = Grid(4, 0.2, 16), b = Grid(5, 0.3, 17);
             var coarse = Run(a, b, 1e-12, cert);
+            // (the bound below must be far from the runs' MaxSubdivisions, 200000, which a run without the stops would reach)
+            Assert.True(8 * coarse.Subdivisions + 2048 < 50000, $"{coarse.Subdivisions}");
             foreach (double tol in new[] { 1e-16, 4e-16, 1e-15, 2e-15, 4e-15, 1e-14, 1e-13 }) {
                 var h = Run(a, b, tol, cert);
                 Assert.Equal(0, h.LowerBound);
