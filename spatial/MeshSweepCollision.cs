@@ -58,18 +58,43 @@ namespace g3
     ///
     /// Broad phase: the box of each primitive's start and end positions (the primitive stays in it under linear
     /// motion), widened by half the minimum separation with outward rounding, in a closed, unpadded box tree (no
-    /// overlapping pair is missed). Narrow phase: ContinuousCollision per candidate pair, in parallel; each pair is
-    /// computed independently, so the result does not depend on the thread schedule.
+    /// overlapping pair is missed); a pair of overlapping boxes is kept if the boxes of its primitives also overlap in
+    /// some sub-step (SubSteps). Narrow phase: ContinuousCollision per candidate pair over the whole step; each pair is
+    /// computed independently. Both run in parallel over fixed jobs (blocks of query primitives, self edge-pair tasks) in
+    /// batches of about two million candidate pairs (a batch ends at the job that reaches that number, so it can hold
+    /// one job's pairs more); the jobs and batches depend only on the input and the outputs are merged in
+    /// job order and sorted, so the result does not depend on the thread schedule, and the memory is that of a batch, of
+    /// the kept pairs and of the sub-step hulls ((SubSteps + 1) * 48 bytes per vertex).
     /// </summary>
     public class MeshSweepCollision
     {
         readonly DMesh3 meshA, meshB;
         Vector3d[] endA, endB;
         readonly bool self;
+        // the sub-step hulls of the meshes' points during Compute (sub_hulls), and whether the sub-step filter runs
+        // (SubSteps > 1 and the hulls within MaxHullDoubles)
+        double[] hullsA, hullsB;
+        bool subFilter;
+        // the most doubles the sub-step hulls may take (2^27: 1 GB, below the 2 GB object limit of .NET Framework);
+        // above it the filter is skipped, which gives the candidates of SubSteps = 1 (tests set smaller values)
+        internal long MaxHullDoubles = 1L << 27;
 
         /// <summary> options of every pair query </summary>
         public CcdOptions Options = new CcdOptions();
-        /// <summary> run the pair queries on all cores (the result equals the serial one) </summary>
+        /// <summary>
+        /// the broad phase splits the step into this many equal sub-steps (a power of two, 1 to 64; 4 by default): a pair
+        /// of overlapping whole-step boxes is a candidate only if the boxes of its primitives also overlap in some
+        /// sub-step. Fewer candidates for large motions; every candidate is still solved over the whole step, so a pair's
+        /// result does not depend on SubSteps. A pair is left out only if its boxes are farther apart than MinSeparation
+        /// in every sub-step: no contact is lost, but a pair that SubSteps = 1 reports as a false positive (within the
+        /// error bound) or at the iteration limit can be left out (docs/design/CCD.md 10.10). Then Status can go from
+        /// Collision to NoCollision, the earliest times can be later (never past a true contact), and with CollectAll =
+        /// false Contacts can hold pairs that SubSteps = 1 leaves out (those up to the later EarliestNearContactTime): the
+        /// subset holds for the candidates and per-pair results. SubSteps = 1 gives the behaviour before this option.
+        /// Memory: (SubSteps + 1) * 48 bytes per vertex; above 1 GB the filter is skipped (the candidates of SubSteps = 1).
+        /// </summary>
+        public int SubSteps = 4;
+        /// <summary> run the whole sweep (boxes, tree queries, pair queries) on all cores (the result equals the serial one) </summary>
         public bool Parallel = true;
         /// <summary> false: Contacts holds the pairs that may give the first contact; true: every candidate pair </summary>
         public bool CollectAll = false;
@@ -91,6 +116,13 @@ namespace g3
         public List<SweepContact> Contacts = new List<SweepContact>();
         /// <summary> the number of pairs the broad phase passed to the narrow phase </summary>
         public int CandidatePairs;
+        /// <summary> the number of candidate pairs as a long (CandidatePairs saturates at int.MaxValue) </summary>
+        public long CandidatePairCount;
+        /// <summary>
+        /// benchmarks: the wall time of the last Compute's preparation (boxes, trees, jobs) and of the batches (the tree
+        /// queries, which are the rest of the broad phase, and the pair queries)
+        /// </summary>
+        internal double PrepareSeconds, PairsSeconds;
 
         /// <summary> a self sweep of mesh; endPositions[vid] is the position of vertex vid at t = 1 </summary>
         public MeshSweepCollision(DMesh3 mesh, Vector3d[] endPositions)
@@ -115,89 +147,163 @@ namespace g3
             else if (endB != null) this.endB = endB;
         }
 
-        struct Pair
-        {
-            public SweepContactKind Kind;
-            public int First, Second;
-            public bool FirstOfMeshA;
-        }
 
         /// <summary> run the sweep; may be called again (after changing Options or the end positions) </summary>
         public MeshSweepStatus Compute()
         {
             Contacts = new List<SweepContact>();
             CandidatePairs = 0;
+            CandidatePairCount = 0;
+            PrepareSeconds = PairsSeconds = 0;
             EarliestTimeOfImpact = double.PositiveInfinity;
             EarliestNearContactTime = double.PositiveInfinity;
             Status = MeshSweepStatus.InvalidInput;
             if (meshA == null || meshB == null || endA == null || endB == null || Options == null || Options.IsValid() == false
-                || endA.Length < meshA.MaxVertexID || endB.Length < meshB.MaxVertexID)
+                || endA.Length < meshA.MaxVertexID || endB.Length < meshB.MaxVertexID
+                || BlockSize < 1 || BlockSize > (1 << 20) || SelfTasks < 1 || BatchPairs < 1
+                || SubSteps < 1 || SubSteps > 64 || (SubSteps & (SubSteps - 1)) != 0)
                 return Status;
             if (finite(meshA, endA) == false || (self == false && finite(meshB, endB) == false))
                 return Status;
 
             // half the minimum separation, rounded up (0.5 ms underflows to 0 for ms = 2^-1074)
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             double half = Options.MinSeparation > 0 ? ExactInterval.Up(0.5 * Options.MinSeparation) : 0;
-            var pairs = new List<Pair>();
-            // vertices of A against the triangles of B (and, for A against B, the vertices of B against the triangles of A)
-            vertex_triangle(meshA, endA, meshB, endB, true, half, pairs);
-            if (self == false)
-                vertex_triangle(meshB, endB, meshA, endA, false, half, pairs);
-            edge_edge(half, pairs);
-            CandidatePairs = pairs.Count;
+            bool parallel = Parallel;
 
-            var results = new CcdResult[pairs.Count];
-            Action<int, CcdSolver> one = (i, solver) => {
-                Pair p = pairs[i];
-                DMesh3 m1 = p.FirstOfMeshA ? meshA : meshB, m2 = p.FirstOfMeshA ? meshB : meshA;
-                Vector3d[] e1 = p.FirstOfMeshA ? endA : endB, e2 = p.FirstOfMeshA ? endB : endA;
-                if (p.Kind == SweepContactKind.VertexTriangle) {
-                    Index3i t = m2.GetTriangle(p.Second);
-                    solver.Set(m1.GetVertex(p.First), m2.GetVertex(t.a), m2.GetVertex(t.b), m2.GetVertex(t.c),
-                               e1[p.First], e2[t.a], e2[t.b], e2[t.c]);
-                    results[i] = solver.Solve(true, Options);
-                } else {
-                    Index2i ea = m1.GetEdgeV(p.First), eb = m2.GetEdgeV(p.Second);
-                    solver.Set(m1.GetVertex(ea.a), m1.GetVertex(ea.b), m2.GetVertex(eb.a), m2.GetVertex(eb.b),
-                               e1[ea.a], e1[ea.b], e2[eb.a], e2[eb.b]);
-                    results[i] = solver.Solve(false, Options);
-                }
-            };
-            if (Parallel && pairs.Count > 1)
-                gParallel.ForRange(pairs.Count, () => new CcdSolver(), one);
-            else {
-                var solver = new CcdSolver();
-                for (int i = 0; i < pairs.Count; ++i)
-                    one(i, solver);
+            // the trees (boxes of the swept triangles and edges) and the jobs: fixed blocks of query primitives, so that
+            // every job's output depends only on the input; the outputs are merged in job order and sorted
+            var jobs = new List<Job>();
+            Prepared triB = triangles(meshB, endB, half, parallel), triA = self ? null : triangles(meshA, endA, half, parallel);
+            Prepared edgB = edges(meshB, endB, half, parallel);
+            long hullDoubles = ((long)meshA.MaxVertexID + (self ? 0 : meshB.MaxVertexID)) * 6 * (SubSteps + 1);
+            subFilter = SubSteps > 1 && hullDoubles <= MaxHullDoubles;
+            if (subFilter) {
+                hullsA = sub_hulls(meshA, endA, half, parallel);
+                hullsB = self ? hullsA : sub_hulls(meshB, endB, half, parallel);
             }
+            int[] vertsA = ids(meshA.VertexIndices()), vertsB = self ? null : ids(meshB.VertexIndices());
+            int[] edgesA = self ? null : ids(meshA.EdgeIndices());
+            add_blocks(jobs, JobKind.VertexTriangle, true, vertsA.Length);
+            if (self == false) {
+                add_blocks(jobs, JobKind.VertexTriangle, false, vertsB.Length);
+                add_blocks(jobs, JobKind.EdgeEdge, true, edgesA.Length);
+            }
+            List<Index2i> selfTasks = null;
+            if (self && edgB.Tree != null) {
+                selfTasks = edgB.Tree.SelfPairTasks(SelfTasks);
+                for (int k = 0; k < selfTasks.Count; ++k)
+                    jobs.Add(new Job { Kind = JobKind.SelfEdges, Start = k, End = k + 1 });
+            }
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            // reduce serially (min of times: exact, independent of the order); a time limit below 1 bounds the claim
+            // In batches of about BatchPairs candidate pairs (the batches depend only on the input; the memory is that of
+            // a group of jobs' candidates and of a batch, plus the kept pairs):
+            // (1) the jobs' candidate pairs, in parallel over the jobs; (2) the pairs, in parallel over the pairs (so that
+            // expensive pairs that cluster in one job still spread over the cores); (3) the results recorded per job, in
+            // order.
+            var outputs = new JobOutput[jobs.Count];
+            try {
+                var jobPairs = new List<PairRef>[jobs.Count];
+                // the batch's pairs and results, grown once and reused (no new large arrays per batch)
+                var flat = new PairRef[0];
+                var results = new CcdResult[0];
+                Action<int, int> flush = (a, b) => {
+                    // (2) the pairs of jobs [a, b), in parallel over the pairs
+                    int total = 0;
+                    for (int jj = a; jj < b; ++jj)
+                        total = checked(total + jobPairs[jj].Count);
+                    if (flat.Length < total) {
+                        flat = new PairRef[total];
+                        results = new CcdResult[total];
+                    }
+                    int at = 0;
+                    for (int jj = a; jj < b; ++jj) {
+                        jobPairs[jj].CopyTo(flat, at);
+                        at += jobPairs[jj].Count;
+                    }
+                    PairRef[] f = flat;
+                    CcdResult[] res = results;
+                    Action<int, CcdSolver> solve = (k, solver) => { res[k] = solve_pair(f[k], solver); };
+                    if (parallel && total > 1)
+                        gParallel.ForRange(total, () => new CcdSolver(), solve);
+                    else {
+                        var solver = new CcdSolver();
+                        for (int k = 0; k < total; ++k)
+                            solve(k, solver);
+                    }
+                    // (3) the results recorded per job, in order
+                    at = 0;
+                    for (int jj = a; jj < b; ++jj) {
+                        var o = new JobOutput();
+                        int n = jobPairs[jj].Count;
+                        for (int k = at; k < at + n; ++k)
+                            record(o, f[k], res[k]);
+                        at += n;
+                        outputs[jj] = o;
+                        jobPairs[jj] = null;
+                    }
+                };
+                int pending = 0;
+                long held = 0;
+                for (int g0 = 0; g0 < jobs.Count; g0 += BatchJobs) {
+                    // (1) the candidates of a group of jobs, in parallel over its jobs
+                    int ng = Math.Min(BatchJobs, jobs.Count - g0);
+                    Action<int, Worker> collect = (jj, w) => { jobPairs[g0 + jj] = job_candidates(jobs[g0 + jj], vertsA, vertsB, edgesA, selfTasks, triA, triB, edgB, half, w); };
+                    if (parallel && ng > 1)
+                        gParallel.ForRange(ng, () => new Worker(), collect);
+                    else {
+                        var w = new Worker();
+                        for (int jj = 0; jj < ng; ++jj)
+                            collect(jj, w);
+                    }
+                    // a batch ends after the first job (in job order) at which it holds BatchPairs pairs
+                    for (int jj = g0; jj < g0 + ng; ++jj) {
+                        held += jobPairs[jj].Count;
+                        if (held >= BatchPairs) {
+                            flush(pending, jj + 1);
+                            pending = jj + 1;
+                            held = 0;
+                        }
+                    }
+                }
+                flush(pending, jobs.Count);
+            } finally {
+                hullsA = hullsB = null;
+            }
+            long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+            PrepareSeconds = (t1 - t0) / (double)System.Diagnostics.Stopwatch.Frequency;
+            PairsSeconds = (t2 - t1) / (double)System.Diagnostics.Stopwatch.Frequency;
+
+            // reduce serially in job order (min of times: exact, independent of the order); a time limit below 1 bounds
+            // the claim
             if (Options.TimeLimit < 1)
                 EarliestTimeOfImpact = Options.TimeLimit;
             bool invalid = false;
-            for (int i = 0; i < results.Length; ++i) {
-                CcdResult r = results[i];
-                if (r.Status == CcdStatus.InvalidInput) invalid = true;
-                if (r.Status == CcdStatus.Collision || r.Status == CcdStatus.IterationLimit)
-                    EarliestTimeOfImpact = Math.Min(EarliestTimeOfImpact, r.TimeOfImpact);
-                if (r.Status == CcdStatus.Collision)
-                    EarliestNearContactTime = Math.Min(EarliestNearContactTime, r.NearContactTime);
+            long candidates = 0;
+            foreach (JobOutput o in outputs) {
+                invalid |= o.Invalid;
+                candidates += o.Candidates;
+                EarliestTimeOfImpact = Math.Min(EarliestTimeOfImpact, o.MinTimeOfImpact);
+                EarliestNearContactTime = Math.Min(EarliestNearContactTime, o.MinNearContactTime);
             }
+            CandidatePairs = (int)Math.Min(int.MaxValue, candidates);
+            CandidatePairCount = candidates;
             if (invalid) {
                 EarliestTimeOfImpact = EarliestNearContactTime = double.PositiveInfinity;
                 return Status = MeshSweepStatus.InvalidInput;
             }
             bool limited = false;
-            for (int i = 0; i < results.Length; ++i) {
-                CcdResult r = results[i];
-                bool candidate = (r.Status == CcdStatus.Collision || r.Status == CcdStatus.IterationLimit)
-                                 && r.TimeOfImpact <= EarliestNearContactTime;
-                if (r.Status == CcdStatus.IterationLimit && r.TimeOfImpact <= EarliestNearContactTime)
-                    limited = true;
-                if (CollectAll || candidate)
-                    Contacts.Add(new SweepContact { Kind = pairs[i].Kind, First = pairs[i].First, Second = pairs[i].Second,
-                                                    FirstOfMeshA = pairs[i].FirstOfMeshA, Result = r });
-            }
+            foreach (JobOutput o in outputs)
+                foreach (SweepContact c in o.Kept) {
+                    CcdResult r = c.Result;
+                    bool candidate = (r.Status == CcdStatus.Collision || r.Status == CcdStatus.IterationLimit)
+                                     && r.TimeOfImpact <= EarliestNearContactTime;
+                    if (r.Status == CcdStatus.IterationLimit && r.TimeOfImpact <= EarliestNearContactTime)
+                        limited = true;
+                    if (CollectAll || candidate)
+                        Contacts.Add(c);
+                }
             Contacts.Sort(compare);
             if (limited) Status = MeshSweepStatus.IterationLimit;
             else if (EarliestNearContactTime < double.PositiveInfinity) Status = MeshSweepStatus.Collision;
@@ -248,74 +354,330 @@ namespace g3
             return b;
         }
 
-        void vertex_triangle(DMesh3 vm, Vector3d[] vend, DMesh3 tm, Vector3d[] tend, bool verticesOfA, double half, List<Pair> pairs)
+        // the number of self edge-pair tasks (SelfPairTasks) and the query primitives per job: fixed, so that the jobs do
+        // not depend on the machine (tests set smaller values to get many jobs on small meshes)
+        internal int SelfTasks = 4096;
+        internal int BlockSize = 128;
+
+        enum JobKind { VertexTriangle, EdgeEdge, SelfEdges }
+
+        struct Job
         {
-            var tids = new List<int>();
-            var boxes = new List<AxisAlignedBox3d>();
-            foreach (int tid in tm.TriangleIndices()) {
-                Index3i t = tm.GetTriangle(tid);
-                tids.Add(tid);
-                boxes.Add(box(half, tm.GetVertex(t.a), tm.GetVertex(t.b), tm.GetVertex(t.c), tend[t.a], tend[t.b], tend[t.c], 6));
-            }
-            if (tids.Count == 0)
-                return;
-            var tree = new TriangleBoxTree(boxes);
-            var found = new List<int>();
-            foreach (int vid in vm.VertexIndices()) {
-                Vector3d p = vm.GetVertex(vid);
-                found.Clear();
-                tree.Query(box(half, p, vend[vid], p, p, p, p, 2), found);
-                found.Sort();
-                foreach (int k in found) {
-                    int tid = tids[k];
-                    if (self) {
-                        Index3i t = tm.GetTriangle(tid);
-                        if (t.a == vid || t.b == vid || t.c == vid)
-                            continue;
+            public JobKind Kind;
+            public bool OfA;           // the query primitives are of mesh A
+            public int Start, End;     // a range of the query primitives (SelfEdges: of the tasks)
+        }
+
+        // a job's output: the pairs that may touch (every candidate with CollectAll), the minima, the candidate count
+        sealed class JobOutput
+        {
+            public readonly List<SweepContact> Kept = new List<SweepContact>();
+            public long Candidates;
+            public double MinTimeOfImpact = double.PositiveInfinity, MinNearContactTime = double.PositiveInfinity;
+            public bool Invalid;
+        }
+
+        // per thread: query buffers
+        sealed class Worker
+        {
+            public readonly List<int> Found = new List<int>();
+            public double[] Query;               // the query primitive's sub-step boxes (sub_boxes)
+            public readonly List<Index2i> Pairs = new List<Index2i>();
+        }
+
+        // the swept boxes of a mesh's triangles or edges, their tree, and the ids by box index
+        sealed class Prepared
+        {
+            public int[] Ids;
+            public TriangleBoxTree Tree;         // the tree of the whole-step boxes (null without primitives)
+        }
+
+        static int[] ids(IEnumerable<int> e) { return new List<int>(e).ToArray(); }
+
+        void add_blocks(List<Job> jobs, JobKind kind, bool ofA, int n)
+        {
+            for (int s = 0; s < n; s += BlockSize)
+                jobs.Add(new Job { Kind = kind, OfA = ofA, Start = s, End = Math.Min(n, s + BlockSize) });
+        }
+
+        // fill boxes[i] for i in [0, n) in fixed blocks (parallel or not: the same boxes)
+        void for_blocks(int n, bool parallel, Action<int> f)
+        {
+            int blocks = (n + BlockSize - 1) / BlockSize;
+            Action<int> block = b => { for (int i = b * BlockSize; i < Math.Min(n, (b + 1) * BlockSize); ++i) f(i); };
+            if (parallel && blocks > 1)
+                gParallel.ForRange(blocks, block);
+            else
+                for (int b = 0; b < blocks; ++b) block(b);
+        }
+
+        // The sub-step hulls of the points of mesh m (end positions end), by vertex id: for t_j = j / SubSteps, j = 0 ..
+        // SubSteps, the bounds (lo x y z, hi x y z) of the point's position at t_j, widened by pad with outward rounding.
+        // At j = 0 and SubSteps they are the exact positions; at an inner t_j (exact: SubSteps is a power of two) the
+        // position s + t_j (e - s) is enclosed in an outward-rounded interval. Under linear motion the point stays
+        // during sub-step i in the box of its hulls at t_i and t_(i+1) (a convex combination of the two positions). The
+        // padding is per point: Down(x - pad) and Up(x + pad) are monotone, so the union of padded points is the padded
+        // union, as in box(). (The filter only drops candidates of the whole-step tree, so the candidates are a subset
+        // of those of SubSteps = 1 whatever the hulls' widening.)
+        double[] sub_hulls(DMesh3 m, Vector3d[] end, double pad, bool parallel)
+        {
+            int k = SubSteps, stride = 6 * (k + 1);
+            var h = new double[checked((long)m.MaxVertexID * stride)];
+            for_blocks(m.MaxVertexID, parallel, v => {
+                if (m.IsVertex(v) == false)
+                    return;
+                Vector3d s = m.GetVertex(v), e = end[v];
+                for (int j = 0; j <= k; ++j) {
+                    int o = v * stride + 6 * j;
+                    for (int c = 0; c < 3; ++c) {
+                        double lo, hi;
+                        if (j == 0 || j == k) {
+                            lo = hi = j == 0 ? s[c] : e[c];
+                        } else {
+                            ExactInterval q = ExactInterval.Of(s[c]) + ExactInterval.Of(j / (double)k) * (ExactInterval.Of(e[c]) - ExactInterval.Of(s[c]));
+                            lo = q.Lo;
+                            hi = q.Hi;
+                        }
+                        if (pad > 0) {
+                            lo = ExactInterval.Down(lo - pad);
+                            hi = ExactInterval.Up(hi + pad);
+                        }
+                        h[o + c] = lo;
+                        h[o + 3 + c] = hi;
                     }
-                    pairs.Add(new Pair { Kind = SweepContactKind.VertexTriangle, First = vid, Second = tid, FirstOfMeshA = verticesOfA });
                 }
+            });
+            return h;
+        }
+
+        Prepared triangles(DMesh3 m, Vector3d[] end, double half, bool parallel)
+        {
+            var p = new Prepared { Ids = ids(m.TriangleIndices()) };
+            if (p.Ids.Length == 0)
+                return p;
+            var boxes = new AxisAlignedBox3d[p.Ids.Length];
+            for_blocks(boxes.Length, parallel, i => {
+                Index3i t = m.GetTriangle(p.Ids[i]);
+                boxes[i] = box(half, m.GetVertex(t.a), m.GetVertex(t.b), m.GetVertex(t.c), end[t.a], end[t.b], end[t.c], 6);
+            });
+            p.Tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxes));
+            return p;
+        }
+
+        Prepared edges(DMesh3 m, Vector3d[] end, double half, bool parallel)
+        {
+            var p = new Prepared { Ids = ids(m.EdgeIndices()) };
+            if (p.Ids.Length == 0)
+                return p;
+            var boxes = new AxisAlignedBox3d[p.Ids.Length];
+            for_blocks(boxes.Length, parallel, i => {
+                Index2i e = m.GetEdgeV(p.Ids[i]);
+                boxes[i] = box(half, m.GetVertex(e.a), m.GetVertex(e.b), end[e.a], end[e.b], Vector3d.Zero, Vector3d.Zero, 4);
+            });
+            p.Tree = new TriangleBoxTree(new List<AxisAlignedBox3d>(boxes));
+            return p;
+        }
+
+        // Sub-step filter of a pair of primitives, both from the hulls: true if, in some sub-step, the box of the points
+        // p0..p(n-1) (hulls hp) and that of the points q0..q(m-1) (hulls hq) overlap (closed boxes); stops at the first
+        // separating axis of each sub-step (self edge pairs, where the first edge changes from pair to pair)
+        bool overlaps_some_sub_step(double[] hp, int n, int p0, int p1, int p2, double[] hq, int m, int q0, int q1, int q2)
+        {
+            int stride = 6 * (SubSteps + 1);
+            for (int st = 0; st < SubSteps; ++st) {
+                bool all = true;
+                for (int c = 0; c < 3 && all; ++c) {
+                    double alo = double.PositiveInfinity, ahi = double.NegativeInfinity;
+                    double blo = double.PositiveInfinity, bhi = double.NegativeInfinity;
+                    for (int i = 0; i < n; ++i) {
+                        int o = (i == 0 ? p0 : i == 1 ? p1 : p2) * stride + 6 * st + c;
+                        alo = Math.Min(alo, Math.Min(hp[o], hp[o + 6]));
+                        ahi = Math.Max(ahi, Math.Max(hp[o + 3], hp[o + 9]));
+                    }
+                    for (int i = 0; i < m; ++i) {
+                        int o = (i == 0 ? q0 : i == 1 ? q1 : q2) * stride + 6 * st + c;
+                        blo = Math.Min(blo, Math.Min(hq[o], hq[o + 6]));
+                        bhi = Math.Max(bhi, Math.Max(hq[o + 3], hq[o + 9]));
+                    }
+                    all = alo <= bhi && blo <= ahi;
+                }
+                if (all)
+                    return true;
+            }
+            return false;
+        }
+
+        // the boxes of the points p0..p(n-1) (hulls h) over the sub-steps into dst (lo x y z, hi x y z per sub-step): the
+        // box over sub-step i is that of their hulls at t_i and t_(i+1) (sub_hulls)
+        void sub_boxes(double[] h, int n, int p0, int p1, int p2, double[] dst)
+        {
+            int stride = 6 * (SubSteps + 1);
+            for (int st = 0; st < SubSteps; ++st)
+                for (int c = 0; c < 3; ++c) {
+                    double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                    for (int i = 0; i < n; ++i) {
+                        int o = (i == 0 ? p0 : i == 1 ? p1 : p2) * stride + 6 * st + c;
+                        lo = Math.Min(lo, Math.Min(h[o], h[o + 6]));
+                        hi = Math.Max(hi, Math.Max(h[o + 3], h[o + 9]));
+                    }
+                    dst[6 * st + c] = lo;
+                    dst[6 * st + 3 + c] = hi;
+                }
+        }
+
+        // Sub-step filter of a candidate pair: true if, in some sub-step, the query primitive's box (q, from sub_boxes)
+        // and the box of the points q0..q(m-1) (hulls h) overlap (closed boxes)
+        bool overlaps_some_sub_step(double[] q, double[] h, int m, int q0, int q1, int q2)
+        {
+            int stride = 6 * (SubSteps + 1);
+            for (int st = 0; st < SubSteps; ++st) {
+                bool all = true;
+                for (int c = 0; c < 3 && all; ++c) {
+                    double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+                    for (int i = 0; i < m; ++i) {
+                        int o = (i == 0 ? q0 : i == 1 ? q1 : q2) * stride + 6 * st + c;
+                        lo = Math.Min(lo, Math.Min(h[o], h[o + 6]));
+                        hi = Math.Max(hi, Math.Max(h[o + 3], h[o + 9]));
+                    }
+                    all = q[6 * st + c] <= hi && lo <= q[6 * st + 3 + c];
+                }
+                if (all)
+                    return true;
+            }
+            return false;
+        }
+
+        // jobs per group of the candidate search, and the candidate pairs per batch (they live at the same time, with
+        // their results: about 64 bytes each); a batch ends at the job that reaches BatchPairs, so it holds at most
+        // BatchPairs plus one job's pairs
+        const int BatchJobs = 16;
+        internal int BatchPairs = 1 << 21;
+
+        // the candidate pairs of one job
+        List<PairRef> job_candidates(Job job, int[] vertsA, int[] vertsB, int[] edgesA, List<Index2i> selfTasks,
+                                 Prepared triA, Prepared triB, Prepared edgB, double half, Worker w)
+        {
+            var list = new List<PairRef>();
+            if (job.Kind == JobKind.VertexTriangle) {
+                DMesh3 vm = job.OfA ? meshA : meshB, tm = job.OfA ? meshB : meshA;
+                Vector3d[] ve = job.OfA ? endA : endB;
+                Prepared tri = job.OfA ? triB : triA;
+                int[] verts = job.OfA ? vertsA : vertsB;
+                if (tri.Tree != null)
+                    for (int k = job.Start; k < job.End; ++k)
+                        vertex_against(verts[k], vm, ve, tm, tri, job.OfA, half, w, list);
+            } else if (job.Kind == JobKind.EdgeEdge) {
+                if (edgB.Tree != null)
+                    for (int k = job.Start; k < job.End; ++k)
+                        edge_against(edgesA[k], edgB, half, w, list);
+            } else
+                self_edges(selfTasks[job.Start], edgB, w, list);
+            return list;
+        }
+
+        // a candidate pair: the kind, the first primitive (of mesh A or B) and the second (of the other mesh, or of A for
+        // a self sweep)
+        struct PairRef
+        {
+            public SweepContactKind Kind;
+            public bool OfA;
+            public int First, Second;
+        }
+
+        CcdResult solve_pair(PairRef p, CcdSolver solver)
+        {
+            DMesh3 m1 = p.OfA ? meshA : meshB, m2 = p.OfA ? meshB : meshA;
+            Vector3d[] e1 = p.OfA ? endA : endB, e2 = p.OfA ? endB : endA;
+            if (p.Kind == SweepContactKind.VertexTriangle) {
+                Index3i t = m2.GetTriangle(p.Second);
+                solver.Set(m1.GetVertex(p.First), m2.GetVertex(t.a), m2.GetVertex(t.b), m2.GetVertex(t.c),
+                           e1[p.First], e2[t.a], e2[t.b], e2[t.c]);
+                return solver.Solve(true, Options);
+            }
+            Index2i ea = m1.GetEdgeV(p.First), eb = m2.GetEdgeV(p.Second);
+            solver.Set(m1.GetVertex(ea.a), m1.GetVertex(ea.b), m2.GetVertex(eb.a), m2.GetVertex(eb.b),
+                       e1[ea.a], e1[ea.b], e2[eb.a], e2[eb.b]);
+            return solver.Solve(false, Options);
+        }
+
+        // record a solved pair in its job's output
+        void record(JobOutput o, PairRef p, CcdResult r)
+        {
+            ++o.Candidates;
+            if (r.Status == CcdStatus.InvalidInput)
+                o.Invalid = true;
+            bool touch = r.Status == CcdStatus.Collision || r.Status == CcdStatus.IterationLimit;
+            if (touch)
+                o.MinTimeOfImpact = Math.Min(o.MinTimeOfImpact, r.TimeOfImpact);
+            if (r.Status == CcdStatus.Collision)
+                o.MinNearContactTime = Math.Min(o.MinNearContactTime, r.NearContactTime);
+            if (touch || CollectAll)
+                o.Kept.Add(new SweepContact { Kind = p.Kind, First = p.First, Second = p.Second, FirstOfMeshA = p.OfA, Result = r });
+        }
+
+        // the candidate triangles of a vertex in the other mesh (or in its own, without the incident ones), by id, in
+        // the order of the tree query (it depends only on the input; Contacts is sorted at the end)
+        void vertex_against(int vid, DMesh3 vm, Vector3d[] ve, DMesh3 tm, Prepared tri, bool ofA, double half, Worker w, List<PairRef> pairs)
+        {
+            Vector3d p = vm.GetVertex(vid);
+            w.Found.Clear();
+            tri.Tree.Query(box(half, p, ve[vid], p, p, p, p, 2), w.Found);
+            double[] ht = ofA ? hullsB : hullsA;
+            if (subFilter)
+                sub_boxes(ofA ? hullsA : hullsB, 1, vid, -1, -1, query_boxes(w));
+            foreach (int k in w.Found) {
+                int tid = tri.Ids[k];
+                if (self || subFilter) {
+                    Index3i t = tm.GetTriangle(tid);
+                    if (self && (t.a == vid || t.b == vid || t.c == vid))
+                        continue;
+                    if (subFilter && overlaps_some_sub_step(w.Query, ht, 3, t.a, t.b, t.c) == false)
+                        continue;
+                }
+                pairs.Add(new PairRef { Kind = SweepContactKind.VertexTriangle, OfA = ofA, First = vid, Second = tid });
             }
         }
 
-        void edge_edge(double half, List<Pair> pairs)
+        // the candidate edges of B of an edge of A, by id, in the order of the tree query
+        void edge_against(int eid, Prepared edgB, double half, Worker w, List<PairRef> pairs)
         {
-            var eidsB = new List<int>();
-            var boxesB = new List<AxisAlignedBox3d>();
-            foreach (int eid in meshB.EdgeIndices()) {
-                Index2i e = meshB.GetEdgeV(eid);
-                eidsB.Add(eid);
-                boxesB.Add(box(half, meshB.GetVertex(e.a), meshB.GetVertex(e.b), endB[e.a], endB[e.b], Vector3d.Zero, Vector3d.Zero, 4));
-            }
-            if (eidsB.Count == 0)
-                return;
-            var tree = new TriangleBoxTree(boxesB);
-            if (self) {
-                // each overlapping pair of different edges once (SelfPairs), in id order; edges sharing a vertex skipped
-                var found = new List<Index2i>();
-                foreach (Index2i task in tree.SelfPairTasks(1))
-                    tree.SelfPairs(task, found);
-                var keyed = new List<Index2i>(found.Count);
-                foreach (Index2i k in found) {
-                    int x = eidsB[k.a], y = eidsB[k.b];
-                    keyed.Add(x < y ? new Index2i(x, y) : new Index2i(y, x));
+            Index2i ea = meshA.GetEdgeV(eid);
+            w.Found.Clear();
+            edgB.Tree.Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), w.Found);
+            if (subFilter)
+                sub_boxes(hullsA, 2, ea.a, ea.b, -1, query_boxes(w));
+            foreach (int k in w.Found) {
+                int other = edgB.Ids[k];
+                if (subFilter) {
+                    Index2i eb = meshB.GetEdgeV(other);
+                    if (overlaps_some_sub_step(w.Query, hullsB, 2, eb.a, eb.b, -1) == false)
+                        continue;
                 }
-                keyed.Sort((p, q) => p.a != q.a ? p.a.CompareTo(q.a) : p.b.CompareTo(q.b));
-                foreach (Index2i k in keyed) {
-                    Index2i ea = meshA.GetEdgeV(k.a), eb = meshA.GetEdgeV(k.b);
-                    if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b) continue;
-                    pairs.Add(new Pair { Kind = SweepContactKind.EdgeEdge, First = k.a, Second = k.b, FirstOfMeshA = true });
-                }
-                return;
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = eid, Second = other });
             }
-            var hits = new List<int>();
-            foreach (int eid in meshA.EdgeIndices()) {
-                Index2i ea = meshA.GetEdgeV(eid);
-                hits.Clear();
-                tree.Query(box(half, meshA.GetVertex(ea.a), meshA.GetVertex(ea.b), endA[ea.a], endA[ea.b], Vector3d.Zero, Vector3d.Zero, 4), hits);
-                hits.Sort();
-                foreach (int k in hits)
-                    pairs.Add(new Pair { Kind = SweepContactKind.EdgeEdge, First = eid, Second = eidsB[k], FirstOfMeshA = true });
+        }
+
+        double[] query_boxes(Worker w)
+        {
+            if (w.Query == null || w.Query.Length < 6 * SubSteps)
+                w.Query = new double[6 * SubSteps];
+            return w.Query;
+        }
+
+        // self sweep: the overlapping edge pairs of one SelfPairs task (each pair once, ids ordered within the pair), in
+        // SelfPairs order; edges that share a vertex skipped
+        void self_edges(Index2i task, Prepared edg, Worker w, List<PairRef> pairs)
+        {
+            w.Pairs.Clear();
+            edg.Tree.SelfPairs(task, w.Pairs);
+            foreach (Index2i k in w.Pairs) {
+                int x = edg.Ids[k.a], y = edg.Ids[k.b];
+                Index2i ea = meshA.GetEdgeV(x), eb = meshA.GetEdgeV(y);
+                if (eb.a == ea.a || eb.a == ea.b || eb.b == ea.a || eb.b == ea.b)
+                    continue;
+                if (subFilter && overlaps_some_sub_step(hullsA, 2, ea.a, ea.b, -1, hullsA, 2, eb.a, eb.b, -1) == false)
+                    continue;
+                pairs.Add(new PairRef { Kind = SweepContactKind.EdgeEdge, OfA = true, First = Math.Min(x, y), Second = Math.Max(x, y) });
             }
         }
     }

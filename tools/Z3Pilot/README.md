@@ -645,6 +645,46 @@ comparison of ends, and the lemma both ways. SAT: the assumptions, both decision
 four mutants. `test_tritri_prefilter.py` runs it and checks a source contract on `apart_on_the_line` (the lines
 that the model describes). All 14 queries take well under a second.
 
+## Pilot 7: the separating-axis prefilter (a candidate rule, not library code)
+
+`separating_axis.py` checks the lemma of docs/design/SNAP_ROUNDING_3D.md section 5.3: two triangles whose projections
+onto any vector, computed in doubles with the margin `8u` times the largest absolute projection sum, are strictly
+apart have no common point. R1 (the rounding error of a projection, each operation within `1 + d`, `|d| <= u`), R2 (the
+margin computed in doubles covers it), R3 (the decision from the computed bounds) and G1 (the geometry, free real
+coordinates) are UNSAT with satisfiable assumptions; six mutants are SAT (a bound of `2u`, a margin of `2u`, the margin
+of one corner, non-strict comparisons, a corner left out). Bridges by review: monotonic rounding, `fl(|a||x|) =
+|fl(a x)|`. Assumed: no product of an axis component and a coordinate underflows or overflows (not implied by the
+coordinate range of `MeshRoundingRepair`; a build scales the axes by a power of two). The rule was measured
+and not recommended for building (the note, 5.3); `test_separating_axis.py` holds a source contract on the prototype
+`benchmarks/SnapRoundingExperiment/CandidateCulling.cs`. 14 queries, about 3.5 s; result of 2026-11-12:
+`results/separating_axis_2026-11-12.json`.
+
+## Pilot 8: the plateau variant of the position search (a design, not library code)
+
+`plateau_search.py` checks the argument of docs/design/SNAP_ROUNDING_3D.md section 10 for a position search that also
+takes steps with equal defect counts (not built; the acceptance rule and the rollback are prototyped in
+`benchmarks/SnapRoundingExperiment/LatticeProbe.cs`). A chain of such steps is committed only when a step removes a
+defect, and undone after `B` draws or `K` sideways steps.
+- T, termination: the measure (defects, "the round committed a chain", chains left, draws left) falls
+  lexicographically in each of the five transitions and stays within fixed bounds (5 UNSAT with satisfiable
+  assumptions; the well-foundedness of the order is the bridge). `K` is carried in the state and is not needed for
+  termination (a sideways step uses a draw); it bounds how far a chain wanders.
+- A, the counts: a sideways step keeps the number of degenerate triangles and of intersecting pairs, an improving
+  step lowers the sum and raises neither (bridge: the defects away from the moved vertex are unchanged).
+- R, the rollback: a journal of up to three steps undone the last first restores every position, also when a vertex
+  moved twice (longer journals by induction, a bridge).
+- D, the bound: a step is applied only if checked, so the largest bound stays within `L`.
+- P2 (exact integers, not Z3): the longest run from `N0` defects with `S` chains per defect and `B` draws per chain has
+  `B S N0 (N0 + 1) / 2` draws, found by a search over every draw at which a chain can commit, for `N0 <= 6`.
+
+Nine mutants are SAT: a sideways step that counts as a move of the round, a rejected draw that is not counted, a
+sideways step that refunds the draws and is not capped, a new round after a round without a commit, acceptance by the sum of the counts
+(twice), the journal undone the first entry first, a journal of the new positions, a sideways step without the bound
+check. Not modelled: the candidates and their seeded order (any sequence terminates), the invariance under scaling
+(the candidates are those of the built search), and the state besides the positions that a build must restore (the
+note, 10.5). 28 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
+`test_plateau_search.py` also checks that no state but the end is stuck, and holds a source contract on the probe.
+
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)
 
 Z3 checks for the 2D mesher `QualityMesh2` (owner 2026-11-08): the error bound of the exact-corner filter `ShortestEdgeCorner` (#437) and

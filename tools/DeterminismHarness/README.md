@@ -46,5 +46,8 @@ types (`probe.hash-values`; a function of the key within one runtime, not promis
 (`probe.hash-enumeration`), the order of equal keys after the unstable sorts (`probe.sort-ties`, `probe.sort-ties-large`).
 `probe.hash-seeded` (`BigInteger`, `ValueTuple`, `string`) **differs between any two runs on .NET**, on one machine too:
 these hash codes are seeded per process. It is listed by every comparison of two .NET runs; that is its result.
+`probe.bigint-double` and `probe.double-bigint` (`ProbesBigInteger.cs`) record the conversions between `BigInteger` and `double`
+beyond 2^53 (ties, near-ties, sticky bits beyond the top 64 bits, the overflow boundary; issue 859) and count which rule the
+runtime follows: truncation toward zero on .NET 10 and .NET Framework 4.8 alike, not round-to-nearest (run 43505530553).
 `probe.slope-degrees` and `terrain.slope-design*` cover the terrain slope design, which called the platform libm until
 #836 (issue 802) and must now be identical on every platform.

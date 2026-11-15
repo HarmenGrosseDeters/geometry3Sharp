@@ -961,7 +961,7 @@ class Program
             Index3i t = mesh.GetTriangle(tid);
             sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
         }
-        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+        return NetCompat.Sha256Hex16(sb.ToString());
     }
 
     // NaN / infinity (eg IoU without a reference solid) are written as strings ("NaN"), not rejected

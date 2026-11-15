@@ -111,16 +111,21 @@ namespace geometry3Sharp.Clipper2.Tests
                 foreach (Polygon2d h in g.Holes) {
                     Assert.True(h.VertexCount >= 3);
                     Assert.True(SignedArea(h.Vertices) < 0, "hole not clockwise");
-                    // a hole lies inside its outer ring: its vertices are inside or on the outer ring
-                    foreach (Vector2d v in h.Vertices)
-                        Assert.True(Winding(g.Outer, v) != 0 || RingDistance(g.Outer.Vertices, v) <= 4 * r.Frame.Resolution,
+                    // a hole lies inside its outer ring: its vertices are inside or on the outer ring, up to the grid and the
+                    // rounding of the grid points back to doubles (half an ulp per coordinate, large far from the origin, eg UTM)
+                    foreach (Vector2d v in h.Vertices) {
+                        double back = 4 * Math.Max(Ulp(Math.Abs(v.x)), Ulp(Math.Abs(v.y)));
+                        Assert.True(Winding(g.Outer, v) != 0 || RingDistance(g.Outer.Vertices, v) <= 4 * r.Frame.Resolution + back,
                             "hole vertex " + v + " outside its outer ring");
+                    }
                 }
             }
             if (samples != null)
                 foreach (Vector2d p in samples)
                     Assert.True(ResultCount(r.Polygons, p) <= 1, "result polygons overlap at " + p);
         }
+
+        static double Ulp(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x;
 
         public static GeneralPolygon2d Rect(double x0, double y0, double x1, double y1)
             => new GeneralPolygon2d(new Polygon2d(new[] { new Vector2d(x0, y0), new Vector2d(x1, y0), new Vector2d(x1, y1), new Vector2d(x0, y1) }));

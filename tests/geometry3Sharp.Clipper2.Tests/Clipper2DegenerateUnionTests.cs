@@ -2,6 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Clipper2Lib;
+// the addon's enums (since 2.0 its own types; Clipper2Lib has the same names)
+using ClipType = g3.Clipper2.ClipType;
+using EndType = g3.Clipper2.EndType;
+using FillRule = g3.Clipper2.FillRule;
+using JoinType = g3.Clipper2.JoinType;
 using g3;
 using g3.Clipper2;
 using geometry3Sharp.Tests;
@@ -41,7 +46,7 @@ namespace geometry3Sharp.Clipper2.Tests
         /// the origin (an ulp of the coordinate in grid units, eg 16 units at UTM coordinates on the default grid);
         /// each moves an edge by at most that much, so the area by at most perimeter times the sum, plus 1.
         /// </summary>
-        static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
+        internal static (double error, double slack, Clipper2Result result) Check(ClipType op, FillRule rule, Polygon2d a, Polygon2d b, Random samples = null)
         {
             Clipper2Result r = Clipper2Polygons.BooleanPaths(op, new[] { a }, new[] { b }, new Clipper2Options { FillRule = rule });
             Assert.True(r.Ok, r.ToString());
@@ -121,7 +126,9 @@ namespace geometry3Sharp.Clipper2.Tests
             var (error, slack, r) = Check(ClipType.Union, FillRule.NonZero, a, b);
             Assert.True(error <= slack, "area off by " + error + " grid units, more than the rounding " + slack);
             CheckWellFormed(r);
-            Assert.Equal(1, r.Polygons.Sum(g => g.Holes.Count));
+            // (since the port of PolyClipping/Clipper2 f774daf the engine rounds the intersection points, and this hole no
+            // longer comes out as a split-off triangle but inside an outer ring that touches itself: the region is the same;
+            // the fix itself is pinned by TouchingHole_IsKept_At2To50 below)
             double exact = ExactRegionArea.Area(new[] { new[] { Grid(R64(a)) }, new[] { Grid(R64(b)) } }, w => w[0] != 0 || w[1] != 0);
             Assert.True(Math.Abs(exact - r.Area) < 1e-7, r.Area + " against " + exact);   // 23.6474; 24.4246 before the fix
             // a point of the hole is outside the result
@@ -134,19 +141,58 @@ namespace geometry3Sharp.Clipper2.Tests
         [Fact]
         public void TouchingHole_IsKept_InTheEngine()
         {
-            // the same on the vendored engine directly, flat paths and PolyTree: the hole is a path of its own
+            // the same on the vendored engine directly, flat paths and PolyTree (the hole was a path of its own before the
+            // port of f774daf, see above)
             V.Path64 P(params long[] c) => new V.Path64(Enumerable.Range(0, c.Length / 2).Select(i => new V.Point64(c[2 * i] << 20, c[2 * i + 1] << 20)));
             var clipper = new V.Clipper64();
             clipper.AddSubject(P(2, -2, -2, 0, 3, -4, 1, 3, -4, -4));
             clipper.AddClip(P(-1, 2, -4, 0, -3, -3, -1, 3));
             var flat = new V.Paths64();
             Assert.True(clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, flat));
-            Assert.Equal(1, flat.Count(p => V.Clipper.Area(p) < 0));
             var tree = new V.PolyTree64();
             Assert.True(clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, tree));
             double scale = Math.Pow(2, 40);
             Assert.True(Math.Abs(tree.Area() / scale - 23.647358369184996) < 1e-4, (tree.Area() / scale).ToString());   // 24.4246 before
             Assert.Equal(flat.Sum(p => V.Clipper.Area(p)), tree.Area());
+        }
+
+        [Fact]
+        public void TouchingHole_IsKept_At2To50()
+        {
+            // since the port of f774daf the smallest case that still needs the fix (shrunk from random 6- and 16-gons on
+            // -2..2 times 2^50, the adapter's largest grid): Xor Negative, exact 16/3; 5.5 with the triangle dropped
+            V.Path64 P(params long[] c) => new V.Path64(Enumerable.Range(0, c.Length / 2).Select(i => new V.Point64(c[2 * i] << 50, c[2 * i + 1] << 50)));
+            var clipper = new V.Clipper64();
+            clipper.AddSubject(P(2, 2, -1, 0, 2, -2));
+            clipper.AddClip(P(-1, -1, -2, 1, 0, 2, 2, -1, -2, 1, 0, 1, -1, 0, 0, 0));
+            var flat = new V.Paths64();
+            Assert.True(clipper.Execute(V.ClipType.Xor, V.FillRule.Negative, flat));
+            Assert.True(Math.Abs(flat.Sum(p => V.Clipper.Area(p)) / Math.Pow(2, 100) - 16.0 / 3) < 1e-9);
+        }
+
+        [Fact]
+        public void KeptHole_IsNestedUnderItsPath_OnALattice()
+        {
+            // since the port of f774daf the input of KeptHole_IsNestedUnderItsPath no longer keeps a hole; this one does
+            // (found by a search, a lattice of step 2 grid units): the Union NonZero keeps the triangle (-2,1) (-2.5,-2)
+            // (-3.5,2.5) as a hole, and the PolyTree must nest it under its path (with its path's owner it came out as a
+            // negative path at the top level)
+            V.Path64 P(params long[] c) => new V.Path64(Enumerable.Range(0, c.Length / 2).Select(i => new V.Point64(2 * c[2 * i], 2 * c[2 * i + 1])));
+            var clipper = new V.Clipper64();
+            clipper.AddSubject(P(-4, 4, -2, -4, -3, -3));
+            clipper.AddClip(P(0, 0, -4, 3, -2, 1, -3, -4));
+            var tree = new V.PolyTree64();
+            Assert.True(clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, tree));
+            Assert.Equal(1, tree.Count);
+            var outer = (V.PolyPath64)tree.Child(0);
+            Assert.True(V.Clipper.Area(outer.Polygon!) > 0);
+            Assert.Equal(1, outer.Count);
+            Assert.True(outer.Child(0).IsHole);
+            Assert.Equal(-2.625 * 4, V.Clipper.Area(outer.Child(0).Polygon!));
+            var a = new[] { (-8L, 8L), (-4L, -8L), (-6L, -6L) };
+            var b = new[] { (0L, 0L), (-8L, 6L), (-4L, 2L), (-6L, -8L) };
+            double exact = ExactRegionArea.Area(new[] { new[] { a }, new[] { b } }, w => w[0] != 0 || w[1] != 0);
+            Assert.True(Math.Abs(tree.Area() - exact) <= 20, tree.Area() + " against " + exact);   // within the rounding
         }
 
         [Fact]
@@ -268,7 +314,7 @@ namespace geometry3Sharp.Clipper2.Tests
 
         static double Ulp(double x) => BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1) - x;
 
-        static bool IsPowerOfTwo(double x)
+        internal static bool IsPowerOfTwo(double x)
         {
             long bits = BitConverter.DoubleToInt64Bits(x);
             return x > 0 && (bits & 0xFFFFFFFFFFFFFL) == 0;

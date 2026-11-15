@@ -125,20 +125,75 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      before (no result within the rounding changed); the independent review's run (6 seeds, 8- to 16-gons on -3..3 and -4..4): 100 / 1.
      Through the adapter (`BooleanPaths`, default grid; 1000 pairs of 16-gons on -4..4, seed 77, every combination, area and overlap
      by 64 samples): 43 wrong before (29 unions, 7 differences, 7 xors), 0 after, no overlaps.
-   - **Open, the same cleanup:** one Intersection (NonZero) of 1000 pairs of 16-gons is wrong before and after (an output of
-     negative area -0.076 for an exact 0.590; shrunk: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3) (-2,0)
-     (0,-2)). Cause: the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`) moves a
-     vertex by 1.3 units. Upstream removed that branch after 2.0.0 (commit `4da1564`, issue #1067, 2026-02-22; BSL-1.0, not in
-     2.0.0). Measured on top of the fix: 0 wrong results in all the campaigns above, but it also changes many results that were
-     right within the rounding (eg 15 of 1000 Xor NonZero results, 1 of them wrong before); alone, without the fix, it made the
-     unions worse (52 wrong of 3000 against 22). A follow-up decision, not part of the item 5 fix: issue #756.
-   - **Open, found in the review of the fix (wrong before and after, not caused by it; issue #756):** a Union that is right on a
-     2^20 grid and wrong on the adapter's grid (scale 2^38): A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4)
-     (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4) (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1):
-     NonZero 27.971 against an exact 29.718 (the package's engine gives the same), EvenOdd and Negative off by the same 1.747; not
-     analysed. The review also reported results where the engine is right and `ClipperFrame.ToGeneralPolygons` fails to nest a
-     negative top-level path (its `Contains` has no tolerance for a vertex up to one grid unit outside its holder; eg a Difference
-     Positive of 14.45 against an exact 10.99); not pinned.
+   - **Fixed in part 2026-11-13 (#756, owner decision 2026-11-13: option "c-guard"; `Clipper2MicroSelfIntersectionTests`),
+     the same cleanup:** the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`)
+     inserts a copy of the vertex two ahead. Shrunk case: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3)
+     (-2,0) (0,-2), Intersection NonZero: the insertion moves the path by 1.3 units and flips the ring (area +0.295 -> -0.038 in
+     the engine's units), the result was -0.076 for an exact 0.590. Fix: the insertion is undone when it flips the ring's
+     orientation, and the crossing goes to `DoSplitOp`. Exact oracle, 1000 pairs x 16 combinations (24-gons 500): no result that
+     was right changes; fixed are this case and a Xor NonZero of 24-gons on -2..2 (6.4559 -> exact 6.7892).
+     Measured first (#756): the branch is never taken with a move of at most one grid unit on these inputs (16-gons at 2^20: 173
+     hits, smallest move 114 389 units), so the option first decided, "only moves <= 1 unit", would have acted as upstream's
+     removal of the branch (`4da1564`, issue #1067, 2026-02-22, after 2.0.0): every failure fixed, but 2-3 % of the results
+     changed within the rounding, most of them less accurate (16-gons: 250 farther from the exact area, 88 closer). 4da1564 is
+     **not adopted** (owner 2026-11-13).
+   - **Fixed 2026-11-15 (the rest of the #756 class; `Clipper2MicroSelfIntersectionTests.FarCopy_*`): the insertions that cost
+     area without flipping the ring.** Before, the guard caught only an insertion that flips its ring; the review of #756 had
+     measured the rest at about 3 per 100 000 results on degenerate lattices (repros in issue #756). Cause, traced on those
+     repros: the branch's edge (prev, op2) crosses the next two edges far from the copied vertex, so the insertion (prev, copy,
+     op2) is no twist removal but cuts the triangle (prev, copy, op2) off the region; every wrong result was off by exactly that
+     triangle's area (eg the unshrunk 16-gons of #756, Intersection NonZero: 13.838 for an exact 14.267, triangle 0.43). Fix: the
+     branch is taken only if the copied vertex lies within one grid unit of the line of that edge (Clipper2's own
+     `PerpendicDistFromLineSqrd` <= 1), so that the insertion moves the path by at most the rounding that makes a micro
+     self-intersection; otherwise the crossing goes to `DoSplitOp`. The orientation guard stays (it now acts only where vertices
+     are a few grid units apart: `OrientationGuard_OnAGridOfFewUnits`). Note: the "move" measured for #756 (smallest 114 389
+     units) is the distance between the vertex and its copy, not from the edge's line; most hits are within one unit of the line,
+     so this test keeps most insertions, unlike upstream's removal of the branch. (The bounded step of #756 had reported 2 new
+     wrong results for a distance test; this one, measured as below, gave none.)
+     Exact oracle on the raw engine, random 3- to 24-gons on -2..2 and -4..4 (one seed per pair, 16 combinations each), before ->
+     after: 2^20, 100 000 pairs: 36 wrong -> 0, 92 right results changed within the rounding (21 closer to the exact area, 71
+     farther; in a run of 30 000 pairs the largest error of such a result went from 0.11 to 0.15 of the rounding slack); 2^50,
+     20 000 pairs: 4 -> 0 (6 changed right); fixed sizes, 20 000 pairs each: 16-gons on -4..4 8 -> 0, 24-gons on -2..2 27 -> 0,
+     12-gons on -1..1 7 -> 0, 8-gons on -3..3 0 -> 0 (8 changed right); 8-gons on -64..64, random 3- to 16-gons on -64..64
+     (20 000 pairs) and 3- to 12-gons on -1000..1000 (100 000 pairs): nothing changed. On lattices of step 1 and 3 grid
+     units (every vertex a few units from the next, where the grid tolerance of the oracle is loose) 56 and 112 of 320 000 results
+     changed, 1 each from within to beyond the oracle's slack (a region of under 7 grid units squared that comes out empty).
+   - **Fixed 2026-11-15 in the adapter (`ClipperFrame.ToGeneralPolygons`; `Clipper2HoleNestingTests`), found while measuring the
+     above:** through the adapter (random 16-gons on -4..4 and 24-gons on -2..2, 10 000 pairs, every combination, the exact area of
+     the snapped input) 41 of 160 000 results were wrong, 7 of them from the engine (fixed above) and 34 where the engine's tree is
+     right in area (its signed areas sum to the exact area) but the conversion filled a hole: (1) a negative top-level path that
+     touches its holder's edge with a vertex rounded to the grid point just outside (`Contains` had no tolerance; the case the
+     review of #756 reported); (2) a negative path that the tree nests as an island in a hole although it lies beside the hole,
+     touching it. Fix: `Contains` (and its bounds prefilter) takes a vertex within one grid unit of the holder's boundary as on it; a
+     negative island that is not inside its hole (`Contains`) is another hole of that hole's outer boundary if that contains it,
+     and otherwise is treated as a top-level path (inside the hole it stays a filled island of winding -1,
+     `Tree_NegativeIslandInsideAHole_IsAFilledIsland`); and a path of zero grid area whose vertices are collinear (a sliver,
+     which came out as an outer ring that is not counterclockwise) is dropped, its children moving up (the review of the fix
+     found that a dropped top-level path's hole child crashed the conversion; a zero-area figure eight is kept as before).
+     Each rule has a hand-built tree test in `Clipper2ResultOrientationTests`. After: 0 wrong of 160 000. The Union the review of #756 found
+     (A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4) (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4)
+     (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1), NonZero 27.971 for an exact 29.718 on the
+     adapter's grid) is exact now (`UnionOfTheReviewOf756_IsExact`).
+   - **Ports of the C++ Clipper2 fixes (2026-11-15, owner 2026-11-15; `Clipper2UpstreamFixesTests`; closes #756):** three
+     fixes of PolyClipping/Clipper2 (the C++ continuation after the archive, BSL-1.0) ported to the vendored sources:
+     intersection points rounded instead of truncated, evaluated from the segments' bottom ends, and sorted stably
+     (`f774daf`); edges leaving a shared vertex ordered by direction (`ec5f2d4`); the recursion guard of `CheckSplitOwner`
+     (`f97d65d`). Three of the five translated upstream tests fail on the vendored code before the port. Exact oracle, raw engine, 30 000
+     pairs of random 3- to 24-gons on -2..2 and -4..4 at 2^20 (480 000 results, against master with the fixes above): 0 wrong
+     before and after; 426 000 results change within the rounding, 300 509 closer to the exact area and 125 202 farther;
+     results with a negative path 85 262 -> 84 343. Through the adapter (the campaign above): 0 wrong and now also 0
+     structural failures of 160 000 (the two needle rings below no longer occur). Since the rounding changes which inputs reach
+     the earlier fixes (item 5, #756), their tests were re-derived by a search for inputs where each fix changes the
+     result; every ported and every earlier fix now has a test that fails without it (mutation check), except the recursion
+     guard, whose cycle the C# code does not reach. `4a3bf64` is not ported (its clamp is not reached in C#;
+     Clipper2Lib/README.md). Upstream's removal of the micro branch (`4da1564`) stays not adopted (owner 2026-11-13).
+   - **Open (2026-11-15, area within the rounding; before the ports above):** 2 of those 160 000 results failed the structural
+     check of the tests: needle rings narrower than a grid unit that the tree nests under a path they lie beside (a hole
+     vertex outside its outer ring; Xor Positive of pair 5351 and Xor Negative of pair 869 of that campaign,
+     `new Random(pair)`, 16-gons on -4..4 for even pairs and 24-gons on -2..2 for odd ones); with the ports they do not occur.
+     Still open: at UTM coordinates with scale 1e-3 the rounding of the grid points back to doubles (an ulp of 5.7e6 is 2.6e5
+     grid units there) can turn slivers into rings of zero or negative area in doubles (the limit stated in
+     `ToGeneralPolygons`' summary; two cases of `HoleIsCutOut_UnderSimilarity` leave that similarity out for it).
    - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
@@ -174,7 +229,7 @@ Done in #577: options from raw bytes; the 2^16 cut-offs removed for the mesher (
 judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
 every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
 `ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
-of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`; `MeshCommand.cs` and `TrianglePolyFormat.cs` are
+of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` (and, before its 2.0, `Clipper2Lib.dll`); `MeshCommand.cs` and `TrianglePolyFormat.cs` are
 no longer compiled. Not done: the oracle and the adapter of the mesher are not instrumented (the oracle judges, the mesher is `geometry3Sharp.dll`).
 
 ## T13 libFuzzer campaign (2026-11-11): 17 targets, 10 minutes each, 2 fork jobs
@@ -239,6 +294,60 @@ Ranked (a wrong result that claims to be right first):
 10. **The flip test of the edge collapse accepts a collapse when its normals overflow to NaN** (`MeshRefinerBase.edge_flip_metric`, found in the second review of #595): above an edge length of about 1e154 the cross products of the face normals overflow; a component that is infinite refuses the collapse, but inf - inf is NaN, `NaN <= tol` is false and the flip is accepted blindly. Refusing a NaN metric is safer, but two existing tests pin the reduction at those sizes: `RobustnessSweepRemainingTests.Reducer_ExtremeMidpointsRemainFinite` (1e308, 1.7e308) and `ReducerFoldOverOptionsTests.HugeCoordinates_NoReference_SameReductionAsWithoutTheCheck` (2^540); a change has to rescale the normals (the edges are the better input: the cross product of unit-sized edges) rather than refuse. **Fixed**: the edges of a triangle are scaled by one factor (the reciprocal of the longest component) outside [1e-70, 1e70] before the cross products, for the old and the new normal (`FlipTestHugeScaleTests`); the two pinning tests needed no change (the sphere still reduces at 1e308 and 2^540); the same scaling also removes the lower limit of #595 (a tiny sphere reduces down to 1e-300).
 
 Not found in 10 minutes: alpha-wrap, remesher, tree-ray, tree-winding. reducer and batch-queries ran only 18 600 and 2 300 executions (7 and 3 per second): a longer run is needed before they count as clean.
+
+## Third wave (QA 2.0 gap list, 2026-11-12): MarchingCubes, TerrainGreedyTIN, MeshMeshCut, MeshInsertPolygon, MeshTrimLoop
+
+Smoke runs of `MeshFuzzPilot random` (no coverage guidance, uninstrumented), 2 500 to 4 000 inputs per target and seed, domains as in the README.
+`marching-cubes` and `terrain-tin`: no finding in 15 000 inputs each (all four root modes; the 2^40 copy bit for bit). The first runs found
+classes that were limits of the representation or of the target's input, now domains: a mesh farther than 2^16 extents from the origin (the TIN
+nodes and the sphere of the trim collapse: `terrain-tin` covered 1.0054 of its rectangle, `trim-loop` ran 2 minutes and grew the area 800 times at a
+sphere of radius 0.5 at 2.6e14), a hull polygon with a repeated vertex (`ConvexHull2` of nearly equal points), slivers along the inserted polygon's edge
+(their centroid is on it), a cutting mesh of 1e-300 of the target's size, a target of area 1e-11.
+
+Open, gated or outside the domain (none has a procedural reproduction inside the supported range yet). Status of 2026-11-15: items 1 and 4 have no gate any more (the
+`mesh-cut` target skips components below 2^-200 and runs with `RefuseContact`; `trim-loop` is judged strictly: 5 000 strict inputs each, no exception); item 3 stays gated: it is the
+documented TODO of the upstream polygon inserter (`MeshPolygonsInserter`, "could not find seed triangle!"), about 1 in 5 000 inputs, not a defect of this repository to fix here.
+The `trim-loop` removed-side bound ("no vertex beyond 3 mean edges") is loose for coarse spheres at a cut far from the centre; the area-shrink and one-loop checks carry that target.
+1. **`mesh-cut`: `DMeshAABBTree3.find_intersections: found quantity 0`** (an exception of `MeshMeshCut.Compute()`, `IntrTriangle3Triangle3.Test()` true and
+   `Find()` true with `Quantity` 0). 177 of 3 000 random inputs when B may be smaller than 2^-16 of A (B of 1e-307 beside A), 4 of 4 000 with B in [2^-16, 2^20]
+   (A with a corner at 1e-61 beside others at 1e18: a size disparity inside one mesh), none otherwise. `MESH_FUZZ_STRICT=1` reports it; the smallest of the
+   four (replay with `MESH_FUZZ_STRICT=1 MESH_FUZZ_OPS=mesh-cut`, dump for the numbers) is `73a219d11972a490c422af60b2184bbcbbe61be3e17774276233fe16a6930083322144f0dee20269b9092bfb0ec223a65dfb5274e84a7cfc2df26ee6738de9`. A cheap fix would be to treat `Quantity` 0 as no intersection.
+2. **`insert-polygon`: a hole close to the outer ring or with short edges.** With holes of arbitrary position 3 of 4 000 inputs gave `find_cut_paths: how did this
+   possibly happen?!?`, an `ArgumentOutOfRangeException` at `MeshInsertPolygon.Insert()` (`insertion.Loops[0]` when the hole's insertion produced no loop), or
+   `InteriorTriangles` that cover 0.1499 instead of 0.1426 (5 %) on a 3 by 3 grid. With the hole kept 1e-2 of the width from the ring and its edges at least 1e-3 of
+   it, none in 4 000. The exceptions are the unchecked result of `insert.Apply()` for a hole; the class belongs to the hole's tolerance (`SpatialEpsilon`, absolute).
+3. **`insert-polygon`: "could not find seed triangle!"** (documented in the code as a TODO, gated).
+4. **`trim-loop`: `ArgumentOutOfRangeException` from `MeshTrimLoop.Trim()` (`loops[0]` of a mesh with no boundary loop left)**, only seen at 2.6e14 from the origin (out of
+   the domain); the code returns false for more than one loop but not for none.
+5. **`mesh-cut`: the snap tolerance is absolute (1e-5).** A target of area 4e-11 (a flat mesh of the size 1) lost 2 % of its area to the snap.
+
+### libFuzzer campaigns of the third wave (2026-11-13, 3 workers, `-max_total_time` per target)
+
+- **`marching-cubes`**: 55 minutes (about 3.4 million executions), no finding. The first minutes found a missing domain (a mesh beyond 2^16 extents
+  from the origin: the bounds of the 2^40 copy overflow), now excluded in `RunMarchingCubes`.
+- **`terrain-tin`**: 55 minutes, 1 045 artifacts, two library classes:
+  - **#854** (145 of 150 sampled `crash-*`): the ear choice of `RemoveVertices` compared errors with an absolute 1e-12 (`TerrainGreedyTIN.cs:365` before #890), so
+    the 2^40 copy differs from the scaled TIN; procedural reproduction in the issue (4 by 4 grid, plateau heights with 1e-14 noise), the mutation "no tolerance"
+    removes it for 8 000 swept cases.
+  - **#855** (the 27 `timeout-*`; one replayed): `Compute()` with `MaxError = 0` and a height of -2.87e-223 never ends and dies with out of memory
+    (the default `MaxVertices` is `int.MaxValue`).
+- **`terrain-tin`, second run on the fixed library** (#889 and #890 merged, 30 minutes): the class of #854 and #855 is gone; the artifacts left (19 at the time of writing) were all one class,
+  `RemoveVertices` with a nonzero height or origin below 2^-200 (1e-171, 1e-241, 1e-286) beside heights of order 1: the squared error of an ear underflows in one of the two copies, so the
+  2^40 copy chooses another ear. That is outside the range of QA.md 2.5a, so it is a domain of the scale claim now (nonzero values of the grid, origin, cell and MaxError between 2^-200 and
+  2^150; every other claim is judged always). All 19 pass after the change.
+- **`mesh-cut`**: stopped by the session limit after about 50 minutes, 105 artifacts: 47 "the area changed", 12 `update_from_split: unsortable vertex?`, most
+  with a dynamic range of 1e-130 and below inside the case (outside the range). The in-range class is a cut mesh that touches the target (vertices exactly on a
+  face plane): **#856** (the same case at 2^108 .. 2^120 gives 14, 14, ... , an exception at 2^113, then 20 triangles; no contact gives 12 at every scale).
+  Decided by the owner (#856, merged as #867): contact is refused on request. The target now runs `MeshMeshCut` with `RefuseContact = true` and accepts
+  `ContactDetected` (checked: the same status in both runs, the target unchanged), judging only the transversal cuts. Replay of the 105 artifacts against it:
+  83 pass; the 22 left have a dynamic range of 1e-138 and below inside the case, or subnormal coordinates (below the range of QA.md 2.5a). 9 000 random inputs: no finding.
+- **`insert-polygon`** (30 minutes): 1 947 artifacts, **untriaged** (triage is a separate step). 120 sampled: 71 "the interior triangles cover X, the polygon Y",
+  25 `find_cut_paths: how did this possibly happen?!?`, 9 `ArgumentOutOfRangeException` (index), 9 "triangles are selected or not against the centroid
+  test", 2 `ConvexHull2: vertex is not finite`, 1 area change. Of 400 classified by the ratio of the smallest to the largest nonzero coordinate, most are far outside the
+  range (below 1e-130); the in-range ones (ratio above 1e-6) that were looked at have a thin outer polygon (a hull of width about 0.06 against a length of 0.65) with grid
+  triangles whose centroid is within 1e-4 of the polygon's edge; they are likely the absolute tolerance of the insertion (`SpatialEpsilon`), not a new class.
+- **`trim-loop`** (30 minutes, about 45 000 executions with coverage guidance): no finding.
+
 ## Judgement notes
 
 - **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with

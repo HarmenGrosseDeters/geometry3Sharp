@@ -86,6 +86,32 @@ from the four option bytes after the queries (`Case.Options`, `ParamByte` in `Ta
   result contains the point exactly if the operation on the windings of the rings does. Domain: coordinates at most 2^16 extents from the origin
   (the grid of the adapter, 2^-40 of the extent, must be representable at the coordinates' magnitude; beyond that, rings collapse when rounded to doubles).
 
+**Third wave (QA 2.0 gap list).** The five targets run on the power-of-two normalized copy of A (box diagonal in [1, 2)); the options are
+the four raw bytes after the queries, as for the second wave. `Targets3.cs`.
+- `marching-cubes`: `MarchingCubes` on the union of up to four spheres at corners of A (radii, root mode and 6 to 14 cells per axis from the
+  bytes). Outside `LinearEdges`, any exception is a finding; in `LinearEdges` only the documented refusals (`InvalidOperationException`,
+  `ArgumentException`) are allowed. A result is finite and valid, and the serial run, a second run and the run on the copy scaled by 2^40
+  (field, bounds and cell size too) give the same mesh bit for bit.
+- `terrain-tin`: `TerrainGreedyTIN` on a 2 to 10 by 2 to 10 grid whose heights are corner z values of A (MaxError, `RemoveVertices` and a
+  vertex limit from the bytes). `Compute()` is true; the TIN is valid and finite, counter-clockwise in xy, its triangles tile the
+  rectangle (areas add up to 1e-9), every grid node is within `AchievedError` of the TIN (recomputed), `AchievedError` is at most
+  `MaxError` unless the vertex limit stopped it, and a second run and the 2^40 copy give the same TIN bit for bit.
+- `mesh-cut`: `MeshMeshCut` of A by B (B scaled with A), run with `RefuseContact = true` (a refused cut, `ContactDetected`, must leave the target unchanged and be the same in two runs; only the transversal cuts are judged further). `Compute()` does not throw; the cut mesh is finite, valid, has not lost a triangle,
+  covers the same area (1e-4) and a second run gives the same mesh.
+- `insert-polygon`: `MeshInsertPolygon` of the convex hull of A's xy (halved about its centre, with a hole from B's hull when it fits with room)
+  into a grid mesh over A's box. When `Insert()` is true the mesh is valid, covers the same area, `InteriorTriangles` cover the polygon's
+  area and every triangle is selected exactly if its centroid is inside (a sliver whose centroid is within 1e-9 of a cell on the polygon's edge excepted; thin outer polygons with triangles near the edge are still reported, FINDINGS.md: untriaged).
+- `trim-loop`: `MeshTrimLoop` of a sphere along a circle of latitude, the seed on either side. When `Trim()` is true the mesh is valid,
+  finite, has one boundary loop, is smaller, and has no vertex on the removed side beyond three mean edge lengths from the cut.
+
+Domains of the third wave: the editing operations and the terrain judge a mesh up to 2^16 extents from the origin (farther, the coordinates'
+own rounding changes the input: a limit of the representation); `mesh-cut` also needs B between 2^-16 and 2^20 of A's size and a target of area
+at least 1e-3 (its snap tolerance is absolute, 1e-5); a polygon of `insert-polygon` has no vertex within 1e-6 of the previous one, and its hole
+keeps 1e-2 of the width from the ring and edges of 1e-3 of it; `mesh-cut` also skips a case with a nonzero component below 2^-200 of the target's size, and
+`terrain-tin` judges the 2^40 scale claim only for nonzero grid values, origin, cell size and MaxError between 2^-200 and 2^150 (every other claim always). One class is gated,
+`MESH_FUZZ_STRICT=1` judges it (FINDINGS.md, third wave): `insert-polygon` "could not find seed triangle!" (an upstream TODO of the polygon inserter; about 1 in 5 000 inputs).
+The `trim-loop` and `mesh-cut` gates of the first smoke runs are gone (5 000 strict inputs each, no exception inside the domain).
+
 `MeshFuzzPilot random <n> <seed>` runs n pseudo-random inputs of the selected operations in one process with a 60 s watchdog and prints the hex
 of every input that gives a finding or an exception: a smoke test without coverage guidance and without libFuzzer, for a first look at a target
 (`MESH_FUZZ_TRACE=1` prints some internals of the 2D mesher and Clipper2 targets).
@@ -126,7 +152,7 @@ bash tools/MeshFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet 
 
 `run.sh` refuses an existing work directory. It publishes a clean `replay/` build, runs its self-test, writes the
 102 seeds (every operation on each of the six shapes), copies the build into `bin/` and instruments only the copies of
-`geometry3Sharp.dll` and, for the `clipper2` target, `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`. The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
+`geometry3Sharp.dll` and, for the `clipper2` target, `geometry3Sharp.Clipper2.dll` (which carries the Clipper2 sources since 2.0). The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
 wrap of a flat input with the default alpha takes about 4 s uninstrumented and more than 10 s instrumented: slow,
 not hung), a libFuzzer-side 3 GiB RSS limit (it covers the libFuzzer process, not the .NET child: use an external limit for
 the child if needed), and stops after the given number of runs or seconds, or at the first

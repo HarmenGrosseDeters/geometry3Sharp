@@ -478,6 +478,35 @@ is queued or running today (UTC date), or already succeeded. Rules:
   end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
   the commits since the last green (or finished) run.
 
+**Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
+
+| Workflow | Starter | Planned | Created | Delay |
+|---|---|---|---|---|
+| `nightly.yml` | cron, 11-13 | 02:23 | 09:43:42 | +7 h 20 min |
+| `nightly.yml` | cron, 11-14 | 02:23 | 09:06:24 (guard skipped it: 15 s, work jobs skipped) | +6 h 43 min |
+| `nightly.yml` | dispatch, 11-14 | 02:27 | 02:27:54 | +1 min |
+| `nightly.yml` | dispatch, 11-15 | 02:27 | 03:27:38 | +1 h 01 min (cause not visible in the history) |
+| `coverage.yml` | cron, 11-13 | 03:41 | 11:30:11 | +7 h 49 min |
+| `coverage.yml` | cron, 11-14 | 03:41 | 10:53:36 (ran 15 min: the dispatch run of that day had failed, so it did not count) | +7 h 12 min |
+| `coverage.yml` | dispatch, 11-14 | 03:45 | 03:46:11 | +1 min |
+| `coverage.yml` | dispatch, 11-15 | 03:45 | 03:45:47 | +1 min |
+| `mutation.yml` | dispatch, 11-14 | 01:20 | 01:21:18 | +1 min |
+
+- The cron lines are still 6.7 to 7.8 hours late (no cron run of 2026-11-15 existed at 07:56 UTC, 5.5 h after the nightly's
+  02:23): the diagnosis holds. The dispatch is on time to within about a minute, except one nightly dispatch an hour late.
+- The guard did its job: the nightly cron run of 11-14 is green with all work jobs skipped, 15 s; the coverage cron of 11-14
+  ran because the earlier run of the day had failed (as designed).
+- Not on the schedule: `mutation.yml` was dispatched on 11-14 at 03:15 (green, 1 h 53 min) and 04:45 (cancelled after 25 min), and on
+  11-15 at 03:27 (cancelled after 3 min); a 01:20 run exists only for 11-14 (cancelled after 35 min). Why they were cancelled is not
+  visible in the history. The only complete dispatch run since the cap of 6 took 1 h 53 min, so the estimate of about 17 h
+  for a full run of all 25 shards is not confirmed or refuted yet.
+- `coverage.yml` ended red in every run since 11-12 (the changed-line gate, a separate matter).
+- Queue wait of PR CI jobs (`created_at` to `started_at`) before the runner relief (13 Nov afternoon, one mutation PR run and one master
+  run in progress): `linux` 93 min, `isolated` 103 min, `netstandard-b` 67 min, `scope` 1 to 11 min. After the cap of 6, the
+  cancelling master group and the draft skip (15 Nov morning, two PR runs): `linux` 11 and 16 min, `isolated` 0.3 and 4.6 min,
+  `netstandard-b` 11.5 min, `scope` 0.1 and 16 min, `time-rule` 0.02 and 4.4 min. About a sixth to a tenth of the former wait, still
+  not zero on a morning with several PR runs at once; two runs are a sample, not a statistic.
+
 ### 2.13 Hang diagnosis of the Windows net48 shards (#824)
 
 `netstandard-b` (net48 shard b) hung twice on 2026-11-13 (#761, #820) until the 60-minute job timeout, without output and without a

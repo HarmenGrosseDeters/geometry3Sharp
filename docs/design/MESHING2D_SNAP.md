@@ -358,6 +358,12 @@ exactly; 12000 meshes at 20° and 30° pass the oracle):
     in doubles. Those points are the midpoint and the concentric-shell point from either end, as in `QualityMesh2.SplitSegment`.
   - That other constraint meets each own one in at most one point. Nearly coincident lines are merged by the mesher into pieces of both,
     and such a piece is split.
+  - Since #880 and #870 the split point is modelled as the mesher computes it: on the piece's first source, the midpoint or the shell
+    point from the one end that existed before refinement, refused within the tolerance and its derived rounding. Our producers report
+    each piece's sources (first the one split on) and which vertices existed before refinement (`Mesh2Output.SubsegmentSources`,
+    `ExistedBeforeRefinement`, from the internal `ConstrainedMesh2` fields of the same names). The oracle believes a source only if it
+    holds both piece ends within the tolerance, and a reported pre-refinement vertex only if it is an input point or lies within the
+    tolerance of two constraints (a crossing); without a report, as for a foreign producer, it takes every possibility.
 
   The exemptions are counted in every report (`O11LocalExcused`, `O11GlobalExcused`, `O11AngleExcused`), as the merge zone's are; a
   triangle's hidden vertices count only when the triangle has no violation. Self-checks 7b to 7d cover them.

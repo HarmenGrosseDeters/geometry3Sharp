@@ -5,11 +5,13 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** public exact 2D meshing (`QualityMesh2`: constrained / conforming Delaunay, quality refinement, holes
   and regions, snap rounding to an output grid), a clean-room replacement for Triangle.NET; its oracle; the
   reference comparison runs; grading, coarsening, small input angles, subnormal fixes; the provenance check.
-- **Status (2026-11-12):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
+- **Status (2026-11-15):** M1-M3, `m2.snap`, hull edges on the grid, Q17, the fast oracle, grading steps 1 and 2,
   run A and the small-angle rule (#394, 2026-11-07) are merged; since then the corner choice (#437), rule C (#441),
   Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed; the QA 2.0 T5 findings and owner decisions of
-  2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Open (inventory 2026-11-12): both actionable items done (the
-  three single triangles from #542, fixed in #661; the provenance delta after d9006aa, stage 6b-4, #677, no (A) finding); four blocked on corpus inputs, the rest research.
+  2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Since the inventory of 2026-11-12: the provenance delta
+  6b-4 (#677, no (A) finding), the fixes of #637, #695, #723, #728/#729, #748, #863 and #864 part A (#876), and the #870
+  oracle fix #880 (10 of 11 dumps) are merged; the last #870 dump (d6710852) is in review. Open: the SplitTriangle measurement, the
+  inputs that stay blocked, and research.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
   [MESHING2D_SNAP.md](../design/MESHING2D_SNAP.md), [MESHING2D_HULL_GRID.md](../design/MESHING2D_HULL_GRID.md),
@@ -28,13 +30,12 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
-- **Provenance delta after `d9006aa`:** stage 6b-3 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md),
-  ff0c378) covers master `d9006aa`, no (A) finding. Since then `QualityMesh2.cs`, `ConstrainedDelaunayMesh2.cs` and
-  `SnapRounding2.cs` changed by +383 / −61 lines (#394 small-angle rule, #437 corner choice, #441 / #462 rule C, #496 the
-  60° pairs, #512, #526, #553 pair keys), and the oracle much more. A delta check is due before a release that relies on the
-  clean-room claim. It needs a dirty-side session (the only one that may read `triangle.c` / Triangle.NET); a clean session
-  must not do it. **Owner 2026-11-12:** the exception is allowed for this check, as in stage 6b; the coordinator starts the
-  dirty-side session when a slot is free; its report holds no reference code, names or structure. The clean side can hand over the list of changed routines. Effort M (dirty side). **Done (2026-11-12):** stage 6b-4 ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md#stage-6b-4-delta-after-d9006aa)) on master `01a7e71` against `triangle.c` 1.6 and Triangle.NET `fa6f2fdb`: **no (A) finding**, every changed routine (B) or (C), no rewrite needed.
+- **#870, the last dump `d6710852` (bugfix, in review).** The verdict of #880 (merged 2026-11-14): the oracle was wrong, not the
+  mesher; #880 fixed 10 of the 11 dumps. In `d6710852` the refused piece ends at a crossing, and the oracle could not tell a
+  crossing from a split point near two constraints. Coordinator decision (2026-11-15), now implemented: the output reports each
+  piece's sources and which vertices existed before refinement (internal `ConstrainedMesh2` fields, `Mesh2Output`), and the oracle
+  models the split point from them. The mesher's output is unchanged (bit for bit on all 149 quality-mesh2 dumps of group f);
+  `d6710852` and three dumps of the resumed group (6a3aaa34, 8afddcaf, a4805a84) are accepted now.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
@@ -42,29 +43,42 @@ Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, 
 their original sources at run time, never committed. The Herne tiles: ALKIS parcels and buildings from Geobasis NRW
 (opengeodata.nrw.de, dl-de/zero-2-0, the host `benchmarks/TerrainBenchmark/fetch_data.py` already uses), prepared by our own
 script for the tiles 371800_5710600, 373600_5709000 and 381000_5710400 (UTM 32N, origin of the tile); the public fixtures as
-today by `corpus/fetch.py`. No GEOS- or CGAL-derived data. This unblocks the Herne items below; run-A outputs (produced by
-the fork) and stmlf stay blocked.
+today by `corpus/fetch.py`. No GEOS- or CGAL-derived data. The Herne script is merged (#722, 2026-11-12, `Meshing2Benchmark`),
+so the Herne items below can run; run-A outputs (produced by the fork) and stmlf stay blocked.
 
-- **SplitSegment speed: deferred, not dropped (upper-bound check, 2026-11-13).** On cq 373600 q30 (the Herne input from #722's script,
-  master 9a74dafe, three runs, net10.0 Release) the mesh takes 3.8 s, of which refinement is 3.1-3.3 s.
-  - SplitSegment is 0.83-0.98 s of that, about 27 %: 29232 calls, 28962 splits.
-  - Within SplitSegment: GridSplitPoint 0.49-0.62 s (about 65 % of it), Collect after the split 0.15-0.20 s, and
-    Unconstrain + RestoreDelaunay + InsertPoint + InsertPiece together about 0.12 s.
-  - The roadmap's earlier "3.4 s of 7.3 s" is out of date: refinement got faster after #384.
-  - Removing SplitSegment entirely would save at most 22 % of the mesh time; halving GridSplitPoint, realistically,
-    about 7 %. Neither reaches the <= 2x fork target (2.7x after #384) alone, but about 7 % is still a measurable gain
-    (owner, 2026-11-13). It is taken up together with the SplitTriangle measurement below: one speed PR for both, if
-    that measurement shows a gain worth its code, built with a benchmark row.
-- **SplitTriangle upper-bound check (open, measurement only).** SplitTriangle takes 1.71-1.83 s of the 3.2 s refinement
-  (53637 calls), including the segment splits it triggers. It is the larger target if speed is still wanted. The next
-  step is its own breakdown (circumcentre and off-centre choice, grid checks, insertion, Collect), measured on the
-  same input before anything is built. Effort S for the measurement.
+- **Mesher speed: dropped (measurement, 2026-11-15; coordinator 2026-11-15).** On cq 373600 q30 (the Herne input from #722's
+  script, master 817ceb8a, three runs, net10.0 Release, temporary Stopwatch instrumentation in a scratch worktree, nothing
+  committed; the output was byte-identical to master), refinement takes 3.0-3.4 s:
+  - SplitSegment 0.8-1.0 s (29232 calls), of it GridSplitPoint 0.49-0.62 s (measured 2026-11-13 on 9a74dafe, unchanged).
+  - SplitTriangle 1.4-1.8 s (53637 calls, 46327 insertions), of it the segment splits it triggers 0.13-0.18 s. Its own time
+    is almost all `BestCandidate`, 1.0-1.27 s (about 35 % of refinement). The circumcentre, off-centre, walk, encroachment,
+    pixel checks, insertion and Collect together take 0.2-0.3 s.
+  - Within BestCandidate (431229 candidate scores, about 10 candidates per choice):
+    - Score 0.58-0.71 s: cavity 0.18 s (1.98M cavity triangles), the angle test of the cavity's triangles 0.24-0.30 s, the
+      fan of new triangles 0.15 s, the walk to the candidate 0.06 s;
+    - the petal candidates 0.19 s;
+    - Insertable 0.14 s;
+    - the rest about 0.23 s.
+    - The angle test splits into the geometric part (MinSin2) 40 ms and the exact corner and SpansSmallAngle 133 ms (233170
+      of 439900 triangles below the angle).
+    - The existing score bound (a candidate that removes fewer bad triangles than the best score cannot win) cuts only 6370
+      candidates.
+  - **Bound:** removing BestCandidate entirely would save about 29 % of the mesh time; the GridSplitPoint cache of the old plan
+    at most about 12 %.
+  - **Why the bit-identical part is only 6-9 %:** the time is spread over many medium parts; none dominates. SpansSmallAngle
+    depends on the sources of each vertex's whole star (`SourcesAt`), which a split elsewhere can change, so its result
+    cannot be cached across choices without risking a different output; it can only be made allocation-free. Together with
+    reused buffers, a cheaper fan and petal, that is about 0.2-0.3 s, 6-9 % of the mesh.
+  - **More** would need fewer or different candidates (a smaller petal search, fewer arc points, a stronger bound that
+    drops candidates the current rule might pick). That changes the output (golden fingerprints, grading counts) and is an
+    owner decision for later. The <= 2x fork target stays open as a future goal.
+  - Not built: a bit-identical 6-9 % does not justify a PR with its review and CI cycle now (coordinator 2026-11-15).
 - **Fast-oracle leftovers** (no verdict of ours affected): 373600 q30 delaunay 9.8 s (pass on the remaining needles 7.5 s);
   corpus segments and conformity.
 - **Judging very large outputs of other producers:** the quality phase on the two Herne q20 fork outputs (1171 s, or no
   result within 1800 s; profile first); `GlobalDelaunayIndexed`'s exact `InCircle` on the witness remainder (about 4 min
   each); f-16's triangle.c output not re-timed since `Conformity`'s `OverlapPairs` sweep was replaced in #392.
-- **The other 72 own ORACLE-TIMEOUT outputs of run A** were not judged.
+- **The other 72 own ORACLE-TIMEOUT outputs of run A** were not judged (blocked: run-A outputs).
 
 Research or not scheduled (not built without a new decision):
 
@@ -91,11 +105,32 @@ Research or not scheduled (not built without a new decision):
 
 ### Done / history
 
+#### Settled 2026-11-12 to 2026-11-15
+
+- **#870, oracle O11 excuse (#880, merged 2026-11-14):** the excuse for O11-unsplittable pieces now models the mesher's
+  split point; 10 of the 11 dumps fixed; the last one is open (see Open).
+- **#864, NotDelaunayGlobal on projected polyhedra (fuzz #624, group f): closed 2026-11-15.** Part A fixed in #876 (merged
+  2026-11-14): the oracle's O11 coincidence test uses the mesher's tolerance, so the gap band stays on the mesher's side.
+  Part B went on as #870.
+- **#863, duplicate merge (#875, merged 2026-11-14):** in `ConstrainedDelaunayMesh2` an exact duplicate takes its earlier
+  twin's merge target (identical inputs mapped to different vertices before).
+- **Oracle fixes from the fuzz campaigns:** #723 (#724, 2026-11-12: `GridUnsplittable` enumerates the band along a piece),
+  #728 / #729 (#730, 2026-11-13: a constraint ending in a piece's end pixel is one of its own), #748 (#797, 2026-11-13:
+  the own-constraint rule as `OwnConstraintHoldsEnd`).
+- **Tests:** #637 pinned and `AngleBelowBound` judged again by the fuzz pilot (#687, 2026-11-12); the constrained star fuzz
+  with 3000 seeds Nightly and 600 + seed 2858 in the PR tier (#714, #695, 2026-11-13).
+- **Provenance delta after `d9006aa` (stage 6b-4, #677, merged 2026-11-12):** on master `01a7e71` against `triangle.c` 1.6
+  and Triangle.NET `fa6f2fdb`, by a dirty-side session (owner exception 2026-11-12, as in stage 6b): **no (A) finding**,
+  every changed routine (B) or (C), no rewrite needed
+  ([MESHING2D_PROVENANCE_CHECK.md](../design/MESHING2D_PROVENANCE_CHECK.md#stage-6b-4-delta-after-d9006aa)).
+- **SplitSegment upper-bound check (#822, merged 2026-11-13):** deferred, not dropped; it joins the SplitTriangle
+  measurement (see Open).
+
 #### Settled in the inventory of 2026-11-12
 
 Moved from Open; checked against git history and GitHub on 2026-11-12.
 
-- **A dropped sub-tolerance part is reported (open item of 2026-11-10, found by the MeshFuzzPilot): done (this PR).** `QualityMesh2`
+- **A dropped sub-tolerance part is reported (open item of 2026-11-10, found by the MeshFuzzPilot): done (#713, merged 2026-11-12).** `QualityMesh2`
   drops a part of the domain narrower than the automatic tolerance (a sliver tail of a hull domain; its input points and segments end up
   in no triangle) with status `Success`; the oracle excuses it (`OracleReport.VanishedPoints/VanishedSegments`, now also as index sets).
   Under the no-silent-deletion rule the mesher now reports it in `Diagnostics` ("N input points and M input segments are in no triangle:
@@ -117,7 +152,7 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   exemption, and the near-contact fan ran to the Steiner limit (400 000 vertices). Fix in #666: the
   mesher's `PairOf` and the oracle's small-input-angle excuse take an end within the tolerance (tube) as the apex. The oracle part
   widens an excuse: accepted by the owner 2026-11-12. Effort M.
-- **Refinement defect cap on narrow channels (#638, bugfix): #688.** A channel 2^-38 wide (a projected cube, MeshFuzzPilot F7) gave
+- **Refinement defect cap on narrow channels (#638, bugfix): done (#688, merged 2026-11-12).** A channel 2^-38 wide (a projected cube, MeshFuzzPilot F7) gave
   `Failed (RefinementLimit)` at SteinerLimit 1500: splits across the channel flip the same triangles many times, `Collect` queues a
   triangle once per flip (up to 31 536 entries on 1600 triangles for one insertion), and the burst of about 600k dequeues, mostly
   stale, exceeded the cap `64 (limit + slots) + 100000`, which counted dequeues. Fix (coordinator 2026-11-12): the cap counts split
@@ -261,7 +296,7 @@ Order: (1) one boundary index for coverage and conformity, (2) a source index an
 
 Left for a later pick-up: 373600 q30 delaunay 9.8 s = local test 1.9 + witness 0.9 + pass on the ~4400 remaining needles 7.5 (2.6 M in-circle hits, almost all merge-zone excused: ExcusedOffSegment 3.2, GridUnsplittable memo 3.1); corpus segments and conformity.
 
-Next mesher speed item outside grading: a SplitTriangle breakdown (measurement only), then one speed PR for SplitTriangle and SplitSegment (a GridSplitPoint cache, about 7 % of the mesh; 2026-11-13: SplitSegment is 27 % of 3.2 s refinement, at most 22 % of the mesh; see Open).
+Mesher speed outside grading: the SplitTriangle breakdown is done and the speed PR dropped (2026-11-15: BestCandidate is about 35 % of refinement, its bit-identical part only 6-9 % of the mesh; see Open).
 
 Oracle on large foreign outputs (reference run 2026-11-05: fork / triangle.c outputs of 200k-400k triangles with 170k-230k below the bound did not finish in 600 s): the quality phase hung in `CircumcentreBehindO11Unsplittable` → `Behind`, a scan of every subsegment per bad triangle (about 7 per second, about 9 h); fixed in #387 (the constructed point enters the subsegment grid by its interval; an unrefined 44k-triangle mesh at M3: quality 52 s -> 5 s, report identical).
 
@@ -351,3 +386,12 @@ Owner 2026-11-02: refinement with diametral lenses plus off-centres (Chew 1989, 
 The **stage 6b provenance check** (medium, report only; started 2026-11-02 after #277, session "Stage 6b: meshing provenance check"; clean report as docs PR, dirty evidence in `g3-meshing-references`) runs once after `m2.snap` (with refinement on the grid) is merged, so that one pass covers the whole 2D mesher (owner 2026-11-01); its own session, not the reference session, which must stay independent of our code.
 
 Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirty side reads the owner's own commits in his Triangle.NET fork (written privately with Claude, owner's rights) and answers the meshing session's written questions in spec terms only (behaviour, edge cases, failures, parameters, test inputs as descriptions; no code, structure or names). The coordinator checks the report before the meshing session gets it; it is logged in the provenance log and SOURCES.md. The meshing session never reads the fork. Starts once the question list is in MESHING2D_SNAP.md.
+
+### Open for the future (2026-11-15)
+
+1. #870: the last dump `d6710852` (in review).
+2. SplitTriangle breakdown (measurement only), then one speed PR with SplitSegment if the gain is worth its code (no issue).
+3. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; not scheduled).
+4. Blocked on inputs: judging the fork's huge Herne q20 outputs, the 72 run-A oracle timeouts, stmlf (no issue).
+5. `Dirty` deduplication in `Collect` (measured in #688; needs re-recorded golden rows and the grading bound).
+6. Research: Shewchuk's Terminator with a region-based oracle excuse; matched shells; grading placement strategy; <= 2x the fork's mesher time; Chew-2 (no issues).

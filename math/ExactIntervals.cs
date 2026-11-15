@@ -63,6 +63,40 @@ namespace g3
             return make(Math.Min(Math.Min(p1, p2), Math.Min(p3, p4)), Math.Max(Math.Max(p1, p2), Math.Max(p3, p4)));
         }
 
+        /// <summary>
+        /// a / b; the whole line if b contains 0. Division is correctly rounded in IEEE 754 binary64 on every target
+        /// (net10.0, netstandard2.0, net48 64-bit with SSE2), so a quotient is within half a spacing of the exact value
+        /// and the one-spacing widening of make() encloses it, also for subnormal and overflowing quotients (an
+        /// overflow to infinity widens to [MaxValue, infinity], and the exact quotient is at least MaxValue). Not tested:
+        /// the x87 unit of 32-bit net48 (no 32-bit test run). There the quotient would be rounded to 64 bits and then to
+        /// 53, by the usual double-rounding argument within half a spacing plus 2^-11 of it, below the one-spacing
+        /// widening; extended exponent range and subnormals are not covered by that argument.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static ExactInterval operator /(ExactInterval a, ExactInterval b)
+        {
+            if (!(b.Lo > 0 || b.Hi < 0))
+                return whole;                   // b contains 0 (or is NaN)
+            double q1 = a.Lo / b.Lo, q2 = a.Lo / b.Hi, q3 = a.Hi / b.Lo, q4 = a.Hi / b.Hi;
+            // a NaN corner (infinity / infinity) propagates through Math.Min / Math.Max (on every target) into make(),
+            // which returns the whole line
+            return make(Math.Min(Math.Min(q1, q2), Math.Min(q3, q4)), Math.Max(Math.Max(q1, q2), Math.Max(q3, q4)));
+        }
+
+        /// <summary>
+        /// the square root of the non-negative part of a (sqrt is monotone); the whole line if a is entirely negative or
+        /// NaN. Math.Sqrt is correctly rounded in IEEE 754 on every target (the same argument as the division above),
+        /// so the one-spacing widening encloses it; the lower end is clamped to 0.
+        /// </summary>
+        [MethodImpl(JitHints.Optimize)]
+        public static ExactInterval Sqrt(ExactInterval a)
+        {
+            if (!(a.Hi >= 0))
+                return whole;
+            ExactInterval r = make(Math.Sqrt(Math.Max(0, a.Lo)), Math.Sqrt(a.Hi));
+            return new ExactInterval(Math.Max(0, r.Lo), r.Hi);
+        }
+
         /// <summary> a * a, never negative </summary>
         [MethodImpl(JitHints.Optimize)]
         public static ExactInterval Square(ExactInterval a)

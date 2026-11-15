@@ -7,7 +7,7 @@ holes, `PolyLine2d`), on top of [Clipper2](https://github.com/AngusJohnson/Clipp
 boundaries, slicing contours.
 
 ```csharp
-using g3; using g3.Clipper2; using Clipper2Lib;
+using g3; using g3.Clipper2;
 
 Clipper2Result merged = Clipper2Polygons.Union(footprints);          // also Intersection, Difference, Xor
 Clipper2Result zone = Clipper2Polygons.Offset(merged.Polygons, 3.0,
@@ -30,13 +30,38 @@ if (!free.Ok)
   package fixes it in its copy of the sources (FINDINGS item 5,
   [tools/MeshFuzzPilot/FINDINGS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/tools/MeshFuzzPilot/FINDINGS.md)).
   Through this package, 1000 random pairs of 16-gons on that lattice in every operation and fill rule gave 43 wrong areas
-  before the fix and 0 after. Still open (rare, listed there and in issue #756): an Intersection case in the same cleanup and
-  a Union case on the default grid, both wrong before and after.
+  before the fix and 0 after. Two more fixes in the same output cleanup (#756, 2026-11-15) keep a twist removal from
+  flipping a ring or cutting a triangle off it, and the conversion of the result tree now nests holes that touch their outer
+  ring or another hole (a vertex rounded to the grid point beside the edge): through this package, 10 000 random pairs of
+  16- and 24-gons on such lattices in every operation and fill rule gave 41 wrong areas of 160 000 before and 0 after.
+  Since 2026-11-15 the copy also carries three fixes of the C++ Clipper2 (PolyClipping/Clipper2, rounded intersection
+  points among them; Clipper2Lib/README.md), which change most results within the rounding; on that campaign: 0 wrong
+  and 0 structurally broken results. A fourth fix of the C++ code (`6c7d083`) makes `OffsetPolyLines` with
+  `EndType.Joined` independent of the order of the lines (a 2-point line before a longer one gave the longer one open
+  ends). Still open (listed there): far from the origin (UTM coordinates with a small scale)
+  slivers can come out with zero or negative area after the rounding back to doubles.
+- API checks: the package has no `PackageValidationBaselineVersion` yet (owner 2026-11-13: the first published version of
+  this package becomes the baseline). Until a version is published, a PR that changes the public API lists the breaks from a
+  local strict validation against master's pack (as #851 did for 2.0).
 - Upstream status: the Clipper2 repository (AngusJohnson/Clipper2) was archived on 2026-10-28. Clipper2 continues as a
   C++ only library at [PolyClipping/Clipper2](https://github.com/PolyClipping/Clipper2) (maintainer Seth Hillibrand);
   translations to other languages are left to third parties, so the C# package 2.0.0 this adapter uses is frozen and the
   limitation above will not be fixed upstream. This package therefore carries the C# sources of Clipper2 2.0.0 itself
   (internal, `Clipper2Lib/`, owner decision 2026-11-12); they compute what the package computes
-  (`Clipper2VendoredDifferentialTests`), apart from the fix above. The NuGet package `Clipper2` 2.0.0 remains a dependency for the types of the
-  public API (`Point64`, `Path64`, `Paths64` and the enums), so code that also uses Clipper2 directly sees no clash.
+  (`Clipper2VendoredDifferentialTests`), apart from the fix above. Since 2.0 this package does not depend on the
+  NuGet package `Clipper2` (below).
+- **Breaking change in 2.0** (owner decision 2026-11-13: no dependency on the frozen Clipper2 package):
+  - `ClipType`, `FillRule`, `JoinType` and `EndType` are types of this package (namespace `g3.Clipper2`), with the
+    names, members and values of Clipper2's. They replace `Clipper2Lib`'s in `Clipper2Options.FillRule`, `JoinType`,
+    `EndType` and in `Clipper2Polygons.Boolean`, `BooleanPaths` and `ClipPolyLines`. Code that used them with
+    `using Clipper2Lib;` compiles once that line is removed (and is recompiled: the types changed); fully qualified
+    uses such as `Clipper2Lib.JoinType.Miter` become `JoinType.Miter` (or `g3.Clipper2.JoinType.Miter`).
+  - The package no longer brings the Clipper2 package along: code that uses Clipper2 itself (`Clipper2Lib`) needs its
+    own `PackageReference` to `Clipper2`.
+  - Code that also uses the Clipper2 package directly and imports both namespaces gets CS0104 ("ambiguous
+    reference"). Name the type with an alias, eg `using FillRule = g3.Clipper2.FillRule;`, or qualify it.
+  - `ClipperFrame`'s conversions to and from Clipper2's integer types are no longer public: `ToPoint64`,
+    `ToPoint64Displacement`, `ToVector2d(Point64)`, `ToPath64` (two), `ToPaths64` (two), `ToPolygon2d(Path64)`,
+    `ToPolyLine2d(Path64)`, `ToGeneralPolygons(PolyTree64)`. `Origin`, `Scale`, `Resolution`, the constructor,
+    `ForBounds` and the constants stay, so a fixed grid can still be set with `Clipper2Options.Frame`.
 - The full description is in [docs/OPERATIONS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/docs/OPERATIONS.md#2d-polygon-booleans-and-offsets-optional-package).

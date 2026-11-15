@@ -262,6 +262,14 @@ namespace gs
         public double Tolerance = double.NaN;
         /// <summary> the relative slope margin δ: the planes are built with slope s (1 - δ); raised if the check needs it </summary>
         public double SlopeMargin = 1e-6;
+        /// <summary>
+        /// the largest number of cone tangent planes per turn (2 pi / FacetAngle), in [16, 4096]. A Tolerance whose facet share
+        /// needs more is refused with InvalidInput, and the message names a Tolerance from which the facets fit. The planar map's
+        /// insertion grows faster than linearly in the number of facets (#808: a 48-gon toe of 150 m, 130 m high, takes 8 s at
+        /// 256 facets and 27 s at 512; a 7-gon of 11 m takes 39 s at 1089), so the default bounds the run time; a larger
+        /// value allows a smaller Tolerance at that cost (docs/design/TERRAIN.md 5.1)
+        /// </summary>
+        public int MaxFanDirections = 512;
         /// <summary> with a terrain: its vertical uncertainty (data units, default 0), part of the catch line's uncertainty </summary>
         public double TerrainVerticalUncertainty = 0;
         /// <summary>
@@ -274,7 +282,8 @@ namespace gs
         /// bound CatchLine.ProvenUncertainty (since 2026-11-13; before, the local estimate Uncertainty), and no part of the
         /// band without a segment (CatchLineBandWithoutLine). Reached by a smaller
         /// Tolerance (UsedTolerance; the whole design again, at most three times: Attempts, PhaseSeconds and the
-        /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
+        /// statistics count all rounds; a smaller Tolerance refused for MaxFanDirections is replaced in its round by the one its
+        /// message names, if that is still smaller), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
         /// </summary>
         public double RequiredCatchLineAccuracy = double.NaN;
         /// <summary>
@@ -422,7 +431,7 @@ namespace gs
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
             RampProblems = new List<Index2i>(); UsedRoadMargin = 0; rampNominal = new List<RampNominal>(); rampsIn = new List<RampIn>();
-            MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0; FanTolerance = 0;
             CatchMove = 0; CatchLineBandSlack = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
@@ -440,8 +449,16 @@ namespace gs
             try {
                 // (a smaller Tolerance until RequiredCatchLineAccuracy is met, at most 3 times)
                 List<CatchLine> previous = null;
+                double previousTolerance = Tolerance;
                 for (int round = 0; ; ++round) {
-                    Status = compute();
+                    Status = compute_named();
+                    // (a smaller Tolerance refused for its cone facets (MaxFanDirections): the smallest that fits, if it is
+                    // still smaller than the previous round's, in the same round)
+                    if (round > 0 && Status == Statuses.InvalidInput && FanTolerance > 0 && FanTolerance < previousTolerance) {
+                        Tolerance = FanTolerance; UsedTolerance = FanTolerance; FanTolerance = 0;
+                        IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+                        Status = compute_named();
+                    }
                     if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                         // (a smaller Tolerance that fails, eg below the numerical margins: the accuracy is not reached;
                         // the previous round's catch lines show where)
@@ -460,7 +477,7 @@ namespace gs
                                       (verdict == 2 ? " (the terrain's vertical uncertainty or a tangential contact alone exceeds it)" : ""));
                         break;
                     }
-                    previous = CatchLines;
+                    previous = CatchLines; previousTolerance = Tolerance;
                     Tolerance = next; UsedTolerance = next;
                     IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
                 }
@@ -568,12 +585,55 @@ namespace gs
         internal SlopeTerrainOverlay lastOverlay;
         List<InPiece> lastPieces;
 
+        /// <summary>
+        /// compute, and for a refusal of the facets (#808) the named Tolerance as a fixed point of the whole run up to the facet
+        /// check: with a cap from the terrain the cap's estimate (CapEstimateRounds) grows with the Tolerance by more than the
+        /// shift that build's search counts, so the run is repeated at the named Tolerance, only up to the check, until its
+        /// facets fit (Direction Auto: in compute_auto, over both runs)
+        /// </summary>
+        Statuses compute_named()
+        {
+            Statuses st = compute();
+            if (st != Statuses.InvalidInput || !(FanTolerance > 0) || fanCheckOnly || Direction == Directions.Auto)
+                return st;
+            string head = Message.Substring(0, Message.IndexOf(FacetsFitFrom));
+            double given = Tolerance, t = FanTolerance;
+            int attempts0 = Attempts, capRounds0 = CapRounds;
+            // (the runs of the search build again: the refused build's diagnostics are kept, the ramps' share among them)
+            double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY, used = UsedRampShare;
+            double margin = UsedSlopeMargin, feature = UsedMinFeatureSize, lowering = UsedToeLowering, ez0 = lastEz, ratio = MaxSlopeRatio;
+            int tooSmall = RampGradeTooSmall, realizations = Realizations;
+            long predicates = PredicateCalls, fallbacks = ExactFallbacks, constructions = ExactConstructions;
+            var phases = new Dictionary<string, double>(PhaseSeconds);
+            bool fits = false;
+            fanCheckOnly = true;
+            try {
+                for (int k = 0; k < 16; ++k) {
+                    Tolerance = t; FanTolerance = 0;
+                    Statuses s = compute();
+                    if (s == Statuses.InvalidInput && Message == FacetsChecked) { fits = true; break; }
+                    if (!(s == Statuses.InvalidInput && FanTolerance > t)) break;
+                    t = FanTolerance;
+                }
+            } finally {
+                fanCheckOnly = false; Tolerance = given; Attempts = attempts0; CapRounds = capRounds0;
+                RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; UsedRampShare = used;
+                RampGradeTooSmall = tooSmall;
+                UsedSlopeMargin = margin; UsedMinFeatureSize = feature; UsedToeLowering = lowering; lastEz = ez0; MaxSlopeRatio = ratio;
+                Realizations = realizations; PredicateCalls = predicates; ExactFallbacks = fallbacks; ExactConstructions = constructions;
+                PhaseSeconds = phases;
+            }
+            FanTolerance = fits ? t : 0;
+            ToeProblems = new List<Index2i>();
+            return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+        }
+
         // a run of one direction with this one's inputs (Direction Auto)
         TerrainSlopeDesign run_of(Directions dir)
         {
             return new TerrainSlopeDesign() {
                 Toes = Toes, Terrain = Terrain, Direction = dir, HeightLimit = HeightLimit, Tolerance = Tolerance,
-                SlopeMargin = SlopeMargin, TerrainVerticalUncertainty = TerrainVerticalUncertainty,
+                SlopeMargin = SlopeMargin, MaxFanDirections = MaxFanDirections, TerrainVerticalUncertainty = TerrainVerticalUncertainty,
                 CatchLineWarningThreshold = CatchLineWarningThreshold, CancelF = CancelF,
                 // (each run checks its own clipped region; the mixed composite is built and checked here)
                 BuildComposite = BuildComposite, CompositeKind = CompositeKinds.Replacement,
@@ -611,8 +671,34 @@ namespace gs
                 if (r.Status != Statuses.Success && r.Status != Statuses.NoDaylight && !(r.Status == Statuses.CompositeFailed && r.lastOverlay != null)) {
                     ToeProblems = r.ToeProblems; ProblemTriangles = r.ProblemTriangles;
                     undercutThroughDesign = r.undercutThroughDesign; UndercutCauses = r.UndercutCauses;
+                    FanTolerance = r.FanTolerance;
                     if (r == f && r.Status == Statuses.ToeUndercut)
                         return fail(Statuses.ToeOvertopped, $"fill: {r.ToeProblems.Count} toe segments are overtopped by the fill cones of other parts of the toe");
+                    // (the cut's facets refused: the fill's at the cut's named Tolerance too, without building it, so the
+                    // Tolerance named fits both runs; a refusal of the fill comes after a cut that fits, and a larger
+                    // Tolerance has fewer facets)
+                    if (r == c && r.Status == Statuses.InvalidInput && r.FanTolerance > 0) {
+                        // (the cut's facets refused: the Tolerance named fits both runs, each checked only up to its facets,
+                        // the larger need taken until both fit; a refusal of the fill comes after a cut that fits)
+                        double t = r.FanTolerance;
+                        bool fits = false;
+                        for (int k = 0; k < 16 && !fits; ++k) {
+                            fits = true;
+                            foreach (Directions dir in new[] { Directions.Cut, Directions.Fill }) {
+                                var probe = run_of(dir);
+                                probe.Tolerance = t; probe.fanCheckOnly = true;
+                                probe.Compute();
+                                if (probe.Status == Statuses.InvalidInput && probe.Message == FacetsChecked) continue;
+                                fits = false;
+                                t = (probe.Status == Statuses.InvalidInput && probe.FanTolerance > t) ? probe.FanTolerance : double.NaN;
+                                break;
+                            }
+                            if (double.IsNaN(t)) break;
+                        }
+                        FanTolerance = fits ? t : 0;
+                        string head = r.Message.Substring(0, r.Message.IndexOf(FacetsFitFrom));
+                        return fail(r.Status, "cut: " + head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+                    }
                     return fail(r.Status, (r == c ? "cut: " : "fill: ") + r.Message);
                 }
             }
@@ -713,6 +799,8 @@ namespace gs
                 return fail(Statuses.InvalidInput, "Tolerance must be positive and finite (no default)");
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
+            if (MaxFanDirections < 16 || MaxFanDirections > 4096)
+                return fail(Statuses.InvalidInput, "MaxFanDirections must be in [16, 4096]");
             if (!(TerrainVerticalUncertainty >= 0) || double.IsInfinity(TerrainVerticalUncertainty))
                 return fail(Statuses.InvalidInput, "TerrainVerticalUncertainty must be >= 0 and finite");
             if (double.IsNaN(RequiredCatchLineAccuracy) == false && !(RequiredCatchLineAccuracy > 0 && RequiredCatchLineAccuracy < double.PositiveInfinity))
@@ -721,6 +809,7 @@ namespace gs
                 return fail(Statuses.InvalidInput, "CatchLineWarningThreshold must be positive (+infinity: none)");
             double heightLimit = HeightLimit;
             bool localLimit = Terrain != null && double.IsNaN(HeightLimit);
+            capShiftsWithTolerance = localLimit;
             if (Terrain != null) {
                 var swt = System.Diagnostics.Stopwatch.StartNew();
                 Statuses ts = check_terrain();
@@ -810,7 +899,9 @@ namespace gs
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
             ramp_box(ref toeBox);
-            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself)
+            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself; the reach
+            // from the specified toe, not from the ramps' built heights as the budget's D0 (#861): an estimate, the raise
+            // below decides)
             Func<double, double> upTo = CapEstimateRounds > 0 ? terrain_max_by_reach(toeBox, (H - zMin) / sMin, fill) : null;
             double hLocal = (upTo != null ? upTo(0) : local_terrain_max(toeBox, 0, fill)) + Tolerance;
             double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
@@ -1021,9 +1112,12 @@ namespace gs
                 checkCancel();
                 BuildResult br;
                 Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br, regionNeedles);
-                if (attempt > 0 && st == Statuses.InvalidInput)
-                    return fail(Statuses.SlopeViolation, certFail != null ? certFail + "; a larger margin does not fit into Tolerance"
-                                                       : $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
+                if (attempt > 0 && st == Statuses.InvalidInput) {
+                    // (a larger margin whose facets need more than MaxFanDirections: said so, with the Tolerance they fit from)
+                    string why = FanTolerance > 0 ? $"; a larger margin needs more than {MaxFanDirections} cone facets per turn (they fit from Tolerance {FanTolerance:R})"
+                                                  : "; a larger margin does not fit into Tolerance";
+                    return fail(Statuses.SlopeViolation, (certFail ?? $"{ProblemTriangles.Count} triangles failed the exact check") + why);
+                }
                 if (st != Statuses.SlopeViolation) {
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
@@ -1174,12 +1268,12 @@ namespace gs
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
             ramp_box(ref toeBox);
-            double D0 = (H - zMin) / (sMin * (1 - delta));
-            double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
-            double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
             // (the output coordinates and heights are rounded to nearest from the exact values, ExactSlopeKernel.Rounded /
             // Height: half an ulp; one ulp is counted. Heights near the lowered toe can exceed maxZ a little: ulp(2 maxZ))
-            double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
+            double D0, maxXY, exy, eeval, rampShare, reachLowered;
+            if (reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered) == false)
+                return MathUtil.IsFinite(rampShare) ? fail(Statuses.Failed, "the reach of the lowered ramps does not converge")
+                                                    : fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
             // (the realization error of a stored height, TERRAIN.md 5.4: the slack of the catch-line bound's band, 5.5)
@@ -1209,8 +1303,8 @@ namespace gs
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
             // (a ramp's road is built flatter than its grade and its outer edge wider than Width: the road and the wall above
-            // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins")
-            double rampShare = ramp_share(delta, sMin, exy);
+            // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins"; reach_and_resolution
+            // computed it, and D0 from the lowest built height, #861)
             if (RampGradeTooSmall >= 0)
                 return ramp_problem(Statuses.InvalidInput, RampGradeTooSmall, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
             UsedRampShare = rampShare;
@@ -1230,10 +1324,35 @@ namespace gs
                 }
             // a direction is at most 3/4 theta from its nearest tangent plane (the grid is theta, and a grid direction
             // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
-            double c = 1 - facetShare / (sMax * 1.1 * D0);
-            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? CoreMath.AcosByAtan2(c) / 0.75 : Math.PI / 8;
-            int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
-            theta = 2 * Math.PI / nTheta;
+            int nTheta = FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
+            // (the budget again, as the naming below computes it: the same expressions, so the same count)
+            if (fan_directions_at(pieces, toePts, H, delta, Tolerance) != nTheta)
+                throw new InvalidOperationException("the facet budget of the naming differs from the build's");
+            if (nTheta < 0) {
+                // (the facets need more than MaxFanDirections directions per cone: the insertion's time grows faster than
+                // linearly in their number (#808), so the design is refused, naming a Tolerance t whose facets fit at this
+                // margin. With a cap from the terrain (no HeightLimit) the cap is the terrain's height plus Tolerance, so
+                // D0 and the margins grow with t: the budget is evaluated at the cap shifted by t - Tolerance, a fixed point
+                // that the search reaches from the estimate at this build's D0. A later raise of the cap, where the region
+                // reaches it, may need more: that build names its own)
+                double margins = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + rampShare;
+                double t = (margins + sMax * 1.1 * D0 * (1 - CoreMath.Cos(0.75 * 2 * Math.PI / MaxFanDirections))) / (Terrain != null ? 0.75 : 1);
+                bool fits = false;
+                for (int i = 0; i < 400 && MathUtil.IsFinite(t); ++i) {
+                    if (fan_directions_at(pieces, toePts, capShiftsWithTolerance ? H - Tolerance + t : H, delta, t) >= 0) { fits = true; break; }
+                    // (the step 2^(i / 8 - 30), exact: a growth from about 1e-9 to 2^20)
+                    int e = i / 8 - 30;
+                    t *= 1 + (e >= 0 ? (double)(1L << e) : 1.0 / (1L << -e));
+                }
+                // (none: with a cap from the terrain the facet share over the facets' scale tends to about
+                // 0.75 sMin (1 - δ) / (1.1 sMax) - δ as t grows, which slopes far apart keep below what the bound needs)
+                FanTolerance = fits ? t : 0;
+                string head = $"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn (the numerical margins are {margins + snapShare:G3})";
+                return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+            }
+            if (fanCheckOnly)
+                return fail(Statuses.InvalidInput, FacetsChecked);
+            double theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
             // the band merge (TERRAIN.md 5.4, "Repair of the band") within the facet share's slack: the facets need
             // s D (1 - cos(3/4 theta)) at the rounded angle, at most their share; the rest takes the band merge's part
@@ -1253,7 +1372,7 @@ namespace gs
             double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
             UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
-            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
+            double dMax = (H - zMin + reachLowered + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
 
             // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
             // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
@@ -1824,6 +1943,97 @@ namespace gs
         /// own region check without this feedback, as each run certified its own region)
         /// </summary>
         internal int RegionNeedles, RegionNeedleHits;
+        /// <summary>
+        /// diagnostics of an InvalidInput for too many cone facets: the tolerance its message names, from which the facets fit
+        /// (at the margin of that build; a SlopeViolation after a raised margin names one too); 0 otherwise, also when no
+        /// Tolerance fits within MaxFanDirections
+        /// </summary>
+        internal double FanTolerance;
+        // (a run that only checks its facets, FanTolerance, and stops before the planes: the search of the named Tolerance)
+        bool fanCheckOnly;
+        const string FacetsChecked = "only the facets were checked";
+        const string FacetsFitFrom = "; the facets fit from Tolerance ";
+        const string NoFit = "; no Tolerance fits within MaxFanDirections (slopes far apart need more facets): raise it";
+        // (the cap of the builds is the terrain's height plus Tolerance: no HeightLimit)
+        bool capShiftsWithTolerance;
+
+        /// <summary>
+        /// the facets per turn of a build at the cap H (internal frame: fill mirrored), margin delta and Tolerance t, by the
+        /// budget of build (TERRAIN.md 5.1; -1: more than MaxFanDirections, or no facet share). The same expressions as build,
+        /// which checks that both agree
+        /// </summary>
+        int fan_directions_at(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, double t)
+        {
+            double sMin = pieces.Min(p => p.S), sMax = pieces.Max(p => p.S);
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
+            ramp_box(ref toeBox);
+            // (the ramps' share writes the build's diagnostics, RampShare* and RampGradeTooSmall: kept as the build's own)
+            double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY;
+            int tooSmall = RampGradeTooSmall;
+            double D0, maxXY, exy, eeval, rampShare, reachLowered;
+            bool converged;
+            try {
+                converged = reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered);
+            } finally {
+                RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; RampGradeTooSmall = tooSmall;
+            }
+            if (converged == false) return -1;
+            double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
+            double ez = 2 * sMax * exy + eeval;
+            if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false) return -1;
+            double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
+            double mergeShare = MergeShare(exy, sMax);
+            double snapShare = Terrain != null ? t / 4 : 0;
+            double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
+            double facetShare = t - withoutRamps - rampShare;
+            return FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
+        }
+
+        /// <summary>
+        /// the reach D0 of the cones (TERRAIN.md 5.1) and the numerical resolution of a build at the cap H and margin delta:
+        /// the reach from the lowest built height. A ramp's road and the wall above it are built up to the ramp's share
+        /// below the specified heights (TERRAIN_RAMPS.md, "Margins"), so their cones reach up to share / (sMin (1 - delta))
+        /// further than from the specified toe; before #861 only the 1.1 of the budget's terms covered that (L up to about
+        /// 0.2 D0 / delta). The share depends on e_xy, which depends on D0: a fixed point, D0 counted with a share at least
+        /// the one computed at its e_xy (e_xy changes only at a power of 2 of maxXY, so it ends after one or two rounds).
+        /// Without ramps the share is 0 and all is as before, bit for bit. reachLowered: the share D0 counts; rampShare:
+        /// the share at the final e_xy (at most reachLowered; NaN with RampGradeTooSmall). Writes the RampShare*
+        /// diagnostics (ramp_share). False if it does not settle (not seen)
+        /// </summary>
+        bool reach_and_resolution(List<InPiece> pieces, AxisAlignedBox2d toeBox, double H, double delta, out double D0,
+                                  out double maxXY, out double exy, out double eeval, out double rampShare, out double reachLowered)
+        {
+            double sMin = pieces.Min(p => p.S);
+            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
+            double maxZ0 = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
+            reachLowered = 0;
+            for (int k = 0; ; ++k) {
+                D0 = (H - zMin + reachLowered) / (sMin * (1 - delta));
+                maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
+                // (the lowest built height, which the heights' resolution counts too)
+                double maxZ = reachLowered > 0 ? Math.Max(maxZ0, Math.Abs(zMin - reachLowered)) : maxZ0;
+                exy = ulp(maxXY); eeval = ulp(2 * maxZ);
+                rampShare = ramp_share(delta, sMin, exy);
+                if (!(rampShare > reachLowered)) return true;     // (NaN: a grade too small, reported by the caller)
+                if (k == 8 || MathUtil.IsFinite(rampShare) == false) return false;
+                reachLowered = rampShare;
+            }
+        }
+
+        /// <summary>
+        /// the number of cone facets per turn for a facet share and the facets' scale sMax 1.1 D0 (TERRAIN.md 5.1): a direction is
+        /// at most 3/4 theta from its nearest tangent plane, so the facet error is s D (1 - cos(3/4 theta)); -1 if more than
+        /// max are needed (also when theta rounds to 0, where 2 pi / theta is infinite: #808)
+        /// </summary>
+        internal static int FanDirections(double facetShare, double scale, int max)
+        {
+            if (!(facetShare > 0)) return -1;
+            double c = 1 - facetShare / scale;
+            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? CoreMath.AcosByAtan2(c) / 0.75 : Math.PI / 8;
+            double n = Math.Ceiling(2 * Math.PI / theta);
+            return n <= max ? (int)n : -1;
+        }
         // the last build's realization error of a stored height, 2 sMax e_xy + e_eval rounded up (TERRAIN.md 5.4)
         double lastEz;
         /// <summary> diagnostics of the last overlay: the slack of the catch-line bound's band on each side (TERRAIN.md 5.5) </summary>

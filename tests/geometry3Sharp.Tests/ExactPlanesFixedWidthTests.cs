@@ -35,6 +35,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void ToDouble_SameAsBigIntegerConversion()
         {
+            // bit for bit on every runtime: (double)BigInteger truncates toward zero to 53 bits on .NET 10 and .NET
+            // Framework 4.8 alike (probe.bigint-double of tools/DeterminismHarness, determinism run 43505530553)
             var r = new Random(1);
             ulong* buf = stackalloc ulong[8];
             for (int k = 0; k < 200000; ++k) {
@@ -43,12 +45,7 @@ namespace geometry3Sharp.Tests
                 if (BigInteger.Abs(v) >= BigInteger.One << 511) continue;
                 double got = FixedArith.ToDouble(Load(v, buf, 8));
                 double expected = (double)v;
-#if NET
                 Assert.Equal(BitConverter.DoubleToInt64Bits(expected), BitConverter.DoubleToInt64Bits(got));
-#else
-                // (.NET Framework's conversion may round differently: the filters need a relative error below 2^-52)
-                Assert.True(Math.Abs(got - expected) <= Math.Abs(expected) * Math.Pow(2, -52));
-#endif
             }
         }
 
@@ -69,12 +66,7 @@ namespace geometry3Sharp.Tests
                     while (m.IsZero == false) { buf[n++] = (ulong)(m & ulong.MaxValue); m >>= 64; }
                     Assert.True(n <= limbs);
                     double got = FixedArith.ToDouble(new FixedInt(buf, n, v.Sign < 0));
-#if NET
                     Assert.Equal(BitConverter.DoubleToInt64Bits((double)v), BitConverter.DoubleToInt64Bits(got));
-#else
-                    double e = (double)v;
-                    Assert.True(double.IsInfinity(e) == double.IsInfinity(got) && (double.IsInfinity(e) || Math.Abs(got - e) <= Math.Abs(e) * Math.Pow(2, -52)));
-#endif
                 }
             }
         }
@@ -146,11 +138,7 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(plane[0], nx); Assert.Equal(plane[1], ny); Assert.Equal(plane[2], nz); Assert.Equal(plane[3], d);
                 Assert.Equal(eaxis, axis); Assert.Equal(esign, sign);
                 for (int i = 0; i < 16; ++i) {
-#if NET
                     Assert.Equal(BitConverter.DoubleToInt64Bits(expected[i]), BitConverter.DoubleToInt64Bits(got[i]));
-#else
-                    Assert.True(double.IsInfinity(expected[i]) == double.IsInfinity(got[i]) && (double.IsInfinity(got[i]) || Math.Abs(got[i] - expected[i]) <= Math.Abs(expected[i]) * Math.Pow(2, -52)));
-#endif
                 }
             }
         }

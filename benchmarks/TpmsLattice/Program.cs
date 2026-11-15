@@ -23,9 +23,15 @@ internal static class Program
         foreach (var c in cases)
             foreach (int p in periods)
                 Run(c.Item1, c.Item2, p, divisions, true);
+        // the graded cell size (a linear grade along z, the period 1 to 2): the cost of one phase delegate call per sample
+        foreach (int p in periods)
+            Run(TpmsType.Gyroid, TpmsStyle.Sheet, p, divisions, true, true);
+        // the two-type hybrid (gyroid / I-WP across the plane x = periods / 2, width 0.5): both fields at every node plus the weight
+        foreach (int p in periods)
+            Run(TpmsType.Gyroid, TpmsStyle.Sheet, p, divisions, true, false, true);
     }
 
-    static void Run(TpmsType type, TpmsStyle style, int periods, int divisions, bool print)
+    static void Run(TpmsType type, TpmsStyle style, int periods, int divisions, bool print, bool graded = false, bool hybrid = false)
     {
         var sw = new Stopwatch();
 
@@ -33,6 +39,11 @@ internal static class Program
             Type = type, Style = style, CellSize = 1, Divisions = divisions, VolumeFraction = 0.3, VerifySelfIntersections = false,
             Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(periods, periods, periods))
         };
+        if (graded) {
+            lattice.Box = new AxisAlignedBox3d(new Vector3d(-periods / 2.0, -periods / 2.0, 0), new Vector3d(periods / 2.0, periods / 2.0, periods));
+            lattice.Grade = TpmsLattice.LinearGrade(2, 0, 1, periods, 2, periods / 2.0 + 1.0);
+        }
+        if (hybrid) { lattice.SecondType = TpmsType.IWP; lattice.Blend = TpmsLattice.SigmoidBlend(0, periods / 2.0, 0.5); }
         int g0 = GC.CollectionCount(0), g1 = GC.CollectionCount(1), g2 = GC.CollectionCount(2);
         long a0 = GC.GetTotalAllocatedBytes(true);
         sw.Restart();
@@ -49,7 +60,7 @@ internal static class Program
         for (int i = 0; i < n; ++i)
             for (int j = 0; j < n; ++j)
                 for (int l = 0; l < n; ++l)
-                    sum += TpmsLattice.Evaluate(type, k * i * h, k * j * h, k * l * h);
+                    sum += TpmsLattice.Evaluate(type, k * i * h, k * j * h, k * l * h) + (hybrid ? TpmsLattice.Evaluate(TpmsType.IWP, k * i * h, k * j * h, k * l * h) : 0);
         double fieldMs = sw.Elapsed.TotalMilliseconds;
         if (double.IsNaN(sum)) Console.WriteLine();
 
@@ -59,7 +70,7 @@ internal static class Program
         if (reason != "") Console.WriteLine("not clean: " + reason);
 
         if (print)
-            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0}/{1}, {2}, {3}, {4}, {5:F1}, {6:F1}, {7:F1}, {8:F1}, {9}",
-                type, style, periods, nodes, lattice.Mesh.TriangleCount, fieldMs, computeMs, checkMs, allocMb, gc));
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture, "{0}{10}/{1}, {2}, {3}, {4}, {5:F1}, {6:F1}, {7:F1}, {8:F1}, {9}",
+                type, style, periods, nodes, lattice.Mesh.TriangleCount, fieldMs, computeMs, checkMs, allocMb, gc, graded ? "(graded)" : (hybrid ? "(+IWP)" : "")));
     }
 }

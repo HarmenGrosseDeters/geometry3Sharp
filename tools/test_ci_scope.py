@@ -45,7 +45,7 @@ class Scope(unittest.TestCase):
         for p in ("math/Vector2d.cs", "tests/geometry3Sharp.Tests/FooTests.cs", ".github/workflows/ci.yml",
                   "geometry3Sharp_netstandard.csproj", "BannedSymbols.txt", "addons/geometry3Sharp.Clipper2/X.cs",
                   "tests/g3cli.Tests/A.cs", "docs/design/FIXED_WIDTH_EXACT_POINTS.md", "docs/examples/Ex.cs",
-                  "docs/OPERATIONS.md", "docs/ROBUSTNESS_SWEEP.md"):
+                  "docs/OPERATIONS.md", "docs/ROBUSTNESS_SWEEP.md", "docs/design/DETERMINISM_PROOF.md"):
             self.assertTrue(c.scope([p])["library"], p)
 
     def test_tools_benchmarks_docs_only(self):
@@ -68,6 +68,9 @@ class Scope(unittest.TestCase):
         self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, True, False))
         r = c.scope(["benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1"])
         self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, False, True))
+        for path in ("benchmarks/net48-compare/run.ps1", "benchmarks/BooleanComparison/Profile.cs", "benchmarks/SmallInputWrapBenchmark/Program.cs"):
+            r = c.scope([path])
+            self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, False, True), path)
         r = c.scope(["tools/new_tests_on_base.py"])
         self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, False, False))
 

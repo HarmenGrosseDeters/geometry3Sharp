@@ -246,7 +246,8 @@ namespace gs
                     if (w0 < 0 || w1 < 0 || w2 < 0) continue;
                     int node = (int)(x + NX * y);
                     double plane = (w0 * za + w1 * zb + w2 * zc) / det;
-                    double e = Math.Abs(Z[node] - plane);
+                    // A triangle interpolates its own vertices exactly; avoid roundoff selecting one again.
+                    double e = (node == a || node == b || node == c) ? 0 : Math.Abs(Z[node] - plane);
                     sumsq += e * e;
                     if (e > best) { best = e; bestNode = node; }
                 }
@@ -362,7 +363,7 @@ namespace gs
                     double mx, sq;
                     scan(a, b, c, out mx, out sq);
                     if (mx > MaxError) continue;
-                    if (mx < bestMax - 1e-12 || (mx <= bestMax + 1e-12 && sq < bestSq)) { bestMax = mx; bestSq = sq; bestK = k; }
+                    if (mx < bestMax || (mx == bestMax && sq < bestSq)) { bestMax = mx; bestSq = sq; bestK = k; }
                 }
                 if (bestK < 0) return false;
                 bestEarError = Math.Max(bestEarError, bestMax);
