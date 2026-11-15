@@ -208,7 +208,7 @@ Part of the [roadmap](../ROADMAP.md).
   items 1, 3 and 5.)
 - **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
   ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
-  variant designed 2026-11-15 and not recommended before the release, owner decision open), the
+  variant designed 2026-11-15; owner 2026-11-15: no-go before the release, it stays a design), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -443,7 +443,7 @@ Ordered by expected value for the library.
      open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
      leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
      the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
-     release does not depend on it). Owner decision open. No guarantee found; problem 1 stays open as a guarantee.
+     release does not depend on it). **Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -594,8 +594,8 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 ### Open for the future (2026-11-15)
 
 1. #721: practical 3D snap rounding and rounding cost (hard problems 1 and 3). Options 1 and 2 are built (#725, #755);
-   the plateau variant of option 2 is designed and recommended as a no-go before the release
-   ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10); the owner's decision is open.
+   the plateau variant of option 2 is designed ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10) and
+   not built: owner 2026-11-15, no-go before the release, no spike; it stays a design. Open as research: a guarantee.
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).

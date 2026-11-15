@@ -4,7 +4,8 @@ Status: **research note, 2026-11-12, continued 2026-11-15** (hard open problems 
 [roadmap/research.md](../roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model), taken together on the
 owner's priority "3 together with the leads of 1"). No library code. The tools are in
 `benchmarks/SnapRoundingExperiment` (`trace/`, `cull`, `lattice`) and `tools/Z3Pilot/separating_axis.py`,
-`plateau_search.py`; the owner decides on the options of section 8 and on the recommendation of section 10.
+`plateau_search.py`; the owner decides on the options of section 8; the recommendation of section 10 is decided
+(owner 2026-11-15: no-go before the release).
 
 Sections 1 to 9 are measured on master `46529be` (D1, #513, included), 4 cores, the cloud container of the session, and
 are kept as measured. Two of their options were built since: option 1 as a stop of the passes at the evaluation limit
@@ -408,7 +409,7 @@ The probe on the real leftovers did not kill it (6.3: 4 of 5 within this rule).
 | 3 | `near` and the linear setup (5.5) | upper bounds: `near` 14-56 % of the rounding where edits are evaluated; tree and setup 0.1-0.6 s per large operation | none for results (bit-identical); the diagnosis of `near` is open | S-M each, after a profile of `near` |
 | 4 | Separating-axis prefilter (5.3) | −1.6 % in the sum; about 1 s of the 4.5 s rounding of 519511 union, its boolean within the noise | a new floating-point margin in the rounding (checked by Z3, needs the bounds review) | M; **not recommended** |
 | 5 | Distance certificates, clearance skins, node culling (5.1, 5.2, 5.3) | below the stop rule | | **closed** |
-| 2b | Plateau variant of option 2 (section 10, 2026-11-15) | 1 of 16 239 cohort operations, no clean result on the 400 self-unions, 3-9 of the 19 generated leftovers it reaches | a rollback inside the repair; success depends on seed and budget; no guarantee | M, tier L; **not recommended before the release** (10.8) |
+| 2b | Plateau variant of option 2 (section 10, 2026-11-15) | 1 of 16 239 cohort operations, no clean result on the 400 self-unions, 3-9 of the 19 generated leftovers it reaches | a rollback inside the repair; success depends on seed and budget; no guarantee | M, tier L; **not built: no-go before the release, owner 2026-11-15** (10.8) |
 
 Owner 2026-11-12: option 1 is built as the stop (#725; the drift-only variant was measured, section 5.5, and dropped:
 most of the work past the limit is `try_move`, drift-only already), with `SmallestRejectedDrift` documented as taken
@@ -686,6 +687,8 @@ where the rule's own draws reached the limit.
 **No-go before the release. The design stays on file, with its lemma, for the case that dense clusters become a
 user's problem.**
 
+**Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** The spike described below is not run.
+
 - *The gain on real results is one operation.* On closed inputs the rounding leaves 1 of 16 239 results with a defect
   (0.006 %), and the rule may gain exactly that one, at a budget where the outcome still depends on the seed. On the
   400 self-unions it gains no clean result. The larger gain (3-9 of 19) is on generated clusters of eight nearly
@@ -700,7 +703,7 @@ user's problem.**
 - *Problem 1 is not closed by it either way.* With or without the rule there is no guarantee; the status of section 6.1
   stands.
 
-If the owner wants the spike all the same, its shape: three days, behind an internal switch that is off; B = 2 000,
+The shape a spike would have had, kept for a later decision: three days, behind an internal switch that is off; B = 2 000,
 K = B, S = 1, D = 8; stop rules fixed in advance: the cohort with no result newly unclean and every rounding-clean
 result identical, 838003 difference clean, at least 5 of the 19 generated leftovers clean, the rollback identity test
 of 10.5 green, the rounding time of the cohort within 2 %. A miss of any of them ends it.
