@@ -156,11 +156,14 @@ namespace geometry3Sharp.Clipper2.Tests
                                 var (flatArea, flatPerimeter) = Measure(PackageBridge.ToPackage(vFlat));
                                 Assert.True(Math.Abs(vTree.Area() - flatArea) <= flatPerimeter + 1, where + " (tree area " + vTree.Area() + " against " + flatArea + ")");
                                 // the nesting, as the adapter reads it: ToGeneralPolygons of the vendored tree (on a frame that
-                                // maps the grid to itself) has the area of the flat output, within the rounding (a tree can nest a
-                                // touching sliver differently from the package's; the adapter's rules sort that out)
+                                // maps the grid to itself) has the area of the flat output, within the rounding, and covers the
+                                // same points, each by one polygon (a tree can nest a touching sliver differently from the
+                                // package's; the adapter's rules sort that out, and a hole under the wrong outer ring shows here;
+                                // a tree that nests nothing at all passes, since the adapter re-nests its negative paths)
                                 var polygons = new g3.Clipper2.ClipperFrame(new g3.Vector2d(0, 0), 1).ToGeneralPolygons(vTree);
                                 double converted = polygons.Sum(g => g.Outer.SignedArea + g.Holes.Sum(h => h.SignedArea));
                                 Assert.True(Math.Abs(converted - flatArea) <= flatPerimeter + 1, where + " (converted tree " + converted + " against " + flatArea + ")");
+                                AssertSameRegion(vFlat, polygons, new Random(compared), where + " (converted tree)");
                                 if (Text(pOpen) != Text(vOpen))
                                     AssertWithinRounding(pOpen, PackageBridge.ToPackage(vOpen), false, where + " (open)");
                                 continue;
@@ -233,6 +236,26 @@ namespace geometry3Sharp.Clipper2.Tests
             var (pArea, pPerimeter) = Measure(pOut);
             var (vArea, _) = Measure(vOut);
             Assert.True(Math.Abs(pArea - vArea) <= pPerimeter + 1, where + ": area " + vArea + " against " + pArea);
+        }
+
+        /// <summary>
+        /// At random points of the flat output's bounds: a point is in the region of the flat paths (non-zero winding) exactly
+        /// if one polygon contains it (its outer ring and none of its holes); points within two grid units of an edge are
+        /// skipped
+        /// </summary>
+        static void AssertSameRegion(V.Paths64 flat, List<g3.GeneralPolygon2d> polygons, Random rand, string where)
+        {
+            var rings = flat.Where(p => p.Count > 0).Select(p => (IReadOnlyList<g3.Vector2d>)p.Select(q => new g3.Vector2d(q.X, q.Y)).ToList()).ToList();
+            if (rings.Count == 0) { Assert.Empty(polygons); return; }
+            double x0 = rings.Min(r => r.Min(v => v.x)), x1 = rings.Max(r => r.Max(v => v.x));
+            double y0 = rings.Min(r => r.Min(v => v.y)), y1 = rings.Max(r => r.Max(v => v.y));
+            for (int i = 0; i < 24; ++i) {
+                var p = new g3.Vector2d(x0 + rand.NextDouble() * (x1 - x0), y0 + rand.NextDouble() * (y1 - y0));
+                if (rings.Any(r => Oracle.RingDistance(r, p) <= 2) || Oracle.BoundaryDistance(polygons, p) <= 2) continue;
+                bool inFlat = rings.Sum(r => Oracle.Winding(r, p)) != 0;
+                int count = Oracle.ResultCount(polygons, p);
+                Assert.True(count == (inFlat ? 1 : 0), where + ": point " + p + " in the flat region " + inFlat + ", in " + count + " polygons");
+            }
         }
 
         static V.Paths64 FlattenV(V.PolyPath64 node)
