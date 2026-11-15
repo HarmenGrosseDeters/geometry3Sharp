@@ -2,6 +2,13 @@
 
 The proposed next contract and implementation gates are in [BIHARMONIC_IMPLEMENTATION_PLAN.md](BIHARMONIC_IMPLEMENTATION_PLAN.md). It separates numerical solve quality from optional certified positions; the measurements below describe the existing prototypes.
 
+The sparse strict path retains one opaque rest-proof snapshot per deformer. Reuse
+checks mesh identity, current original-position bits, vertex/free IDs and all
+triangle IDs/indices. New targets, rounded output residuals and requested
+tolerances are always checked afresh. Geometric changes or a different handle set
+invalidate the proof. The numerical factor is still rebuilt. Do not mutate the
+input or use one deformer concurrently while Compute runs.
+
 A bounded dense interval fallback is under validation. The high-valence resource limit is checked from topology before computing weights.
 
 For each connected surface component, write the displacement at vertex `i` as `u_i` and prescribe it at each handle. Minimize `1/2 u^T L^T M^-1 L u` independently for x, y and z. `L` is the symmetric cotangent stiffness matrix assembled from the rest triangles; `M` is a diagonal mass matrix with one third of each incident triangle's area. The free rows of `Q = L^T M^-1 L` give `Q_ff u_f = -Q_fc u_c`. Factor `Q_ff` once and solve the three right-hand sides. The barycentric lumping is a deliberate positive-area choice, including on obtuse triangles.

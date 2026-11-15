@@ -47,36 +47,62 @@ static class ProductionCandidateExport
         }
         var solver = new BiharmonicMeshDeformer(mesh);
         solver.Options.RequireEuclideanAccuracy = args[3] == "strict";
-        var result = solver.Compute(handles);
-        if (args[0] == "--certificate-profile") {
-            // First Compute warmed up the runtime; every measured call uses a new
-            // deformer and includes its uncached validation/assembly/solve/check.
+        var preparationTimer = Stopwatch.StartNew();
+        var result = solver.Compute(handles); preparationTimer.Stop();
+        bool reuseProfile = args[0] == "--certificate-reuse-profile";
+        if (reuseProfile && (args[3] != "strict" || n*n <= 16 || n*n > 400 || !result.Converged || result.UsedIntervalFallback)) {
+            Console.Error.WriteLine("reuse profile requires a successful sparse strict fixture with 17..400 vertices"); return 1;
+        }
+        if (reuseProfile) Console.WriteLine($"first_compute_including_jit_ms={preparationTimer.Elapsed.TotalMilliseconds:F3}");
+        if (args[0] == "--certificate-profile" || reuseProfile) {
+            // Cold: fresh deformer each call. Reuse: same prepared rest proof and
+            // handle IDs, new targets; compare to a fresh result outside the timer.
             var times = new List<double>(); var allocations = new List<long>();
+            var referenceTimes = new List<double>(); var referenceAllocations = new List<long>();
             for (int run = 0; run < 5; run++) {
+                if (reuseProfile) for (int y = 0; y < n; y++) {
+                    int right = n*y+n-1;
+                    targets[right] = originalPositions[right] + (1 + .01*(run+1))*new Vector3d(.04,-.03,.1);
+                    handles[right] = targets[right];
+                }
                 long allocated = GC.GetTotalAllocatedBytes(true); var timer = Stopwatch.StartNew();
-                var cold = new BiharmonicMeshDeformer(mesh); cold.Options.RequireEuclideanAccuracy = args[3] == "strict";
-                var next = cold.Compute(handles); timer.Stop();
+                var instance = reuseProfile ? solver : new BiharmonicMeshDeformer(mesh);
+                instance.Options.RequireEuclideanAccuracy = args[3] == "strict";
+                var next = instance.Compute(handles); timer.Stop();
+                if (reuseProfile && !next.Converged) throw new InvalidOperationException("reuse compute did not succeed");
                 allocations.Add(GC.GetTotalAllocatedBytes(true) - allocated); times.Add(timer.Elapsed.TotalMilliseconds);
-                if (next.Status != result.Status || next.Accuracy != result.Accuracy || next.Iterations != result.Iterations ||
-                    next.UsedIntervalFallback != result.UsedIntervalFallback ||
-                    BitConverter.DoubleToInt64Bits(next.Residual) != BitConverter.DoubleToInt64Bits(result.Residual) ||
-                    BitConverter.DoubleToInt64Bits(next.PositionErrorBound) != BitConverter.DoubleToInt64Bits(result.PositionErrorBound) ||
-                    (next.Mesh == null) != (result.Mesh == null)) throw new InvalidOperationException("non-deterministic result");
+                var reference = result;
+                if (reuseProfile) {
+                    long referenceAllocated = GC.GetTotalAllocatedBytes(true); var referenceTimer = Stopwatch.StartNew();
+                    var fresh = new BiharmonicMeshDeformer(mesh); fresh.Options.RequireEuclideanAccuracy = args[3] == "strict";
+                    reference = fresh.Compute(handles); referenceTimer.Stop();
+                    referenceTimes.Add(referenceTimer.Elapsed.TotalMilliseconds);
+                    referenceAllocations.Add(GC.GetTotalAllocatedBytes(true) - referenceAllocated);
+                }
+                if (next.Status != reference.Status || next.Accuracy != reference.Accuracy || next.Iterations != reference.Iterations ||
+                    next.UsedIntervalFallback != reference.UsedIntervalFallback ||
+                    BitConverter.DoubleToInt64Bits(next.Residual) != BitConverter.DoubleToInt64Bits(reference.Residual) ||
+                    BitConverter.DoubleToInt64Bits(next.PositionErrorBound) != BitConverter.DoubleToInt64Bits(reference.PositionErrorBound) ||
+                    (next.Mesh == null) != (reference.Mesh == null)) throw new InvalidOperationException("non-deterministic result");
                 if (next.Mesh != null) {
-                    if (next.Mesh.VertexCount != result.Mesh.VertexCount || next.Mesh.TriangleCount != result.Mesh.TriangleCount)
+                    if (next.Mesh.VertexCount != reference.Mesh.VertexCount || next.Mesh.TriangleCount != reference.Mesh.TriangleCount)
                         throw new InvalidOperationException("result counts changed between runs");
                     for (int i = 0; i < originalPositions.Length; i++)
-                        if (!SameBits(next.Mesh.GetVertex(i), result.Mesh.GetVertex(i))) throw new InvalidOperationException("positions changed between runs");
-                    foreach (int id in result.Mesh.TriangleIndices()) {
+                        if (!SameBits(next.Mesh.GetVertex(i), reference.Mesh.GetVertex(i))) throw new InvalidOperationException("positions changed between runs");
+                    foreach (int id in reference.Mesh.TriangleIndices()) {
                         if (!next.Mesh.IsTriangle(id)) throw new InvalidOperationException("triangle IDs changed between runs");
-                        var a = next.Mesh.GetTriangle(id); var b = result.Mesh.GetTriangle(id);
+                        var a = next.Mesh.GetTriangle(id); var b = reference.Mesh.GetTriangle(id);
                         if (a.a != b.a || a.b != b.b || a.c != b.c) throw new InvalidOperationException("topology changed between runs");
                     }
                 }
                 result = next;
             }
             times.Sort(); allocations.Sort();
-            Console.WriteLine($"cold_compute_runs=5 median_ms={times[2]:F3} min_ms={times[0]:F3} max_ms={times[4]:F3} median_allocated_bytes={allocations[2]} status={result.Status} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64}");
+            Console.WriteLine($"{(reuseProfile ? "reuse" : "cold")}_compute_runs=5 median_ms={times[2]:F3} min_ms={times[0]:F3} max_ms={times[4]:F3} median_allocated_bytes={allocations[2]} status={result.Status} peak_working_set_bytes={Process.GetCurrentProcess().PeakWorkingSet64}");
+            if (reuseProfile) {
+                referenceTimes.Sort(); referenceAllocations.Sort();
+                Console.WriteLine($"paired_fresh_reference_runs=5 median_ms={referenceTimes[2]:F3} min_ms={referenceTimes[0]:F3} max_ms={referenceTimes[4]:F3} median_allocated_bytes={referenceAllocations[2]}");
+            }
         }
         Console.WriteLine($"vertices={mesh.VertexCount} mode={args[3]} orientation={args[2]} status={result.Status} accuracy={result.Accuracy} fallback={result.UsedIntervalFallback}");
         if (mesh.VertexCount != originalPositions.Length || mesh.TriangleCount != originalFaces.Count)

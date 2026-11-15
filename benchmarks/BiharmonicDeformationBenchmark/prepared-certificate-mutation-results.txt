@@ -1,0 +1,19 @@
+Targeted hand mutations, not the incremental Stryker gate.
+Command: targeted_certificate_mutations.py <dotnet> /workspace/arap-886-artifacts /tmp/bih-prepared-mutations
+baseline: green; executed=25
+skip_accuracy: killed; executed=25 failed=3
+omit_z: killed; executed=25 failed=3
+skip_cache_key: killed; executed=25 failed=2
+source and original library artifacts restored
+skip_accuracy failed tests:
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.SparseVerifier_RejectsWrongFreePositionAndHandle
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.SparseVerifier_LargerComponentRejectsEveryAxisAndHandleCorruption
+omit_z failed tests:
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.SparseVerifier_LargerComponentRejectsEveryAxisAndHandleCorruption
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.SparseVerifier_RejectsWrongFreePositionAndHandle
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity
+skip_cache_key failed tests:
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity
+  geometry3Sharp.Tests.BiharmonicMeshDeformerTests.SparseVerifier_LargerComponentRejectsEveryAxisAndHandleCorruption
+Original 25-test assembly also passes after byte-for-byte artifact restoration.

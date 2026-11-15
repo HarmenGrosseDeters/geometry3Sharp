@@ -1,5 +1,26 @@
 # Biharmonic displacement benchmark (#886)
 
+## Prepared geometric proof: reuse and invalidation
+
+The strict sparse deformer now retains an opaque original-data L/M and positive-shift proof. Its key is checked against live mesh identity, exact position bits, vertex IDs/free map and every triangle ID/index/count. New targets/output residuals are always verified. This caches the geometric certificate, not the numerical Cholesky factor.
+
+`--certificate-reuse-profile` requires a successful strict sparse fixture of 17–400 vertices. It prepares the same instance once, then measures five calls with new right-boundary targets and unchanged handle IDs. Each result is compared to a separately timed fresh-deformer reference for the identical targets; metadata, vertex bits and topology must match. The final export is also hash-bound to the independent checker. The first call is explicitly labeled as including JIT and is not comparable to warmed cold timing. Reference work is outside each reuse timer and allocation sample; process peak memory includes all work. The profile measures same-instance reuse; direct tests separately assert that the same Prepared object is retained for target-only changes.
+
+```
+DOTNET_CLI_HOME=/workspace/dotnet-user python3 benchmarks/BiharmonicDeformationBenchmark/prepared_certificate_profile.py /workspace/dotnet/dotnet /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll /workspace/arap-886-artifacts/bin/BiharmonicCertificateArithmetic/release/BiharmonicCertificateArithmetic.dll
+```
+
+One local five-run paired experiment (`prepared-certificate-profile-results.txt`):
+
+| Strict 400-vertex fixture | Same-instance median ms (min–max) | Paired fresh median ms (min–max) | Allocated bytes reuse / fresh |
+| --- | ---: | ---: | ---: |
+| aligned | 34.161 (32.020–67.966) | 362.550 (330.866–398.640) | 21788904 / 229873456 |
+| rotated | 64.845 (47.794–82.446) | 464.181 (449.428–465.431) | 28505488 / 270918064 |
+
+The separate warmed cold measurement was 402.633 ms median (332.451–479.408). These data establish a reuse benefit on these fixtures, not a solution to cold cost or 10k/100k certification. Cold numerical work and all per-target validation still run.
+
+25 focused tests pass, covering geometry, topology, mesh identity, free-map and target changes, an intentionally stale original-position array, and fresh-output checking with a retained proof. `prepared-certificate-mutation-results.txt` records a green 25-test baseline and kills for skip-accuracy, omit-z and skip-cache-key; the named expected tests must fail, and original source/artifact bytes are restored and checked afterward. These are targeted hand mutations, not completion of the incremental Stryker gate.
+
 ## Cold profile and exact endpoint-limit optimization
 
 `--certificate-profile` performs one warmup then five sequential fresh-deformer Computes. Input generation, output comparisons and export are outside the timer; uncached validation, assembly, solve and verification are inside. It checks status/accuracy/iteration/residual/bound metadata, vertex bits and topology across repetitions. Allocation is process-wide cumulative allocation during each Compute; PeakWorkingSet is the process high-water mark including generation and warmup. Only successful, independently certified candidates are compared.

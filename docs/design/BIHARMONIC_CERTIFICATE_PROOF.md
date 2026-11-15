@@ -153,6 +153,18 @@ including final world rounding and both Euclidean comparisons, succeeds. Default
 numerical mode retains the old guards. Multiple active components and unsupported
 sizes currently remain inconclusive rather than sharing one response norm.
 
+The sparse rest proof can now be retained in one opaque `Prepared` snapshot per
+deformer. It owns cloned original-coordinate/ID/free-map data and private interval
+L/M/rest-coordinate arrays. Before reuse the wrapper compares the original bits
+directly with the live mesh, and the snapshot compares mesh identity, all vertex
+bits/IDs/free-map indices and every triangle ID/index/count. Shape timestamps are
+not trusted as a complete invalidation contract. New targets, final-coordinate
+displacements, handles, residuals and both tolerances are checked on every call.
+No old candidate/target bound is reused. The numerical Cholesky is still rebuilt.
+Instances and their input may not be mutated concurrently with Compute. Tests
+cover target-only reuse, stale input snapshots, geometry/topology/identity/handle
+changes and rejection of corrupted candidates using the same rest proof.
+
 `euclidean_certificate.assess` consumes exactly one component, ordered by original
 vertex ID, so its first point is the stated rest anchor. It does not infer graph
 membership or establish its input error bounds. `interval_ldl_pilot.py --euclidean`

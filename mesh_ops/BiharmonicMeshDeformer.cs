@@ -8,6 +8,7 @@ namespace g3
     /// Minimizes the squared cotangent Laplacian of vertex displacements with exact point handles.
     /// This is an unbounded displacement solve, not bounded biharmonic skinning weights.
     /// The input mesh is not modified; output vertex normals are recomputed when present.
+    /// Do not call Compute concurrently on one instance or mutate its input during Compute.
     /// </summary>
     public class BiharmonicMeshDeformer
     {
@@ -41,6 +42,7 @@ namespace g3
         }
         public DMesh3 Mesh;
         public Settings Options = new Settings();
+        BiharmonicSparseCertificate.Prepared preparedCertificate;
         public BiharmonicMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
 
         static bool Add(Dictionary<int, double> row, int col, double value, bool trial = false)
@@ -308,7 +310,7 @@ namespace g3
                 var candidate = new Vector3d[n]; for (int i = 0; i < n; ++i) candidate[i] = output.GetVertex(ids[i]);
                 double bound;
                 if (!BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
-                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound)) {
+                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate)) {
                     result.Status = Status.AccuracyNotEstablished; return result;
                 }
                 result.PositionErrorBound = bound; result.Accuracy = AccuracyAssessment.Certified;

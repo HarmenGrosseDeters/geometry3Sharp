@@ -8,6 +8,41 @@ namespace geometry3Sharp.Tests
     public class BiharmonicMeshDeformerTests
     {
         [Fact]
+        public void PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity()
+        {
+            var mesh = Patch(); var ids = new List<int>(mesh.VertexIndices()); var lookup = new Dictionary<int,int>();
+            var original = new Vector3d[4]; for (int i = 0; i < 4; i++) { lookup[i] = i; original[i] = mesh.GetVertex(i); }
+            var handles = Targets(mesh); var candidate = (Vector3d[])original.Clone();
+            foreach (var h in handles) candidate[h.Key] = h.Value; candidate[2].z = .75;
+            var roots = new int[4]; var active = new[] { true,true,true,true }; var free = new[] {-1,-1,0,-1};
+            BiharmonicSparseCertificate.Prepared prepared = null; double bound;
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            var first = prepared; Assert.NotNull(first);
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            Assert.Same(first, prepared);
+            candidate[2].z = 0;
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            Assert.Same(first, prepared); candidate[2].z = .75;
+            var newTargets = new Dictionary<int,Vector3d>(handles); newTargets[1] = original[1] + 2*Vector3d.AxisZ;
+            candidate[1] = newTargets[1]; candidate[2].z = 1.5;
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,newTargets,1e-8,1e-8,out bound,ref prepared));
+            Assert.Same(first, prepared);
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            candidate[1] = handles[1]; candidate[2].z = .75;
+            Assert.False(prepared.Matches(mesh,ids,original,new[] {-1,-1,-1,0}));
+            Assert.Equal(MeshResult.Ok, mesh.ReverseTriOrientation(0));
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            Assert.NotSame(first, prepared); var afterTopology = prepared;
+            mesh = new DMesh3(mesh);
+            Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            Assert.NotSame(afterTopology, prepared); var afterIdentity = prepared;
+            mesh.SetVertex(2, original[2] + new Vector3d(.125,0,0));
+            Assert.False(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared));
+            Assert.Null(prepared); original[2] = mesh.GetVertex(2);
+            BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,1,handles,1e-8,1e-8,out bound,ref prepared);
+            Assert.NotNull(prepared); Assert.NotSame(afterIdentity, prepared);
+        }
+        [Fact]
         public void FixedCertificateArithmetic_RejectsOversizedEndpoints()
         {
             var huge = System.Numerics.BigInteger.One << 4096;
