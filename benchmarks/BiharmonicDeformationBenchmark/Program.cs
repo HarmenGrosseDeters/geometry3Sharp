@@ -7,6 +7,7 @@ class Program
 {
     static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--certificate") return ProductionCandidateExport.Run(args);
         if (args.Length != 2 || !int.TryParse(args[0], out int nx) || !int.TryParse(args[1], out int ny) || nx < 2 || ny < 2) {
             Console.Error.WriteLine("usage: BiharmonicDeformationBenchmark <nx> <ny>"); return 2;
         }
