@@ -281,7 +281,9 @@ namespace geometry3Sharp.Tests
                     return true;
                 };
                 // (the blocked call burns no CPU, so it ends at the wall ceiling: 3 s, not the default 2 minutes. A fast call takes
-                // milliseconds on a thread of its own; the CPU budget of 2 s is what a spinning call would hit)
+                // milliseconds on a thread of its own; the CPU budget of 2 s is what a spinning call would hit. The ceiling is wall time, so a
+                // fast call that is not scheduled for 3 s would count as a timeout; it has a thread of its own, not a pool thread, and a longer
+                // ceiling would put the test over the 5 s rule: this is the trade-off)
                 var options = new MinimizeOptions() { PredicateTimeout = TimeSpan.FromSeconds(2), PredicateWallCeiling = TimeSpan.FromSeconds(3), MaxTimeouts = 1, SimplifyCoordinates = false };
                 var r = MeshMinimizer.Minimize(m, fails, options);
                 Assert.Equal(MeshMinimizer.MinimizeStatus.Stopped, r.Status);
