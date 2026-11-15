@@ -170,6 +170,9 @@ A first run at default settings on master 58644af gave rounding −12.9 % and wh
 What is left of the serial work: the tree builds (about 5 s of the 24 s rounding at 4 cores on the profile's sample,
 partly parallel already), `component_scales` (a union-find) and the `atPosition` dictionary itself.
 
+The thread scaling of the whole boolean on the T6 set (what stays serial, with the tree build as the largest lever and the bounds for 4 and 12 threads):
+[BOOLEAN_THREAD_SCALING.md](BOOLEAN_THREAD_SCALING.md).
+
 ### Projection filter in SafeRounding's pair test (November 2026, Exact Boolean 2.0 WP3)
 
 On the Thingi10K corpus (#385, harness pairing: B rotated by 20° about (1, 1, 0) and shifted by a quarter of the
