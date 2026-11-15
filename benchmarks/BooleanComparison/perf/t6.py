@@ -55,6 +55,7 @@ def cmd_pairs(out):
     print(len(rows), "pairs ->", out)
 
 def cmd_fetch(d, pairs):
+    os.makedirs(d, exist_ok=True)
     files = tp.file_list(d)
     with open(pairs) as f:
         rows = list(csv.DictReader(l for l in f if not l.startswith("#")))
