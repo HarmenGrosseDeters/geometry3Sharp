@@ -132,7 +132,9 @@ Part of the [roadmap](../ROADMAP.md).
   first). Order: #751, the item 5 PR, the package removal, #756 (c).
   Status 2026-11-13: #751 (vendoring) and #826 (item 5) merged; the package removal is #851 (addon 2.0.0, no
   dependency on the Clipper2 package); #756: the orientation guard of the micro branch (owner 2026-11-13, option
-  "c-guard"; 4da1564 not adopted; the rest of that class, about 3 per 100 000 results on degenerate lattices, documented as known in FINDINGS item 5). Addon API
+  "c-guard"; 4da1564 not adopted). Status 2026-11-15: the rest of that class (about 3 per 100 000 results on degenerate
+  lattices) is fixed by a distance test in the same branch, and the adapter's tree conversion by three nesting rules (41 of
+  160 000 adapter results wrong before, 0 after; FINDINGS item 5); open: needle rings within the rounding. Addon API
   baseline: the first published addon version (owner 2026-11-13); until then a PR lists its breaks by hand.
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
