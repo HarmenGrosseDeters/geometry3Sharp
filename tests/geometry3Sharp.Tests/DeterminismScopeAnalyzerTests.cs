@@ -178,6 +178,30 @@ namespace geometry3Sharp.Tests
             Assert.All(d, x => Assert.Equal("Kernel.cs", x.Location.SourceTree.FilePath));
         }
 
+        // a member of this assembly outside the scope is pinned to the declaration that was reviewed: [body:h]
+        [Fact]
+        public void OwnMembersOutsideTheScope_ArePinnedToTheirReviewedDeclaration()
+        {
+            const string library = "public struct V { public double X; public static V operator +(V a, V b) { a.X += b.X; return a; } }";
+            const string source = "static class C { static V M(V a) { return a + a; } }";
+            ISymbol op = DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, library));
+            string h = DeterminismScopeAnalyzer.BodyHash(op);
+            Assert.Matches("^[0-9a-f]{16}$", h);
+            Func<string, List<Diagnostic>> unused = list => Analyze(source, list, library: library).Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId).ToList();
+            // without a tag, and with a wrong one: reported, with the hash to pin
+            Assert.Contains(unused("M:V.op_Addition(V,V) ; componentwise +"), x => x.GetMessage().Contains("[body:" + h + "]"));
+            Assert.Contains(unused("M:V.op_Addition(V,V) ; [body:0000000000000000] componentwise +"), x => x.GetMessage().Contains("changed since its review"));
+            Assert.Empty(unused("M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +"));
+            // a re-indent keeps the hash, a changed body does not (and a BCL entry needs no tag)
+            string reindented = library.Replace("{ a.X += b.X; return a; }", "{\n        a.X += b.X;\n        return a;\n    }");
+            Assert.Equal(h, DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, reindented))));
+            string changed = library.Replace("a.X += b.X", "a.X -= b.X");
+            Assert.NotEqual(h, DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, changed))));
+            Assert.Contains(Analyze(source, "M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +", library: changed),
+                x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("changed since its review"));
+            Assert.Empty(Analyze(Usings + "static class C { static double M(double x) { return Math.Sqrt(x); } }", "M:System.Math.Sqrt(System.Double) ; IEEE"));
+        }
+
         // arrays are lowered to an index loop: no enumerator member is used
         [Fact]
         public void ForEachOverAnArray_UsesNoMember()
@@ -434,6 +458,8 @@ namespace geometry3Sharp.Tests
             foreach (DeterministicApiList.Entry e in list.Entries.Values) {
                 ISymbol s = DocumentationCommentId.GetSymbolsForDeclarationId(e.Id, c).FirstOrDefault();
                 Assert.True(s != null, "no symbol for " + e.Id);
+                // (the library's own members carry the hash of their reviewed declaration; the build checks it)
+                Assert.True((e.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal)) == (e.Body != null), e.Id);
                 Assert.True(e.Reason.Length >= 5, e.Id);
             }
             var tests = typeof(DeterminismScopeAnalyzerTests).Assembly.GetTypes()

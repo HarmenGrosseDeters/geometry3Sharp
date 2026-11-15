@@ -34,6 +34,8 @@ namespace G3ExactCodeAnalyzers
             public string Id;
             public string Reason;
             public bool NetOnly, Sites, Hash;
+            /// <summary> [body:h]: the hash of the reviewed declaration of a geometry3Sharp member outside the scope (BodyHash) </summary>
+            public string Body;
             public int Line;
         }
 
@@ -103,6 +105,7 @@ namespace G3ExactCodeAnalyzers
                     if (tag == "NET") e.NetOnly = true;
                     else if (tag == "sites") e.Sites = true;
                     else if (tag == "hash") e.Hash = true;
+                    else if (tag.StartsWith("body:", StringComparison.Ordinal) && tag.Length == 21 && tag.Substring(5).All(ch => "0123456789abcdef".IndexOf(ch) >= 0)) e.Body = tag.Substring(5);
                     else list.Errors.Add(line + ": unknown tag [" + tag + "]");
                     r = r.Substring(close + 1).TrimStart();
                 }
@@ -666,9 +669,35 @@ namespace G3ExactCodeAnalyzers
             }
         }
 
+        /// <summary>
+        /// The hash of a member's declaration as reviewed: FNV-1a 64 over the UTF-8 text of its declarations (attributes,
+        /// signature and body, comments and #if branches included; runs of white space collapsed, so a re-indent keeps it),
+        /// in file order; the same on every runtime and target framework. For a field, its whole field declaration.
+        /// </summary>
+        public static string BodyHash(ISymbol member)
+        {
+            var parts = new List<string>();
+            foreach (SyntaxReference r in member.DeclaringSyntaxReferences.OrderBy(x => x.SyntaxTree.FilePath, StringComparer.Ordinal).ThenBy(x => x.Span.Start)) {
+                SyntaxNode n = r.GetSyntax();
+                if (n is VariableDeclaratorSyntax && n.Parent?.Parent is BaseFieldDeclarationSyntax fd)
+                    n = fd;
+                parts.Add(n.ToString());
+            }
+            var sb = new System.Text.StringBuilder();
+            bool space = false;
+            foreach (char ch in string.Join("\n", parts)) {
+                if (char.IsWhiteSpace(ch)) { space = true; continue; }
+                if (space && sb.Length > 0) sb.Append(' ');
+                space = false;
+                sb.Append(ch);
+            }
+            ulong h = 14695981039346656037UL;
+            foreach (byte b in System.Text.Encoding.UTF8.GetBytes(sb.ToString())) { h ^= b; h *= 1099511628211UL; }
+            return h.ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         static void OnEnd(CompilationAnalysisContext c, State s)
         {
-            // the cast counts, summed over the blocks of each member
             SyntaxTree first = s.FirstScopeTree;
             if (first == null)
                 return;     // no file of the scope in this compilation
@@ -677,6 +706,17 @@ namespace G3ExactCodeAnalyzers
                 c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(d, ""), "-", "directive in the scope: " + d));
             foreach (string e in s.List.Errors)
                 c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props("", ""), e.Substring(0, e.IndexOf(':')), "malformed: " + e.Substring(e.IndexOf(':') + 1).Trim()));
+            // the members of this assembly outside the scope: their declarations as reviewed (a changed body needs a new review)
+            foreach (DeterministicApiList.Entry e in s.List.Entries.Values.OrderBy(x => x.Line)) {
+                ISymbol m = DocumentationCommentId.GetFirstSymbolForDeclarationId(e.Id, s.Compilation);
+                if (m == null || !SymbolEqualityComparer.Default.Equals(m.ContainingAssembly, s.Compilation.Assembly) || m.DeclaringSyntaxReferences.Length == 0)
+                    continue;
+                string h = BodyHash(m);
+                if (e.Body == null)
+                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is a member of this assembly: review its declaration and pin it with [body:" + h + "]"));
+                else if (e.Body != h)
+                    c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "the declaration of '" + e.Id + "' changed since its review ([body:" + e.Body + "], now " + h + "): review it again, update the reason and the tag"));
+            }
             foreach (DeterministicApiList.Entry e in s.List.Entries.Values)
                 if (!s.UsedEntries.ContainsKey(e.Id) && (s.NetDefined || !e.NetOnly))
                     c.ReportDiagnostic(Diagnostic.Create(UnusedRule, at, Props(e.Id, ""), e.Line, "'" + e.Id + "' is not used by the scope (remove it, and regenerate the ledger line in docs/design/DETERMINISM_PROOF.md 5.2)"));

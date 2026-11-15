@@ -263,7 +263,7 @@ marked as generated stays in), and the allow list with its registrations is
 | G3D0006 (R5) | every conversion of a `double` to an integer type or enum (also nullable, and `foreach` element conversions), counted per member | a `cast` line with the count and the guard |
 | G3D0007 | no `#pragma warning disable` of these rules (or of all), of RS0030 or G3E, no `#define`, `#undef`, `#line` in the kernel; reported again at the start of the scope's first file, where no pragma reaches | none |
 | G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line, on the symbol that carries the attribute, with the argument that every element is written before it is read |
-| G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
+| G3D0009 | the list is exact: an entry or registration that the kernel does not use, a malformed line, or a geometry3Sharp member whose declaration no longer has the pinned hash, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
 **Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 108 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
 
@@ -273,8 +273,10 @@ clock, the culture, a hash seed or what an earlier call left in memory, given th
 obligations below. With P4 (the kernel's predicates and exact constructions are defined by their inputs mathematically,
 and their correctness tests compare with oracles), every predicate returns the sign its specification defines. The
 reasons of the 31 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
-`MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their bodies today: those files are not checked by
-the rules (nor by G3E0001-4). Extending the scope to exactly these declarations is stage 1 work. What carries the claim:
+`MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their declarations; the rules do not analyze those
+files (nor does G3E0001-4), but each entry pins the declaration it reviewed (`[body:h]`, an FNV-1a hash of its text with
+white space collapsed, the same on every runtime and target): a changed declaration fails the build (G3D0009) until it
+is reviewed again and the tag updated. What carries the claim:
 
 - T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel's own code uses `+ - * /`, `Math.Sqrt`,
   `Math.Abs`, comparisons and bit reinterpretation (G3D0001 lists no libm member, no FMA, no `float`, which G3E0001-4

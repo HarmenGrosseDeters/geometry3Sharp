@@ -8,6 +8,7 @@
 //
 //   <doc id> ; [tags] reason                    tags: [NET] used only on one side of an #if NET block;
 //                                               [sites] every member that uses it has a site line; [hash] only inside a GetHashCode
+//                                               [body:h] the reviewed declaration of a geometry3Sharp member (required for them)
 //   site <api> @ <member> ; why                 a member allowed to use a [sites] entry
 //   if <member> ; n ; test ; why                the n #if / #elif blocks of a member, and the test that checks their branches
 //   cast <member> ; n ; guard                   the n conversions of a double to an integer type in a member, and their guard
@@ -98,39 +99,40 @@ M:System.Collections.Generic.Dictionary`2.#ctor(System.Collections.Generic.IEqua
 M:System.Collections.Generic.Dictionary`2.TryGetValue(`0,`1@) ; lookup: the answer is a function of the keys stored (P4), not of the bucket order
 P:System.Collections.Generic.Dictionary`2.Item(`0) ; lookup and store by key, as TryGetValue
 
-// ---- geometry3Sharp members declared outside the kernel files (their bodies are outside the stage 0 check: each
-//      reason is a review of the body today; extending the scope to these declarations is stage 1 work) ----
-F:g3.JitHints.Optimize ; constant MethodImplOptions.AggressiveOptimization (a JIT hint, no effect on values, T1)
-F:g3.Vector2d.x ; a field: storage
-F:g3.Vector2d.y ; a field: storage
-M:g3.Vector2d.#ctor(System.Double,System.Double) ; stores the two values
-M:g3.Vector2d.Dot(g3.Vector2d) ; x * v.x + y * v.y, separately rounded (T1)
-M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; componentwise ==, exact
-M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; componentwise -, one rounding each (T1)
-F:g3.Vector3d.x ; a field: storage
-F:g3.Vector3d.y ; a field: storage
-F:g3.Vector3d.z ; a field: storage
-F:g3.Vector3d.Zero ; constant (0, 0, 0), all +0
-M:g3.Vector3d.#ctor(System.Double,System.Double,System.Double) ; stores the three values
-P:g3.Vector3d.Item(System.Int32) ; selects x, y or z by index
-P:g3.Vector3d.LengthSquared ; x * x + y * y + z * z, separately rounded, left to right (T1)
-M:g3.Vector3d.Cross(g3.Vector3d) ; the three 2x2 minors, separately rounded (T1)
-M:g3.Vector3d.op_Addition(g3.Vector3d,g3.Vector3d) ; componentwise +, one rounding each (T1)
-M:g3.Vector3d.op_Subtraction(g3.Vector3d,g3.Vector3d) ; componentwise -, one rounding each (T1)
-M:g3.Vector3d.op_Equality(g3.Vector3d,g3.Vector3d) ; componentwise ==, exact
-M:g3.Vector3d.ToString ; [sites] text: string.Format with F8 under the invariant culture; the formatting of doubles changed in .NET Core 3.0, so the text can differ from .NET Framework: display only
-F:g3.Triangle3d.V0 ; a field: storage
-F:g3.Triangle3d.V1 ; a field: storage
-F:g3.Triangle3d.V2 ; a field: storage
-P:g3.Triangle3d.Item(System.Int32) ; selects V0, V1 or V2 by index
-M:g3.Index3i.#ctor(System.Int32,System.Int32,System.Int32) ; stores the three values
-P:g3.Index3i.Item(System.Int32) ; selects a, b or c by index
-M:g3.MathUtil.IsFinite(System.Double) ; !IsInfinity && !IsNaN, exact
-M:g3.PredicateStats.Call(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"): compiled out of every build but the profiling one; a counter, no predicate reads it
-M:g3.PredicateStats.ExactStage(g3.PredicateStats.Kind) ; Conditional("G3_PREDICATE_STATS"), as Call
-F:g3.PredicateStats.Kind.Orient2d ; enum constant (the counter's index)
-F:g3.PredicateStats.Kind.Orient3d ; enum constant
-F:g3.PredicateStats.Kind.InCircle ; enum constant
+// ---- geometry3Sharp members declared outside the kernel files: each reason is a review of the declaration, and
+//      [body:h] pins it (DeterminismScopeAnalyzer.BodyHash); a changed declaration fails the build (G3D0009) until it
+//      is reviewed again and the tag updated ----
+F:g3.JitHints.Optimize ; [body:3dd723fa4a5af9a7] constant MethodImplOptions.AggressiveOptimization (a JIT hint, no effect on values, T1)
+F:g3.Vector2d.x ; [body:1195a7826c7403b2] a field: storage
+F:g3.Vector2d.y ; [body:11929f826c71c043] a field: storage
+M:g3.Vector2d.#ctor(System.Double,System.Double) ; [body:67fbbd1267914fc9] stores the two values
+M:g3.Vector2d.Dot(g3.Vector2d) ; [body:f9c6c3e5973d8f3e] x * v.x + y * v.y, separately rounded (T1)
+M:g3.Vector2d.op_Equality(g3.Vector2d,g3.Vector2d) ; [body:c990c011d58d60c0] componentwise ==, exact
+M:g3.Vector2d.op_Subtraction(g3.Vector2d,g3.Vector2d) ; [body:70c1cf49f55a34ba] componentwise -, one rounding each (T1)
+F:g3.Vector3d.x ; [body:1195a7826c7403b2] a field: storage
+F:g3.Vector3d.y ; [body:11929f826c71c043] a field: storage
+F:g3.Vector3d.z ; [body:118f27826c6ebe84] a field: storage
+F:g3.Vector3d.Zero ; [body:884ead6796ccec39] constant (0, 0, 0), all +0
+M:g3.Vector3d.#ctor(System.Double,System.Double,System.Double) ; [body:1ca04e0cfd4ba757] stores the three values
+P:g3.Vector3d.Item(System.Int32) ; [body:50bc13fc1376130d] selects x, y or z by index
+P:g3.Vector3d.LengthSquared ; [body:ceb89a5874884919] x * x + y * y + z * z, separately rounded, left to right (T1)
+M:g3.Vector3d.Cross(g3.Vector3d) ; [body:01374d252f80ce36] the three 2x2 minors, separately rounded (T1)
+M:g3.Vector3d.op_Addition(g3.Vector3d,g3.Vector3d) ; [body:945893477c2c0b79] componentwise +, one rounding each (T1)
+M:g3.Vector3d.op_Subtraction(g3.Vector3d,g3.Vector3d) ; [body:1cef314904191b05] componentwise -, one rounding each (T1)
+M:g3.Vector3d.op_Equality(g3.Vector3d,g3.Vector3d) ; [body:328fd49cb450602d] componentwise ==, exact
+M:g3.Vector3d.ToString ; [sites][body:d515a073ebd35466] text: string.Format with F8 under the invariant culture; the formatting of doubles changed in .NET Core 3.0, so the text can differ from .NET Framework: display only
+F:g3.Triangle3d.V0 ; [body:8ead18cda8290cec] a field: storage
+F:g3.Triangle3d.V1 ; [body:8ead18cda8290cec] a field: storage
+F:g3.Triangle3d.V2 ; [body:8ead18cda8290cec] a field: storage
+P:g3.Triangle3d.Item(System.Int32) ; [body:76a34af0e09921c8] selects V0, V1 or V2 by index
+M:g3.Index3i.#ctor(System.Int32,System.Int32,System.Int32) ; [body:d64def4f51b89d8a] stores the three values
+P:g3.Index3i.Item(System.Int32) ; [body:75dae1520cd54795] selects a, b or c by index
+M:g3.MathUtil.IsFinite(System.Double) ; [body:33a0c08d57821751] !IsInfinity && !IsNaN, exact
+M:g3.PredicateStats.Call(g3.PredicateStats.Kind) ; [body:8fa4b0a4a54ff4e8] Conditional("G3_PREDICATE_STATS"): compiled out of every build but the profiling one; a counter, no predicate reads it
+M:g3.PredicateStats.ExactStage(g3.PredicateStats.Kind) ; [body:6205aac3860623f1] Conditional("G3_PREDICATE_STATS"), as Call
+F:g3.PredicateStats.Kind.Orient2d ; [body:f4ec332cbdb56442] enum constant (the counter's index)
+F:g3.PredicateStats.Kind.Orient3d ; [body:f4f0112cbdb91353] enum constant
+F:g3.PredicateStats.Kind.InCircle ; [body:0a830cc59a0a4be6] enum constant
 
 // ---- threads: schedule constructs (R13), every site registered ----
 M:System.Threading.Interlocked.Increment(System.Int32@) ; [sites] the value is schedule-assigned when called concurrently: each site says what it guards
