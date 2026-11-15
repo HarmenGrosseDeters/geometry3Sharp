@@ -1056,7 +1056,8 @@ Remarks.
    test fails, and merged where grown blocks meet or overlap (interiors must be disjoint). Every face on such a block
    lies in a certified cell: for an ungrown cluster the cell outside it (a refused cell across the face would belong to
    the cluster); after growth, if the cell across is a refused cell of another block, the cell inside is a grown one,
-   certified (two refused cells sharing a face are in one cluster). So condition 2 holds without a new test, and only 3
+   not refused (two refused cells sharing a face are in one cluster): certified, or met by neither L nor the contour
+   (section 7.12). So condition 2 holds without a new test, and only 3
    and 4 are new. A wrong contour can never pass: if it did, Theorem 1 on K' would make it isotopic
    to L.
 4. **What it does not cover.** Mesh-side refusals (5): the block test reads the patches of Theorem 2, which needs
@@ -1169,6 +1170,9 @@ Theorem 6 still applies:
   bin of L's triangles (the bins are closed boxes, so L does not meet it), and growth stops unless its eight node signs
   agree (so the contour does not meet it): its faces pass (G), (E) and (F) with no crossing, and it has no patch.
 - *Lattice, mesh side:* `block_candidate` is applied to the grown block as to a cluster.
+- *Outside the grid box:* growth may add cells beyond the box of the contouring grid. Such a cell is in no bin of L and
+  has equal node signs (the field is evaluated there as anywhere), so it is empty. K is then read as the grid on a box
+  that is larger by those layers; Theorem 1 and Theorem 6 apply on it unchanged, and h is the identity on its boundary.
 - Conditions 3 and 4 are decided exactly as in stage 2, on the grown block. So, as for any choice of blocks, a wrong
   contour cannot pass.
 
