@@ -35,7 +35,7 @@ the commands (section 9):
   from the 26 x 8 candidates of the built search, `LATTICE_STRICT=1` keeps a step only if it adds no defect,
   `LATTICE_STALL=<B>` rolls the steps since the last improvement back after B evaluations without one,
   `LATTICE_TARGET=degenerate` searches the degenerate triangles only (real leftovers, whose results also hold
-  contacts). Tables: `trace/summarize.py plateau | leftovers`; raw output `trace/results/plateau_*_2026-11-15.jsonl` and
+  contacts). Tables: `trace/summarize.py plateau <rows> [<run safe rows>]` and `leftovers <rows>`; raw output `trace/results/plateau_*_2026-11-15.jsonl` and
   `thingi400_rounding_2026-11-15.jsonl` (what SafeRounding leaves on the 400 self-unions). The lemma:
   `tools/Z3Pilot/plateau_search.py`.
 

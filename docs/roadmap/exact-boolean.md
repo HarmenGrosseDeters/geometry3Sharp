@@ -238,7 +238,7 @@ fix is a narrower filter, applied in #883 and to the rounding shards of #843.
   operation newly unclean, 16 232 rounding-clean results identical, 4 newly clean, MaxDrift within the bound;
   (3) research.md problem 3 restated; (4) the plateau variant of (2), 2026-11-15 (the note's section 10: design,
   Z3 lemma, probe on what the rounding leaves today): it can gain 1 of the 16 239 cohort operations and no clean result
-  on the Thingi10K 400 self-unions, 8-14 of the 25 generated leftovers; recommended as a no-go before the release, the
+  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; recommended as a no-go before the release, the
   owner's decision is open. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 

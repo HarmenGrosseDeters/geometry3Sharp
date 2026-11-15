@@ -32,7 +32,7 @@ leftovers, its lemma and a go / no-go recommendation. Meshes are fetched at run 
 - **One lever with a real gain was found on the way:** stopping the passes at the evaluation limit. Rounding -33 % in
   the sum (1368057 union 17.3 to 3.1 s, 42327 union 10.3 to 3.0 s), the booleans -9 %, all 33 result hashes identical.
   What changes is `SmallestRejectedDrift` on results that reached the limit: an owner decision (section 8, option 1).
-  Built as measured (#725).
+  Built (#725; measured as built: rounding −32 %, booleans −7 %, EXACT_BOOLEAN_PERFORMANCE.md).
 - **Idea 3 is not falsified; it is the lead of problem 1 that survives.** After D1, SafeRounding leaves 29 of 198
   generated clusters and 6 of 114 UTM cases. A random search over representable positions with the triangles
   unchanged makes **29 of these 35 clean** within the drift that is left, in a median of 0.6 s; moves of a single
@@ -40,8 +40,9 @@ leftovers, its lemma and a go / no-go recommendation. Meshes are fetched at run 
   that the rounding leaves, single-vertex moves that each remove a defect make **4 of 5 clean**. So most leftovers are local minima of the repair's own narrow
   proposals, not cases without a solution. Built as an enumerated search (#755): 10 of the 35 and the same 4 of 5.
 - **The plateau variant of that search is designed, checked and not recommended for now (section 10).** On what #755
-  leaves, steps that keep the defect counts reach more; the gain on real results is small, and the cost is a
-  rollback inside the repair. The termination lemma is checked with Z3.
+  leaves, steps that keep the defect counts reach more (3-9 of the 19 generated leftovers the rule reaches, against
+  none); on real results the gain is one operation of 16 239, and the cost is a rollback inside the repair. The
+  termination lemma is checked with Z3.
 - **No guarantee.** Nothing found, in the literature or here, gives "always clean within the bound" at practical cost;
   Diazzi et al. 2023 call the conversion to floating point without flips "an unsolved problem (though rare in
   practice)".
@@ -407,7 +408,7 @@ The probe on the real leftovers did not kill it (6.3: 4 of 5 within this rule).
 | 3 | `near` and the linear setup (5.5) | upper bounds: `near` 14-56 % of the rounding where edits are evaluated; tree and setup 0.1-0.6 s per large operation | none for results (bit-identical); the diagnosis of `near` is open | S-M each, after a profile of `near` |
 | 4 | Separating-axis prefilter (5.3) | −1.6 % in the sum; about 1 s of the 4.5 s rounding of 519511 union, its boolean within the noise | a new floating-point margin in the rounding (checked by Z3, needs the bounds review) | M; **not recommended** |
 | 5 | Distance certificates, clearance skins, node culling (5.1, 5.2, 5.3) | below the stop rule | | **closed** |
-| 2b | Plateau variant of option 2 (section 10, 2026-11-15) | 1 of 16 239 cohort operations, no clean result on the 400 self-unions, 8-14 of the 25 generated leftovers | a rollback inside the repair; success depends on seed and budget; no guarantee | M, tier L; **not recommended before the release** (10.8) |
+| 2b | Plateau variant of option 2 (section 10, 2026-11-15) | 1 of 16 239 cohort operations, no clean result on the 400 self-unions, 3-9 of the 19 generated leftovers it reaches | a rollback inside the repair; success depends on seed and budget; no guarantee | M, tier L; **not recommended before the release** (10.8) |
 
 Owner 2026-11-12: option 1 is built as the stop (#725; the drift-only variant was measured, section 5.5, and dropped:
 most of the work past the limit is `try_move`, drift-only already), with `SmallestRejectedDrift` documented as taken
@@ -459,12 +460,13 @@ of 6.2 are the lines with `"clean":false` in `clusters_safe_2026-11-12.jsonl` an
   5 cohort leftovers became clean; the cohort acceptance run (16 239 operations) changed no rounding-clean result.
 - Left open on 2026-11-12: steps that keep the number of defects (a plateau). The probe of 6.3 reached 28-29 of 35
   with them against 15 without. They "need a termination lemma and a separate decision".
-- What the rounding still leaves, on master `db85c6e` (with #725 and #755):
+- What the rounding still leaves with #725 and #755 (the cohort row from its acceptance run on 36ff5bf, the other
+  two measured here on master `db85c6e`):
 
   | set | results | left by the rounding with a defect |
   |---|---:|---:|
   | D1 cohort, closed models with a rotated copy (`runs/position-search-cohort`, `runs/ps/results/cand.jsonl`) | 16 239 | **1** (838003 difference: one degenerate triangle, 97 % of the bound used) |
-  | generated leftovers of 6.2 (run again here: `plateau_safe_2026-11-15.jsonl`) | 35 | 25 (10 clean, as #755 reports) |
+  | generated leftovers of 6.2 (run again here: `plateau_safe_2026-11-15.jsonl`) | 35 | **19** (10 are clean, as #755 reports; 6 are rounding clean and not clean: contacts at shared positions or an inside-out tiny component, which the repair does not count as defects) |
   | Thingi10K 400 set, self-unions (open and self-intersecting inputs included; `thingi400_rounding_2026-11-15.jsonl`) | 400 | 34: 3 at the evaluation limit (102375, 1368057, 55928), 31 with 1-77 degenerate triangles (378 in all) and no intersecting pair |
 
   Two more cohort rows are not rounding clean with no defect left (37506 union, 59770 difference); they are no case
@@ -505,7 +507,8 @@ at most `D` defects are left:
   contact).
 - *A sideways step* is applied and written to the chain's journal (the vertex and what the step changed, 10.5).
 - *The chain ends* with an improving step: it is **committed**, its steps count as moves. Or after `B` draws or `K`
-  sideways steps: it is **rolled back**, the journal undone the last entry first.
+  sideways steps, or when the effort limit is reached: it is **rolled back**, the journal undone the last entry
+  first.
 - *Rounds.* A round that committed a chain is followed by the passes and the built search, then another round. A
   round that committed nothing ends the repair, with the mesh as it was before that round.
 
@@ -516,31 +519,38 @@ clean today do not reach the rule.
 
 `SnapRoundingExperiment lattice` on what SafeRounding leaves today (the built search included), one vertex per step,
 candidates drawn from the 26 x 8 set. New switches: `LATTICE_STRICT=1` keeps a step only if it adds no defect (the
-defects at the moved vertex after it are a subset of those before: stricter than the counts of 10.3, so a lower bound
-for them), `LATTICE_STALL=<B>` ends the search after B evaluations without a step that removes a defect and puts the
+defects at the moved vertex after it are a subset of those before: it accepts no step that the counts of 10.3 reject;
+the count rule of 10.3 itself, both counts equal, was not run), `LATTICE_STALL=<B>` ends the search after B evaluations without a step that removes a defect and puts the
 steps since then back. The probe draws defects at random over the whole mesh and has one budget for all of them: it
 prototypes the acceptance rule and the rollback, not the order of 10.3. Tables: `trace/summarize.py plateau`.
 
-**The 25 generated leftovers** (three seeds, 60 s; `plateau_generated_2026-11-15.jsonl`):
+**The 19 generated leftovers the rule reaches** (three seeds, 60 s, no run at the time limit;
+`plateau_generated_2026-11-15.jsonl` holds all 25 that are not clean, `summarize.py plateau <file>
+plateau_safe_2026-11-15.jsonl` keeps the 19 that are not rounding clean). The probe counts contacts as intersecting
+pairs, so on the other 6 it searches what the rule never would; they are left out:
 
-| rule | candidates | evaluations without an improvement before the rollback | clean of 25, per seed | evaluations of a clean end: median, largest | vertices moved: median, largest |
+| rule | candidates | evaluations without an improvement before the rollback | clean of 19, per seed | evaluations of a clean end: median, largest | vertices moved: median, largest |
 |---|---|---:|---|---:|---:|
-| improving only (today's rule, drawn at random) | 26 x 8 | 20 000 | 3 / 4 / 5 | 18, 75 | 2, 4 |
-| **plateau, no defect added** | 26 x 8 | 500 | **9 / 10 / 8** | 60, 895 | 9, 18 |
-| **plateau, no defect added** | 26 x 8 | 2 000 | **11 / 11 / 11** | 127, 1 902 | 10, 18 |
-| **plateau, no defect added** | 26 x 8 | 20 000 | **14 / 13 / 14** | 325, 10 371 | 10, 32 |
-| plateau, defect count (the rule of 6.3) | 26 x 8 | 2 000 | 13 / 13 / 13 | 311, 2 062 | 13, 44 |
-| plateau, no defect added | random vectors | 20 000 | 14 / 13 / 15 | 265, 20 299 | 13, 33 |
-| plateau, no defect added, up to 3 vertices per step | 26 x 8 | 20 000 | 15 / 15 / 14 | 400, 13 698 | 13, 33 |
+| improving only (by the sum of the counts, drawn at random) | 26 x 8 | 20 000 | 0 / 0 / 0 | | |
+| **plateau, no defect added** | 26 x 8 | 500 | **4 / 5 / 3** | 331.5, 895 | 10, 18 |
+| **plateau, no defect added** | 26 x 8 | 2 000 | **6 / 6 / 6** | 411, 1 902 | 13.5, 18 |
+| **plateau, no defect added** | 26 x 8 | 20 000 | **9 / 8 / 9** | 831, 10 371 | 14.5, 32 |
+| plateau, by the sum of the counts (the rule of 6.3) | 26 x 8 | 2 000 | 8 / 9 / 9 | 345.5, 2 062 | 14, 44 |
+| plateau, no defect added | random vectors | 20 000 | 9 / 8 / 10 | 760, 20 299 | 14, 33 |
+| plateau, no defect added, up to 3 vertices per step | 26 x 8 | 20 000 | 11 / 11 / 10 | 663.5, 13 698 | 14, 33 |
 
-- Today's rule gains little from more draws: 3-5 of 25. The plateau is what gains: 8-11 with a budget of 500 to
-  2 000, 13-14 with 20 000. The 2 000 row is clean on the same 10 cases in all three seeds and on 12 in at least one.
-- The stricter acceptance (no defect added) costs 2 cases against the count of 6.3 at the same budget; random
-  vectors and several vertices per step add at most one or two. So the candidate set of the built search and one
-  vertex per step are enough, as on 2026-11-12.
-- A clean end moves a median of 9-10 vertices, and 21 of the 33 clean ends at 2 000 moved a vertex to within 3 % of
+- Today's rule gains nothing from more draws: 0 of 19. The plateau is what gains: 3-6 with a budget of 500 to
+  2 000, 8-9 with 20 000. The 2 000 row is clean on the same 5 cases in all three seeds and on 7 in at least one.
+- Two of the 19 (Cluster:40:8:2 and 40:8:3) hold contacts besides their rounding defects; the probe ends clean
+  there only because it removes those as well, so for the rule the rows are upper bounds by up to two.
+- The stricter acceptance (no defect added) costs 2-3 cases against the sum rule of 6.3 at the same budget; random
+  vectors add at most one, several vertices per step one to three. So the candidate set of the built search and one
+  vertex per step carry most of it, as on 2026-11-12.
+- A clean end moves a median of 10-15 vertices, and 17 of the 18 clean ends at 2 000 moved a vertex to within 3 % of
   the drift that was left: the walk uses the room it has.
-- One of the 25 (utm:Cluster:30:4:2) has an inside-out tiny component and no defect the search counts.
+- A walk can turn a sliver over (`improves()` lets triangles below twice the displacement turn): on
+  utm:FoldedCluster:36:4:2, one of the 6 cases left out, two runs (the sum rule, and three vertices per step) end
+  with no defect and a new inside-out tiny component. None of the one-vertex rows with "no defect added" shows it.
 
 **The real leftovers.**
 
@@ -555,7 +565,7 @@ three seeds). 838003 difference, 146 950 triangles, one degenerate triangle, 3 %
 | plateau, no defect added | 20 000 | 3 | 901, 979, 3 800 | 9 |
 
 The whole result is clean then (`NotCleanReasons` empty). It takes a chain of 895 to 3 790 sideways steps over 9
-vertices, each of which ends at the edge of the room it had: the triangle is opened by moving its neighbourhood, a
+vertices, the farthest of which ends at the edge of the room it had: the triangle is opened by moving its neighbourhood, a
 step at a time. This is the one operation of 16 239 the rule can gain.
 
 *The Thingi10K self-unions* (`plateau_thingi_2026-11-15.jsonl`, seed 1, 120 s; the 31 results under the limit; the
@@ -563,7 +573,7 @@ count is of degenerate triangles, no step may add a defect of any kind):
 
 | rule | budget | results with no degenerate triangle left, of 31 | degenerate triangles, of 378 | clean |
 |---|---:|---:|---:|---:|
-| improving only | 2 000 | 9 | 125 left | 0 |
+| improving only (no defect added) | 2 000 | 9 | 125 left | 0 |
 | plateau, no defect added | 500 | 21 | 88 left | 0 |
 | plateau, no defect added | 2 000 | 21 | 39 left | 0 |
 | plateau, no defect added | 20 000 | 25 | 26 left | 0 |
@@ -576,7 +586,10 @@ count is of degenerate triangles, no step may add a defect of any kind):
   the limit bounds.
 
 **Limits of the probe.** A random walk with one budget for the whole mesh, not the per-defect chains of 10.3. The
-acceptance is by the set of defects where a build would compare counts. On results above 2 000 triangles and in the
+acceptance is by the set of defects where a build would compare counts. Its budget counts evaluations: a candidate
+with a zero direction, outside the room or with a triangle turned over is dropped before it is evaluated, where 10.3
+and the lemma count every draw. The review of this section counted 1.1 to 1.8 draws per evaluation on seven cases, so
+a budget of 2 000 evaluations is about 2 200 to 3 600 draws. On results above 2 000 triangles and in the
 strict variants the defects are counted at the moved vertices only. The Thingi10K runs have one seed. The probe does
 not model `MaxPairTests`, fixed vertices, boundary vertices or bowties.
 
@@ -588,13 +601,14 @@ bound of the theorem of SAFE_ROUNDING.md section 1 holds; (c) no step raises the
 intersecting pairs, so "no new self-intersection" holds in the sense it holds today, as a count that never grows; (d) a
 round that commits nothing leaves the positions as they were.
 
-**Proof, in the obligations of `tools/Z3Pilot/plateau_search.py`** (27 queries and one exhaustive search, under a
-second; UNSAT with satisfiable assumptions; `results/plateau_search_2026-11-15.json`):
+**Proof, in the obligations of `tools/Z3Pilot/plateau_search.py`** (28 queries and one search over the runs, under a
+second; every obligation UNSAT, with its assumptions SAT where it has any; `results/plateau_search_2026-11-15.json`):
 - T (a): the measure (N, q, ch, dr), N the number of defects, q = 1 while the round has committed a chain, ch the
   chains left in the round, dr the draws left in the chain, falls lexicographically in each of the five transitions (a
   rejected draw, a sideways step, a commit, the end of a chain, a new round) and stays within fixed bounds. P2: the
-  longest run of this system, by exhaustive search for N0 <= 6, has exactly B S N0 (N0 + 1) / 2 draws (every round
-  commits one chain at its last draw).
+  longest run of this system, by a search over every draw at which a chain can commit for N0 <= 6, has exactly
+  B S N0 (N0 + 1) / 2 draws (every round commits one chain at its last draw). `K` is not needed for (a): a sideways
+  step uses a draw. It bounds how far a chain wanders.
 - A (c): the counts of the whole mesh are those before, minus the defects at the moved vertex before, plus those after;
   with both local counts equal both global counts are equal, with a lower sum and neither higher the global sum falls.
 - R (d): undoing a journal of up to three steps the last first restores every position, also when one vertex moved
@@ -603,6 +617,9 @@ second; UNSAT with satisfiable assumptions; `results/plateau_search_2026-11-15.j
 
 Bridges, reviewed and not by Z3:
 - the lexicographic order on bounded tuples of naturals is well-founded;
+- the rollback of a journal longer than three steps, by induction (undoing the last entry gives the state before the
+  last step);
+- a chain that is cut by the effort limit ends as any chain that is not committed, rolled back;
 - a defect with no triangle at the moved vertex is unchanged by the step (it is a function of its triangles' corners),
   and `improves()` counts all defects at the vertex's triangles;
 - a sideways step is a displacement edit of the reference rule (SAFE_ROUNDING_D1_DRIFT.md: "no anchor and no `c`
@@ -612,16 +629,26 @@ Bridges, reviewed and not by Z3:
 
 Nine mutants are SAT: a sideways step that counts as a move of the round (the rounds then repeat with the same N: the
 loop of #755 runs "until a search accepts nothing"); a rejected draw that is not counted; a sideways step that refunds
-the draws; a new round after a round without a commit; acceptance by the sum of the two counts, for the sideways and
+the draws and is not capped; a new round after a round without a commit; acceptance by the sum of the two counts, for the sideways and
 for the improving step (a degenerate triangle traded for a new intersection: the probe's rule of 6.3); the journal
 undone the first entry first (a vertex that moved twice ends at its middle position); a journal of the new positions;
 a sideways step without the bound check.
 
-**Not covered by the lemma, and the part a build must get right:** (d) is proved for positions. `try_move` also
-writes the position map, the dirty marks of the trees, the cache of the last evaluation, `MaxDrift`, `Moves` and
-(through rejected draws) `SmallestRejectedDrift`. A rollback must restore each or the design must show that it is a
-function of the positions. The test for it: on a case where no chain commits, the result, `MaxDrift`,
-`SmallestRejectedDrift` and the move counts are the same bit for bit as with the rule switched off.
+**Not covered by the lemma, and the part a build must get right:** (d) is proved for positions, and (c) for the two
+counts only (a sliver may turn over, as with every edit: 10.4). `try_move` and `improves()` also write:
+- the position map (`atPosition`), the dirty marks of the trees and `exactAtStart`, `version` and the cache of the
+  last evaluation;
+- `touched`, which decides whether a tiny closed component counts as edited and is removed
+  (`remove_tiny_components`): a rolled-back step that stays in it could remove a component with no commit;
+- `pairsStale`, `changed` and `pending`, the work lists of the passes;
+- `MaxDrift` (a running maximum), `Moves`, and through rejected draws `SmallestRejectedDrift`;
+- `evaluations` and `pairTests`, and with them `EvaluationLimitReached`. These are not restored by design (the search
+  can be what reaches the limit, as with #755), which a result then reports.
+
+A rollback must restore each of the others, or the design must show that it is a function of the positions. The test
+for it: on a case where no chain commits, the mesh, the removed components, `MaxDrift`, `SmallestRejectedDrift` and
+the move counts are the same bit for bit as with the rule switched off, and `EvaluationLimitReached` differs only
+where the rule's own draws reached the limit.
 
 ### 10.6 Design requirements
 
@@ -646,12 +673,12 @@ function of the positions. The test for it: on a case where no chain commits, th
 
 | | |
 |---|---|
-| **Gain, closed inputs** | at most 1 operation of 16 239 (838003 difference), and only with chains of 1000 to 4000 draws; every other cohort result is rounding clean today |
+| **Gain, closed inputs** | at most 1 operation of 16 239 (838003 difference), and only with chains of about 900 to 3 800 evaluations; no other cohort result has a defect left |
 | **Gain, Thingi10K self-unions** | no clean result of 400: the 31 results are open or keep contacts of the exact result. 21-25 of the 31 lose every degenerate triangle (9 with today's rule in the same probe; an upper bound: the probe moves boundary vertices freely, the repair does not) |
-| **Gain, generated clusters** | 8-11 of the 25 leftovers with 500 to 2000 draws without an improvement, 13-14 with 20 000; today's rule with the same draws: 3-5 |
+| **Gain, generated clusters** | 3-6 of the 19 leftovers the rule reaches with 500 to 2 000 evaluations without an improvement, 8-9 with 20 000 (upper bounds by up to two, 10.4); today's rule with the same draws: 0 |
 | **Cost at run time** | only on results that are not rounding clean today and under the limit. A draw is an evaluation, about 40-130 µs in the table of 4.4 (rounding time over evaluations, an overestimate: it includes the first search): a chain of 2 000 draws is 0.1-0.3 s per defect and round. The worst case with `D` = 8 is B S D (D + 1) / 2 = 72 000 draws for B = 2 000, S = 1, some seconds, which is why `D` is part of the rule. Rounding-clean results: no cost |
-| **What changes in results** | a clean end moved a median of 9-10 vertices (up to 32 on the generated cases, 9 on 838003), and two thirds of the walks reach the drift that is left: `MaxDrift` of an affected result rises towards the bound, which it never passes. The built search moves one vertex per defect and keeps the drift (SAFE_ROUNDING.md section 9) |
-| **Risk** | (1) the rollback: state besides the positions (10.5), in the file with the most expensive mutation gate (8 rounding shards); a missed piece changes results silently, the bit-identity test of 10.5 is the guard. (2) It is a random walk: whether a case ends clean depends on the seed and the budget (838003: 2 of 3 seeds at 2000, 3 of 3 at 20 000; generated: 10 cases clean in all three seeds, 12 in some, at 2000), so a small change of the input can flip a result between clean and not clean. Deterministic, not stable. (3) No guarantee is gained: the lemma is termination and the invariants, not success |
+| **What changes in results** | a clean end moved a median of 10-15 vertices (up to 32 on the generated cases, 9 on 838003), and nearly every walk reaches the drift that is left: `MaxDrift` of an affected result rises towards the bound, which it never passes. The built search moves one vertex per defect and keeps the drift (SAFE_ROUNDING.md section 9) |
+| **Risk** | (1) the rollback: state besides the positions (10.5), in the file with the most expensive mutation gate (8 rounding shards); a missed piece changes results silently, the bit-identity test of 10.5 is the guard. (2) It is a random walk: whether a case ends clean depends on the seed and the budget (838003: 2 of 3 seeds at 2 000, 3 of 3 at 20 000; generated: 5 cases clean in all three seeds, 7 in some, at 2 000), so a small change of the input can flip a result between clean and not clean. Deterministic, not stable. (3) A long chain can turn slivers over, which the counts do not see (10.4). (4) No guarantee is gained: the lemma is termination and the invariants, not success |
 | **Effort** | build M (3-4 days: the sideways exit of `improves()`, journal and rollback, the sequence, the option, tests for invariance, reuse, determinism, rollback identity), tier L process: independent review, the 263-hash gate, the cohort run of 16 239 operations on the runner as for #755, the rounding mutation shards (their offsets move) |
 
 ### 10.8 Recommendation
@@ -661,8 +688,8 @@ user's problem.**
 
 - *The gain on real results is one operation.* On closed inputs the rounding leaves 1 of 16 239 results with a defect
   (0.006 %), and the rule may gain exactly that one, at a budget where the outcome still depends on the seed. On the
-  400 self-unions it gains no clean result. The gain that is large (8-14 of 25) is on generated clusters of eight
-  nearly coincident parts, built to defeat the repair.
+  400 self-unions it gains no clean result. The larger gain (3-9 of 19) is on generated clusters of eight nearly
+  coincident parts, built to defeat the repair.
 - *The cost is in the wrong place for the gain.* A rollback inside `MeshRoundingRepair`, tier L, the cohort run and
   the rounding shards, for a rule whose success is a random walk: deterministic and bounded, but with no guarantee
   and not stable under small changes of the input.
@@ -675,7 +702,7 @@ user's problem.**
 
 If the owner wants the spike all the same, its shape: three days, behind an internal switch that is off; B = 2 000,
 K = B, S = 1, D = 8; stop rules fixed in advance: the cohort with no result newly unclean and every rounding-clean
-result identical, 838003 difference clean, at least 8 of the 25 generated leftovers clean, the rollback identity test
+result identical, 838003 difference clean, at least 5 of the 19 generated leftovers clean, the rollback identity test
 of 10.5 green, the rounding time of the cohort within 2 %. A miss of any of them ends it.
 
 How others solve it: a cap on the steps and restarts (GSAT), a potential where the elements have a sign (untangling),
@@ -691,9 +718,11 @@ T="dotnet benchmarks/SnapRoundingExperiment/bin/Release/net10.0/SnapRoundingExpe
 LATTICE_MAX_MOVED=1 LATTICE_GRID=8 LATTICE_STRICT=1 LATTICE_STALL=2000 $T lattice cluster:Cluster:30:8:1 60 1
 # today's rule with the same draws: LATTICE_PLATEAU=0 LATTICE_LOCAL=1 in place of LATTICE_STRICT=1
 # a real leftover: only the degenerate triangles are searched
+# (the committed rows name these cases bc:rot/838003:Difference and file:1037029.stl, without the local directories)
 LATTICE_TARGET=degenerate LATTICE_MAX_MOVED=1 LATTICE_GRID=8 LATTICE_STRICT=1 LATTICE_STALL=2000 $T lattice bc:cases/rot/838003:Difference 120 1
 LATTICE_TARGET=degenerate LATTICE_MAX_MOVED=1 LATTICE_GRID=8 LATTICE_STRICT=1 LATTICE_STALL=2000 $T lattice file:meshes/1037029.stl 120 1
-python3 benchmarks/SnapRoundingExperiment/trace/summarize.py plateau benchmarks/SnapRoundingExperiment/trace/results/plateau_generated_2026-11-15.jsonl
+R=benchmarks/SnapRoundingExperiment/trace/results
+python3 benchmarks/SnapRoundingExperiment/trace/summarize.py plateau $R/plateau_generated_2026-11-15.jsonl $R/plateau_safe_2026-11-15.jsonl
 python3 benchmarks/SnapRoundingExperiment/trace/summarize.py leftovers benchmarks/SnapRoundingExperiment/trace/results/plateau_thingi_2026-11-15.jsonl
 python3 tools/Z3Pilot/plateau_search.py
 ```

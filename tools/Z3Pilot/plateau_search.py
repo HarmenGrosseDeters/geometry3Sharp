@@ -10,30 +10,36 @@ counts of degenerate triangles and of intersecting pairs: newB <= oldB and newI 
   - a *sideways* step if both counts are equal: it is applied and written to the chain's journal (vertex, old
     position);
   - rejected otherwise.
-A chain ends committed, or after B draws or K sideways steps: then its journal is undone, the last entry first. A round
-that committed a chain is followed by the passes and another round; a round that committed nothing ends the search.
+A chain ends committed, or after B draws or K sideways steps, or at the effort limit of the repair: then its journal
+is undone, the last entry first. A round that committed a chain is followed by the passes and another round; a round that committed nothing ends the search.
 
 What is checked (each obligation UNSAT with satisfiable assumptions, each mutant SAT; UNKNOWN never counts):
   T   termination: the measure (N, q, ch, dr), N the number of defects, q = 1 while the round has committed a chain,
       ch the chains left in the round, dr the draws left in the chain, decreases lexicographically in every transition
       (a rejected draw, a sideways step, a commit, a chain that ends, a new round) and stays within fixed bounds.
-      Bridge (not Z3): the lexicographic order on bounded tuples of naturals is well-founded.
+      Bridge (not Z3): the lexicographic order on bounded tuples of naturals is well-founded. The cap K on the sideways
+      steps is carried in the state (sw) and is not part of the measure: every sideways step uses a draw, so B alone
+      bounds a chain; K bounds how far a chain can wander. A chain that ends at the effort limit is the transition
+      "chain_ends" with no chain left afterwards.
   A   the counts: with the local counts complete for the defects at the moved vertex (bridge: a defect whose triangles
       have no corner at the moved vertex is unchanged), a sideways step keeps the number of degenerate triangles and
       the number of intersecting pairs of the whole mesh, an improving step lowers their sum and raises neither.
   R   the rollback: undoing a journal of up to three steps, the last first, gives the positions at the chain's start
-      for any vertices, also when one vertex moved more than once.
+      for any vertices, also when one vertex moved more than once (no hypotheses). Bridge (not Z3): for a longer
+      journal by induction, undoing the last entry gives the state before the last step (R for one step).
   D   the bound: every applied step was checked against the bound and a rollback returns to a checked state, so the
       largest bound of the state never exceeds L (the drift of a state is a function of the positions and of anchors
       and constants that a displacement edit does not change: SAFE_ROUNDING_D1_DRIFT.md, displacement edit).
   P2  the number of draws (exact integers, not Z3): the longest run of the transition system from N0 defects, found by
-      exhaustive search for small N0, S, B, is B S N0 (N0 + 1) / 2 (every round commits
+      a search over every draw at which a chain can commit and every number of defects a commit can remove, for
+      small N0, S, B (K is not modelled: it can only shorten a chain), is B S N0 (N0 + 1) / 2 (every round commits
       one chain at its last draw; the evaluation limit of the repair caps it in any case).
 
 Mutants (must be SAT): a sideways step that counts as a move of the round (the rounds then repeat with the same N);
-a rejected draw that is not counted; a sideways step that refunds the draws; a new round after a round that committed
-nothing; acceptance by the sum of the counts (a degenerate triangle traded for a new intersection); a journal undone
-the first entry first; a journal of the new positions; a sideways step without the bound check.
+a rejected draw that is not counted; a new round after a round that committed nothing; a sideways step that refunds
+the draws and is not capped (dr and sw both kept); acceptance by the sum of the counts, for the sideways and for the
+improving step (a degenerate triangle traded for a new intersection); a journal undone the first entry first; a
+journal of the new positions; a sideways step without the bound check.
 """
 import json
 import os
@@ -179,7 +185,7 @@ def longest_run(n0, S, B):
         if ch == 0 or n == 0:
             return round_(n) if moved else 0
         best = B + chain(n, ch - 1, moved)                           # B draws, no commit
-        for used in (1, B):                                          # a commit at the first or the last draw
+        for used in range(1, B + 1):                                 # a commit at any draw of the chain
             for n2 in range(n):                                      # that removes one or more defects
                 best = max(best, used + chain(n2, ch - 1, True))
         return best
@@ -212,7 +218,8 @@ def run(timeout_ms=120000):
     hyp, sideways, keeps, improving, lowers = counts()
     add('A_sideways_keeps_both_counts', hyp + sideways + [z3.Not(keeps)], 'unsat')
     add('A_improving_lowers_the_sum_and_raises_neither', hyp + improving + [z3.Not(lowers)], 'unsat')
-    add('A_assumptions', hyp + sideways, 'sat')
+    add('A_sideways_assumptions', hyp + sideways, 'sat')
+    add('A_improving_assumptions', hyp + improving, 'sat')
     hyp, sideways, keeps, improving, lowers = counts('sum')
     add('mutant_A_sideways_by_the_sum', hyp + sideways + [z3.Not(keeps)], 'sat')
     add('mutant_A_improving_by_the_sum', hyp + improving + [z3.Not(lowers)], 'sat')

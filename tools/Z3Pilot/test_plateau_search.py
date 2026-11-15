@@ -29,7 +29,7 @@ class PlateauSearchTests(unittest.TestCase):
         if out:
             pathlib.Path(out).write_text(json.dumps(report, indent=2) + '\n')
         self.assertTrue(ok, report)
-        self.assertEqual(28, len(report))
+        self.assertEqual(29, len(report))
         self.assertEqual(9, sum(1 for name in report if name.startswith('mutant_')))
         for name, row in report.items():
             if name.startswith('mutant_'):

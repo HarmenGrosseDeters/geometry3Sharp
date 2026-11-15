@@ -426,9 +426,9 @@ Ordered by expected value for the library.
      that keep the defect counts, committed only when a step removes a defect and rolled back otherwise; termination,
      the bound and the counts checked with Z3 (`tools/Z3Pilot/plateau_search.py`, 9 mutants SAT). Probe on what the
      rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
-     2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 not rounding clean, all open or with
-     contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 8-14 of the 25 generated leftovers
-     (today's rule: 3-5). **Recommendation: no-go before the release** (the gain on real results is one operation,
+     2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 with a defect left by the rounding, all
+     open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
+     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
      the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
      release does not depend on it). Owner decision open. No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**

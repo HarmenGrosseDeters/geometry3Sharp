@@ -63,7 +63,11 @@
   "expected": "unsat",
   "got": "unsat"
  },
- "A_assumptions": {
+ "A_sideways_assumptions": {
+  "expected": "sat",
+  "got": "sat"
+ },
+ "A_improving_assumptions": {
   "expected": "sat",
   "got": "sat"
  },

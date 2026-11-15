@@ -667,21 +667,22 @@ takes steps with equal defect counts (not built; the acceptance rule and the rol
 defect, and undone after `B` draws or `K` sideways steps.
 - T, termination: the measure (defects, "the round committed a chain", chains left, draws left) falls
   lexicographically in each of the five transitions and stays within fixed bounds (5 UNSAT with satisfiable
-  assumptions; the well-foundedness of the order is the bridge).
+  assumptions; the well-foundedness of the order is the bridge). `K` is carried in the state and is not needed for
+  termination (a sideways step uses a draw); it bounds how far a chain wanders.
 - A, the counts: a sideways step keeps the number of degenerate triangles and of intersecting pairs, an improving
   step lowers the sum and raises neither (bridge: the defects away from the moved vertex are unchanged).
 - R, the rollback: a journal of up to three steps undone the last first restores every position, also when a vertex
-  moved twice.
+  moved twice (longer journals by induction, a bridge).
 - D, the bound: a step is applied only if checked, so the largest bound stays within `L`.
 - P2 (exact integers, not Z3): the longest run from `N0` defects with `S` chains per defect and `B` draws per chain has
-  `B S N0 (N0 + 1) / 2` draws, found by exhaustive search for `N0 <= 6`.
+  `B S N0 (N0 + 1) / 2` draws, found by a search over every draw at which a chain can commit, for `N0 <= 6`.
 
 Nine mutants are SAT: a sideways step that counts as a move of the round, a rejected draw that is not counted, a
-sideways step that refunds the draws, a new round after a round without a commit, acceptance by the sum of the counts
+sideways step that refunds the draws and is not capped, a new round after a round without a commit, acceptance by the sum of the counts
 (twice), the journal undone the first entry first, a journal of the new positions, a sideways step without the bound
 check. Not modelled: the candidates and their seeded order (any sequence terminates), the invariance under scaling
 (the candidates are those of the built search), and the state besides the positions that a build must restore (the
-note, 10.5). 27 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
+note, 10.5). 28 queries and P2, under a second; result of 2026-11-15: `results/plateau_search_2026-11-15.json`.
 `test_plateau_search.py` also checks that no state but the end is stuck, and holds a source contract on the probe.
 
 ## Mesher checks (pilot 3, `mesher_checks.py`, 2026-11-08)

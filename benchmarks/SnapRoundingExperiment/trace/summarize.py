@@ -6,8 +6,9 @@
   summarize.py eval <trace.jsonl>                     the evaluations of proposed edits
   summarize.py ab <ab.jsonl>                          run_ab.sh: rounding and boolean time per configuration, hashes
   summarize.py cull <cull.jsonl>                      `SnapRoundingExperiment cull`
-  summarize.py plateau <lattice.jsonl>                `SnapRoundingExperiment lattice` with the plateau rule (section 10):
-                                                      one row per variant, and the cases per variant with `--cases`
+  summarize.py plateau <lattice.jsonl> [<safe.jsonl>] `SnapRoundingExperiment lattice` with the plateau rule (section 10):
+                                                      one row per variant; with the `run <case> safe` rows, only the
+                                                      cases that are not rounding clean there (the ones the rule reaches)
   summarize.py leftovers <lattice.jsonl>              the probe with LATTICE_TARGET=degenerate on real leftovers: per variant
                                                       and seed the results that lose every degenerate triangle
 
@@ -16,6 +17,7 @@ of the untraced rounding time and can add up to more than 100 %: read them as an
 """
 import collections
 import json
+import statistics
 import sys
 
 
@@ -116,39 +118,30 @@ def cull(path):
             'yes' if all(d[n]['same_pairs'] for n in names) else 'NO'))
 
 
-def plateau(path, cases=None):
+def plateau(path, safe=None):
     """the variants of the lattice probe: clean ends per seed, the evaluations and the vertices moved of the clean ends"""
     def variant(d):
         rule = 'improving only' if not d['plateau'] else ('plateau, no defect added' if d.get('strict') else 'plateau, defect count')
         size = 'fixed set, %d sizes' % d['grid'] if d.get('grid') else 'random vectors'
         return ('%d vertex' % d['max_moved'] if d['max_moved'] == 1 else 'up to %d vertices' % d['max_moved'], size, rule, d.get('stall', 0))
     groups = collections.OrderedDict()
+    reached = None if safe is None else set(d['case'] for d in rows(safe) if d['rounding_clean'] is False)
     for d in rows(path):
-        if d.get('ok'):
+        if d.get('ok') and (reached is None or d['case'] in reached):
             groups.setdefault(variant(d), []).append(d)
-    med = lambda xs: sorted(xs)[len(xs) // 2] if xs else 0
+    med = lambda xs: statistics.median(xs) if xs else 0
     print('| moved | candidates | rule | stall | cases | clean per seed | no defect left per seed | evaluations of a clean end: median, largest | vertices moved: median, largest | rolled back |')
     print('|---|---|---|---:|---:|---|---|---:|---:|---:|')
     for k, ds in groups.items():
         seeds = sorted(set(d.get('seed', 1) for d in ds))
         clean = [d for d in ds if d['clean']]
-        print('| %s | %s | %s | %d | %d | %s | %s | %d, %d | %d, %d | %d |' % (
+        print('| %s | %s | %s | %d | %d | %s | %s | %g, %d | %g, %d | %d |' % (
             k[0], k[1], k[2], k[3], len(set(d['case'] for d in ds)),
             ' / '.join(str(sum(1 for d in ds if d.get('seed', 1) == s and d['clean'])) for s in seeds),
             ' / '.join(str(sum(1 for d in ds if d.get('seed', 1) == s and d['defects_after'] == 0)) for s in seeds),
             med([d['evaluations'] for d in clean]), max([d['evaluations'] for d in clean] or [0]),
             med([d['moved_vertices'] for d in clean]), max([d['moved_vertices'] for d in clean] or [0]),
             sum(1 for d in ds if d.get('rolled_back', 0) > 0)))
-    if cases == '--cases':
-        for k, ds in groups.items():
-            print('\n%s, %s, %s, stall %d' % k)
-            print('| case | seed | triangles | drift used | limit | defects before | after | clean | reasons | evaluations | improving | vertices moved | rolled back |')
-            print('|---|---:|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|')
-            for d in ds:
-                print('| %s | %d | %d | %.3f | %s | %d | %d | %s | %s | %d | %d | %d | %d |' % (
-                    d['case'].split('/')[-1], d.get('seed', 1), d['tris'], d['drift_used'], {True: 'yes', False: 'no', None: ''}[d.get('limit')],
-                    d['defects_before'], d['defects_after'], 'yes' if d['clean'] else 'no', d['reasons'], d['evaluations'], d['improving'],
-                    d['moved_vertices'], d.get('rolled_back', 0)))
 
 
 def leftovers(path):
@@ -157,12 +150,12 @@ def leftovers(path):
     for d in rows(path):
         if d.get('ok') and d.get('target') == 'degenerate':
             groups.setdefault(('plateau, no defect added' if d['plateau'] else 'improving only', d['stall'], d['seed']), []).append(d)
-    med = lambda xs: sorted(xs)[len(xs) // 2] if xs else 0
+    med = lambda xs: statistics.median(xs) if xs else 0
     print('| rule | stall | seed | results | no degenerate triangle left | clean | degenerate triangles before | after | evaluations where none is left: median, largest | vertices moved there: median, largest |')
     print('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|')
     for k, ds in groups.items():
         done = [d for d in ds if d['defects_after'] == 0]
-        print('| %s | %d | %d | %d | %d | %d | %d | %d | %d, %d | %d, %d |' % (
+        print('| %s | %d | %d | %d | %d | %d | %d | %d | %g, %d | %g, %d |' % (
             k[0], k[1], k[2], len(ds), len(done), sum(1 for d in ds if d['clean']), sum(d['defects_before'] for d in ds),
             sum(d['defects_after'] for d in ds), med([d['evaluations'] for d in done]), max([d['evaluations'] for d in done] or [0]),
             med([d['moved_vertices'] for d in done]), max([d['moved_vertices'] for d in done] or [0])))
