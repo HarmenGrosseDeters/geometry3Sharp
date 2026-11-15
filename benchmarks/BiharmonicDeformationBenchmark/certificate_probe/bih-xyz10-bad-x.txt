@@ -1,0 +1,8 @@
+grid=10 vertices=100 free=80 precision=40 numeric_eigen_estimate=8.93286819303 mu=4.46643409652 mu_binary64=0x1.1dda0e65917ecp+2
+interval_matrix_radius_infinity_upper=6.145718228902441468405274629947845534266E-13 (conditional on interval assembly)
+scalar_shifted_matrix_check=True arithmetic_audited=True c=1.90047916497e-09 radius=5.96808254496e-13 products=6038 elapsed_factor_seconds=0.322
+axis=0 interval_residual_norm_upper=0.3643339903449476641703444219192581994812 normalized_error_upper=0.08157155853462253431877993775758349216699
+axis=1 interval_residual_norm_upper=6.167344033124335657049080160536041740227E-13 normalized_error_upper=1.380820560620341619075433098223369986211E-13
+axis=2 interval_residual_norm_upper=2.230990901452456861968814126644122729002E-13 normalized_error_upper=4.995015829726385798904951526708862456832E-14
+maximum_normalized_error_upper=0.08157155853462253431877993775758349216699 requested_tolerance=1e-8 perturb=0.0001 perturb_axis=0 motion=xyz
+position_certificate=not_established

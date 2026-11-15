@@ -25,6 +25,12 @@ L=sp.coo_matrix((vv,(rr,cc)),shape=(N,N)).tocsr();Q=L.T@sp.diags(1/mass)@L
 if len(sys.argv)>3 and sys.argv[3]=="eigen":
  start=time.perf_counter(); estimate=sla.eigsh(Q[free][:,free], k=1, sigma=0.0, which="LM", return_eigenvectors=False, v0=np.ones(len(free)))[0]
  print(f"numerical_eigenvalue_estimate={estimate:.12g} elapsed_seconds={time.perf_counter()-start:.3f} (not a verified lower bound)")
+ # Rump's simple trace-based bound, evaluated in ordinary arithmetic as a
+ # feasibility indicator only. It does not bound mesh assembly errors and is
+ # not rounded outwards. The shifted LU below is not a Cholesky certificate.
+ nf=len(free); eps=2.0**-53; gamma=(nf+1)*eps/(1-(nf+1)*eps)
+ trace=float(Q[free][:,free].diagonal().sum()); roundoff=gamma/(1-gamma)*trace
+ print(f"rump_trace_indicator={roundoff:.12g} proposed_shift={0.5*estimate:.12g} indicator_over_shift={roundoff/(0.5*estimate):.12g} (not a certificate)")
  start=time.perf_counter(); fac=sla.splu(Q[free][:,free].tocsc(),permc_spec="MMD_AT_PLUS_A",diag_pivot_thresh=0)
  lower=fac.L.tocsr(); diagonal=fac.U.diagonal(); symmetric_permutation=np.array_equal(fac.perm_r,fac.perm_c)
  factor_difference=(fac.U-sp.diags(diagonal)@lower.T).tocoo(); factor_mismatch=np.max(np.abs(factor_difference.data)) if factor_difference.nnz else 0.0

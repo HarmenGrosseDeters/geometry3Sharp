@@ -11,11 +11,26 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as sla
 from scipy.sparse.csgraph import reverse_cuthill_mckee
 
+motion="z"; perturb_axis=2; fixture="grid"; wrong_known_candidate=False
+for arg in sys.argv[1:]:
+ if arg.startswith("--fixture="): fixture=arg.split("=",1)[1]
+ elif arg == "--wrong-known-candidate": wrong_known_candidate=True
+ elif arg.startswith("--motion="): motion=arg.split("=",1)[1]
+ elif arg.startswith("--perturb-axis="):
+  axis_name=arg.split("=",1)[1]
+  if axis_name not in ("x","y","z"): raise ValueError("perturb axis must be x, y or z")
+  perturb_axis="xyz".index(axis_name)
+ elif arg.startswith("--"): raise ValueError("unknown flag: "+arg)
+sys.argv=[arg for arg in sys.argv if not arg.startswith("--")]
+if fixture not in ("grid","tiny150","tiny200","lost-handle"): raise ValueError("invalid fixture")
+if wrong_known_candidate and fixture == "grid": raise ValueError("known candidate requires extreme fixture")
+if motion not in ("z","xyz"): raise ValueError("motion must be z or xyz")
 n=int(sys.argv[1]); precision=int(sys.argv[2]) if len(sys.argv)>2 else 40
 shift_multiplier=float(sys.argv[3]) if len(sys.argv)>3 else 0.5
 perturb=float(sys.argv[4]) if len(sys.argv)>4 else 0.0
 backend=sys.argv[5] if len(sys.argv)>5 else "indexed"
-if backend not in ("indexed", "scan"): raise ValueError("backend must be indexed or scan")
+if backend not in ("indexed", "scan", "scalar-audit"): raise ValueError("backend must be indexed, scan or scalar-audit")
+if backend == "scalar-audit" and len(sys.argv)>7: raise ValueError("scalar audit does not export interval pivots")
 if n<3 or n>50: raise ValueError('pilot grid size must be 3..50')
 loctx=decimal.Context(prec=precision,rounding=decimal.ROUND_FLOOR,Emin=-999999,Emax=999999)
 hictx=decimal.Context(prec=precision,rounding=decimal.ROUND_CEILING,Emin=-999999,Emax=999999)
@@ -51,13 +66,18 @@ theta=math.radians(31);axis=np.array([1.,2.,3.]);axis/=np.linalg.norm(axis);x,y,
 K=np.array([[0.,-z,y],[z,0.,-x],[-y,x,0.]])
 R=np.eye(3)*math.cos(theta)+(1-math.cos(theta))*np.outer(axis,axis)+math.sin(theta)*K
 points=np.array([R@np.array([i/(n-1),j/(n-1),0.]) for j in range(n) for i in range(n)])
-origin=points[0];scale=float(np.max(np.abs(points-origin))); N=n*n
-p=[[ (exact(points[i,k])-exact(origin[k]))/exact(scale) for k in range(3)] for i in range(N)]
 faces=[]
 for j in range(n-1):
  for i in range(n-1):
   a=i+n*j;b=a+1;d=a+n;c=d+1;faces.extend(((a,b,c),(a,c,d)))
-fixed=np.array([i%n in (0,n-1) for i in range(N)]);free=np.flatnonzero(~fixed);mapfree={int(v):i for i,v in enumerate(free)}
+fixed=np.array([i%n in (0,n-1) for i in range(n*n)])
+if fixture != "grid":
+ tiny=1e-150 if fixture == "tiny150" else 1e-200 if fixture == "tiny200" else 0.0
+ points=np.array([[0.,0.,0.],[1.,tiny,0.],[0.,tiny,1.]])
+ faces=[(0,1,2)];fixed=np.array([True,True,False])
+origin=points[0];scale=float(np.max(np.abs(points-origin))); N=len(points)
+p=[[ (exact(points[i,k])-exact(origin[k]))/exact(scale) for k in range(3)] for i in range(N)]
+free=np.flatnonzero(~fixed);mapfree={int(v):i for i,v in enumerate(free)}
 rows=[{} for _ in range(N)];mass=[I(D(0)) for _ in range(N)];start=time.perf_counter()
 for a,b,c in faces:
  ab=sub(p[b],p[a]);ac=sub(p[c],p[a]);bc=sub(p[c],p[b]);ba=sub(p[a],p[b]);ca=sub(p[a],p[c]);cb=sub(p[b],p[c])
@@ -73,12 +93,18 @@ for k,row in enumerate(rows):
  for i,(a,wa) in enumerate(entries):
   for b,wb in entries[:i+1]:
    key=(max(a,b),min(a,b));q[key]=q.get(key,I(D(0)))+wa*wb/mass[k]
-Nf=len(free); rr=[];cc=[];vv=[]
+Nf=len(free); rr=[];cc=[];vv=[]; radius_rows=[D(0) for _ in range(Nf)]
 for (a,b),v in q.items():
  mid=float((v.lo+v.hi)/D(2));rr.append(a);cc.append(b);vv.append(mid)
+ # The binary64 midpoint is the actual matrix entry. Decimal subtraction and
+ # row sums are rounded upward, including both halves of the symmetric matrix.
+ center=D.from_float(mid)
+ radius=max(hictx.subtract(center,v.lo),hictx.subtract(v.hi,center),D(0))
+ radius_rows[a]=hictx.add(radius_rows[a],radius)
+ if a!=b: radius_rows[b]=hictx.add(radius_rows[b],radius)
  if a!=b:rr.append(b);cc.append(a);vv.append(mid)
 Q=sp.coo_matrix((vv,(rr,cc)),shape=(Nf,Nf)).tocsc()
-est=float(sla.eigsh(Q,k=1,sigma=0,which='LM',return_eigenvectors=False,v0=np.ones(Nf))[0]);mu=shift_multiplier*est
+est=float(Q[0,0]) if Nf == 1 else float(sla.eigsh(Q,k=1,sigma=0,which='LM',return_eigenvectors=False,v0=np.ones(Nf))[0]);mu=shift_multiplier*est
 if not math.isfinite(mu) or mu <= 0: raise ValueError('trial shift must be finite and strictly positive')
 order=reverse_cuthill_mckee(Q,symmetric_mode=True);inverse=np.empty(Nf,dtype=int);inverse[order]=np.arange(Nf)
 a={}
@@ -91,88 +117,113 @@ if len(sys.argv)>6:
   json.dump({"size":Nf,"precision":precision,"shift_binary64":mu.hex(),"shift_bits":bits(mu),"scale_bits":bits(scale),
              "vertices_bits":[[bits(v) for v in point] for point in points],"faces":faces,"fixed":[bool(v) for v in fixed],
              "order":[int(v) for v in order],"entries":[[i,j,str(v.lo),str(v.hi)] for (i,j),v in sorted(a.items())]},f,separators=(",",":"))
-print(f'grid={n} vertices={N} free={Nf} precision={precision} numeric_eigen_estimate={est:.12g} mu={mu:.12g} mu_binary64={mu.hex()}')
-# Right-looking sparse LDL. Every interval update encloses the exact Schur complement.
-pivots=[];min_pivot_interval=None;min_pivot_index=-1;updates=0; pivot_digest=hashlib.sha256(); factor_start=time.perf_counter()
-pivot_file=open(sys.argv[7],"w",encoding="utf-8") if len(sys.argv)>7 else None
-if backend == "indexed":
- columns=[{} for _ in range(Nf)]
- for (i,j),value in a.items():columns[j][i]=value
- del a
-for k in range(Nf):
- pivot=columns[k][k] if backend == "indexed" else a[(k,k)]
- if pivot.lo<=0: print(f'grid={n} precision={precision} status=uncertain pivot={k} interval=[{pivot.lo},{pivot.hi}]');sys.exit(1)
- if min_pivot_interval is None or pivot.lo < min_pivot_interval.lo: min_pivot_interval=pivot;min_pivot_index=k
- pivots.append(pivot.lo)
- pivot_digest.update((str(pivot.lo)+"|"+str(pivot.hi)+"\n").encode("ascii"))
- if pivot_file is not None:pivot_file.write(f"{k} {pivot.lo} {pivot.hi}\n")
+print(f'fixture={fixture} grid={n} vertices={N} free={Nf} precision={precision} numeric_eigen_estimate={est:.12g} mu={mu:.12g} mu_binary64={mu.hex()}')
+print(f'interval_matrix_radius_infinity_upper={max(radius_rows)} (conditional on interval assembly)')
+if backend == "scalar-audit":
+ import scalar_cholesky_probe as scalar
+ scalar.AUDIT=True
+ factor_start=time.perf_counter()
+ ok,detail=scalar.verify({"size":Nf,"entries":[[i,j,str(v.lo),str(v.hi)] for (i,j),v in a.items()]})
+ print(f'scalar_shifted_matrix_check={ok} arithmetic_audited=True {detail} elapsed_factor_seconds={time.perf_counter()-factor_start:.3f}')
+ if not ok:
+  print('position_certificate=not_established reason=matrix_check');sys.exit(1)
+ pivot_file=None
+else:
+ # Right-looking sparse LDL. Every interval update encloses the exact Schur complement.
+ pivots=[];min_pivot_interval=None;min_pivot_index=-1;updates=0; pivot_digest=hashlib.sha256(); factor_start=time.perf_counter()
+ pivot_file=open(sys.argv[7],"w",encoding="utf-8") if len(sys.argv)>7 else None
  if backend == "indexed":
-  neighbors=sorted(i for i in columns[k] if i>k)
-  col=[columns[k][i] for i in neighbors]
- else:
-  neighbors=sorted(i for (i,j) in a if j==k and i>k)
-  col=[a[(i,k)] for i in neighbors]
- for ii,i in enumerate(neighbors):
-  factor=col[ii]/pivot
-  for jj in range(ii+1):
-   j=neighbors[jj]
-   if backend == "indexed":columns[j][i]=columns[j].get(i,I(D(0)))-factor*col[jj]
-   else:
-    key=(i,j);a[key]=a.get(key,I(D(0)))-factor*col[jj]
-   updates+=1
- if backend == "indexed": columns[k].clear()
- else:
-  for i in neighbors: del a[(i,k)]
-if pivot_file is not None:pivot_file.close()
-print(f'status=positive_interval_pivots backend={backend} min_pivot_lower={min(pivots)} min_pivot_upper={min_pivot_interval.hi} min_pivot_index={min_pivot_index} updates={updates} pivot_sha256={pivot_digest.hexdigest()} elapsed_factor_seconds={time.perf_counter()-factor_start:.3f} elapsed_total_seconds={time.perf_counter()-start:.3f} peak_rss_kib={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}')
+  columns=[{} for _ in range(Nf)]
+  for (i,j),value in a.items():columns[j][i]=value
+  del a
+ for k in range(Nf):
+  pivot=columns[k][k] if backend == "indexed" else a[(k,k)]
+  if pivot.lo<=0: print(f'grid={n} precision={precision} status=uncertain pivot={k} interval=[{pivot.lo},{pivot.hi}]');sys.exit(1)
+  if min_pivot_interval is None or pivot.lo < min_pivot_interval.lo: min_pivot_interval=pivot;min_pivot_index=k
+  pivots.append(pivot.lo)
+  pivot_digest.update((str(pivot.lo)+"|"+str(pivot.hi)+"\n").encode("ascii"))
+  if pivot_file is not None:pivot_file.write(f"{k} {pivot.lo} {pivot.hi}\n")
+  if backend == "indexed":
+   neighbors=sorted(i for i in columns[k] if i>k)
+   col=[columns[k][i] for i in neighbors]
+  else:
+   neighbors=sorted(i for (i,j) in a if j==k and i>k)
+   col=[a[(i,k)] for i in neighbors]
+  for ii,i in enumerate(neighbors):
+   factor=col[ii]/pivot
+   for jj in range(ii+1):
+    j=neighbors[jj]
+    if backend == "indexed":columns[j][i]=columns[j].get(i,I(D(0)))-factor*col[jj]
+    else:
+     key=(i,j);a[key]=a.get(key,I(D(0)))-factor*col[jj]
+    updates+=1
+  if backend == "indexed": columns[k].clear()
+  else:
+   for i in neighbors: del a[(i,k)]
+ if pivot_file is not None:pivot_file.close()
+ print(f'status=positive_interval_pivots backend={backend} min_pivot_lower={min(pivots)} min_pivot_upper={min_pivot_interval.hi} min_pivot_index={min_pivot_index} updates={updates} pivot_sha256={pivot_digest.hexdigest()} elapsed_factor_seconds={time.perf_counter()-factor_start:.3f} elapsed_total_seconds={time.perf_counter()-start:.3f} peak_rss_kib={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}')
 
 # Form an independent binary64 candidate using midpoint Q; this candidate is not trusted.
-# The right boundary moves by 0.1 in world z; exact double targets are retained.
+# Keep binary64 targets and certify all axes, including final world rounding.
 targets=points.copy()
 for i in range(N):
- if i%n==n-1: targets[i,2]+=0.1
-# This fixture leaves x/y unchanged at every handle and every free vertex.
-# Positive definiteness makes the exact x/y displacements zero as well.
-assert np.array_equal(targets[:, :2], points[:, :2])
+ if i%n==n-1:
+  targets[i,2]+=0.1
+  if motion == "xyz":
+   targets[i,0]+=0.04; targets[i,1]-=0.03
+if fixture != "grid":
+ targets=points.copy();large=2.0**1000
+ if fixture == "lost-handle":
+  targets[0]=[large,0.,0.];targets[1]=[3*large,0.,0.]
+ else:
+  targets[0]=[0.,large,0.];targets[1]=[1.,3*large,0.]
 mid=lambda v: float((v.lo+v.hi)/D(2))
-displacement=[I(D(0)) for _ in range(N)]
-for i in range(N):
- if fixed[i]: displacement[i]=(exact(targets[i,2])-exact(points[i,2]))/exact(scale)
-rhs=np.zeros(Nf)
-for k,row in enumerate(rows):
- constrained=sum(mid(w)*mid(displacement[j]) for j,w in row.items() if fixed[j])
- for j,w in row.items():
-  if not fixed[j]:rhs[mapfree[j]]-=mid(w)/mid(mass[k])*constrained
-solution=sla.spsolve(Q,rhs)
-if perturb:solution[Nf//2]+=perturb
-# Treat the final rounded world coordinate, rather than an intermediate normalized
-# value, as the candidate; all subsequent residual arithmetic is outward-rounded.
 candidate=points.copy();candidate[fixed]=targets[fixed]
-for i in free:
- world=float(points[i,2]+scale*solution[mapfree[int(i)]])
- candidate[i,2]=world
- displacement[i]=(exact(world)-exact(points[i,2]))/exact(scale)
+displacements=[]
+for axis in range(3):
+ displacement=[I(D(0)) for _ in range(N)]
+ for i in range(N):
+  if fixed[i]: displacement[i]=(exact(targets[i,axis])-exact(points[i,axis]))/exact(scale)
+ rhs=np.zeros(Nf)
+ for k,row in enumerate(rows):
+  constrained=sum(mid(w)*mid(displacement[j]) for j,w in row.items() if fixed[j])
+  for j,w in row.items():
+   if not fixed[j]:rhs[mapfree[j]]-=mid(w)/mid(mass[k])*constrained
+ solution=sla.spsolve(Q,rhs)
+ if perturb and axis == perturb_axis:solution[Nf//2]+=perturb
+ for i in free:
+  world=float(points[i,axis]+scale*solution[mapfree[int(i)]])
+  if wrong_known_candidate:
+   world=float(points[i,axis]) # pinned historical false-success candidate
+  candidate[i,axis]=world
+  displacement[i]=(exact(world)-exact(points[i,axis]))/exact(scale)
+ displacements.append(displacement)
+if not np.array_equal(candidate[fixed],targets[fixed]): raise ArithmeticError("handle mismatch")
 if len(sys.argv)>6:
  with open(sys.argv[6],"r",encoding="utf-8") as f:export=json.load(f)
  export["target_bits"]=[[bits(v) for v in point] for point in targets]
  export["candidate_bits"]=[[bits(v) for v in point] for point in candidate]
  with open(sys.argv[6],"w",encoding="utf-8") as f:json.dump(export,f,separators=(",",":"))
-grad=[I(D(0)) for _ in range(Nf)]
-for k,row in enumerate(rows):
- lap=sum((w*displacement[j] for j,w in row.items()),I(D(0)))
- for j,w in row.items():
-  if not fixed[j]:grad[mapfree[j]]=grad[mapfree[j]]+w*lap/mass[k]
-squared=D(0)
-for g in grad:
- magnitude=max(g.lo.copy_abs(),g.hi.copy_abs())
- squared=hictx.add(squared,hictx.multiply(magnitude,magnitude))
-residual_upper=nearctx.next_plus(nearctx.sqrt(squared))
-error_upper=hictx.divide(residual_upper,D.from_float(mu))
-print(f'interval_residual_norm_upper={residual_upper} normalized_error_upper={error_upper} requested_tolerance=1e-8 perturb={perturb}')
+errors=[]
+for axis,displacement in enumerate(displacements):
+ grad=[I(D(0)) for _ in range(Nf)]
+ for k,row in enumerate(rows):
+  lap=sum((w*displacement[j] for j,w in row.items()),I(D(0)))
+  for j,w in row.items():
+   if not fixed[j]:grad[mapfree[j]]=grad[mapfree[j]]+w*lap/mass[k]
+ squared=D(0)
+ for g in grad:
+  magnitude=max(g.lo.copy_abs(),g.hi.copy_abs())
+  squared=hictx.add(squared,hictx.multiply(magnitude,magnitude))
+ residual_upper=nearctx.next_plus(nearctx.sqrt(squared))
+ bound=hictx.divide(residual_upper,D.from_float(mu));errors.append(bound)
+ print(f'axis={axis} interval_residual_norm_upper={residual_upper} normalized_error_upper={bound}')
+error_upper=max(errors)
+print(f'maximum_normalized_error_upper={error_upper} requested_tolerance=1e-8 perturb={perturb} perturb_axis={perturb_axis} motion={motion}')
 if error_upper>D('1e-8'):
  print('position_certificate=not_established');sys.exit(2)
 if pivot_file is not None:
  with open(sys.argv[6],"rb") as f: input_digest=hashlib.sha256(f.read()).hexdigest()
  with open(sys.argv[7],"r",encoding="utf-8") as f: pivot_data=f.read()
  with open(sys.argv[7],"w",encoding="utf-8") as f: f.write(f"# input_sha256={input_digest}\n"+pivot_data)
-print('position_certificate=within_tolerance x_y_displacement=exactly_zero')
+print(f'position_certificate=within_tolerance axes_checked=xyz backend={backend} elapsed_total_seconds={time.perf_counter()-start:.3f}')

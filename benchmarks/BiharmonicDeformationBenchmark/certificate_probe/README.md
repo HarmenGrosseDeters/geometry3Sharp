@@ -1,5 +1,70 @@
 # Path-bound feasibility probe
 
+## Trace-bound feasibility indicator
+
+`probe.py` in `eigen` mode now prints an approximate version of the simple trace-based Cholesky error term from Rump, *Verification of Positive Definiteness* (2006), section 3, https://www.tuhh.de/ti3/paper/rump/Ru06c.pdf. With `OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/probe.py 20 0 eigen`, the indicator is 1.77e-7 against a proposed shift of 1.14; the same command with `100` yields 0.00368 against 0.0448 (about 8.2%). These are single exploratory evaluations of the SciPy-assembled matrix on this machine. The calculation uses the unshifted trace as an approximation, omits outward rounding and the underflow term, and does not establish that the sparse library's factorization satisfies the paper's assumptions. The numerical shift is not a proven lower eigenvalue. It also excludes uncertainty in original geometry assembly, the world-coordinate residual and final rounding. No positive-definiteness or position certificate follows from these numbers. The 100x100 result suggests that the simple trace bound deserves a properly rounded, independently reviewed experiment before attempting production integration.
+
+The decimal interval pilot now also reports the maximum row sum of entry radii around the actual binary64 midpoint matrix. `OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40` reported 2.5611e-12 (upper bound rounded here for display). For a symmetric interval enclosure this bounds the spectral norm of the difference from that midpoint, conditional on the interval assembly and arithmetic being correct. The run also produced positive interval LDL pivots and its existing z-axis position bound of 2.25e-12; the radius is an additional measurement, not a separate proof of the midpoint's eigenvalue or a complete binary64 verifier.
+
+Implementation blocker: `SparseCholesky.factorBlock` precomputes `1.0 / pivot` and multiplies by that rounded reciprocal, whereas the analyzed scalar Cholesky recurrence in Rump's paper divides by the pivot. `updateBlock` also groups products into supernode dot products. The paper's stated error constants therefore cannot simply be assumed to cover this implementation. A bounds review must derive the additional errors and account for grouping, underflow, overflow, compiler/runtime behavior and complete symbolic structure, or use a separately specified factorization for the verifier. Until then a successful factorization is not a positive-definiteness proof.
+
+### Separate scalar feasibility kernel
+
+Extreme fixtures use `--fixture=lost-handle`, `tiny150` or `tiny200`, matching the three-vertex production regression geometries/targets. `--wrong-known-candidate` pins the free output to its original position, reproducing the lost-motion candidate; fixed targets remain exact. For example:
+
+```
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 3 700 0.5 0 scalar-audit --fixture=tiny200 --wrong-known-candidate
+```
+
+Run the same command with the other fixture names. At 40 decimal digits all three reject, but their residual intervals are extremely wide (about 1e263), which is not evidence that the verifier resolves the actual errors. At 700 digits the recorded logs `bih-extreme-*-700.txt` give bounds of approximately 1 (lost-handle), 64.3 (tiny150) and 6.43e-99 (tiny200). The first two reject, while tiny200 meets the absolute normalized 1e-8 position budget despite completely losing a tiny representable motion. This is compatible with that absolute budget but does not satisfy the existing production regression requirement of NumericalRange for tiny200. Do not relax that test or remove the production guard on the strength of this certificate. Resolving whether absolute position tolerance or relative preservation of tiny response is required is a contract decision before integration; the latter needs a separately specified error metric. No production behavior changed.
+
+The pilot now solves and encloses residuals for all three axes. Add `--motion=xyz` for right-boundary movements `(0.04,-0.03,0.1)` in world coordinates; the default retains z-only targets. Each coordinate is rounded back to binary64 world position before its interval residual is evaluated. `--perturb-axis=x`, `y` or `z` selects the axis of the existing normalized candidate perturbation. Unknown flags and invalid axis names are rejected. Historical z-only logs below describe the older fixture-specific path.
+
+```
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40 0.5 0 scalar-audit --motion=xyz
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 10 40 0.5 0.0001 scalar-audit --motion=xyz --perturb-axis=x
+```
+
+Repeat the second command with `y` and `z` for the other controls. Raw logs are `bih-xyz20.txt`, `bih-xyz10.txt` and `bih-xyz10-bad-{x,y,z}.txt`. The 20x20 run has coordinate bounds approximately 3.86e-12, 7.10e-12 and 2.25e-12, with 7.678 s total in this single run. Each 10x10 axis perturbation exits 2, with a failing bound about 0.0816. Independent review found no concrete error in the all-axis composition; two parser findings were fixed and invalid flags were checked separately. These are pilot fixtures and SciPy candidates, not library-solver acceptance or a general-mesh/production performance result.
+
+The `scalar-audit` backend of `interval_ldl_pilot.py` now passes the freshly assembled, permuted and shifted interval matrix directly to the audited scalar kernel, then runs the existing interval residual check of the rounded world-coordinate candidate. It avoids trusting an exported matrix file for this fixture. x/y remain exactly zero displacement by the fixture assertions; this is not a general all-axis API. Independent review found no concrete defect in this composition or change to the existing indexed/scan factorization order.
+
+```
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40 0.5 0 scalar-audit
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 10 40 1.5 0 scalar-audit
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 10 40 0.5 0.0001 scalar-audit
+```
+
+Raw outputs are `bih-combined20.txt`, `bih-combined10-badshift.txt` and `bih-combined10-badoutput.txt`. The first run establishes the fixture's normalized coordinate bound 2.25e-12, below 1e-8, and takes 5.893 s total (5.603 s audited factor check). The bad-shift control exits 1 before checking positions; the bad-output control exits 2 after its 0.0816 error bound exceeds tolerance. These single runs are correctness/feasibility measurements, not a five-run production timing comparison. The audit's rational per-operation work dominates; no automatic large-mesh fallback is justified. The production library's candidate, general target axes, extreme counterexamples and large-grid budget remain separate acceptance gates.
+
+The optional `--audit` flag checks every executed recurrence product, subtraction, division and square root against an exact rational nearest-even rounding cell. Cell neighbors, zero/subnormal classification and rational decoding use the raw binary64 bits; bounds conversion directions are asserted rationally. This validates the executed arithmetic rather than assuming an unobserved rounding mode for that run. Integer arithmetic, bit serialization and the audit implementation remain trusted. It does not validate interval export provenance or output positions. Tests include ties, wrong rounded outputs/square roots, signed underflow boundaries, signed zero and subnormal neighbors:
+
+```
+python3 -m unittest discover -s benchmarks/BiharmonicDeformationBenchmark/certificate_probe -p test_scalar_cholesky_probe.py
+python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/scalar_cholesky_probe.py <export.json> --audit
+```
+
+Four test methods pass. Disabling `audit_round` in memory causes the tie and wrong-output tests to fail (targeted mutation). The audit is a correctness experiment, not the proposed fast default. Before the raw-bit follow-up, one 20x20 audited run took 3.372 seconds versus 0.150 seconds without auditing; the bad-shift control still rejected. These timings concern different diagnostic modes of the same pilot and do not establish a production performance budget.
+
+`scalar_cholesky_probe.py` implements a separate scalar sparse Cholesky recurrence with direct division, sequential product subtraction and structural fill. It uses exact rational arithmetic to construct the trace term, midpoint radii and downward diagonal shift, converting bounds outward to binary64. This avoids assuming that the production supernodal reciprocal-multiplication kernel has the paper's error constants. It is capped at 2500 free unknowns. It rejects nonfinite/subnormal arithmetic and detected product/division underflow; the omission of the underflow term is a review item, not an established portable runtime guarantee. A Python/runtime square-root rounding assumption also remains. It trusts the imported interval entries and their completeness and does not read original mesh data or check positions.
+
+Commands (repository root):
+
+```
+python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/scalar_cholesky_probe.py <export.json>
+```
+
+Exports come from `interval_ldl_pilot.py` as described below. On this machine, single exploratory runs of the existing exports gave:
+
+| Export fixture | Scalar shifted-matrix check | Trace correction | Matrix radius upper | Total seconds |
+| --- | --- | --- | --- | --- |
+| 20x20, shift 0.5 estimate | passes | 1.77304e-7 | 2.73981e-12 | 0.145 |
+| 30x30, shift 0.5 estimate | passes | 2.27617e-6 | 5.62835e-12 | 0.675 |
+| 50x50, shift 0.5 estimate | passes | 5.35828e-5 | 2.25915e-11 | 3.538 |
+| 20x20, shift 1.5 estimate | rejects, pivot 278 | 1.77271e-7 | 2.57795e-12 | 0.155 |
+
+Displayed corrections/radii are rounded upward for presentation. These are preliminary imported-matrix results, not release acceptance or comparable performance claims against the production solver. Independent review found that an exactly subnormal product can round to the smallest normal number and evade a result-only underflow check. The pilot now checks exact rational products and quotients at that boundary; independent re-review confirmed both signs of the reported multiplication and division cases and acceptance of exact normal boundary values. FTZ/DAZ, excess precision and the runtime rounding/sqrt contract remain unverified, so the script is not a portable certificate. Full original-data residual verification, all counterexamples, 100x100 scaling and the cold end-to-end budget are still open.
+
 This independent pilot solves a rotated procedural grid with SciPy and recomputes its free-vertex gradient using mpmath at 70 decimal digits, from the binary64 input positions and handle targets. It evaluates the inexpensive graph-path lower bound on the smallest eigenvalue described in the design note. It is a feasibility measurement, not interval arithmetic and not a certificate; SciPy's result is not the library solver's result.
 
 On Linux x64 with Python, NumPy 2.3.5, SciPy 1.17.0 and mpmath 1.3.0, one run each, `OPENBLAS_NUM_THREADS=1`:
