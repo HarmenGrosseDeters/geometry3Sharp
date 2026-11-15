@@ -285,6 +285,11 @@ jobs:
         if: (failure() || cancelled()) && needs.scope.outputs.library == 'true'
         continue-on-error: true
         run: python tools/blame_summary.py test-results --summary $env:GITHUB_STEP_SUMMARY
+      # A PR that changes only a benchmark script (ps1 without library) runs no net48 test build, which is what builds the netstandard2.0
+      # library the two checks below read: build it here (a PR with a new thread_scaling.ps1 failed 'Build the netstandard2.0 library')
+      - name: Build the netstandard2.0 library (ps1-only changes)
+        if: matrix.shard == 'a' && needs.scope.outputs.library != 'true' && needs.scope.outputs.ps1 == 'true'
+        run: dotnet build geometry3Sharp_netstandard.csproj -c Release -f netstandard2.0
       - name: Benchmark reporting regression (MeshRepairBenchmark)
         if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
         shell: powershell
