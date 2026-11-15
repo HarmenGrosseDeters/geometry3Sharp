@@ -112,6 +112,10 @@ namespace gs
         /// result. Off by default; it does not change the contour or the result.
         /// </summary>
         public bool ComputeTopologyCertificate = false;
+        /// <summary> (prototype) refinement driven by the certificate up to this refine level; 0 off </summary>
+        public int CertificateRefineLevels = 0;
+        /// <summary> (prototype) certificate refinement rounds of the last Compute </summary>
+        public int CertificateRefineRounds;
         /// <summary> (tests) the certificate's cell tests in parallel (the same result as serial, bit for bit) </summary>
         internal bool CertificateParallel = true;
         /// <summary> (tests) the fewest cells per chunk of the certificate's parallel path </summary>
@@ -211,9 +215,11 @@ namespace gs
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
                 CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate,
-                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk
+                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk,
+                CertificateRefineLevels = CertificateRefineLevels
             };
             bool ok = inner.compute_unit();
+            CertificateRefineRounds = inner.CertificateRefineRounds;
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
@@ -251,6 +257,7 @@ namespace gs
             GapEdgesPerLevel = new List<int>();
             RefinedCells = 0;
             RefineFactor = 1;
+            CertificateRefineRounds = 0;
             PhaseMilliseconds.Clear();
             TopologyCertified = ContourTopologyCertified = false;
             TopologyCertificateStatus = ComputeTopologyCertificate ? ContouringCertificateStatus.NotSupported : ContouringCertificateStatus.NotComputed;
@@ -279,9 +286,10 @@ namespace gs
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement,
                     ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
-                    CertificateMinChunk = CertificateMinChunk
+                    CertificateMinChunk = CertificateMinChunk, CertificateRefineLevels = CertificateRefineLevels
                 };
                 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
+                CertificateRefineRounds = wc.CertificateRefineRounds;
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 NonManifoldRefinements = wc.NonManifoldRefinements;

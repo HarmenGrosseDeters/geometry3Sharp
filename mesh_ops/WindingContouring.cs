@@ -174,7 +174,7 @@ namespace gs
             return dc;
         }
 
-        DMesh3 finish(DualContouring dc)
+        DMesh3 finish(DualContouring dc, bool certified = false)
         {
             SelfIntersectionFree = false;
             HiddenGapEdges = dc.HiddenGapEdges;
@@ -184,7 +184,7 @@ namespace gs
             if (CancelF() || dc.Mesh == null)
                 return null;
             NonManifoldTriangles = dc.NonManifoldTriangles;
-            if (ComputeTopologyCertificate) {
+            if (ComputeTopologyCertificate && !certified) {
                 var timer = System.Diagnostics.Stopwatch.StartNew();
                 certify(dc);
                 add_phase("certificate", timer.ElapsedMilliseconds);
@@ -202,6 +202,7 @@ namespace gs
         void certify(DualContouring dc)
         {
             UncertifiedCells = new List<ContouringUncertifiedCell>();
+            uncertifiedGridCells = new List<KeyValuePair<Vector3i, int>>();
             CertificateStatus = ContouringCertificateStatus.NotSupported;
             if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
                 return;
@@ -259,12 +260,16 @@ namespace gs
             });
             foreach (int i in refused) {
                 var kv = cells[i];
+                uncertifiedGridCells.Add(kv);
                 UncertifiedCells.Add(new ContouringUncertifiedCell() {
                     Box = new AxisAlignedBox3d(grid.Node(kv.Key), grid.Node(kv.Key + kv.Value * Vector3i.One)), Reason = reasons[i]
                 });
             }
             CertificateStatus = UncertifiedCells.Count == 0 ? ContouringCertificateStatus.Certified : ContouringCertificateStatus.CellsUncertified;
         }
+
+        // the uncertified cells of the last certify, in the contour grid's nodes (min node, size)
+        List<KeyValuePair<Vector3i, int>> uncertifiedGridCells = new List<KeyValuePair<Vector3i, int>>();
 
         // FixableEdges, MinFixableFound and HiddenSamples from the hidden edges of the last crossing search;
         // returns the fixable ones
@@ -317,6 +322,13 @@ namespace gs
         /// (non-manifold edges that no face vertex avoided, see DualContouring.NonManifoldCells) are refined and contoured again
         /// </summary>
         public int MaxNonManifoldRounds = 2;
+        /// <summary> (prototype) refinement driven by the certificate: up to this refine level (log2 of the factor); 0: off </summary>
+        internal int CertificateRefineLevels = 0;
+        /// <summary> (prototype) at most this many certificate refinement rounds </summary>
+        internal int MaxCertificateRounds = 6;
+        /// <summary> (prototype) certificate refinement rounds of the last ContourRefined </summary>
+        internal int CertificateRefineRounds;
+        static int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
         /// <summary> local refinement: how often the last ContourRefined refined for non-manifold edges </summary>
         public int NonManifoldRefinements;
         /// <summary> local refinement: fine crossings not assigned to a coarse patch (see DualContouring.TransitionErrors) </summary>
@@ -370,6 +382,19 @@ namespace gs
                 contour = ContourAdaptive(cellSize);
                 evaluations += WindingEvaluations;
                 GapEdgesPerLevel.Add(HiddenGapEdges + HiddenWallEdges);
+            }
+            // (prototype) refinement driven by the certificate, globally
+            CertificateRefineRounds = 0;
+            while (contour != null && ComputeTopologyCertificate && CertificateStatus == ContouringCertificateStatus.CellsUncertified
+                && used < CertificateRefineLevels) {
+                double next = cellSize / 2;
+                if (WindingNumberOctree.RequiredDepth(WindingNumberOctree.Bounds(Meshes), next) > WindingNumberOctree.MaxSupportedDepth)
+                    break;
+                cellSize = next;
+                used++;
+                contour = ContourAdaptive(cellSize);
+                evaluations += WindingEvaluations;
+                CertificateRefineRounds++;
             }
             WindingEvaluations = evaluations;
             return contour;
@@ -489,6 +514,56 @@ namespace gs
                 dc.Generate();
                 NonManifoldRefinements++;
             }
+            // refinement driven by the topology certificate: the coarse cells of the uncertified cells are refined (one
+            // level more where an uncertified cell is refined already), until every cell is certified or a bound is met
+            bool certifiedNow = false;
+            CertificateRefineRounds = 0;
+            if (ComputeTopologyCertificate && CertificateRefineLevels > 0) {
+                while (CancelF() == false) {
+                    var timerC = System.Diagnostics.Stopwatch.StartNew();
+                    certify(dc);
+                    add_phase("certificate", timerC.ElapsedMilliseconds);
+                    certifiedNow = true;
+                    if (CertificateStatus != ContouringCertificateStatus.CellsUncertified || CertificateRefineRounds >= MaxCertificateRounds)
+                        break;
+                    int Fc = 1 << log2F;
+                    bool deeper = log2F == 0;
+                    var coarseCells = new List<Vector3i>();
+                    foreach (var kv in uncertifiedGridCells) {
+                        Vector3i cc = log2F == 0 ? kv.Key : new Vector3i(fdiv(kv.Key.x, Fc), fdiv(kv.Key.y, Fc), fdiv(kv.Key.z, Fc));
+                        if (log2F > 0 && region.Contains(cc)) deeper = true;
+                        coarseCells.Add(cc);
+                    }
+                    bool newLevel = false;
+                    if (deeper && log2F < CertificateRefineLevels && octree.MaxDepth + log2F + 1 <= WindingNumberOctree.MaxSupportedDepth
+                        && WindingNumberOctree.RequiredDepth(meshBounds, coarse / (double)(1L << (log2F + 1))) != int.MaxValue) {
+                        log2F++;
+                        newLevel = true;
+                    }
+                    if (log2F == 0)
+                        break;
+                    int before = region.Count;
+                    foreach (Vector3i c in coarseCells)
+                        add_to_region(region, octree, c);
+                    if (region.Count == before && newLevel == false)
+                        break;
+                    int F = 1 << log2F;
+                    timer.Restart();
+                    if (newLevel) {
+                        fine = new WindingNumberOctree(Meshes, Spatials, CombineF) { WindingIso = Iso, CancelF = CancelF };
+                        fineOctrees.Add(fine);
+                    }
+                    fine.RegionF = region_filter(region, F);
+                    fine.BuildOnGrid(octree.Origin, coarse / F, octree.MaxDepth + log2F);
+                    add_phase("octree.fine", timer.ElapsedMilliseconds);
+                    if (CancelF())
+                        return null;
+                    dc.SetRefinement(F, region, fine.SurfaceCells, fine.NodeValue);
+                    dc.Generate();
+                    certifiedNow = false;
+                    CertificateRefineRounds++;
+                }
+            }
             foreach (var kv in dc.PhaseMilliseconds)
                 add_phase(kv.Key, kv.Value);
             WindingEvaluations = octree.WindingEvaluations;
@@ -497,7 +572,7 @@ namespace gs
             RefinedCells = region.Count;
             RefineFactor = 1 << log2F;
             cellSize = coarse / RefineFactor;
-            return finish(dc);
+            return finish(dc, certifiedNow);
         }
 
         // the coarse cells around a hidden edge or face diagonal a-b (on a coarse edge: the 4 cells around it),

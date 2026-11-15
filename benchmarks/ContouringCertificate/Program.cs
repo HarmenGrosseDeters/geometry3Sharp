@@ -21,6 +21,7 @@ class Program
     {
         if (args.Length == 1 && args[0] == "predicates") { PredicateTiming.Run(); return 0; }
         if (args.Length >= 3 && args[0] == "solid") return SolidMain(args);
+        if (args.Length >= 3 && args[0] == "refine") { refineMode = true; return SolidMain(args); }
         if (args.Length < 3 || args[0] != "spike") { Console.Error.WriteLine("usage: ContouringCertificate spike <out.jsonl> <input>... [-- res,...]"); return 2; }
         string outFile = args[1];
         var inputs = new List<string>();
@@ -85,8 +86,11 @@ class Program
         return 0;
     }
 
+    static bool refineMode;
+
     static void Solid(string input, int res, Dictionary<string, object> r)
     {
+        if (refineMode) { Refine(input, res, r); return; }
         DMesh3 mesh = input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
         r["in_tris"] = mesh.TriangleCount;
         double diag = mesh.CachedBounds.DiagonalLength;
@@ -118,6 +122,138 @@ class Program
             if (s.Result != null) r["result_sig"] = Sig(MeshTopologySummary.Compute(s.Result).ComponentList.Select(c => c.Genus));
         }
     }
+
+    // refinement driven by the certificate: the default solidify without it (contour time), then with the certificate and
+    // CertificateRefineLevels 0 (stage 1), 1, 2, 3
+    static void Refine(string input, int res, Dictionary<string, object> r)
+    {
+        double cellOverride = 0;
+        DMesh3 mesh = input.StartsWith("imp:") ? ImplicitMesh(input.Substring(4), res, out cellOverride)
+            : input.StartsWith("mesh:") ? Procedural.Make(input.Substring(5)) : StandardMeshReader.ReadMesh(input);
+        r["in_tris"] = mesh.TriangleCount;
+        double diag = mesh.CachedBounds.DiagonalLength;
+        DMesh3 L = ContouringLevelSet.CleanCopy(mesh);
+        r["in_clean"] = L != null;
+        if (L == null) return;
+        int comps, lcomps;
+        bool[] inL = ContouringLevelSet.Classify(L, out comps, out lcomps);
+        var cc = new MeshConnectedComponents(L); cc.FindConnectedT();
+        var genera = new List<double>();
+        foreach (var comp in cc.Components)
+            if (inL[comp.Indices[0]]) genera.Add(MeshTopologySummary.Compute(new DSubmesh3(L, comp.Indices).SubMesh).Genus);
+        r["truth_sig"] = Sig(genera);
+        if (Environment.GetEnvironmentVariable("SIL_BASE") == "1") {
+            // baseline: of cubes of the solidify cell size centred at 2000 random points of L, how many meet a silhouette edge
+            double h = cellOverride > 0 ? cellOverride : diag / res;
+            var rnd = new Random(1); var sample = new List<ContouringUncertifiedCell>();
+            var tris = L.TriangleIndices().ToArray();
+            for (int i = 0; i < 2000; ++i) {
+                int t = tris[rnd.Next(tris.Length)]; double u = rnd.NextDouble(), v = rnd.NextDouble(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero; L.GetTriVertices(t, ref a, ref b, ref c);
+                Vector3d q = a + u * (b - a) + v * (c - a);
+                sample.Add(new ContouringUncertifiedCell() { Box = new AxisAlignedBox3d(q, h / 2) });
+            }
+            r["base_near_silhouette_of_2000"] = NearSilhouette(L, sample);
+            return;
+        }
+        HashSet<Vector3i> coarse0 = null; Vector3d anchor = Vector3d.Zero; double cs = 0;
+        foreach (int lv in new[] { -1, 0, 1, 2, 3 }) {
+            var sw = Stopwatch.StartNew();
+            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = cellOverride > 0 ? cellOverride : diag / res, CleanupResult = false, ReduceTolerance = 0,
+                ComputeTopologyCertificate = lv >= 0, CertificateRefineLevels = Math.Max(lv, 0) };
+            s.Compute();
+            string p = lv < 0 ? "off_" : "k" + lv + "_";
+            r[p + "ms"] = sw.ElapsedMilliseconds;
+            r[p + "contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c) ? c : -1;
+            r[p + "tris"] = s.Result == null ? -1 : s.Result.TriangleCount;
+            r[p + "refined_cells"] = s.RefinedCells; r[p + "factor"] = s.RefineFactor;
+            r[p + "used_cell"] = s.UsedCellSize / (cellOverride > 0 ? cellOverride : diag / res);
+            if (s.Result != null) r[p + "result_sig"] = Sig(MeshTopologySummary.Compute(s.Result).ComponentList.Select(x => x.Genus));
+            if (lv < 0) continue;
+            r[p + "status"] = s.TopologyCertificateStatus.ToString();
+            r[p + "uncertified"] = s.UncertifiedCells.Count;
+            r[p + "rounds"] = s.CertificateRefineRounds;
+            foreach (var g in s.UncertifiedCells.GroupBy(x => x.Reason)) r[p + "n_" + g.Key] = g.Count();
+            // the coarse cells (of the unrefined grid) that hold an uncertified cell: of those of stage 1, still; and new ones
+            if (lv == 0) {
+                coarse0 = new HashSet<Vector3i>();
+                if (s.UncertifiedCells.Count > 0) { anchor = s.UncertifiedCells[0].Box.Min; cs = s.UncertifiedCells[0].Box.Width; }
+            }
+            var cur = new HashSet<Vector3i>();
+            foreach (var u in s.UncertifiedCells) {
+                Vector3d q = (u.Box.Center - anchor) / cs;
+                cur.Add(new Vector3i((int)Math.Floor(q.x), (int)Math.Floor(q.y), (int)Math.Floor(q.z)));
+            }
+            r[p + "near_silhouette"] = NearSilhouette(L, s.UncertifiedCells);
+            if (lv == 0) { coarse0 = cur; r["k0_coarse"] = cur.Count; continue; }
+            r[p + "coarse_left"] = cur.Count(c => coarse0.Contains(c));
+            r[p + "coarse_new"] = cur.Count(c => !coarse0.Contains(c));
+        }
+    }
+
+    // how many of the uncertified cells meet (closed boxes) a silhouette edge of L: a mesh edge whose two triangle normals
+    // have components of opposite sign along a grid axis (an axis line near it can cross L twice within one grid edge)
+    static int NearSilhouette(DMesh3 L, List<ContouringUncertifiedCell> cells)
+    {
+        var boxes = new List<AxisAlignedBox3d>();
+        foreach (int e in L.EdgeIndices()) {
+            Index2i t = L.GetEdgeT(e);
+            if (t.b < 0) continue;
+            Vector3d n1 = L.GetTriNormal(t.a), n2 = L.GetTriNormal(t.b);
+            bool sil = false;
+            for (int a = 0; a < 3; ++a) if (n1[a] * n2[a] < 0) sil = true;
+            if (!sil) continue;
+            Index2i ev = L.GetEdgeV(e);
+            var b = new AxisAlignedBox3d(L.GetVertex(ev.a)); b.Contain(L.GetVertex(ev.b));
+            boxes.Add(b);
+        }
+        int n = 0;
+        foreach (var c in cells) {
+            bool hit = false;
+            foreach (var b in boxes) if (b.Intersects(c.Box)) { hit = true; break; }
+            if (hit) n++;
+        }
+        return n;
+    }
+
+    // imp:<shape>:<k>@<seed>: a feature-width family of benchmarks/ContouringTopology (feature width k cells of the solidify
+    // grid, 2.2 / res), under a random rotation, meshed by marching cubes at 2.2 / 192 (a clean closed mesh, whose level set is
+    // the certificate's exact truth); the solidify cell is 2.2 / res
+    static DMesh3 ImplicitMesh(string spec, int res, out double cell)
+    {
+        int at = spec.IndexOf('@');
+        int seed = at >= 0 ? int.Parse(spec.Substring(at + 1)) : 0;
+        if (at >= 0) spec = spec.Substring(0, at);
+        string[] parts = spec.Split(':');
+        double k = double.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+        cell = 2.2 / res;
+        double w = k * cell;
+        var rnd = new Random(seed);
+        Matrix3d R = Rot(Vector3d.AxisX, rnd.NextDouble() * 6.28) * Rot(Vector3d.AxisY, rnd.NextDouble() * 6.28) * Rot(Vector3d.AxisZ, rnd.NextDouble() * 6.28);
+        Func<Vector3d, double> f0;
+        switch (parts[0]) {
+            case "torus": f0 = p => { double a = Math.Sqrt(p.x * p.x + p.y * p.y) - 0.6; return Math.Sqrt(a * a + p.z * p.z) - w / 2; }; break;
+            case "tunnel": f0 = p => Math.Max(p.Length - 0.8, w / 2 - Math.Sqrt(p.x * p.x + p.y * p.y)); break;
+            case "gap": f0 = p => Math.Min((p - new Vector3d(0.45 + w / 2, 0, 0)).Length, (p + new Vector3d(0.45 + w / 2, 0, 0)).Length) - 0.45; break;
+            case "rod": f0 = p => {
+                double balls = Math.Min((p - new Vector3d(0.6, 0, 0)).Length, (p + new Vector3d(0.6, 0, 0)).Length) - 0.3;
+                double x = Math.Max(Math.Abs(p.x) - 0.6, 0);
+                return Math.Min(balls, Math.Sqrt(x * x + p.y * p.y + p.z * p.z) - w / 2); }; break;
+            case "shell": f0 = p => Math.Max(p.Length - 0.8, 0.8 - w - p.Length); break;
+            default: throw new ArgumentException(parts[0]);
+        }
+        var mc = new MarchingCubes() {
+            Implicit = new Fn() { F = p => f0(R * p) }, IsoValue = 0, CubeSize = 2.2 / 192,
+            Bounds = new AxisAlignedBox3d(new Vector3d(-1.1, -1.1, -1.1) + 0.0013 * Vector3d.One, new Vector3d(1.1, 1.1, 1.1)),
+            RootMode = MarchingCubes.RootfindingModes.Bisection, RootModeSteps = 10
+        };
+        mc.Generate();
+        DMesh3 m = mc.Mesh;
+        MeshEditor.RemoveUnusedVertices(m);
+        return m;
+    }
+    static Matrix3d Rot(Vector3d axis, double radians) => Matrix3d.AxisAngleD(axis, radians * 180 / Math.PI);
+    class Fn : ImplicitFunction3d { public Func<Vector3d, double> F; public double Value(ref Vector3d p) { return F(p); } }
 
     // vertices with identical coordinates merged (exact: the geometry and the winding number do not change)
     static DMesh3 ExactWeld(DMesh3 m)
