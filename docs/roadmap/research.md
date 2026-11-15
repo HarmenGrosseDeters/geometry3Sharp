@@ -194,7 +194,8 @@ Part of the [roadmap](../ROADMAP.md).
   (#886), sparse SDF grids, AI bridges. Not scheduled. (Tet meshing, TPMS and batch queries left this list: built, see
   items 1, 3 and 5.)
 - **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
-  ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755), the
+  ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
+  variant designed 2026-11-15 and not recommended before the release, owner decision open), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -383,7 +384,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, draft #721), 11 (the
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, #721), 11 (the
 proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged; issue #859 open). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
 Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
 Not now: 1 alone, 4, 5 (tet), 7, 14.
@@ -421,6 +422,15 @@ Ordered by expected value for the library.
      cohort that the rounding leaves) single-vertex moves that each remove a defect make 4 of 5 clean. Owner
      2026-11-12: built in its simple variant (enumerated single-vertex moves that each remove a defect) as the position
      search of #755 (merged 2026-11-13, [SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md) section 9).
+   - Plateau variant (2026-11-15, the note's section 10; a design, no library code): chains of single-vertex steps
+     that keep the defect counts, committed only when a step removes a defect and rolled back otherwise; termination,
+     the bound and the counts checked with Z3 (`tools/Z3Pilot/plateau_search.py`, 9 mutants SAT). Probe on what the
+     rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
+     2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 not rounding clean, all open or with
+     contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 8-14 of the 25 generated leftovers
+     (today's rule: 3-5). **Recommendation: no-go before the release** (the gain on real results is one operation,
+     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
+     release does not depend on it). Owner decision open. No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -570,7 +580,9 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-1. #721 (draft): practical 3D snap rounding and rounding cost (hard problems 1 and 3); a recommendation to the owner.
+1. #721: practical 3D snap rounding and rounding cost (hard problems 1 and 3). Options 1 and 2 are built (#725, #755);
+   the plateau variant of option 2 is designed and recommended as a no-go before the release
+   ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10); the owner's decision is open.
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).

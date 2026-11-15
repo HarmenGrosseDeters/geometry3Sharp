@@ -76,7 +76,8 @@ priority; this section names only what is in flight.
   (#726); first report #888 (28 outliers, no baseline yet). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Research:** CCD (#778, #793, #872; #866 still 18-20 s parallel), tet meshing stages 1-2 (#775, #821) and the
   fTetWild comparison (#885), TPMS (#838), topology certificate stage 1 (#779) are merged. Open: geodesic oracle
-  draft #869, 3D snap rounding draft #721, new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
+  draft #869, 3D snap rounding #721 (plateau variant of the position search: no-go recommended, see "Open
+  decisions"), new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
   [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
 - **Terrain:** ramps R1 (#841, #865), #861 (#878), #808 (#850), CoreMath in the slope kernel (#836) merged; next sector
   polygons E1 on demand. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
@@ -87,6 +88,10 @@ Checked on 2026-11-15.
 
 - **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10).
   [platform.md](roadmap/platform.md#open)
+- **Plateau variant of the rounding's position search** (#721, 2026-11-15): recommended no-go before the release (it
+  can gain 1 of 16 239 cohort operations; rounding-clean results are bit-identical either way, so the release does
+  not depend on it). [SNAP_ROUNDING_3D.md](design/SNAP_ROUNDING_3D.md) section 10.8,
+  [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)
 - **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`); sessions cannot
   delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** not now (coordinator 2026-11-15). `MeshMeshCut` imprints
