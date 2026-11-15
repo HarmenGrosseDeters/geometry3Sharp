@@ -126,7 +126,7 @@ bash tools/MeshFuzzPilot/run.sh /path/to/new-work-dir /path/to/libfuzzer-dotnet 
 
 `run.sh` refuses an existing work directory. It publishes a clean `replay/` build, runs its self-test, writes the
 102 seeds (every operation on each of the six shapes), copies the build into `bin/` and instruments only the copies of
-`geometry3Sharp.dll` and, for the `clipper2` target, `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`. The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
+`geometry3Sharp.dll` and, for the `clipper2` target, `geometry3Sharp.Clipper2.dll` (which carries the Clipper2 sources since 2.0). The run uses a fixed seed, at most 512 bytes per input, a 30 s timeout per input (an alpha
 wrap of a flat input with the default alpha takes about 4 s uninstrumented and more than 10 s instrumented: slow,
 not hung), a libFuzzer-side 3 GiB RSS limit (it covers the libFuzzer process, not the .NET child: use an external limit for
 the child if needed), and stops after the given number of runs or seconds, or at the first

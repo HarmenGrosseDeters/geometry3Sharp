@@ -30,6 +30,24 @@ namespace g3
         public const float Epsilonf = 1.192092896e-07F;
 
 
+        /// <summary>
+        /// Floor a coordinate and convert it consistently on all runtimes. NaN maps to zero;
+        /// values outside the integer range saturate at the nearest endpoint.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static int FloorToIntSaturating(double value)
+        {
+#if NET9_0_OR_GREATER
+            // .NET 9 and later specify saturating unchecked casts, including NaN -> 0.
+            return unchecked((int)Math.Floor(value));
+#else
+            if (double.IsNaN(value)) return 0;
+            if (value >= int.MaxValue) return int.MaxValue;
+            if (value <= int.MinValue) return int.MinValue;
+            return (int)Math.Floor(value);
+#endif
+        }
+
         public static bool IsFinite(double d) {
             return double.IsInfinity(d) == false && double.IsNaN(d) == false;
         }

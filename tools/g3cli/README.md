@@ -25,6 +25,7 @@ tools of an MCP server (stdio), for coding agents and scripts.
 | `curvature` | discrete mean and Gaussian curvature per vertex (Meyer et al.: mixed Voronoi area, mean curvature normal, angle deficit) as statistics over the valid vertices, also scaled by the mesh size; `--output` writes every vertex as CSV / JSON | `MeshCurvature` |
 | `offset` | offset surface of a closed mesh at a signed distance (positive outward, negative inward) by marching cubes on a signed distance grid; `--cell-size` / `--relative-cell-size`, `--root-mode single_lerp` / `lerp_steps` / `bisection` / `linear_edges` (`LinearEdges`: one linear interpolation of the corner samples, fails with `linear_edges_precondition` where its preconditions are violated), a cell budget (`--max-cells`); `enclosure_claim` is always `none` (no guarantee that the offset surface encloses the input) | `MeshSignedDistanceGrid`, `MarchingCubes` |
 | `wrap` | alpha wrap of any mesh (soup, open, self-intersecting) into a closed, 2-manifold surface that encloses it; `--alpha` / `--relative-alpha`, `--offset` / `--relative-offset`, Steiner point limit, refinement switches; library defaults (Alpha Wrap 2.0) when not given; reports `wrap_status`, `used_alpha`, `used_offset`, counts, phase times | `MeshAlphaWrap` |
+| `tpms` | triply periodic minimal surface lattice (gyroid, Schwarz P / D, Neovius, I-WP, Lidinoid) as a sheet or skeletal solid, in a box or inside a closed mesh (`--domain`); `--volume-fraction` or `--wall-thickness` (sheet), `--cell-size`, `--divisions`, `--origin`, `--enclosure` (the solid contains the exact lattice, dyadic grid needed); the result is certified (closed, manifold, no self-intersection) or nothing is written; reports `tpms_status`, level, realized volume fraction, mean wall thickness, iso value used | `TpmsLattice` |
 | `geodesic` | geodesic distance from source vertices to all vertices (heat method; statistics and the distance at target vertices; intrinsic refinement, the descent path from a vertex or point with `--trace-from`) or the geodesic path between vertices / through waypoints / closed (edge flips): length, vertices passed, polyline on the surface | `MeshGeodesicDistance`, `MeshGeodesicPath` |
 | `query3d` | batch queries on a mesh: nearest ray hits (or only hit / no hit), nearest triangle and closest point of points, inside / outside of points (crossings, winding number or `auto`); rays (text, JSON, or a pinhole `--camera` with a distance image `--depth-output` as PGM / CSV) and points as text or JSON, all results to a CSV / JSON file (`--output`); results do not depend on order or threads | `MeshBatchQueries`, `DMeshAABBTree3` |
 | `deviation` | deviation map of a mesh against a reference: signed (`--sign pseudo_normal` / `winding_number`) or unsigned vertex distances as statistics (mean, rms, median, percentiles), with `--certified` the certified one-sided Hausdorff distance as lower and upper bound | `MeshDeviation`, `DeviationStatistics` |
@@ -173,6 +174,7 @@ g3cli offset part.stl part_offset.stl --distance 0.5 --relative-cell-size 0.005 
 #   -> or operation_failed with "offset_status": "linear_edges_precondition" and no output file
 
 # convex hull of 2D points (or of the x/y of a mesh's vertices); the hull vertices counterclockwise with their indices in the input
+g3cli tpms lattice.stl --type gyroid --style sheet --volume-fraction 0.3 --box-max 4,4,4 --divisions 16
 g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1" --return-geojson
 #   -> "dimension": 2, "hull_vertices": 4, "area": 12, "perimeter": 14, "indices": [2, 3, 0, 1], "polygon": [[4, 3], [0, 3], [0, 0], [4, 0]]
 g3cli hull2d part.stl --output hull.geojson
@@ -358,6 +360,8 @@ GeoJSON (RFC 7946): a `FeatureCollection`, a `Feature` or a bare geometry; each 
   the slope surface and the slope region; `--catch-lines` and `--target-lines` write GeoJSON `LineString`s (closed lines
   repeat their first position), with `start_reason` / `end_reason`, `max_uncertainty` and `tangential_segments`, or
   `height`.
+- **`--max-fan-directions`** (default 512, 16 to 4096): the largest number of cone facets per turn. A tolerance whose facets
+  need more fails with `invalid_arguments` (`design_status` `invalid_input`), and the message names a tolerance that fits.
 - **The report**: `design_status` and `status_kind` (TerrainSlopeDesign's), `complete`, the volumes and areas
   (`cut_volume`, `fill_volume`, `cut_area`, `fill_area`, `volume`, `plan_area`, `slope_area`), the catch lines,
   `min_feature_size` (the smallest feature the result guarantees, about 1.5 cm at UTM), `slope_margin`, `toe_lowering`,

@@ -2983,6 +2983,32 @@ private void DoHorizontal(Active horz)
       return Path1InsidePath2(op1, path);
     }
 
+    // geometry3Sharp change (#756, owner decision 2026-11-13): FixSelfIntersects' branch for "adjacent intersections
+    // (ie a micro self-intersection)" inserts a copy of the vertex two ahead before op2. It is kept (upstream added it
+    // for #960 in 272eb9b and removed it for #1067 in 4da1564, which is not adopted here: without it most results
+    // within the rounding get slightly less accurate), but undone when it flips the orientation of the ring: then the
+    // insertion reshaped the path instead of removing a twist (an Intersection gave a ring of negative area), and the
+    // crossing goes to DoSplitOp as every other crossing does. Returns true if the insertion was made (op2 then moves
+    // on as before), false if it was undone (op2 unchanged).
+    private bool MicroFixKeepsOrientation(ref OutPt op2)
+    {
+      double before = Area(op2);
+      OutPt dup = DuplicateOp(op2, false);
+      dup.pt = dup.next!.next!.next!.pt;
+      double after = Area(dup);
+      // a ring of zero net area (eg two equal lobes of opposite orientation) has no orientation to keep: upstream's
+      // behaviour (the insertion stays)
+      if (before != 0 && (after > 0) != (before > 0))
+      {
+        dup.prev.next = dup.next;
+        dup.next!.prev = dup.prev;
+        --dup.outrec.outPtCount;   // DuplicateOp counted it
+        return false;
+      }
+      op2 = dup.next!;
+      return true;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void FixSelfIntersects(OutRec outrec)
     {
@@ -2995,12 +3021,10 @@ private void DoHorizontal(Active horz)
                 op2.pt, op2.next!.pt, op2.next.next!.pt))
         {
           if (InternalClipper.SegsIntersect(op2.prev.pt,
-                  op2.pt, op2.next.next!.pt, op2.next.next.next!.pt))
+                  op2.pt, op2.next.next!.pt, op2.next.next.next!.pt) &&
+              MicroFixKeepsOrientation(ref op2))
           {
-            // adjacent intersections (ie a micro self-intersection)
-            op2 = DuplicateOp(op2, false);
-            op2.pt = op2.next!.next!.next!.pt;
-            op2 = op2.next;
+            // adjacent intersections (ie a micro self-intersection): done by MicroFixKeepsOrientation
           }
           else
           {

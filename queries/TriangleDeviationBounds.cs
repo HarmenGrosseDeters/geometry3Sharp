@@ -27,6 +27,8 @@ namespace g3
         public double UpperBound(Vector3d p0, Vector3d p1, Vector3d p2, double d0, double d1, double d2,
             int n0, int n1, int n2, double threshold)
         {
+            if (Certified)
+                return certified_upper(p0, p1, p2, d0, d1, d2, n0, n1, n2, threshold);
             double dmax = Math.Max(d0, Math.Max(d1, d2));
             // the distance to a single target triangle is convex: its max over the triangle is at a corner
             if (n0 == n1 && n1 == n2)
@@ -48,7 +50,7 @@ namespace g3
             double u2 = dmax + covering_radius(e01, e12, e20);
 
             double u = Math.Min(u0, Math.Min(u1, u2));
-            if (PatchBound && !(u <= threshold))
+            if (PatchBound && !Certified && !(u <= threshold))
                 // (never below the largest corner distance, a distance of a point of the triangle)
                 u = Math.Min(u, Math.Max(dmax, patch_bound(p0, p1, p2, n0, n1, n2)));
             return u;
@@ -59,6 +61,162 @@ namespace g3
         /// region (eg a coarse mesh against the fine one it was reduced from). Off by default; MeshHausdorffDistance.PatchBound
         /// </summary>
         internal bool PatchBound = false;
+
+        /// <summary>
+        /// (internal, MeshHausdorffDistance.CertifiedUpper) UpperBound is certified: never below the largest exact distance over the
+        /// exact triangle with the given double corners, rounding included, if d_i are certified upper bounds of the corners' distances
+        /// to their triangles n_i (CertifiedTriangleBounds.PointTriangleUpper). The patch bound is not used then (its rounding slack is
+        /// estimated, not derived; #742). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
+        /// </summary>
+        internal bool Certified = false;
+
+        // the certified cascade (B6): the corner bound for a single nearest triangle; otherwise the smallest of u0 (the float cascade picks
+        // the pieces and candidates, whose leaves are then bounded with certified distances: any choice is a valid bound, B2/B3), u1 (B4)
+        // and u2 (B5). A NaN anywhere counts as +infinity
+        double certified_upper(Vector3d p0, Vector3d p1, Vector3d p2, double d0, double d1, double d2, int n0, int n1, int n2, double threshold)
+        {
+            double dmax = CertifiedTriangleBounds.max(d0, CertifiedTriangleBounds.max(d1, d2));
+            if (n0 == n1 && n1 == n2)
+                return dmax;
+            Corners corners = new Corners() { P0 = p0, P1 = p1, P2 = p2, D0 = d0, D1 = d1, D2 = d2, N0 = n0, N1 = n1, N2 = n2 };
+            List<int> cand = new List<int>(3) { n0 };
+            if (n1 != n0) cand.Add(n1);
+            if (n2 != n0 && n2 != n1) cand.Add(n2);
+            var root = new Piece(3);
+            root.Add(p0, 0); root.Add(p1, 0); root.Add(p2, 0);
+            var leaves = new List<(Piece, int)>();
+            witness_bound(root, cand, 0, ref corners, threshold, leaves);
+            double u0 = 0;
+            foreach (var (piece, tid) in leaves)
+                u0 = CertifiedTriangleBounds.max(u0, certified_max_distance(piece, tid, ref corners));
+
+            double e01 = CertifiedTriangleBounds.LengthUpper(p0, p1), e12 = CertifiedTriangleBounds.LengthUpper(p1, p2),
+                e20 = CertifiedTriangleBounds.LengthUpper(p2, p0);
+            double u1 = Math.Min(CertifiedTriangleBounds.up(d0 + CertifiedTriangleBounds.max(e01, e20)),
+                Math.Min(CertifiedTriangleBounds.up(d1 + CertifiedTriangleBounds.max(e01, e12)), CertifiedTriangleBounds.up(d2 + CertifiedTriangleBounds.max(e12, e20))));
+            double u2 = CertifiedTriangleBounds.up(dmax + CertifiedTriangleBounds.CoveringUpper(p0, p1, p2, e01, e12, e20));
+            // (each is +infinity, never NaN, where it cannot be bounded)
+            return Math.Min(u0, Math.Min(u1, u2));
+        }
+
+        // a convex piece of the triangle: its points as doubles and, per point, a bound of its distance from the exact point it stands
+        // for (0 for the corners; a cut point is rounded, B3)
+        internal sealed class Piece
+        {
+            public readonly List<Vector3d> P;
+            public readonly List<double> Off;
+            public Piece(int n) { P = new List<Vector3d>(n); Off = new List<double>(n); }
+            public void Add(Vector3d p, double off) { P.Add(p); Off.Add(off); }
+            public int Count => P.Count;
+        }
+
+        // polygon_bound's choice in floats, recording the leaves (piece, candidate) of the option it adopts: the whole piece with its
+        // best candidate, or both sides of an adopted split, recursively. Options it does not adopt leave no leaves (a superset of the
+        // adopted leaves would be sound, a subset not). Returns the float value of the adopted option
+        double witness_bound(Piece piece, List<int> cand, int depth, ref Corners corners, double threshold, List<(Piece, int)> leaves)
+        {
+            double best = double.MaxValue; int bestTid = cand[0];
+            foreach (int tid in cand) {
+                double m = max_distance(piece.P, tid, ref corners);
+                if (m < best) { best = m; bestTid = tid; }
+            }
+            List<(Piece, int)> adopted = null;
+            if (!(cand.Count < 2 || depth >= 2 || best <= threshold))
+                for (int i = 0; i < cand.Count; ++i)
+                    for (int j = i + 1; j < cand.Count; ++j) {
+                        Vector3d origin, normal;
+                        if (separating_plane(cand[i], cand[j], out origin, out normal) == false)
+                            continue;
+                        Piece pi, pj;
+                        if (certified_clip(piece, origin, normal, out pi, out pj) == false)
+                            continue;
+                        List<int> ci = new List<int>(), cj = new List<int>();
+                        foreach (int c in cand)
+                            ((c == cand[i] || (c != cand[j] && normal.Dot(Target.GetTriCentroid(c) - origin) >= 0)) ? ci : cj).Add(c);
+                        var li = new List<(Piece, int)>();
+                        double bi = (pi.Count > 0) ? witness_bound(pi, ci, depth + 1, ref corners, threshold, li) : 0;
+                        if (!(bi < best)) continue;
+                        var lj = new List<(Piece, int)>();
+                        double bj = (pj.Count > 0) ? witness_bound(pj, cj, depth + 1, ref corners, threshold, lj) : 0;
+                        double b = Math.Max(bi, bj);
+                        if (b < best) {
+                            best = b;
+                            li.AddRange(lj);
+                            adopted = li;
+                        }
+                    }
+            if (adopted == null) leaves.Add((piece, bestTid));
+            else leaves.AddRange(adopted);
+            return best;
+        }
+
+        // B3: the split of a convex piece by the plane, with the cut points' rounding: a point goes to the side of its computed sign,
+        // zero to both, a cut point (on the edge, at the computed parameter) to both; the pieces cover the piece for any signs, as long
+        // as each sign is defined: a NaN sign rejects the split (false), since that point would be in neither piece
+        internal static bool certified_clip(Piece poly, Vector3d origin, Vector3d normal, out Piece pos, out Piece neg)
+        {
+            int n = poly.Count;
+            pos = neg = null;
+            var dist = new double[n];
+            for (int k = 0; k < n; ++k) {
+                dist[k] = normal.Dot(poly.P[k] - origin);
+                if (double.IsNaN(dist[k])) return false;
+            }
+            split(poly, dist, out pos, out neg);
+            return true;
+        }
+
+        // the split by given signed distances of the points (not NaN): any signs, consistent with a plane or not (B3 coverage)
+        internal static void split(Piece poly, double[] dist, out Piece pos, out Piece neg)
+        {
+            int n = poly.Count;
+            pos = new Piece(n + 2); neg = new Piece(n + 2);
+            for (int k = 0; k < n; ++k) {
+                int k1 = (k + 1) % n;
+                Vector3d a = poly.P[k], b = poly.P[k1];
+                double da = dist[k], db = dist[k1];
+                if (da >= 0) pos.Add(a, poly.Off[k]);
+                if (da <= 0) neg.Add(a, poly.Off[k]);
+                if ((da > 0 && db < 0) || (da < 0 && db > 0)) {
+                    double lambda = da / (da - db);
+                    if (!(lambda >= 0)) lambda = 0;
+                    if (lambda > 1) lambda = 1;
+                    Vector3d x = a + lambda * (b - a);
+                    // |x - x*| <= its rounding + max(off_a, off_b) (the exact cut point is on the exact edge, at the same lambda)
+                    double off = CertifiedTriangleBounds.up(CertifiedTriangleBounds.CutRounding(a, b, lambda, x)
+                        + CertifiedTriangleBounds.max(poly.Off[k], poly.Off[k1]));
+                    pos.Add(x, off); neg.Add(x, off);
+                }
+            }
+        }
+
+        // B2: the largest certified distance to triangle tid over the piece's points, each plus its off (convexity and 1-Lipschitz); a
+        // corner of the triangle with tid as its nearest reuses its certified distance (plus its off, which a cut point equal to it by
+        // value carries)
+        internal double certified_max_distance(Piece piece, int tid, ref Corners k)
+        {
+            if (!Target.IsTriangle(tid))
+                return double.PositiveInfinity;
+            Index3i tv = Target.GetTriangle(tid);
+            Triangle3d tri = new Triangle3d(Target.GetVertex(tv.a), Target.GetVertex(tv.b), Target.GetVertex(tv.c));
+            double m = 0;
+            for (int j = 0; j < piece.Count; ++j) {
+                Vector3d p = piece.P[j];
+                double d;
+                if (p == k.P0 && k.N0 == tid) d = k.D0;
+                else if (p == k.P1 && k.N1 == tid) d = k.D1;
+                else if (p == k.P2 && k.N2 == tid) d = k.D2;
+                else {
+                    Vector3d closest, bary;
+                    DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary);
+                    d = CertifiedTriangleBounds.PointTriangleUpper(p, tri.V0, tri.V1, tri.V2, bary.y, bary.z);
+                }
+                if (piece.Off[j] != 0) d = CertifiedTriangleBounds.up(d + piece.Off[j]);
+                m = CertifiedTriangleBounds.max(m, d);
+            }
+            return m;
+        }
+
         /// <summary> the patch bound gives up when the patch has more target triangles </summary>
         internal int MaxPatchTriangles = 256;
         /// <summary> the patch bound leaves out target triangles steeper than this (height range / projected size) </summary>
@@ -414,7 +572,7 @@ namespace g3
         }
 
 
-        struct Corners
+        internal struct Corners
         {
             public Vector3d P0, P1, P2;
             public double D0, D1, D2;

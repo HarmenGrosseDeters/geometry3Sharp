@@ -121,7 +121,8 @@ namespace geometry3Sharp.Tests
         // #408, 1 of the 44 slivers stays)
         static DMesh3 WrapWithSliver(string shape, int k, bool cap, out double tol)
         {
-            var w = new MeshAlphaWrap(Shape(shape)) { RelativeAlpha = 60, RelativeOffset = 600, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0 };
+            // (the serial carving, RoundWindow = 0: the wraps these cases were chosen on)
+            var w = new MeshAlphaWrap(Shape(shape)) { RelativeAlpha = 60, RelativeOffset = 600, TraverseByEmptyBall = false, RefineMinAngleDegrees = 0, RoundWindow = 0 };
             Assert.True(w.Compute());
             DMesh3 m = new DMesh3(w.Result);
             tol = 0.5 * w.UsedOffset;

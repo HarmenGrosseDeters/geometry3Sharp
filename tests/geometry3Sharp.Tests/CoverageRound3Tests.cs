@@ -243,14 +243,14 @@ namespace geometry3Sharp.Tests
 
         // ---------------------------------------------------------------- input coordinates beyond a double's sum
 
-        static DMesh3 Sphere(Vector3d c, double r, int ev)
+        internal static DMesh3 Sphere(Vector3d c, double r, int ev)
         {
             DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = r, EdgeVertices = ev }.Generate().MakeDMesh();
             MeshTransforms.Translate(m, c);
             return m;
         }
 
-        static DMesh3 OpenSphere(Vector3d c, double r, int ev, Vector3d dir, double cut)
+        internal static DMesh3 OpenSphere(Vector3d c, double r, int ev, Vector3d dir, double cut)
         {
             DMesh3 m = Sphere(c, r, ev);
             foreach (int t in m.TriangleIndices().ToList())
@@ -259,7 +259,7 @@ namespace geometry3Sharp.Tests
             return m;
         }
 
-        static DMesh3 ScaledAndMoved(DMesh3 m, double scale, Vector3d offset)
+        internal static DMesh3 ScaledAndMoved(DMesh3 m, double scale, Vector3d offset)
         {
             DMesh3 r = new DMesh3(m);
             foreach (int v in r.VertexIndices().ToList())

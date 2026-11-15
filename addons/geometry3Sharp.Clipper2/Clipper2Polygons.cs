@@ -3,11 +3,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3.Clipper2.Vendored;
-// the public API takes the enums of the Clipper2 package; the work is done by the vendored sources (Bridge)
-using ClipType = Clipper2Lib.ClipType;
-using EndType = Clipper2Lib.EndType;
-using FillRule = Clipper2Lib.FillRule;
-using JoinType = Clipper2Lib.JoinType;
+// ClipType, FillRule, JoinType, EndType: this package's public enums (Enums.cs, found before the vendored ones);
+// the work is done by the vendored sources (Bridge maps the enums)
 using V = g3.Clipper2.Vendored;
 
 namespace g3.Clipper2

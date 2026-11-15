@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Clipper2Lib;
 using g3;
 using g3.Clipper2;
 using gs;
