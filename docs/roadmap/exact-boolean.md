@@ -428,8 +428,14 @@ Open:
   nothing; the exact point construction is 2.4 % / 4.9 % of the normal stratum's one-thread time (20 pairs / 13
   models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
   that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
-  15 % of the slow tail's one-thread time, nothing on the normal stratum) are parked until lever 1 (#767) has
-  landed, which changes how often these stages run, and are measured again then. Candidate D is built
+  15 % of the slow tail's one-thread time, nothing on the normal stratum) were parked until lever 1 (#813) had
+  landed and measured again on 2026-11-15 ([design](../design/EXACT_LIMB_SIGNS.md), section 6): the bound is 9 % /
+  16 % of the one-thread time of 107554 / 42327 (lever 1 does not change how often these stages run there); a probe
+  that reads the operands from `BigInteger`'s own limbs and computes the centroid on stack limbs gains 6.3 % of the
+  one-thread time of the two models together (42327 -6.7 %, confirmed; 107554 -5.5 %, inside the run-to-run range)
+  and nothing on the normal stratum. Recommendation: go for that cheap form as one small PR, if the owner accepts
+  the access to `BigInteger`'s private fields behind a layout check; no-go for limbs threaded through the
+  classification. The study ends with this. Candidate D is built
   (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
   BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
   `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the

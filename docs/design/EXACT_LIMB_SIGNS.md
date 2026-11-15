@@ -212,7 +212,87 @@ order of the models reversed two on the before side (the sum of the six operatio
 is in the base and is not an effect of this change: it comes from the tiered JIT's dynamic PGO (#825: one union per
 process, 11 of 40 processes at 14.4 s or more by default, 0 of 40 with `DOTNET_TieredPGO=0`).
 
-## 6. Sources
+## 6. Candidate C's classification part, measured again after lever 1 (2026-11-15): a go, for the cheap form
+
+Section 3 parked the classification part of candidate C (the centroid and the planes' coefficients kept as limbs)
+until lever 1 (#813) had landed. Measured on master 079e8258 (with #772, #813 and #893), 4-core cloud container,
+.NET 10.0.15, Release, `DOTNET_TieredPGO=0` in every run (#825). Rows, scripts and the two local patches: branch
+`runs/exact-numbers`, `results/c4` (bound), `results/c5` (probe), `c/`.
+
+**Upper bound** (one thread on core 0, no concurrent GC; timers around `centroid_point` and around the operand
+loads of the four kernels of section 2, the timers' own cost of 23 ns per timestamp subtracted; a region's time
+includes the collections its allocation triggers; the whole region removed, which no implementation reaches):
+
+| stratum | one-thread time | centroid | operand loads | bound | centroid's allocation |
+|---|---|---|---|---|---|
+| slow tail, 107554 with its rotated copy, 3 operations | 95.6 s | 6.7 s, 7.0 % | 2.1 s, 2.2 % | 9.2 % | 3.1 of 23.3 GB, 12.9 % |
+| slow tail, 42327, 3 operations | 160.5 s | 12.4 s, 7.9 % | 12.7 s, 8.1 % | 16.0 % | 6.1 of 20.7 GB, 28.9 % |
+| normal, 20 pairs, 60 operations | 8.9 s | 0.13 % | 0.02 % | 0.16 % | 0.1 % |
+| normal, 13 models with a rotated copy, 39 operations | 6.2 s | 0.16 % | 0.01 % | 0.17 % | 0.1 % |
+
+Lever 1 did not change how often these stages run on the two tail models: 2.39 and 3.78 million centroids, 7.9 and
+50.1 million kernel calls; the counters of the classification (exact centroids, exact plane sides) are the ones of
+13 November. The loads are half of
+the kernels' time (12.7 of 27.4 s on 42327): `load` copies an operand through `TryWriteBytes` and turns two's
+complement into a magnitude.
+
+**Probe** (one binary, switched by an environment variable; not built, the patch is on the data branch):
+- `fast`: `load` reads the operand's magnitude from `BigInteger`'s own limbs (its private fields `_bits` and
+  `_sign`, through `UnsafeAccessor`; .NET keeps a sign and little-endian 32-bit limbs) instead of `TryWriteBytes`;
+- `fast + centroid`: and the unreduced centroid of `centroid_point` on stack limbs, only its four results become
+  BigIntegers (candidate C, part 1, which gained nothing with the old loads).
+
+Three runs per setting, the settings rotated; medians, the range in brackets; the sum of the stratum's operations.
+
+| stratum | setting | one thread, with collections | change | 4 cores, with collections | change | allocated |
+|---|---|---|---|---|---|---|
+| tail, 107554 | base | 99.7 s (93.0-99.8) | | 47.4 s (46.4-48.1) | | 23.3 GB |
+| | fast | 99.1 s (96.6-104.9) | -0.6 % | 46.6 s (46.5-48.9) | -1.7 % | 23.3 GB |
+| | fast + centroid | 94.2 s (93.0-99.0) | -5.5 % | 47.5 s (44.4-49.8) | +0.2 % | 22.5 GB |
+| tail, 42327 | base | 153.7 s (152.2-161.6) | | 56.7 s (56.4-58.3) | | 20.7 GB |
+| | fast | 148.0 s (139.8-155.0) | -3.7 % | 54.8 s (53.1-57.5) | -3.3 % | 20.7 GB |
+| | fast + centroid | 143.4 s (139.4-147.6) | -6.7 % | 53.8 s (52.3-56.5) | -5.1 % | 19.9 GB |
+| normal, 20 pairs | base | 8.26 s (7.89-8.71) | | 5.34 s (4.85-5.67) | | 2.26 GB |
+| | fast | 8.14 s (7.80-8.24) | -1.5 % | 5.12 s (4.66-5.21) | -4.1 % | 2.26 GB |
+| | fast + centroid | 8.68 s (7.29-8.80) | +5.1 % | 5.02 s (4.75-5.32) | -6.0 % | 2.26 GB |
+| normal, 13 models with a rotated copy | base | 5.96 s (5.75-6.20) | | 2.93 s (2.90-2.98) | | 1.35 GB |
+| | fast | 5.96 s (5.66-6.43) | 0.0 % | 2.83 s (2.75-2.95) | -3.4 % | 1.35 GB |
+| | fast + centroid | 5.78 s (5.69-6.58) | -3.1 % | 3.03 s (2.74-3.06) | +3.3 % | 1.35 GB |
+
+Result hashes and statuses are equal in all 72 runs (6 tail operations, 60 and 39 normal ones per run).
+
+- Slow tail, one thread, collections included: the two models together 253.4 -> 237.6 s, -6.3 %. On 42327 the gain
+  is outside the run-to-run range (the slowest run with the probe, 147.6 s, is below the fastest without, 152.2 s);
+  its classification goes from 94.2 to 81.9 s. On 107554 the median is 5.5 % lower, but the ranges overlap (base
+  93.0 to 99.8 s): not confirmed with three runs.
+- Slow tail, 4 cores, collections included: 42327 -5.1 % (the ranges touch: 52.3-56.5 against 56.4-58.3), 107554
+  no change.
+- Normal strata, one thread and 4 cores: no change beyond the run-to-run range in either direction (every pair of
+  ranges overlaps). The centroid runs 700 and 500 times in these strata and the kernels 1,200 and 800 times, so the
+  probe cannot move them; the medians of 8 s and 3 s processes scatter by several percent.
+- The probe reaches under half of the bound. The centroid still allocates its four results (0.9 of its 6.1 GB go
+  on 42327) and the other consumers of a centre (`ToInputVector`, the ray of `front_crossings`, `carried_crossings`)
+  still take BigIntegers.
+
+**Recommendation: go for the cheap form, no-go for the restructuring.**
+
+- Go: the two changes of the probe as one PR, about 80 lines in `math/ExactLimbSigns.cs` and three in
+  `centroid_point`. Measured: -6.3 % of the slow tail's one-thread time on its two classification-heavy models
+  (-6.7 % confirmed on 42327, -5.1 % there on 4 cores), nothing on the normal stratum. The 5 % line of the decision
+  is met on the tail, with three runs per setting; the PR measures again with five.
+- The open point is the owner's: `fast` reads private fields of `BigInteger`. They are `_sign` and `_bits` on
+  .NET 10.0.15 (checked by reflection), but nothing promises that they stay. The PR would
+  check the layout once at start (a value written through the public API against the fields read) and keep
+  `TryWriteBytes` otherwise, so a changed runtime loses the gain and not the result; netstandard2.0 keeps the
+  BigInteger expressions as today. Without that access the `fast` half (3.7 % of 42327) needs limb copies kept
+  beside the planes and the centres, which is the restructuring below.
+- No-go: limbs threaded through `Center` and its consumers and stored with the planes. It would have to bring the
+  rest of the bound (at most 4 % of 107554 and 9 % of 42327, one thread), touches about ten call sites of the
+  classification, and no probe of it exists. It is not worth building on these numbers.
+- For the determinism proof: `ExactLimbSigns.cs` is outside the stage 0 scope today; when a later stage takes it
+  in, the private-field access and the layout check become entries of its ledger.
+
+## 7. Sources
 
 Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
 `ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
