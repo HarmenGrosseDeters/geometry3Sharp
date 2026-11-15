@@ -1521,6 +1521,26 @@ namespace g3.Clipper2.Vendored
       }
       InsertScanline(ae.top.Y);
 
+      // geometry3Sharp change (port of PolyClipping/Clipper2 ec5f2d4, BSL-1.0): rounded TopX values can hide a wrong
+      // order between edges leaving a shared vertex, so restore their order here rather than crossing them further on
+      // (the region between them came out reversed)
+      Active? prev = ae.prevInAEL;
+      while (prev != null && prev.bot == ae.bot && !IsHorizontal(prev) &&
+        InternalClipper.CrossProductSign(prev.top, ae.bot, ae.top) > 0)
+      {
+        IntersectEdges(prev, ae, ae.bot);
+        SwapPositionsInAEL(prev, ae);
+        prev = ae.prevInAEL;
+      }
+      Active? next = ae.nextInAEL;
+      while (next != null && next.bot == ae.bot && !IsHorizontal(next) &&
+        InternalClipper.CrossProductSign(next.top, ae.bot, ae.top) < 0)
+      {
+        IntersectEdges(ae, next, ae.bot);
+        SwapPositionsInAEL(ae, next);
+        next = ae.nextInAEL;
+      }
+
       CheckJoinLeft(ae, ae.bot);
       CheckJoinRight(ae, ae.bot, true); // (#500)
     }
@@ -2037,6 +2057,34 @@ namespace g3.Clipper2.Vendored
       return _intersectList.Count > 0;
     }
 
+    private IntersectNode[]? _sortBuffer;
+
+    // a bottom-up merge sort (stable: equal nodes keep their order)
+    private void StableSort(List<IntersectNode> list, IntersectListSort comparer)
+    {
+      int n = list.Count;
+      if (n < 2) return;
+      if (_sortBuffer == null || _sortBuffer.Length < 2 * n) _sortBuffer = new IntersectNode[2 * n];
+      IntersectNode[] buf = _sortBuffer;
+      list.CopyTo(buf, 0);
+      int src = 0, dst = n;
+      for (int width = 1; width < n; width *= 2)
+      {
+        for (int lo = 0; lo < n; lo += 2 * width)
+        {
+          int mid = Math.Min(lo + width, n), hi = Math.Min(lo + 2 * width, n);
+          int i = lo, j = mid, k = lo;
+          while (i < mid && j < hi)
+            buf[dst + k++] = comparer.Compare(buf[src + j], buf[src + i]) < 0 ? buf[src + j++] : buf[src + i++];
+          while (i < mid) buf[dst + k++] = buf[src + i++];
+          while (j < hi) buf[dst + k++] = buf[src + j++];
+        }
+        (src, dst) = (dst, src);
+      }
+      for (int i = 0; i < n; ++i) list[i] = buf[src + i];
+      Array.Clear(buf, 0, 2 * n);   // the nodes refer to edges and output records: keep nothing alive after Execute
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void ProcessIntersectList()
     {
@@ -2045,8 +2093,10 @@ namespace g3.Clipper2.Vendored
       // that edge intersections are processed from the bottom up, but it's also
       // crucial that intersections only occur between adjacent edges.
 
-      // First we do a quicksort so intersections proceed in a bottom up order ...
-      _intersectList.Sort(new IntersectListSort());
+      // First we sort so intersections proceed in a bottom up order. geometry3Sharp change (port of PolyClipping/Clipper2
+      // f774daf, BSL-1.0): the sort is stable, because the order of intersections at the same point changes the output
+      // and List.Sort (introsort) leaves it to the implementation ...
+      StableSort(_intersectList, new IntersectListSort());
 
       // Now as we process these intersections, we must sometimes adjust the order
       // to ensure that intersecting edges are always adjacent ...
@@ -3138,8 +3188,14 @@ private void DoHorizontal(Active horz)
       for (int i = 0; i < splits!.Count; i++)
       {
         OutRec? split = _outrecList[splits[i]];
-        if (split.pts == null && split.splits != null &&
-          CheckSplitOwner(outrec, split.splits)) return true; //#942
+        if (split.pts == null && split.splits != null)
+        {
+          // geometry3Sharp change (port of PolyClipping/Clipper2 f97d65d, BSL-1.0): emptied OutRecs can reference each
+          // other through their splits, and this branch had no recursiveSplit guard (a stack overflow upstream)
+          if (split.recursiveSplit == outrec) continue;
+          split.recursiveSplit = outrec;
+          if (CheckSplitOwner(outrec, split.splits)) return true; //#942
+        }
         split = GetRealOutRec(split);
         if (split == null || split == outrec || split.recursiveSplit == outrec) continue;
         split.recursiveSplit = outrec; //#599

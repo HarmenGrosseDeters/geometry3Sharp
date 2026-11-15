@@ -57,8 +57,8 @@ priority; this section names only what is in flight.
   closes T1b; rounding-shard filters narrowed), draft #837 (rounding-search upper bound). The tail above 20 s is in #888.
   [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Alpha Wrap 3.0:** (B) round-based parallel carving #774 is merged (2026-11-15; `RoundWindow` 256 by default, 0 as
-  the opt-out); the 800 run follows on master. Part two, the parallel trial passes, is #898 (draft). Adaptive alpha is a
-  spike after 3.0 (#899). Wrap simplification certification #747 is partly done.
+  the opt-out); its 800 run passed (owner 2026-11-15). Part two, the parallel trial passes, is #898 (merged). Adaptive
+  alpha is a spike after 3.0 (#899). Wrap simplification certification #747 is done (first-pass guard: no-go).
   [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Determinism proof, option A:** stage 0 (analyzer rules G3D0001-9, #871) merged 2026-11-14. Open: #892 (#803,
   sign-of-zero Min / Max in `AxisAlignedBox3d`) and #891 (#804, saturating casts in the grid indexers), reviewed
@@ -76,7 +76,8 @@ priority; this section names only what is in flight.
   (#726); first report #888 (28 outliers, no baseline yet). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Research:** CCD (#778, #793, #872; #866 still 18-20 s parallel), tet meshing stages 1-2 (#775, #821) and the
   fTetWild comparison (#885), TPMS (#838), topology certificate stage 1 (#779) are merged (stage 2 stopped after its spike, 2026-11-15). Open: geodesic oracle
-  draft #869, 3D snap rounding draft #721, new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
+  draft #869, 3D snap rounding #721 (plateau variant of the position search: no-go before the release, no spike,
+  owner 2026-11-15; it stays a design), new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
   [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
 - **Terrain:** ramps R1 (#841, #865), #861 (#878), #808 (#850), CoreMath in the slope kernel (#836) merged; next sector
   polygons E1 on demand. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)

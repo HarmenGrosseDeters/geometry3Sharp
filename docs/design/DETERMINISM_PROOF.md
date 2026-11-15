@@ -236,7 +236,7 @@ x64 and as a 32-bit process; .NET 10.0.15), 61 cases.
 | R1 | platform libm in `TerrainSlope*` | **real**: `TerrainSlopeDesign` with a Ratio slope and a libm-free input differs in 20 of 15302 result values between windows net10 and windows net48, and between linux net10 and windows net10 (linux net10 and windows net48 agree). Cause, by moving each of the 15 reached call sites by one ulp: `Cos / Sin` of the fan directions (`TerrainSlopeDesign.cs:1716`), which define the planes given to the exact kernel; the other sites feed decisions and bounds and did not flip | #802 (owner decision: libm rule for `TerrainSlope*`, the one line only, or outside L1) |
 | R4 | `Math.Min / Max` on zeros | confirmed: `Min(-0, +0)` and `Max(+0, -0)` differ (.NET Framework returns the second operand, .NET the IEEE 754-2019 result); with a NaN operand both agree. Six sites of the exact scope can pass the zero to a result value | #803 |
 | R5 | `double -> integer` casts | confirmed: 63 of 150 probed casts of NaN and out-of-range values differ (.NET saturates, NaN gives 0; .NET Framework gives the minimum value). The audit found one site that a valid input drives out of range (`TerrainSlopeDesign.cs:1090`) | #804, #808 |
-| R7 | hash values | confirmed: `BigInteger` (so `ExactPoint3`), `ValueTuple` and `string` hashes differ between any two runs on .NET 10 and are fixed on .NET Framework; `double.GetHashCode` differs between the runtimes for 1 of 8 probed values. No Boolean result depends on them on any configuration | #789 (the obligation needs a test that perturbs the hash) |
+| R7 | hash values | confirmed: `BigInteger` (so `ExactPoint3`), `ValueTuple` and `string` hashes differ between any two runs on .NET 10 and are fixed on .NET Framework; `double.GetHashCode` differs between the runtimes for 1 of 8 probed values. No Boolean result depends on them on any configuration | #789: `ExactBooleanDeterminismTests.PointHashes_DoNotAffectTheResult` perturbs the hashes of the arrangement's point indexes and of its merge of equal points (two salts, and every point in one shard; serial and parallel; a choice of the representative of equal points that mixes the hash value with the id fails it). Enumeration order is no channel: `Dictionary` / `HashSet` enumerate their entries in insertion order (with the free list of removals) on both runtimes, whatever the hashes (an implementation fact, R8); the channel is a use of the hash value itself, and nothing iterates the shards. This is the stage 2 ledger entry of R7 for `ExactMeshArrangement`. Not perturbed, lookup-only by inspection (ids handed out by `Count` in insertion order, never enumerated): the `BigInteger` tuple keys of `ExactPlanarSimplify` (`groups`, `planes`), the `ValueTuple` plane buckets and the `Vector3d` index of `ExactMeshArrangement` |
 | R8 | enumeration order of `Dictionary` / `HashSet` | the same on both runtimes after inserts, after removals, after refills, after set operations and `TrimExcess`, also for keys with seeded hashes; different only for a `HashSet` emptied by `Remove` and refilled | none; the rule stays (the order is unspecified), the two `.Values` sites of the Boolean rest on behaviour that held here |
 | R10 | seeded `System.Random` | the same sequence on both runtimes | none; the rule stays (not promised) |
 | R11 | order of equal keys after the unstable sorts, `BinarySearch` among duplicates | the same on both runtimes for 16 to 20000 elements and six overloads | none; the rule stays |
@@ -251,30 +251,36 @@ them. They belong to the stage 2 ledger.
 ### 5.2 Stage 0: the exact kernel as a closed world (#859)
 
 Option A, stage 0, is built: the analyzers G3D0001-9 (`tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs`)
-are errors in the twelve kernel files of section 6.1 (`.editorconfig`; generated code is analyzed too, so a kernel file
+are errors in the thirteen kernel files of section 6.1 (with `math/ExactLimbSigns.cs`, the stack-limb signs that `ExactMeshBoolean` calls, added after #871) (`.editorconfig`; generated code is analyzed too, so a kernel file
 marked as generated stays in), and the allow list with its registrations is
 `DeterministicApis.txt` at the repository root.
 
 | rule | checks | registration |
 |---|---|---|
-| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the twelve files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`), calls whose target is chosen at run time (delegate and function-pointer invocations) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
+| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the thirteen files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`), calls whose target is chosen at run time (delegate and function-pointer invocations) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
 | G3D0002 (R4, R7, R13, R14) | a restricted entry is used only where allowed: `[sites]` entries (`Math.Min / Max` of doubles, `(double)BigInteger`, `Vector3d.ToString`, `[ThreadStatic]`, `Interlocked`, `Volatile`, `Monitor`) only in registered members; `[hash]` entries, and every `GetHashCode` call (also of the kernel's own types, whose dispatch the analyzer does not follow), only inside a `GetHashCode` override or an `IEqualityComparer<T>.GetHashCode` implementation | a `site` line per member with its justification |
 | G3D0005 (R6) | every `#if` / `#elif` block, counted per member | an `if` line with the count and the test that checks both branches |
 | G3D0006 (R5) | every conversion of a `double` to an integer type or enum (also nullable, and `foreach` element conversions), counted per member | a `cast` line with the count and the guard |
 | G3D0007 | no `#pragma warning disable` of these rules (or of all), of RS0030 or G3E, no `#define`, `#undef`, `#line` in the kernel; reported again at the start of the scope's first file, where no pragma reaches | none |
 | G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line, on the symbol that carries the attribute, with the argument that every element is written before it is read |
-| G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
+| G3D0009 | the list is exact: an entry or registration that the kernel does not use, a malformed line, or a geometry3Sharp member whose declaration no longer has the pinned hash, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
-**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 108 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 116 external members (37 of them geometry3Sharp members declared outside the kernel, 11 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 36 conditional-compilation blocks in 30 members; 2 `double` to integer conversions in 1 member(s); 18 `[SkipLocalsInit]` members.
 
-**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the twelve kernel files computes a
+**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the thirteen kernel files computes a
 function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
 clock, the culture, a hash seed or what an earlier call left in memory, given the reasons of the listed entries and the
 obligations below. With P4 (the kernel's predicates and exact constructions are defined by their inputs mathematically,
 and their correctness tests compare with oracles), every predicate returns the sign its specification defines. The
-reasons of the 31 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
-`MathUtil.IsFinite`, `JitHints`, `PredicateStats`) are a review of their bodies today: those files are not checked by
-the rules (nor by G3E0001-4). Extending the scope to exactly these declarations is stage 1 work. What carries the claim:
+reasons of the 37 geometry3Sharp members declared outside the kernel (`Vector2d`, `Vector3d`, `Triangle3d`, `Index3i`,
+`MathUtil.IsFinite`, `JitHints`, `PredicateStats`, `ExactMeshArrangement.Det4`) are a review of their declarations; the rules do not analyze those
+files (nor does G3E0001-4), but each entry pins the text of the declaration it reviewed (`[body:h]`, an FNV-1a hash of
+its tokens, comments and line breaks, the indentation between tokens ignored, a disabled `#if` branch tokenized as if
+it were active; the same on every runtime, target and line-ending convention): a changed declaration fails the build (G3D0009) until it is reviewed again and the tag updated, and a
+pinned declaration may use geometry3Sharp members outside the kernel only if they are listed and pinned too (closure;
+it brought in `Index3i.a / b / c` and `PredicateStats.counters / Kind.Count`). Not covered by the pin: the containing
+type (struct or class, layout attributes), what the names bind to (usings, overload resolution), implicit enum values,
+and build switches (`G3_PREDICATE_STATS`). What carries the claim:
 
 - T1 (IEEE 754 binary64, no contraction): `probe.arith-chain`; the kernel's own code uses `+ - * /`, `Math.Sqrt`,
   `Math.Abs`, comparisons and bit reinterpretation (G3D0001 lists no libm member, no FMA, no `float`, which G3E0001-4
@@ -303,7 +309,7 @@ guards the growth of the chunk table only, and a slot is written by the one thre
 `ExactPoint3` is seeded per process on .NET (R7) and reaches hash containers only, whose consumers are stages 1 and 2.
 The two branches of the generated `__dec` / `__bits` are checked against one oracle on each runtime (the net48 job), not
 against each other (the generator inlines the portable loop); the other seven `#if NET` members are compared with their
-portable twins value by value on .NET (`KernelPortableBranchTests`), the twelve `[SkipLocalsInit]` members run on a stack
+portable twins value by value on .NET (`KernelPortableBranchTests`), the eighteen `[SkipLocalsInit]` members run on a stack
 filled with patterns against a zeroed one (`SkipLocalsInitKernelTests`). Found while building it: the hand-made list of 72
 members missed the two implicit `int` / `long` to `BigInteger` conversions and the `lock` of `FixedPointStore.Add`, and
 did not count the 31 members of geometry3Sharp outside the kernel; no `Math.Min / Max` site of the kernel lets the sign

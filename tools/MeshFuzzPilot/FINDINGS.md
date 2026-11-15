@@ -174,11 +174,25 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      (A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4) (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4)
      (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1), NonZero 27.971 for an exact 29.718 on the
      adapter's grid) is exact now (`UnionOfTheReviewOf756_IsExact`).
-   - **Open (2026-11-15, area within the rounding):** 2 of those 160 000 results fail the structural check of the tests: needle
-     rings narrower than a grid unit that the tree nests under a path they lie beside (a hole vertex outside its outer ring; Xor
-     Positive of pair 5351 and Xor Negative of pair 869 of that campaign, `new Random(pair)`, 16-gons on -4..4 for even pairs and
-     24-gons on -2..2 for odd ones). And at UTM coordinates with scale 1e-3 the rounding of the grid points back to doubles (an ulp
-     of 5.7e6 is 2.6e5 grid units there) turns such slivers into rings of zero or negative area in doubles (the limit stated in
+   - **Ports of the C++ Clipper2 fixes (2026-11-15, owner 2026-11-15; `Clipper2UpstreamFixesTests`; closes #756):** three
+     fixes of PolyClipping/Clipper2 (the C++ continuation after the archive, BSL-1.0) ported to the vendored sources:
+     intersection points rounded instead of truncated, evaluated from the segments' bottom ends, and sorted stably
+     (`f774daf`); edges leaving a shared vertex ordered by direction (`ec5f2d4`); the recursion guard of `CheckSplitOwner`
+     (`f97d65d`). Three of the five translated upstream tests fail on the vendored code before the port. Exact oracle, raw engine, 30 000
+     pairs of random 3- to 24-gons on -2..2 and -4..4 at 2^20 (480 000 results, against master with the fixes above): 0 wrong
+     before and after; 426 000 results change within the rounding, 300 509 closer to the exact area and 125 202 farther;
+     results with a negative path 85 262 -> 84 343. Through the adapter (the campaign above): 0 wrong and now also 0
+     structural failures of 160 000 (the two needle rings below no longer occur). Since the rounding changes which inputs reach
+     the earlier fixes (item 5, #756), their tests were re-derived by a search for inputs where each fix changes the
+     result; every ported and every earlier fix now has a test that fails without it (mutation check), except the recursion
+     guard, whose cycle the C# code does not reach. `4a3bf64` is not ported (its clamp is not reached in C#;
+     Clipper2Lib/README.md). Upstream's removal of the micro branch (`4da1564`) stays not adopted (owner 2026-11-13).
+   - **Open (2026-11-15, area within the rounding; before the ports above):** 2 of those 160 000 results failed the structural
+     check of the tests: needle rings narrower than a grid unit that the tree nests under a path they lie beside (a hole
+     vertex outside its outer ring; Xor Positive of pair 5351 and Xor Negative of pair 869 of that campaign,
+     `new Random(pair)`, 16-gons on -4..4 for even pairs and 24-gons on -2..2 for odd ones); with the ports they do not occur.
+     Still open: at UTM coordinates with scale 1e-3 the rounding of the grid points back to doubles (an ulp of 5.7e6 is 2.6e5
+     grid units there) can turn slivers into rings of zero or negative area in doubles (the limit stated in
      `ToGeneralPolygons`' summary; two cases of `HoleIsCutOut_UnderSimilarity` leave that similarity out for it).
    - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is

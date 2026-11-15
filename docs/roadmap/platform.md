@@ -76,10 +76,10 @@ Part of the [roadmap](../ROADMAP.md).
   **Owner 2026-11-12, Terrain Slope rows in the rotated/1e-3/utm frame:** no library change (a first-δ shortcut was
   approved, then withdrawn: the formula gives no fraction, so it would be a constant tuned on one design; TERRAIN.md
   5.8.1 states the limit, `LocalFrame` is the remedy). Rows of that frame at or under 10 s alone get Slow with the
-  reason; ClippedRegion and BandRepair move only that frame's row to Nightly ("the frame needs 3 builds by design,
+  reason; ClippedRegion, BandRepair and EarlyRegionCheck move only that frame's row to Nightly ("the frame needs 3 builds by design,
   TERRAIN.md 5.8.1"; #696); the other 7 frames stay in the PR tier.
   **Status 2026-11-15:** of the tests above 20 s, #692, #693, #694, #695 and #697 are closed; #696 (TerrainSlope frame
-  rows) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
+  rows; `EarlyRegionCheckTests.Similarities` extreme frame to Nightly and `BandMergeTests.Repro` split in three, 2026-11-15) and #698 (full-run-only starvation list) are open, and #866 (`MeshSweepCollision` 41 s on the 1M-triangle frame)
   is new. The runtime watch runs (scheduled run 2026-11-14 green); its tracking issue is #888 (28 outliers of 35 cases on
   master e741c130; the cases over 20 s include `boolean-thingi-55928-union` at 481 s and two alpha wrap pipes at 56-78 s).
 - **Combined-gate filters (analyst, 2026-11-09):** measured on integration/boolean-2.0 (d087c518), uninstrumented: the
@@ -148,11 +148,14 @@ Part of the [roadmap](../ROADMAP.md).
   dependency on the Clipper2 package); #756: the orientation guard of the micro branch (owner 2026-11-13, option
   "c-guard"; 4da1564 not adopted). Status 2026-11-15: the rest of that class (about 3 per 100 000 results on degenerate
   lattices) is fixed by a distance test in the same branch, and the adapter's tree conversion by three nesting rules (41 of
-  160 000 adapter results wrong before, 0 after; FINDINGS item 5); open: needle rings within the rounding. Addon API
+  160 000 adapter results wrong before, 0 after; FINDINGS item 5). Status 2026-11-15 (owner): three fixes of the C++
+  Clipper2 (PolyClipping/Clipper2) ported to the vendored sources (`f774daf`, `ec5f2d4`, `f97d65d`; `4a3bf64` not reached in
+  C#), closing #756; the differential test now allows differences within the rounding or exact. Open: the offset fix
+  `6c7d083` not analysed for the adapter. Addon API
   baseline: the first published addon version (owner 2026-11-13); until then a PR lists its breaks by hand.
   **Status 2026-11-15:** #851 (package removal, addon 2.0.0) and #874 (the c-guard: the micro branch is undone when it
-  flips the ring's orientation) are merged. #756 stays open for the remaining class (insertions that lose area without
-  flipping the ring; repros in its last comment), documented as known (option (a)).
+  flips the ring's orientation) are merged; the remaining class (insertions that lose area without flipping the ring) was
+  fixed in #914, and #756 is closed by the ports above.
   **Owner decision: Clipper2's triangulation is not offered** through the `geometry3Sharp.Clipper2` adapter.
   `Clipper.Triangulation.cs` is vendored only because `Clipper.cs` refers to it and stays unused; upstream's later
   triangulation fixes (`6a36be1`) are not included (`Clipper2Lib/README.md`).

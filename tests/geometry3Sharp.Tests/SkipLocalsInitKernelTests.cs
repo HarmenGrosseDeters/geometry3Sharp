@@ -89,7 +89,52 @@ namespace geometry3Sharp.Tests
 
         static readonly Member[] Members = {
             Orient, InCircle, ComparePoints, CompareAlong, TrianglePlanes, LPI, TPI, LPIExact, TPIExact,
-            DoubleOrient2d, DoubleOrient3d, DoubleInCircle };
+            DoubleOrient2d, DoubleOrient3d, DoubleInCircle,
+            LimbPlaneSide, LimbPlaneSide1, LimbDot, LimbDet4, LimbOrient2, LimbInCircle };
+
+        // ExactLimbSigns: BigInteger operands loaded into stack limbs (the coordinates of the inputs' exact points)
+        static ExactPoint3 E(Input x, int k) { return x.F[k].ToExact(); }
+
+        // the sign and the scratch limbs used: on .NET the stack path must run (-1, the BigInteger fallback, would compare
+        // nothing of the dirty stack)
+        static void Rec(List<long> t, int sign, int used)
+        {
+            t.Add(sign);
+            t.Add(used);
+#if NET
+            Assert.True(used >= 0, "the BigInteger fallback ran instead of the stack limbs");
+#endif
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbPlaneSide(Input x, List<long> t)
+        {
+            ExactPoint3 a = E(x, 0), b = E(x, 1); int used;
+            Rec(t, ExactLimbSigns.PlaneSide(a.X, a.Y, a.Z, a.W, b.X, b.Y, b.Z, b.W, out used), used);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbPlaneSide1(Input x, List<long> t)
+        {
+            ExactPoint3 a = E(x, 0), b = E(x, 2); int used;
+            Rec(t, ExactLimbSigns.PlaneSide(a.X, a.Y, a.Z, a.W, b.X, b.Y, b.Z, out used), used);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbDot(Input x, List<long> t)
+        {
+            ExactPoint3 a = E(x, 1), b = E(x, 3); int used;
+            Rec(t, ExactLimbSigns.Dot(a.X, a.Y, a.Z, b.X, b.Y, b.Z, out used), used);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbDet4(Input x, List<long> t) { int used; Rec(t, ExactLimbSigns.Det4(E(x, 0), E(x, 1), E(x, 2), E(x, 3), out used), used); }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbOrient2(Input x, List<long> t) { int used; Rec(t, ExactLimbSigns.Orient2(E(x, 0), E(x, 1), E(x, 2), x.I, x.J, out used), used); }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static void LimbInCircle(Input x, List<long> t) { int used; Rec(t, ExactLimbSigns.InCircle(E(x, 0), E(x, 1), E(x, 2), E(x, 3), x.I, x.J, out used), used); }
 
         // coordinate c of the double point n of x, scaled by a power of two that depends on n and c: the generated
         // kernels of the exact predicates on doubles size their accumulators by the span of the exponents (up to 1200

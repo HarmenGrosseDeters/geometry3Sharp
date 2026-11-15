@@ -42,7 +42,14 @@ static class Program
                 Console.WriteLine(Run(args[1], method));
             return 0;
         }
-        Console.Error.WriteLine("usage: list <set> | run <case> <method>...");
+        if (args.Length >= 2 && args[0] == "lattice") {
+            var (la, lb, lop) = Input(args[1]);
+            Console.WriteLine(LatticeProbe.Run(args[1], la, lb, lop, args.Length > 2 ? double.Parse(args[2], ci) : 60, args.Length > 3 ? int.Parse(args[3]) : 1));
+            return 0;
+        }
+        if (args.Length >= 3 && args[0] == "cull")
+            return CandidateCulling.Run(args.Skip(1).ToArray());
+        Console.Error.WriteLine("usage: list <set> | run <case> <method>... | cull <case dir> <union|intersection|difference> [--serial] | lattice <case> [seconds] [seed]");
         return 1;
     }
 
