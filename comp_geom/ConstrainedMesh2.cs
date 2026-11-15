@@ -40,6 +40,17 @@ namespace g3
         /// <summary> input points and segments (indices) that quality refinement left in no triangle: parts of the domain narrower than the
         /// automatic tolerance; reported in the diagnostics too (internal: the tests read them) </summary>
         internal int[] DroppedInputPoints = new int[0], DroppedInputSegments = new int[0];
+        /// <summary> per subsegment (same order as <see cref="Subsegments"/>): the input constraints the mesher holds the piece for, in its
+        /// order (the first is the one quality refinement computes split points on); an input constraint's id is its index in the
+        /// input's Segments, then the edges of its Rings (edge i of a ring from vertex i to i + 1), then those of the Regions' rings, each
+        /// in input order; -1 for a hull edge that refinement constrained. Null when not known (snap rounding, whose mesh is of the
+        /// snapped input) and for an empty result. Internal: the acceptance oracle reads it (#870) </summary>
+        internal int[][] SubsegmentSources;
+        /// <summary> per vertex: it existed before quality refinement (an input point or a crossing of constraints), which is where
+        /// refinement puts concentric shells; true for every vertex without refinement. Null when not known (snap rounding) and for an
+        /// empty result. Internal:
+        /// the acceptance oracle reads it (#870) </summary>
+        internal bool[] ExistedBeforeRefinement;
         /// <summary> Heights per vertex if the input had heights, otherwise null. </summary>
         public IReadOnlyList<double> Heights { get; }
 

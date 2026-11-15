@@ -55,19 +55,43 @@ static class Program
         return Math.Sqrt(from.VertexIndices().Max(v => MeshQueries.TriDistanceSqr(to, tree.FindNearestTriangle(from.GetVertex(v)), from.GetVertex(v))));
     }
 
-    static void Main()
+    // SMALLWRAP_HASH=1 (or the argument --hash) appends the column hash: the vertices (bits) and triangles of the result, as the other
+    // benchmarks hash them, so that net10.0 and net48 can be compared bit for bit (benchmarks/net48-compare). Without it the rows are unchanged.
+    static string Hash(DMesh3 mesh)
     {
-        Console.WriteLine("input,mode,seconds,ok,wrap,wrap_triangles,result_triangles,alpha_rel,offset_rel,result_to_input_rel,input_to_result_rel");
+        if (mesh == null) return "-";
+        var sb = new System.Text.StringBuilder();
+        foreach (int vid in mesh.VertexIndices()) {
+            Vector3d v = mesh.GetVertex(vid);
+            sb.Append(vid).Append(':').Append(BitConverter.DoubleToInt64Bits(v.x)).Append(',')
+                .Append(BitConverter.DoubleToInt64Bits(v.y)).Append(',').Append(BitConverter.DoubleToInt64Bits(v.z)).Append(';');
+        }
+        foreach (int tid in mesh.TriangleIndices()) {
+            Index3i t = mesh.GetTriangle(tid);
+            sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
+        }
+        return NetCompat.Sha256Hex16(sb.ToString());
+    }
+
+    static void Main(string[] args)
+    {
+        bool hash = Array.IndexOf(args, "--hash") >= 0 || Environment.GetEnvironmentVariable("SMALLWRAP_HASH") == "1";
+        // --only <name> runs the inputs whose name contains it, --mode old|new one of the two modes (a smoke run: `--only "62 B" --mode new`)
+        string only = Array.IndexOf(args, "--only") >= 0 ? args[Array.IndexOf(args, "--only") + 1] : null;
+        string onlyMode = Array.IndexOf(args, "--mode") >= 0 ? args[Array.IndexOf(args, "--mode") + 1] : null;
+        Console.WriteLine("input,mode,seconds,ok,wrap,wrap_triangles,result_triangles,alpha_rel,offset_rel,result_to_input_rel,input_to_result_rel" + (hash ? ",hash" : ""));
         foreach (var (name, input) in Inputs()) {
+            if (only != null && name.Contains(only) == false) continue;
             double diag = input.GetBounds().DiagonalLength;
             foreach (bool old in new[] { true, false }) {
+                if (onlyMode != null && onlyMode != (old ? "old" : "new")) continue;
                 var r = new MeshRobustRepair(new DMesh3(input)) { SmallInputWrapTriangles = old ? 0 : 64 };
                 var sw = Stopwatch.StartNew();
                 bool ok = r.Apply();
                 double s = sw.Elapsed.TotalSeconds;
                 double a = double.NaN, b = double.NaN;
                 if (r.Mesh != null && r.Mesh.TriangleCount > 0) { a = MaxDistance(r.Mesh, input) / diag; b = MaxDistance(input, r.Mesh) / diag; }
-                Console.WriteLine($"{name},{(old ? "old" : "new")},{s:F2},{ok},{r.UsedAlphaWrap},{r.AlphaWrapTriangles},{r.Mesh?.TriangleCount},{(r.AlphaWrap != null ? r.AlphaWrap.UsedAlpha / diag : double.NaN):G3},{(r.AlphaWrap != null ? r.AlphaWrap.UsedOffset / diag : double.NaN):G3},{a:G3},{b:G3}");
+                Console.WriteLine($"{name},{(old ? "old" : "new")},{s:F2},{ok},{r.UsedAlphaWrap},{r.AlphaWrapTriangles},{r.Mesh?.TriangleCount},{(r.AlphaWrap != null ? r.AlphaWrap.UsedAlpha / diag : double.NaN):G3},{(r.AlphaWrap != null ? r.AlphaWrap.UsedOffset / diag : double.NaN):G3},{a:G3},{b:G3}" + (hash ? "," + Hash(r.Mesh) : ""));
             }
         }
     }

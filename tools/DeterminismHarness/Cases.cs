@@ -48,6 +48,8 @@ namespace DeterminismHarness
             list.Add(new Case("io.stl-text", serial => IoStl()));
             // ---- runtime behaviour the specification leaves open, and the candidates of DETERMINISM_PROOF.md (Probes.cs)
             Probes.AddTo(list);
+            // ---- the exact kernel, the members of its allow list, Booleans with rounding (Kernel.cs)
+            Kernel.AddTo(list);
             // ---- exact Boolean
             foreach (bool safe in new[] { true, false })
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
@@ -79,6 +81,7 @@ namespace DeterminismHarness
             list.Add(new Case("geodesic.vectorheat.logmap", serial => LogMap(serial)));
             list.Add(new Case("geodesic.path", serial => GeodesicPath(serial)));
             list.Add(new Case("geodesic.bezier", serial => GeodesicBezier(serial)));
+            list.Add(new Case("geodesic.exact", serial => GeodesicExact(serial)));
             return list;
         }
 
@@ -430,6 +433,18 @@ namespace DeterminismHarness
             t.Add(m, "input");
             t.Add(g.Compute(new[] { Inputs.Nearest(m, new Vector3d(1, 0, 0)) }));
             if (g.Distance != null) t.Add(g.Distance);
+            return t;
+        }
+
+        // the certified oracle: only + - * / sqrt, outward rounding and CoreMath.Atan2, so the same bits everywhere
+        static Trace GeodesicExact(bool serial)
+        {
+            DMesh3 m = Inputs.Grid(10, 9, 0.15, 5, true);
+            var g = new ExactMeshGeodesicDistance(m);
+            var t = new Trace();
+            t.Add(m, "input");
+            t.Add(g.Compute(new[] { Inputs.Nearest(m, new Vector3d(1, 1, 0)) }) == ExactMeshGeodesicDistance.Result.Ok);
+            if (g.Status == ExactMeshGeodesicDistance.Result.Ok) { t.Add(g.Lower); t.Add(g.Upper); }
             return t;
         }
 

@@ -23,12 +23,14 @@ Part of the [roadmap](../ROADMAP.md).
   enclosure of the polyhedral distance by window propagation in interval arithmetic. Role (coordinator, 2026-11-13): a
   **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Study and gates
   2 and 3 merged (#784, #798, #807; exact on every test mesh; the 10^5 terrain 18.8 s and the aligned ridge 81 x 81 16 s in
-  the interval version of the probe). Option C (a Lipschitz lower bound for the heat field) dropped.
-  **Draft #869 (2026-11-13):** `ExactMeshGeodesicDistance`, internal and serial, with A1-A6, subsumption, terminal windows
-  and flat vertices as pseudo-sources; no A7, no A9. As stated in the PR: terrain 101² (10201 vertices) in 4.0 s, but exactly
-  flat or aligned inputs hit `WindowLimit` at about 10^3 vertices (plane 101², ridge 41²), short of the 10^4 target; Upper
-  up to 1.3 % loose on flat regions. A7 (continuation windows) duplicates windows on flat regions and is an open item
-  (GEODESICS.md 6b). Before ready: an unanchored review and the exact-code review, routed by the coordinator.
+  the interval version of the probe); A7 reviewed, A8 withdrawn, A9's observations (b)-(h) not reviewed. Option C (a
+  Lipschitz lower bound for the heat field) dropped.
+  **#869 (2026-11-13, ready 2026-11-15):** `ExactMeshGeodesicDistance`, internal and serial, with A1-A6, subsumption,
+  terminal windows and flat vertices as pseudo-sources; no A7, no A9. As stated in the PR: terrain 101² (10201 vertices)
+  in 4.0 s, but exactly flat or aligned inputs hit `WindowLimit` at about 10^3 vertices (plane 101², ridge 41²), short of
+  the 10^4 target; Upper up to 1.3 % loose on flat regions. Open: A7 (continuation windows) with duplicate control, since
+  it duplicates windows on flat regions (GEODESICS.md 6b); the flat-tie redesign; the heat-method tests against the
+  oracle. Before merge: an unanchored review and the exact-code review, routed by the coordinator.
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
