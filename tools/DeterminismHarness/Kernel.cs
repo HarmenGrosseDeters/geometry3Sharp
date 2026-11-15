@@ -69,6 +69,7 @@ namespace DeterminismHarness
         // (the trace sections name the exponent and the kind of each input set, and its coordinates come first, under
         // "<name>/in/...": a comparison then tells a different input from a different result, per class)
         static readonly string[] Kinds = { "random", "near", "int", "repeat" };
+        static string currentSection;
         static IEnumerable<Vector3d[]> Points3(Rng r, int n, int count, Trace t, string name)
         {
             int[] exps = { 0, -60, 60, -1000, 900, -1060 };
@@ -94,6 +95,7 @@ namespace DeterminismHarness
                 t.Section(name + "/in/" + cls);
                 foreach (Vector3d v in p) t.Add(v);
                 t.Section(name + "/" + cls);
+                currentSection = name + "/" + cls;
                 yield return p;
             }
         }
@@ -241,6 +243,9 @@ namespace DeterminismHarness
                 t.Add(S(() => ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv)));
                 t.Add(S(() => ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 1, 5), ref be)));
                 t.Add(S(() => TriangleTriangleFilter.Intersects(ref a, ref b)));
+                // (the filter alone: Undecided is a valid answer wherever it is given, so it may differ where the
+                // final answers agree)
+                t.Section(currentSection + "/filter");
                 t.Add(S(() => TriangleTriangleFilter.BeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv)));
             }
             return t;
@@ -250,8 +255,12 @@ namespace DeterminismHarness
         {
             var t = new Trace(); var r = new Rng(7);
             foreach (var p in Points3(r, 5, 3000, t, "ray")) {
+                // (the second point is a double computation: in the subnormal range its rounding, and with it the
+                // ray, is not scale invariant; the signs below are exact for the ray it gives)
                 Vector3d o = p[3], q = ExactRayTriangle.SecondPoint(o, p[4] - p[3]);
+                t.Section(currentSection + "/secondpoint");
                 t.Add(q);
+                t.Section(currentSection);
                 t.Add(S(() => ExactRayTriangle.EdgeSign(o, q, p[0], p[1])));
                 t.Add(S(() => ExactRayTriangle.LineCrossing(o, q, p[0], p[1], p[2])));
                 t.Add(S(() => ExactRayTriangle.ClosedCrossing(o, q, p[0], p[1], p[2])));
