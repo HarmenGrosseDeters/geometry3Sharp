@@ -311,7 +311,7 @@ namespace geometry3Sharp.Tests
             return s;
         }
 
-        static void AssertClosedManifold(DMesh3 m)
+        internal static void AssertClosedManifold(DMesh3 m)
         {
             Assert.True(m.IsClosed());
             foreach (int v in m.VertexIndices()) Assert.False(m.IsBowtieVertex(v));
@@ -343,6 +343,38 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(WindingContouringCertificateTests.Truth(m), WindingContouringCertificateTests.Topology(on.Result));
                 AssertClosedManifold(on.Result);
                 // the blocks only certify: the contour is the same
+                Assert.Equal(off.Result.TriangleCount, on.Result.TriangleCount);
+                foreach (int v in off.Result.VertexIndices()) Assert.Equal(off.Result.GetVertex(v), on.Result.GetVertex(v));
+            }
+        }
+
+        // tilted boxes and a thin tilted torus whose refused cells form clusters that are not balls as they are (cells that
+        // meet only along an edge or at a node, along the silhouettes); grown by a layer of certified cells they are
+        internal static IEnumerable<(string name, DMesh3 mesh, int res)> NotBallClusters()
+        {
+            Vector3d c = new Vector3d(0.01, 0.02, 0.03);
+            Matrix3d T23 = Matrix3d.AxisAngleD(Vector3d.AxisZ, 23) * Matrix3d.AxisAngleD(Vector3d.AxisX, 14.5);
+            Matrix3d T37 = Matrix3d.AxisAngleD(Vector3d.AxisZ, 37) * Matrix3d.AxisAngleD(Vector3d.AxisX, 21.5);
+            yield return ("box37", Box(c, new Vector3d(0.6, 0.4, 0.3), T37), 16);
+            yield return ("box23", Box(c, new Vector3d(0.6, 0.4, 0.3), T23), 20);
+            yield return ("thin torus", Torus(c, 0.6, 0.12, 48, 16, T23), 32);
+        }
+
+        [Fact]
+        public void Blocks_CertifyClustersThatAreNotBalls()
+        {
+            // stage 2 tried only the clusters that are balls as they are and left these runs uncertified; grown (remark 3
+            // of Theorem 6) they are certified, with the right topology, and the contour is the same as without blocks
+            foreach (var (name, m, res) in NotBallClusters()) {
+                MeshWindingNumberSolidify off = Solidify(m, res, false);
+                Assert.Equal(ContouringCertificateStatus.CellsUncertified, off.TopologyCertificateStatus);
+                MeshWindingNumberSolidify on = Solidify(m, res, true);
+                Assert.True(on.ContourTopologyCertified && on.TopologyCertified, name);
+                Assert.Equal(ContouringCertificateStatus.Certified, on.TopologyCertificateStatus);
+                Assert.Empty(on.UncertifiedCells);
+                Assert.Equal(on.CertificateBlockCells, off.UncertifiedCells.Count);
+                Assert.Equal(WindingContouringCertificateTests.Truth(m), WindingContouringCertificateTests.Topology(on.Result));
+                AssertClosedManifold(on.Result);
                 Assert.Equal(off.Result.TriangleCount, on.Result.TriangleCount);
                 foreach (int v in off.Result.VertexIndices()) Assert.Equal(off.Result.GetVertex(v), on.Result.GetVertex(v));
             }

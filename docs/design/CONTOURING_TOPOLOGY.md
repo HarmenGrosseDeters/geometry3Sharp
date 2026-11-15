@@ -1129,3 +1129,63 @@ Measured (runner job, `benchmarks/ContouringCertificate/run_blocks.sh`, three ru
 - Next: refinement (section 4.8's prototype) only for what the blocks leave, and growth of the clusters that are not balls
   (remark 3).
 
+
+### 7.12 Stage 3: growth of the blocks; refinement and transitions not built (2026-11-15, #944)
+
+**Upper bound first** (the order #944 asks for). The block test of section 7.11 leaves 651 cells uncertified on the clean T1
+meshes at / 128 and 437 at / 64. A probe counter (`CertificateBlockLeft`, kept for the benchmark) sorts them by why their
+cluster was not certified: a mesh-side refusal in it, a refinement transition in or next to it, not a ball, the level-set
+count (condition 3) or the contour count (condition 4). One run of `benchmarks/ContouringCertificate solid` (counts only;
+they are the same in every run):
+
+| cell | left | in the wrong runs | in right runs: not a ball | level-set count | transition | mesh side |
+|---|---|---|---|---|---|---|
+| / 128 | 651 | 498 (116871: 404, 472011: 90, 79961: 4) | 81 (94664: 20, 113418: 61) | 72 (104640) | 0 | 0 |
+| / 64 | 437 | 315 (116871: 265, 96773: 50) | 122 (94664: 45, 73088: 16, 113418: 61) | 0 | 0 | 0 |
+
+- Three quarters of what is left at / 128 is in the wrong runs, where it must stay.
+- **Transitions: upper bound 0.** The only cells at a transition are those of 96773 at / 64 (50), a wrong run. So mixed
+  cell sizes, and the lemma on a non-uniform complex they would need (open risk 3 of #944), were not built.
+- **Refinement for the thin features: upper bound one run.** In the right runs, the only cells a block cannot certify are one
+  cluster of 104640 at / 128 (72 cells). There L meets the cluster in a disk and an annulus, and grown blocks in a surface
+  with a handle (χ = -1, one component, after 2, 3 and 4 layers): a thin tube that a block cannot hold as disks. That is
+  the refinement case of remark 4. Section 4.8 measured refinement at 3 to 15 times the contouring time on this set, and
+  refinement changes the output (an opt-in flag). For one run of 14 at one size this is not worth it: **refinement not
+  built** (the stop rule of #944, "measure the upper bound first and stop if it is not worth it").
+- **Growth: upper bound 81 cells and 2 runs at / 128, 122 cells and 3 runs at / 64.** Built.
+
+**Growth (remark 3 of Theorem 6).** A cluster that fails as it is because it is not a ball, or because a count fails, is
+grown. Each round adds the layer of cells around it (the cells sharing a face, an edge or a node with it, on its lattice),
+takes in whole every refused cluster and every certified block that the layer reaches (repeated until nothing more is
+reached), and tries the result as a block. At most `CertificateGrowRounds` = 2 rounds and 4096 cells. Clusters with a
+mesh-side refusal or at a transition are not grown. A grown block that passes replaces the blocks it took in. Why
+Theorem 6 still applies:
+
+- *Disjoint interiors:* a grown block contains every cluster and every block it touches in a cell.
+- *Condition 2:* let f be a face on a grown block R, c the cell of R on one side and c' the cell outside. If c is a grown
+  cell, it is not refused (a refused cell would belong to a cluster, which R takes in whole), so f lies in a certified
+  cell. If c is a cell of a cluster, c' is not refused (a refused cell sharing a face with c is in the same cluster, which
+  is in R), so f lies in the certified cell c'. A grown cell that the stage-1 tests never saw (not in `cells`) is in no
+  bin of L's triangles (the bins are closed boxes, so L does not meet it), and growth stops unless its eight node signs
+  agree (so the contour does not meet it): its faces pass (G), (E) and (F) with no crossing, and it has no patch.
+- *Lattice, mesh side:* `block_candidate` is applied to the grown block as to a cluster.
+- Conditions 3 and 4 are decided exactly as in stage 2, on the grown block. So, as for any choice of blocks, a wrong
+  contour cannot pass.
+
+How others solve it: in digital topology, a set of voxels is grown or thinned while its topology is kept, point by point,
+by simple points (G. Bertrand, G. Malandain, *A new characterization of three-dimensional simple points*, Pattern Recognit.
+Lett. 15(2), 1994), and tunnels are closed by holes closing (Z. Aktouf, G. Bertrand, L. Perroton, *A three-dimensional holes
+closing algorithm*, Pattern Recognit. Lett. 23(5), 2002, abstract). Here the growth needs no topological invariant of its
+own: Theorem 6 holds for any blocks, and the exact ball test and the two counts decide each one. So a plain dilation with
+a check at the end is enough. It also fills small holes: the solid tori of remark 2 around a bump.
+
+Measured (local probe, counts; times: runner job `benchmarks/ContouringCertificate/run_growth.sh`, below):
+
+| clean T1 | cell | uncertified cells: blocks -> grown | certified runs: blocks -> grown (right runs) | wrong and certified |
+|---|---|---|---|---|
+| 14 inputs | / 128 | 651 -> 381 | 8 -> 10 (of 11) | 0 |
+| 14 inputs | / 64 | 437 -> 301 | 9 -> 12 (of 12) | 0 |
+
+- Every non-ball cluster of a right run is certified after growth. Left in right runs: 104640 at / 128 (the tube).
+- The wrong runs stay uncertified (116871, 472011 and 79961 at / 128; 116871 and 96773 at / 64), with grown blocks tried in
+  them.

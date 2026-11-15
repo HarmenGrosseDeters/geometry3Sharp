@@ -181,3 +181,16 @@ python3 benchmarks/ContouringCertificate/analyze_blocks.py <work dir>/blocks_rep
 The table (three runs on a runner alone, raw rows on `runs/contouring-cert-blocks` 2de2753) is in the design note,
 section 7.11: clean T1 at / 128 uncertified cells 2322 -> 651, certified runs 4 -> 8 of 14, never certified wrong; the
 certificate 23-26 % of the contouring time with blocks, 16-20 % without.
+
+## Stage 3: growth of the blocks (remark 3 of Theorem 6, #944)
+
+```
+bash benchmarks/ContouringCertificate/run_growth.sh <work dir>      # the runner job: fetch, build, `solid` three times, tables
+python3 benchmarks/ContouringCertificate/analyze_growth.py <work dir>/growth_rep{1,2,3}.jsonl
+```
+
+`solid` runs each input four times: without the certificate, with it and without blocks (stage 1, `on_`), with blocks as
+they are (stage 2, `blocks_`, `CertificateGrowRounds = 0`) and with grown blocks (stage 3, `grow_`, the default 2 rounds).
+For the last two it also writes `*_left_by`, the cells left by why their cluster was not certified (mesh side,
+transition, not a ball, level-set count, contour count), and the grown blocks and the cells they added. `analyze_blocks.py`
+still reads these rows (stage 1 against stage 2). Results in the design note, section 7.12.

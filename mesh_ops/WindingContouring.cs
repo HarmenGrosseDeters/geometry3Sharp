@@ -212,6 +212,7 @@ namespace gs
         void certify(DualContouring dc)
         {
             CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
+            CertificateBlocksGrown = CertificateGrownCells = 0; CertificateBlockLeft = new int[5];
             UncertifiedCells = new List<ContouringUncertifiedCell>();
             CertificateStatus = ContouringCertificateStatus.NotSupported;
             if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
@@ -293,16 +294,33 @@ namespace gs
         internal bool CertificateBlocks = true;
         /// <summary> blocks the certificate of the last contour tried, and of them certified, and their cells </summary>
         internal int CertificateBlocksTried, CertificateBlocksCertified, CertificateBlockCells;
+        /// <summary> (probe) cells left refused by the block test, by why their cluster was not certified: 0 mesh side,
+        /// 1 transition, 2 not a ball, 3 level-set count, 4 contour count </summary>
+        internal int[] CertificateBlockLeft = new int[5];
+
+        /// <summary>
+        /// (tests) the growth of the block test (remark 3 of Theorem 6): a cluster that fails as it is (not a ball, or a
+        /// count) is grown by one layer of cells at a time, at most this many times, and tried again; 0: no growth
+        /// </summary>
+        internal int CertificateGrowRounds = 2;
+        /// <summary> blocks of the last contour certified only after growth, and their cells </summary>
+        internal int CertificateBlocksGrown, CertificateGrownCells;
 
         // Theorem 6: the refused cells (indices into cells) grouped into clusters (cells of one size sharing a face, an edge or
         // a node), each cluster tested as one block; returns the cells still refused. A cluster is tried only if it is a
         // ball, holds no cell the mesh side refused, and lies with its neighbours on one lattice (all cells of one size, no
         // refinement transition in it or next to it). Its boundary faces then lie in certified cells outside it (a refused
         // cell across would belong to the cluster), which is condition 2 of the theorem; the block test is conditions 3 and 4.
+        // A cluster that fails is grown (remark 3): by one layer of the cells around it, taking in whole every cluster and
+        // every certified block the layer reaches, and tried again. A face on the grown block then has a grown cell inside
+        // (not refused: certified, or met by neither L nor the contour) or a cell of a cluster inside and a cell outside that
+        // is not refused (a refused one would be in that cluster): condition 2 again, and the blocks stay disjoint.
         List<int> certify_blocks(DualContouring dc, ContouringTopologyCertificate cert, CertificateGrid grid,
             List<KeyValuePair<Vector3i, int>> cells, List<int> refused, HashSet<(Vector3i, int)> meshSide)
         {
             CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
+            CertificateBlocksGrown = CertificateGrownCells = 0;
+            CertificateBlockLeft = new int[5];
             int B = grid.BinSize;
             // clusters per size, on the lattice of that size (keys: min / size)
             var bySize = new Dictionary<int, Dictionary<Vector3i, int>>();
@@ -314,38 +332,130 @@ namespace gs
                 d[new Vector3i(fdiv(m.x, sz), fdiv(m.y, sz), fdiv(m.z, sz))] = i;
             }
             var certified = new HashSet<int>();
+            var tested = new HashSet<(Vector3i, int)>();
+            foreach (var kv in cells) tested.Add((kv.Key, kv.Value));
             foreach (int sz in bySize.Keys.OrderBy(k => k)) {
                 var d = bySize[sz];
-                var seen = new HashSet<Vector3i>();
+                // the clusters (in the order of their first cell), and the cluster of each refused cell
+                var clusters = new List<List<Vector3i>>();
+                var clusterOf = new Dictionary<Vector3i, int>();
                 foreach (Vector3i start in d.Keys.OrderBy(k => k.z).ThenBy(k => k.y).ThenBy(k => k.x)) {
-                    if (seen.Contains(start)) continue;
+                    if (clusterOf.ContainsKey(start)) continue;
                     var cluster = new List<Vector3i>();
                     var stack = new Stack<Vector3i>();
-                    stack.Push(start); seen.Add(start);
+                    stack.Push(start); clusterOf[start] = clusters.Count;
                     while (stack.Count > 0) {
                         Vector3i c = stack.Pop();
                         cluster.Add(c);
                         for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
                             Vector3i q = new Vector3i(c.x + dx, c.y + dy, c.z + dz);
-                            if (d.ContainsKey(q) && seen.Add(q)) stack.Push(q);
+                            if (d.ContainsKey(q) && !clusterOf.ContainsKey(q)) { clusterOf[q] = clusters.Count; stack.Push(q); }
                         }
                     }
-                    if (!block_candidate(dc.IsRefinedCell, cluster, sz, B, meshSide)) continue;
-                    var keys = new HashSet<Vector3i>(cluster);
-                    if (!ContouringTopologyCertificate.IsBall(keys)) continue;
-                    cluster.Sort((a, b) => a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
-                    var mins = new List<Vector3i>(cluster.Count);
-                    foreach (Vector3i c in cluster) mins.Add(sz * c);
-                    CertificateBlocksTried++;
-                    if (!cert.Block(mins, sz) || !ContouringTopologyCertificate.ContourBlock(grid, mins, sz)) continue;
-                    CertificateBlocksCertified++;
-                    CertificateBlockCells += cluster.Count;
-                    foreach (Vector3i c in cluster) certified.Add(d[c]);
+                    clusters.Add(cluster);
                 }
+                // the certified blocks (cells, alive) and the block of each of their cells
+                var blocks = new List<HashSet<Vector3i>>();
+                var blockAlive = new List<bool>();
+                var blockOf = new Dictionary<Vector3i, int>();
+                var failed = new List<int>();
+                var why = new int[clusters.Count];
+                for (int ci = 0; ci < clusters.Count; ++ci) {
+                    var keys = new HashSet<Vector3i>(clusters[ci]);
+                    int r = try_block(dc, cert, grid, keys, sz, B, meshSide);
+                    if (r < 0) {
+                        foreach (Vector3i c in keys) blockOf[c] = blocks.Count;
+                        blocks.Add(keys); blockAlive.Add(true);
+                    } else { failed.Add(ci); why[ci] = r; }
+                }
+                // growth of the clusters that failed
+                foreach (int ci in failed) {
+                    if (blockOf.ContainsKey(clusters[ci][0])) continue;     // taken in by a grown block
+                    var R = new HashSet<Vector3i>(clusters[ci]);
+                    var takenBlocks = new HashSet<int>();
+                    for (int round = 0; round < CertificateGrowRounds && why[ci] != 0 && why[ci] != 1; ++round) {
+                        var layer = new List<Vector3i>();
+                        foreach (Vector3i c in R)
+                            for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                                Vector3i q = new Vector3i(c.x + dx, c.y + dy, c.z + dz);
+                                if (!R.Contains(q)) layer.Add(q);
+                            }
+                        // take in whole the clusters and certified blocks the layer reaches (until no more)
+                        var queue = new Queue<Vector3i>(layer);
+                        while (queue.Count > 0) {
+                            Vector3i q = queue.Dequeue();
+                            if (!R.Add(q)) continue;
+                            int bk, cj;
+                            if (blockOf.TryGetValue(q, out bk) && blockAlive[bk] && takenBlocks.Add(bk))
+                                foreach (Vector3i c in blocks[bk]) if (!R.Contains(c)) queue.Enqueue(c);
+                            if (clusterOf.TryGetValue(q, out cj))
+                                foreach (Vector3i c in clusters[cj]) if (!R.Contains(c)) queue.Enqueue(c);
+                        }
+                        if (R.Count > MaxGrownBlockCells) break;
+                        // a grown cell the stage-1 tests did not see must be met by neither L (it is in no bin of L's
+                        // triangles, the bins are closed) nor the contour (its node signs agree): no patch, no crossing
+                        bool seen = true;
+                        foreach (Vector3i c in R)
+                            if (!d.ContainsKey(c) && !tested.Contains((sz * c, sz)) && !uniform_signs(grid, sz * c, sz)) { seen = false; break; }
+                        if (!seen) break;
+                        int r = try_block(dc, cert, grid, R, sz, B, meshSide);
+                        if (r == 0 || r == 1) break;
+                        if (r >= 0) continue;
+                        // certified: R replaces the blocks it took in
+                        foreach (int bk in takenBlocks) blockAlive[bk] = false;
+                        foreach (Vector3i c in R) blockOf[c] = blocks.Count;
+                        blocks.Add(R); blockAlive.Add(true);
+                        CertificateBlocksGrown++;
+                        break;
+                    }
+                }
+                for (int bk = 0; bk < blocks.Count; ++bk) {
+                    if (!blockAlive[bk]) continue;
+                    CertificateBlocksCertified++;
+                    foreach (Vector3i c in blocks[bk]) {
+                        int i;
+                        if (d.TryGetValue(c, out i)) { certified.Add(i); CertificateBlockCells++; } else CertificateGrownCells++;
+                    }
+                }
+                foreach (int ci in failed)
+                    if (!blockOf.ContainsKey(clusters[ci][0]) || !blockAlive[blockOf[clusters[ci][0]]])
+                        CertificateBlockLeft[why[ci]] += clusters[ci].Count;
             }
             var left = new List<int>(refused.Count);
             foreach (int i in refused) if (!certified.Contains(i)) left.Add(i);
             return left;
+        }
+
+        static bool uniform_signs(CertificateGrid grid, Vector3i min, int sz)
+        {
+            bool s0 = grid.NodeInside(min);
+            for (int o = 1; o < 8; ++o)
+                if (grid.NodeInside(min + sz * new Vector3i(o & 1, (o >> 1) & 1, (o >> 2) & 1)) != s0) return false;
+            return true;
+        }
+
+        // a cost cap: a grown block holds at most this many cells (the largest grown block of the stage-1 set at / 64 and
+        // / 128 has 3051)
+        const int MaxGrownBlockCells = 4096;
+
+        // one block (lattice keys of cells of size sz): -1 certified, else why not (0 a mesh-side refusal in it, 1 a
+        // refinement transition in it or next to it, 2 not a ball, 3 the level-set count, 4 the contour count)
+        int try_block(DualContouring dc, ContouringTopologyCertificate cert, CertificateGrid grid, HashSet<Vector3i> keys, int sz,
+            int B, HashSet<(Vector3i, int)> meshSide)
+        {
+            var cluster = new List<Vector3i>(keys);
+            cluster.Sort((a, b) => a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
+            if (!block_candidate(dc.IsRefinedCell, cluster, sz, B, meshSide)) {
+                foreach (Vector3i c in cluster) if (meshSide.Contains((sz * c, sz))) return 0;
+                return 1;
+            }
+            if (!ContouringTopologyCertificate.IsBall(keys)) return 2;
+            var mins = new List<Vector3i>(cluster.Count);
+            foreach (Vector3i c in cluster) mins.Add(sz * c);
+            CertificateBlocksTried++;
+            if (!cert.Block(mins, sz)) return 3;
+            if (!ContouringTopologyCertificate.ContourBlock(grid, mins, sz)) return 4;
+            return -1;
         }
 
         /// <summary>
