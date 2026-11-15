@@ -23,9 +23,12 @@ namespace g3
     /// Contact is out of scope, and can be refused (opt in, RefuseContact = true; by default the behaviour is that of upstream, which on touching
     /// input can cut with gaps, differently at different scales, or throw, eg "update_from_split: unsortable vertex?", issue 856). With RefuseContact, Compute() first looks, with exact
     /// predicates, for a pair of triangles (one of Target, one of CutMesh) whose closed triangles intersect although a vertex of the
-    /// CutMesh triangle lies on the plane of the Target triangle (a cut vertex on a face, an edge of the cut on a face, two edges that
-    /// touch, coplanar triangles overlapping or touching, a cut vertex on the plane with a proper crossing). That is conservative: a pair
-    /// that is also crossed properly is refused too. A vertex of a Target triangle on the plane of a CutMesh triangle (a grid cut by a plane
+    /// CutMesh triangle lies on the plane of the Target triangle (a cut vertex on a face, an edge of the cut on a face, an edge that touches
+    /// an edge of the target with a cut vertex on the plane, coplanar triangles overlapping or touching, a cut vertex on the plane with a
+    /// proper crossing). That is conservative: a pair that is also crossed properly is refused too, and so is a cut vertex on the plane of
+    /// a target triangle that lies outside that triangle while another edge of the cut crosses it (CAD input with aligned coordinates can do
+    /// this). Not detected: two edges that meet in an interior point of both with no cut vertex on the plane (all six orientations
+    /// nonzero): that is an ordinary transversal cut that ends on an edge, which the cut handles. A vertex of a Target triangle on the plane of a CutMesh triangle (a grid cut by a plane
     /// through its vertices) is not contact: that class is cut correctly. If there is a contact, Compute() leaves Target unchanged, sets
     /// Status to ContactDetected and returns (RemoveContained() then does nothing). The decision is made by exact predicates, so it is
     /// the same under every scaling by a power of two (and any similarity that is exact). A triangle without an area (collinear corners)

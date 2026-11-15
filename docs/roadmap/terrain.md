@@ -5,11 +5,14 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** slope construction and daylighting on TINs (open-pit mining): slope surface, overlay with the terrain,
   catch line, volumes, failure kinds, accuracy reporting, LocalFrame, RoundToGrid; the 2D quadtree it waits for;
   honest terrain metrics. Terrain / GIS is a showcase domain (Phase 4).
-- **Status (2026-11-10):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). Done: slope construction
+- **Status (2026-11-15):** the terrain topic is closed out (owner 2026-11-09: finish the terrain topic). Done: slope construction
   phase 1 (#357), the DGM reader and writer, the grid TIN with a guaranteed surface error and breaklines (`gs.TerrainGridTin`,
   #491 with the gaps closed in #504: survey heights, world-coordinate margin), the `g3cli` commands `dgm`, `dgm_tin` (#506) and
-  `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Everything below
-  "Parked" waits for a concrete use case; nothing is planned.
+  `cell_volumes`, volume per cell (`gs.TerrainCellVolumes`, #507) and the terrain kernel mutation score (#508). Close-out
+  resumed 2026-11-12 (owner): the two safe-failure classes (#752), the proven tan bound (#757), the catch-line bound (#761),
+  ramps R1 (#841, with #861 fixed in #878), the facet bound per turn (#850, #808) and CoreMath in `TerrainSlope*` (#836,
+  #802) are merged. Open: the two `TerrainGreedyTIN` bugfixes (#855, #854; drafts #889, #890), sector polygons E1; the
+  rest waits for a use case or an owner decision.
 - **Related:** [design/TERRAIN.md](../design/TERRAIN.md) (§11 holds the follow-ups),
   [TERRAIN_1A_PLAN.md](../design/TERRAIN_1A_PLAN.md), [TERRAIN_1B_PLAN.md](../design/TERRAIN_1B_PLAN.md),
   [TERRAIN_1C_PLAN.md](../design/TERRAIN_1C_PLAN.md), [TERRAIN_ROUND_TO_GRID.md](../design/TERRAIN_ROUND_TO_GRID.md),
@@ -18,6 +21,11 @@ Part of the [roadmap](../ROADMAP.md).
 
 ### Open
 
+- **`TerrainGreedyTIN` with `MaxError = 0` never ends (#855, bugfix):** `Compute()` runs out of memory for a height of
+  -2.87e-223 with the default `MaxVertices`. Fix in draft #889 (repeated vertex insertion at zero error); the terrain
+  session takes it over.
+- **`TerrainGreedyTIN.RemoveVertices` ear choice (#854, bugfix):** an absolute 1e-12 tolerance, so the result is not
+  invariant under 2^k scaling. Fix in draft #890; the terrain session takes it over.
 - **Slope-map performance (2026-11-10, closed):** profiled for the slow-test triage (#514). Bit-identical cleanups in
   #517 (~1.1x). Measured and dropped: merging equal-label faces during insertion (not bit-identical in near-degenerate
   designs, net 1.4x), a divide-and-conquer lower envelope (exact, hash-identical on all benchmarks, but only <= 1.15x:
@@ -29,32 +37,37 @@ Part of the [roadmap](../ROADMAP.md).
 - **Terrain Slope rows in the rotated / 1e-3 / utm frame (owner 2026-11-12): no library change.** A first-δ shortcut was
   approved, then withdrawn (the formula gives no fraction, so it would be a constant tuned on one design); TERRAIN.md 5.8.1
   states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
-  limit, #696).
+  limit, #696, still open; two theories moved to Nightly in #706).
 
 **Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
-distance, then the proven tan interval and catch-line bound. Still owner decisions: the slope-envelope construction,
+distance, then the proven tan interval and catch-line bound. All but the sector polygons are merged (2026-11-13/14). Still owner decisions: the slope-envelope construction,
 berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
 
-- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): fixed (2026-11-12, resumed by the owner
-  2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
+- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): done (#752, merged 2026-11-13; resumed by
+  the owner 2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
   four planes 9e-12 apart) passed the exact check, but its clipped part in the region had catch points 7e-12 apart and failed
   on every margin; a failing region triangle now names its realized parent, which the band merge collapses on the next
   realization (TERRAIN.md 5.5). (2) `Direction = Auto` at a toe corner: the certificate's step rule is now per slope triangle
   (one capsule cannot hold the slivers along two toe segments). Both examples certify; the campaign no longer lets either
   class pass. The 48-gon clipped-sliver design certifies at the first margin (2 → 1 attempts).
 - **Ramps as design geometry** (path, width, grade; access ramps into pits). Design note [TERRAIN_RAMPS.md](../design/TERRAIN_RAMPS.md) (2026-11-12). Owner 2026-11-13: yes to
-  all three (the path is the inner edge, R1 a pure cut ramp up to the daylight line, constant grade per ramp); R1 is its own
-  PR after #752, #757 and #761, not built yet.
+  all three (the path is the inner edge, R1 a pure cut ramp up to the daylight line, constant grade per ramp). **R1 done**
+  (#841, merged 2026-11-13; CoreMath for its trig in #865). Follow-up #861 (the δ term could miss the lowered road) fixed in
+  #878 (2026-11-14: the reach D0 counts the ramps' lowest built height). Ramps beyond R1: no decision recorded.
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
-- **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
+- **Proven tan interval and catch-line bound: done** (TERRAIN.md §5.5).
   Resumed 2026-11-12 (owner; coordinator approved both, as separate PRs). Tan bound (#757, merged 2026-11-13): the proven
   lower bound for `SlopeSpec.Degrees` (TERRAIN.md section 1; `Slope.IsNotSteeper` for angles is now conservative).
-  Catch-line bound (2026-11-13, #761): `CatchLine.ProvenUncertainty` and `CatchLineBandWithoutLine`; `RequiredCatchLineAccuracy`
+  Catch-line bound (#761, merged 2026-11-13): `CatchLine.ProvenUncertainty` and `CatchLineBandWithoutLine`; `RequiredCatchLineAccuracy`
   checks the proven bound (up to about 2x the estimate; +6 % slope time on the 24-gon wave benchmark).
+- **Fan directions per turn (#808, bugfix): done (#850, merged 2026-11-14).** A valid `Tolerance` just above the numerical
+  margins gave `theta = 0` and a run that did not end; the cone facets per turn are now bounded.
+- **Platform libm in `TerrainSlope*` (#802): done (#836, merged 2026-11-13).** `Cos`, `Sin`, `Atan2` are `CoreMath`'s, so
+  the result has the same bits on every platform.
 - **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13). Owner 2026-11-13:
   yes to the proposals (E1, the exterior distance, first; R2 attribution with the smaller slope on a boundary; an
-  ε-approximation within the Tolerance budget). After ramps R1, not built yet.
+  ε-approximation within the Tolerance budget). After ramps R1 (merged #841), so E1 is next; not built yet, no PR or issue.
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
@@ -167,3 +180,12 @@ Plan fact-checked on 2026-10-30 (see [platform.md](platform.md#plans-fact-checke
   3D distance to the reference TIN and the horizontal/vertical components of the same closest-point displacement
   for `tdc` and `gtin`; retain vertical-ray metrics, report invalid/missing samples and measure overhead. Do not
   change terrain algorithms or the "never steeper" rule.
+
+### Open for the future (2026-11-15)
+
+1. #855: `TerrainGreedyTIN` with `MaxError = 0` never ends (fix in draft #889; terrain session).
+2. #854: `TerrainGreedyTIN` ear tolerance 1e-12 is not 2^k invariant (fix in draft #890; terrain session).
+3. Sector polygons E1, the exterior distance on demand (owner yes 2026-11-13; no PR yet), then R2 attribution.
+4. #696: TerrainSlope rows in the rotated / 1e-3 / utm frame above 20 s (test tiers; no library change).
+5. Owner decisions: the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks.
+6. Parked until a real case: the §11 performance follow-ups, RoundToGrid (research, snap rounding).
