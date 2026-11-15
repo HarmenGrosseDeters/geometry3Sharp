@@ -1,8 +1,24 @@
 # Biharmonic displacement benchmark (#886)
 
+## Numerical factor reuse paired with the geometric proof
+
+Strict sparse mode now retains the numerical Cholesky only after successful certification, paired with that exact Prepared snapshot. A hit requires the proof object identity and the complete live geometry/topology/free-map key. Each target update assembles a fresh RHS and checks the final original-data certificate. A changed proof clears the factor pair, including after a failed output check; tighter tolerances with unchanged geometry do not invalidate the matrix. Normal mode is unchanged.
+
+`factor-reuse-{before,after}-profile.txt` records one same-machine experiment using the `prepared_certificate_profile.py` command below (five calls per case, successful independent final certificate, bitwise fresh-reference checks). The three exported candidate hashes are identical before/after.
+
+| 400-vertex strict fixture | Before reuse median ms (min–max) | After median ms (min–max) | Median allocated bytes before → after |
+| --- | ---: | ---: | ---: |
+| aligned, fresh cold | 364.918 (329.468–386.327) | 365.338 (326.624–400.471) | 229769232 → 229769272 |
+| aligned, same instance | 36.347 (34.263–66.164) | 33.585 (31.474–67.749) | 21788904 → 20247912 |
+| rotated, same instance | 53.060 (46.316–84.314) | 47.491 (43.251–77.857) | 28505488 → 26964496 |
+
+Elapsed ranges overlap, so this is not a universal speedup or no-regression guarantee. It shows reduced median allocation by 1540992 bytes per target update on both fixtures, with cold cost effectively unchanged in this experiment. Retaining a factor also retains its matrix/factor storage; the table reports allocation during calls, not retained heap size. The strict cold-budget and larger-mesh problems remain open.
+
+The 25 tests compare reused versus fresh results after target/handle changes, rest-position edits and restoration, winding changes, mesh replacement and a failed tighter tolerance followed by recovery. Internal identity assertions check that the factor object persists for same/target-only cases and changes with the handle mask. `factor-reuse-mutation-results.txt` records a green baseline and a killed `disable_factor_reuse` mutant; the named test must fail and original source/artifact bytes are restored. Reproduce after a fresh baseline build with `targeted_certificate_mutations.py <dotnet> <artifacts> <fresh-logs> --factor`. This targeted identity mutation does not replace Stryker or prove the absence of redundant Factorize calls on the same object; code review also checks that Factorize is skipped on a hit.
+
 ## Prepared geometric proof: reuse and invalidation
 
-The strict sparse deformer now retains an opaque original-data L/M and positive-shift proof. Its key is checked against live mesh identity, exact position bits, vertex IDs/free map and every triangle ID/index/count. New targets/output residuals are always verified. This caches the geometric certificate, not the numerical Cholesky factor.
+The strict sparse deformer now retains an opaque original-data L/M and positive-shift proof. Its key is checked against live mesh identity, exact position bits, vertex IDs/free map and every triangle ID/index/count. New targets/output residuals are always verified. At that stage only the geometric certificate was cached; numerical factor reuse is now added as described above.
 
 `--certificate-reuse-profile` requires a successful strict sparse fixture of 17–400 vertices. It prepares the same instance once, then measures five calls with new right-boundary targets and unchanged handle IDs. Each result is compared to a separately timed fresh-deformer reference for the identical targets; metadata, vertex bits and topology must match. The final export is also hash-bound to the independent checker. The first call is explicitly labeled as including JIT and is not comparable to warmed cold timing. Reference work is outside each reuse timer and allocation sample; process peak memory includes all work. The profile measures same-instance reuse; direct tests separately assert that the same Prepared object is retained for target-only changes.
 

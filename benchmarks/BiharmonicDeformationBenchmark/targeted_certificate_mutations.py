@@ -14,9 +14,10 @@ import xml.etree.ElementTree as ET
 
 parser=argparse.ArgumentParser()
 parser.add_argument('dotnet');parser.add_argument('artifacts');parser.add_argument('logs')
+parser.add_argument('--factor',action='store_true',help='mutate numerical factor reuse instead of the certificate checks')
 args=parser.parse_args()
 root=Path(__file__).resolve().parents[2]
-source=root/'mesh_ops/BiharmonicSparseCertificate.cs'
+source=root/('mesh_ops/BiharmonicMeshDeformer.cs' if args.factor else 'mesh_ops/BiharmonicSparseCertificate.cs')
 artifacts=Path(args.artifacts).resolve();logs=Path(args.logs).resolve();logs.mkdir(parents=True,exist_ok=True)
 library=artifacts/'bin/geometry3Sharp_netstandard/release_net10.0/geometry3Sharp.dll'
 testlibrary=artifacts/'bin/geometry3Sharp.Tests/release_net10.0/geometry3Sharp.dll'
@@ -31,6 +32,8 @@ cache_key='if(prepared!=null && !prepared.Matches(mesh,ids,original,free))prepar
 mutants=[('skip_accuracy',condition,'if(false)return false;',verifier_test),
          ('omit_z',axis,axis.replace('axis<3','axis<2'),verifier_test),
          ('skip_cache_key',cache_key,'if(false)prepared=null;','PreparedCertificate_RechecksOutputAndInvalidatesGeometryTopologyAndIdentity')]
+if args.factor:
+    mutants=[('disable_factor_reuse','bool reuseFactor = trialCandidate &&','bool reuseFactor = false && trialCandidate &&',verifier_test)]
 artifact_paths=(library,testlibrary,library.with_suffix('.pdb'),testlibrary.with_suffix('.pdb'))
 if any(not path.exists() for path in artifact_paths):raise RuntimeError('all baseline DLL/PDB artifacts must exist')
 backups={path:path.read_bytes() for path in artifact_paths}

@@ -77,8 +77,12 @@ namespace geometry3Sharp.Tests
             }
             var solver = new BiharmonicMeshDeformer(mesh); solver.Options.RequireEuclideanAccuracy = true;
             var result = solver.Compute(handles); Assert.True(result.Converged, result.Status.ToString());
+            var firstFactor = solver.FactorIdentity; Assert.NotNull(firstFactor);
             var repeated = solver.Compute(handles); Assert.True(repeated.Converged);
+            Assert.Same(firstFactor, solver.FactorIdentity);
             foreach (int id in ids) Assert.Equal(result.Mesh.GetVertex(id), repeated.Mesh.GetVertex(id));
+            var targetOnly = new Dictionary<int, Vector3d>(handles); targetOnly[n - 1] += new Vector3d(.01, .02, -.01);
+            Assert.True(solver.Compute(targetOnly).Converged); Assert.Same(firstFactor, solver.FactorIdentity);
             var changedHandles = new Dictionary<int, Vector3d>(handles);
             changedHandles[n - 1] += new Vector3d(.01, .02, -.01);
             changedHandles[n + 1] = original[n + 1] + new Vector3d(0, 0, .02);
@@ -86,8 +90,26 @@ namespace geometry3Sharp.Tests
             var freshSolver = new BiharmonicMeshDeformer(mesh); freshSolver.Options.RequireEuclideanAccuracy = true;
             var fresh = freshSolver.Compute(changedHandles);
             Assert.True(reused.Converged, reused.Status.ToString()); Assert.True(fresh.Converged);
+            Assert.NotSame(firstFactor, solver.FactorIdentity);
             foreach (int id in ids) Assert.Equal(fresh.Mesh.GetVertex(id), reused.Mesh.GetVertex(id));
             foreach (var h in changedHandles) Assert.Equal(h.Value, reused.Mesh.GetVertex(h.Key));
+            void CheckFresh() {
+                var a = solver.Compute(changedHandles);
+                var freshInstance = new BiharmonicMeshDeformer(solver.Mesh); freshInstance.Options.RequireEuclideanAccuracy = true;
+                var b = freshInstance.Compute(changedHandles);
+                Assert.True(a.Converged, a.Status.ToString()); Assert.True(b.Converged, b.Status.ToString());
+                foreach (int id in ids) Assert.Equal(b.Mesh.GetVertex(id), a.Mesh.GetVertex(id));
+                Assert.Equal(BitConverter.DoubleToInt64Bits(b.PositionErrorBound), BitConverter.DoubleToInt64Bits(a.PositionErrorBound));
+            }
+            var oldPoint = mesh.GetVertex(n + 2); mesh.SetVertex(n + 2, oldPoint + new Vector3d(0, 0, .015));
+            CheckFresh(); mesh.SetVertex(n + 2, oldPoint);
+            Assert.Equal(MeshResult.Ok, mesh.ReverseTriOrientation(0)); CheckFresh();
+            Assert.Equal(MeshResult.Ok, mesh.ReverseTriOrientation(0));
+            solver.Mesh = new DMesh3(mesh); CheckFresh();
+            var lastFactor = solver.FactorIdentity; solver.Options.ResponseTolerance = 1e-30;
+            Assert.Equal(BiharmonicMeshDeformer.Status.AccuracyNotEstablished, solver.Compute(changedHandles).Status);
+            Assert.Same(lastFactor, solver.FactorIdentity);
+            solver.Options.ResponseTolerance = 1e-8; CheckFresh();
             var candidate = new Vector3d[n*n]; for (int i = 0; i < n*n; i++) candidate[i] = result.Mesh.GetVertex(i);
             double bound;
             Assert.True(BiharmonicSparseCertificate.TryVerify(mesh,ids,lookup,original,candidate,roots,active,free,count,handles,1e-8,1e-8,out bound));

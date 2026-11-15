@@ -160,7 +160,7 @@ directly with the live mesh, and the snapshot compares mesh identity, all vertex
 bits/IDs/free-map indices and every triangle ID/index/count. Shape timestamps are
 not trusted as a complete invalidation contract. New targets, final-coordinate
 displacements, handles, residuals and both tolerances are checked on every call.
-No old candidate/target bound is reused. The numerical Cholesky is still rebuilt.
+No old candidate/target bound is reused. A numerical Cholesky factor may be retained only after successful certification, paired with that exact Prepared object. Before reuse both proof identity and the complete current key must match. Targets/RHS and final output proof are recomputed; no numerical factor is treated as a certificate. A changed proof discards the old pair even if the new candidate fails certification.
 Instances and their input may not be mutated concurrently with Compute. Tests
 cover target-only reuse, stale input snapshots, geometry/topology/identity/handle
 changes and rejection of corrupted candidates using the same rest proof.

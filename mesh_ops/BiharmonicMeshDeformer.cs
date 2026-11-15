@@ -43,6 +43,14 @@ namespace g3
         public DMesh3 Mesh;
         public Settings Options = new Settings();
         BiharmonicSparseCertificate.Prepared preparedCertificate;
+        sealed class PreparedFactor {
+            internal readonly BiharmonicSparseCertificate.Prepared Proof;
+            internal readonly SparseCholesky Factor;
+            internal PreparedFactor(BiharmonicSparseCertificate.Prepared proof, SparseCholesky factor) { Proof = proof; Factor = factor; }
+        }
+        PreparedFactor preparedFactor;
+        // Opaque identity lets internal reuse tests distinguish a hit from a rebuild.
+        internal object FactorIdentity => preparedFactor == null ? null : preparedFactor.Factor;
         public BiharmonicMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
 
         static bool Add(Dictionary<int, double> row, int col, double value, bool trial = false)
@@ -247,8 +255,11 @@ namespace g3
                 if ((before.x != 0 && displacement[i].x == 0) || (before.y != 0 && displacement[i].y == 0) ||
                     (before.z != 0 && displacement[i].z == 0)) { result.Status = Status.NumericalRange; return result; }
             }
+            SparseCholesky candidateFactor = null;
             if (count > 0) {
-                var chol = new SparseCholesky(count);
+                bool reuseFactor = trialCandidate && preparedFactor != null && preparedCertificate != null &&
+                    ReferenceEquals(preparedFactor.Proof, preparedCertificate) && preparedCertificate.Matches(Mesh, ids, original, free);
+                var chol = reuseFactor ? preparedFactor.Factor : new SparseCholesky(count);
                 var bx = new double[count]; var by = new double[count]; var bz = new double[count];
                 // Q = L^T M^-1 L, assembled as outer products of individual L rows.
                 for (int k = 0; k < n; ++k) {
@@ -263,7 +274,7 @@ namespace g3
                         Vector3d rhs = -factor * constrained;
                         if (!rhs.IsFinite || !MathUtil.IsFinite(factor)) { result.Status = Status.NumericalRange; return result; }
                         bx[vi] += rhs.x; by[vi] += rhs.y; bz[vi] += rhs.z;
-                        for (int j = 0; j <= i; ++j) {
+                        if (!reuseFactor) for (int j = 0; j <= i; ++j) {
                             int uj = free[entries[j].Key]; if (uj < 0) continue;
                             double value = factor * entries[j].Value;
                             if (!MathUtil.IsFinite(value)) { result.Status = Status.NumericalRange; return result; }
@@ -271,7 +282,8 @@ namespace g3
                         }
                     }
                 }
-                if (!chol.Factorize()) { result.Status = Status.LinearSolveFailed; return result; }
+                if (!reuseFactor && !chol.Factorize()) { result.Status = Status.LinearSolveFailed; return result; }
+                candidateFactor = chol;
                 var x = new double[count]; var y = new double[count]; var z = new double[count];
                 chol.Solve(bx, x); chol.Solve(by, y); chol.Solve(bz, z);
                 for (int i = 0; i < n; ++i) if (free[i] >= 0) {
@@ -309,11 +321,15 @@ namespace g3
             if (trialCandidate) {
                 var candidate = new Vector3d[n]; for (int i = 0; i < n; ++i) candidate[i] = output.GetVertex(ids[i]);
                 double bound;
-                if (!BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
-                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate)) {
+                bool established = BiharmonicSparseCertificate.TryVerify(Mesh, ids, lookup, original, candidate, componentRoot, active, free, count,
+                    handles, Options.PositionTolerance, Options.ResponseTolerance, out bound, ref preparedCertificate);
+                if (preparedFactor != null && !ReferenceEquals(preparedFactor.Proof, preparedCertificate)) preparedFactor = null;
+                if (!established) {
                     result.Status = Status.AccuracyNotEstablished; return result;
                 }
                 result.PositionErrorBound = bound; result.Accuracy = AccuracyAssessment.Certified;
+                if (preparedFactor == null || !ReferenceEquals(preparedFactor.Proof, preparedCertificate) ||
+                    !ReferenceEquals(preparedFactor.Factor, candidateFactor)) preparedFactor = new PreparedFactor(preparedCertificate, candidateFactor);
             } else result.Accuracy = AccuracyAssessment.NotCertified;
             if (output.HasVertexNormals) MeshNormals.QuickCompute(output);
             result.Mesh = output; result.Status = Status.Success; return result;
