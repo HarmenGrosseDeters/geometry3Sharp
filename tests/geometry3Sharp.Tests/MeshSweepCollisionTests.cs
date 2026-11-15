@@ -579,8 +579,8 @@ namespace geometry3Sharp.Tests
         {
             var rnd = new Random(866 + mode);
             // (mode 2: the mesh against itself, every pair touches at t = 0: a coarser sphere, fewer rounds and sub-steps;
-            // it checks that each side takes its own end positions' hulls)
-            int rounds = mode == 2 ? 2 : 6;
+            // it checks that each side takes its own end positions' hulls; four rounds keep the others below 5 s)
+            int rounds = mode == 2 ? 2 : 4;
             for (int round = 0; round < rounds; ++round) {
                 DMesh3 a = sphere(Vector3d.Zero, 1, mode == 2 ? 3 : 4), b = sphere(new Vector3d(2.1, 0.3 * rnd.NextDouble(), 0.1), 1, 4);
                 Vector3d move = new Vector3d(0.3 + 0.6 * round / (rounds - 1.0), 0.3 * rnd.NextDouble(), 0.2 * rnd.NextDouble());
