@@ -287,6 +287,16 @@ jobs:
         if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1
+      # net48 / net10.0 benchmark comparison (benchmarks/net48-compare, #929): the build of the three benchmarks for both runtimes and a smoke run
+      # of tiny procedural cases (no data, one round, no timing judged); it fails if a result hash differs between the runtimes.
+      - name: net48 benchmark build and smoke run (Windows PowerShell)
+        if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
+        shell: powershell
+        run: benchmarks/net48-compare/run.ps1 -Smoke -OutDir smoke-results
+      - name: net48 benchmark smoke run (PowerShell 7)
+        if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
+        shell: pwsh
+        run: benchmarks/net48-compare/run.ps1 -Smoke -NoBuild -OutDir smoke-results-pwsh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

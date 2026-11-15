@@ -1,0 +1,11 @@
+name,kind,threads,cases
+boolean-cgal,booleans,all,@..\BooleanComparison\perf\cases-cgal.txt
+boolean-thingi,booleans,all,@..\BooleanComparison\perf\cases-thingi.txt
+boolean-thingi-tail,booleans,all,thingi/42327 thingi/107554
+boolean-nary,booleans,all,grid:5 grid:10 @..\BooleanComparison\perf\cases-nreal.txt
+boolean-cgal,booleans,one,@..\BooleanComparison\perf\cases-cgal.txt
+boolean-thingi,booleans,one,@..\BooleanComparison\perf\cases-thingi.txt
+boolean-thingi-tail,booleans,one,thingi/42327 thingi/107554
+boolean-nary,booleans,one,grid:5 grid:10 @..\BooleanComparison\perf\cases-nreal.txt
+wrap-small,small,all,
+wrap-repair,repair,all,{WrapMeshes}

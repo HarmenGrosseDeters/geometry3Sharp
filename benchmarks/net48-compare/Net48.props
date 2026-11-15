@@ -1,0 +1,12 @@
+<Project>
+  <!-- Shared by the benchmarks that build for net48 with -p:BenchNet48=true (benchmarks/net48-compare/README.md): the reference
+       assemblies, System.Text.Json (in the framework on net10.0) and the shims of NetCompat.cs, which on net10.0 call the APIs they replace. -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)NetCompat.cs" Link="NetCompat.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <Reference Include="System.IO.Compression" />
+  </ItemGroup>
+</Project>

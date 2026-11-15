@@ -138,7 +138,7 @@ static class ObbRunner
         string json;
         lock (output["runs"]) json = JsonSerializer.Serialize(output);
         File.WriteAllText(path + ".tmp", json);
-        File.Move(path + ".tmp", path, true);
+        NetCompat.MoveOverwrite(path + ".tmp", path);
     }
 
     static void WriteOBJ(DMesh3 mesh, string path)
