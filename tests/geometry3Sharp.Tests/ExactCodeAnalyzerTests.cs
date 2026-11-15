@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
     {
         static readonly string[] Rules = { "RS0030", "G3E0001", "G3E0002", "G3E0003" };
 
-        static string RepoRoot()
+        internal static string RepoRoot()
         {
             for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
                 if (File.Exists(Path.Combine(d.FullName, "BannedSymbols.txt")) && File.Exists(Path.Combine(d.FullName, "CLAUDE.md")))
@@ -32,7 +32,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the framework reference assemblies plus geometry3Sharp (with its internal members)
-        static CSharpCompilation Compile(string source)
+        internal static CSharpCompilation Compile(string source)
         {
             var refs = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
                 .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -227,13 +227,13 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static AnalyzerConfigSet EditorConfig(string root)
+        internal static AnalyzerConfigSet EditorConfig(string root)
         {
             string path = Path.Combine(root, ".editorconfig");
             return AnalyzerConfigSet.Create(ImmutableArray.Create(AnalyzerConfig.Parse(File.ReadAllText(path), path)));
         }
 
-        static ReportDiagnostic Severity(AnalyzerConfigSet set, string root, string relative, string id)
+        internal static ReportDiagnostic Severity(AnalyzerConfigSet set, string root, string relative, string id)
         {
             var options = set.GetOptionsForSourcePath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
             return options.TreeOptions.TryGetValue(id, out ReportDiagnostic r) ? r : ReportDiagnostic.Default;
@@ -265,20 +265,24 @@ namespace geometry3Sharp.Tests
                     Assert.True(Severity(set, root, f, id) == ReportDiagnostic.Suppress, f + " " + id);
         }
 
-        // the libm rule G3E0004 is an error in the geodesic family and in the CoreMath port, and off everywhere else
+        // the libm rule G3E0004 is an error in the geodesic family, in the terrain slope design (issue 802) and in the
+        // CoreMath port, and off everywhere else
         [Fact]
-        public void EditorConfig_MakesTheLibmRuleAnErrorInTheGeodesicFamilyOnly()
+        public void EditorConfig_MakesTheLibmRuleAnErrorInTheGeodesicFamilyAndTheTerrainSlopeDesignOnly()
         {
             string root = RepoRoot();
             Assert.NotNull(root);
             AnalyzerConfigSet set = EditorConfig(root);
             foreach (string f in new[] { "mesh_ops/IntrinsicTriangulation.cs", "mesh_ops/IntrinsicTriangulationRefinement.cs", "mesh_ops/IntrinsicCommonSubdivision.cs",
                                          "mesh_ops/VectorHeatMethod.cs", "mesh_ops/MeshGeodesicDistance.cs", "mesh_ops/MeshGeodesicPath.cs", "mesh_ops/MeshGeodesicBezier.cs",
-                                         "solvers/SparseCholesky.cs", "math/CoreMath/CoreMathSin.cs", "math/CoreMath/CoreMathExp.cs" }) {
+                                         "solvers/SparseCholesky.cs", "math/CoreMath/CoreMathSin.cs", "math/CoreMath/CoreMathExp.cs", "math/CoreMath/CoreMathComposed.cs",
+                                         "mesh_ops/TerrainSlope.cs", "mesh_ops/TerrainSlopeDesign.cs", "mesh_ops/TerrainSlopeMap.cs", "mesh_ops/TerrainSlopeComposite.cs",
+                                         "mesh_ops/TerrainSlopeOverlay.cs", "mesh_ops/TerrainSlopeLocalFrame.cs", "mesh_ops/TerrainSlopeCatchLineBound.cs" }) {
                 Assert.True(File.Exists(Path.Combine(root, f)), f);
                 Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Error, f);
             }
-            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs" })
+            // (TerrainSafety is not part of the slope design: its Math.Cos of a user angle stays)
+            foreach (string f in new[] { "math/MathUtil.cs", "mesh/DMesh3.cs", "mesh_ops/MeshCurvature.cs", "math/ExactPredicates.cs", "mesh_ops/TerrainSafety.cs" })
                 Assert.True(Severity(set, root, f, ExactCodeApiAnalyzer.LibmId) == ReportDiagnostic.Suppress, f);
         }
 

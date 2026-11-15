@@ -4,6 +4,7 @@ Status: **written proof, reviewed 2026-11-13** (fresh session, routed by the coo
 and the sign reduction sound, (S2') accepted, Theorem O holds with the hypotheses added below; no must-fix. The review
 findings are worked in (premises from A1 in section 1.1, the decidable form of Theorem O, the conditions of (S2'), the
 answers in section 9). Decision 2 of [MESH_OFFSET.md](MESH_OFFSET.md), section 9: A2 may now be built. No code.
+**Later status (2026-11-13): A2 is shelved** after its probe; see [MESH_OFFSET.md](MESH_OFFSET.md) section 11.
 
 Context: stage A1 (`gs.MeshOffset`, #799) contours F = d - sd with dual contouring and proves one side of the band.
 A2 adds the topology certificate: class S of the contouring certificate, Theorem 5 of `docs/design/CONTOURING_TOPOLOGY.md`

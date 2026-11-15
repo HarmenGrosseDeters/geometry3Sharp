@@ -734,6 +734,29 @@ public static partial class Program
                 throw new InvalidOperationException("an artifact of the campaign is inside the domain of the scale claim");
             Run(new Case { Op = Array.IndexOf(Ops, "partitioned-reducer"), A = artifact, B = new DMesh3() });
         }
+        // issue 794: a tiny shape far from the origin (here a tetrahedron collapsed to a segment of 4e-307 at about 6e-4): normalized, its coordinates are
+        // about 2^1019 and the 2^40 copy overflows, so the scale claim is out of the domain; the other claims are judged and hold
+        var farTiny = new DMesh3();
+        foreach (var v in new[] { new Vector3d(0.0003662109375, -0.0006103515625, -4.450147717014403E-308), new Vector3d(0.0003662109375, -0.0006103515625, 0),
+            new Vector3d(0.0003662109375, -0.0006103515625, 0), new Vector3d(0.0003662109375, -0.0006103515625, 3.5601181736115222E-307) })
+            farTiny.AppendVertex(v);
+        foreach (var t in new[] { (0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3) })
+            farTiny.AppendTriangle(t.Item1, t.Item2, t.Item3);
+        if (!HasHugeCoordinates(NormalizeWhole(farTiny, out _)))
+            throw new InvalidOperationException("the reproducer of issue 794 is inside the domain of the scale claim");
+        Run(new Case { Op = Array.IndexOf(Ops, "partitioned-reducer"), A = farTiny, B = new DMesh3() });
+        // the bound itself: 2^150 is in, beyond it is out (the copy of 2^150 is 2^190, inside the doubles); any coordinate, either sign and axis
+        foreach (int axis in new[] { 0, 1, 2 })
+            foreach (double sign in new[] { 1.0, -1.0 }) {
+                DMesh3 atBound = new DMesh3(unitTet), beyond = new DMesh3(unitTet);
+                Vector3d pa = atBound.GetVertex(0), pb = beyond.GetVertex(0);
+                pa[axis] = sign * Math.Pow(2, 150);
+                pb[axis] = sign * Math.Pow(2, 151);
+                atBound.SetVertex(0, pa);
+                beyond.SetVertex(0, pb);
+                if (HasHugeCoordinates(atBound) || !HasHugeCoordinates(beyond))
+                    throw new InvalidOperationException("the upper bound 2^150 of the scale claim is off (axis " + axis + ", sign " + sign + ")");
+            }
         // all 17 saved artifacts of the partitioned-reducer campaign (T13; 12 pass without the domain rule, 5 gave "not the scaled result"): decoded
         // with the operation set by hand (the first byte selects it only under the campaign's MESH_FUZZ_OPS), each runs the whole target without a finding
         foreach (string hex in new[] {

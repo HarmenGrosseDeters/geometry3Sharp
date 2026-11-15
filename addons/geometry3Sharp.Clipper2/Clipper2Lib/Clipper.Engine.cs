@@ -2930,11 +2930,18 @@ private void DoHorizontal(Active horz)
       // So the only way for these areas to have the same sign is if
       // the split triangle is larger than the path containing prevOp or
       // if there's more than one self=intersection.
+      bool insideHole = false;
       if (!(absArea2 > 1) ||
           (!(absArea2 > absArea1) &&
-           ((area2 > 0) != (area1 > 0)))) return;
+           ((area2 > 0) != (area1 > 0))))
+      {
+        // geometry3Sharp change (FINDINGS item 5): see TriangleInsidePath
+        if (!(absArea2 > 1) || !TriangleInsidePath(ip, splitOp.pt, splitOp.next.pt, prevOp)) return;
+        insideHole = true;
+      }
       OutRec newOutRec = NewOutRec();
-      newOutRec.owner = outrec.owner;
+      // geometry3Sharp change (FINDINGS item 5): a kept hole is owned by its path, not a sibling of it
+      newOutRec.owner = insideHole ? outrec : outrec.owner;
       splitOp.outrec = newOutRec;
       splitOp.next.outrec = newOutRec;
 
@@ -2959,6 +2966,49 @@ private void DoHorizontal(Active horz)
       //else { splitOp = null; splitOp.next = null; }
     }
 
+    // geometry3Sharp change (FINDINGS item 5, see README.md): DoSplitOp drops a split-off triangle whose area has the
+    // other sign than its path, as a twist (a figure-eight lobe outside the path). Such a triangle can also be a hole
+    // inside the path that touches it at a vertex, the touch turned into a crossing by the rounding of an intersection
+    // point to the grid; dropping it fills the hole. It is kept as a path of its own if it lies inside the rest of
+    // the path (Path1InsidePath2, the test DoSplitOp uses for the nesting of splits; a heuristic with a tolerance for
+    // rounding: the vertex votes, and the bounds' centre when they do not decide). DoSplitOp then makes the path the
+    // triangle's owner, so that a PolyTree nests it as a hole of the path.
+    private static bool TriangleInsidePath(Point64 pt1, Point64 pt2, Point64 pt3, OutPt path)
+    {
+      var op1 = new OutPt(pt1, path.outrec);
+      var op2 = new OutPt(pt2, path.outrec);
+      var op3 = new OutPt(pt3, path.outrec);
+      op1.next = op2; op2.next = op3; op3.next = op1;
+      op1.prev = op3; op2.prev = op1; op3.prev = op2;
+      return Path1InsidePath2(op1, path);
+    }
+
+    // geometry3Sharp change (#756, owner decision 2026-11-13): FixSelfIntersects' branch for "adjacent intersections
+    // (ie a micro self-intersection)" inserts a copy of the vertex two ahead before op2. It is kept (upstream added it
+    // for #960 in 272eb9b and removed it for #1067 in 4da1564, which is not adopted here: without it most results
+    // within the rounding get slightly less accurate), but undone when it flips the orientation of the ring: then the
+    // insertion reshaped the path instead of removing a twist (an Intersection gave a ring of negative area), and the
+    // crossing goes to DoSplitOp as every other crossing does. Returns true if the insertion was made (op2 then moves
+    // on as before), false if it was undone (op2 unchanged).
+    private bool MicroFixKeepsOrientation(ref OutPt op2)
+    {
+      double before = Area(op2);
+      OutPt dup = DuplicateOp(op2, false);
+      dup.pt = dup.next!.next!.next!.pt;
+      double after = Area(dup);
+      // a ring of zero net area (eg two equal lobes of opposite orientation) has no orientation to keep: upstream's
+      // behaviour (the insertion stays)
+      if (before != 0 && (after > 0) != (before > 0))
+      {
+        dup.prev.next = dup.next;
+        dup.next!.prev = dup.prev;
+        --dup.outrec.outPtCount;   // DuplicateOp counted it
+        return false;
+      }
+      op2 = dup.next!;
+      return true;
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void FixSelfIntersects(OutRec outrec)
     {
@@ -2971,12 +3021,10 @@ private void DoHorizontal(Active horz)
                 op2.pt, op2.next!.pt, op2.next.next!.pt))
         {
           if (InternalClipper.SegsIntersect(op2.prev.pt,
-                  op2.pt, op2.next.next!.pt, op2.next.next.next!.pt))
+                  op2.pt, op2.next.next!.pt, op2.next.next.next!.pt) &&
+              MicroFixKeepsOrientation(ref op2))
           {
-            // adjacent intersections (ie a micro self-intersection)
-            op2 = DuplicateOp(op2, false);
-            op2.pt = op2.next!.next!.next!.pt;
-            op2 = op2.next;
+            // adjacent intersections (ie a micro self-intersection): done by MicroFixKeepsOrientation
           }
           else
           {

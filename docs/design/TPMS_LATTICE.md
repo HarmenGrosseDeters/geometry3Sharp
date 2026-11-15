@@ -4,7 +4,7 @@ Status: **approved by the coordinator 2026-11-12 (decisions 1-4 of section 8, as
 with a stated guarantee): design note first, then one draft PR with the code, tests and benchmark.
 
 Goal: triply periodic minimal surface (TPMS) lattices for additive manufacturing: gyroid, Schwarz P, Schwarz D,
-Neovius, I-WP (Lidinoid later); sheet and skeletal (network) variants; cell size, volume fraction or wall thickness,
+Neovius, I-WP, Lidinoid; sheet and skeletal (network) variants; cell size, volume fraction or wall thickness,
 optionally graded; clipped to a box first, then to the inside of a closed mesh. The output is a closed, manifold,
 self-intersection-free mesh. A CLI / MCP command is its own later PR.
 
@@ -40,7 +40,7 @@ Literature (sources go to `docs/SOURCES.md`; formulas are public mathematics, no
 ## 2. API (additive; new file `mesh_generators/TpmsLattice.cs`, namespace `g3`)
 
 ```cs
-public enum TpmsType   { Gyroid, SchwarzP, SchwarzD, Neovius, IWP }       // Lidinoid: same pattern, added if cheap
+public enum TpmsType   { Gyroid, SchwarzP, SchwarzD, Neovius, IWP, Lidinoid }   // the Lidinoid was added after the first version
 public enum TpmsStyle  { Sheet, SkeletalLow, SkeletalHigh }                 // |f|<=t ; f<=c ; f>=-c
 public enum TpmsStatus { Ok, InvalidOptions, InvalidDomain, TooLarge, ContouringFailed, NotClean, SelfIntersecting, Cancelled }
 
@@ -81,7 +81,16 @@ for bit identical mesh up to the exact scaling; rotated and translated members a
 
 Fields (p = 2 pi x / L): gyroid `sin x cos y + sin y cos z + sin z cos x`; P `cos x + cos y + cos z`; D
 `sin x sin y sin z + sin x cos y cos z + cos x sin y cos z + cos x cos y sin z`; Neovius
-`3(cos x + cos y + cos z) + 4 cos x cos y cos z`; I-WP `2(cos x cos y + cos y cos z + cos z cos x) - (cos 2x + cos 2y + cos 2z)`.
+`3(cos x + cos y + cos z) + 4 cos x cos y cos z`; I-WP `2(cos x cos y + cos y cos z + cos z cos x) - (cos 2x + cos 2y + cos 2z)`; Lidinoid
+`0.5 (sin 2x cos y sin z + sin 2y cos z sin x + sin 2z cos x sin y) - 0.5 (cos 2x cos 2y + cos 2y cos 2z + cos 2z cos 2x) + 0.15`
+(the nodal approximation as given by Al-Ketan & Abu Al-Rub 2019; the constant 0.15 puts the zero set on the Lidinoid; the
+formula is invariant under the cyclic permutation of the axes and even under the central inversion; it has no mirror
+or axis swap symmetry). The zero set depends on the constant: other implementations write the same terms without the two factors 0.5 and the constant +0.3, which is
+the same surface. `f < 0` covers about 38 % of the cell, so the zero set is not volume-balanced and the low and high skeletal styles give
+different shapes; the volume fraction comes from the quantile table, not from the constant. Gradient bound for Enclosure: `d/dx = cos 2x cos y sin z + 0.5 sin 2y cos z cos x
+- 0.5 sin 2z sin x sin y + sin 2x (cos 2y + cos 2z)`, so `|d/dx| <= 1 + 0.5 + 0.5 + 2 = 4` and `|grad f| <= 4 sqrt 3`; the sum of
+the absolute terms is `0.5 * 3 + 0.5 * 3 + 0.15 = 3.15`. A Lidinoid sheet has a large area per period, so it needs
+more cubes per period (about 22+) than the other types for the wall to be resolved.
 
 The solid is `S = {f <= c}` (skeletal; `SkeletalHigh` is `{f >= -c}`) or `S = {|f| <= t}` (sheet). Its volume
 fraction in the infinite lattice is the distribution function of `f` (or `|f|`) over one period, so the map is a
@@ -120,6 +129,22 @@ solid and the result is closed.
   triangles only. The shift moves only the grid, not the lattice phase; with `Enclosure` only the dyadic shifts 0.5, 0.25, 0.75, 0.125 are used and a shift whose grid is not exactly representable is skipped (review finding); `ContouringFailed` if all four fail
   (`GridShiftsUsed` reports the attempt). Found by the tests: Neovius with a box on grid planes gave a sliver at a box
   edge on the unshifted grid.
+- **Sliver guard** (bugfix after #750, found by a large graded lattice): with a level that varies continuously (`VolumeFractionAt`, a
+  graded cell size) the node values are generic, and on a lattice of a few hundred thousand nodes a few lie within rounding of the
+  level; their crossings sit at cube corners and give degenerate triangles that no grid shift avoids (a constant lattice on its own
+  grid has a small discrete set of node values and was not hit). The field therefore treats a value within `Snap = h / 256 * ratio` of the level as
+  inside (moved to `iso - Snap`, `TpmsLattice.SliverGuard`), where `ratio` is the sampled maximum of `|grad f|` over the proven bound (1 for
+  the gyroid-like types, about 1/4 for Schwarz D and Neovius, whose bound is loose), so that the band is the same fraction of the change of f
+  per edge for every type: every crossing is then at least 2^-8 of an edge from its node and no
+  triangle is smaller than about 1e-5 cube^2. The field value of a snapped node moves by less than `2 Snap` and only down: the solid `{F <= iso}` can only grow, in
+  every variant (sheet: both walls thicken; skeletal: the solid grows). Where `F` is 1-Lipschitz in length (`(g - c) / Lw` with a constant `c`), the change of F per
+  cube edge is at most `h` and every crossing is at least `Snap / h = ratio / 256` of an edge from its node (about 1/1024 of an edge for Schwarz D
+  and Neovius). This is a heuristic sizing, not a proof: the clip distance `d` changes by `h` per edge, and a position dependent level
+  (`VolumeFractionAt`, the motivating case) makes `F` not 1-Lipschitz, so the crossing distance there is smaller; the guard still removes
+  the exact-corner crossings, and the result is certified separately (`NotCleanReason`, exact self-intersection check). For `Enclosure` the sample error is one-sided and below
+  `2 Snap` in field units: the level pad pays `2 Snap` (the audit's `e` term) on top of `sqrt(3) h / 2`. On the constant lattices of the tests (2 periods, 14 cubes per period, fraction 0.3; not a guarantee for other
+  fractions, resolutions or box offsets) 15 of 18 type / style cases are bit for bit unchanged; Neovius skeletal and Lidinoid skeletal high change by less than 12 % of a cube (measured: 5 % and 9 %; where `f` is nearly flat a snapped node moves the surface by the guard band over the local gradient) and 2 % of the volume. An on-level sample (a box plane on a node) is now snapped instead of throwing, so the grid
+  retries are rare and remain for what the guard cannot see.
 - Cut edges are rounded by at most one cube (MC does not keep a sharp box edge). Documented, measured, not hidden.
   `DomainMesh` must be closed and manifold (`InvalidDomain` otherwise: an SDF sign of an open mesh is wrong).
 - Alternative for an exact cut: the user builds the lattice on a bounding box and intersects with
@@ -189,4 +214,130 @@ solid and the result is closed.
    `LinearEdges` work exists, and it is a small addition once the field is Lipschitz-normalised.
 3. `WallThickness` as a first-order convenience in the first PR (it is approximate). Recommended: yes, with the
    reported `MeanWallThickness`.
-4. Lidinoid and graded cell size: not in the first PR.
+4. Lidinoid and graded cell size: not in the first PR (the Lidinoid was added afterwards; graded cell size follows).
+
+## 9. Hybrid of two types, in-plane (design only, nothing built; owner request 2026-11-15)
+
+Question: can `TpmsLattice` and `g3cli tpms` blend two lattices, eg Gyroid and I-WP, `w(x) f_G + (1 - w(x)) f_IWP`, and what would
+it take. This section is a design; no code, no entry in `SOURCES.md` until it is built.
+
+### 9.1 What the paper says (read from its open-access text)
+
+Source: Fang, Yan, Xie, Wang, Ke, Zhang, Li, "In-plane hybrid design and mechanical properties of Ti-6Al-4V TPMS structures",
+Sci. Rep. 16, 17947 (2026), DOI 10.1038/s41598-026-49318-0, CC BY 4.0. The formulas below are quoted from the article text;
+the equation numbers are the paper's.
+
+- Uniform parents (2), (3), with `X = 2 pi x` etc. (one period per unit length, the same for both): gyroid `sin X cos Y + sin Y cos Z + sin Z cos X = C`,
+  I-WP `2[cos X cos Y + cos Y cos Z + cos Z cos X] - [cos 2X + cos 2Y + cos 2Z] = C`. `C` shifts the level set and sets the relative
+  density; `C = 0` is the standard shell. These are the same nodal forms as section 3.
+- Connection (4), (5), for `m` cells in a row along x and then along y:
+  `gamma_n = (1 - A_1)(phi_1 - phi_2) + (1 - A_2)(phi_2 - phi_3) + ... + (1 - A_{m-1}) phi_{m-1} + A_{m-1} phi_m` (x),
+  `f = gamma_1 B_1 + gamma_2 B_1 B_2 + gamma_3 B_2 B_3 + ... + gamma_{m-1} B_{m-2} B_{m-1} + gamma_m B_{m-1}` (y), with the `phi_i` the
+  parent fields of the cells in order. For two cells (`m = 2`) the x form reads (my reading of the printed sum, not verified for larger
+  `m`) `(1 - A_1) phi_1 + A_1 phi_2`: a convex blend of the two parent fields. The printed sums are not reproduced here beyond this
+  case; the build needs only the two-parent blend with a weight, which is what they reduce to.
+- Weight (6): the sigmoid `alpha(x, y, z) = 1 / (1 + exp(-k eta(x, y, z)))`, range (0, 1), `eta = 0` the midpoint of the transition, `k` the steepness.
+  They compare `k = 0.5, 1, 5` (Fig. 1b, c): `k = 1` gives the smoothest interface and the lowest stress concentration (the stress claim is
+  from their FE runs, not ours); `k = 5` is abrupt, `k = 0.5` distorts the parent cells over a wide zone. The text does not define
+  `eta` (a coordinate or signed distance to the interface plane, presumably in units of the cell) and does not state the unit of `k`;
+  the table of specimen sizes is an image that the text extraction does not contain.
+- Layout: two hybrids on a 4 x 4 x 4 cell array, G-IWP-1 (gyroid and I-WP side by side along x, the same in every layer) and
+  G-IWP-2 (the order reversed in the next layer: a checkerboard); the thickness (relative density) is uniform, relative density gradients
+  are named as future work.
+- Continuity: the paper says "seamless", "geometric continuity", and does not name a class. From the construction: a convex
+  combination of two analytic fields with an analytic weight is analytic (`C^infinity`), and the weight is never exactly 0 or 1, so
+  there is no compact transition zone (each parent is only recovered up to `exp(-k |eta|)`); a hard switch (`max`, a
+  step) would be `C^0` only. The mechanical results and the "no abrupt change" argument are theirs; the geometric properties above
+  are consequences of the formulas, not claims of the paper.
+- Not read: Ren et al. 2021 (Mater. Des. 210, 110062, transition boundaries of multi-TPMS lattices) and Gao et al. 2022
+  (Mater. Des. 221, 110995, configuration-varying TPMS with geometric continuity): both are Elsevier articles that the session's
+  allowed hosts do not serve. Nothing here is taken from them; if the owner wants the comparison (a transition that keeps the
+  wall thickness or the level constant through the zone), they need to be read before the build.
+
+### 9.2 Fit into `TpmsLattice`
+
+Blend the **style fields, each with its own level**, not the raw `f`: with `g_X = style value of type X (f, |f| or -f)` and `c_X` its
+level for the target fraction from the existing per-type quantile table (section 3),
+
+    h(p) = w(p) (g_A(p) - c_A) + (1 - w(p)) (g_B(p) - c_B),   solid S = {h <= 0}.
+
+In the zones where `w` is near 1 or 0 the solid is the pure A or B lattice with exactly the requested volume fraction, so the
+per-type table stays the only table (no table for the pair, and no `VolumeFractionAt` per position needed). Blending the raw `f`
+with one level would give neither parent its fraction (the level sets of `f_G` and `f_IWP` are not balanced the same way). In the
+transition the fraction is whatever the blend gives; it is reported (`RealizedVolumeFraction`), not promised. Sheets:
+`g = |f|` and `c = t`, the blend of two non-smooth but 1-Lipschitz terms is still Lipschitz.
+
+API (additive, one new member group; nothing changes when unset):
+
+- `TpmsType? SecondType` and `Func<Vector3d, double> BlendWeight` (local frame, values in [0, 1], 1 selects `Type`) with a
+  library-derived bound `BlendGradientBound` (as `LinearGrade` does for the phase map: a delegate without a bound is allowed only
+  without `Enclosure`). Helpers `SigmoidBlend(axis or normal, offset, width)` (the weight of (6) with `eta` the signed distance
+  along the normal in length units and `k = 4 / width`, so the slope at the midpoint is `1 / width` and the 10 % to 90 % zone is `2 ln 9 / k = 1.10 width` wide, `|grad w| <= k / 4 = 1 / width`) and `CheckerBlend(A, B)` (the layout of G-IWP-2: `w = A B + (1 - A)(1 - B)`
+  of two sigmoids along x and y, `|grad w| <= sqrt(kx^2 + ky^2) / 4`; this combination is mine, the paper builds the checkerboard with its
+  sums (4), (5)). `w` is evaluated in a numerically stable form (`0.5 (1 + tanh(k eta / 2))`; the printed `1 / (1 + exp(-k eta))` overflows for large `-k eta`).
+- Both types share `CellSize` and `Rotation` (the paper does the same); different periods per type are a non-goal (the phase map is
+  per field and the transition would have no meaning). A `Grade` (graded cell size) applies to both fields at once: allowed, the
+  Jacobian bound enters the bound below unchanged.
+- `Compute()`: the quantile levels `c_A, c_B` and the area ratios come from the existing caches (per type); the field is
+  `F = max(h / Lh, d)` with `d` the domain distance as today.
+
+**Lipschitz bound for `Enclosure`** (the one new thing to prove). With `M_X = sum of the absolute values of the terms` of `f_X` (the
+code has it for the rounding error: gyroid 3, I-WP 9, so `|g_X - c_X| <= M_X + |c_X|`), phase scale `2 pi / L`, and `G_X` the
+gradient bound of section 5 (gyroid `2 sqrt 3`, I-WP `6 sqrt 3`):
+
+    grad h = w grad g_A + (1 - w) grad g_B + (g_A - c_A - g_B + c_B) grad w,
+    Lh = (2 pi / L) max(G_A, G_B) J + (M_A + |c_A| + M_B + |c_B|) * Wmax,
+
+with `J` the Jacobian bound of the grade (1 without) and `Wmax` the bound of `|grad w|`. Gyroid / I-WP at `L = 1`, `k = 1` gives about
+`65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`, so the enclosure
+offset (`sqrt 3 h / 2` in field units, divided by `Lh`) hardly changes. The rounding error of an evaluation gets one more term,
+`(|g_A - c_A| + |g_B - c_B|) * eps_w` with `eps_w` a few ulps of `w` (the stable form above); it enters `EnclosureError` next to the
+existing terms. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
+solid contains the exact blend `{h <= 0}` of the stated `w`.
+
+### 9.3 Fit into `g3cli tpms`
+
+New options, no default of an existing option changes: `second_type` (same names as `type`; unset = no hybrid), `blend`
+`'axis,offset,width'` for the single plane (axis 0..2, local frame) or `blend_xy` `'x_offset,x_width,y_offset,y_width'` for the checkerboard
+(the exact spelling is the owner's call: it is new CLI surface). Result fields: `second_type`, the two levels, `blend_gradient_bound`.
+`max_cells`, `domain` and `enclosure` behave as today (`enclosure` with a domain mesh stays refused).
+
+### 9.4 Guarantees to keep
+
+Unchanged and from the same mechanism: `Status Ok` only after `MeshRobustRepair.NotCleanReason` and the exact self-intersection
+check (the contouring path and the certificate do not know the field), closed, manifold, oriented, finite. Not promised, as for the
+constant lattice: topology of walls thinner than about two cubes; additionally the wall thickness inside the transition (the blend of
+two fields at different wall thickness is not a wall of either), so the resolution rule `Divisions >= 2 L / wall` is checked against the thinner of the two
+types. The sliver guard needs the `GradientRatio` of the field: use the larger of the two per-type ratios (conservative: a larger
+`Snap` only grows the solid, section 4), sampled ratio of the blend itself is a refinement, not needed. `Enclosure` keeps its
+preconditions (dyadic grid, box domain, constant fractions, the bound above).
+
+### 9.5 Tests the build needs
+
+Each with a mutation that must fail it, as in section 7:
+
+1. `w = 1` everywhere reproduces the pure `Type` mesh bit for bit, `w = 0` the pure `SecondType` (kills a swapped weight and a dropped level).
+2. A single plane with a wide transition: far from it, the realized fraction of each half is the target of its type (tolerance as in section 7); between
+   them the mesh is clean (closed, manifold, `NotCleanReason == null`, no self-intersection) for gyroid / I-WP at several `k` and all three styles.
+3. Independent field copy in the test plus a winding-number oracle on points near the interface (as `TpmsLatticeTests` does for the constant lattice).
+4. `Similarity.All()` invariance (`Harness/Invariance.cs`): the 2^k scales give the same mesh bit for bit, with `k` and the offsets given in scaled
+   length units (the product `k * eta` is then identical), rotation / translation via the frame as for the constant lattice.
+5. Reuse (`Compute()` twice on one instance) and determinism (parallel = serial, repeated runs).
+6. `Enclosure`: the recipe test (a solid contains the exact blend at the worst places, as `Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces`)
+   for the blend, with a steep `k` so that the weight term of `Lh` matters; a mutation that drops the `Wmax` term must fail it. Refusals: a
+   weight delegate without a bound, `Enclosure` with a domain mesh.
+7. Stable weight: `k eta` of +-800 gives 1 / 0 without NaN (kills the printed form).
+8. CLI: option mapping against the library called directly (as `TpmsCliTests`), errors write nothing, MCP argument types.
+9. Benchmark row in `benchmarks/TpmsLattice` (two types evaluate both fields: expect about twice the field time of one type, the domain distance and the certificate unchanged).
+
+### 9.6 Effort and risks
+
+One PR, library about 250 lines (weight helpers, blend in the field, the bound and the `EnclosureError` term), CLI about 100,
+tests about 500, design notes and `SOURCES.md` (this paper, CC BY 4.0, the idea only; the sigmoid is textbook). Roughly 1.5 to 2 days of agent
+work including the review. Risks: (a) the volume fraction inside the transition is not controlled (reported only); (b) the enclosure
+bound is conservative where `k` is large; (c) the paper's `eta` and `k` units are not stated, so our `width` parametrisation is ours and
+should not be presented as the paper's `k`; (d) Ren / Gao may offer a transition that keeps the wall thickness, which this simple
+blend does not: a possible second step, only after reading them.
+
+Decisions for the owner: the option spelling in 9.3; whether the checkerboard weight ships in the first PR or only the single plane;
+whether reading Ren 2021 and Gao 2022 comes first.

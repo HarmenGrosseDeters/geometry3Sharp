@@ -6,9 +6,10 @@
     ],
     "target-framework": "net10.0",
     "mutate": [
-      "**/math/Generated/IndirectPredicates.cs"
+      "**/math/Generated/IndirectPredicates.cs",
+      "**/math/Generated/DoublePredicates.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~GeneratedPredicatesIndirectTests",
+    "test-case-filter": "FullyQualifiedName~GeneratedPredicatesIndirectTests|FullyQualifiedName~GeneratedDoublePredicatesTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

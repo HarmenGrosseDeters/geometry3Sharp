@@ -188,7 +188,7 @@ above. Vertex removal is not needed for MVP (ODT smoothing would want it).
 | T1 | Validity | `NotValidReason(tets)` empty: all tets exactly positive, every interior facet shared by two tets, boundary facets = a closed 2-manifold, volume of tets = volume of the boundary surface | 100 % of the procedural corpus, exact |
 | T2 | Boundary fidelity | tet boundary equals the wrap surface as a point set (Hausdorff, `MeshDeviation`); to the input: <= `UsedOffset + UsedAlpha` plus the wrap's own guarantee | <= 2^-40 of the diagonal to the wrap; input as the wrap |
 | T3 | Radius-edge | max over tets, excluding the counted floor tets | <= ρ = 2, `UnrefinedBadTets` = 0 on smooth procedural inputs |
-| T4 | Dihedral angles | min / max dihedral (stage 2 for the tail) | stage 1: reported only; stage 2: min >= 10 degrees on sphere / torus / ellipsoid wraps, >= 5 degrees on the mechanical set |
+| T4 | Dihedral angles | min / max dihedral (stage 2 for the tail) | stage 1: reported only (with the round carving of #774 the box wrap gives 9.28 degrees after peeling, before 10.0; the stage 1 test pins >= 9.0); stage 2: min >= 10 degrees on sphere / torus / ellipsoid wraps, >= 5 degrees on the mechanical set |
 | T5 | Speed (excluding the wrap) | refinement + improvement, single thread | <= 25 us per output tet; 100k tets <= 3 s |
 | T6 | Determinism | bit-identical result under `Similarity.All()` (2^k scales), repeated runs, serial = parallel if a parallel path exists | exact equality of vertex and tet lists up to the transform |
 | T7 | Size control | element count follows `TargetEdgeLength` | count within a factor 2 of volume / (0.12 h^3) on a cube |
@@ -341,8 +341,8 @@ Comparison with the owner's targets (100 % valid, min dihedral >= 10 degrees, sa
 target for the subset (fTetWild reports 99.97 %); the dihedral target is **not met at stage 0** (0 of 40; this is what stages 1 and 2 are
 for); the time of stage 0 (wrap median 0.33 s) is far below fTetWild's 18-50 s, but it produces a coarse tet mesh without
 quality, so the comparison becomes meaningful only after stages 1 and 2 (their cost is the open part, section 10 item 3).
-Note that the dihedral target cannot be checked against fTetWild's own output from its paper; a run of fTetWild itself on the same subset
-(black box, MPL, no code read) would settle it, an owner decision.
+Note that the dihedral target cannot be checked against fTetWild's own output from its paper; the black-box run of fTetWild on
+the same subset is in section 12 (2026-11-14).
 
 ## 11. Hand-over (2026-11-09): where stage 1 would start
 
@@ -372,6 +372,70 @@ probably not worth building.
    agreed but not yet added.
 3. Sliver strategy for stage 2 (flips + smoothing recommended) and the dihedral target (10 degrees assumed).
 4. Whether option (d) lattice stuffing (1-2 weeks, guaranteed dihedral bound) is worth building first for implicit domains.
+
+## 12. fTetWild black-box comparison (2026-11-14)
+
+fTetWild run as a black box on the GitHub-hosted runner (MPL-2.0: built from its README steps, run with its defaults, its
+output read back by our evaluator and deleted; no source read, nothing ported), workflow `.github/workflows/tet-compare.yml`,
+run 43547804151 on master 6b172b1, fTetWild commit 8118f81. Data branch `runs/tet-meshing`,
+`compare/2026-11-14-run43547804151/` (SUMMARY.md, one CSV per variant). The command per mesh is
+`FloatTetwild_bin -i <id>.stl -o <out>.mesh --max-threads 4 --no-binary --level 3`, with a 1800 s timeout. `--level` is only
+the log level; the meshing parameters are fTetWild's defaults, ideal edge length `-l 0.05` and envelope `-e 1e-3` of the bbox
+diagonal. Four shards ran on four ubuntu-latest runners (4 vCPU, 15 GB each) with four different CPUs (`machines.txt`): AMD
+EPYC 9V74, Intel Xeon Platinum 8573C, Intel Xeon 6975P-C and AMD EPYC 9V45. Each mesh ran both meshers, one at a time, on its
+shard's runner, so per-mesh times compare on one machine, while the medians below mix the four machines. Both outputs
+went through the same checks (`TetFiles.Evaluate`: exact orientation, matched facets, closed and consistently oriented
+2-manifold boundary, exact boundary self-intersection test). The `ft1` column of SUMMARY.md is empty: the single-thread
+fTetWild variant was not run (`ft_threads` = 4).
+
+The stage-0 row is from the same run. The stage-1 and stage-2 rows are the local subset runs of sections 14.8 and 15
+(`benchmarks/TetMeshBenchmark/results/thingi10k-subset-stage1-peel-2026-11-13.csv`, `...-stage2-lever2-free050-2026-11-13.csv`,
+the default parameters). Those ran on a different machine (this project's shared cloud container, one thread), so their
+times are comparable to the runner's only in order of magnitude.
+
+| 40 Thingi10K meshes | fTetWild (4 threads) | ours stage 0 (1 thread, same runners) | ours stage 1 (local) | ours stage 2, default (local) |
+|---|---:|---:|---:|---:|
+| output | 40 | 40 | 40 | 40 |
+| valid (our definition, see below) | **33** | 40 | 40 | **40** |
+| inverted tets (sum) | 0 | 0 | 0 | 0 |
+| time median / max (s) | 8.48 / 318 | 0.26 / 6.45 | 0.49 / 10.3 | 0.60 / 13.4 |
+| tets, median | 14,690 | 3,444 | 4,485 | 4,441 |
+| smallest dihedral per mesh: median / best (degrees) | 11.4 / 23.2 | 0.22 / 1.29 | 1.18 / 10.0 | 9.54 / 10.5 |
+| p01 dihedral, median (degrees) | 20.2 | 2.31 | 9.3 | 10.9 |
+| meshes with p01 >= 10 degrees | 40 of 40 | 0 | 16 | 40 |
+| meshes with every tet >= 10 degrees (valid or not) | **34** of 40 | 0 | 1 | **16** |
+| share of tets below 10 degrees, median | 0 | 0.094 | 0.013 | 0.00025 |
+| boundary to input, max, median (rel. bbox diagonal) | 0.00054 | 0.00167 | 0.00167 | 0.00249 |
+| input to boundary, max, median (rel. bbox diagonal) | 0.00099 | 0.0313 | 0.0313 | 0.0313 |
+
+- **Validity.** "Valid" is our definition: every tet exactly positive and a closed, consistently oriented 2-manifold boundary
+  without self-intersections. It is not the measure behind fTetWild's published 99.97 % (section 10.1). fTetWild returns a
+  mesh for all 40 meshes, but 7 of them fail our check with "a boundary edge occurs twice with the same direction": 110372,
+  265729, 44041, 46460, 49884, 51809 and 58733. Their tets are all positive; the boundary they bound is not a consistently
+  oriented 2-manifold. Two of them also leave the envelope: their boundary is up to 0.0082 (44041) and 0.0286 (49884) of the
+  diagonal from the input. This is reported as measured; whether an option of fTetWild changes it was not checked.
+- **Dihedral angles.** fTetWild does not keep every tet at 10 degrees on all 40 meshes: 6 meshes go below. 5 of them are
+  valid (186204, 55429, 88564, 91589, 94240; lowest 7.84 degrees on 88564), and 49884 (9.2 degrees) is one of the invalid
+  ones. So the answer to section 11, open decision 1, is no, and as decided there the 10-degree target is a floor, not a
+  copy of fTetWild. On the measure of the stage-2 target, p01 >= 10 degrees, both reach 40 of 40. fTetWild's angles are
+  clearly better: median p01 20.2 against 10.9 degrees, and 34 against 16 meshes with every tet at 10 degrees. Its best mesh,
+  23.2 degrees, is 100026, which has only 23 tets.
+- **Surface.** fTetWild tracks the input within its envelope: boundary within 0.00054 of the diagonal, input within 0.00099.
+  Our boundary is the alpha wrap, 1/600 of the diagonal outside the input (stage 2: up to 1.5 offsets). The input-to-boundary
+  distance of 0.031 is the wrap's resolution (alpha = diagonal / 20): the wrap does not follow concave detail finer than alpha.
+  This is the main quality gap, and a property of the wrap, not of the tet stages. Sharp features: section 13.
+- **Time and size.** Per mesh, on one runner, stage 0 is 36x faster than fTetWild at the median of the ratios (4.5x to 620x;
+  per-shard medians 28x to 45x; fTetWild on 4 threads, ours on 1). Stage 2 measured locally is 0.60 s median and 13.4 s max,
+  about an order of magnitude below fTetWild's 8.48 s median on the runners. Our meshes have about 3.3x fewer tets (4.4k
+  against 14.7k at the median). The run does not measure why; fTetWild's default ideal edge length (`-l 0.05` of the
+  diagonal) is one setting that sets its size. So "time in fTetWild's order" is met, with the surface-fidelity and tet-count
+  caveats above.
+
+Workflow notes, so the next run starts green:
+- The build pins CMake 3.29. The runner's CMake 4.x, and 3.31, fail on CMP0169 in a fetched libigl recipe (#849, #862).
+- The shard runners get the build-tree `libtbb.so.12` bundled; without it the loader exits 127 on every mesh (#877).
+- The directories `compare/2026-11-13-run43517643335`, `compare/2026-11-14-run43533334096` (rc127) and
+  `compare/2026-11-14-run43537131856` (30 s smoke test) on the data branch are not results.
 
 ## 13. Sharp features: does the Alpha Wrap 3.0 feature pass (#736) give the surfaces stage 1 needs? (2026-11-13)
 
@@ -615,3 +679,50 @@ slivers; Klingner and Shewchuk 2007); (b) surface points on the offset surface i
 own refinement rule, run on request from the tet refinement: a restricted-Delaunay surface mesher in the manner of
 Boissonnat-Oudot, more work in `MeshAlphaWrap`); (c) relax the stage-1 target to the measured values and meet 10 degrees in
 stage 2 only.
+
+## 15. Stage 2: flips and smoothing (2026-11-13; coordinator: option (a), target kept)
+
+Built: `TetMeshImprover` (internal), run by `MeshTetrahedralization` when `Improve` (default on) after stage 1. After B. M.
+Klingner, J. R. Shewchuk, *Aggressive tetrahedral mesh improvement*, IMR 2007 (paper only; Stellar's code not read): hill
+climbing on the smallest dihedral angle over the tets below `SliverDihedralDegrees` (10), worst first, in passes until nothing
+changes (at most 20):
+
+- **edge removal**: the m <= 8 tets around an interior edge replaced by the 2 (m - 2) tets of the best triangulation of the ring
+  polygon (dynamic programming over the ring; m = 3 is the 3-2 flip);
+- **face removal**: the 2-3 flip of an interior facet;
+- **smoothing of interior vertices**: steps along the numerical gradient of the worst tet of the star, or to the star's centroid;
+- **boundary vertex moves**: the same steps for boundary vertices, in any direction (`BoundaryMovesTangentOnly` = false) or in
+  the tangent plane of the vertex's boundary fan, each move capped cumulatively at `BoundarySlideFactor` (0.5) offsets from
+  the vertex's original position on the wrap.
+
+What is enforced, per operation (an operation that fails a check is not made):
+- every tet it creates is exactly positively oriented (`ExactPredicates.Orient3d`), and the smallest dihedral angle of the tets
+  it replaces strictly increases;
+- edge and face removal never change the boundary facets (they work on interior edges and facets);
+- a boundary move is kept only if the swept tets (old position, new position, each boundary link edge of the vertex) share
+  no point with any input triangle (exact, as the peeling test), and the moved boundary triangles intersect no other boundary
+  triangle beyond shared corners (`ExactTriangleIntersection.IntersectsBeyondShared`, exact).
+
+So, **proven by construction**: every tet positive, the boundary closed and 2-manifold (no operation changes its topology), free
+of self-intersections, and the input strictly inside it (no boundary point ever passes over an input point). **Bounded by
+construction**: every boundary vertex is at most 0.5 offsets from its wrap position (cumulative cap; test
+`BoundaryDisplacement_IsCumulativelyCapped_FromTheOriginalWrapPosition`). **Measured, not proven**: the distance from the
+boundary to the input, at most 1.5 offsets on the subset (the wrap's own distance to the input is about one offset but has no
+proven upper bound in `MeshAlphaWrap`, so no bound wrap + 0.5 offset is claimed).
+
+Measured on the 40-mesh subset after every lever (one thread; rows `benchmarks/TetMeshBenchmark/results/thingi10k-subset-stage2-*.csv`):
+
+| Measure (40 meshes) | end of stage 1 | lever 1: interior flips + smoothing | lever 2a: + boundary moves, tangent only, cap 0.25 offset | lever 2b (default): + boundary moves, any direction, cap 0.5 offset |
+|---|---|---|---|---|
+| valid (exact), boundary without self-intersection | 40 / 40 | 40 / 40 | 40 / 40 | 40 / 40 |
+| p01 dihedral >= 10 degrees | 16 | 38 | 39 (839690: 8.57) | **40** |
+| smallest dihedral >= 1 degree | 23 | 40 | 40 | **40** (worst 2.86) |
+| smallest dihedral >= 10 degrees | 1 | 7 | 9 | 16 |
+| median smallest / p01 dihedral | 1.18 / 9.3 | 6.2 / 10.8 | 6.8 / 10.8 | 9.5 / 10.9 |
+| boundary to input, max (offsets) | 1.0 | 1.0 | 1.25 | 1.5 |
+| time wrap + refinement + improvement, median / max | 0.49 s / 10.3 s | 0.53 s / 9.9 s | 0.65 s / 15.0 s | 0.60 s / 13.4 s |
+
+The stage-2 target (p01 >= 10 and min >= 1 degree on every mesh of the subset) is met by lever 2b, the default; lever 2a, which keeps
+the boundary vertices in their tangent planes, is the conservative option (switch `BoundaryMovesTangentOnly`, and
+`BoundarySlideFactor` = 0.25) and misses one mesh (839690, p01 8.57). Face removal is tested (a constructed 2-3 case) but was never
+an improvement on the subset; edge removal (3.3k) and smoothing (2.2k interior, boundary moves) do the work.

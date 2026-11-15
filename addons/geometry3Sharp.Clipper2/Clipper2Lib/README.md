@@ -12,9 +12,8 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
 - Files: `Clipper.Core.cs`, `Clipper.Engine.cs`, `Clipper.Minkowski.cs`, `Clipper.Offset.cs`, `Clipper.RectClip.cs`,
   `Clipper.Triangulation.cs` (only because `Clipper.cs` refers to it; unused), `Clipper.cs`, `HashCode.cs` (its own
   MIT / BSD-2 notices for the .NET and xxHash code it contains), `PooledList.cs`.
-- Changes, mechanical only, so that these types never clash with the `Clipper2` package (which the public API of
-  `geometry3Sharp.Clipper2` still uses for `Point64`, `Path64`, `Paths64`, `ClipType`, `FillRule`, `JoinType` and
-  `EndType`):
+- Changes, mechanical only, so that these types never clash with the `Clipper2` package in code that references both
+  (and with the public enums of `geometry3Sharp.Clipper2`, which have the same names):
   1. `namespace Clipper2Lib` → `namespace g3.Clipper2.Vendored`;
   2. top-level types `public` → `internal` (members unchanged).
 
@@ -26,13 +25,20 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
          CSharp/Clipper2Lib/<file> > <file>
   ```
 
-  Any later change to these files (bugfixes) is listed here, with its PR.
+  Any later change to these files (bugfixes) is listed here, with its PR:
+  - FINDINGS item 5 (2026-11-12, PR 2 of the vendoring): `Clipper.Engine.cs`, `DoSplitOp` drops a split-off triangle of
+    the other area sign only if it does not lie inside the rest of the path (new `TriangleInsidePath`); before, such a
+    hole touching its path at a vertex was dropped and filled. Marked "geometry3Sharp change" in the source.
+  - #756 (2026-11-13): `Clipper.Engine.cs`, `FixSelfIntersects` takes its "micro self-intersection" branch only if the
+    inserted vertex does not flip the ring's orientation (new `MicroFixKeepsOrientation`; otherwise `DoSplitOp`).
+    Upstream's later removal of that branch (`4da1564`, issue #1067) is not adopted (owner 2026-11-13).
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the
   NuGet package side by side (booleans in every clip type, fill rule and PreserveCollinear setting, open paths,
   offsets in every join and end type, Minkowski sums and differences, SimplifyPaths, Area, bounds, point in polygon)
-  and requires the same output point for point, at the adapter's magnitudes (±2^20 to ±2^50) and with degenerate
+  and requires the same output point for point (since the item 5 fix: except where the package's area is off the exact
+  area and the vendored one is not, `DegenerateBooleans_DifferOnlyWhereThePackageIsWrong`), at the adapter's magnitudes (±2^20 to ±2^50) and with degenerate
   paths. The review of #751 compared the netstandard2.0 build with the package's DLL by IL: the same types, members
   and method bodies, apart from a method-group delegate cache of the newer compiler in `ConvertHorzSegsToJoins`. In the
   net10.0 build, `x.EnsureCapacity(n)` (`Clipper.Engine.cs`, `ClipperEngine.AddPathsToVertexList`) binds to

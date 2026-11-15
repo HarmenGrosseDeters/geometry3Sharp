@@ -278,6 +278,7 @@ namespace geometry3Sharp.Tests
                 { TerrainSlopeDesign.Statuses.ToeSteeperThanSlope, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
                 { TerrainSlopeDesign.Statuses.ToeUndercut, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
                 { TerrainSlopeDesign.Statuses.ToeOvertopped, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
+                { TerrainSlopeDesign.Statuses.RampNotOnWall, TerrainSlopeDesign.StatusKinds.GeometricallyInfeasible },
                 { TerrainSlopeDesign.Statuses.SlopeViolation, TerrainSlopeDesign.StatusKinds.NotCertified },
                 { TerrainSlopeDesign.Statuses.CatchLineAccuracyNotReached, TerrainSlopeDesign.StatusKinds.NotCertified },
                 { TerrainSlopeDesign.Statuses.CompositeFailed, TerrainSlopeDesign.StatusKinds.Internal },

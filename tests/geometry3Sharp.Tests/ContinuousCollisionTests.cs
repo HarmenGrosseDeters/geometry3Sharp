@@ -205,6 +205,119 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsPositiveInfinity(Run(vertexThrough(2, 2)).TimeOfImpact));
         }
 
+        // Nearly parallel, nearly coincident edges (the pattern of a cloth-funnel query of the ToI sample, built here
+        // procedurally): the offset between the edges crosses zero in x at t = 0.4 and in z at t = 0.41, so the edges
+        // miss by about 1.7e-7 (far beyond the false-positive distance); with both at t = 0.4 they coincide. Before the
+        // separating direction across the strip and the split along it, the miss took 7.8e5 boxes.
+        // two nearly parallel edges: the offset of edge (c, d) from edge (a, b) is x = s (t - 0.4), z = s (t - zCross),
+        // across the edges; both drift together
+        internal static Query ParallelEdges(double zCross)
+        {
+            const double s = 2.4e-5, len = 0.006;
+            Vector3d dir = new Vector3d(0.33, 0.92, -0.11).Normalized * len;
+            Vector3d drift = V(1e-4, 0, -3e-3);
+            Vector3d a0 = V(0.0489, -0.023, -0.6051);
+            Vector3d w(double t) => V(s * (t - 0.4), 0, s * (t - zCross));
+            Vector3d a1 = a0 + drift;
+            return EEq(a0, a0 + dir, a0 + w(0), a0 + dir + w(0), a1, a1 + dir, a1 + w(1), a1 + dir + w(1));
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void NearlyParallelEdges_DecideQuickly(bool intervals)
+        {
+            var solver = new CcdSolver { ForceIntervals = intervals };
+            Query query(double zCross) => ParallelEdges(zCross);
+            CcdResult Run(Query q, CcdOptions o = null) => ContinuousCollisionTests.Run(q, o, solver);
+            CcdResult miss = Run(query(0.41));
+            Assert.Equal(CcdStatus.NoCollision, miss.Status);
+            Assert.True(miss.Iterations < 20000, $"{miss.Iterations} boxes");
+            CcdResult touch = Run(query(0.4));
+            Assert.Equal(CcdStatus.Collision, touch.Status);
+            Assert.True(touch.TimeOfImpact <= 0.4 + 1e-12 && touch.TimeOfImpact >= 0.4 - 1e-3, $"{touch.TimeOfImpact:R}");
+            Assert.True(touch.Iterations < 20000, $"{touch.Iterations} boxes");
+            // a minimum separation above the miss distance: the contact set is a thin slab along the edges, where the
+            // split along the separating direction stops once the spread is within the separation band
+            CcdResult slab = Run(query(0.41), new CcdOptions { MinSeparation = 1e-6 });
+            Assert.Equal(CcdStatus.Collision, slab.Status);
+            Assert.True(slab.Iterations < 20000, $"{slab.Iterations} boxes");
+            // the miss in exact arithmetic: no sampled point of the domain is within the false-positive distance
+            Query q = query(0.41);
+            for (int i = 0; i <= 200; ++i)
+                for (int j = 0; j <= 8; ++j) {
+                    double t = 0.35 + i * (0.1 / 200), u = j / 8.0;
+                    Assert.False(ExactContact(q, Math.Round(t * 4096) / 4096, u, u, 1e-8));
+                }
+        }
+
+        // review of #845: the decisions of the parallel-edge path are the same at every 2^k scale (the vectors are
+        // normalized by powers of two), also where the raw products would over- or underflow; above 2^500 (the
+        // interval path) the parallel pattern stays fast
+        [Fact]
+        public void ParallelEdgePath_ExtremeScales()
+        {
+            Query crossing = EEq(V(-1, 0, 1), V(1, 0.3, 1), V(0, -1, 0), V(0, 1, 0), V(-1, 0, -1), V(1, 0.3, -1), V(0, -1, 0), V(0, 1, 0));
+            foreach (Query q in new[] { crossing, ParallelEdges(0.41), ParallelEdges(0.4) })
+                foreach (double ms in new[] { 0.0, 1e-3 }) {
+                    CcdResult r0 = Run(q, new CcdOptions { MinSeparation = ms });
+                    foreach (int k in new[] { 10, 200, 262, 300, 400, -10, -270, -280 }) {
+                        double scale = Math.Pow(2, k);
+                        CcdResult r = Run(q.Map(x => x * scale), new CcdOptions { MinSeparation = ms * scale });
+                        Assert.Equal(r0.Status, r.Status);
+                        Assert.Equal(r0.Iterations, r.Iterations);
+                        Assert.Equal(r0.TimeOfImpact, r.TimeOfImpact);
+                    }
+                }
+            foreach (int k in new[] { 520, 900 }) {
+                // (at 2^900 the products of the direction with the corner values would overflow without the scaling)
+                CcdResult big = Run(ParallelEdges(0.41).Map(x => x * Math.Pow(2, k)));
+                Assert.Equal(CcdStatus.NoCollision, big.Status);
+                Assert.True(big.Iterations < 20000, $"2^{k}: {big.Iterations} boxes");
+            }
+        }
+
+        // review of #845: no cliff at the parallel threshold (a sine of 0.01): edges just past it are split along their
+        // cross product, so they need about as few boxes as those below it (6840 boxes at a sine of 0.011 without)
+        [Theory]
+        [InlineData(0.005)]
+        [InlineData(0.011)]
+        [InlineData(0.02)]
+        public void ParallelEdgePath_NoCliffAtTheThreshold(double sine)
+        {
+            const double s = 2.4e-5, len = 0.006;
+            Vector3d dir = new Vector3d(0.33, 0.92, -0.11).Normalized * len;
+            Vector3d perp = dir.Cross(V(1, 0, 0)).Normalized * len;
+            Vector3d dirb = dir * Math.Sqrt(1 - sine * sine) + perp * sine, mid = 0.5 * dir;
+            Vector3d drift = V(1e-4, 0, -3e-3), a0 = V(0.0489, -0.023, -0.6051), a1 = a0 + drift;
+            Vector3d w(double t) => V(s * (t - 0.4), 0, s * (t - 0.41));
+            var q = EEq(a0, a0 + dir, a0 + mid - 0.5 * dirb + w(0), a0 + mid + 0.5 * dirb + w(0),
+                        a1, a1 + dir, a1 + mid - 0.5 * dirb + w(1), a1 + mid + 0.5 * dirb + w(1));
+            CcdResult r = Run(q);
+            Assert.Equal(CcdStatus.Collision, r.Status);
+            Assert.True(r.Iterations < 3000, $"sine {sine}: {r.Iterations} boxes");
+        }
+
+        // the parallel-edge path is for edge-edge only: vertex-triangle queries whose vertex path and triangle side are
+        // parallel give the same results with the path switched off
+        [Fact]
+        public void ParallelEdgePath_LeavesVertexTriangleAlone()
+        {
+            var rnd = new Random(13);
+            var on = new CcdSolver();
+            var off = new CcdSolver { ParallelEdgeDirections = false };
+            for (int i = 0; i < 200; ++i) {
+                Vector3d a = point(rnd), b = point(rnd), c = point(rnd);
+                // p - a parallel to c - b (the pairs (p, a) and (b, c) the edge-edge code would read as edges)
+                Vector3d p0 = a + 0.5 * (c - b) + V(0, 0, 1.0 / 64), p1 = p0 + V(0, 0, -1.0 / 32);
+                var q = VFq(p0, a, b, c, p1 + (c - b) * 0.25, a, b, c + (c - b) * 0.25);
+                foreach (double ms in new[] { 0.0, 1.0 / 128 }) {
+                    var o = new CcdOptions { MinSeparation = ms };
+                    Assert.Equal(Run(q, o, off), Run(q, o, on));
+                }
+            }
+        }
+
         [Fact]
         public void InvalidInput()
         {
@@ -461,15 +574,21 @@ namespace geometry3Sharp.Tests
             Assert.Equal(a, Run(q1));
         }
 
-        // a few queries with clear margins (deep crossings, clear misses) for the invariance test
-        static IEnumerable<(Query q, CcdStatus status, double tStar)> invarianceSet()
+        // a few queries with clear margins (deep crossings, clear misses) for the invariance test, and the nearly
+        // parallel edges: tStar the contact time (NaN: unknown), clearance the distance of a miss (0: none or large),
+        // rate how fast F changes with t (input units; the times of a frame agree within its resolution / rate)
+        static IEnumerable<(Query q, CcdStatus status, double tStar, double clearance, double rate)> invarianceSet()
         {
-            yield return (vertexThrough(0.25, 0.25), CcdStatus.Collision, 0.5);
-            yield return (vertexThrough(0.75, 0.75), CcdStatus.NoCollision, 0);
-            yield return (VFq(V(0.3, 0.2, 1), V(0, 0, 0.2), V(1, 0, -0.1), V(0, 1, 0), V(0.1, 0.4, -1), V(0, 0.1, -0.2), V(1, 0.1, 0.1), V(0.1, 1, 0)), CcdStatus.Collision, double.NaN);
+            yield return (vertexThrough(0.25, 0.25), CcdStatus.Collision, 0.5, 0, 2);
+            yield return (vertexThrough(0.75, 0.75), CcdStatus.NoCollision, 0, 0, 2);
+            yield return (VFq(V(0.3, 0.2, 1), V(0, 0, 0.2), V(1, 0, -0.1), V(0, 1, 0), V(0.1, 0.4, -1), V(0, 0.1, -0.2), V(1, 0.1, 0.1), V(0.1, 1, 0)), CcdStatus.Collision, double.NaN, 0, 2);
             Vector3d c = V(0, -1, 0), d = V(0, 1, 0);
-            yield return (EEq(V(-1, 0, 1), V(1, 0, 1), c, d, V(-1, 0, -1), V(1, 0, -1), c, d), CcdStatus.Collision, 0.5);
-            yield return (EEq(V(-1, 2, 1), V(1, 2, 1), c, d, V(-1, 2, -1), V(1, 2, -1), c, d), CcdStatus.NoCollision, 0);
+            yield return (EEq(V(-1, 0, 1), V(1, 0, 1), c, d, V(-1, 0, -1), V(1, 0, -1), c, d), CcdStatus.Collision, 0.5, 0, 2);
+            yield return (EEq(V(-1, 2, 1), V(1, 2, 1), c, d, V(-1, 2, -1), V(1, 2, -1), c, d), CcdStatus.NoCollision, 0, 0, 2);
+            // (a miss by about 1.7e-7, below the resolution of the rotated millimetre UTM frame, where either verdict is
+            // allowed; the touch is a contact in every frame)
+            yield return (ParallelEdges(0.41), CcdStatus.NoCollision, 0, 1.7e-7, 2.4e-5);
+            yield return (ParallelEdges(0.4), CcdStatus.Collision, double.NaN, 0, 2.4e-5);
         }
 
         [Theory]
@@ -477,10 +596,17 @@ namespace geometry3Sharp.Tests
         public void Invariance(string name)
         {
             Similarity s = Similarity.ByName(name);
-            foreach (var (q, status, tStar) in invarianceSet()) {
+            foreach (var (q, status, tStar, clearance, rate) in invarianceSet()) {
                 CcdResult r0 = Run(q);
                 Assert.Equal(status, r0.Status);
                 CcdResult r = Run(q.Map(s.Apply));
+                // the frame's resolution (input units) and the evaluation error (64 rounding units of the largest
+                // coordinate) bound what a frame can tell apart
+                double resolution = 1024 * s.Resolution(1);
+                if (clearance > 0 && s.IsExact == false && clearance < resolution) {
+                    Assert.NotEqual(CcdStatus.InvalidInput, r.Status);
+                    continue;
+                }
                 Assert.Equal(status, r.Status);
                 if (s.IsExact) {
                     // the default tolerance is relative: everything scales exactly
@@ -488,8 +614,9 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(r0.Iterations, r.Iterations);
                     Assert.Equal(s.ApplyLength(r0.ToleranceReached), r.ToleranceReached);
                 } else if (status == CcdStatus.Collision) {
-                    // G2 holds in each frame; the times agree within the boxes' time widths
-                    Assert.True(Math.Abs(r.TimeOfImpact - r0.TimeOfImpact) < 1e-4, $"{name}: {r.TimeOfImpact:R} vs {r0.TimeOfImpact:R}");
+                    // G2 holds in each frame; the times agree within the boxes' time widths and the frame's resolution
+                    double slack = 1e-4 + resolution / rate;
+                    Assert.True(Math.Abs(r.TimeOfImpact - r0.TimeOfImpact) < slack, $"{name}: {r.TimeOfImpact:R} vs {r0.TimeOfImpact:R}");
                     if (double.IsNaN(tStar) == false) Assert.True(r.TimeOfImpact <= tStar + 1e-9);
                 }
             }

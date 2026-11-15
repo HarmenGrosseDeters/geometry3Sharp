@@ -26,7 +26,7 @@ static class Program
                     check(entries.Contains(expected), "package contains " + expected);
                 ZipArchiveEntry nuspec = zip.Entries.First(e => e.FullName.EndsWith(".nuspec"));
                 string spec = new StreamReader(nuspec.Open()).ReadToEnd();
-                check(spec.Contains("id=\"Clipper2\""), "depends on Clipper2");
+                check(!spec.Contains("id=\"Clipper2\""), "no dependency on the Clipper2 package (vendored since 2.0)");
                 check(spec.Contains("id=\"geometry3Sharp\""), "depends on geometry3Sharp");
             }
         }

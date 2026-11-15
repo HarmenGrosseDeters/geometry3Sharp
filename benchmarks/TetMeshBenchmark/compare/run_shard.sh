@@ -25,7 +25,7 @@ for id in $(cat "$IDS"); do
   fi
   touch "$OUT/ours.csv"
   if ! grep -q "^$id.stl," "$OUT/ours.csv"; then
-    line=$(timeout "$TO" dotnet "$EVAL" ours "$f" 20 600 2> "$WORK/ours_err_$id.txt" | tail -1); rc=${PIPESTATUS[0]}
+    line=$(timeout "$TO" dotnet "$EVAL" ours "$f" 20 600 2> "$WORK/ours_err_$id.txt" | tail -n 1); rc=${PIPESTATUS[0]}
     if [ "$rc" -eq 124 ]; then echo "$id.stl,$TO,1,TIMEOUT" >> "$OUT/ours.csv"
     elif [ "$rc" -ne 0 ] || [ -z "$line" ]; then echo "$id.stl,,1,ERROR_rc$rc" >> "$OUT/ours.csv"
     else echo "$line" >> "$OUT/ours.csv"; fi
@@ -40,9 +40,9 @@ for id in $(cat "$IDS"); do
     t1=$(date +%s.%N); secs=$(echo "$t1 - $t0" | bc -l)
     res=$(ls "$WORK"/out_${id}_$n*.mesh "$WORK"/out_${id}_$n*.msh 2>/dev/null | grep -v "_sf\." | head -1)
     if [ "$rc" -eq 124 ]; then echo "$id.stl,$secs,$n,TIMEOUT" >> "$csv"
-    elif [ -z "$res" ]; then echo "$id.stl,$secs,$n,NO_OUTPUT_rc$rc" >> "$csv"
+    elif [ -z "$res" ]; then echo "$id.stl,$secs,$n,NO_OUTPUT_rc$rc" >> "$csv"; tail -n 20 "$WORK/log_${id}_$n.txt" > "$WORK/ftlog_${id}_$n.txt"
     else
-      line=$(dotnet "$EVAL" eval "$res" "$f" "$id.stl" "$secs" "$n" 2> "$WORK/eval_err_${id}_$n.txt" | tail -1); erc=${PIPESTATUS[0]}
+      line=$(dotnet "$EVAL" eval "$res" "$f" "$id.stl" "$secs" "$n" 2> "$WORK/eval_err_${id}_$n.txt" | tail -n 1); erc=${PIPESTATUS[0]}
       if [ "$erc" -ne 0 ] || [ -z "$line" ]; then echo "$id.stl,$secs,$n,UNREADABLE_OUTPUT_rc$rc" >> "$csv"; head -c 300 "$res" > "$WORK/head_${id}_$n.txt"
       else echo "$line" >> "$csv"; fi
     fi

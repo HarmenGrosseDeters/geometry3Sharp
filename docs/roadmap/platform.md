@@ -114,7 +114,7 @@ Part of the [roadmap](../ROADMAP.md).
   `nightly.yml` started 09:57 UTC (green), `coverage.yml` its first scheduled run at 11:48 UTC (failed).
 - **Clipper2 C# sources: integrate or keep the NuGet package?** (owner 2026-11-12: option (b), vendor the C# 2.0.0
   sources and fix item 5; own session; in work: PR 1 #751 vendors the sources behaviour-identical, PR 2 fixes item 5
-  (`bugfix`)) AngusJohnson/Clipper2 was
+  (`bugfix`; cause: `DoSplitOp` dropped a hole touching its path; one rarer Intersection case open, FINDINGS item 5)) AngusJohnson/Clipper2 was
   archived on 2026-10-28: the author retired, Clipper2 becomes a C++ only library maintained by Seth Hillibrand at
   PolyClipping/Clipper2, and translations to C# are left to third parties. `geometry3Sharp.Clipper2` references the
   frozen NuGet package Clipper2 2.0.0, so the known Union limitation (FINDINGS item 5, wrong area on degenerate
@@ -130,6 +130,10 @@ Part of the [roadmap](../ROADMAP.md).
   internal, addon version 2.0.0; the test project keeps the package for the differential test); the remaining
   Intersection case #756 gets option (c), an own narrower fix of the "micro self-intersection" branch (prior-art check
   first). Order: #751, the item 5 PR, the package removal, #756 (c).
+  Status 2026-11-13: #751 (vendoring) and #826 (item 5) merged; the package removal is #851 (addon 2.0.0, no
+  dependency on the Clipper2 package); #756: the orientation guard of the micro branch (owner 2026-11-13, option
+  "c-guard"; 4da1564 not adopted; the rest of that class, about 3 per 100 000 results on degenerate lattices, documented as known in FINDINGS item 5). Addon API
+  baseline: the first published addon version (owner 2026-11-13); until then a PR lists its breaks by hand.
 - **Mutation-run cost analysis** (owner 2026-11-08, done; Sonnet session session_01AaGT59x9M1JVRLVyu3UVMh): a full run is
   >= 29 runner-hours; timeouts are ~55-75 % of testing time on the arrangement shards (a timeout pays 1.5 x the sum of
   its covering tests + 10 s); coverage capture costs 56-71 min per shard and is repeated per shard; every mutation.yml
