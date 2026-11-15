@@ -403,7 +403,7 @@ The unrestricted worst five (1k-10k pairs p0521, p0300) take 13-82 ms for ours, 
 fixed cost per operation that is small in absolute terms and large in the ratio on small inputs.
 
 **Verdict T6: no-go on the target as written** ("close the gap to CGAL EPECK on 1k-100k to <= 2x"): median 4.2x (1 thread) and 3.6x (4 cores), p90 7-8x, in both size
-buckets; the "only all-clean method" half holds (ours clean 294/294, CGAL 17 % degenerate). To reach 2x the median has to drop by about 45 % (4 cores) to 53 % (1 thread);
+buckets; the "only all-clean method" half holds (ours clean or correctly empty 294/294, CGAL 17 % degenerate). To reach 2x the median has to drop by about 45 % (4 cores) to 53 % (1 thread);
 the profile points at the pair search of `intersections` and at `rounding`. Nothing was optimised here; no mesh or input is committed (fetched at run time).
 
 **Merge queue (owner 2026-11-08):** one combined mutation gate for #397, #398, #406, #409, #412, #419, #420, #424,

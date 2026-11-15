@@ -51,6 +51,7 @@ jobs:
           cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
           git -C lib rev-parse HEAD > lib_sha.txt
           nproc >> lib_sha.txt
+          dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
       - name: Case set and models
         run: |
           S=scripts/benchmarks/BooleanComparison
