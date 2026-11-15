@@ -36,7 +36,9 @@ if (!free.Ok)
   16- and 24-gons on such lattices in every operation and fill rule gave 41 wrong areas of 160 000 before and 0 after.
   Since 2026-11-15 the copy also carries three fixes of the C++ Clipper2 (PolyClipping/Clipper2, rounded intersection
   points among them; Clipper2Lib/README.md), which change most results within the rounding; on that campaign: 0 wrong
-  and 0 structurally broken results. Still open (listed there): far from the origin (UTM coordinates with a small scale)
+  and 0 structurally broken results. A fourth fix of the C++ code (`6c7d083`) makes `OffsetPolyLines` with
+  `EndType.Joined` independent of the order of the lines (a 2-point line before a longer one gave the longer one open
+  ends). Still open (listed there): far from the origin (UTM coordinates with a small scale)
   slivers can come out with zero or negative area after the rounding back to doubles.
 - API checks: the package has no `PackageValidationBaselineVersion` yet (owner 2026-11-13: the first published version of
   this package becomes the baseline). Until a version is published, a PR that changes the public API lists the breaks from a
