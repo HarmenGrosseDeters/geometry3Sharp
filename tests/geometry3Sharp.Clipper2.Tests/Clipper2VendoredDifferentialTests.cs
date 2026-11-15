@@ -124,11 +124,14 @@ namespace geometry3Sharp.Clipper2.Tests
             return sb.Append(')').ToString();
         }
 
-        [Fact]
-        public void Booleans_DifferOnlyWhereTheVendoredStaysExact()
+        [Theory]
+        [InlineData(0)]
+        [InlineData(120)]
+        public void Booleans_DifferOnlyWhereTheVendoredStaysExact(int from)
         {
+            // the 240 pairs of seed 11 in two halves (each half within the test time)
             int compared = 0, differ = 0;
-            foreach (var (a, b, _, name) in Pairs(11, 240))
+            foreach (var (a, b, _, name) in Pairs(11, 240).Skip(from).Take(120))
                 foreach (Pkg.ClipType op in ClipTypes)
                     foreach (Pkg.FillRule fill in FillRules)
                         foreach (bool collinear in new[] { false, true }) {
@@ -171,7 +174,7 @@ namespace geometry3Sharp.Clipper2.Tests
                             Assert.True(Text(pTree) == Text(vTree), where);
                             Assert.True(Text(pOpen) == Text(vOpen), where);
                         }
-            Assert.Equal(240 * 4 * 4 * 2, compared);
+            Assert.Equal(120 * 4 * 4 * 2, compared);
             Assert.True(differ > 0, "the data does not exercise the vendored fixes");
         }
 
