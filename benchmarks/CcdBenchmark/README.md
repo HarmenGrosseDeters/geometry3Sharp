@@ -4,14 +4,15 @@ Benchmark of `ContinuousCollision` and `MeshSweepCollision` (design note `docs/d
 
 ```
 dotnet run --project benchmarks/CcdBenchmark -c Release -- synthetic
-benchmarks/CcdBenchmark/fetch_sample.sh /tmp/ccdsample          # outside the repository, about 157 MB
+benchmarks/CcdBenchmark/fetch_sample.sh /tmp/ccdsample          # outside the repository, about 216 MB
 dotnet run --project benchmarks/CcdBenchmark -c Release -- sample /tmp/ccdsample [minSeparation]
 dotnet run --project benchmarks/CcdBenchmark -c Release -- sweep /tmp/ccdsample [minSeparation]
 ```
 
 `sweep`: the self sweep of each sample scene's two frames (`frames/*.ply`, also fetched by `fetch_sample.sh`), serial and
 parallel, with the time of the preparation and of the pair search and solve (`G3_SWEEP_SCENES`, `G3_SWEEP_BLOCK`,
-`G3_SWEEP_TASKS` select scenes and job sizes for experiments, `G3_SWEEP_SUBSTEPS` the sub-steps).
+`G3_SWEEP_TASKS` select scenes and job sizes for experiments, `G3_SWEEP_SUBSTEPS` the sub-steps, `G3_SWEEP_TREE_DOUBLES`
+the budget of the sub-step box tree, 0 for the filter on the whole-step pairs; `candidates_ms` is the candidate search).
 
 `synthetic`: the stage-1 probe's queries (CCD.md 7.1) through the library, on the filter and the interval path, and sphere
 sweeps (A moving into B) with and without a minimum separation. `sample`: the Apache-2.0 sample of the ToI dataset
@@ -134,3 +135,32 @@ Where the puffer-ball time goes at k = 4 (thread time, instrumented run): the se
 (186M, filtered to 19M) about half, the vertex-triangle candidates (75M to 6M) a fifth, the narrow phase of the 25M
 candidates the rest; without tightening (`MaxTighteningIterations = 0`) the sweep is only about 1 s faster. k = 8 is
 slower (23.9 s: 8.4M candidates, but the filter and the hulls cost more).
+
+## Sub-step box tree (2026-11-15, CCD.md 10.11, #866)
+
+Raw: `results-sweep-tree-2026-11-15.csv`. One build, two runs of `sweep` one after the other (one Compute each after a
+warm-up, 4 cores): `G3_SWEEP_TREE_DOUBLES=0` (prefix `old`: the sub-step filter on the pairs of the whole-step trees,
+the path of 10.10 and master) and the default (prefix `tree`: the SubStepBoxTrees). SubSteps = 4. `candidates` is the wall time
+of collecting the candidates (the tree searches and the filter; `CandidateSeconds`), part of the total.
+
+| scene | candidates | serial old | serial tree | parallel old | parallel tree | candidates serial old → tree |
+|---|---|---|---|---|---|---|
+| armadillo-rollers | 1 127 562 | 5.09 s | 4.26 s | 1.72 s | 1.27 s | 0.92 → 0.35 s |
+| cloth-ball | 2 450 850 | 18.3 s | 17.5 s | 5.21 s | 5.19 s | 1.46 → 1.06 s |
+| cloth-funnel | 26 144 | 0.111 s | 0.186 s | 0.076 s | 0.101 s | 0.039 → 0.098 s |
+| n-body-simulation | 4 832 461 | 11.1 s | 8.54 s | 3.97 s | 2.65 s | 3.44 → 1.24 s |
+| rod-twist | 1 823 450 | 5.92 s | 5.76 s | 1.78 s | 1.81 s | 0.48 → 0.62 s |
+| puffer-ball | 24 953 688 | 46.8 s | 32.7 s | 19.1 s | 10.6 s | 27.0 → 10.8 s |
+
+Candidates, status, earliest time of impact and contacts are the same on both paths in every scene. Over the runs of
+this PR puffer-ball took 29.9-32.7 s serial and 10.6-10.9 s parallel with the tree, 46.6-46.8 s and 16.5-19.7 s on the
+old path (the container varies by about 15 %).
+
+- puffer-ball: the candidate search goes from 27.0 s to 10.8 s serial; the preparation from 1.2 s to 2.5 s serial (the
+  trees' sub-step boxes, 6 (k + 1) doubles per triangle and edge; about 0.6 GB at k = 4). What is left serial is the
+  narrow phase, about 18.4 s for the 25M pairs (0.74 µs per pair): the floor of the serial sweep, #940.
+- cloth-funnel (small motion, 18k triangles) is slower by 75 ms serial and 25 ms parallel: the sub-step tests per node
+  cull little there. A size threshold does not separate it from armadillo-rollers (24k triangles, 0.8 s faster), so
+  there is none.
+- k = 8 with the tree (budget raised for the run): 8.4M candidates, 29.9 s serial and 9.8 s parallel; the pairs left
+  are harder (about 1.65 µs per pair), so more sub-steps do not lower the serial floor.

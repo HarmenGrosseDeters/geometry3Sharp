@@ -279,10 +279,12 @@ namespace geometry3Sharp.Tests
         {
             Similarity sim = Similarity.ByName(name);
             foreach (int subSteps in new[] { 1, 4 })
-                self_sweep_invariance(sim, subSteps);
+                self_sweep_invariance(sim, subSteps, 1L << 27);
+            // #866: the filter on the whole-step pairs (no SubStepBoxTree)
+            self_sweep_invariance(sim, 4, 0);
         }
 
-        void self_sweep_invariance(Similarity sim, int subSteps)
+        void self_sweep_invariance(Similarity sim, int subSteps, long maxTree)
         {
             string name = sim.Name;
             DMesh3 a = box(new Vector3d(-0.5, 0, 0), 1), b = box(new Vector3d(0.75, 0.25, 0.125), 1);
@@ -294,8 +296,9 @@ namespace geometry3Sharp.Tests
                 DMesh3 m = map(both, f);
                 var end = new Vector3d[both.MaxVertexID];
                 foreach (int vid in both.VertexIndices()) end[vid] = f(both.GetVertex(vid) + (vid < n ? new Vector3d(0.5, 0, 0) : Vector3d.Zero));
-                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5, SubSteps = subSteps };
+                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5, SubSteps = subSteps, MaxTreeDoubles = maxTree };
                 Assert.Equal(MeshSweepStatus.Collision, s.Compute());
+                Assert.Equal(subSteps > 1 && maxTree > 0, s.UsedSubStepTree);
                 return s;
             }
             MeshSweepCollision r0 = sweep(x => x), r = sweep(sim.Apply);
@@ -563,6 +566,183 @@ namespace geometry3Sharp.Tests
             }
             // a clear miss stays a miss
             Assert.Equal(MeshSweepStatus.NoCollision, approach(0.2, null, s.Apply).Compute());
+        }
+            // #866: the sweep with the SubStepBoxTrees gives bit for bit the result of the sub-step filter on the pairs of the
+        // whole-step trees (MaxTreeDoubles below the trees' size, the earlier path): the same candidates, results, times,
+        // status and contacts, for A against B (also one mesh against itself with other end positions) and the self
+        // sweep, small and default jobs, with and without CollectAll and a minimum separation; the budget boundary
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(2)]
+        public void SubStepTree_EqualsFilterOnWholeStepPairs(int mode)
+        {
+            var rnd = new Random(866 + mode);
+            // (mode 2: the mesh against itself, every pair touches at t = 0: a coarser sphere, fewer rounds and sub-steps;
+            // it checks that each side takes its own end positions' hulls)
+            int rounds = mode == 2 ? 2 : 6;
+            for (int round = 0; round < rounds; ++round) {
+                DMesh3 a = sphere(Vector3d.Zero, 1, mode == 2 ? 3 : 4), b = sphere(new Vector3d(2.1, 0.3 * rnd.NextDouble(), 0.1), 1, 4);
+                Vector3d move = new Vector3d(0.3 + 0.6 * round / (rounds - 1.0), 0.3 * rnd.NextDouble(), 0.2 * rnd.NextDouble());
+                double twist = rnd.NextDouble();
+                Func<Vector3d, Vector3d> fa = x => x + move + twist * new Vector3d(0, 0.3 * x.z, -0.3 * x.y);
+                var o = new CcdOptions { MinSeparation = (round % 3) * 0.004 };
+                DMesh3 m = null;
+                Vector3d[] endM = null;
+                if (mode == 1) {
+                    m = new DMesh3(a);
+                    int n = m.MaxVertexID;
+                    new MeshEditor(m).AppendMesh(b);
+                    endM = new Vector3d[m.MaxVertexID];
+                    foreach (int v in m.VertexIndices()) endM[v] = v < n ? fa(m.GetVertex(v)) : m.GetVertex(v);
+                }
+                MeshSweepCollision make(int k, bool all, long maxTree, bool small)
+                {
+                    MeshSweepCollision sw = mode == 1 ? new MeshSweepCollision(m, endM)
+                        : mode == 2 ? new MeshSweepCollision(a, moved(a, fa), a, moved(a, x => x - 0.5 * move))
+                        : new MeshSweepCollision(a, moved(a, fa), b, moved(b, x => x));
+                    sw.SubSteps = k; sw.CollectAll = all; sw.Options = o; sw.MaxTreeDoubles = maxTree;
+                    if (small) { sw.BlockSize = 7; sw.SelfTasks = 9; sw.BatchPairs = 41; }
+                    sw.Compute();
+                    return sw;
+                }
+                foreach (int k in mode == 2 ? new[] { 4 } : new[] { 2, 4, 8, 64 })
+                    foreach (bool all in new[] { true, false })
+                        foreach (bool small in k == 4 ? new[] { false, true } : new[] { false }) {
+                            var old = make(k, all, 0, small);
+                            var tree = make(k, all, 1L << 27, small);
+                            Assert.False(old.UsedSubStepTree);
+                            Assert.True(tree.UsedSubStepTree);
+                            string at = $"mode {mode} round {round} k {k} all {all} small {small}";
+                            Assert.True(old.CandidatePairCount > 0, at);
+                            Assert.Equal(old.CandidatePairCount, tree.CandidatePairCount);
+                            Assert.Equal(old.Status, tree.Status);
+                            Assert.Equal(old.EarliestTimeOfImpact, tree.EarliestTimeOfImpact);
+                            Assert.Equal(old.EarliestNearContactTime, tree.EarliestNearContactTime);
+                            Assert.Equal(old.Contacts, tree.Contacts);
+                        }
+                // the budget: the trees' leaves take 6 (k + 1) doubles per triangle and edge (both meshes' triangles,
+                // B's edges); at the budget the tree, one below the filter on the whole-step pairs, with equal results
+                DMesh3 tm = mode == 1 ? m : a, tb = mode == 1 ? m : mode == 2 ? a : b;
+                long need = ((long)tb.TriangleCount + (mode == 1 ? 0 : tm.TriangleCount) + tb.EdgeCount) * 6 * 5;
+                var atBudget = make(4, true, need, false);
+                var below = make(4, true, need - 1, false);
+                Assert.True(atBudget.UsedSubStepTree);
+                Assert.False(below.UsedSubStepTree);
+                Assert.Equal(below.CandidatePairCount, atBudget.CandidatePairCount);
+                Assert.Equal(below.Contacts, atBudget.Contacts);
+                // with sub-steps fewer candidates than without on large motions (the tree culls)
+                if (move.x > 0.6)
+                    Assert.True(make(4, true, 1L << 27, false).CandidatePairCount < make(1, true, 1L << 27, false).CandidatePairCount, $"mode {mode} round {round}");
+            }
+        }
+
+        // #866: reuse of one instance across the paths: the tree budget and SubSteps changed between Computes give the
+        // results of fresh instances
+        [Fact]
+        public void SubStepTree_Reuse()
+        {
+            DMesh3 a = sphere(Vector3d.Zero, 1, 4), b = sphere(new Vector3d(2.1, 0.2, 0.1), 1, 4);
+            Vector3d[] ea = moved(a, x => x + new Vector3d(1.6, 0.4, 0)), eb = moved(b, x => x);
+            MeshSweepCollision fresh(int k, long maxTree)
+            {
+                var f = new MeshSweepCollision(a, ea, b, eb) { SubSteps = k, CollectAll = true, MaxTreeDoubles = maxTree };
+                f.Compute();
+                return f;
+            }
+            var sweep = new MeshSweepCollision(a, ea, b, eb) { CollectAll = true };
+            foreach (var (k, maxTree) in new[] { (4, 1L << 27), (4, 1L << 27), (4, 0L), (8, 1L << 27), (1, 1L << 27), (4, 1L << 27) }) {
+                sweep.SubSteps = k;
+                sweep.MaxTreeDoubles = maxTree;
+                sweep.Compute();
+                Assert.Equal(k > 1 && maxTree > 0, sweep.UsedSubStepTree);
+                var f = fresh(k, maxTree);
+                Assert.Equal(f.CandidatePairCount, sweep.CandidatePairCount);
+                Assert.Equal(f.Status, sweep.Status);
+                Assert.Equal(f.EarliestTimeOfImpact, sweep.EarliestTimeOfImpact);
+                Assert.Equal(f.Contacts, sweep.Contacts);
+            }
+            // an invalid input after a tree run reports no path
+            sweep.SubSteps = 3;
+            Assert.Equal(MeshSweepStatus.InvalidInput, sweep.Compute());
+            Assert.False(sweep.UsedSubStepTree);
+        }
+
+        // #866: SubStepBoxTree against brute force on random boxes of a coarse grid (many touching faces: the boxes are
+        // closed): Query gives the boxes whose whole-step box and some sub-step box overlap the query's, once each; the
+        // SelfPairTasks and SelfPairs give every such pair of different boxes exactly once, for any number of tasks;
+        // parallel and serial builds give the same output
+        [Theory]
+        [InlineData(1)]
+        [InlineData(3)]
+        [InlineData(4)]
+        [InlineData(64)]
+        public void SubStepBoxTree_AgainstBruteForce(int k)
+        {
+            var rnd = new Random(31 + k);
+            foreach (int n in new[] { 0, 1, 5, 8, 9, 40, 300 }) {
+                int stride = 6 * (k + 1);
+                var boxes = new double[n * stride];
+                // a primitive moving on the grid: its whole-step box contains its sub-step boxes, except a few that stick
+                // out (the tree must test both)
+                for (int i = 0; i < n; ++i) {
+                    for (int s = 0; s <= k; ++s)
+                        for (int c = 0; c < 3; ++c) {
+                            double lo = rnd.Next(12), hi = lo + rnd.Next(4);
+                            boxes[i * stride + 6 * s + c] = lo;
+                            boxes[i * stride + 6 * s + 3 + c] = hi;
+                        }
+                }
+                var whole = new double[6 * n];
+                for (int i = 0; i < n; ++i)
+                    Array.Copy(boxes, i * stride, whole, 6 * i, 6);
+                bool overlap(double[] x, int xo, double[] y, int yo)
+                {
+                    for (int c = 0; c < 3; ++c)
+                        if (x[xo + 3 + c] < y[yo + c] || x[xo + c] > y[yo + 3 + c]) return false;
+                    return true;
+                }
+                bool pair(double[] x, int xo, double[] y, int yo)
+                {
+                    if (overlap(x, xo, y, yo) == false) return false;
+                    for (int s = 1; s <= k; ++s)
+                        if (overlap(x, xo + 6 * s, y, yo + 6 * s)) return true;
+                    return false;
+                }
+                foreach (bool parallel in new[] { false, true }) {
+                    var tree = new SubStepBoxTree(whole, n, k, (i, dst, o) => Array.Copy(boxes, i * stride + 6, dst, o, 6 * k), parallel);
+                    Assert.Equal(n, tree.Count);
+                    Assert.Equal(stride, tree.Stride);
+                    int[] stack = null;
+                    ulong[] masks = null;
+                    for (int qi = 0; qi < 30; ++qi) {
+                        var q = new double[stride];
+                        for (int s = 0; s <= k; ++s)
+                            for (int c = 0; c < 3; ++c) {
+                                double lo = rnd.Next(12), hi = lo + rnd.Next(5);
+                                q[6 * s + c] = lo; q[6 * s + 3 + c] = hi;
+                            }
+                        var got = new List<int>();
+                        tree.Query(q, got, ref stack, ref masks);
+                        var want = Enumerable.Range(0, n).Where(i => pair(boxes, i * stride, q, 0)).ToList();
+                        Assert.Equal(want, got.OrderBy(i => i).ToList());
+                    }
+                    var wantPairs = new List<(int, int)>();
+                    for (int i = 0; i < n; ++i)
+                        for (int j = i + 1; j < n; ++j)
+                            if (pair(boxes, i * stride, boxes, j * stride)) wantPairs.Add((i, j));
+                    foreach (int minTasks in new[] { 1, 2, 7, 64, 100000 }) {
+                        var got = new List<(int, int)>();
+                        var buf = new List<Index2i>();
+                        foreach (Index2i t in tree.SelfPairTasks(minTasks)) {
+                            buf.Clear();
+                            tree.SelfPairs(t, buf);
+                            foreach (Index2i p in buf) got.Add((Math.Min(p.a, p.b), Math.Max(p.a, p.b)));
+                        }
+                        Assert.Equal(wantPairs, got.OrderBy(p => p).ToList());
+                    }
+                }
+            }
         }
     }
 }
