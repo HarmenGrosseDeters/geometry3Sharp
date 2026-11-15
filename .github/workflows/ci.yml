@@ -8,18 +8,17 @@ on:
     branches: [master]
     tags: ['**']
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
-  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow). labeled: a draft gets
-  # CI only with the label `ci` (the job scope below is the gate; any other event of a draft skips there in seconds).
+  # ready_for_review: marking a draft ready starts the full run. A draft gets no CI (the job scope below is the gate); on demand: workflow_dispatch.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
   workflow_dispatch:
 
 # A new push to the same PR (or branch) cancels the run under way. Master and manual runs are never cancelled: they queue (GitHub
-# keeps the run under way and the newest pending one). A run that the gate of the job scope skips (an event of a draft without the
-# label `ci`, a label other than `ci`) has its own group, so it cannot cancel a real run of the PR.
+# keeps the run under way and the newest pending one: a burst of merges runs the first and the newest commit, which covers all of
+# them). A run that the gate of the job scope skips (an event of a draft) has its own group, so it cannot cancel a real run of the PR.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && !((github.event.action == 'labeled' && github.event.label.name == 'ci' && github.event.pull_request.draft) || (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci')))) && '-skipped' || '' }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.draft && '-skipped' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -33,13 +32,13 @@ jobs:
   # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
   # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
   # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
-  # It is also the gate (owner 2026-11-15, runner load: most runs of draft PRs were cancelled by the next push): a draft PR gets no CI
-  # unless it carries the label `ci` (the labeled event of that label starts it, later pushes run too); opened / synchronize /
-  # reopened / ready_for_review of a PR that is not a draft, master, tags and manual runs always run. Every other job needs scope,
-  # so a skipped scope skips all of them (they report "skipped", which passes a required check; a `labeled` event of another label on a ready PR also makes such a skipped run on the same head SHA); no job needs a result of an
-  # earlier run, so a skipped draft run blocks nothing later.
+  # It is also the gate (owner 2026-11-15, runner load: most runs of draft PRs were cancelled by the next push): a draft PR gets no CI;
+  # start one with workflow_dispatch (Actions tab, or `gh workflow run ci.yml --ref <branch>`; its checks attach to the head commit).
+  # opened / synchronize / reopened / ready_for_review of a PR that is not a draft, master, tags and manual runs always run. Every other
+  # job needs scope, so a skipped scope skips all of them (they report "skipped" on the draft only; a ready PR never has a skipped run,
+  # so no skipped check hides a red one of the same name). No job needs a result of an earlier run.
   scope:
-    if: ${{ github.event_name != 'pull_request' || (github.event.action == 'labeled' && github.event.label.name == 'ci' && github.event.pull_request.draft) || (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci'))) }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

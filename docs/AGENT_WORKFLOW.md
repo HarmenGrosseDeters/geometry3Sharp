@@ -65,7 +65,7 @@ Every worker session gets a brief with these fields, and nothing open-ended:
 - The inner loop is fast: filtered `dotnet test` runs and a small benchmark subset. The full local CI steps run
   before a push that changes existing library code; for changes to tools, tests or new files only, run the filtered
   tests, the builds of all targets including net48, and `dotnet pack` (its API validation against 1.0.324). GitHub
-  CI runs the full suite on every push of a PR that is ready for review (a draft gets no CI unless it carries the label `ci`, then without the tests tagged `Slow`); push once per finished step. Docs-only pushes skip all of it.
+  CI runs the full suite on every push of a PR that is ready for review (a draft gets no CI; start `ci.yml` by hand with `gh workflow run ci.yml --ref <branch>` when one is needed); push once per finished step. Docs-only pushes skip all of it.
 - **Upper bound before a performance spike**: measure the share of the targeted work and multiply by the possible
   speedup first (a probe or a micro benchmark, minutes). If that bound is below the measurement noise, the stop rule
   applies without full A/B runs (`run_classes.sh` and the like).
