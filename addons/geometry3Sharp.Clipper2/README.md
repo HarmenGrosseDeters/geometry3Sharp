@@ -22,9 +22,14 @@ if (!free.Ok)
   (clipped or simplified polylines) and the `Frame` used. Nothing throws on bad input.
 - Precision: each call maps its inputs to an integer grid fitted to their bounds (`ClipperFrame`; origin at the
   bounds center, power-of-two scale, 2^40 grid units across the half extent plus the offset margin by default).
-  Vertices are snapped or rounded to that grid (spacing about 1e-12 times the extent). Power-of-two
-  scaling of the input gives the same result bit for bit; UTM coordinates work. `Clipper2Options.Frame` sets a fixed
-  grid instead.
+  Vertices are snapped or rounded to that grid (spacing about 1e-12 times the extent). The grid is never finer than the
+  doubles of the coordinates: with half extent plus margin at most 2^e and the larger |coordinate| of the bounds center
+  plus half extent plus margin below 2^E, the effective resolution is max(2^(e - PrecisionBits), 2^(E - 53)), so about max(extent * 2^-40,
+  |coordinate| * 2^-53) by default. The second term acts only beyond about 8192 times the extent from zero (a 2 m design
+  at UTM coordinates: 2^-30 m, about 1 nm, instead of 2^-40 m); there the result vertices are grid points exactly. The
+  documented tolerance (half the resolution per coordinate, plus the rounding of the bounds center) holds with this
+  resolution. Power-of-two scaling of the input gives the same result bit for bit; UTM coordinates work.
+  `Clipper2Options.Frame` sets a fixed grid instead.
 - Degenerate inputs: Clipper2 2.0.0 could fill a hole of the result that touches the outer ring at a vertex (a Union of
   self-intersecting rings with a vertex exactly on another edge: about 1 in 150 random pairs of 16-gons on a coarse lattice). This
   package fixes it in its copy of the sources (FINDINGS item 5,
@@ -38,8 +43,13 @@ if (!free.Ok)
   points among them; Clipper2Lib/README.md), which change most results within the rounding; on that campaign: 0 wrong
   and 0 structurally broken results. A fourth fix of the C++ code (`6c7d083`) makes `OffsetPolyLines` with
   `EndType.Joined` independent of the order of the lines (a 2-point line before a longer one gave the longer one open
-  ends). Still open (listed there): far from the origin (UTM coordinates with a small scale)
-  slivers can come out with zero or negative area after the rounding back to doubles.
+  ends). Far from the origin (UTM coordinates with a small scale) slivers could come out with zero or negative area
+  after the rounding back to doubles: a millimetre design rotated at UTM coordinates gave 2824 of 8000 results (pairs of
+  3- to 24-gons on a lattice, every operation and fill rule) with an outer ring not counterclockwise or a hole not
+  clockwise. Since the frame keeps its grid no finer than the doubles (above, 2026-11-15): 0 of them. 28 areas there are
+  off by more than the rounding, as about as many are for the same lattice rotated at the origin (35 of 8000, plus 4
+  outer rings not counterclockwise; 11 and 4 at scale 1e-3): a limit of the integer engine on non-lattice inputs, not of
+  the frame, unchanged by it.
 - API checks: the package has no `PackageValidationBaselineVersion` yet (owner 2026-11-13: the first published version of
   this package becomes the baseline). Until a version is published, a PR that changes the public API lists the breaks from a
   local strict validation against master's pack (as #851 did for 2.0).

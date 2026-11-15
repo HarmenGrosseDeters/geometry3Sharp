@@ -152,7 +152,11 @@ Part of the [roadmap](../ROADMAP.md).
   Clipper2 (PolyClipping/Clipper2) ported to the vendored sources (`f774daf`, `ec5f2d4`, `f97d65d`; `4a3bf64` not reached in
   C#), closing #756; the differential test now allows differences within the rounding or exact. The offset fix
   `6c7d083` (per-path state of `ClipperOffset`) affected the adapter (`OffsetPolyLines` with `EndType.Joined` depended on
-  the order of the lines) and is ported too. Addon API
+  the order of the lines) and is ported too. Status 2026-11-15 (coordinator): the rounding of `f774daf` is no regression
+  (on near-degenerate lattices it fixes more results than it breaks; FINDINGS item 5), so no revert; `4a3bf64` stays
+  unported (no input tells the two apart, so no test could fail without it). The frame keeps its grid no finer than the
+  doubles of the coordinates (rotated millimetre designs at UTM coordinates: 2824 of 8000 results with wrongly oriented
+  rings before, 0 after). Addon API
   baseline: the first published addon version (owner 2026-11-13); until then a PR lists its breaks by hand.
   **Status 2026-11-15:** #851 (package removal, addon 2.0.0) and #874 (the c-guard: the micro branch is undone when it
   flips the ring's orientation) are merged; the remaining class (insertions that lose area without flipping the ring) was
