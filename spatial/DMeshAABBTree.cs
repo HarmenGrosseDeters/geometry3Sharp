@@ -188,13 +188,13 @@ namespace g3
         /// (internal, MeshHausdorffDistance, #873) the triangle nearest to p, comparing the distances as |p - c| to the closest point c
         /// (DistPoint3Triangle3) instead of the square root of the squared-distance form, which cancels near the surface to about
         /// 2^-26 E (E the triangle's size) and so may pick a triangle that is farther by that much (eg two coplanar triangles that share
-        /// an edge p lies near). The same traversal as FindNearestTriangle, deterministic; InvalidID if the tree has no triangle.
-        /// distance: |p - c| of the triangle found (double.MaxValue if none)
+        /// an edge p lies near). The traversal of FindNearestTriangle (on equal box distances it may visit a box more), deterministic;
+        /// InvalidID if the tree has no triangle. distance: |p - c| of the triangle found (double.MaxValue if none, or if none is finite)
         /// </summary>
         internal int FindNearestTriangleByClosestPoint(Vector3d p, out double distance)
         {
             if (mesh_timestamp != mesh.ShapeTimestamp)
-                throw new Exception("DMeshAABBTree3.FindNearestTriangle: mesh has been modified since tree construction");
+                throw new Exception("DMeshAABBTree3.FindNearestTriangleByClosestPoint: mesh has been modified since tree construction");
             distance = double.MaxValue;
             double nearestSqr = double.MaxValue;
             int tNearID = DMesh3.InvalidID;
@@ -215,10 +215,10 @@ namespace g3
                     Vector3d closest, bary;
                     DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary);
                     double d = p.Distance(closest);
-                    // (the first triangle is taken even if its distance is not finite, as FindNearestTriangle takes one below MaxValue)
-                    if (d < nearest || tID == DMesh3.InvalidID) {
+                    if (d < nearest) {
                         nearest = d; nearestSqr = d * d; tID = ti;
-                    }
+                    } else if (tID == DMesh3.InvalidID)
+                        tID = ti;       // (a distance that is not finite: a triangle all the same, replaced by any finite one)
                 }
             } else {
                 // (boxes in the order and with the tests of find_nearest_tri, against the square of the nearest distance so far)

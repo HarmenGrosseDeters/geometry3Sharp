@@ -145,6 +145,36 @@ namespace geometry3Sharp.Tests
                 Assert.True(CertifiedPointMeshDistance.AtLeastDistance(b, a.GetVertex(v), h.UpperBound));
             foreach (int v in b.VertexIndices())
                 Assert.True(CertifiedPointMeshDistance.AtLeastDistance(a, b.GetVertex(v), h.UpperBound));
+            // (and at points inside B's triangles: rounded onto them by about 1e-16, far below the upper bound's margin of
+            // 1e-13 over the vertices' distances)
+            var rnd = new Random(15);
+            foreach (int t in b.TriangleIndices()) {
+                Vector3d v0 = Vector3d.Zero, v1 = Vector3d.Zero, v2 = Vector3d.Zero;
+                b.GetTriVertices(t, ref v0, ref v1, ref v2);
+                double s1 = rnd.NextDouble(), s2 = rnd.NextDouble() * (1 - s1);
+                Vector3d p = v0 + s1 * (v1 - v0) + s2 * (v2 - v0);
+                Assert.True(CertifiedPointMeshDistance.AtLeastDistance(a, p, h.UpperBound + 1e-15));
+            }
+            // the worst point's exact distance is within the interval
+            Assert.True(CertifiedPointMeshDistance.AtLeastDistance(h.WorstPointOnB ? a : b, h.WorstPoint, h.UpperBound + 1e-15));
+        }
+
+        /// <summary> a tolerance of a few ulps, below the rounding of the distances of points on the other mesh (about 1.1e-16 at
+        /// coordinates of 1): the run stays bounded (the second refinement pass, against the certified lower bound, is capped by the
+        /// first) and the interval holds, converged or not </summary>
+        [Theory]
+        [InlineData(false)] [InlineData(true)]
+        public void UlpTolerance_StaysBounded(bool cert)
+        {
+            DMesh3 a = Grid(4, 0.2, 16), b = Grid(5, 0.3, 17);
+            var coarse = Run(a, b, 1e-12, cert);
+            foreach (double tol in new[] { 1e-16, 2e-16, 4e-16 }) {
+                var h = Run(a, b, tol, cert);
+                Assert.Equal(0, h.LowerBound);
+                Assert.True(h.UpperBound >= 0 && h.UpperBound <= 1e-12, $"{tol}: {h.UpperBound:R}");
+                Assert.True(h.Subdivisions <= 8 * coarse.Subdivisions + 2048, $"{tol}: {h.Subdivisions} vs {coarse.Subdivisions}");
+                if (h.Converged) Assert.True(h.UpperBound - h.LowerBound <= tol);
+            }
         }
     }
 }

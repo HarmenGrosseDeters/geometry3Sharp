@@ -75,7 +75,7 @@ namespace geometry3Sharp.Tests
                 c = target.AppendVertex(new Vector3d(1, 1, 0)), d = target.AppendVertex(new Vector3d(0, 1, 0));
             int t0 = target.AppendTriangle(a, b, c), t1 = target.AppendTriangle(a, c, d);
             var rnd = new Random(14);
-            double worst = 0;
+            double worst = 0, worstByForm = 0;
             for (int k = 0; k < 200; ++k) {
                 double x = 0.1 + 0.8 * rnd.NextDouble(), h = 1e-3 * (0.5 + rnd.NextDouble());
                 // (p0 below the diagonal y = x, p1 and p2 above)
@@ -84,8 +84,13 @@ namespace geometry3Sharp.Tests
                 double u = bounds.UpperBound(p0, p1, p2, ClosestPointDistance(target, t0, p0), ClosestPointDistance(target, t1, p1),
                     ClosestPointDistance(target, t1, p2), t0, t1, t1, 0);
                 worst = Math.Max(worst, u);
+                var byForm = new TriangleDeviationBounds(target);
+                worstByForm = Math.Max(worstByForm, byForm.UpperBound(p0, p1, p2, ClosestPointDistance(target, t0, p0),
+                    ClosestPointDistance(target, t1, p1), ClosestPointDistance(target, t1, p2), t0, t1, t1, 0));
             }
             Assert.True(worst <= 1e-15, $"{worst:R}");
+            // (the flag is what makes the difference: by the form some of these bounds are the noise, about 1e-9)
+            Assert.True(worstByForm > 1e-12, $"{worstByForm:R}");
         }
     }
 }

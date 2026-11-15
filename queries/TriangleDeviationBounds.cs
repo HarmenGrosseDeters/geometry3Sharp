@@ -629,7 +629,7 @@ namespace g3
         }
 
         // the distance from p to its closest point on triangle tid, |p - c|: never below the distance to the triangle by more than the
-        // rounding of c (about 2^-52 of the triangle's coordinates), where the square root of the quadratic form cancels to about
+        // rounding of c (about 2^-52 of the triangle's coordinates, more for slivers), where the square root of the quadratic form cancels to about
         // 2^-26 E for points near the triangle (#873)
         double point_distance(int tid, Vector3d p)
         {
