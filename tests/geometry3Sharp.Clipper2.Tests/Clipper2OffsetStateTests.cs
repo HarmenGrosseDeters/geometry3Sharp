@@ -48,8 +48,12 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
-        public void DeltaCallback_RoundsASinglePointForItsOwnDelta()
+        public void Joined_TwoPointPathBeforeACollapsedPath_DoesNotThrow()
         {
+            // the upstream test "a single point rounded for its own delta" (TestOffsetsDeltaCallbackRoundPointOrder): in C# a
+            // Joined group strips the point to an empty path, so it tests something else here: after a 2-point Joined path
+            // the empty path took the open ends and OffsetOpenPath threw ArgumentOutOfRangeException (before the fix); the
+            // single point's arc steps are pinned by DeltaCallback_RoundEnds_ASinglePointGetsTheArcStepsOfItsOwnDelta
             V.Path64 point = P(0, 0), line = P(0, 1000, 100, 1000);
             double Run(V.Paths64 paths)
             {

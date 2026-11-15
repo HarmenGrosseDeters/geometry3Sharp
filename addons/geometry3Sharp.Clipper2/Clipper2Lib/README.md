@@ -59,8 +59,11 @@ Software License 1.0 ([LICENSE_1_0.txt](LICENSE_1_0.txt), copied from `CSharp/Nu
     and a group, the normals are built before the single-point case, and a single point recomputes its arc steps under a
     delta callback (`SetArcSteps`, with the C# 2.0.0 formula). Before, a 2-point Joined path gave the rest of its group open
     ends: through the adapter, `OffsetPolyLines` with `EndType.Joined` gave 47 200 instead of 73 022 when a 2-point
-    polyline came first. Seen on the way, not changed: the C# 2.0.0 code drops the single points of a Polygon group (the
-    upstream test of this commit expects them offset, so `DeltaCallback_SeesTheNormalsOfItsOwnPath` uses an open group).
+    polyline came first; and on the engine a 2-point Joined path before a path that collapses to one point or none threw
+    `ArgumentOutOfRangeException` (not reachable through the adapter, which passes Joined offsets only paths that keep at
+    least 2 points). Seen on the way, not changed: the C# 2.0.0 code drops the single points of Polygon and Joined groups
+    (`StripDuplicates` of a closed path; the upstream tests expect them offset, so `DeltaCallback_SeesTheNormalsOfItsOwnPath`
+    uses an open group).
 - `.editorconfig` here silences CS8632: upstream compiles with `<Nullable>enable</Nullable>`, this package does not,
   and the annotations of the files without a `#nullable` directive only warn; they do not change the compiled code.
 - Behaviour: `tests/geometry3Sharp.Clipper2.Tests/Clipper2VendoredDifferentialTests.cs` runs these sources and the

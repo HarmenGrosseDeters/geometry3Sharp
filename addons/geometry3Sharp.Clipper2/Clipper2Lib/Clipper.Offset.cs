@@ -463,7 +463,6 @@ namespace g3.Clipper2.Vendored
 #endif
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     // geometry3Sharp change (port of PolyClipping/Clipper2 6c7d083, BSL-1.0): the arc steps for a delta, shared by
     // DoGroupOffset, DoRound and the single-point case (the formula is the C# 2.0.0 one)
     private void SetArcSteps(double delta)
@@ -477,6 +476,7 @@ namespace g3.Clipper2.Vendored
       _stepsPerRad = stepsPer360 / (2 * Math.PI);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void DoRound(Path64 path, int j, int k, double angle)
     {
       // when DeltaCallback is assigned, _groupDelta won't be constant,

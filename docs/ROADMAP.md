@@ -115,8 +115,9 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
 1. **Finish what runs.** Exact Boolean 3.0 (T1b #843, the mutation shards #913, the T6 check against CGAL #922, then the
-   two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914, then the port of four C++ fixes,
-   approved 2026-11-15, with the differential test relaxed to "differs only where the vendored code stays exact").
+   two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914 and #933 merged: C++ fixes
+   `f774daf`, `ec5f2d4`, `f97d65d` ported, `4a3bf64` not reached in C#; then the offset fix `6c7d083`, which the adapter
+   reaches, from the owner's "test the open points" of 2026-11-15).
 2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files). Stage 1
    merged (#779); stage 2 stopped after its spike (2026-11-15, #923): refinement certifies thin features
    but not the double crossings at silhouette edges, which come back at every level (uncertified cells -10 % at 15x
