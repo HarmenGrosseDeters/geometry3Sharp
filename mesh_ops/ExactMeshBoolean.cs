@@ -211,6 +211,10 @@ namespace g3
         /// double.
         /// </summary>
         public bool SafeRounding = true;
+
+        /// <summary> for tests (issue 789): ExactMeshArrangement.HashSalt and SingleShard of the arrangement </summary>
+        internal int ArrangementHashSalt;
+        internal bool ArrangementSingleShard;
         /// <summary>
         /// SafeRounding's tolerance far from the origin (MeshRoundingRepair.UlpFactor, AbsoluteTolerance): beyond
         /// RoundingMaxDisplacement of the diagonal, up to this many units in the last place of the largest coordinate, or this absolute
@@ -581,7 +585,8 @@ namespace g3
             if (Cancellation.IsCancellationRequested)
                 return cancelled();
             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
-                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters };
+                FixedWidthPoints = FixedWidthPoints, MaxPieces = MaxPieces, Cancellation = Cancellation, LocalFilters = LocalTriangulationFilters,
+                HashSalt = ArrangementHashSalt, SingleShard = ArrangementSingleShard };
             // (the built-in Difference and Intersection only: a WindingPredicate may keep points outside the first mesh;
             // the first mesh closed, so that the exact ray decides inside and outside)
             // (Difference: inside the first mesh; Intersection: inside every mesh, so against each closed one, in mesh order)
@@ -2863,7 +2868,7 @@ namespace g3
         /// uniform grid of their boxes clipped to t's box, in the projection that drops t's axis; a query returns those
         /// whose clipped boxes meet the segment's box (widened by the rounding of its ends), each once.
         /// </summary>
-        sealed class CrossingGrid
+        internal sealed class CrossingGrid
         {
             readonly int i, j;
             readonly double x0, y0, cw, ch;
@@ -2932,12 +2937,12 @@ namespace g3
                 return r;
             }
 
-            static int cell(double v, double v0, double w, int count)
+            internal static int cell(double v, double v0, double w, int count)
             {
                 if (double.IsInfinity(w))
                     return 0;
                 double c = Math.Floor((v - v0) / w);
-                return c < 0 ? 0 : c >= count ? count - 1 : (int)c;
+                return !(c >= 0) ? 0 : c >= count ? count - 1 : (int)c;      // (NaN: 0 on every runtime, #804)
             }
 
             // f(triangle) for each candidate of the segment p-q (grid coordinates, each within error of the exact point)

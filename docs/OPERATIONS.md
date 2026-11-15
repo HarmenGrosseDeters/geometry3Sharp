@@ -248,7 +248,11 @@ if (op.Compute() == false)
   delegates per carried step, the frame's corners without the exact BigInteger point where the double difference is exact,
   and the dot product signs on stack limbs. Bit-identical (38 hashes of the open models and five closed ones); on 117959
   (union with the copy, 4 cores) the classification allocates 14.4 -> 7.9 GB and takes 23.9 -> 20.7 s, the run 33.2 ->
-  30.0 s; the 1087141 family about 26 -> 22.5 s, 1005586 47.6 -> 42.3 s.
+  30.0 s; the 1087141 family about 26 -> 22.5 s, 1005586 47.6 -> 42.3 s. Measured with
+  `benchmarks/BooleanComparison`: `BooleanComparison export <model>.stl <dir>` (the model and its rotated, shifted copy),
+  then `BooleanComparison profile --ops union --repeat 1 <dir>` per case, each build run alone on the machine, the two builds
+  alternating (its JSON has the phase times, the allocations per phase, the GC pauses, the counts and the result hash);
+  the allocation sites from `dotnet-trace collect --profile gc-verbose` of the same command.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
   (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
@@ -900,7 +904,7 @@ g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
 
 **TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal
 solid in a box (`--box-min` / `--box-max`, in the lattice frame, which moves with `--origin`) or inside a closed mesh (`--domain`), by `--volume-fraction` or (sheet) `--wall-thickness`, optionally
-with a linear `--grade` of the period and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
+with a linear `--grade` of the period, `--second-type` with `--blend 'axis,offset,width'` (a hybrid of two types across a plane with a sigmoid weight; each side has the fraction of its pure lattice, the transition only reported) and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
 `--verify-self-intersections false` the result says `self_intersection_verified: false` and warns. Tests: `TpmsCliTests`.
 
 ```

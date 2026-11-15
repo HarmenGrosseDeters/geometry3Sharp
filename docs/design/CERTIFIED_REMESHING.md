@@ -323,6 +323,24 @@ caller needs it.
 | 2 | Feature protection: feature detection (theta_f), crease-curve sampling (1D encroachment), corners; weighted `Delaunay3` (power test) only if the unweighted protection fails the wedge tests; extended TBP (T6) | L | stop and report if the unweighted variant fails below the wedge threshold measured in 1a and the weighted kernel's upper bound (a spike) exceeds 2 x stage 1's time |
 | 3 | Benchmark against the `Remesher` (plain, with `PreventSelfIntersections`) on the 20 Thingi10K meshes: guarantees, p01 angle, Hausdorff, size, time | S | numbers in the benchmark README; no default changes |
 
+### 11.1 Stage 1a result (2026-11-15)
+
+Spike: [benchmarks/RestrictedDelaunaySpike](../../benchmarks/RestrictedDelaunaySpike/README.md) (float surface tests,
+TBP by proxies: E', one umbrella per sample, vertex-labelled region disks; R0-R3 and R2 for S -> D). All three stop rules
+pass:
+
+- time: median 223 us per output vertex at r_max = diag / 120 (smooth set, 7.6k-9.6k vertices), below 300 us; the
+  margin for the exact predicates and the exact (F') / (C') counts of stage 1b is about 1.35x;
+- uncertified share at h_min = r_max / 16 on the smooth set: 0 in all 12 cases; every result homeomorphic, clean
+  (`NotCleanReason`, exact self-intersection test), Hausdorff both ways at most r_max (0.03-0.25 r_max), min angle
+  at least 30 degrees;
+- crease threshold (lenses, convex and reflex creases): certified when the sharper side of the crease is at least 60
+  degrees, failing at 45 degrees and sharper; far below the rule's 150 degrees, so stage 1 covers 90 degree CAD edges,
+  and stage 2 is needed for sharper creases and for corners (not tested).
+
+Open from the spike for stage 1b: the exact counting checks replace the proxies (the region proxy sees nothing smaller
+than the input's edges), the predicates of 14.4, SoS, and a corner test set.
+
 ## 12. Risks
 
 - **T1 with rounded samples**: resolved by stage 0: the homeomorphism proof of section 14.2 does not use samples on S

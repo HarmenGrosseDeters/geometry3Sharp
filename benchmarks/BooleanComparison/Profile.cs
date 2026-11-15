@@ -107,8 +107,8 @@ static class Profile
                     GC.Collect();
                     PredicateStats.Reset();
                     int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
-                    TimeSpan pause0 = GC.GetTotalPauseDuration();
-                    long alloc0 = GC.GetTotalAllocatedBytes(true);
+                    TimeSpan pause0 = NetCompat.GcPause();
+                    long alloc0 = NetCompat.AllocatedBytes();
                     var boolean = run.Value();
                     boolean.ComputeExactVertices = exact;
                     boolean.SafeRounding = safe;
@@ -147,9 +147,9 @@ static class Profile
                         ["cores"] = Environment.ProcessorCount,
                         ["phases_ms"] = boolean.PhaseMilliseconds,
                         ["phases_alloc_mb"] = boolean.PhaseAllocatedBytes.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value / 1048576.0, 1)),
-                        ["alloc_mb"] = Math.Round((GC.GetTotalAllocatedBytes(true) - alloc0) / 1048576.0, 1),
+                        ["alloc_mb"] = Math.Round((NetCompat.AllocatedBytes() - alloc0) / 1048576.0, 1),
                         ["gc"] = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen1"] = GC.CollectionCount(1) - gc1,
-                            ["gen2"] = GC.CollectionCount(2) - gc2, ["pause_ms"] = (long)(GC.GetTotalPauseDuration() - pause0).TotalMilliseconds },
+                            ["gen2"] = GC.CollectionCount(2) - gc2, ["pause_ms"] = (long)(NetCompat.GcPause() - pause0).TotalMilliseconds },
                         ["counts"] = boolean.Counts,
                         ["triangles"] = ok ? boolean.Result.TriangleCount : -1,
                     };
@@ -187,7 +187,7 @@ static class Profile
             Index3i t = mesh.GetTriangle(tid);
             sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
         }
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+        return NetCompat.Sha256Hex16(sb.ToString());
     }
 
     static string HashExact(ExactPoint3[] v)
@@ -197,6 +197,6 @@ static class Profile
         var sb = new StringBuilder();
         foreach (ExactPoint3 p in v)
             sb.Append(p.X).Append(',').Append(p.Y).Append(',').Append(p.Z).Append(',').Append(p.W).Append(';');
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+        return NetCompat.Sha256Hex16(sb.ToString());
     }
 }

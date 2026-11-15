@@ -3,6 +3,8 @@
 Status: built (2026-11-13): `math/ExactLimbSigns.cs`, its seven call sites in `ExactMeshBoolean` (B, sections 1 to
 4) and its two in `ExactMeshArrangement` (D, section 5). Study: branch `runs/exact-numbers`, `REPORT.md` sections 3
 (P3b), 5b and 5e (the probes).
+Sections 6 and 7 measure candidate C's classification part again; neither probe is built (section 6's form was
+declined, section 7's is a no-go).
 
 ## 1. What and why
 
@@ -292,7 +294,129 @@ Result hashes and statuses are equal in all 72 runs (6 tail operations, 60 and 3
 - For the determinism proof: `ExactLimbSigns.cs` is outside the stage 0 scope today; when a later stage takes it
   in, the private-field access and the layout check become entries of its ledger.
 
-## 7. Sources
+Owner 2026-11-15: no access to `BigInteger`'s private fields. The cheap form is not built; section 7 measures the
+route through the public API.
+
+## 7. Limbs carried beside the planes and the centres, through the public API (2026-11-15): a no-go
+
+The owner declined the access to `BigInteger`'s private fields of section 6 (2026-11-15: no `UnsafeAccessor`, no
+reflection) and asked for one capped probe of the route that works on every target: the limbs converted once, at
+creation, through the public API and carried beside the BigIntegers. This is the restructuring section 6 had no
+probe of.
+
+**Probe** (one binary, switched by an environment variable; not built; master 1f5e5e9, 235 added lines in three
+files, the patch is `c/probe_carried_limbs.patch` on the data branch):
+- `carried`: a plane's four coefficients and a centre's four coordinates are converted once (`TryWriteBytes`, the
+  `load` of section 2) into one limb array kept with the `PlaneData` and the `Center`. Plane side (`local_side`,
+  the two sites of `front_crossings`) and the normal dot (six sites) read these arrays; only add, subtract,
+  multiply, sign and compare on limbs, the BigIntegers stay for every other consumer. The far integer point of a
+  plane side and the operands of `Det4` are still loaded per call.
+- `carried + centroid`: and the unreduced centroid on stack limbs as in section 6; its four results become the
+  centre's BigIntegers and, without a conversion, its carried limbs.
+
+With `carried + centroid` switched on, the 883 exact Boolean tests pass. Measured in a 4-core cloud container,
+.NET 10.0.15, Release, `DOTNET_TieredPGO=0`; five runs per setting, the three settings back to back in each of five
+rounds, their order rotated; medians, the range in brackets; the sum of the stratum's operations, collections
+included. Rows and scripts: `results/c7`, `scripts/c7_probe.sh`, `analyze_c7.py`, `analyze_c7_rounds.py`.
+
+| stratum | setting | one thread | change | its classification | 4 cores | change | allocated |
+|---|---|---|---|---|---|---|---|
+| tail, 107554 | base | 119.7 s (115.8-121.9) | | 59.6 s (57.2-62.0) | 52.3 s (49.1-56.7) | | 20.3 GB |
+| | carried | 122.6 s (112.4-125.0) | +2.4 % | 61.3 s (55.8-61.8) | 56.3 s (52.2-59.0) | +7.6 % | 20.5 GB |
+| | carried + centroid | 115.4 s (111.4-124.0) | -3.6 % | 56.9 s (55.3-62.4) | 54.4 s (48.3-58.1) | +4.0 % | 19.8 GB |
+| tail, 42327 | base | 198.5 s (192.6-213.0) | | 119.5 s (116.5-130.1) | 68.0 s (65.3-76.7) | | 18.3 GB |
+| | carried | 199.0 s (184.0-207.6) | +0.2 % | 115.9 s (105.9-125.9) | 69.8 s (63.6-72.7) | +2.7 % | 18.5 GB |
+| | carried + centroid | 188.6 s (178.1-199.8) | -5.0 % | 107.9 s (101.3-113.2) | 71.4 s (60.1-73.9) | +5.0 % | 17.6 GB |
+| normal, 20 pairs | base | 10.42 s (9.85-11.53) | | 0.51 s | 6.21 s (5.97-6.70) | | 2.26 GB |
+| | carried | 10.71 s (10.40-11.88) | +2.8 % | 0.51 s | 6.51 s (5.98-6.80) | +4.9 % | 2.26 GB |
+| | carried + centroid | 10.60 s (9.58-11.31) | +1.8 % | 0.48 s | 6.63 s (5.69-6.91) | +6.9 % | 2.26 GB |
+| normal, 13 models with a rotated copy | base | 7.83 s (6.77-8.00) | | 0.28 s | 3.46 s (3.29-3.63) | | 1.35 GB |
+| | carried | 7.88 s (6.96-8.15) | +0.6 % | 0.29 s | 3.49 s (3.28-3.86) | +0.8 % | 1.35 GB |
+| | carried + centroid | 7.71 s (6.83-8.28) | -1.6 % | 0.28 s | 3.78 s (3.15-3.90) | +9.2 % | 1.35 GB |
+
+Result hashes and statuses are equal in all 120 runs (3,150 operations, all `Success`).
+
+This container is slower than the one of section 6 (42327 without the probe: 198.5 s against 153.7 s) and less
+steady: the phases outside the classification, whose code is the same in all three settings, differ between the
+settings of one round by -6 to +9 % on the tail models on one thread and by up to 20 % on 4 cores. A difference of
+the total time below that is not measured here.
+
+- `carried` alone, one thread: no gain in the median on either model (+2.4 %, +0.2 %), every pair of ranges
+  overlaps. What the saved loads bring is not visible beside the conversion at creation and the scatter (the
+  classification of 42327 is 3 % lower in the median, inside the range); it allocates 0.2 GB more.
+- `carried + centroid`, one thread: 42327 -5.0 % in the median, at the 5 % line, and not confirmed: the ranges
+  overlap (178.1-199.8 s against 192.6-213.0 s). Its classification, the only phase whose code differs, is
+  confirmed lower, 119.5 -> 107.9 s (-9.7 %; the slowest run with the probe is below the fastest without), and the
+  total is lower in each of the five rounds (-2.5 to -10.1 %). 107554 -3.6 %, inside the range. The two models
+  together 318.2 -> 304.0 s, -4.5 %; section 6's probe with the private fields had -6.3 %.
+- 4 cores: no gain; the medians are 4 and 5 % higher with the probe, inside the ranges.
+- Normal strata: no change beyond the run-to-run range, one thread and 4 cores. Their classification is 0.2 to
+  0.5 s per run and does not move; the differences of the medians sit in the phases with the same code.
+- Allocation with `carried + centroid`: -0.5 GB on 107554, -0.7 GB on 42327 (the centroid's intermediates), nothing
+  on the normal strata.
+- What the probe leaves of section 6's bound (9.2 % / 16.0 % of the one-thread time, measured there and not again):
+  about 6 % of 107554 and 11 % of 42327. It is the centroid's own operand loads, its arithmetic and its four
+  BigInteger results (the bound counted the whole centroid as removed), the far point of a plane side and the
+  operands of `Det4`. Reaching the loads would mean limbs stored with every `ExactPoint3`, the construction on
+  limbs that section 3 did not build.
+- netstandard2.0: not measured. The kernels of section 2 exist only under `#if NET`; a number on that target needs
+  them ported (a `ToByteArray` load, no `TryWriteBytes`) and a probe built against that library, more than the 30
+  minutes set for it, and with this result it would not change the decision.
+
+**Recommendation: no-go.** The line was a gain of about 5 % of the slow tail's one-thread time, confirmed outside
+the run-to-run range on 42327, without a regression on the normal strata. The carried limbs alone gain nothing;
+with the limb centroid the median reaches the line on 42327 but is not confirmed there, stays under it on 107554
+and on the two models together, and 4 cores show nothing. The effect on the classification is real, and a steadier
+machine could put the total a little above or below 5 %; either way it is two models of the slow tail, for 235
+lines of exact code, a limb array kept with every plane and centre, and twelve call sites. The classification part
+of candidate C is closed with this; the BigInteger operands stay, and the kernels of sections 2 and 5 keep loading
+them per call.
+
+## 7a. netstandard2.0 (2026-11-15): the same probe on the netstandard2.0 DLL, a .NET 10 host
+
+Question: does the carried-limbs probe of section 7 gain more on netstandard2.0, where the load is `ToByteArray`
+(allocating) instead of `TryWriteBytes`, and does it reach the 5 % line there? Measured on a .NET 10.0.115 SDK
+(runtime 10.0.15), 4-core container, one thread (core 0, serial loops, no concurrent GC), `DOTNET_TieredPGO=0`, five
+rounds with the order of the two settings rotated; medians of the five runs (range in brackets); sums of the three
+operations of each stratum, collections included. The probe is throwaway (not in any PR): the section 2 kernels and
+the section 7 patch with a netstandard2.0 port (`ToByteArray` load, byte-array conversions, `limbs_of` via
+`ToByteArray().Length`, no `#if NET`). Rows, the port, the run script and `analysis.txt`: branch
+`runs/exact-numbers-ns`, `results/ns`, `c/probe_ns_port_and_carried.diff`.
+
+**Base is the kernels of section 2 on netstandard2.0 without carried limbs, not the shipped netstandard2.0 (which
+takes the BigInteger expressions for every call).** The gain below is the carried limbs on top of the kernels.
+
+| stratum | setting | one thread | change | classification | allocated (sum of 5 runs) |
+|---|---|---|---|---|---|
+| tail, 42327, 3 operations | base | 267.4 s (260.3-276.6) | | 168.1 s (161.7-174.0) | 70.5 GB / 5 runs |
+| | carried + centroid | 224.3 s (221.8-245.1) | -16.1 % | 123.9 s (120.7-140.5) | 27.1 GB / 5 runs |
+| tail, 107554, 3 operations | base | 133.9 s (132.1-142.3) | | 68.0 s (66.5-73.0) | 29.7 GB / 5 runs |
+| | carried + centroid | 132.7 s (128.6-137.8) | -0.9 % | 66.4 s (64.5-68.6) | 26.2 GB / 5 runs |
+| normal, 20 pairs, 3 operations | base | 11.5 s (10.6-12.8) | | 0.54 s | 2.29 GB / 5 runs |
+| | carried + centroid | 11.2 s (10.7-12.1) | -2.8 % | 0.51 s | 2.29 GB / 5 runs |
+
+- Overall (sum of the stratum medians, 42327 included): 412.8 s -> 368.1 s, -10.8 %.
+- Paired per round, 42327: -15.8, -18.9, -8.3, -14.5, -15.4 %; 107554: -3.9, -3.6, -6.4, -0.2, +4.3 %; normal:
+  +7.7, -15.9, -8.8, +7.4, -2.8 % (the 20-pair runs are 10 to 13 s and scatter by several percent).
+- Hashes and statuses: 660 operations (5 rounds, 2 settings, 66 operations each), all `Success`, one hash per
+  operation across all runs; the 42327 hashes equal the .NET 10 rows of section 7.
+
+**Verdict against the 5 % line: confirmed on 42327.** Its range of carried + centroid (221.8-245.1 s) lies
+entirely below the range of base (260.3-276.6 s), and its classification is 26 % lower. The normal stratum shows
+no regression beyond the run-to-run range (its ranges overlap). On 107554 the change is inside the range (-0.9 %).
+
+Reading: on netstandard2.0 the per-call `ToByteArray` loads (and the byte count, allocating too) are a bigger cost
+than on .NET 10, so the probe gains more there (42327: -16 % here against -5.0 % on .NET 10 in section 7, the same
+method with three settings). That is what the hypothesis of this section predicted. This does not say that netstandard2.0
+gains from the probe against the shipped library, which has no kernels and takes the BigInteger expressions: the
+kernels' own gain on netstandard2.0 is not measured here.
+
+What this does not measure: .NET Framework 4.8 (its JIT and BigInteger are not used here; this is netstandard2.0 on
+a .NET 10 host, so it is an upper-level indication only), the 4-core strata, and the `ncopy` stratum. The
+recommendation of section 7 (no-go as a restructuring) stands unless the owner weighs the netstandard2.0 gain as
+its own goal; the probe was not built and would need the restructuring of section 7 to reach the normal stratum.
+
+## 8. Sources
 
 Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
 `ExactMeshBoolean` (docs/design/EXACT_BOOLEAN_TAIL_55928.md).

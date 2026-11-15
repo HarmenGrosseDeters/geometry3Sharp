@@ -66,12 +66,12 @@ static class Prestudy
         row["inputs_mb"] = Mb(baseHeap);
         // the arrangement alone (as ExactMeshBoolean builds it; open inputs are not reoriented here)
         if (noProbe == false) {
-            long alloc0 = GC.GetTotalAllocatedBytes(true);
+            long alloc0 = NetCompat.AllocatedBytes();
             var sw = Stopwatch.StartNew();
             var arr = new ExactMeshArrangement(new List<DMesh3> { a, b }) { SelfIntersections = true };
             arr.Compute();
             row["arr_ms"] = sw.ElapsedMilliseconds;
-            row["arr_alloc_mb"] = Mb(GC.GetTotalAllocatedBytes(true) - alloc0);
+            row["arr_alloc_mb"] = Mb(NetCompat.AllocatedBytes() - alloc0);
             long heap = Retained();
             row["arr_retained_mb"] = Mb(heap - baseHeap);
             int n = arr.PointCount, fixedW = 0, big = 0, none = 0, inputP = 0;
@@ -96,24 +96,24 @@ static class Prestudy
         if (noBoolean == false) {
             Warm();
             Retained();
-            long alloc0 = GC.GetTotalAllocatedBytes(true);
+            long alloc0 = NetCompat.AllocatedBytes();
             int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
-            TimeSpan pause0 = GC.GetTotalPauseDuration();
+            TimeSpan pause0 = NetCompat.GcPause();
             var boolean = new ExactMeshBoolean(a, b, opOf[op]);
             var sw = Stopwatch.StartNew();
             bool ok = boolean.Compute();
             row["ms"] = sw.ElapsedMilliseconds;
             row["ok"] = ok;
-            row["alloc_mb"] = Mb(GC.GetTotalAllocatedBytes(true) - alloc0);
+            row["alloc_mb"] = Mb(NetCompat.AllocatedBytes() - alloc0);
             row["phases_ms"] = boolean.PhaseMilliseconds;
             row["phases_alloc_mb"] = boolean.PhaseAllocatedBytes.ToDictionary(kv => kv.Key, kv => Mb(kv.Value));
             row["gc"] = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen1"] = GC.CollectionCount(1) - gc1,
-                ["gen2"] = GC.CollectionCount(2) - gc2, ["pause_ms"] = (long)(GC.GetTotalPauseDuration() - pause0).TotalMilliseconds };
+                ["gen2"] = GC.CollectionCount(2) - gc2, ["pause_ms"] = (long)(NetCompat.GcPause() - pause0).TotalMilliseconds };
             row["counts"] = boolean.Counts;
             row["result_tris"] = ok ? boolean.Result.TriangleCount : -1;
         }
         row["peak_ws_mb"] = Mb(Process.GetCurrentProcess().PeakWorkingSet64);
-        row["gc_heap_peak_mb"] = Mb(GC.GetGCMemoryInfo(GCKind.Any).HeapSizeBytes);
+        row["gc_heap_peak_mb"] = Mb(NetCompat.HeapBytes());
         Console.WriteLine(JsonSerializer.Serialize(row));
         return 0;
     }
@@ -138,11 +138,11 @@ static class Prestudy
         foreach (string variant in new[] { "rounded", "unrounded", "exact" }) {
             Retained();
             var boolean = new ExactMeshBoolean(a, b, opOf[op]) { SafeRounding = variant == "rounded", ComputeExactVertices = variant == "exact" };
-            long alloc0 = GC.GetTotalAllocatedBytes(true);
+            long alloc0 = NetCompat.AllocatedBytes();
             var sw = Stopwatch.StartNew();
             bool ok = boolean.Compute();
             row[variant + "_ms"] = sw.ElapsedMilliseconds;
-            row[variant + "_alloc_mb"] = Mb(GC.GetTotalAllocatedBytes(true) - alloc0);
+            row[variant + "_alloc_mb"] = Mb(NetCompat.AllocatedBytes() - alloc0);
             row[variant + "_phases_ms"] = boolean.PhaseMilliseconds;
             if (ok == false) { row[variant + "_error"] = boolean.Error; continue; }
             row[variant + "_tris"] = boolean.Result.TriangleCount;

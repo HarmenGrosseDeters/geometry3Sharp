@@ -123,7 +123,7 @@ namespace gs
             var order = new List<long>(keys);
             order.Sort((x, y) => priority(x) != priority(y) ? priority(x).CompareTo(priority(y)) : x.CompareTo(y));
             var grid = new Dictionary<long, List<long>>(EdgeKeyComparer.Instance);
-            Func<double, long> cell = (x) => (long)Math.Floor(x / radius);
+            Func<double, long> cell = (x) => MathUtil.FloorToLongSaturating(x / radius);     // (NaN and overflow: the same cell on every runtime, #804)
             var repOf = new Dictionary<long, long>(EdgeKeyComparer.Instance);
             foreach (long k in order) {
                 repOf[k] = k;

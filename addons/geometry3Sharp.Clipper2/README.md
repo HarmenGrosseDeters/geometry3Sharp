@@ -30,9 +30,16 @@ if (!free.Ok)
   package fixes it in its copy of the sources (FINDINGS item 5,
   [tools/MeshFuzzPilot/FINDINGS.md](https://github.com/HarmenGrosseDeters/geometry3Sharp/blob/master/tools/MeshFuzzPilot/FINDINGS.md)).
   Through this package, 1000 random pairs of 16-gons on that lattice in every operation and fill rule gave 43 wrong areas
-  before the fix and 0 after. A second fix in the same output cleanup (#756) keeps a twist removal from flipping a ring.
-  Still open (rare, listed there): about 3 in 100 000 results on such lattices, where the twist removal costs area without
-  flipping the ring, and a Union case on the default grid.
+  before the fix and 0 after. Two more fixes in the same output cleanup (#756, 2026-11-15) keep a twist removal from
+  flipping a ring or cutting a triangle off it, and the conversion of the result tree now nests holes that touch their outer
+  ring or another hole (a vertex rounded to the grid point beside the edge): through this package, 10 000 random pairs of
+  16- and 24-gons on such lattices in every operation and fill rule gave 41 wrong areas of 160 000 before and 0 after.
+  Since 2026-11-15 the copy also carries three fixes of the C++ Clipper2 (PolyClipping/Clipper2, rounded intersection
+  points among them; Clipper2Lib/README.md), which change most results within the rounding; on that campaign: 0 wrong
+  and 0 structurally broken results. A fourth fix of the C++ code (`6c7d083`) makes `OffsetPolyLines` with
+  `EndType.Joined` independent of the order of the lines (a 2-point line before a longer one gave the longer one open
+  ends). Still open (listed there): far from the origin (UTM coordinates with a small scale)
+  slivers can come out with zero or negative area after the rounding back to doubles.
 - API checks: the package has no `PackageValidationBaselineVersion` yet (owner 2026-11-13: the first published version of
   this package becomes the baseline). Until a version is published, a PR that changes the public API lists the breaks from a
   local strict validation against master's pack (as #851 did for 2.0).

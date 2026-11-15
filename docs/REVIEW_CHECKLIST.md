@@ -20,6 +20,10 @@ and for each yes, check that a test covers it. A test must fail on the old code 
   check? UNKNOWN/timeouts must not be counted as proofs. Are assumptions satisfiable, source/model drift
   detected, and model mutations covered so contradictory assumptions cannot pass vacuously? (Z3 pilot)
 
+- A certificate or check against a reference: is the reference the one the documentation names, not a normalized copy
+  the algorithm works on (the contouring certificate compared with the oriented copy, in which inside-out parts are
+  flipped, and certified a wrong topology for inputs with an inside-out part; #935)?
+
 ## 2. Scale, units, far from the origin (#61, #64, #80, #81, #95, #97, #102, #106)
 
 - Are tolerances relative to the input (bounding box of the *used* vertices, edge lengths), not absolute

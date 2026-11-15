@@ -143,6 +143,8 @@ namespace g3
             internal double AX, AY, BX, BY;
             /// <summary> kernel vertices of the input end points </summary>
             internal int VA, VB;
+            /// <summary> the input constraint it is, as <see cref="ConstrainedMesh2.SubsegmentSources"/> numbers them; -1 for a hull edge </summary>
+            internal int Input;
         }
 
         /// <summary> The constrained triangulation in the making; the refinement of <see cref="QualityMesh2"/> works on it. </summary>
@@ -158,6 +160,9 @@ namespace g3
             /// <summary> input points and input segments that refinement left in no triangle (QualityMesh2: parts narrower than the
             /// tolerance); published on the mesh for the tests </summary>
             internal int[] DroppedInputPoints = new int[0], DroppedInputSegments = new int[0];
+            /// <summary> the first kernel vertex made by quality refinement (QualityMesh2 sets it; the vertices below it are the input points
+            /// and the crossings), published on the mesh as <see cref="ConstrainedMesh2.ExistedBeforeRefinement"/> </summary>
+            internal int RefinementStart = int.MaxValue;
             internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
             internal readonly CancellationToken cancel;
@@ -261,7 +266,8 @@ namespace g3
             /// (D17). A point merges only into a point that merged into nothing, so no chain moves anything farther than the tolerance.
             /// An exact duplicate of an earlier point takes that point's coordinates as they are then: identical inputs map to one vertex,
             /// also when the earlier one merged into a third point (a merged point is not in the cells, so the duplicate found another point
-            /// within the tolerance, and the two inputs mapped differently; #863)
+            /// within the tolerance, and the two inputs mapped differently; #863). The diagnostic counts the points merged into another
+            /// point; exact duplicates, also of a merged point, are not counted
             /// </summary>
             void MergeNearPoints(double[] x, double[] y)
             {
@@ -282,14 +288,14 @@ namespace g3
                     for (long dx = -1; dx <= 1 && into < 0; ++dx)
                         for (long dy = -1; dy <= 1 && into < 0; ++dy) {
                             if (!cells.TryGetValue(Key(cx + dx, cy + dy), out var list)) continue;
+                            // (no exact duplicate of a point in the cells comes here: the cells hold first occurrences at their input
+                            // coordinates, and a later occurrence took the branch above)
                             foreach (int j in list) {
-                                if (x[j] == x[i] && y[j] == y[i]) { into = -2; break; }   // an exact duplicate: the kernel maps it
                                 double ex = Scaled(x[i] - x[j]), ey = Scaled(y[i] - y[j]);
                                 if (ex * ex + ey * ey <= tol2) { into = j; break; }
                             }
                         }
                     if (into >= 0) { x[i] = x[into]; y[i] = y[into]; ++merged; continue; }
-                    if (into == -2) continue;
                     if (!cells.TryGetValue(Key(cx, cy), out var own)) cells.Add(Key(cx, cy), own = new List<int>());
                     own.Add(i);
                 }
@@ -459,17 +465,20 @@ namespace g3
             ConstrainedTriangulation2Result InsertConstraints()
             {
                 var work = new Stack<Piece>();
+                // the input constraints' ids (ConstrainedMesh2.SubsegmentSources): the segments, then the edges of the rings, then
+                // those of the region rings, each in input order
+                var rings = input.Rings ?? new List<Mesh2Ring>();
+                var regions = input.Regions ?? new List<Mesh2Region>();
+                int segmentCount = input.Segments?.Count ?? 0, nextRingEdge = segmentCount;
                 void Add(int a, int b, Source s)
                 {
                     int u = KV(a), w = KV(b);
                     sources.Add(s);
                     if (u != w) work.Push(new Piece { U = u, W = w, Sources = new List<int> { sources.Count - 1 } });
                 }
-                Source Make(int a, int b, int ring, int marker, bool locked)
-                    => new Source { Ring = ring, Marker = marker, Locked = locked, AX = k.X[KV(a)], AY = k.Y[KV(a)], BX = k.X[KV(b)], BY = k.Y[KV(b)], VA = KV(a), VB = KV(b) };
+                Source Make(int a, int b, int ring, int marker, bool locked, int id)
+                    => new Source { Ring = ring, Marker = marker, Locked = locked, AX = k.X[KV(a)], AY = k.Y[KV(a)], BX = k.X[KV(b)], BY = k.Y[KV(b)], VA = KV(a), VB = KV(b), Input = id };
                 // rings: outer and hole rings, then region rings, each with an id
-                var rings = input.Rings ?? new List<Mesh2Ring>();
-                var regions = input.Regions ?? new List<Mesh2Region>();
                 ringIsHole = new bool[rings.Count + regions.Count];
                 for (int r = 0; r < rings.Count; ++r) {
                     var ring = rings[r];
@@ -477,7 +486,7 @@ namespace g3
                     var vs = ring.Vertices;
                     for (int i = 0; i < vs.Length; ++i) {
                         int a = vs[i], b = vs[(i + 1) % vs.Length];
-                        Add(a, b, Make(a, b, r, ring.Marker, false));
+                        Add(a, b, Make(a, b, r, ring.Marker, false, nextRingEdge++));
                     }
                 }
                 for (int g = 0; g < regions.Count; ++g) {
@@ -486,13 +495,13 @@ namespace g3
                     ++regionRings;
                     for (int i = 0; i < vs.Length; ++i) {
                         int a = vs[i], b = vs[(i + 1) % vs.Length];
-                        Add(a, b, Make(a, b, rings.Count + g, 0, false));
+                        Add(a, b, Make(a, b, rings.Count + g, 0, false, nextRingEdge++));
                     }
                 }
                 if (input.Segments != null)
                     for (int si = 0; si < input.Segments.Count; ++si) {
                         var s = input.Segments[si];
-                        var source = Make(s.A, s.B, -1, s.Marker, s.Locked);
+                        var source = Make(s.A, s.B, -1, s.Marker, s.Locked, si);
                         // the snapped chains of the hull edges of a hull domain (QualityMesh2 on a grid): hull sources
                         source.Hull = si >= HullSegmentsFrom && si < HullSegmentsTo;
                         Add(s.A, s.B, source);
@@ -998,6 +1007,7 @@ namespace g3
                 for (int v = 0; v < outId.Length; ++v) outId[v] = -1;
                 for (int r = 0; r < n; ++r) if (k.Vertex[r] == r) outId[r] = k.Representative[r];
                 var extra = new List<Vector2d>();
+                var extraKernel = new List<int>();
                 var extraHeights = new List<double>();
                 var id = new int[slots];
                 int count = 0;
@@ -1009,6 +1019,7 @@ namespace g3
                         if (outId[v] >= 0) continue;
                         outId[v] = n + extra.Count;
                         extra.Add(k.Point(v));
+                        extraKernel.Add(v);
                         if (heights != null) extraHeights.Add(heights[v]);
                     }
                 }
@@ -1016,6 +1027,7 @@ namespace g3
                 var neighbours = new Index3i[count];
                 var labels = new int[count];
                 var subsegments = new List<Mesh2Subsegment>();
+                var subsegmentSources = new List<int[]>();
                 for (int t = 0; t < slots; ++t) {
                     int i = id[t];
                     if (i < 0) continue;
@@ -1031,6 +1043,7 @@ namespace g3
                         int nb = id[k.H[e] / 3];
                         if (nb >= 0 && nb < i) continue;
                         subsegments.Add(Subsegment(outId[k.V[e]], outId[k.V[Next(e)]], Covering(k.V[e], k.V[Next(e)], k.Sources[c2])));
+                        subsegmentSources.Add(k.Sources[c2].Select(z => sources[z].Input).ToArray());
                     }
                 }
                 var vertices = inputVertices.Concat(extra).ToArray();
@@ -1053,6 +1066,11 @@ namespace g3
                 mesh.BadTriangles = bad.AsReadOnly();
                 mesh.SteinerLimitReached = SteinerLimitReached;
                 mesh.DroppedInputPoints = DroppedInputPoints; mesh.DroppedInputSegments = DroppedInputSegments;
+                mesh.SubsegmentSources = subsegmentSources.ToArray();
+                var before = new bool[vertices.Length];
+                for (int i = 0; i < n; ++i) before[i] = true;
+                for (int j = 0; j < extraKernel.Count; ++j) before[n + j] = extraKernel[j] < RefinementStart;
+                mesh.ExistedBeforeRefinement = before;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;
                 return new ConstrainedTriangulation2Result(status, Triangulation2FailureKind.None, mesh, diagnostics);
             }

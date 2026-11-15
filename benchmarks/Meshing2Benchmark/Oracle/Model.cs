@@ -77,6 +77,16 @@ namespace Meshing2Acceptance
         public int[] TriangleLabels;
         public int[] BadTriangles;
         public bool SteinerLimitReached;
+        /// <summary>
+        /// Optional, per subsegment (same order as <see cref="Subsegments"/>): the input constraints the producer holds the piece for, in
+        /// its order (the first is the one its split points are computed on). A constraint's id is its index in the input's Segments,
+        /// then the edges of its Rings, then those of its Regions' rings, each in input order; -1 for a hull edge the producer
+        /// constrained. Null if the producer does not report it (#870: the O11 excuse then takes every possibility).
+        /// </summary>
+        public int[][] SubsegmentSources;
+        /// <summary> Optional, per vertex: it existed before quality refinement (an input point or a crossing of constraints). Null if
+        /// the producer does not report it (#870) </summary>
+        public bool[] ExistedBeforeRefinement;
         /// <summary>Point location of the result, -1 if outside; null if the producer has none.</summary>
         public Func<double, double, int> Locate;
         /// <summary>

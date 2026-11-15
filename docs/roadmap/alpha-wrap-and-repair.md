@@ -5,9 +5,14 @@ Part of the [roadmap](../ROADMAP.md).
 - **Scope:** `MeshAlphaWrap` and the wrap fallback of `MeshRobustRepair` (quality pass, raw-wrap fixes, wrap
   resolution), the volume checks of the repair, the envelope (stage 7), the `Reducer` and the remeshers (degenerate
   triangles, self-intersections, thin walls, feature pinning).
-- **Status (2026-11-12):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
-  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now); L4 #670 and L1 #681 merged,
-  L3, L3b and L2 dropped; the 800 run with a tail report started 2026-11-12). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
+- **Status (2026-11-15):** Alpha Wrap 2.0 done (owner 2026-11-09); Reducer / Remesher 2.0 done 2026-11-09; Alpha Wrap
+  3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now); PR 0 #651, L4 #670
+  and L1 #681 merged, L3, L3b and L2 dropped; the 800 run with a tail report and the CGAL comparison done 2026-11-12;
+  lever 6 K merged as opt-in (#736, 2026-11-13); the raw-size budget merged as opt-in (#846, 2026-11-13); (B), the
+  round-based parallel carving, is #774 (merged 2026-11-15; owner: `RoundWindow` 256 by default, 0 as the opt-out).
+  #747 (wrap simplification not certified) is done: its retries (#763, #840) certify every wrap of the 800 sample, and a first-pass
+  guard is a no-go (upper bound 2 of 800 meshes, 2026-11-15). The runtime watch (#726) reports
+  wrap pipelines of 21.9-77.7 s on 18 Thingi10K cases (#888). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
   The remesher items of Phase 2 stay open; the Remesher rim folds (#621) are fixed by #640 (merged 2026-11-12).
 - **Related:** [design/ALPHA_WRAP_QUALITY.md](../design/ALPHA_WRAP_QUALITY.md),
@@ -86,7 +91,7 @@ which bounds it at <= 1.085x at zero overhead (`runs/alpha-wrap-3`, `aw3/L3-SPIK
 with L4, L1, L3b, L2; target (b) lowered to about 1.25x on the 189 against master on 4 cores, (a) and (c) unchanged. (B), a
 deterministic round-based parallel carving (independent gates per round, deterministic reservations; serial = parallel and
 2^k bit-identical, but not master's output), is a future research item: a guarantee argument first, then a probe, then
-an owner decision on (c) for it.
+an owner decision on (c) for it. (Later built as #774, see the lever choice below.)
 **L4 (PR 2):** the manifold step faster, bit-identical (no star search for a vertex whose result facets form
 one closed cycle in its link, Jordan; stamp arrays instead of dictionaries in the same order; volumes only when needed;
 stars kept between trials without an insertion), and the first pinch pass leaves its confirming full trial to the
@@ -116,8 +121,8 @@ the gap and the round-based parallel carving (B) go to the owner.
 as `AlphaWrapFeaturePass`, opt-in (`MeshRobustRepair.AlphaWrapSharpFeatures`) between the wrap and the simplification; every
 operation exactly checked (no self-intersection, no contact with the input, no input in the swept tetrahedra, vertices >= 0.9 offset,
 angle floors). T1 (20): edge F 0.61 -> 0.875, crease normal 14.7 -> 4.67 deg, concave within 1 offset 0.02 -> 0.75, 20/20 clean, 0
-crossings, 0.72x triangles, 3.8 -> 5.1 s; the study's acceptance rows met. Default on or off after the 800 run; corners and split
-retries are follow-ups.
+crossings, 0.72x triangles, 3.8 -> 5.1 s; the study's acceptance rows met. Merged 2026-11-13 (#736), opt-in. Default on or off
+after an 800 run (no such run recorded, unverified); corners and split retries are follow-ups.
 **Owner decision (2026-11-12): focus on the worst case.** The tail (max / slowest times) and a comparison with competitors
 come first; parallel approaches are worth it if they cut the tail substantially (eg 90 s -> 10 s). After #681 (merged
 2026-11-12), in this order (step (1) started on master 2026-11-12):
@@ -134,7 +139,7 @@ Status 2026-11-12: (1) done (`aw3/f800/TAIL-REPORT.md`: 99.2 % within budget, ti
 wrap median 19.8 s / max 54.9 s vs CGAL 84.7 / 204.7 s (pipeline with simplify + certify 28.5 / 66.5 s), random 30 raw
 3.5 / 10.9 s vs 18.8 / 97.3 s; guarantees 50/50 both, certified Hausdorff equal, raw triangles 5-10 % fewer, raw p01
 angle 20.9° vs CGAL 21.6° (tail) and 20.1° (random), global min angle 0.72° vs 1.89° (860049). The tail is the resolution
-for both; (3) the (B) round simulation is next.
+for both; (3) the (B) probe followed (below).
 A second black-box competitor (alecjacobson/alpha-wrap, MIT by its README, claims about 2x CGAL): not now (owner
 2026-11-12); building and running such a tool is acceptable in principle once its licence is verified as permissive, but
 only with a concrete question the CGAL comparison cannot answer.
@@ -147,10 +152,22 @@ runs/alpha-wrap-3-fable, master 1230482): the tail is size, not pathology (unit 
 (B) together with parallel trial passes (pinch / manifold, 18 % of the serial time), projected tail max 69 s to about
 10-12 s on 16 cores, output bits change, resolution does not; a raw-size budget (about 300k raw triangles) as an opt-in
 parameter, off by default (it closes lattice cavities: 40118 wrap-to-input 0.46 to 20.7 % of the diagonal), which is the
-only lever under 20 s on 4 cores (13 s with (B)). Built 2026-11-13 (#694): `MeshAlphaWrap.MaxEstimatedTriangles` / `MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default; the size is estimated as 3 area / alpha^2 before the refinement (measured: about twice the size of closed solids, about the size of a zero-volume surface, half that of an open sheet), above the budget alpha and offset are scaled by sqrt(estimate / budget), reported in `AlphaCoarsening` / `AlphaWrapCoarsening`; the corpus "flat" case 10.4 -> 3.5 s per repair at 20k (211,614 -> 20,654 raw triangles). Turning it on in a test or a default is a separate decision (it changes outcomes). Alpha relative to the largest component is dropped (slower on 3 tail
-meshes). #692 (185k raw triangles from 144) goes to the AW3 session as a diagnosis (alpha for tiny inputs or the test
-input); #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) has its own session (cause: two absolute thresholds in `DMeshAABBTree3.FastWindingNumber`, the area / normal epsilon and the padded box test, so tiny triangles in the unit frame make every query brute force; owner 2026-11-12: option A, both made scale-relative, 62 s -> 2-2.5 s, FWN bit-identical under 2^k scaling, values on tiny-triangle meshes move to the documented approximation); the
-simplification sometimes not applied (175914, 51909 at diag / 245) is a defect check for the AW3 session.
+only lever under 20 s on 4 cores (13 s with (B)). (B) is #774 (merged 2026-11-15): the main carving in deterministic
+rounds (`Delaunay3.PlanInsert` / `ApplyInsert`, `core/WorkerTeam.cs`, `MeshAlphaWrap.MaxThreads`); the same result for
+every thread count; on 4 cores the tail 20 pipeline 760 -> 603 s (1.26x, max 87.9 -> 81.5 s), main carving 1.53x, the
+normal 30 1.10x; p01 medians not lower, min angle per mesh both ways (not significant). Owner: `RoundWindow` = 256 is
+the default, `RoundWindow` = 0 (master's serial loop, bit for bit) the opt-out.
+The raw-size budget, built 2026-11-13 (#846, issue #694, closed): `MeshAlphaWrap.MaxEstimatedTriangles` / `MeshRobustRepair.WrapMaxEstimatedTriangles`, off by default; the size is estimated as 3 area / alpha^2 before the refinement (measured: about twice the size of closed solids, about the size of a zero-volume surface, half that of an open sheet), above the budget alpha and offset are scaled by sqrt(estimate / budget), reported in `AlphaCoarsening` / `AlphaWrapCoarsening`; the corpus "flat" case 10.4 -> 3.5 s per repair at 20k (211,614 -> 20,654 raw triangles). Turning it on in a test or a default is a separate decision (it changes outcomes). Alpha relative to the largest component is dropped (slower on 3 tail
+meshes). #692 (185k raw triangles from 144) is closed: #765 (2026-11-13) runs the tests on a coarser solidify and wrap of the
+same defect classes (32 s -> 8.7 s); #703 (2026-11-12) takes a small input's alpha from its edge length (#636, #712).
+#693 (fast winding number with far parts, 97.8 % of its time in the volume checks) is fixed in #744 (2026-11-13; the
+point-cloud variant #745 in #809) (cause: two absolute thresholds in `DMeshAABBTree3.FastWindingNumber`, the area / normal epsilon and the padded box test, so tiny triangles in the unit frame make every query brute force; owner 2026-11-12: option A, both made scale-relative, 62 s -> 2-2.5 s, FWN bit-identical under 2^k scaling, values on tiny-triangle meshes move to the documented approximation); the
+simplification sometimes not applied (175914, 51909 at diag / 245) was a defect check for the AW3 session: closed 2026-11-15, it was the uncertified reduction of #747, fixed by its retries (#763, #840, both merged 2026-11-13). The cases seen since were measured on bases without the retries (#774's 50 runs on 58644af: 78968, 111959, 67121). On master 17f53a47 all seven cases are simplified (wrappipe, certified): 78968, 111959, 67121, 175914 and 51909 at diag / 300, 175914 and 51909 at diag / 245. In the 800 run of #774 no mesh keeps the raw wrap, on base or head (final triangles / raw median 0.25, max 0.96). #747's first-pass guard is a no-go (next paragraph).
+
+**#747 first-pass guard: no-go (2026-11-15).** Upper bound on master d0298ad, all 800 sample meshes (300/3000, slabs 8, KeepClearOf as in the pipeline; raw rows on runs/747-800, `747/`): the first reduction is certified on 798; only 51705 and 78968 reach the retry (the sampled stage certifies both). The 5 meshes of the issue (175914, 42179, 64891, 67121, 69259) now certify in the first pass, at pipelines of 4.4-12.4 s (one run each, alone on the machine; `747/issue5_master.jsonl`): the failure depends on the exact triangulation of the raw wrap, which #774 changed, and stays rare (5 of 800 before, 2 of 800 now). A perfect first-pass guard at no cost would save at most the retry (wrappipe alone on the machine, 3 runs each): 51705 pipeline 15.6-16.5 s, retry 4.7-5.3 s; 78968 pipeline 36.3-38.2 s, retry 11.5-12.2 s, and 78968 stays above 20 s without it (wrap 13.1-13.9 s + first reduction and certification 11.7-12.7 s: a #888 wrap-tail case). That is about 17 s over the whole sample (well under 1 % of its pipeline sum) and nothing on the median mesh. A guard in the first pass runs on all 800 meshes: the sampled guard there cost +24 % of the simplify median (#747, 2026-11-13). Even a guard that only tests collapses with a degenerate quadric pays a degeneracy test per collapse, and its nearest-point queries on the flagged ones. It also changes the output wherever it refuses a collapse. So it cannot meet the never-slower rule for a gain this small, and it brings no mesh under 20 s. The two mechanisms by the raw wrap: 51705 has 2 folded edges (> 175 degrees) in the raw wrap, like 42179 (mechanism 1, fold); 78968 has none, like 64891 (mechanism 2). They were not diagnosed further, since no guard follows from them. The bound holds for the default 300/3000 only (other alphas were not swept). Reopen if a later wrap change raises the retry rate well above 2 of 800 (the 800 run's `simplify.retry` phase shows it).
+**Lever (B) built (2026-11-15).** #774 (round-based carving, merged 2026-11-15) and #898 (trial passes in parallel, bit for bit with #774, merged 2026-11-15); 4 cores, tail 20: pipeline sum / max 760 s / 87.9 s -> 515 s / 68.7 s (1.47x). The 800 run of #774 (its merge gate, run after the merge: base 9790954 vs master 623c901, `aw3/rounds800/README.md` on runs/aw3-rounds-800, 2a81137): 800/800 closed, 0 triangles < 0.5° or > 170° on both; final p01 median 11.34° -> 11.33°, worst 10.63° -> 10.61°; final min angle median 9.49° -> 9.68°, paired per-mesh median difference 0.000°, meshes below 5° 72 -> 61; the worst single mesh 1.29° -> 1.01° (1681122, the raw wrap's own minimum, 3.63° on base). Owner decision 2026-11-15: passed on the distribution, no revert; 1681122 is #919.
+
+**#919 closed (2026-11-15): valid output, not a regression.** On master d0298ad (α = diag / 300, offset = diag / 3000) `RoundWindow = 0` gives the base result again (97330 triangles, min 3.145°), the rounds 97362 triangles and 1.009°. In both runs every result triangle with a circumradius of at most α keeps the angle bound of the class doc, asin(Offset / 2α) = 2.87° (minimum 3.63° serial, 3.09° rounds). Both worst triangles lie outside that class: 3.145° at a circumradius of 1.07 α (serial), 1.009° at 2.96 α (rounds, a near-collinear sliver with a short edge of about one offset, a facet that `make_manifold` exposed when it flipped an outside cell inside). The rounds change the carving order and so the triangulation, which leaves more spots to the final step (pocket cells 0 -> 38, manifold flips 23 -> 31, `pinch_skipped` 234 -> 485); no gate is lost (`Rounds_EachKeptGateAsInTheSerialOrder`). The procedural instance of this mechanism is soup 42 at α = diag / 20 (`AlphaWrapRoundsTests.Rounds_DefaultPath_Soup42_QualityPinned`), and the bound on the carving's triangles is checked by `AlphaWrapTests.AssertSeparationBound`. Every fix (a quality-aware choice of the manifold flips, a quality pass on the facets of flipped cells, a relaxed pinch separation) changes the output on most meshes, so it is a design item with its own 800-run gate: item 11 of "Open for the future".
 **Open, after 3.0: adaptive alpha spike (owner 2026-11-15).** Upper-bound study (measurement only,
 `aw3/adaptive/README.md` on runs/adaptive-alpha-study, 50 meshes, oracle per-triangle alpha levels 2^L diag / 300, L = 0..3):
 graded (Lipschitz 0.5) at 1 offset tolerance the wrap gets 3.9x smaller on the normal stratum (median), 2.9x on the tail;
@@ -162,6 +179,25 @@ typical meshes, not a worst-case lever (that stays the size budget and more core
 cavity-aware level predictor with the probe, estimate the saving on the 800-run sum. Proposed go criterion for the owner:
 predictor false area below about 1 % on the tail too, and at least about 2x on the corpus sum; then a roadmap phase with a
 grading-aware refinement and a weakened angle bound (with proof), otherwise it stays a study.
+**Spike result (2026-11-15): no-go, stays a study.** Measurement only (`aw3/adaptive-spike/README.md` on
+runs/adaptive-alpha-spike: tables, raw jsonl, probe sources and the probe patch). Dai, Wang, Yan (CAGD 2024,
+doi:10.1016/j.cagd.2024.102321) not accessible, from snippets only: its goal is fidelity, not size. Predictors from the input
+alone against the study's oracle levels (graded, tau = 1 offset):
+
+| predictor | false area, normal 30 / tail 20 (max) | size gain, normal / tail sum | cost (W0 time) |
+|---|---|---:|---:|
+| oracle levels (perfect, free) | 0 / 0 | 3.69x / 2.29x | - |
+| cavity reach (shrinking ball, exterior sides) | 0 / 41.2 % (224108; 6 of 20 meshes above 0) | 2.36x / 1.72x | 1.2-2.4 |
+| + thin parts / curvature (interior ball, or planarity at scale alpha_L) | 0 / 0-6.0 % | 1.0-1.2x | +0.1-0.5 |
+
+The tail needs cavity reach, gap sag and thin parts / convex curvature at once; the cheap tests miss one (unsafe) or keep no
+gain. Corpus sum (800 run wrap time, tail 20 = 14.1 %, time about linear in size): perfect levels give 3.39x if free, 2.53x at a
+cost of 0.1 W0, 1.84x at 0.25 W0; the measured predictor gives 0.53x (slower). An adaptive wrap with a probe patch (a local
+alpha of at least alpha0 in the gate test) kept the guarantees on 10 meshes (Success, clean, vertices at the offset,
+separation at least 1.0 offset) but lost fidelity where the predictor is wrong (111959: half of W0's area more than 1 offset
+away) and was slower than W0 with its predictor on 6 of 10. Go criterion (false area under 1 % on the tail, 2x on the corpus
+sum) missed on both counts. Reopen only with a predictor that is a by-product of the wrap (eg coarse-to-fine refinement where
+the next finer level differs), a new design.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
@@ -169,7 +205,9 @@ diagnosis per tail mesh and levers ranked by benefit; measurement only, probe pa
 commit set; the levers are then built one PR each by the AW3 work. Both studies report the shared profile categories
 (exact predicates and constructions, AABB / BVH queries, allocation and GC, rounding, rest), merged into
 [hotspots.md](hotspots.md). A nightly watcher (tools and workflow only) measures the known extreme cases of both studies
-isolated per master commit and reports outliers (regression against the rolling median, or above 20 s). Predicate kernels
+isolated per master commit and reports outliers (regression against the rolling median, or above 20 s); built in #726
+(2026-11-13). First report #888 (e741c130, no baseline yet): 28 outliers of 35 cases; alpha wrap pipelines above 20 s
+on 18 Thingi10K cases, from 21.9 s (39368) to 77.7 s (40118). Predicate kernels
 (InCircle limb kernel, filter tuning) only if the profile shows they matter.
 **Sharp-feature study (owner 2026-11-12, the 2026-11-09 wish for a study on the strongest model).** Why variant B
 (DC on the winding number) fails (offset, angles, self-intersection, time: inherent or fixable), and hybrids that keep
@@ -185,13 +223,13 @@ profile of the plain Remesher, in the shared profile categories) follows on Sonn
 (C) vertex post-pass toward the QEF points, all exact checks kept (C1 offset miter, C2 input crease, C3 = C1 before the simplification): Chamfer 0.87x / 0.68x / 0.86x, edge F 0.1 % 0.75-0.76, crease normal 0.58x, 20/20 clean, angle floors and offset band unchanged, +15-35 % time: recovers 17-42 % of B's Chamfer gain, about 40 % of its edge F; (D1) alpha / 2 as the bound of a locally smaller alpha (option 4): Chamfer 0.75x at 1.7x triangles and 2.5x time (9 meshes); the QEF-guided Steiner idea (D2) was not built (needs library changes; C3 is its cheap proxy). Side finding: the simplified wrap grazes the input on 20/20 meshes (the raw wrap never does).
 How others solve it: Ju et al. 2002 (DC), Schaefer et al. 2007 (manifold DC), Kobbelt et al. 2001 (feature-sensitive extraction: feature vertex + edge flips), recent mitered offset meshing (arXiv 2412.15564, Feature-Preserving Offset Mesh Generation from Topology-Adapted Octrees, CGF 2023) which keep sharp features by DC / point-to-plane offsets, not by an alpha wrap; the alpha wrap paper itself names sharp features as a limit. Recommendation in the PR / report.
 
-**Wrap contact bugfix (2026-11-09, coordinator decision: the wrap's promise is "input inside").** Audit with exact triangle-triangle tests (benchmarks/SharpFeatureProbe variant G, PR #498), 20 T1 meshes + 6 procedural solids: the raw wrap never touches the input (0 of 2.67M triangles); the simplified wrap (certified within 0.5 offset of the wrap, not of the input) had 247 of 692,674 triangles (all 20 meshes) and 29 of 68.8k (6/6) crossing a convex crease of the input (deepest sample 0.068 offset inside it, 71 triangles with a point inside the solid), the quality pass (off by default) 30 more on 6 of 18 meshes. Fix: `Reducer.KeepClearOf` (an exact test of the new triangles against the input's tree, shared by the PartitionedReduction slabs) and the same check in `AlphaWrapQualityPass.accept`; `SimplifyAlphaWrap` and the quality pass pass the wrap's input. After: 0 crossings everywhere, triangles -0.01 %, vertices unchanged (minimum 0.352 offset, 1 vertex of 346k below 0.5), pipeline time +3.8 % summed over the 20 T1 meshes (paired median +0.8 %). Test: `AlphaWrapNoContactTests`. Follow-up bugfix (2026-11-12, found by the review of #736): `Reducer.TrianglesTouch` skipped degenerate (collinear or point) input triangles, so `KeepClearOf` let a collapse cut a needle of the input; they are now tested as segments and points (`ExactTriangleIntersection`). Test: `ReducerTrianglesTouchTests`. Follow-up bugfix (2026-11-12, issue #743): `KeepClearOf` tested the end state of a collapse only, so a collapse could jump over a small input part that its new triangles do not touch; the Reducer and `AlphaWrapQualityPass.accept` now also test the region the operation sweeps (`Reducer.TetrahedraMeet`: the tetrahedra (old triangle, new vertex), exact faces plus strict containment of the input corners and centroids; per collapse only the side faces). Tail 24 + normal 30: 49 / 54 results identical (the 5 others differ by up to 38 triangles, the input enclosed in both), pipeline time +1.9 % median, +3.2 % summed. Tests: `ReducerSweptClearTests`, `AlphaWrapNoContactTests.QualityPass_RejectsAnOperationThatJumpsOverTheInput`. Follow-up bugfix (2026-11-12, issue #747): on 5 of the 800 sample wraps the simplification was not certified (the quadric error does not bound the distance of the triangles; 1.2 to 10.7 times the half offset) and the raw wrap was kept; `SimplifyWithin` now retries with `Reducer.MaxDeviation` (0.8 of the distance, one reference tree for all slabs), which certifies all 5 (2.3 to 2.8 times fewer triangles) at 4 to 41 s more; a cheaper per-collapse guard is open in #747. Follow-up (2026-11-13): the retry first runs with `Reducer.SampleDeviation` (the new triangles' centroids and edge midpoints within 0.5 of the distance of the wrap: a sampled filter, not a certificate; the certification still decides), the MaxDeviation retry only if that is not certified either; it certified all 5 (pipeline 84.8 -> 29.3 s, 49.2 -> 19.4 s, 14.2 -> 8.8 s, 26.1 -> 8.1 s, 30.3 -> 14.4 s), 30 / 30 certified sample meshes unchanged. Open in #747: a guard in the first pass where the quadric is degenerate (175914 still 29 s).
+**Wrap contact bugfix (2026-11-09, coordinator decision: the wrap's promise is "input inside").** Audit with exact triangle-triangle tests (benchmarks/SharpFeatureProbe variant G, PR #498), 20 T1 meshes + 6 procedural solids: the raw wrap never touches the input (0 of 2.67M triangles); the simplified wrap (certified within 0.5 offset of the wrap, not of the input) had 247 of 692,674 triangles (all 20 meshes) and 29 of 68.8k (6/6) crossing a convex crease of the input (deepest sample 0.068 offset inside it, 71 triangles with a point inside the solid), the quality pass (off by default) 30 more on 6 of 18 meshes. Fix: `Reducer.KeepClearOf` (an exact test of the new triangles against the input's tree, shared by the PartitionedReduction slabs) and the same check in `AlphaWrapQualityPass.accept`; `SimplifyAlphaWrap` and the quality pass pass the wrap's input. After: 0 crossings everywhere, triangles -0.01 %, vertices unchanged (minimum 0.352 offset, 1 vertex of 346k below 0.5), pipeline time +3.8 % summed over the 20 T1 meshes (paired median +0.8 %). Test: `AlphaWrapNoContactTests`. Follow-up bugfix (2026-11-12, found by the review of #736): `Reducer.TrianglesTouch` skipped degenerate (collinear or point) input triangles, so `KeepClearOf` let a collapse cut a needle of the input; they are now tested as segments and points (`ExactTriangleIntersection`; #746, merged 2026-11-13). Test: `ReducerTrianglesTouchTests`. Follow-up bugfix (2026-11-12, issue #743): `KeepClearOf` tested the end state of a collapse only, so a collapse could jump over a small input part that its new triangles do not touch; the Reducer and `AlphaWrapQualityPass.accept` now also test the region the operation sweeps (`Reducer.TetrahedraMeet`: the tetrahedra (old triangle, new vertex), exact faces plus strict containment of the input corners and centroids; per collapse only the side faces; #760, merged 2026-11-13). Tail 24 + normal 30: 49 / 54 results identical (the 5 others differ by up to 38 triangles, the input enclosed in both), pipeline time +1.9 % median, +3.2 % summed. Tests: `ReducerSweptClearTests`, `AlphaWrapNoContactTests.QualityPass_RejectsAnOperationThatJumpsOverTheInput`. Follow-up bugfix (2026-11-12, issue #747): on 5 of the 800 sample wraps the simplification was not certified (the quadric error does not bound the distance of the triangles; 1.2 to 10.7 times the half offset) and the raw wrap was kept; `SimplifyWithin` now retries with `Reducer.MaxDeviation` (0.8 of the distance, one reference tree for all slabs), which certifies all 5 (2.3 to 2.8 times fewer triangles) at 4 to 41 s more (#763, merged 2026-11-13). Follow-up (#840, merged 2026-11-13): the retry first runs with `Reducer.SampleDeviation` (the new triangles' centroids and edge midpoints within 0.5 of the distance of the wrap: a sampled filter, not a certificate; the certification still decides), the MaxDeviation retry only if that is not certified either; it certified all 5 (pipeline 84.8 -> 29.3 s, 49.2 -> 19.4 s, 14.2 -> 8.8 s, 26.1 -> 8.1 s, 30.3 -> 14.4 s), 30 / 30 certified sample meshes unchanged. #747's first-pass guard: no-go after its upper bound (2026-11-15, see "#747 first-pass guard: no-go"; on master 175914 and 42179 certify in the first pass, 12.4 s and 9.8 s).
 
 **Reducer two-sided deviation bound (coordinator 2026-11-13, #785 study, #791 build):** `Reducer.MaxDeviationTwoSided`
 (opt-in, default off) keeps the input within `MaxDeviation` of the result as well, by per-input-triangle dependency sets
 ([BOUNDED_SIMPLIFICATION.md](../design/BOUNDED_SIMPLIFICATION.md)). `ReducerBenchmark twosided`, 18 cases: 1.41x the
 one-sided time at the median (max 1.65x); the one-sided reduction violates the reverse direction in 12 of 18 (up to
-0.28 eps), the two-sided one in none. `FastCollapsePass` keeps it too since #792.
+0.28 eps), the two-sided one in none. `FastCollapsePass` keeps it too since #818 (issue #792).
 
 **Reducer scale-safe quadrics (owner 2026-11-11: documented, on demand only):** after #614 (flip test scales the edges
 outside [1e-70, 1e70]) the `Reducer` reduces a sphere from 1e-300 to 1e307. A residual limit remains (FINDINGS item 6,
@@ -492,3 +530,17 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
   and the benchmarks write them (eg RemeshBenchmark `not_clean`).
 
 - **Open: procedural coverage of `WindingContouring.FinishHoles`.** Since the dual contouring face vertices (#572) the non-adaptive solidify leaves no non-manifold quads on `ThinPlates` (seeds 1..8, resolution 24 and 40), so `SolidifyHoleFillTests` no longer exercises the fill on a real contour (the contract tests still do). Find a grid-path input with holes (a coarser resolution, an open input) or build the contour by hand.
+
+### Open for the future (2026-11-15)
+
+1. Alpha Wrap 3.0 (B), round-based parallel carving: #774, merged 2026-11-15 (`RoundWindow` 256 by default, 0 as the opt-out); its 800 run is done (passed on the distribution, owner 2026-11-15; the worst mesh is #919, closed).
+2. (B) part two, parallel trial passes (pinch / manifold): #898, merged 2026-11-15.
+3. The wrap tail above the 20 s hard limit: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888).
+4. (done) Wrap simplification not certified (#747): the retries certify every wrap; a first-pass guard is a no-go (upper bound 2 of 800 meshes, about 17 s in all).
+5. Default decisions for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget (#846), each after an 800 run.
+6. Remeshers, Phase 2: degenerate triangles and self-intersections by default, and walls folding far above the wall thickness (135363).
+7. Remesher `RejectInvertingPasses` snapshot (6-19 % of the run): needs a correctness argument (research).
+8. Procedural coverage of `WindingContouring.FinishHoles`.
+9. Reducer scale-safe quadrics below about 1e-280 of the extent (#618, FINDINGS item 6): only on demand.
+10. Remove `external/cgal_wrap.cpp` once no comparison needs it.
+11. A quality-aware manifold step in the alpha wrap: an angle bound for the facets that `make_manifold` exposes (the class without a bound in the `MeshAlphaWrap` doc; diagnosis in #919, closed). Output-changing, gated by an 800 run.

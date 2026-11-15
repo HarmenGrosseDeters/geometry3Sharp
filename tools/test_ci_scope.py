@@ -68,6 +68,9 @@ class Scope(unittest.TestCase):
         self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, True, False))
         r = c.scope(["benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1"])
         self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, False, True))
+        for path in ("benchmarks/net48-compare/run.ps1", "benchmarks/BooleanComparison/Profile.cs", "benchmarks/SmallInputWrapBenchmark/Program.cs"):
+            r = c.scope([path])
+            self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, False, True), path)
         r = c.scope(["tools/new_tests_on_base.py"])
         self.assertEqual((r["library"], r["g3cli"], r["ps1"]), (False, False, False))
 

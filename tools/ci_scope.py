@@ -11,7 +11,8 @@ there is listed; a test that opens a file there by path needs a hand-made entry)
 Prints key=value lines for $GITHUB_OUTPUT:
     library=true|false    the library test suites run (net10.0, net48, Clipper2)
     g3cli=true|false      the g3cli tests run (the library changed, or tools/g3cli did)
-    ps1=true|false        the benchmark reporting regression of the net48 job runs (benchmarks/MeshRepairBenchmark changed)
+    ps1=true|false        the benchmark checks of the net48 job run: the reporting regression (benchmarks/MeshRepairBenchmark changed) and
+                          the net48 / net10.0 smoke run of benchmarks/net48-compare (that directory or one of its three benchmarks changed)
 
 Usage:
     git diff --name-only HEAD^1 HEAD | python3 tools/ci_scope.py
@@ -50,6 +51,7 @@ SHARED = (
     "docs/design/MESHING2D_CATALOGUE.md",
 )
 TOOL_DIRS = ("tools/", "benchmarks/", "docs/")
+PS1_DIRS = ("benchmarks/MeshRepairBenchmark/", "benchmarks/net48-compare/", "benchmarks/BooleanComparison/", "benchmarks/SmallInputWrapBenchmark/")
 
 
 def is_shared(path):
@@ -69,7 +71,7 @@ def scope(paths):
     return {
         "library": library,
         "g3cli": library or any(p.startswith("tools/g3cli/") for p in paths),
-        "ps1": library or any(p.startswith("benchmarks/MeshRepairBenchmark/") for p in paths),
+        "ps1": library or any(p.startswith(PS1_DIRS) for p in paths),
     }
 
 

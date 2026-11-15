@@ -7,7 +7,7 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
 
 ## Rules
 
-- Answer the user in German. Code, comments, commit messages, PRs and docs stay in English.
+- Everything is in English: answers to the user, messages between sessions, code, comments, commit messages, PRs and docs.
 - Times for the user are given in the Europe/Berlin time zone (CET / CEST), not in UTC, eg "08:40 (Berlin)".
 - Every change comes with tests, if possible ones that fail on the old code. Check them with mutations
   (break the change, the tests must fail). CI runs the test methods a PR adds against the base branch's library and
