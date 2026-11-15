@@ -174,6 +174,25 @@ typical meshes, not a worst-case lever (that stays the size budget and more core
 cavity-aware level predictor with the probe, estimate the saving on the 800-run sum. Proposed go criterion for the owner:
 predictor false area below about 1 % on the tail too, and at least about 2x on the corpus sum; then a roadmap phase with a
 grading-aware refinement and a weakened angle bound (with proof), otherwise it stays a study.
+**Spike result (2026-11-15): no-go, stays a study.** Measurement only (`aw3/adaptive-spike/README.md` on
+runs/adaptive-alpha-spike: tables, raw jsonl, probe sources and the probe patch). Dai, Wang, Yan (CAGD 2024,
+doi:10.1016/j.cagd.2024.102321) not accessible, from snippets only: its goal is fidelity, not size. Predictors from the input
+alone against the study's oracle levels (graded, tau = 1 offset):
+
+| predictor | false area, normal 30 / tail 20 (max) | size gain, normal / tail sum | cost (W0 time) |
+|---|---|---:|---:|
+| oracle levels (perfect, free) | 0 / 0 | 3.69x / 2.29x | - |
+| cavity reach (shrinking ball, exterior sides) | 0 / 41.2 % (224108; 6 of 20 meshes above 0) | 2.36x / 1.72x | 1.2-2.4 |
+| + thin parts / curvature (interior ball, or planarity at scale alpha_L) | 0 / 0-6.0 % | 1.0-1.2x | +0.1-0.5 |
+
+The tail needs cavity reach, gap sag and thin parts / convex curvature at once; the cheap tests miss one (unsafe) or keep no
+gain. Corpus sum (800 run wrap time, tail 20 = 14.1 %, time about linear in size): perfect levels give 3.39x if free, 2.53x at a
+cost of 0.1 W0, 1.84x at 0.25 W0; the measured predictor gives 0.53x (slower). An adaptive wrap with a probe patch (a local
+alpha of at least alpha0 in the gate test) kept the guarantees on 10 meshes (Success, clean, vertices at the offset,
+separation at least 1.0 offset) but lost fidelity where the predictor is wrong (111959: half of W0's area more than 1 offset
+away) and was slower than W0 with its predictor on 6 of 10. Go criterion (false area under 1 % on the tail, 2x on the corpus
+sum) missed on both counts. Reopen only with a predictor that is a by-product of the wrap (eg coarse-to-fine refinement where
+the next finer level differs), a new design.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
