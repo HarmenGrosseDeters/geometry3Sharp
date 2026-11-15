@@ -8,19 +8,19 @@ on:
     branches: [master]
     tags: ['**']
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
-  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow)
+  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow). labeled: a draft gets
+  # CI only with the label `ci` (the job scope below is the gate; any other event of a draft skips there in seconds).
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
   workflow_dispatch:
 
-# a new push to the same PR (or branch, or master) cancels the run under way: only the newest master commit runs (2026-11-13: a
-# group per master SHA let every merge run to the end, 20 runs piled up on the runners; nothing reads a CI result per master
-# commit: new_tests_on_base.py works on git refs, coverage.yml and mutation.yml keep their own run history). A manual run on
-# master shares the group with the push runs.
+# A new push to the same PR (or branch) cancels the run under way. Master and manual runs are never cancelled: they queue (GitHub
+# keeps the run under way and the newest pending one). A run that the gate of the job scope skips (an event of a draft without the
+# label `ci`, a label other than `ci`) has its own group, so it cannot cancel a real run of the PR.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && !((github.event.action == 'labeled' && github.event.label.name == 'ci' && github.event.pull_request.draft) || (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci')))) && '-skipped' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
@@ -33,7 +33,13 @@ jobs:
   # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
   # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
   # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
+  # It is also the gate (owner 2026-11-15, runner load: most runs of draft PRs were cancelled by the next push): a draft PR gets no CI
+  # unless it carries the label `ci` (the labeled event of that label starts it, later pushes run too); opened / synchronize /
+  # reopened / ready_for_review of a PR that is not a draft, master, tags and manual runs always run. Every other job needs scope,
+  # so a skipped scope skips all of them (they report "skipped", which passes a required check; a `labeled` event of another label on a ready PR also makes such a skipped run on the same head SHA); no job needs a result of an
+  # earlier run, so a skipped draft run blocks nothing later.
   scope:
+    if: ${{ github.event_name != 'pull_request' || (github.event.action == 'labeled' && github.event.label.name == 'ci' && github.event.pull_request.draft) || (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:

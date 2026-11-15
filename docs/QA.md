@@ -26,12 +26,12 @@ done since and what is open.
   test classes that xUnit runs in parallel (it runs the classes in parallel, but the tests of one class one after
   another), each class checking a share of the rows, with a test that the shares are exactly the old set
   (`RowGroups_PartitionTheCoveredRows`, `TagCheckRows_PartitionTheCoveredM3Rows`, `QueryMeshes_AreCoveredByTheOracleTests`).
-- Draft PRs run the library tests with `--filter "Category!=Slow"` on Linux only; the Windows jobs (`netstandard`,
+- A draft PR gets no CI at all unless it carries the label `ci` (the gate is the `if:` of the job `scope`; the other jobs need it; a run of a draft that is skipped has its own concurrency group, so it cannot cancel a real run). A draft with the label runs the library tests with `--filter "Category!=Slow"` on Linux only; the Windows jobs (`netstandard`,
   `netstandard-b`: net48 / netstandard2.0 tests, the Clipper2 package on net48, the PowerShell regression) and `isolated` /
   `time-rule` are skipped on a draft (2026-11-13, runner load; check locally with the net48 build of the CLAUDE.md list). A PR that
   is ready for review (`ready_for_review` starts the run), every push to master and manual runs run everything.
-  `FULL_TIER` in `ci.yml` is the switch for the Slow tier. Master runs: one concurrency group per ref with cancel-in-progress, so
-  only the newest master commit runs to the end; an older commit's run shows as cancelled.
+  `FULL_TIER` in `ci.yml` is the switch for the Slow tier. Master and manual runs: one concurrency group per ref without cancel-in-progress (they queue; GitHub keeps one pending run, so
+  a burst of merges runs the first and the newest); PR runs cancel on a new push.
 - The full run lists the slowest tests and the untagged tests of 5 s or more in its step summary
   (`tools/trx_durations.py`; a trx has no traits, so the tagged tests come from `dotnet test --list-tests --filter
   "Category=Slow"`). The limits it enforces are those of the ratchet below (it replaced the gate at 60 s for untagged tests,
@@ -474,9 +474,9 @@ is queued or running today (UTC date), or already succeeded. Rules:
   of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs: a late cron
   waits for the dispatched full run and is then skipped by the guard instead of cancelling hours of work.
 - `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
-- Master CI runs: `ci.yml` has one concurrency group per ref with cancel-in-progress, so only the newest master commit runs to the
-  end. A regression of a commit whose run was cancelled first shows at a later commit: when a master run is red, bisect over
-  the commits since the last green (or finished) run.
+- Master CI runs: `ci.yml` has one concurrency group per ref without cancel-in-progress (2026-11-15: master runs queue; GitHub keeps the
+  run under way and the newest pending one, so a burst of merges skips the middle commits' runs, cancelled as pending). A regression of
+  such a commit shows at a later commit: when a master run is red, bisect over the commits since the last green run.
 
 **Measurement (2026-11-15, Actions run history, UTC; all times from `created_at`):**
 

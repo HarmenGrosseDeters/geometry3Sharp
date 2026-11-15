@@ -90,17 +90,22 @@ the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workf
 python3 test_select_shards.py && python3 test_baseline.py && python3 test_incremental.py && python3 test_suggest_split.py
 ```
 
+Push discipline (owner 2026-11-15, runner load: most CI runs were cancelled by the next push): push once per finished step,
+after the local checks; collect review fixes into one push; do not push while the PR's CI runs, unless the push fixes a failure
+it showed.
+
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
-is marked ready for review; the CI of every push runs it on GitHub anyway.
+is marked ready for review; the CI of every push of a ready PR runs it on GitHub anyway (a draft without the label `ci` has none).
 
-CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the Linux library tests without the tests tagged
+A draft PR gets no GitHub CI, unless it carries the label `ci` (labeling starts a run, later pushes run too) or is started with
+`workflow_dispatch`; so the local checks above are the gate of a draft. CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a labelled draft PR runs the Linux library tests without the tests tagged
 `[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length) and skips the Windows / net48 jobs (so build the net48 test
 project locally before the push), a PR that is ready for review and master run
 all of them; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
 (`tools/ci_scope.py`). Locally: `dotnet test ... --filter "Category!=Slow"` for the quick set.
 
-Every push gets a PR; watch its CI and fix red CI right away. CI runs on pull requests and on master only (a branch
+Every push gets a PR; watch its CI (a draft without the label `ci` has none) and fix red CI right away. CI runs on pull requests and on master only (a branch
 without a PR, or a PR with a merge conflict, which GitHub does not run: resolve the conflict, or start it with
 `workflow_dispatch`), and a new push cancels the PR's run under way.
 
