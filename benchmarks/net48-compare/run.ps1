@@ -131,7 +131,10 @@ function Get-Strata {
         if ($s.cases -eq '{B30Ids}') {
             # the 73 models of the pre-study as cases thingi/<id> (BooleanComparison export, #385 pairing), one id per line
             $list = Join-Path $OutDir 'cases-b30.txt'
-            Get-Content (Join-Path $bench 'Boolean30Prestudy\results\scaling_ids.txt') | ForEach-Object { 'thingi/' + ($_ -split ' ')[0] } | Set-Content -Encoding ASCII $list
+            # 102815 is not in the Thingi10K mirror (pinned revision): every run would end with a load error (exit 1), so it is left out here
+            $missingInMirror = @('102815')
+            Get-Content (Join-Path $bench 'Boolean30Prestudy\results\scaling_ids.txt') | ForEach-Object { ($_ -split ' ')[0] } |
+                Where-Object { $missingInMirror -notcontains $_ } | ForEach-Object { 'thingi/' + $_ } | Set-Content -Encoding ASCII $list
             $s.cases = '@' + $list
         }
         if ($s.cases -eq '{WrapMeshes}') {
@@ -150,7 +153,11 @@ function Invoke-Stratum($s, [string]$runtime) {
         # a case is a directory below $BData\cases (A.off, B.off), grid:<n>, or @<list file of the repository> with one case per line
         $caseArgs = @()
         foreach ($c in ($s.cases -split ' ')) {
-            if ($c.StartsWith('@')) { $caseArgs += [IO.Path]::GetFullPath((Join-Path $here ($c.Substring(1)))) } else { $caseArgs += $c }
+            if ($c.StartsWith('@')) {
+                $p = $c.Substring(1)
+                if (-not [IO.Path]::IsPathRooted($p)) { $p = Join-Path $here $p }   # an absolute list file (the {B30Ids} stratum) stays as it is
+                $caseArgs += [IO.Path]::GetFullPath($p)
+            } else { $caseArgs += $c }
         }
         $cwd = Join-Path $BData 'cases'
         if (-not (Test-Path $cwd)) { New-Item -ItemType Directory -Force -Path $cwd | Out-Null }
