@@ -114,6 +114,10 @@ namespace gs
         public bool ComputeTopologyCertificate = false;
         /// <summary> (tests) the certificate's cell tests in parallel (the same result as serial, bit for bit) </summary>
         internal bool CertificateParallel = true;
+        /// <summary> (tests) the certificate's block test (Theorem 6 of the design note; on by default) </summary>
+        internal bool CertificateBlocks = true;
+        /// <summary> (tests, benchmark) the blocks the certificate of the last Compute() tried, certified, and their cells </summary>
+        internal int CertificateBlocksTried, CertificateBlocksCertified, CertificateBlockCells;
         /// <summary> (tests) the fewest cells per chunk of the certificate's parallel path </summary>
         internal int CertificateMinChunk = 2048;
 
@@ -211,9 +215,12 @@ namespace gs
                 MinRefineEdges = MinRefineEdges, LocalRefinement = LocalRefinement, MaxEdgeHits = MaxEdgeHits,
                 CleanupResult = CleanupResult, ReduceTolerance = ReduceTolerance, StopIfSelfIntersecting = StopIfSelfIntersecting,
                 CancelF = CancelF, KeepRawContour = KeepRawContour, ComputeTopologyCertificate = ComputeTopologyCertificate,
-                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk
+                CertificateParallel = CertificateParallel, CertificateMinChunk = CertificateMinChunk,
+                CertificateBlocks = CertificateBlocks
             };
             bool ok = inner.compute_unit();
+            CertificateBlocksTried = inner.CertificateBlocksTried; CertificateBlocksCertified = inner.CertificateBlocksCertified;
+            CertificateBlockCells = inner.CertificateBlockCells;
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
@@ -253,6 +260,7 @@ namespace gs
             RefineFactor = 1;
             PhaseMilliseconds.Clear();
             TopologyCertified = ContourTopologyCertified = false;
+            CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
             TopologyCertificateStatus = ComputeTopologyCertificate ? ContouringCertificateStatus.NotSupported : ContouringCertificateStatus.NotComputed;
             UncertifiedCells = new List<ContouringUncertifiedCell>();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
@@ -279,9 +287,11 @@ namespace gs
                 WindingContouring wc = new WindingContouring(new DMesh3[] { Mesh }, null, FastWindingBeta) {
                     Iso = WindingIso, MaxEdgeHits = MaxEdgeHits, CancelF = CancelF, LocalRefinement = LocalRefinement,
                     ComputeTopologyCertificate = ComputeTopologyCertificate, CertificateParallel = CertificateParallel,
-                    CertificateMinChunk = CertificateMinChunk
+                    CertificateMinChunk = CertificateMinChunk, CertificateBlocks = CertificateBlocks
                 };
                 contour = wc.ContourRefined(ref cellSize, MaxRefineLevels, MinRefineEdges);
+                CertificateBlocksTried = wc.CertificateBlocksTried; CertificateBlocksCertified = wc.CertificateBlocksCertified;
+                CertificateBlockCells = wc.CertificateBlockCells;
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 NonManifoldRefinements = wc.NonManifoldRefinements;

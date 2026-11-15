@@ -14,6 +14,12 @@ namespace gs
     internal class WindingContouring
     {
         public DMesh3[] Meshes;
+        /// <summary>
+        /// the inputs as given (Meshes are their oriented copies, with inside-out parts flipped): the topology certificate
+        /// compares the contour with the level set of the input's own winding number, in which an inside-out part (winding
+        /// number -1 inside) is not on the level set
+        /// </summary>
+        internal DMesh3[] Inputs;
         public DMeshAABBTree3[] Spatials;
         /// <summary> combines the winding numbers of the inputs (null for a single input) </summary>
         public Func<double[], double> CombineF;
@@ -73,8 +79,12 @@ namespace gs
         public WindingContouring(IEnumerable<DMesh3> inputs, Func<double[], double> combineF, double fastWindingBeta)
         {
             List<DMesh3> meshes = new List<DMesh3>();
-            foreach (DMesh3 m in inputs)
+            var originals = new List<DMesh3>();
+            foreach (DMesh3 m in inputs) {
+                originals.Add(m);
                 meshes.Add(OrientedCopy(m));
+            }
+            Inputs = originals.ToArray();
             Meshes = meshes.ToArray();
             Spatials = new DMeshAABBTree3[Meshes.Length];
             for (int i = 0; i < Meshes.Length; ++i) {
@@ -206,7 +216,9 @@ namespace gs
             if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
                 return;
             var phaseTimer = System.Diagnostics.Stopwatch.StartNew();
-            DMesh3 L = ContouringLevelSet.CleanCopy(Meshes[0]);
+            // (the input as given, not its oriented copy: the contour's field flips inside-out parts, the documented level set
+            // does not, so where they differ the certificate must refuse)
+            DMesh3 L = ContouringLevelSet.CleanCopy(Inputs[0]);
             add_phase("certificate.clean", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
             CertificateStatus = ContouringCertificateStatus.InputNotClean;
             if (L == null)
@@ -219,6 +231,7 @@ namespace gs
                 return;
             CertificateGrid grid = dc.ContourGrid();
             var cert = new ContouringTopologyCertificate(L, inL, grid);
+            if (CheckPatchesForTests) check_patches(dc, grid);
             add_phase("certificate.bins", phaseTimer.ElapsedMilliseconds); phaseTimer.Restart();
             int B = grid.BinSize;
             // the cells: the contour's, and those L's triangles may meet (a refined bin: its fine cells). (The order only
@@ -253,6 +266,11 @@ namespace gs
                     reasons[i] = ContouringCertificateReason.MeshSide;
                 if (reasons[i] != ContouringCertificateReason.None) refused.Add(i);
             }
+            if (CertificateBlocks && !dc.CertificateMeshFails && refused.Count > 0) {
+                var timerB = System.Diagnostics.Stopwatch.StartNew();
+                refused = certify_blocks(dc, cert, grid, cells, refused, meshSide);
+                add_phase("certificate.blocks", timerB.ElapsedMilliseconds);
+            }
             refused.Sort((ia, ib) => {
                 Vector3i a = cells[ia].Key, b = cells[ib].Key;
                 return a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x != b.x ? a.x.CompareTo(b.x) : cells[ia].Value.CompareTo(cells[ib].Value);
@@ -264,6 +282,111 @@ namespace gs
                 });
             }
             CertificateStatus = UncertifiedCells.Count == 0 ? ContouringCertificateStatus.Certified : ContouringCertificateStatus.CellsUncertified;
+        }
+
+        /// <summary>
+        /// (tests) the block test of the certificate (Theorem 6 of docs/design/CONTOURING_TOPOLOGY.md, section 7.10): the
+        /// uncertified cells are grouped into blocks, which are certified as a whole where the level set and the contour
+        /// both meet them in disjoint disks; on by default with ComputeTopologyCertificate
+        /// </summary>
+        internal bool CertificateBlocks = true;
+        /// <summary> blocks the certificate of the last contour tried, and of them certified, and their cells </summary>
+        internal int CertificateBlocksTried, CertificateBlocksCertified, CertificateBlockCells;
+
+        // Theorem 6: the refused cells (indices into cells) grouped into clusters (cells of one size sharing a face, an edge or
+        // a node), each cluster tested as one block; returns the cells still refused. A cluster is tried only if it is a
+        // ball, holds no cell the mesh side refused, and lies with its neighbours on one lattice (all cells of one size, no
+        // refinement transition in it or next to it). Its boundary faces then lie in certified cells outside it (a refused
+        // cell across would belong to the cluster), which is condition 2 of the theorem; the block test is conditions 3 and 4.
+        List<int> certify_blocks(DualContouring dc, ContouringTopologyCertificate cert, CertificateGrid grid,
+            List<KeyValuePair<Vector3i, int>> cells, List<int> refused, HashSet<(Vector3i, int)> meshSide)
+        {
+            CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
+            int B = grid.BinSize;
+            // clusters per size, on the lattice of that size (keys: min / size)
+            var bySize = new Dictionary<int, Dictionary<Vector3i, int>>();
+            foreach (int i in refused) {
+                int sz = cells[i].Value;
+                Dictionary<Vector3i, int> d;
+                if (!bySize.TryGetValue(sz, out d)) bySize[sz] = d = new Dictionary<Vector3i, int>();
+                Vector3i m = cells[i].Key;
+                d[new Vector3i(fdiv(m.x, sz), fdiv(m.y, sz), fdiv(m.z, sz))] = i;
+            }
+            var certified = new HashSet<int>();
+            foreach (int sz in bySize.Keys.OrderBy(k => k)) {
+                var d = bySize[sz];
+                var seen = new HashSet<Vector3i>();
+                foreach (Vector3i start in d.Keys.OrderBy(k => k.z).ThenBy(k => k.y).ThenBy(k => k.x)) {
+                    if (seen.Contains(start)) continue;
+                    var cluster = new List<Vector3i>();
+                    var stack = new Stack<Vector3i>();
+                    stack.Push(start); seen.Add(start);
+                    while (stack.Count > 0) {
+                        Vector3i c = stack.Pop();
+                        cluster.Add(c);
+                        for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                            Vector3i q = new Vector3i(c.x + dx, c.y + dy, c.z + dz);
+                            if (d.ContainsKey(q) && seen.Add(q)) stack.Push(q);
+                        }
+                    }
+                    if (!block_candidate(dc, cluster, sz, B, d, meshSide)) continue;
+                    var keys = new HashSet<Vector3i>(cluster);
+                    if (!ContouringTopologyCertificate.IsBall(keys)) continue;
+                    cluster.Sort((a, b) => a.z != b.z ? a.z.CompareTo(b.z) : a.y != b.y ? a.y.CompareTo(b.y) : a.x.CompareTo(b.x));
+                    var mins = new List<Vector3i>(cluster.Count);
+                    foreach (Vector3i c in cluster) mins.Add(sz * c);
+                    CertificateBlocksTried++;
+                    if (!cert.Block(mins, sz) || !ContouringTopologyCertificate.ContourBlock(grid, mins, sz)) continue;
+                    CertificateBlocksCertified++;
+                    CertificateBlockCells += cluster.Count;
+                    foreach (Vector3i c in cluster) certified.Add(d[c]);
+                }
+            }
+            var left = new List<int>(refused.Count);
+            foreach (int i in refused) if (!certified.Contains(i)) left.Add(i);
+            return left;
+        }
+
+        /// <summary>
+        /// (tests) compare, for every cell of one size with no refinement transition next to it, the patches the block test
+        /// reads from the pattern (ContouringTopologyCertificate.CellPatchCount) with the cell vertices DualContouring made;
+        /// a difference throws. PatchCellsChecked / AmbiguousCellsChecked count the cells compared.
+        /// </summary>
+        [ThreadStatic] internal static bool CheckPatchesForTests;
+        [ThreadStatic] internal static int PatchCellsChecked, AmbiguousCellsChecked;
+        static void check_patches(DualContouring dc, CertificateGrid grid)
+        {
+            int B = grid.BinSize;
+            foreach (var kv in dc.CellVertexCountsForTests()) {
+                Vector3i min = kv.Key.Item1; int sz = kv.Key.Item2;
+                if (B > 1) continue;     // (uniform grids only: transitions are not what the block test reads)
+                bool ambiguous;
+                int p = ContouringTopologyCertificate.CellPatchCount(grid, min, sz, out ambiguous);
+                if (p != kv.Value) throw new InvalidOperationException("patches " + p + " != cell vertices " + kv.Value + " at " + min);
+                PatchCellsChecked++;
+                if (ambiguous) AmbiguousCellsChecked++;
+            }
+        }
+
+        static int fdiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+
+        // the cluster (lattice keys of cells of size sz) and its neighbours lie on one lattice of that size, and no cell of it
+        // is refused by the mesh side
+        internal static bool block_candidate(DualContouring dc, List<Vector3i> cluster, int sz, int B, Dictionary<Vector3i, int> d,
+            HashSet<(Vector3i, int)> meshSide)
+        {
+            foreach (Vector3i c in cluster) {
+                if (meshSide.Contains((sz * c, sz))) return false;
+                if (B == 1) continue;
+                for (int dz = -1; dz <= 1; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                    Vector3i m = sz * new Vector3i(c.x + dx, c.y + dy, c.z + dz);
+                    Vector3i bin = new Vector3i(fdiv(m.x, B), fdiv(m.y, B), fdiv(m.z, B));
+                    bool refinedBin = dc.IsRefinedCell(bin);
+                    if (sz == B ? refinedBin : !refinedBin) return false;
+                    if (sz != B && sz != 1) return false;
+                }
+            }
+            return true;
         }
 
         // FixableEdges, MinFixableFound and HiddenSamples from the hidden edges of the last crossing search;
