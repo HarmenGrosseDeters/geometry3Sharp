@@ -389,9 +389,12 @@ Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirt
 
 ### Open for the future (2026-11-15)
 
-1. #870: the last dump `d6710852` (in review).
-2. SplitTriangle breakdown (measurement only), then one speed PR with SplitSegment if the gain is worth its code (no issue).
-3. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; not scheduled).
-4. Blocked on inputs: judging the fork's huge Herne q20 outputs, the 72 run-A oracle timeouts, stmlf (no issue).
-5. `Dirty` deduplication in `Collect` (measured in #688; needs re-recorded golden rows and the grading bound).
-6. Research: Shewchuk's Terminator with a region-based oracle excuse; matched shells; grading placement strategy; <= 2x the fork's mesher time; Chew-2 (no issues).
+Done and removed from this list: #870 (the last dump `d6710852`, the O11 excuse from the mesher's provenance, #936),
+the `SplitTriangle` breakdown (measured; the mesher speed item is dropped, #909).
+
+1. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; not scheduled).
+2. Blocked on inputs: judging the fork's huge Herne q20 outputs, the 72 run-A oracle timeouts, stmlf (no issue).
+3. `Dirty` deduplication in `Collect` (measured in #688; needs re-recorded golden rows and the grading bound).
+4. Fuzz group (f) slow units: 14 quality-mesh2 / clipper2 inputs take 6.3-16.8 s (#947).
+5. Research: Shewchuk's Terminator with a region-based oracle excuse; matched shells; grading placement strategy;
+   <= 2x the fork's mesher time; Chew-2 (no issues).

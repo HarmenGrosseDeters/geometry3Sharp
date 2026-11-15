@@ -615,15 +615,20 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-1. #721: practical 3D snap rounding and rounding cost (hard problems 1 and 3). Options 1 and 2 are built (#725, #755);
-   the plateau variant of option 2 is designed ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10) and
-   not built: owner 2026-11-15, no-go before the release, no spike; it stays a design. Open as research: a guarantee.
-2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
-3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
-4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), #925; stage 2 built as the block test (#935); stage 3, growth of the blocks (#944; refinement and transitions not built, upper bound one run and none); options B and C only after a reviewed proof.
-6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
-7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
-8. #886: ARAP deformation, optionally biharmonic (research item 7).
-9. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands).
-10. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).
+Done and removed from this list: #721 closed (the plateau variant of the position search stays a design: no-go before
+the release, owner 2026-11-15), #859 (determinism stage 0) and its obligations #789 / #803, #873 (#941), #869
+(geodesic oracle), contouring certificate stages 2 and 3 (#925, #935, #946), #887 closed (screened Poisson deferred,
+owner 2026-11-15), CCD broad phase with sub-step boxes (#945).
+
+1. Hard problem 11, determinism proof: #804 (remaining casts), then the net48 / net10 measurement (#929, local).
+2. Tet meshing (after the release): a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver
+   exudation.
+3. #866 / #940: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule; the narrow phase is the serial
+   floor.
+4. Contouring topology certificate: #944 (refinement for thin features and growth of non-ball clusters; deferred).
+   Options B and C only after a reviewed proof.
+5. #848: certified Hausdorff upper bound (patch bound); hard problem 10, the envelope algorithm (Phase 5 #2).
+6. #886: ARAP deformation, optionally biharmonic: PRs #896 / #897 (the owner's local work, ready 2026-11-16).
+7. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands): not before the release (the
+   rounding spike is a no-go).
+8. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).

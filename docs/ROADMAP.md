@@ -47,52 +47,41 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-15 (morning, Berlin). Each subpage ends with an "Open for the future (2026-11-15)" list, ordered by
-priority; this section names only what is in flight.
+Status on 2026-11-15 (late evening, Berlin). Each subpage ends with an "Open for the future (2026-11-15)" list, ordered
+by priority; this section names only what is in flight.
 
-- **Exact Boolean 3.0** (in progress): T5 PR 2 (#675), option (A) (#766), candidate B (#772), lever 1 (#813) and the
-  monomial fallback (#769, 2026-11-15) are merged. Open: #883 (fixes the `windingTrees` race #882 near 1e308, which
-  also hangs net48 CI), #881 (lever 4, allocations; owner 2026-11-15: merged without the boolean shards, which are re-run
-  once the shard fix lands: Stryker leaves the files outside the shard's span unmutated, plus a 7-part boolean split, after #615), #893 (candidate D, limb Orient / InCircle, 55928 -12 %), #843 (SafeRounding outside the edits;
-  closes T1b; rounding-shard filters narrowed), draft #837 (rounding-search upper bound). The tail above 20 s is in #888.
-  [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
-- **Alpha Wrap 3.0:** (B) round-based parallel carving #774 is merged (2026-11-15; `RoundWindow` 256 by default, 0 as
-  the opt-out); its 800 run passed (owner 2026-11-15). Part two, the parallel trial passes, is #898 (merged). Adaptive
-  alpha is a spike after 3.0 (#899). Wrap simplification certification #747 is done (first-pass guard: no-go).
-  [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
-- **Determinism proof, option A:** stage 0 (analyzer rules G3D0001-9, #871) merged 2026-11-14. Open: #892 (#803,
-  sign-of-zero Min / Max in `AxisAlignedBox3d`) and #891 (#804, saturating casts in the grid indexers), reviewed
-  drafts taken over by the determinism session; #789 (hash seed). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **Bugfixes in flight:** #889 / #890 (`TerrainGreedyTIN` #855 hang at `MaxError = 0`, #854 ear tolerance), #867
-  (`MeshMeshCut` contact, #856; owner 2026-11-15: `RefuseContact` opt-in, default false). Open without a PR: #873
-  (Hausdorff coplanar stall).
-- **Meshing2D:** #864 closed (#876); #870 verdict: the oracle, not the mesher (#880, 10 of 11 dumps). The last dump
-  needs additive `QualityMesh2Candidate` fields, queued after #884. [meshing2d.md](roadmap/meshing2d.md#open-for-the-future-2026-11-15)
-- **Platform:** `g3cli offset --method mesh_offset` #868 (owner 2026-11-14: default cell |d| / 4, `max_cells`
-  unchanged); TPMS CLI #879 merged. Clipper2 vendored (#751, #851, #874); owner: its triangulation is not offered
-  through the adapter. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **QA and mutation:** process PR #615 open; hausdorff shard #884 (thresholds being set). The master coverage gate is
-  red since #879 (uncovered `TpmsCommand.cs` lines; stale unmeasurable entries that #883 fixes). Runtime watch built
-  (#726); first report #888 (28 outliers, no baseline yet). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
-- **Research:** CCD (#778, #793, #872; #866 still 18-20 s parallel), tet meshing stages 1-2 (#775, #821) and the
-  fTetWild comparison (#885), TPMS (#838), topology certificate stages 1-2 (#779, #935) are merged (stage 3, growth of the blocks, #944). Open: geodesic oracle
-  draft #869, 3D snap rounding #721 (plateau variant of the position search: no-go before the release, no spike,
-  owner 2026-11-15; it stays a design), new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
-  [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
-- **Terrain:** ramps R1 (#841, #865), #861 (#878), #808 (#850), CoreMath in the slope kernel (#836) merged; next sector
-  polygons E1 on demand. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
+- **Exact Boolean 3.0** (closing out): #883, #881, #893, #843, #837, #922 (T6 against CGAL) and #953 (thread-scaling
+  analysis) are merged; candidate C is a no-go (#915). Open: the mutation shards #913 (7-part split, its last shards
+  running) and lever 1, `TriangleBoxTree` parallel build from 8192 boxes (#956, held until a re-run of #837's cases
+  explains its +7 % classification). Then the thingi-pairs runs. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Alpha Wrap 3.0:** done ((B) #774 and #898 merged, 800 run passed; the adaptive alpha spike is a no-go, #924). Open:
+  the default decisions for lever 6 K (#736) and the raw-size budget (#846). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
+- **Platform and CI:** draft PRs no longer run CI automatically (#952); the suite is faster (#954). In flight (CI
+  hygiene session 2): the coverage gate (red since 2026-11-14), the scheduled mutation runs (cancelled since
+  2026-11-09), the runtime-watch rule (#888). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Determinism:** stage 0 and its obligations (#871, #891, #892, #934, #942, #951) are merged; #804's remaining
+  casts are open. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Local (owner machine, 2026-11-15/16):** the net48 vs net10 comparison (#929), the boolean candidate pairs and the
+  thread scaling beyond 4 cores (#858). Finding so far: at 1 thread the boolean is about 45 % faster on 22370752 than
+  on 2026-11-14's master (likely #769, #881, #928); #772 alone is neutral.
+- **Research:** ARAP / biharmonic deformation #896 / #897 (owner, ready 2026-11-16); contouring certificate stage 3
+  merged (#946), refinement deferred (#944). [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
+- **Meshing2D, terrain, Clipper2:** nothing in flight; #870, #855, #854 closed; Clipper2 #955 deferred (owner
+  2026-11-15). [meshing2d.md](roadmap/meshing2d.md#open-for-the-future-2026-11-15),
+  [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
 
 ## Open decisions (owner)
 
-Checked on 2026-11-15.
+Checked on 2026-11-15 (late evening).
 
-- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10).
+- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); after Exact Boolean 3.0 is closed out.
   [platform.md](roadmap/platform.md#open)
+- **Alpha wrap defaults:** lever 6 K (#736) and the raw-size budget (#846) on by default or not; an 800 run per lever
+  first. [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`); sessions cannot
   delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
-- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** not now (coordinator 2026-11-15). `MeshMeshCut` imprints
-  curves into a target in place, which no exact operation offers; first an exact imprint on `ExactMeshArrangement`,
-  then decide. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** not now (coordinator 2026-11-15); first an exact imprint
+  on `ExactMeshArrangement` (after the release). [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
 - **Terrain:** the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks.
   [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
 
@@ -102,36 +91,24 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 ## Next / queued
 
-In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
-- Meshing2D: the `QualityMesh2Candidate` provenance fields for #870's last dump.
-- Exact Boolean 3.0: re-measure candidate C after lever 1; the T6 check; then the thingi-pairs baseline and final runs
-  (owner 2026-11-12).
-- Alpha Wrap 3.0: (B) is complete (#774, #898, both merged 2026-11-15); default decisions for lever 6 K (#736) and the raw-size budget
-  (#846) after an 800 run.
-- Determinism: #789 after #891 / #892.
-- Tests above 20 s: #696, #698, #866 and the #888 tail.
-- Fuzzing: #624 groups (c) to (f), #623 reader campaigns, wave-3 draft #686.
+In order:
+- Merge #913 and #956; then the thingi-pairs baseline and final runs (Haiku runner) and the rest of #615.
+- The 800 runs for the alpha wrap default decisions (Haiku runner), then the owner decides.
+- Evaluate the owner's local run (#929, #858, the boolean candidate pairs) and write the finding into the boolean docs.
+- Review and merge #896 / #897 (ARAP, biharmonic).
+- Release preparation once the owner decides.
 
 ## Order after Exact Boolean 3.0 (owner 2026-11-15)
 
-1. **Finish what runs.** Exact Boolean 3.0 (T1b #843, the mutation shards #913, the T6 check against CGAL #922, then the
-   two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914 and #933 merged: C++ fixes
-   `f774daf`, `ec5f2d4`, `f97d65d` ported, `4a3bf64` not reached in C#; then the offset fix `6c7d083`, which the adapter
-   reaches, from the owner's "test the open points" of 2026-11-15; the rounding of `f774daf` is no regression, so no
-   revert, and `4a3bf64` stays unported; the frame no longer uses a grid finer than the doubles at UTM coordinates).
-2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files). Stage 1
-   merged (#779); stage 2 stopped after its spike (2026-11-15, #923): refinement certifies thin features
-   but not the double crossings at silhouette edges, which come back at every level (uncertified cells -10 % at 15x
-   the contouring time). Stage 2a (approved 2026-11-15): the proof, Theorem 6 (blocks of cells), written and
-   reviewed (#925); stage 2 built as the block test (#935: clean T1 / 128 uncertified cells -72 %, certified
-   runs 4 -> 8 of 14, never wrong); stage 3 (#944): growth of the blocks, certified runs 8 -> 10 at / 128
-   (every right run but one thin tube) and 9 -> 12 at / 64, never wrong; refinement and transitions not built (upper
-   bound one run and none).
-3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
-   a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
-   it comes before the release; a no-go does not hold the release.
-4. **Scale-free robust repair** (hard problem 9): builds on 3, also output-changing; before the release only if the
-   rounding spike is a go.
+1. **Finish what runs.** Exact Boolean 3.0: T1b #843, the T6 check #922 and the thread-scaling analysis #953 are
+   merged; left are the mutation shards #913, lever 1 #956 and the two thingi-pairs runs. Alpha Wrap 3.0 is done (the
+   adaptive-alpha spike is a no-go, #924). Clipper2 is done (#914, #933, #938, #949; the remaining failures #955 are
+   deferred, owner 2026-11-15).
+2. **In parallel:** the contouring topology certificate, option A: stages 1-3 merged (#779, #925, #935, #946;
+   certified runs 4 -> 10 of 14 at / 128, never wrong); refinement for thin features deferred (#944).
+3. **Rounding** (hard problems 1 and 3): the plateau variant of the position search is a no-go before the release
+   (owner 2026-11-15, no spike; #721 closed, it stays a design).
+4. **Scale-free robust repair** (hard problem 9): not before the release, since the rounding spike is a no-go.
 5. **Release** (owner decision): once the outputs are stable.
 6. **Tet meshing:** after the release; it builds on the alpha wrap and the rounding. Sharp features (hard problem 4)
    only if CAD cases need them.

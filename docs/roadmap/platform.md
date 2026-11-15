@@ -451,13 +451,21 @@ maintainer with users to support; that pays off only then.
 
 ### Open for the future (2026-11-15)
 
-1. Merge #883 (fixes the #882 race in `patch_winding`), then close the net48 hang #824 if it does not come back.
-2. Determinism: take over and merge #891 (#804, saturating casts in the grid indexers) and #892 (#803, signed-zero Min / Max in `AxisAlignedBox3d`); then #789 (ExactPoint3 hash seed, a test).
-3. Mutation: merge the process PR #615; set the thresholds of the `hausdorff` shard and merge #884; narrow the rounding test filter of #843 to `ExactMeshBooleanTests` itself.
-4. `coverage.yml`: the nightly runs of 2026-11-13 and 2026-11-14 failed (cause unverified).
-5. g3cli: finish #868 (`offset --method mesh_offset`, default cell |d| / 4, `max_cells` unchanged).
-6. Tests above 20 s: #696 (TerrainSlope frame rows), #698 (full-run starvation), #866 (`MeshSweepCollision`); runtime watch outliers #888.
-7. Fuzzing: #624 (MeshFuzzPilot overnight groups (c) to (f)), #623 (reader campaigns), the third wave draft #686.
-8. Clipper2: #756, the remaining micro-branch class (documented as known; no fix planned).
+Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism and casts), #789 (#934), #884
+(hausdorff shard), #868 (`g3cli offset --method mesh_offset`), the fuzz campaigns #623 / #624 and wave 3 #686, #756,
+#696 (closed, owner 2026-11-15: extreme frame in Nightly), #952 (no automatic CI on drafts), #954 (faster suite: the
+Windows critical path about 7 min shorter).
+
+1. Coverage gate red on master since 2026-11-14 (uncovered lines of #774 and #867): CI hygiene session 2 (2026-11-15).
+2. Scheduled mutation runs: every scheduled run since 2026-11-02 is cancelled (none after 2026-11-09): same session.
+3. Runtime watch rule (#888, owner 2026-11-15): the 20 s hard limit is for tests; tail cases are judged by the
+   regression rule only, once a baseline exists: same session.
+4. Mutation: merge #913, then the rest of #615 (see exact-boolean.md).
+5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #866 / #940
+   (`MeshSweepCollision` above the 20 s rule), #947 (slow fuzz units). A third net48 shard only if the queue wait is
+   short and shard b stays the critical path (check 2026-11-16).
+6. Determinism: #804, the casts that remain after #942 / #951.
+7. net48 vs net10 comparison #929 and thread scaling #858: the owner's local run (2026-11-15/16).
+8. Clipper2: #955 (remaining failures after #949; deferred, owner 2026-11-15).
 9. Thingi10K full corpus: draft #385.
-10. Release: package ID and publishing; .NET 11 migration (not scheduled).
+10. Release: package ID and publishing (owner); .NET 11 migration (not scheduled).
