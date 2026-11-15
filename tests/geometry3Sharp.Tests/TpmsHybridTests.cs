@@ -246,6 +246,39 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Enclosure_KeepsATinyExactIslandAtTheWorstPlaceOfTheWeightTerm()
+        {
+            // The worst case of the weight term, as Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces does for the single point: a weight that is a steep cone around a cube centre c0
+            // (w = 1 - |p - c0| / rho, rho much smaller than a cube, gradient bound 1 / rho) turns a point where the gyroid is below its level (a > 0) inside a cavity of the I-WP (b > 0)
+            // into an exact solid {h <= 0}, an island of radius rho (1 - b / (a + b)), about h / 2000. All eight nodes of the cube see w = 0, so h = b there, the same as the
+            // single point case. The island is contained only if Lh includes the weight term (h rises with slope (a + b) / rho towards the nodes); a bound without it, or the lying
+            // bound 0, loses the island: the guarantee rests on the bound.
+            const double h = 1.0 / 16, rho = 2.6e-4;
+            var c0 = new Vector3d(14 * h, 14 * h, 14 * h);      // a cube centre of the first (dyadic, half-cube shifted) grid, inside the 2 x 2 x 2 box
+            double ca = LevelOf(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3), cb = LevelOf(TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3);
+            double a = F(TpmsType.Gyroid, c0) - ca, b = F(TpmsType.IWP, c0) - cb;
+            Assert.True(a < -0.2, "the gyroid must be below its level at c0: " + a);
+            // the nodes of the cube (and a margin) must be high for the bound without the weight term: b / Lh_phase above the level pad
+            double lhPhase = 2 * Math.PI * 6 * Math.Sqrt(3), minB = double.MaxValue;
+            foreach (double dx in new[] { -0.5, 0.5 }) foreach (double dy in new[] { -0.5, 0.5 }) foreach (double dz in new[] { -0.5, 0.5 })
+                minB = Math.Min(minB, F(TpmsType.IWP, c0 + new Vector3d(dx, dy, dz) * h) - cb);
+            Assert.True(minB / lhPhase > 1.1 * (Math.Sqrt(3) * h / 2 + 0.002), "the nodes must be above the level pad of the bound without the weight term: " + minB);
+            Func<Vector3d, double> cone = p => Math.Max(0.0, 1 - (p - c0).Length / rho);
+            double radius = rho * (1 - b / (b - a));   // w* = b / (a + b) with a < 0 here (a is g_A - c_A), so b - a = a_abs + b
+            Assert.InRange(radius, h / 4000, h / 500);
+            foreach (var (bound, expectInside) in new[] { (1 / rho, true), (0.0, false) }) {
+                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 0, 1, 16, 2, 2);
+                lattice.Blend = new TpmsBlendWeight(cone, bound);
+                lattice.Enclosure = true;
+                lattice.Compute();
+                AssertOk(lattice);
+                var tree = new DMeshAABBTree3(lattice.Mesh, true);
+                Assert.Equal(expectInside, tree.IsInside(c0));
+                if (expectInside) Assert.True(lattice.LipschitzBoundUsed > 500 * lhPhase, "the weight term must dominate the bound: " + lattice.LipschitzBoundUsed);
+            }
+        }
+
+        [Fact]
         public void EnclosureError_OfTheHybridFollowsTheDerivation()
         {
             // the hybrid terms: 64 u max(TermSum) + (6 u combination + 8 u + 2 u s Wmax weight) msum, over (Lw s), plus the phase part of the single type; the values are
