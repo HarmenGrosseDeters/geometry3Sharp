@@ -25,7 +25,11 @@ namespace geometry3Sharp.Tests
                 ReduceTolerance = 0, MaxRefineLevels = refineLevels, CertificateGrowRounds = growRounds, CertificateParallel = parallel,
                 CertificateMinChunk = 64
             };
-            Assert.True(s.Compute());
+            // (the invariants of Theorem 6 on the blocks: disjoint, clusters whole, condition 2; a violation throws)
+            WindingContouring.CheckBlocksForTests = true;
+            int checkedBefore = WindingContouring.BlocksChecked;
+            try { Assert.True(s.Compute()); } finally { WindingContouring.CheckBlocksForTests = false; }
+            if (s.CertificateBlocksCertified > 0) Assert.True(WindingContouring.BlocksChecked > checkedBefore);
             return s;
         }
 
@@ -64,6 +68,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(15, g1.UncertifiedCells.Count);
             Assert.Equal(ContouringCertificateStatus.Certified, g2.TopologyCertificateStatus);
             Assert.True(g2.CertificateBlocksGrown > g1.CertificateBlocksGrown);
+            // the second layer reaches two other clusters and two certified blocks, which the grown block takes in
+            Assert.Equal(2, g2.CertificateClustersTakenIn);
+            Assert.Equal(2, g2.CertificateBlocksTakenIn);
             Assert.Equal(WindingContouringCertificateTests.Truth(m), WindingContouringCertificateTests.Topology(g2.Result));
             ContouringCertificateBlockTests.AssertClosedManifold(g2.Result);
         }

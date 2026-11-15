@@ -121,7 +121,7 @@ namespace gs
         /// <summary> (tests, benchmark) the blocks the certificate of the last Compute() tried, certified, and their cells </summary>
         internal int CertificateBlocksTried, CertificateBlocksCertified, CertificateBlockCells;
         internal int[] CertificateBlockLeft = new int[5];
-        internal int CertificateBlocksGrown, CertificateGrownCells;
+        internal int CertificateBlocksGrown, CertificateGrownCells, CertificateClustersTakenIn, CertificateBlocksTakenIn;
         internal int CertificateGrowRounds = 2;
         /// <summary> (tests) the fewest cells per chunk of the certificate's parallel path </summary>
         internal int CertificateMinChunk = 2048;
@@ -229,6 +229,7 @@ namespace gs
             CertificateBlocksTried = inner.CertificateBlocksTried; CertificateBlocksCertified = inner.CertificateBlocksCertified;
             CertificateBlockCells = inner.CertificateBlockCells; CertificateBlockLeft = inner.CertificateBlockLeft;
             CertificateBlocksGrown = inner.CertificateBlocksGrown; CertificateGrownCells = inner.CertificateGrownCells;
+            CertificateClustersTakenIn = inner.CertificateClustersTakenIn; CertificateBlocksTakenIn = inner.CertificateBlocksTakenIn;
             Result = inner.Result;
             if (Result != null)
                 MeshRepairMetrics.ScaleVertices(Result, 1 / s);
@@ -269,7 +270,7 @@ namespace gs
             PhaseMilliseconds.Clear();
             TopologyCertified = ContourTopologyCertified = false;
             CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
-            CertificateBlocksGrown = CertificateGrownCells = 0; CertificateBlockLeft = new int[5];
+            CertificateBlocksGrown = CertificateGrownCells = CertificateClustersTakenIn = CertificateBlocksTakenIn = 0; CertificateBlockLeft = new int[5];
             TopologyCertificateStatus = ComputeTopologyCertificate ? ContouringCertificateStatus.NotSupported : ContouringCertificateStatus.NotComputed;
             UncertifiedCells = new List<ContouringUncertifiedCell>();
             // (checked here: a NaN would pass as "automatic" below, +infinity as a valid size)
@@ -302,6 +303,7 @@ namespace gs
                 CertificateBlocksTried = wc.CertificateBlocksTried; CertificateBlocksCertified = wc.CertificateBlocksCertified;
                 CertificateBlockCells = wc.CertificateBlockCells; CertificateBlockLeft = wc.CertificateBlockLeft;
                 CertificateBlocksGrown = wc.CertificateBlocksGrown; CertificateGrownCells = wc.CertificateGrownCells;
+                CertificateClustersTakenIn = wc.CertificateClustersTakenIn; CertificateBlocksTakenIn = wc.CertificateBlocksTakenIn;
                 WindingEvaluations = wc.WindingEvaluations;
                 NonManifoldTriangles = wc.NonManifoldTriangles;
                 NonManifoldRefinements = wc.NonManifoldRefinements;

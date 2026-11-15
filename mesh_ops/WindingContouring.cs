@@ -212,7 +212,8 @@ namespace gs
         void certify(DualContouring dc)
         {
             CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
-            CertificateBlocksGrown = CertificateGrownCells = 0; CertificateBlockLeft = new int[5];
+            CertificateBlocksGrown = CertificateGrownCells = CertificateClustersTakenIn = CertificateBlocksTakenIn = 0;
+            CertificateBlockLeft = new int[5];
             UncertifiedCells = new List<ContouringUncertifiedCell>();
             CertificateStatus = ContouringCertificateStatus.NotSupported;
             if (Meshes.Length != 1 || !(Iso > 0 && Iso < 1))
@@ -305,6 +306,8 @@ namespace gs
         internal int CertificateGrowRounds = 2;
         /// <summary> blocks of the last contour certified only after growth, and their cells </summary>
         internal int CertificateBlocksGrown, CertificateGrownCells;
+        /// <summary> (tests) clusters and certified blocks the grown blocks of the last contour took in </summary>
+        internal int CertificateClustersTakenIn, CertificateBlocksTakenIn;
 
         // Theorem 6: the refused cells (indices into cells) grouped into clusters (cells of one size sharing a face, an edge or
         // a node), each cluster tested as one block; returns the cells still refused. A cluster is tried only if it is a
@@ -320,6 +323,7 @@ namespace gs
         {
             CertificateBlocksTried = CertificateBlocksCertified = CertificateBlockCells = 0;
             CertificateBlocksGrown = CertificateGrownCells = 0;
+            CertificateClustersTakenIn = CertificateBlocksTakenIn = 0;
             CertificateBlockLeft = new int[5];
             int B = grid.BinSize;
             // clusters per size, on the lattice of that size (keys: min / size)
@@ -373,6 +377,7 @@ namespace gs
                     if (blockOf.ContainsKey(clusters[ci][0])) continue;     // taken in by a grown block
                     var R = new HashSet<Vector3i>(clusters[ci]);
                     var takenBlocks = new HashSet<int>();
+                    var takenClusters = new HashSet<int>();
                     for (int round = 0; round < CertificateGrowRounds && why[ci] != 0 && why[ci] != 1; ++round) {
                         var layer = new List<Vector3i>();
                         foreach (Vector3i c in R)
@@ -388,7 +393,7 @@ namespace gs
                             int bk, cj;
                             if (blockOf.TryGetValue(q, out bk) && blockAlive[bk] && takenBlocks.Add(bk))
                                 foreach (Vector3i c in blocks[bk]) if (!R.Contains(c)) queue.Enqueue(c);
-                            if (clusterOf.TryGetValue(q, out cj))
+                            if (clusterOf.TryGetValue(q, out cj) && cj != ci && takenClusters.Add(cj))
                                 foreach (Vector3i c in clusters[cj]) if (!R.Contains(c)) queue.Enqueue(c);
                         }
                         if (R.Count > MaxGrownBlockCells) break;
@@ -403,6 +408,8 @@ namespace gs
                         if (r >= 0) continue;
                         // certified: R replaces the blocks it took in
                         foreach (int bk in takenBlocks) blockAlive[bk] = false;
+                        CertificateBlocksTakenIn += takenBlocks.Count;
+                        CertificateClustersTakenIn += takenClusters.Count;
                         foreach (Vector3i c in R) blockOf[c] = blocks.Count;
                         blocks.Add(R); blockAlive.Add(true);
                         CertificateBlocksGrown++;
@@ -420,10 +427,48 @@ namespace gs
                 foreach (int ci in failed)
                     if (!blockOf.ContainsKey(clusters[ci][0]) || !blockAlive[blockOf[clusters[ci][0]]])
                         CertificateBlockLeft[why[ci]] += clusters[ci].Count;
+                if (CheckBlocksForTests) check_blocks(blocks, blockAlive, clusters, d);
             }
             var left = new List<int>(refused.Count);
             foreach (int i in refused) if (!certified.Contains(i)) left.Add(i);
             return left;
+        }
+
+        /// <summary>
+        /// (tests) check what Theorem 6 asks of the blocks certified (with growth): pairwise disjoint, every cluster wholly in
+        /// one of them or in none, and on every face on a block the cell inside or the cell outside is not refused; a
+        /// violation throws. BlocksChecked counts the blocks checked.
+        /// </summary>
+        [ThreadStatic] internal static bool CheckBlocksForTests;
+        [ThreadStatic] internal static int BlocksChecked;
+        static void check_blocks(List<HashSet<Vector3i>> blocks, List<bool> alive, List<List<Vector3i>> clusters,
+            Dictionary<Vector3i, int> refusedCells)
+        {
+            var owner = new Dictionary<Vector3i, int>();
+            for (int bk = 0; bk < blocks.Count; ++bk) {
+                if (!alive[bk]) continue;
+                BlocksChecked++;
+                foreach (Vector3i c in blocks[bk]) {
+                    if (owner.ContainsKey(c)) throw new InvalidOperationException("blocks overlap at " + c);
+                    owner[c] = bk;
+                }
+                foreach (Vector3i c in blocks[bk])
+                    for (int a = 0; a < 3; ++a)
+                        for (int sgn = -1; sgn <= 1; sgn += 2) {
+                            Vector3i nb = c; nb[a] += sgn;
+                            if (!blocks[bk].Contains(nb) && refusedCells.ContainsKey(c) && refusedCells.ContainsKey(nb))
+                                throw new InvalidOperationException("refused cells on both sides of a face on a block at " + c);
+                        }
+            }
+            foreach (var cl in clusters) {
+                int b0;
+                bool any = owner.TryGetValue(cl[0], out b0);
+                foreach (Vector3i c in cl) {
+                    int b;
+                    bool has = owner.TryGetValue(c, out b);
+                    if (has != any || (has && b != b0)) throw new InvalidOperationException("a cluster split by the blocks at " + c);
+                }
+            }
         }
 
         static bool uniform_signs(CertificateGrid grid, Vector3i min, int sz)

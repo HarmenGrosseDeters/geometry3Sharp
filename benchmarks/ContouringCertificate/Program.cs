@@ -118,6 +118,7 @@ class Program
                 r[q + "_block_cells"] = s.CertificateBlockCells;
                 r[q + "_left_by"] = string.Join(",", s.CertificateBlockLeft);
                 r[q + "_grown"] = s.CertificateBlocksGrown; r[q + "_grown_cells"] = s.CertificateGrownCells;
+                r[q + "_taken_in"] = s.CertificateClustersTakenIn + "," + s.CertificateBlocksTakenIn;
                 r[q + "_status"] = s.TopologyCertificateStatus.ToString();
                 r[q + "_uncertified"] = s.UncertifiedCells.Count;
                 r[q + "_certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm2) ? cm2 : -1;
