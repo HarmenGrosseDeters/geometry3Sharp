@@ -36,6 +36,12 @@ namespace g3
         /// keeps one Compute below about 20 s (a flat plane of 101 x 101 vertices reaches it; a terrain of that size needs
         /// about 130000 windows, 4 s) </summary>
         public int MaxWindows = 300_000;
+
+        // the compaction of the dead (emptied) windows of a side list: speed only, the scan skips dead windows anyway.
+        // Internal so a test can force it on every dead window (terrain 41^2 reaches at most 7 dead windows on one side).
+        internal bool ForceCompaction;
+        internal int Compactions;
+
         /// <summary> per vertex id: a lower and an upper bound of the polyhedral distance to the nearest source. NaN for
         /// unused ids, vertices without a path to a source, and every vertex when Compute did not return Ok </summary>
         public double[] Lower, Upper;
@@ -222,7 +228,7 @@ namespace g3
         {
             int n = Mesh.MaxVertexID;
             windows = new List<Window>(); bySide = new Dictionary<int, List<int>>(); queue = new Heap();
-            lo = new double[n]; up = new double[n]; emitted = new double[n]; kind = new byte[n]; failed = false; Windows = 0;
+            lo = new double[n]; up = new double[n]; emitted = new double[n]; kind = new byte[n]; failed = false; Windows = 0; Compactions = 0;
             Emissions = Merges = Iterations = 0;
             for (int v = 0; v < n; ++v) { lo[v] = up[v] = emitted[v] = double.PositiveInfinity; }
             var src = new List<int>();
@@ -366,7 +372,10 @@ namespace g3
             int side = Side(w.E, w.F);
             if (!bySide.TryGetValue(side, out var list)) { list = new List<int>(); bySide[side] = list; }
             int dead = 0; foreach (int oi in list) if (!(windows[oi].O1 > windows[oi].O0)) ++dead;
-            if (dead > 8 && 2 * dead > list.Count) list.RemoveAll(oi => !(windows[oi].O1 > windows[oi].O0));
+            if (dead > 0 && (ForceCompaction || dead > 8 && 2 * dead > list.Count)) {
+                list.RemoveAll(oi => !(windows[oi].O1 > windows[oi].O0));
+                ++Compactions;
+            }
             double segL = double.MaxValue, segR = double.MinValue; foreach (var t in segs) { segL = Math.Min(segL, t.l); segR = Math.Max(segR, t.r); }
             foreach (int oi in list) {
                 Window b = windows[oi];

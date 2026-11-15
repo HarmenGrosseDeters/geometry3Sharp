@@ -327,6 +327,24 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ForcedCompaction_OfDeadWindows_ChangesNothing()
+        {
+            // the compaction of dead windows is speed only; the test meshes never reach its threshold of 8 (terrain
+            // 41^2: at most 7 on one side), so force it on every Add and compare bits, windows and merges
+            foreach (var (m, s) in new[] { (Grid(10, 21, Terrain), 0), (Grid(5, 11, Terrain), 60) }) {
+                var plain = Run(m, s);
+                Assert.Equal(0, plain.Compactions);
+                var forced = new ExactMeshGeodesicDistance(m) { ForceCompaction = true };
+                Assert.Equal(ExactMeshGeodesicDistance.Result.Ok, forced.Compute(new[] { s }));
+                Assert.True(forced.Compactions > 0);
+                Assert.Equal(plain.Lower, forced.Lower); Assert.Equal(plain.Upper, forced.Upper);
+                Assert.Equal(plain.Windows, forced.Windows); Assert.Equal(plain.Merges, forced.Merges);
+                forced.Compute(new[] { s });
+                Assert.True(forced.Compactions > 0); Assert.Equal(plain.Lower, forced.Lower);
+            }
+        }
+
+        [Fact]
         public void AlignedRidge41_ReachesTheWindowLimit_WithNaNArrays()
         {
             // the measured reach (GEODESICS.md): the exactly aligned 41 x 41 ridge exceeds the oracle's window budget; the
