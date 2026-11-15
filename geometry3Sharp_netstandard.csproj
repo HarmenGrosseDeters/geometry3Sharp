@@ -84,6 +84,8 @@
     <InternalsVisibleTo Include="ContouringCertificate" />
     <!-- the interval path of the CCD solver (benchmarks/CcdBenchmark) -->
     <InternalsVisibleTo Include="CcdBenchmark" />
+    <!-- the certified geodesic oracle (ExactMeshGeodesicDistance) in the cross-platform determinism cases -->
+    <InternalsVisibleTo Include="DeterminismHarness" />
   </ItemGroup>
 
   <!-- banned APIs and analyzers in the exact-arithmetic code (BannedSymbols.txt, G3E0001-3; scoped by .editorconfig;
