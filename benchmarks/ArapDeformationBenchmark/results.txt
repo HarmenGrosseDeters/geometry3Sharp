@@ -1,0 +1,10 @@
+Linux x64, .NET SDK 10.0.403, 2026-11-15; base 41e6c0f0 plus ARAP implementation
+Commands (each variant): dotnet run --project benchmarks/ArapDeformationBenchmark -c Release -- 100 100 5
+                         dotnet run --project benchmarks/ArapDeformationBenchmark -c Release -- 400 250 5
+The measured process used the built release DLL directly; see README for baseline patch.
+packed-long baseline
+vertices=10000 triangles=19602 handles=200 budget=5 status=MaxIterations iterations=5 residual=0.0005820606383301409 elapsed_ms=973.389 allocated_bytes=27264912 peak_working_set_bytes=65773568 mesh_hash=1f58c85481f6f26e
+vertices=100000 triangles=198702 handles=500 budget=5 status=MaxIterations iterations=5 residual=0.0005871320917433991 elapsed_ms=42861.010 allocated_bytes=353069560 peak_working_set_bytes=333574144 mesh_hash=53703f612b28e15d
+Index2i
+vertices=10000 triangles=19602 handles=200 budget=5 status=MaxIterations iterations=5 residual=0.0005820606383301409 elapsed_ms=663.837 allocated_bytes=27264912 peak_working_set_bytes=65323008 mesh_hash=1f58c85481f6f26e
+vertices=100000 triangles=198702 handles=500 budget=5 status=MaxIterations iterations=5 residual=0.0005871320917433991 elapsed_ms=4135.432 allocated_bytes=353069560 peak_working_set_bytes=335040512 mesh_hash=53703f612b28e15d

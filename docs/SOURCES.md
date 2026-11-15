@@ -4,6 +4,12 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## Surface deformation (`ArapMeshDeformer`)
+
+| Item | Source |
+|---|---|
+| ARAP surface energy and local/global iterations | O. Sorkine, M. Alexa, *As-Rigid-As-Possible Surface Modeling*, SGP 2007, [DOI](https://doi.org/10.2312/SGP/SGP07/109-116); implemented from the paper. The existing library `SparseCholesky`, `FastQuaternionSVD` and exact orientation predicates are reused. Negative cotangent sums are clamped to zero as an explicit weighting variant; [CGAL's surface deformation manual](https://doc.cgal.org/latest/Surface_mesh_deformation/index.html) describes this remedy (documentation only; no CGAL code read). No libigl source was read or ported. |
+
 ## Historical meshing recheck tools and data
 
 The standalone Python preparation tool in `benchmarks/Meshing2Benchmark/rechecks`

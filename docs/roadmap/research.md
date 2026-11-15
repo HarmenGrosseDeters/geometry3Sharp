@@ -134,7 +134,7 @@ Part of the [roadmap](../ROADMAP.md).
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request.
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
-  7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
+  7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M: ARAP implementation and tests in progress for #886 (2026-11-15); see [design/ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md). The 100k grid took 4.14 s for five iterations in one local run; this did not converge. Biharmonic remains separate.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one

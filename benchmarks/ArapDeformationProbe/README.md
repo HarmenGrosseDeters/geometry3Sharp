@@ -1,0 +1,3 @@
+# ARAP building-block probe (#886)
+
+Run `dotnet run --project benchmarks/ArapDeformationProbe -c Release`. The synthetic covariance matrices exercise full-rank, planar, rank-one, zero and reflection cases; a small pinned symmetric positive definite system probes SparseCholesky. A four-vertex patch also reports convergence at several iteration budgets. `results.txt` is the output of the equivalent probe on Linux x64, .NET SDK 10.0.403, base `41e6c0f0` plus the current ARAP implementation. Rotation error is meaningful only when the reference rotation is uniquely determined: rank one and zero admit multiple optimal rotations, and the reflection has no matching proper rotation. This is a feasibility probe, not a validation of a complete ARAP algorithm or its performance.

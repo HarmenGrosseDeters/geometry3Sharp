@@ -1,0 +1,24 @@
+--- a/mesh_ops/ArapMeshDeformer.cs
++++ b/mesh_ops/ArapMeshDeformer.cs
+@@ -96 +96 @@
+-        static long EdgeKey(int a, int b)
++        static Index2i EdgeKey(int a, int b)
+@@ -99,6 +99,6 @@
+-            return ((long)a << 32) | (uint)b;
+-        }
+-
+-        static void AddWeight(Dictionary<long, double> weights, int a, int b, double w)
+-        {
+-            long key = EdgeKey(a, b);
++            return new Index2i(a, b);
++        }
++
++        static void AddWeight(Dictionary<Index2i, double> weights, int a, int b, double w)
++        {
++            Index2i key = EdgeKey(a, b);
+@@ -179 +179 @@
+-            var weights = new Dictionary<long, double>();
++            var weights = new Dictionary<Index2i, double>();
+@@ -203 +203 @@
+-                int a = (int)(pair.Key >> 32), b = (int)(uint)pair.Key;
++                int a = pair.Key.a, b = pair.Key.b;
