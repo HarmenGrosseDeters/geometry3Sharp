@@ -46,8 +46,8 @@
       "} else {",
       "wm = front_winding(i, m, arr.Trees[m], rng, stack, center);"
     ],
-    "reason": "invariant guard, unreachable through the public API (patch_winding is called with an empty list of open meshes, windingTrees holds every open mesh before any lookup); kept: deleting it needs the exact-code review and the 6 h Boolean shards",
-    "approved_in": "#594"
+    "reason": "invariant guard, unreachable through the public API: patch_winding is called with an empty list of open meshes and, since #882, takes only closed meshes from its box query (before, an infinite pad at coordinates near 1e308 let open meshes in and reached this line); kept: deleting it needs the exact-code review and the Boolean shards",
+    "approved_in": "#883"
   },
   {
     "file": "mesh_ops/ExactMeshBoolean.cs",
