@@ -251,13 +251,13 @@ them. They belong to the stage 2 ledger.
 ### 5.2 Stage 0: the exact kernel as a closed world (#859)
 
 Option A, stage 0, is built: the analyzers G3D0001-9 (`tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs`)
-are errors in the eleven kernel files of section 6.1 (`.editorconfig`; generated code is analyzed too, so a kernel file
+are errors in the twelve kernel files of section 6.1 (`.editorconfig`; generated code is analyzed too, so a kernel file
 marked as generated stays in), and the allow list with its registrations is
 `DeterministicApis.txt` at the repository root.
 
 | rule | checks | registration |
 |---|---|---|
-| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the eleven files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`), calls whose target is chosen at run time (delegate and function-pointer invocations) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
+| G3D0001 (R0) | every member that the kernel calls, reads, constructs or applies and that is declared outside the twelve files (the BCL, and geometry3Sharp's own `Vector3d`, `MathUtil`, ... in other files): methods, properties, fields, events, constructors, user-defined operators and conversions (also implicit ones and those of `foreach` elements), attributes, `lock`, `foreach`, `using`, patterns; constructs the compiler lowers to hidden framework calls (string concatenation, equality and formatting, `decimal`, tuples, `await`, `dynamic`, ranges, delegate combination, `new T()`), calls whose target is chosen at run time (delegate and function-pointer invocations) and operations the public operation tree does not model (kind None, except `stackalloc`, pointer and fixed-buffer access and `fixed` over arrays) under pseudo ids that no entry can allow | one line per member with the reason why its result is specified on every runtime |
 | G3D0002 (R4, R7, R13, R14) | a restricted entry is used only where allowed: `[sites]` entries (`Math.Min / Max` of doubles, `(double)BigInteger`, `Vector3d.ToString`, `[ThreadStatic]`, `Interlocked`, `Volatile`, `Monitor`) only in registered members; `[hash]` entries, and every `GetHashCode` call (also of the kernel's own types, whose dispatch the analyzer does not follow), only inside a `GetHashCode` override or an `IEqualityComparer<T>.GetHashCode` implementation | a `site` line per member with its justification |
 | G3D0005 (R6) | every `#if` / `#elif` block, counted per member | an `if` line with the count and the test that checks both branches |
 | G3D0006 (R5) | every conversion of a `double` to an integer type or enum (also nullable, and `foreach` element conversions), counted per member | a `cast` line with the count and the guard |
@@ -265,9 +265,9 @@ marked as generated stays in), and the allow list with its registrations is
 | G3D0008 (R15) | every `[SkipLocalsInit]` that reaches a kernel member (on the method, its property, a containing type, the module, a local function or lambda) | a `skiplocalsinit` line, on the symbol that carries the attribute, with the argument that every element is written before it is read |
 | G3D0009 | the list is exact: an entry or registration that the kernel does not use, or a malformed line, fails the build (`[NET]` entries, their sites and the `[SkipLocalsInit]` registrations only where `NET` is defined) | |
 
-**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 107 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 18 conditional-compilation blocks in 18 members; 2 `double` to integer conversions in 1 member(s); 9 `[SkipLocalsInit]` members.
+**Stage 0 ledger** (generated from `DeterministicApis.txt`, checked by `DeterminismScopeAnalyzerTests`): 108 external members (31 of them geometry3Sharp members declared outside the kernel, 9 only on the `#if NET` side), 9 restricted to registered sites (18 sites), 1 restricted to `GetHashCode` implementations; 21 conditional-compilation blocks in 21 members; 2 `double` to integer conversions in 1 member(s); 12 `[SkipLocalsInit]` members.
 
-**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the eleven kernel files computes a
+**Claim.** On every runtime that satisfies T1 to T5 (section 4.1), every operation of the twelve kernel files computes a
 function of its arguments alone: no value it returns depends on the schedule, the process, the platform's libm, the
 clock, the culture, a hash seed or what an earlier call left in memory, given the reasons of the listed entries and the
 obligations below. With P4 (the kernel's predicates and exact constructions are defined by their inputs mathematically,
@@ -303,7 +303,7 @@ guards the growth of the chunk table only, and a slot is written by the one thre
 `ExactPoint3` is seeded per process on .NET (R7) and reaches hash containers only, whose consumers are stages 1 and 2.
 The two branches of the generated `__dec` / `__bits` are checked against one oracle on each runtime (the net48 job), not
 against each other (the generator inlines the portable loop); the other seven `#if NET` members are compared with their
-portable twins value by value on .NET (`KernelPortableBranchTests`), the nine `[SkipLocalsInit]` members run on a stack
+portable twins value by value on .NET (`KernelPortableBranchTests`), the twelve `[SkipLocalsInit]` members run on a stack
 filled with patterns against a zeroed one (`SkipLocalsInitKernelTests`). Found while building it: the hand-made list of 72
 members missed the two implicit `int` / `long` to `BigInteger` conversions and the `lock` of `FixedPointStore.Add`, and
 did not count the 31 members of geometry3Sharp outside the kernel; no `Math.Min / Max` site of the kernel lets the sign

@@ -12,6 +12,72 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class TerrainGreedyTINTests
     {
+        [Fact]
+        public void ZeroError_TinyHeightSweepTerminates()
+        {
+            var random = new Random(855);
+            for (int trial = 0; trial < 80; ++trial) {
+                var heights = new double[20];
+                for (int i = 0; i < heights.Length; ++i)
+                    heights[i] = random.Next(3) == 0 ? (random.NextDouble() - 0.5) * 1e-220 : random.Next(2);
+                int calls = 0;
+                var tin = new TerrainGreedyTIN(heights, 5, 4, 0, 0, 1) {
+                    MaxError = 0, CancelF = () => ++calls > 100
+                };
+                Assert.True(tin.Compute());
+                Assert.InRange(tin.Result.VertexCount, 4, heights.Length);
+                Assert.True(tin.Result.CheckValidity());
+            }
+        }
+
+        [Fact]
+        public void ZeroError_DoesNotReinsertExistingVertex()
+        {
+            double[] heights = { 0, 1, 1, 1, 1, 1, 1, -2.868160137710835E-223, 0, 0 };
+            int calls = 0;
+            var tin = new TerrainGreedyTIN(heights, 5, 2, 0.0625, 0, 0.35377429245212266) {
+                MaxError = 0, CancelF = () => ++calls > 100
+            };
+            Assert.True(tin.Compute());
+            Assert.NotNull(tin.Result);
+            Assert.InRange(tin.Result.VertexCount, 4, 10);
+            Assert.True(tin.Result.CheckValidity());
+        }
+
+        // #855 under Similarity.All(): a TIN of a height grid keeps z up, so a rotated frame is not applicable (the convention
+        // of TerrainGridTinTests); scale and translation map the grid, and the 2^k frames give the same TIN bit for bit.
+        // MaxError = 0 stays 0 in every frame, and the run ends within the grid's nodes
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ZeroError_Similarities_EndAndScale(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            if (s.IsRotated) return;     // a grid cannot be rotated: not applicable
+            double[] heights = { 0, 1, 1, 1, 1, 1, 1, -2.868160137710835E-223, 0, 0 };
+            Func<Similarity, TerrainGreedyTIN> run = (f) => {
+                int calls = 0;
+                var t = new TerrainGreedyTIN(heights.Select(z => f.Scale * z + f.Translation.z).ToArray(), 5, 2,
+                                             f.Scale * 0.0625 + f.Translation.x, f.Translation.y, f.Scale * 0.35377429245212266) {
+                    MaxError = 0, CancelF = () => ++calls > 100
+                };
+                Assert.True(t.Compute());
+                return t;
+            };
+            TerrainGreedyTIN g = run(s);
+            Assert.InRange(g.Result.VertexCount, 4, 10);
+            Assert.True(g.Result.CheckValidity());
+            if (s.IsExact) {
+                TerrainGreedyTIN r = run(Similarity.Identity);
+                Assert.Equal(r.Result.VertexCount, g.Result.VertexCount);
+                Assert.Equal(r.Result.TriangleCount, g.Result.TriangleCount);
+                for (int v = 0; v < r.Result.MaxVertexID; ++v) {
+                    Vector3d a = r.Result.GetVertex(v), b = g.Result.GetVertex(v);
+                    Assert.Equal(s.Apply(a), b);
+                }
+                for (int t = 0; t < r.Result.MaxTriangleID; ++t) Assert.Equal(r.Result.GetTriangle(t), g.Result.GetTriangle(t));
+            }
+        }
+
         static double[] Grid(int nx, int ny, Func<int, int, double> h)
         {
             var z = new double[nx * ny];

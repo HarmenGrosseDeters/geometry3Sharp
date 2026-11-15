@@ -56,6 +56,8 @@ namespace gs
         /// The surface stays closed, 2-manifold, intersection-free and around the input; it moves inwards by the sliver's height.
         /// </summary>
         public bool PeelBoundarySlivers = true;
+        /// <summary> threads of the wrap's carving (MeshAlphaWrap.MaxThreads: 0 = all cores, 1 = one thread); the result is the same for every value </summary>
+        public int MaxThreads = 0;
         /// <summary>
         /// stage 2: improve the refined mesh by flips and smoothing (TetMeshImprover, Klingner and Shewchuk 2007): every tet with a
         /// smallest dihedral angle below SliverDihedralDegrees is worked on. Flips never change the boundary triangles; with
@@ -107,7 +109,7 @@ namespace gs
         {
             Result = null;
             Counts = new Dictionary<string, long>();
-            var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF,
+            var wrap = new MeshAlphaWrap(Mesh) { RelativeAlpha = RelativeAlpha, RelativeOffset = RelativeOffset, CancelF = CancelF, MaxThreads = MaxThreads,
                 RefineMinAngleDegrees = SurfaceMinAngleDegrees };
             bool ok = wrap.Compute();
             Wrap = wrap;
