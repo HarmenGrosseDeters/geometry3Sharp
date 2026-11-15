@@ -826,9 +826,13 @@ namespace Meshing2Acceptance
             /// <summary>
             /// The sources the producer reports for piece ia-ib (Mesh2Output.SubsegmentSources, #870), as indices of the merged constraints,
             /// the first (the one the mesher splits on) first: 1 if reported and believed; -1 if not reported (or not usable: the lengths
-            /// do not match); 0 if reported but not believed, which gives no excuse: a source that is no input constraint the oracle has
-            /// (a hull edge or a constraint of no extent) first, or one that does not hold both ends within the tolerance (the mesher makes
-            /// only such pieces; so a wrong report cannot widen the excuse beyond the pieces of nearby constraints)
+            /// do not match); 0 if reported but not believed, which gives no excuse: a first source that is no input constraint the
+            /// oracle has (a hull edge or a constraint of no extent) or that does not hold both ends within the tolerance (the mesher
+            /// splits only such pieces on it). A later source only leaves the refusing constraints (and joins the coincidence filter),
+            /// which can only withhold an excuse, so it is not checked: one the oracle does not have is skipped, and one away from an end
+            /// is kept (after splits on the first source, a merged piece's end may lie up to twice the tolerance from another source).
+            /// Trusted without a check: that the list is complete (an own source left out would count as refusing) and, in KindOfEnd,
+            /// the report of a vertex near two constraints; both need the mesher's state, which the output does not carry
             /// </summary>
             int ReportedSources(int ia, int ib, Q ownTol2, List<(Pt a, Pt b)> own, HashSet<int> ownIds)
             {
@@ -843,11 +847,14 @@ namespace Meshing2Acceptance
                 if (!subsegmentIndex.TryGetValue(SubKey(ia, ib), out int si) || rs[si] == null || rs[si].Length == 0) return 0;
                 var ms = MergedSources();
                 for (int j = 0; j < rs[si].Length; ++j) {
-                    // (a hull edge after the first: the mesher's NearOtherSource skips it, and the oracle counts no hull edge as refusing)
-                    if (rs[si][j] < 0 && j > 0) continue;
-                    if (!sourceOfInput.TryGetValue(rs[si][j], out int k) || ms[k] == null) return 0;
+                    // (a hull edge or a constraint of no extent after the first: the mesher's NearOtherSource skips it, and the oracle
+                    // counts neither as refusing)
+                    if (!sourceOfInput.TryGetValue(rs[si][j], out int k) || ms[k] == null) {
+                        if (j == 0) return 0;
+                        continue;
+                    }
                     var c = ms[k].Value;
-                    if (Exact.Dist2ToSegment(c.a, c.b, v[ia]) > ownTol2 || Exact.Dist2ToSegment(c.a, c.b, v[ib]) > ownTol2) return 0;
+                    if (j == 0 && (Exact.Dist2ToSegment(c.a, c.b, v[ia]) > ownTol2 || Exact.Dist2ToSegment(c.a, c.b, v[ib]) > ownTol2)) return 0;
                     if (ownIds.Add(k)) own.Add(c);
                 }
                 return 1;

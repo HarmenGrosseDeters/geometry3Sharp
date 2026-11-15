@@ -234,7 +234,8 @@ namespace geometry3Sharp.Tests
             Assert.Equal(mesh.ExistedBeforeRefinement, first.ExistedBeforeRefinement);
         }
 
-        /// <summary> a piece of two overlapping segments reports both, each piece of the overlap (and only those) </summary>
+        /// <summary> a piece of two overlapping segments reports both, each piece of the overlap (and only those), the segment inserted first
+        /// first (the one refinement splits on) </summary>
         [Fact]
         public void QualityMesh2_ReportsBothSourcesOfAnOverlap()
         {
@@ -249,13 +250,67 @@ namespace geometry3Sharp.Tests
             int inside = 0;
             for (int i = 0; i < mesh.Subsegments.Count; ++i) {
                 Vector2d a = mesh.Vertices[mesh.Subsegments[i].A], b = mesh.Vertices[mesh.Subsegments[i].B];
-                var src = mesh.SubsegmentSources[i].OrderBy(z => z).ToArray();
+                var src = mesh.SubsegmentSources[i];
                 if (a.y != 8 || b.y != 8) { Assert.True(src.All(z => z >= 2), "a ring piece reports a segment"); continue; }
                 bool overlap = Math.Min(a.x, b.x) >= 5 && Math.Max(a.x, b.x) <= 11;
                 Assert.Equal(overlap ? new[] { 0, 1 } : new[] { 0 }, src);
                 if (overlap) ++inside;
             }
             Assert.True(inside > 2);
+        }
+
+        /// <summary>
+        /// The numbering with every kind of constraint: segments, then the edges of the rings (a hole ring, and an outer ring with a
+        /// repeated vertex, whose edge of no extent keeps its id), then those of the region rings (a seed region and a region without a
+        /// ring use none): each piece lies on each source it reports
+        /// </summary>
+        [Fact]
+        public void QualityMesh2_NumbersRingsHolesAndRegionsAfterTheSegments()
+        {
+            var input = new ConstrainedMesh2Input();
+            input.Points.AddRange(new[] { new Vector2d(0, 0), new Vector2d(16, 0), new Vector2d(16, 16), new Vector2d(0, 16),
+                new Vector2d(6, 6), new Vector2d(10, 6), new Vector2d(10, 10), new Vector2d(6, 10),
+                new Vector2d(1, 1), new Vector2d(5, 1), new Vector2d(5, 4), new Vector2d(1, 4), new Vector2d(12, 2), new Vector2d(14, 13) });
+            input.Segments.Add(new Mesh2Segment(12, 13));
+            input.Rings.Add(new Mesh2Ring(new[] { 0, 1, 1, 2, 3 }));          // edges 1..5 (1-1 of no extent: id 2)
+            input.Rings.Add(new Mesh2Ring(new[] { 4, 5, 6, 7 }, true));       // edges 6..9
+            input.Regions.Add(Mesh2Region.BySeed(new Vector2d(15, 15), 1));
+            input.Regions.Add(new Mesh2Region { Ring = null, Label = 3 });
+            input.Regions.Add(Mesh2Region.ByRing(new[] { 8, 9, 10, 11 }, 2));  // edges 10..13
+            var mesh = new QualityMesh2 { MinAngle = 25, MaxArea = 4 }.Compute(input).Mesh;
+            Assert.NotNull(mesh);
+            var edges = new List<(Vector2d, Vector2d)> { (input.Points[12], input.Points[13]) };
+            foreach (var ring in new[] { new[] { 0, 1, 1, 2, 3 }, new[] { 4, 5, 6, 7 }, new[] { 8, 9, 10, 11 } })
+                for (int i = 0; i < ring.Length; ++i) edges.Add((input.Points[ring[i]], input.Points[ring[(i + 1) % ring.Length]]));
+            var used = new HashSet<int>();
+            for (int i = 0; i < mesh.Subsegments.Count; ++i)
+                foreach (int s in mesh.SubsegmentSources[i]) {
+                    Assert.InRange(s, 0, edges.Count - 1);
+                    Assert.NotEqual(2, s);
+                    used.Add(s);
+                    Assert.True(Dist(mesh.Vertices[mesh.Subsegments[i].A], edges[s].Item1, edges[s].Item2) < 1e-12, "piece " + i + " off source " + s);
+                    Assert.True(Dist(mesh.Vertices[mesh.Subsegments[i].B], edges[s].Item1, edges[s].Item2) < 1e-12, "piece " + i + " off source " + s);
+                }
+            Assert.Equal(Enumerable.Range(0, edges.Count).Where(s => s != 2), used.OrderBy(z => z));
+        }
+
+        /// <summary> a hull domain (segments, no ring): the hull edges refinement constrains report -1, the input segment its index </summary>
+        [Fact]
+        public void QualityMesh2_ReportsHullEdgesAsMinusOne()
+        {
+            var input = new ConstrainedMesh2Input();
+            input.Points.AddRange(new[] { new Vector2d(0, 0), new Vector2d(16, 0), new Vector2d(16, 16), new Vector2d(0, 16), new Vector2d(4, 5), new Vector2d(12, 9) });
+            input.Segments.Add(new Mesh2Segment(4, 5));
+            var mesh = new QualityMesh2 { MinAngle = 25, MaxArea = 8 }.Compute(input).Mesh;
+            Assert.NotNull(mesh);
+            int hull = 0;
+            for (int i = 0; i < mesh.Subsegments.Count; ++i) {
+                Vector2d a = mesh.Vertices[mesh.Subsegments[i].A], b = mesh.Vertices[mesh.Subsegments[i].B];
+                bool onHull = (a.x == b.x && (a.x == 0 || a.x == 16)) || (a.y == b.y && (a.y == 0 || a.y == 16));
+                Assert.Equal(onHull ? new[] { -1 } : new[] { 0 }, mesh.SubsegmentSources[i]);
+                if (onHull) ++hull;
+            }
+            Assert.True(hull >= 4);
         }
 
         /// <summary> without refinement every vertex existed before it; with snap rounding (a mesh of the snapped input) nothing is reported </summary>

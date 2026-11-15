@@ -44,10 +44,11 @@ namespace g3
         /// order (the first is the one quality refinement computes split points on); an input constraint's id is its index in the
         /// input's Segments, then the edges of its Rings (edge i of a ring from vertex i to i + 1), then those of the Regions' rings, each
         /// in input order; -1 for a hull edge that refinement constrained. Null when not known (snap rounding, whose mesh is of the
-        /// snapped input). Internal: the acceptance oracle reads it (#870) </summary>
+        /// snapped input) and for an empty result. Internal: the acceptance oracle reads it (#870) </summary>
         internal int[][] SubsegmentSources;
         /// <summary> per vertex: it existed before quality refinement (an input point or a crossing of constraints), which is where
-        /// refinement puts concentric shells; true for every vertex without refinement. Null when not known (snap rounding). Internal:
+        /// refinement puts concentric shells; true for every vertex without refinement. Null when not known (snap rounding) and for an
+        /// empty result. Internal:
         /// the acceptance oracle reads it (#870) </summary>
         internal bool[] ExistedBeforeRefinement;
         /// <summary> Heights per vertex if the input had heights, otherwise null. </summary>

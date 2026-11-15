@@ -1736,20 +1736,23 @@ namespace Meshing2Acceptance
             //     piece from 4.5 to 5 (input ends: the midpoint on its first source), the tolerance 1/32:
             //     - A' rising at 0.0064 with the piece's ends at 0.9 and (1 + 2^-9) of the tolerance from it and the midpoint at 0.95: by
             //       geometry it may be one of the piece's sources (judged); reported as [B] it is another constraint and refuses (excused);
-            //       reported as [B, A'] it is the piece's own (judged); a hull edge first, or a reported source the oracle does not have, is
-            //       not believed (judged);
+            //       reported as [B, A'] it is the piece's own (judged); a hull edge or a source the oracle does not have is not believed
+            //       first (judged) and skipped later (excused);
             //     - S2 parallel to B 0.9 tolerances above it and C ending 0.95 tolerances below the midpoint on B, 1.85 below the point on
             //       S2: reported as [B, S2] only the point on the first source counts, which C refuses (excused); as [S2, B] the point on
-            //       S2 counts, which nothing refuses (judged); reported as [C], which ends near the piece's middle, it is not believed
-            //       (judged: on C's line, B would refuse)
+            //       S2 counts, which nothing refuses (judged); reported as [C] first, which ends near the piece's middle, it is not
+            //       believed (judged: on C's line, B would refuse); as a later source [B, C] it is the piece's own, so nothing refuses (judged)
             {
                 const double tolerance = 1.0 / 32;
                 foreach (var (third, list, excused, what) in new (bool, int[], bool, string)[] {
                     (false, new[] { 0 }, true, "O11-unsplittable: a constraint within the ownership margin that the output does not report as the piece's source refuses (excused, #870)"),
                     (false, new[] { 0, 1 }, false, "O11-unsplittable: the same reported as the piece's source is its own (judged, #870)"),
                     (false, new[] { -1, 0 }, false, "O11-unsplittable: a reported hull edge as the first source is not believed (judged, #870)"),
-                    (false, new[] { 0, 9 }, false, "O11-unsplittable: a reported source the input does not have is not believed (judged, #870)"),
-                    (true, new[] { 2 }, false, "O11-unsplittable: a reported source that does not hold both piece ends within the tolerance is not believed (judged, #870)"),
+                    (false, new[] { 9, 0 }, false, "O11-unsplittable: a reported first source the input does not have is not believed (judged, #870)"),
+                    (false, new[] { 0, 9 }, true, "O11-unsplittable: a later reported source the input does not have is skipped (excused, #870)"),
+                    (false, new[] { 0, 2 }, true, "O11-unsplittable: a later reported source away from the piece's ends (a ring edge) does not withdraw the report (excused, #870)"),
+                    (true, new[] { 2 }, false, "O11-unsplittable: a reported first source that does not hold both piece ends within the tolerance is not believed (judged, #870)"),
+                    (true, new[] { 0, 2 }, false, "O11-unsplittable: a later reported source away from the piece's ends is still the piece's own, not refusing (judged, #870)"),
                     (true, new[] { 0, 1 }, true, "O11-unsplittable: only the split point on the first reported source counts (excused, #870)"),
                     (true, new[] { 1, 0 }, false, "O11-unsplittable: the split point on the first reported source, refused by nothing, is judged (#870)") }) {
                     var xy = new List<double> { 0, 0, 16, 0, 16, 16, 0, 16, 4, 8, 12, 8 };
