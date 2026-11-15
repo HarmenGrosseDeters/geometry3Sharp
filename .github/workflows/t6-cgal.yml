@@ -1,0 +1,110 @@
+name: T6 CGAL comparison
+
+# Exact Boolean 3.0 target T6 (docs/roadmap/exact-boolean.md): time ratio ours / CGAL EPECK on 1k-100k triangles. Manual only
+# (workflow_dispatch): the job fetches the Thingi10K models from huggingface at run time, which a PR-tier test never does.
+# CGAL runs only here, as a black box on a GitHub-hosted runner (owner decision 2026-11-15): cgal_bool.cpp (the repo's own
+# driver) is built against the runner's libcgal-dev (GPL, the binary is not distributed); no CGAL source is read or ported.
+# Two jobs, one thread and all cores for ours (CGAL is single-threaded). Raw rows go to the data branch runs/t6-cgal.
+# Case set and report: benchmarks/BooleanComparison/perf/t6.py. No mesh is committed.
+on:
+  workflow_dispatch:
+    inputs:
+      library_ref:
+        description: 'Ref of the library and benchmark tool to measure'
+        default: 'master'
+      timeout_s:
+        description: 'Timeout per boolean in seconds'
+        default: '300'
+
+permissions:
+  contents: write   # the data branch runs/t6-cgal
+
+jobs:
+  measure:
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest   # GitHub-hosted only, never self-hosted
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        threads: ['1', 'all']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.library_ref }}
+          path: lib
+      - uses: actions/checkout@v4
+        with:
+          path: scripts
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build cgal_bool (CGAL from apt, used as a black box)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libcgal-dev libgmp-dev libmpfr-dev
+          g++ -O2 -std=c++17 -DNDEBUG -DCGAL_NDEBUG lib/benchmarks/BooleanComparison/external/cgal_bool.cpp -o cgal_bool -lgmp -lmpfr
+          dpkg -s libcgal-dev | grep '^Version'
+      - name: Build the benchmark tool
+        run: |
+          dotnet build lib/benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          cp -r lib/benchmarks/BooleanComparison/bin/Release/net10.0 frozen
+          git -C lib rev-parse HEAD > lib_sha.txt
+          nproc >> lib_sha.txt
+          dpkg -s libcgal-dev | grep '^Version' >> lib_sha.txt
+      - name: Case set and models
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          python3 $S/perf/t6.py pairs pairs_t6.csv
+          python3 $S/perf/t6.py fetch data pairs_t6.csv
+          python3 $S/data/thingi_pairs.py manifest pairs_t6.csv data cases.jsonl
+      - name: Run ours and CGAL EPECK
+        env:
+          CGAL_BOOL: ${{ github.workspace }}/cgal_bool
+          BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
+        run: |
+          S=scripts/benchmarks/BooleanComparison
+          if [ "${{ matrix.threads }}" = 1 ]; then export DOTNET_PROCESSOR_COUNT=1; PIN="taskset -c 0"; else PIN=""; fi
+          $PIN python3 $S/compare.py cases.jsonl results-${{ matrix.threads }}.jsonl --methods ours,cgal_epeck --timeout "${{ inputs.timeout_s }}" -j 1 --resume
+      - name: Report
+        if: always()
+        run: |
+          python3 scripts/benchmarks/BooleanComparison/perf/t6.py report "${{ matrix.threads }} thread(s)=results-${{ matrix.threads }}.jsonl" | tee report-${{ matrix.threads }}.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t6-${{ matrix.threads }}
+          path: |
+            results-${{ matrix.threads }}.jsonl
+            report-${{ matrix.threads }}.md
+            lib_sha.txt
+            pairs_t6.csv
+
+  publish:
+    needs: measure
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - name: Raw rows to runs/t6-cgal
+        run: |
+          d=$(mktemp -d)
+          git worktree add -q --detach "$d"
+          cd "$d"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin runs/t6-cgal > /dev/null; then
+            git fetch -q --depth=1 origin runs/t6-cgal:refs/remotes/origin/runs/t6-cgal
+            git checkout -q -B runs/t6-cgal origin/runs/t6-cgal
+          else
+            git checkout -q --orphan runs/t6-cgal
+            git rm -rqf .
+          fi
+          mkdir -p "run-$GITHUB_RUN_ID" && cp -r "$GITHUB_WORKSPACE"/art/*/* "run-$GITHUB_RUN_ID"/ 2>/dev/null || true
+          git add .
+          git diff --cached --quiet && exit 0
+          git commit -q -m "T6 CGAL comparison run $GITHUB_RUN_ID"
+          git push origin runs/t6-cgal
