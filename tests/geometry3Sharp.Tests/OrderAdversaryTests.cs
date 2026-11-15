@@ -330,11 +330,20 @@ namespace geometry3Sharp.Tests
             // the certificate's parallel path (ContouringTopologyCertificate.Cells through gParallel.ForEach), in chunks of
             // 16 cells (many borders between chunks): the same status, the same uncertified cells in the same order with
             // the same reasons, and the same result for every loop order; on a tilted sphere, whose tangencies and wedges
-            // leave cells uncertified
+            // leave cells uncertified (the per-cell tests: without the block test, which certifies them as blocks; with it, the
+            // same blocks and status for every loop order)
             DMesh3 sphere = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh();
             MeshTransforms.Rotate(sphere, Vector3d.Zero, Quaterniond.AxisAngleD(new Vector3d(1, 2, 3).Normalized, 17));
             MeshTransforms.Translate(sphere, new Vector3d(0.013, -0.007, 0.021));
             Func<MeshWindingNumberSolidify> run = () => {
+                var s = new MeshWindingNumberSolidify(sphere) {
+                    Adaptive = true, GridResolution = 24, ComputeTopologyCertificate = true, CleanupResult = false, ReduceTolerance = 0,
+                    CertificateParallel = true, CertificateMinChunk = 16, CertificateBlocks = false
+                };
+                Assert.True(s.Compute());
+                return s;
+            };
+            Func<MeshWindingNumberSolidify> runBlocks = () => {
                 var s = new MeshWindingNumberSolidify(sphere) {
                     Adaptive = true, GridResolution = 24, ComputeTopologyCertificate = true, CleanupResult = false, ReduceTolerance = 0,
                     CertificateParallel = true, CertificateMinChunk = 16
@@ -354,6 +363,15 @@ namespace geometry3Sharp.Tests
                 Assert.Equal(cells(reference), cells(r));
                 string diff = Invariance.Difference(reference.Result, r.Result);
                 Assert.True(diff == "", $"loop order {order}: {diff}");
+            }
+            MeshWindingNumberSolidify blocks = WithOrder(0, runBlocks);
+            Assert.True(blocks.CertificateBlocksCertified > 0);
+            foreach (int order in Orders) {
+                MeshWindingNumberSolidify r = WithOrder(order, runBlocks);
+                Assert.Equal(blocks.TopologyCertificateStatus, r.TopologyCertificateStatus);
+                Assert.Equal(blocks.CertificateBlocksTried, r.CertificateBlocksTried);
+                Assert.Equal(blocks.CertificateBlocksCertified, r.CertificateBlocksCertified);
+                Assert.Equal(cells(blocks), cells(r));
             }
         }
 

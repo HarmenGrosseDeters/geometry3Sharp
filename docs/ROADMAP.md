@@ -122,7 +122,8 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
    merged (#779); stage 2 stopped after its spike (2026-11-15, #923): refinement certifies thin features
    but not the double crossings at silhouette edges, which come back at every level (uncertified cells -10 % at 15x
    the contouring time). Stage 2a (approved 2026-11-15): the proof, Theorem 6 (blocks of cells), written and
-   reviewed (#925); then stage 2 as the block test.
+   reviewed (#925); stage 2 built as the block test (#935: clean T1 / 128 uncertified cells -72 %, certified
+   runs 4 -> 8 of 14, never wrong); next the refinement for the thin features left.
 3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
    a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
    it comes before the release; a no-go does not hold the release.

@@ -713,6 +713,455 @@ namespace g3
             return ContouringCertificateReason.None;
         }
 
+        // ---- blocks (Theorem 6, section 7.10 of docs/design/CONTOURING_TOPOLOGY.md) ----
+
+        /// <summary>
+        /// The level-set side of the block test (Lemmas 6.2 and 6.3): the block R is the union of the cells (min node) of
+        /// size s, all of one size and on one lattice (no refinement transition in or next to the block: the caller checks
+        /// that). True if L meets R in disjoint disks properly embedded in R: every component of L in R meets the boundary of
+        /// R, and the Euler characteristic of L in R equals the number of components. The first version asks general
+        /// position (G) of every face, edge and node of every cell of the block, inside ones included, and answers false on
+        /// any degeneracy; so every predicate below is the stage-1 one and none is a closed-set test.
+        ///
+        /// chi(L in R) = sum over the cells c of chi(L in c) - sum over the faces f inside R of chi(L in f) + sum over the
+        /// edges e inside R of chi(L in e) (inclusion and exclusion over the cells; the coefficient of a face, edge or node on
+        /// the boundary of a manifold block is 0, and no node meets L), with chi(L in c) = |T(c)| - |M(c)| + |V(c)|,
+        /// chi(L in f) = |T(f)| - |M(f)| and chi(L in e) = the triangles crossing e (the counting lemma, section 7.4). The
+        /// components: the pieces (t, c), t in T(c), joined in a cell across the mesh edges of M(c) and across an inside face
+        /// f by the triangles of T(f).
+        /// </summary>
+        public bool Block(IList<Vector3i> cells, int s)
+        {
+            int n = cells.Count;
+            var index = new Dictionary<Vector3i, int>(n);
+            for (int i = 0; i < n; ++i) index[cells[i]] = i;
+            int B = grid.BinSize;
+            // per cell: the triangles that may meet it (as Cell), T(c), M(c), V(c)
+            var cellTris = new List<int>[n];
+            var Tc = new List<int>[n];
+            long chi = 0;
+            var insideFaceT = new Dictionary<GridFace, List<int>>();
+            var cellM_ = new HashSet<int>[n];
+            var edgeCount = new Dictionary<GridSegment, List<int>>();
+            for (int i = 0; i < n; ++i) {
+                Vector3i min = cells[i];
+                Vector3i bin = new Vector3i(fdiv(min.x, B), fdiv(min.y, B), fdiv(min.z, B));
+                Vector3i max = min + s * Vector3i.One;
+                if (fdiv(max.x - 1, B) != bin.x || fdiv(max.y - 1, B) != bin.y || fdiv(max.z - 1, B) != bin.z) return false;
+                int bi = Array.BinarySearch(binKeys, bin_key(bin.x, bin.y, bin.z));
+                int b0 = bi >= 0 ? binStart[bi] : 0, b1 = bi >= 0 ? binStart[bi + 1] : 0;
+                Vector3d lo = grid.Node(min), hi = grid.Node(max);
+                var tris = new List<int>();
+                for (int k = b0; k < b1; ++k) {
+                    int t = binTris[k], o = 6 * t;
+                    if (triBox[o] > hi.x || triBox[o + 3] < lo.x || triBox[o + 1] > hi.y || triBox[o + 4] < lo.y || triBox[o + 2] > hi.z || triBox[o + 5] < lo.z) continue;
+                    if (may_meet_box(P[triV[3 * t]], P[triV[3 * t + 1]], P[triV[3 * t + 2]], lo, hi)) tris.Add(t);
+                }
+                cellTris[i] = tris;
+                // V(c): vertices strictly inside (one on the boundary of a face is a degeneracy, found by the face's edges)
+                int st = ++stamp;
+                var V = new List<int>();
+                foreach (int t in tris)
+                    for (int j = 0; j < 3; ++j) {
+                        int vid = triV[3 * t + j];
+                        if (vtxMark[vid] == st) continue;
+                        vtxMark[vid] = st;
+                        Vector3d p = P[vid];
+                        if (p.x > lo.x && p.x < hi.x && p.y > lo.y && p.y < hi.y && p.z > lo.z && p.z < hi.z) V.Add(vid);
+                    }
+                // the faces of c (with their T and M) and their edges
+                var Tset = new HashSet<int>(); var Mset = new HashSet<int>();
+                for (int a = 0; a < 3; ++a)
+                    for (int side = 0; side < 2; ++side) {
+                        Vector3i fmin = min; fmin[a] += side * s;
+                        GridFace f = new GridFace(fmin, a, s);
+                        List<int> fT, fM;
+                        if (!block_face(f, tris, edgeCount, out fT, out fM)) return false;
+                        foreach (int t in fT) Tset.Add(t);
+                        foreach (int e in fM) Mset.Add(e);
+                        // an inside face (the cell across is in the block) is subtracted once, from the lower cell's side
+                        Vector3i nb = min; nb[a] += side == 0 ? -s : s;
+                        if (side == 1 && index.ContainsKey(nb)) {
+                            insideFaceT[f] = fT;
+                            chi -= fT.Count - fM.Count;
+                        }
+                    }
+                foreach (int vid in V) {
+                    for (int k = vtxTriStart[vid]; k < vtxTriStart[vid + 1]; ++k) Tset.Add(vtxTris[k]);
+                    for (int k = vtxEdgeStart[vid]; k < vtxEdgeStart[vid + 1]; ++k) Mset.Add(vtxEdges[k]);
+                }
+                chi += Tset.Count - Mset.Count + V.Count;
+                Tc[i] = new List<int>(Tset);
+                Tc[i].Sort();
+                // the mesh edges of M(c) join the pieces of c
+                cellM_[i] = Mset;
+            }
+            // edges inside R: the four cells around them in the block
+            foreach (var kv in edgeCount) {
+                GridSegment e = kv.Key;
+                int u = (e.Axis + 1) % 3, v = (e.Axis + 2) % 3;
+                bool inside = true;
+                for (int q = 0; q < 4 && inside; ++q) {
+                    Vector3i c = e.Start;
+                    if ((q & 1) != 0) c[u] -= s;
+                    if ((q & 2) != 0) c[v] -= s;
+                    inside = index.ContainsKey(c);
+                }
+                if (inside) chi += kv.Value.Count;
+            }
+            // the pieces and their components
+            var piece = new Dictionary<long, int>();
+            int np = 0;
+            long NT = triMark.Length;
+            for (int i = 0; i < n; ++i) foreach (int t in Tc[i]) piece[i * NT + t] = np++;
+            var par = new int[np];
+            for (int i = 0; i < np; ++i) par[i] = i;
+            Func<int, int> root = null;
+            root = (x) => { while (par[x] != x) x = par[x] = par[par[x]]; return x; };
+            Action<int, int> join = (x, y) => { x = root(x); y = root(y); if (x != y) par[x] = y; };
+            for (int i = 0; i < n; ++i)
+                foreach (int e in cellM_[i]) {
+                    int ta = edgeT[2 * e], tb = edgeT[2 * e + 1];
+                    int pa, pb;
+                    if (piece.TryGetValue(i * NT + ta, out pa) && piece.TryGetValue(i * NT + tb, out pb)) join(pa, pb);
+                    else return false;      // (both triangles of a mesh edge meeting c meet c: not expected)
+                }
+            foreach (var kv in insideFaceT) {
+                GridFace f = kv.Key;
+                Vector3i below = f.Min; below[f.Axis] -= s;
+                int ia = index[below], ib = index[f.Min];
+                foreach (int t in kv.Value) {
+                    int pa, pb;
+                    if (piece.TryGetValue(ia * NT + t, out pa) && piece.TryGetValue(ib * NT + t, out pb)) join(pa, pb);
+                    else return false;
+                }
+            }
+            // a component meets the boundary of R if a piece's triangle meets a face of its cell on the boundary
+            var touches = new bool[np];
+            for (int i = 0; i < n; ++i) {
+                Vector3i min = cells[i];
+                for (int a = 0; a < 3; ++a)
+                    for (int side = 0; side < 2; ++side) {
+                        Vector3i nb = min; nb[a] += side == 0 ? -s : s;
+                        if (index.ContainsKey(nb)) continue;
+                        Vector3i fmin = min; fmin[a] += side * s;
+                        List<int> fT, fM;
+                        block_face(new GridFace(fmin, a, s), cellTris[i], edgeCount, out fT, out fM);
+                        foreach (int t in fT) touches[root(piece[i * NT + t])] = true;
+                    }
+            }
+            int components = 0;
+            for (int i = 0; i < np; ++i)
+                if (root(i) == i) {
+                    if (!touches[i]) return false;      // a component inside R (closed): not a disk
+                    components++;
+                }
+            return chi == components;
+        }
+
+        // T(f) and M(f) of a face (the triangles of the mesh edges crossing it and those crossing its edges); false on
+        // any degeneracy of the face or its edges ((G): a mesh edge meeting it otherwise than by crossing its interior,
+        // a triangle meeting one of its edges otherwise than by a crossing)
+        bool block_face(GridFace f, List<int> tris, Dictionary<GridSegment, List<int>> edgeTris, out List<int> T, out List<int> M)
+        {
+            T = new List<int>(); M = new List<int>();
+            int a = f.Axis, u = (a + 1) % 3, v = (a + 2) % 3;
+            double Pl = grid.Coord(a, f.Min[a]);
+            double U0 = grid.Coord(u, f.Min[u]), U1 = grid.Coord(u, f.Min[u] + f.Size);
+            double V0 = grid.Coord(v, f.Min[v]), V1 = grid.Coord(v, f.Min[v] + f.Size);
+            var Ts = new HashSet<int>(); var Ms = new HashSet<int>();
+            foreach (int t in tris) {
+                int o = 6 * t;
+                if (triBox[o + a] > Pl || triBox[o + 3 + a] < Pl || triBox[o + u] > U1 || triBox[o + 3 + u] < U0
+                    || triBox[o + v] > V1 || triBox[o + 3 + v] < V0) continue;
+                for (int j = 0; j < 3; ++j) {
+                    int e = triE[3 * t + j];
+                    if (Ms.Contains(e)) continue;
+                    int sc = segment_face(P[edgeV[2 * e]], P[edgeV[2 * e + 1]], a, Pl, U0, U1, V0, V1);
+                    if (sc == Degenerate) return false;
+                    if (sc == Cross) { Ms.Add(e); Ts.Add(edgeT[2 * e]); Ts.Add(edgeT[2 * e + 1]); }
+                }
+            }
+            for (int k = 0; k < 4; ++k) {
+                Vector3i c0 = f.Corner(k), c1 = f.Corner((k + 1) % 4), d = c1 - c0;
+                int axis = d.x != 0 ? 0 : d.y != 0 ? 1 : 2;
+                GridSegment seg = new GridSegment(d[axis] > 0 ? c0 : c1, axis, f.Size);
+                List<int> et;
+                if (!edgeTris.TryGetValue(seg, out et)) {
+                    et = new List<int>();
+                    Vector3d A = grid.Node(seg.Start), Bn = grid.Node(seg.End);
+                    bool degenerate = false;
+                    foreach (int t in tris) {
+                        int sc = segment_triangle(A, Bn, axis, P[triV[3 * t]], P[triV[3 * t + 1]], P[triV[3 * t + 2]]);
+                        if (sc == Degenerate) { degenerate = true; break; }
+                        if (sc == Cross) et.Add(t);
+                    }
+                    if (degenerate) return false;
+                    edgeTris[seg] = et;
+                }
+                foreach (int t in et) Ts.Add(t);
+            }
+            T.AddRange(Ts); T.Sort();
+            M.AddRange(Ms); M.Sort();
+            return true;
+        }
+
+        /// <summary>
+        /// The contour side of the block test (Lemma 6.4), from the pattern only: the patches of the cells (the
+        /// marching-cubes patches by the node signs and the face rule, as DualContouring builds them), joined across the
+        /// faces inside the block by the crossed edges they share. True if every component reaches the boundary of R and
+        /// P - A + Z (patches, arcs on inside faces, crossed inside edges) equals their number. False if an edge is crossed
+        /// where its node signs agree or the reverse (the pattern is not the one of the signs).
+        /// </summary>
+        public static bool ContourBlock(CertificateGrid grid, IList<Vector3i> cells, int s)
+        {
+            int n = cells.Count;
+            var index = new Dictionary<Vector3i, int>(n);
+            for (int i = 0; i < n; ++i) index[cells[i]] = i;
+            // nodes: (cell, local edge) of crossed edges; patch roots per cell
+            var parList = new List<int>();
+            var touchList = new List<bool>();
+            long P = 0;
+            var patchOfEdge = new int[n * 12];
+            for (int i = 0; i < n; ++i) {
+                Vector3i min = cells[i];
+                int[] local = new int[12];
+                bool ambiguous;
+                int np = cell_patches(grid, min, s, local, out ambiguous);
+                if (np < 0) return false;
+                int base0 = parList.Count;
+                for (int g = 0; g < np; ++g) { parList.Add(base0 + g); touchList.Add(false); }
+                for (int le = 0; le < 12; ++le) patchOfEdge[12 * i + le] = local[le] < 0 ? -1 : base0 + local[le];
+                P += np;
+                // a patch reaches the boundary if one of its edges lies on a face of the cell on the boundary of R
+                for (int le = 0; le < 12; ++le) {
+                    int g = patchOfEdge[12 * i + le];
+                    if (g < 0) continue;
+                    int ea = le / 4, bu = le & 1, bv = (le >> 1) & 1;
+                    int u = (ea + 1) % 3, v = (ea + 2) % 3;
+                    Vector3i nbu = min; nbu[u] += bu == 0 ? -s : s;
+                    Vector3i nbv = min; nbv[v] += bv == 0 ? -s : s;
+                    if (!index.ContainsKey(nbu) || !index.ContainsKey(nbv)) touchList[g] = true;
+                }
+            }
+            int[] gpar = parList.ToArray();
+            long A = 0, Z = 0;
+            for (int i = 0; i < n; ++i) {
+                Vector3i min = cells[i];
+                // the faces to the +a neighbour in the block: each crossed edge of the face joins the two cells' patches
+                for (int a = 0; a < 3; ++a) {
+                    Vector3i nb = min; nb[a] += s;
+                    int j;
+                    if (!index.TryGetValue(nb, out j)) continue;
+                    int crossedOnFace = 0;
+                    for (int le = 0; le < 12; ++le) {
+                        int ea = le / 4;
+                        if (ea == a) continue;
+                        // local edges of cell i on its +a face, and the same edge of cell j on its -a face
+                        int bu = le & 1, bv = (le >> 1) & 1;
+                        int u = (ea + 1) % 3;
+                        int bitA = (u == a) ? bu : bv;
+                        if (bitA != 1) continue;
+                        int leJ = (u == a) ? (le & ~1) : (le & ~2);
+                        int gi = patchOfEdge[12 * i + le], gj = patchOfEdge[12 * j + leJ];
+                        if ((gi < 0) != (gj < 0)) return false;
+                        if (gi < 0) continue;
+                        crossedOnFace++;
+                        uf_union(gpar, gi, gj);
+                    }
+                    A += crossedOnFace / 2;
+                }
+                // crossed edges inside R, counted at the cell where the edge is the local edge with both bits 1 (the cell
+                // below and behind it along the two other axes)
+                for (int ea = 0; ea < 3; ++ea) {
+                    int le = 4 * ea + 3;
+                    if (patchOfEdge[12 * i + le] < 0) continue;
+                    int u = (ea + 1) % 3, v = (ea + 2) % 3;
+                    bool inside = true;
+                    for (int q = 1; q < 4 && inside; ++q) {
+                        Vector3i c = min;
+                        if ((q & 1) != 0) c[u] += s;
+                        if ((q & 2) != 0) c[v] += s;
+                        inside = index.ContainsKey(c);
+                    }
+                    if (inside) Z++;
+                }
+            }
+            var rootTouches = new Dictionary<int, bool>();
+            for (int g = 0; g < gpar.Length; ++g) {
+                int r = uf_find(gpar, g);
+                bool t;
+                rootTouches.TryGetValue(r, out t);
+                rootTouches[r] = t || touchList[g];
+            }
+            foreach (var kv in rootTouches) if (!kv.Value) return false;
+            return P - A + Z == rootTouches.Count;
+        }
+
+        /// <summary> (tests) the number of patches ContourBlock reads for one cell (as DualContouring builds them), -1 if the pattern is not the signs' </summary>
+        internal static int CellPatchCount(CertificateGrid grid, Vector3i min, int s, out bool ambiguous)
+        {
+            int[] patchOfEdge = new int[12];
+            return cell_patches(grid, min, s, patchOfEdge, out ambiguous);
+        }
+
+        // the marching-cubes patches of a cell from the node signs and the face rule (inside corners joined along cube edges,
+        // outside corners also across an ambiguous face; as DualContouring.cell_patches): the patch count, and per local
+        // edge its patch or -1; -1 if an edge is crossed where its node signs agree or the reverse
+        static int cell_patches(CertificateGrid grid, Vector3i min, int s, int[] patchOfEdge, out bool ambiguous)
+        {
+            bool[] inside = new bool[8];
+            int[] par = new int[8];
+            for (int lc = 0; lc < 8; ++lc) { inside[lc] = grid.NodeInside(min + s * new Vector3i(lc & 1, (lc >> 1) & 1, (lc >> 2) & 1)); par[lc] = lc; }
+            ambiguous = false;
+            for (int le = 0; le < 12; ++le) { int c0, c1; edge_corners(le, out c0, out c1); if (inside[c0] == inside[c1]) uf_union(par, c0, c1); }
+            for (int a = 0; a < 3; ++a)
+                for (int side = 0; side < 2; ++side) {
+                    int[] fc = face_corners(a, side);
+                    if (inside[fc[0]] == inside[fc[2]] && inside[fc[1]] == inside[fc[3]] && inside[fc[0]] != inside[fc[1]]) {
+                        ambiguous = true;
+                        if (inside[fc[0]]) uf_union(par, fc[1], fc[3]); else uf_union(par, fc[0], fc[2]);
+                    }
+                }
+            var keys = new List<int>(4);
+            for (int le = 0; le < 12; ++le) {
+                patchOfEdge[le] = -1;
+                int c0, c1; edge_corners(le, out c0, out c1);
+                bool crossed = grid.Crossed(local_segment(min, s, le));
+                if (crossed != (inside[c0] != inside[c1])) return -1;
+                if (!crossed) continue;
+                int cin = inside[c0] ? c0 : c1, cout = inside[c0] ? c1 : c0;
+                int key = uf_find(par, cin) * 8 + uf_find(par, cout);
+                int g = keys.IndexOf(key);
+                if (g < 0) { g = keys.Count; keys.Add(key); }
+                patchOfEdge[le] = g;
+            }
+            return keys.Count;
+        }
+
+        // local corner lc = (x, y, z) bits; local edge le = 4 axis + (bit of axis + 1) + 2 (bit of axis + 2)
+        static void edge_corners(int le, out int c0, out int c1)
+        {
+            int ea = le / 4, bu = le & 1, bv = (le >> 1) & 1, u = (ea + 1) % 3, v = (ea + 2) % 3;
+            c0 = (bu << u) | (bv << v);
+            c1 = c0 | (1 << ea);
+        }
+        // the corners of the face normal to a on side 'side', in cyclic order
+        static int[] face_corners(int a, int side)
+        {
+            int u = (a + 1) % 3, v = (a + 2) % 3, b = side << a;
+            return new int[] { b, b | (1 << u), b | (1 << u) | (1 << v), b | (1 << v) };
+        }
+        static GridSegment local_segment(Vector3i min, int s, int le)
+        {
+            int ea = le / 4, bu = le & 1, bv = (le >> 1) & 1, u = (ea + 1) % 3, v = (ea + 2) % 3;
+            Vector3i st = min; st[u] += bu * s; st[v] += bv * s;
+            return new GridSegment(st, ea, s);
+        }
+        static int uf_find(int[] par, int i) { while (par[i] != i) i = par[i] = par[par[i]]; return i; }
+        static void uf_union(int[] par, int a, int b) { a = uf_find(par, a); b = uf_find(par, b); if (a != b) par[a] = b; }
+
+        /// <summary>
+        /// The ball test of remark 2 of Theorem 6 for a union of lattice cubes (cell coordinates): every node's link (its
+        /// octants in the union) is a disk or the whole sphere, the boundary is connected, and the Euler characteristic of
+        /// the union is 1.
+        /// </summary>
+        public static bool IsBall(ICollection<Vector3i> cubes)
+        {
+            var set = cubes as HashSet<Vector3i> ?? new HashSet<Vector3i>(cubes);
+            if (set.Count == 0) return false;
+            var nodes = new HashSet<Vector3i>();
+            var elems = new HashSet<Vector3i>();
+            long chi = 0;
+            foreach (var c in set)
+                for (int dz = 0; dz <= 2; ++dz) for (int dy = 0; dy <= 2; ++dy) for (int dx = 0; dx <= 2; ++dx) {
+                    var key = new Vector3i(2 * c.x + dx, 2 * c.y + dy, 2 * c.z + dz);
+                    if (elems.Add(key)) chi += ((dx & 1) + (dy & 1) + (dz & 1)) % 2 == 0 ? 1 : -1;
+                    if ((dx & 1) == 0 && (dy & 1) == 0 && (dz & 1) == 0) nodes.Add(new Vector3i(c.x + dx / 2, c.y + dy / 2, c.z + dz / 2));
+                }
+            if (chi != 1) return false;
+            foreach (var v in nodes) {
+                int mask = 0;
+                for (int o = 0; o < 8; ++o)
+                    if (set.Contains(new Vector3i(v.x - 1 + (o & 1), v.y - 1 + ((o >> 1) & 1), v.z - 1 + ((o >> 2) & 1)))) mask |= 1 << o;
+                if (!link_disk_or_sphere(mask)) return false;
+            }
+            // boundary faces (a cube of the union on one side only), connected through their edges
+            // (keys as value tuples: KeyValuePair has no hash of its own, a dictionary of them is quadratic)
+            var faces = new List<(int, Vector3i)>();
+            foreach (var c in set)
+                for (int a = 0; a < 3; ++a)
+                    for (int side = 0; side < 2; ++side) {
+                        var nb = c; nb[a] += side == 0 ? -1 : 1;
+                        if (set.Contains(nb)) continue;
+                        var m = c; m[a] += side;
+                        faces.Add((a, m));
+                    }
+            var owner = new Dictionary<(int, Vector3i), int>();
+            var par = new int[faces.Count];
+            for (int i = 0; i < par.Length; ++i) par[i] = i;
+            for (int i = 0; i < faces.Count; ++i) {
+                int a = faces[i].Item1, u = (a + 1) % 3, w = (a + 2) % 3;
+                Vector3i m = faces[i].Item2, du = Vector3i.Zero, dw = Vector3i.Zero;
+                du[u] = 1; dw[w] = 1;
+                var es = new[] { (u, m), (u, m + dw), (w, m), (w, m + du) };
+                foreach (var e in es) {
+                    int j;
+                    if (owner.TryGetValue(e, out j)) uf_union(par, i, j); else owner[e] = i;
+                }
+            }
+            int roots = 0;
+            for (int i = 0; i < par.Length; ++i) if (uf_find(par, i) == i) roots++;
+            return roots == 1;
+        }
+
+        // the octants of a node (bit o = the octant with offsets (o & 1, o >> 1 & 1, o >> 2 & 1)) on the octahedral sphere
+        // around it: a disk or the whole sphere
+        static bool link_disk_or_sphere(int mask)
+        {
+            if (mask == 255) return true;
+            if (mask == 0) return false;
+            // around each of the six axis directions the four octants touching it must be one arc (or all or none)
+            for (int a = 0; a < 3; ++a)
+                for (int sgn = 0; sgn < 2; ++sgn) {
+                    int u = (a + 1) % 3, w = (a + 2) % 3;
+                    int[] ring = { (sgn << a), (sgn << a) | (1 << u), (sgn << a) | (1 << u) | (1 << w), (sgn << a) | (1 << w) };
+                    int occ = 0, runs = 0;
+                    for (int k = 0; k < 4; ++k) {
+                        bool cur = ((mask >> ring[k]) & 1) != 0, prev = ((mask >> ring[(k + 3) % 4]) & 1) != 0;
+                        if (cur) occ++;
+                        if (cur && !prev) runs++;
+                    }
+                    if (occ > 0 && occ < 4 && runs != 1) return false;
+                }
+            // connected through shared sides (octants that differ in one bit), and V - E + F = 1
+            int first = -1;
+            for (int o = 0; o < 8; ++o) if (((mask >> o) & 1) != 0) { first = o; break; }
+            int seen = 1 << first;
+            var stack = new Stack<int>(); stack.Push(first);
+            while (stack.Count > 0) {
+                int o = stack.Pop();
+                for (int b = 0; b < 3; ++b) {
+                    int q = o ^ (1 << b);
+                    if (((mask >> q) & 1) != 0 && ((seen >> q) & 1) == 0) { seen |= 1 << q; stack.Push(q); }
+                }
+            }
+            if (seen != mask) return false;
+            // the octants as spherical triangles: vertices (axis, sign) = 2 axis + sign, edges the pairs of them
+            int F = 0, vmask = 0;
+            var edges = new HashSet<int>();
+            for (int o = 0; o < 8; ++o) {
+                if (((mask >> o) & 1) == 0) continue;
+                F++;
+                int[] vs = new int[3];
+                for (int a = 0; a < 3; ++a) { vs[a] = 2 * a + ((o >> a) & 1); vmask |= 1 << vs[a]; }
+                for (int i = 0; i < 3; ++i) for (int j = i + 1; j < 3; ++j) edges.Add(vs[i] * 8 + vs[j]);
+            }
+            int V = 0;
+            for (int k = 0; k < 6; ++k) if (((vmask >> k) & 1) != 0) V++;
+            return V - edges.Count + F == 1;
+        }
+
         void mark_triangle(int t, int st) { if (triMark[t] != st) { triMark[t] = st; cellT.Add(t); } }
         void mark_edge(int e, int st) { if (edgeMark[e] != st) { edgeMark[e] = st; cellM.Add(e); } }
 

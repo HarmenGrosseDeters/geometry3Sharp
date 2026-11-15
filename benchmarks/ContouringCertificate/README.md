@@ -168,3 +168,16 @@ SIL_BASE=1 $B refine base.jsonl <dir>/94664.stl <dir>/104640.stl <dir>/73088.stl
 Per run: the default solidify without the certificate, then with it at `CertificateRefineLevels` 0 (stage 1), 1, 2, 3:
 status, uncertified cells (and how many meet a silhouette edge of L), the stage-1 coarse cells still uncertified and
 the new ones, the result's topology against the exact truth, contour ms.
+
+## Stage 2: the block test (Theorem 6, #935)
+
+```
+bash benchmarks/ContouringCertificate/run_blocks.sh <work dir>      # the runner job: fetch, build, `solid` three times, table
+python3 benchmarks/ContouringCertificate/analyze_blocks.py <work dir>/blocks_rep{1,2,3}.jsonl
+```
+
+`solid` now runs each input three times: without the certificate (contour ms), with it and without blocks (stage 1, the
+`on_` fields), and with blocks (`blocks_` fields: status, uncertified cells, blocks tried and certified, the blocks phase).
+The table (three runs on a runner alone, raw rows on `runs/contouring-cert-blocks` 2de2753) is in the design note,
+section 7.11: clean T1 at / 128 uncertified cells 2322 -> 651, certified runs 4 -> 8 of 14, never certified wrong; the
+certificate 23-26 % of the contouring time with blocks, 16-20 % without.

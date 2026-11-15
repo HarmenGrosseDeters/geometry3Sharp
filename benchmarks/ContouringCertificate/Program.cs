@@ -101,13 +101,26 @@ class Program
                 if (inL[comp.Indices[0]]) genera.Add(MeshTopologySummary.Compute(new DSubmesh3(L, comp.Indices).SubMesh).Genus);
             r["truth_sig"] = Sig(genera);
         }
-        foreach (bool cert in new[] { false, true }) {
+        foreach (int mode in new[] { 0, 1, 2 }) {
+            bool cert = mode > 0;
             var sw = Stopwatch.StartNew();
-            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert };
+            var s = new MeshWindingNumberSolidify(mesh) { Adaptive = true, CellSize = diag / res, CleanupResult = false, ReduceTolerance = 0, ComputeTopologyCertificate = cert,
+                CertificateBlocks = mode == 2 };
             s.Compute();
-            string p = cert ? "on_" : "off_";
+            string p = mode == 0 ? "off_" : mode == 1 ? "on_" : "blocks_";
             r[p + "ms"] = sw.ElapsedMilliseconds;
             if (!cert) { r["contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c) ? c : -1; continue; }
+            if (mode == 2) {
+                r["blocks_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate.blocks", out long bm) ? bm : 0;
+                r["blocks_tried"] = s.CertificateBlocksTried; r["blocks_certified"] = s.CertificateBlocksCertified;
+                r["block_cells"] = s.CertificateBlockCells;
+                r["blocks_status"] = s.TopologyCertificateStatus.ToString();
+                r["blocks_uncertified"] = s.UncertifiedCells.Count;
+                r["blocks_certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm2) ? cm2 : -1;
+                r["blocks_contour_ms"] = s.PhaseMilliseconds.TryGetValue("contour", out long c2) ? c2 : -1;
+                if (s.Result != null) r["blocks_result_sig"] = Sig(MeshTopologySummary.Compute(s.Result).ComponentList.Select(x => x.Genus));
+                continue;
+            }
             r["certificate_ms"] = s.PhaseMilliseconds.TryGetValue("contour.certificate", out long cm) ? cm : -1;
             foreach (var kv in s.PhaseMilliseconds) if (kv.Key.StartsWith("contour.certificate.")) r[kv.Key.Substring(8)] = kv.Value;
             r["status"] = s.TopologyCertificateStatus.ToString();

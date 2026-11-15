@@ -151,6 +151,11 @@ Part of the [roadmap](../ROADMAP.md).
      predicates inside blocks, the probe's ball test) worked in. Go / no-go: go for
      stage 2 as the block test first (report only, measured; stop below half of the refused cells at / 128), refinement
      after it for the thin features.
+     Stage 2 built as the block test (#935, section 7.11 of the note; report only): clean T1 at / 128 uncertified cells
+     2322 -> 651 (72 % certified), certified runs 4 -> 8 of 14 (/ 64: 1269 -> 437, 2 -> 9), never certified wrong (40
+     runs, three repetitions); the certificate takes 23-26 % of the contouring at / 128 (16-20 % without blocks). Found and
+     fixed on the way: the certificate compared with the oriented copy's level set, so inputs with an inside-out part
+     could be certified wrongly (stage 1 defect). Next: refinement only for the thin features the blocks leave.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
@@ -609,7 +614,7 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), written and reviewed 2026-11-15 (#925); then stage 2 as the block test; options B and C only after a reviewed proof.
+5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), #925; stage 2 built as the block test (#935); next the refinement for the thin features left; options B and C only after a reviewed proof.
 6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
 7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
 8. #886: ARAP deformation, optionally biharmonic (research item 7).

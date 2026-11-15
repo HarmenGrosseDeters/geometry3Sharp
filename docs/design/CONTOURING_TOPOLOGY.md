@@ -1,6 +1,6 @@
 # A topology certificate for the contouring (study, Phase 5 item 4 follow-up)
 
-Status: **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15.** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
+Status: **study and proofs; stage 1 built (#779), stage 2 stopped after its spike (section 4.8, 2026-11-15); stage 2a, the proof of blocks of cells (Theorem 6, section 7.10), written and reviewed 2026-11-15 (#925); stage 2 built as the block test (#935, section 7.11).** Owner decision 2026-11-13 ([roadmap/research.md](../roadmap/research.md)
 item 4): option A (stages 1-2) is built in its own PR; for B and C the proof first. The proofs (section 7: Theorems
 1-5, 1b, and what holds for broken inputs) were written and independently reviewed on 2026-11-13. Approved as a study by the owner on
 2026-11-12. The study changed no library code (stage 1 did, #779); the study's measurement is
@@ -403,7 +403,7 @@ finger move is then implicit, and no moved surface is constructed.
 |---|---|---|---|
 | 0 | the lemma and the mesh side written as a full proof: **done, section 7** (2026-11-13; it corrected the cell test, section 4.3); reviewed by a second session on #749, findings worked in; open: the truth harness of section 2 as tests | S, docs and tests | the proof holds; a counterexample ends the approach |
 | 1 | class P, report only: `TopologyCertified` and the uncertified cells on `WindingContouring` / `MeshWindingNumberSolidify` for clean inputs; exact (E), (F), (C) by counting (section 7.4) | M (tier L rules: exact code) | never true on a wrong result (sections 2.1, 2.2 and a fuzz run); certified share and time reported; a spike first measures the check time against the DC phases |
-| 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule. **Spike 2026-11-15: stopped** (section 4.8): it certifies the thin features, not the double crossings at silhouette edges, which come back at every level; needs the edge lemma of section 4.8 first (stage 2a) | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
+| 2 | refinement driven by the uncertified cells; replaces the `MinRefineEdges` rule. **Spike 2026-11-15: stopped** (section 4.8): it certifies the thin features, not the double crossings at silhouette edges, which come back at every level; needs the edge lemma of section 4.8 first (stage 2a). **Built as the block test (#935, section 7.11)**: clean T1 at / 128 uncertified cells 2322 -> 651, certified runs 4 -> 8 of 14, never wrong; the refinement for the thin features left is the next step | S-M | the three wrong clean inputs of 2.2 become right or stay reported; cells and time within the bound of section 3 |
 | 2a | the edge lemma of section 4.8, as a proof, independently reviewed; then stage 2 on the remaining refusals. **Written 2026-11-15 as Theorem 6 (section 7.10, blocks of cells)**; estimate: 70-76 % of the refused cells of the clean T1 meshes lie in clusters that are balls as they are; go for stage 2 as blocks first, refinement after | S, docs | the proof holds |
 | 3 | class S: the interval interface, the built-in shapes and operators, the certificate in `DualContouring` (dense and two-level) | M | the families of 2.1 certified from 2 cells on; the gyroid gets a certified reference |
 | 4 | class W: defect edges, the gradient bound, "topology changed only near the defects" | M-L, research | decided after stage 2 on the 6 inputs that are not clean and the 800 run's solidify fallbacks |
@@ -1094,3 +1094,38 @@ ball test, the clusters as blocks) in the library, report only, measured on the 
 cells left), against the bound above; (2) refinement of section 4.8 only for what the blocks leave (the thin features),
 if (1) leaves enough of them to matter. Stop rule: if (1) certifies less than half of the refused cells on the clean T1
 meshes at / 128, report and stop.
+
+### 7.11 Stage 2: the block test, built (2026-11-15, #935)
+
+The library side of Theorem 6, report only (the contour does not change; nothing changes with the certificate off):
+`ContouringTopologyCertificate.Block` (Lemma 6.3), `ContourBlock` (Lemma 6.4, the patches of `DualContouring`'s face rule,
+checked against the cell vertices it makes), `IsBall` (remark 2), and `WindingContouring.certify_blocks`: the refused cells
+grouped into clusters (cells of one size sharing a face, an edge or a node), each tried as a block if it is a ball, holds no
+mesh-side refusal, and has no refinement transition in it or next to it (so every face on it lies in a certified cell
+outside, condition 2 by remark 3, without growth). First version: (G) everywhere in the block, a degeneracy refuses it, so
+only the stage 1 predicates are used; no new predicate, no error bound.
+
+Found on the way (a stage 1 defect, fixed in the same PR, test `InsideOutPart_IsNotCertified`): the certificate built L
+from `WindingContouring`'s oriented copy, which flips inside-out parts, so an input with an inside-out part was certified
+against a level set it does not have (a polycube with an inside-out polycube beside it: certified on master with two
+components for one). L is now the input's own.
+
+Measured (runner job, `benchmarks/ContouringCertificate/run_blocks.sh`, three runs alone on the machine, raw rows on
+`runs/contouring-cert-blocks` 2de2753; `MeshWindingNumberSolidify` adaptive, default refinement, cleanup and reduction off):
+
+| set | cell | runs | uncertified cells: stage 1 -> blocks | certified runs | wrong results | wrong and certified | blocks tried / certified | contour ms | certificate ms: stage 1 -> blocks | of it blocks ms |
+|---|---|---|---|---|---|---|---|---|---|---|
+| CAD solids | / 64 | 6 | 44 -> 0 | 5 -> 6 | 0 | 0 | 1 / 1 | 714-909 | 193-249 -> 207-242 | 43-88 |
+| T1 clean | / 64 | 14 | 1269 -> 437 (66 % certified) | 2 -> 9 | 2 | 0 | 122 / 121 | 2655-3197 | 618-707 -> 716-858 | 105-229 |
+| CAD solids | / 128 | 6 | 0 -> 0 | 6 -> 6 | 0 | 0 | 0 / 0 | 2950-3473 | 389-406 -> 228-349 | 0 |
+| T1 clean | / 128 | 14 | 2322 -> 651 (72 % certified) | 4 -> 8 | 3 | 0 | 224 / 218 | 4927-5044 | 820-1007 -> 1157-1278 | 288-457 |
+
+- Above the stop rule (half of the refused cells at / 128): 72 %. Nearly every block tried passes (218 of 224); what is
+  left is clusters that are not balls or touch a transition (the estimate of section 7.10: about a quarter), the three
+  wrong runs at / 128 (116871, 472011, 79961), which stay uncertified, and thin features.
+- Never certified on a wrong result (0 of 40 runs, three repetitions with the same counts).
+- Cost: the certificate takes 23-26 % of the contouring time on the clean T1 meshes at / 128 with blocks (16-20 % without),
+  the blocks 6-9 %; on the CAD solids at / 128 nothing is tried.
+- Next: refinement (section 4.8's prototype) only for what the blocks leave, and growth of the clusters that are not balls
+  (remark 3).
+
