@@ -191,9 +191,15 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      check of the tests: needle rings narrower than a grid unit that the tree nests under a path they lie beside (a hole
      vertex outside its outer ring; Xor Positive of pair 5351 and Xor Negative of pair 869 of that campaign,
      `new Random(pair)`, 16-gons on -4..4 for even pairs and 24-gons on -2..2 for odd ones); with the ports they do not occur.
-     Still open: at UTM coordinates with scale 1e-3 the rounding of the grid points back to doubles (an ulp of 5.7e6 is 2.6e5
-     grid units there) can turn slivers into rings of zero or negative area in doubles (the limit stated in
-     `ToGeneralPolygons`' summary; two cases of `HoleIsCutOut_UnderSimilarity` leave that similarity out for it).
+     At UTM coordinates with scale 1e-3 the rounding of the grid points back to doubles (an ulp of 5.7e6 was 2.6e5 grid
+     units there) turned slivers into rings of zero or negative area in doubles (rotated lattice pairs: 2824 of 8000
+     results). **Fixed 2026-11-15:** `ClipperFrame.ForBounds` keeps the grid no finer than the doubles of the coordinates
+     (resolution max(2^(e - bits), 2^(E - 53)), origin on the grid), so the results map back exactly: 0 of 8000
+     (`Clipper2FrameClampTests`). The near-degenerate check of the rounding of `f774daf` (rounding against the truncation
+     before it, 96 000 results each on lattices scaled by 2^48·1e-3, 1.1·2^20 and 2^20) found it wrong in 10 and 13 cases
+     where truncation was right, and right in 23 and 19 where truncation was wrong (0 and 0 on the 2^20 control): no
+     regression, so no revert (coordinator 2026-11-15); about 0.15 % of those results are off for both, a limit of the integer
+     engine on non-lattice inputs.
    - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
