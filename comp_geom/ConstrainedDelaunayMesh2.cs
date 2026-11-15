@@ -283,7 +283,7 @@ namespace g3
                     if (first.TryGetValue((x[i], y[i]), out int twin)) { x[i] = x[twin]; y[i] = y[twin]; continue; }
                     first.Add((x[i], y[i]), i);
                     double sx = Scaled(x[i] - ox), sy = Scaled(y[i] - oy);
-                    long cx = (long)Math.Floor(sx / cell), cy = (long)Math.Floor(sy / cell);
+                    long cx = MathUtil.ToLongSaturating(Math.Floor(sx / cell)), cy = MathUtil.ToLongSaturating(Math.Floor(sy / cell));
                     int into = -1;
                     for (long dx = -1; dx <= 1 && into < 0; ++dx)
                         for (long dy = -1; dy <= 1 && into < 0; ++dy) {
@@ -1097,7 +1097,7 @@ namespace g3
                 // every source is in the cells it passes through; one that passes within the tube of u is in u's cell or in a cell
                 // across a border within the tube (review of M2: the star of u can hide a source)
                 double x = ux / gridCell, y = uy / gridCell, r = tube / gridCell;
-                long x0 = (long)Math.Floor(x - r), x1 = (long)Math.Floor(x + r), y0 = (long)Math.Floor(y - r), y1 = (long)Math.Floor(y + r);
+                long x0 = MathUtil.ToLongSaturating(Math.Floor(x - r)), x1 = MathUtil.ToLongSaturating(Math.Floor(x + r)), y0 = MathUtil.ToLongSaturating(Math.Floor(y - r)), y1 = MathUtil.ToLongSaturating(Math.Floor(y + r));
                 for (long cx = x0; cx <= x1; ++cx)
                     for (long cy = y0; cy <= y1; ++cy) {
                         int at = Array.BinarySearch(cellKeys, (cx << 32) ^ (cy & 0xffffffff));
@@ -1124,7 +1124,7 @@ namespace g3
                 if (cellKeys == null) BuildGrid();
                 if (cellKeys.Length == 0) return false;
                 double x = Scaled(px - gridX) / gridCell, y = Scaled(py - gridY) / gridCell, r = scaledTolerance / gridCell;
-                long x0 = (long)Math.Floor(x - r), x1 = (long)Math.Floor(x + r), y0 = (long)Math.Floor(y - r), y1 = (long)Math.Floor(y + r);
+                long x0 = MathUtil.ToLongSaturating(Math.Floor(x - r)), x1 = MathUtil.ToLongSaturating(Math.Floor(x + r)), y0 = MathUtil.ToLongSaturating(Math.Floor(y - r)), y1 = MathUtil.ToLongSaturating(Math.Floor(y + r));
                 double tol2 = scaledTolerance * scaledTolerance;
                 for (long cx = x0; cx <= x1; ++cx)
                     for (long cy = y0; cy <= y1; ++cy) {
@@ -1192,7 +1192,7 @@ namespace g3
             /// <summary> the unit cells a segment passes through, in order (Amanatides and Woo 1987), each once </summary>
             static void Traverse(double ax, double ay, double bx, double by, Action<long> visit)
             {
-                long cx = (long)Math.Floor(ax), cy = (long)Math.Floor(ay), ex = (long)Math.Floor(bx), ey = (long)Math.Floor(by);
+                long cx = MathUtil.ToLongSaturating(Math.Floor(ax)), cy = MathUtil.ToLongSaturating(Math.Floor(ay)), ex = MathUtil.ToLongSaturating(Math.Floor(bx)), ey = MathUtil.ToLongSaturating(Math.Floor(by));
                 double dx = bx - ax, dy = by - ay;
                 int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
                 double tdx = dx != 0 ? Math.Abs(1 / dx) : double.PositiveInfinity, tdy = dy != 0 ? Math.Abs(1 / dy) : double.PositiveInfinity;

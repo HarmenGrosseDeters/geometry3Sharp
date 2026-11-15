@@ -174,6 +174,10 @@ max(Lower, stuck, heap top)` is never below the computed `Lower`:
 
 A refined triangle is covered by its rounded children's bounds plus `max off` (#738 c3).
 
+The argument holds for any value of the computed `Lower`: it only needs that `Upper` is at least the value the pruning
+compared against. So how `Lower` is evaluated (since #873, from lengths to closest points, section 12) does not affect
+the bound.
+
 (Nit, from the review: `Converged` compares upper − lower ≤ tol in floats, so it can be one ulp off. That does not
 affect the bounds.)
 
@@ -277,3 +281,103 @@ mutants are among them: the parents' off with one end only (either end), and the
 The early `continue` of a losing option, when cleared instead, is equivalent: the option is not adopted either way.
 
 The incremental mutation run of CI (`tests/mutation`) gates the merge (a new error bound).
+
+## 12. Coplanar and touching meshes (#873)
+
+**Symptom.** Two grids of the unit square in the same plane (exact distance 0) stalled at an upper bound of about 2e-9
+with `Converged` false for any absolute `Tolerance` below that. This happened with and without `CertifiedUpper`.
+
+**Causes.** There were three, and each one alone kept the floor:
+1. **The point distances.** `OneSided.query` took `sqrt(DistanceSquared)`. For a point on the other mesh, that quadratic
+   form cancels to about 2^-53 E² (#819 F2), so its square root is about 2^-26 E ≈ 1e-9 instead of 0. `Upper`, never
+   below the computed `Lower` (section 7), cannot get below the largest of these.
+2. **The nearest triangle.** `FindNearestTriangle` compares the same cancelling form. For a point within about 1e-8 of a
+   shared edge, it can pick the triangle on the other side. That triangle is genuinely about 1e-9 away, even when the
+   distance itself is evaluated accurately.
+3. **The float cascade.** `TriangleDeviationBounds.max_distance` measures a corner's distance to another candidate
+   triangle by the same form. A triangle across a target edge then gets a bound of about 1e-9, however small it is, and
+   refinement runs to `MaxSubdivisions`. With `CertifiedUpper` the leaves are certified (B2), but the float choice of
+   pieces and candidates is driven by that noise.
+
+**Fix.** Each distance that steers the refinement is the length |p − c| to the closest point c that
+`DistPoint3Triangle3` computes. c = V0 + s e0 + t e1 is a rounded point of the triangle, so |p − c| is within a few ulps
+of the coordinates of the distance to the triangle. It does not cancel. Three changes:
+- **`OneSided.query`:** uses `DMeshAABBTree3.FindNearestTriangleByClosestPoint`, which is internal. It is the traversal of
+  `FindNearestTriangle`, with the triangles compared by |p − c|, and is deterministic. It also returns d = |p − c|.
+- **`TriangleDeviationBounds.PointDistance`:** internal, set only by `MeshHausdorffDistance`. `max_distance` measures by
+  |p − c|. Other users (`IsWithin`, the Reducer) keep their values bit for bit.
+- **A second refinement pass in `OneSided.Run`.** The first pass stops when every bound is within `tol` of the computed
+  `Lower`. The reported gap is to the certified lower bound, which is below `Lower` by the rounding of the worst point's
+  distance (≈1e-16 here: the exact distance is 0). The gap then ended up to that much above `tol`.
+  - When that difference, slack = max(Lower, prune) − max(CertifiedLower, the first direction's CertifiedLower), is at
+    most tol/2, the triangles above max(Lower, prune) + tol − slack are refined further.
+  - The pass is capped at the first pass's subdivisions (at least one batch) and never changes `Converged` (review). Where
+    it stops early, `Compute` decides from the reported gap.
+  - Pruning is unchanged.
+- **Refinement stops below a stuck triangle's bound** (review): target = max(goal, stuck − 2 tol). `Upper` ≥ stuck
+  anyway. No later point can raise `Lower` above the largest bound on the heap (a point's distance is at most its
+  triangle's bound, up to rounding), so once that is ≤ stuck − 2 tol the goal stays below stuck. The gap then stays
+  open whatever is refined (`Converged` false). A run that converged before converges the same way. (The second review:
+  a stop at stuck itself could end a run that later Lower values would have closed.) Without this, a tolerance near
+  the rounding of the certified bounds on touching meshes (1e-15 at coordinates of 1) refined to `MaxSubdivisions`.
+  Before #873 the 1e-9 floor stopped such runs early.
+- **`Compute` checks the reported gap unconditionally:** `Converged` is false where UpperBound − LowerBound > tol.
+  Before, this was only where the certified lower bound was below the computed one. This is what the doc of `Converged`
+  states.
+
+**Soundness: no new error bound.**
+- **The certified path (`CertifiedUpper`).** Its bounds are B1–B6 as before, evaluated at whatever points, triangles
+  and pieces the float code picks: any choice is valid (B1: any point of the triangle; B6: any adopted option). The
+  pruning is sound for any computed `Lower` (section 7). The second pass only refines more, and refinement keeps every
+  bound (#738 c3).
+- **The default path.** It stays certified only up to the floating-point evaluation. That is now a few ulps of the
+  coordinates, before up to 2^-26 E. The doc of `Compute` says so.
+- **The certified lower bound.** It is unchanged: `CertifiedPointMeshDistance` of the worst point, `min` with `Lower`.
+- **What can still not converge.** An absolute `Tolerance` below a few ulps of the coordinates, for meshes that touch:
+  `Lower` is then the rounding of |p − c| above the certified 0, eg 1.1e-16 at coordinates of 1. The second pass needs
+  slack ≤ tol/2. Otherwise `Converged` stays false, and the reported interval is still correct.
+
+**Prior art.** Short check, the approach only:
+- **Sacht and Jacobson (SGP 2024).** The cascade we use. Their bounds assume exact point-triangle distances; rounding is
+  not discussed.
+- **Geometric Tools.** Eberly's point-triangle distance; the later `DistancePointTriangle` and its exact variant compute
+  the closest point and then `Dot(diff, diff)` of p − closest, which is the non-cancelling form used here.
+- **Bartoň, Hanniel, Elber and Kim,** *Precise Hausdorff distance computation between polygonal meshes* (CAGD 2010).
+  Exact candidates; no rounding analysis.
+- Nothing found on a noise floor of certified Hausdorff bounds for coplanar inputs. Terms searched: "certified Hausdorff
+  distance triangle meshes floating point rounding coplanar".
+
+**Measured.** `benchmarks/HausdorffBenchmark`, median of 15. Table and command in its README.
+- **The coplanar row** (16×16 cells against 17×17 cells, jittered, tol 1e-12) converges: upper 9.99e-13, before
+  2.28e-9 and not converged.
+- **The ordinary rows:**
+  - lower bounds the same up to ulps;
+  - subdivisions within 6% (the stopping points moved with the distances);
+  - time of the default path about +5 to +15%, of `CertifiedUpper` about +0 to +8%, within the run-to-run noise of
+    about ±30%.
+- **The cost.** The full `DistPoint3Triangle3` (with its closest point) per triangle visited, in place of
+  `TriDistanceSqr`.
+
+**Tests.**
+- **`HausdorffCoplanarTests`**, public API, all 13 fail on the old code:
+  - coplanar grids converge to [0, ≤ tol];
+  - parallel grids 2^-33 apart contain the exact distance, both directions and symmetric;
+  - `Similarity.All()`, bit for bit at 2^k;
+  - reuse, fresh and serial runs;
+  - touching, tilted grids keep the certified bound above every vertex's exact distance.
+- **`NearestByClosestPointTests`**, internal:
+  - the tree search against brute force;
+  - an empty filter;
+  - the cascade across an edge with `PointDistance`.
+- **Mutation.** The review fixes added 4 more mutants:
+  - **Killed:** the stuck stop dropped (`UlpTolerance_StaysBounded`, CertifiedUpper: 100k subdivisions).
+  - **Surviving, equivalent on the tested inputs:**
+    - the second pass's cap removed;
+    - the second pass setting `Converged` on its cap. Both are guards: the cap is not reached where the pass can close the
+      gap.
+    - the stuck test of `finish` against the target: equivalent through the unconditional gap check of `Compute`.
+
+  The first 10 mutants of the change, all killed: the old nearest pick; d by the form; `PointDistance` off;
+  `point_distance` by the form; no second pass; no slack in it; the first direction's certified bound replaced by its
+  computed one; the tree keeping the first triangle; no box descent; the tol/2 cut set to 0.
+

@@ -8,19 +8,18 @@ on:
     branches: [master]
     tags: ['**']
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
-  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow)
+  # ready_for_review: marking a draft ready starts the full run. A draft gets no CI (the job scope below is the gate); on demand: workflow_dispatch.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
   workflow_dispatch:
 
-# a new push to the same PR (or branch, or master) cancels the run under way: only the newest master commit runs (2026-11-13: a
-# group per master SHA let every merge run to the end, 20 runs piled up on the runners; nothing reads a CI result per master
-# commit: new_tests_on_base.py works on git refs, coverage.yml and mutation.yml keep their own run history). A manual run on
-# master shares the group with the push runs.
+# A new push to the same PR (or branch) cancels the run under way. Master and manual runs are never cancelled: they queue (GitHub
+# keeps the run under way and the newest pending one: a burst of merges runs the first and the newest commit, which covers all of
+# them). A run that the gate of the job scope skips (an event of a draft) has its own group, so it cannot cancel a real run of the PR.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.draft && '-skipped' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
@@ -33,7 +32,13 @@ jobs:
   # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
   # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
   # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
+  # It is also the gate (owner 2026-11-15, runner load: most runs of draft PRs were cancelled by the next push): a draft PR gets no CI;
+  # start one with workflow_dispatch (Actions tab, or `gh workflow run ci.yml --ref <branch>`; its checks attach to the head commit).
+  # opened / synchronize / reopened / ready_for_review of a PR that is not a draft, master, tags and manual runs always run. Every other
+  # job needs scope, so a skipped scope skips all of them (they report "skipped" on the draft only; a ready PR never has a skipped run,
+  # so no skipped check hides a red one of the same name). No job needs a result of an earlier run.
   scope:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -285,6 +290,11 @@ jobs:
         if: (failure() || cancelled()) && needs.scope.outputs.library == 'true'
         continue-on-error: true
         run: python tools/blame_summary.py test-results --summary $env:GITHUB_STEP_SUMMARY
+      # A PR that changes only a benchmark script (ps1 without library) runs no net48 test build, which is what builds the netstandard2.0
+      # library the two checks below read: build it here (a PR with a new thread_scaling.ps1 failed 'Build the netstandard2.0 library')
+      - name: Build the netstandard2.0 library (ps1-only changes)
+        if: matrix.shard == 'a' && needs.scope.outputs.library != 'true' && needs.scope.outputs.ps1 == 'true'
+        run: dotnet build geometry3Sharp_netstandard.csproj -c Release -f netstandard2.0
       - name: Benchmark reporting regression (MeshRepairBenchmark)
         if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
         shell: powershell

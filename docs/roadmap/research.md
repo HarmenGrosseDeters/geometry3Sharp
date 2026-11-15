@@ -156,6 +156,13 @@ Part of the [roadmap](../ROADMAP.md).
      runs, three repetitions); the certificate takes 23-26 % of the contouring at / 128 (16-20 % without blocks). Found and
      fixed on the way: the certificate compared with the oriented copy's level set, so inputs with an inside-out part
      could be certified wrongly (stage 1 defect). Next: refinement only for the thin features the blocks leave.
+     Stage 3 (#944, section 7.12 of the note; report only): upper bound first. Of the 651 cells left at / 128, 498 are in
+     the three wrong runs, 81 in non-ball clusters of right runs, 72 in one thin tube (104640), none at a transition
+     (/ 64: 315 in wrong runs, 122 non-ball, 0 tube or transition). Built: growth of the failing clusters (remark 3 of
+     Theorem 6), which certifies every non-ball cluster of a right run: clean T1 / 128 uncertified cells 651 -> 381,
+     certified runs 8 -> 10 of 14 (all right runs but 104640); / 64 437 -> 301, 9 -> 12 (all right runs); never certified
+     wrong; the certificate 25-28 % of the contouring at / 128 (22-24 % before), 33-37 % at / 64 (24-30 %). Not built, by the stop rule: refinement for the thin features (upper bound one run, at 3-15 times the
+     contouring time, section 4.8) and growth across transitions (upper bound 0: only a wrong run has such cells).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
@@ -614,7 +621,7 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), #925; stage 2 built as the block test (#935); next the refinement for the thin features left; options B and C only after a reviewed proof.
+5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), #925; stage 2 built as the block test (#935); stage 3, growth of the blocks (#944; refinement and transitions not built, upper bound one run and none); options B and C only after a reviewed proof.
 6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
 7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
 8. #886: ARAP deformation, optionally biharmonic (research item 7).

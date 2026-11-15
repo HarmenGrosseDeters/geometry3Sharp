@@ -2,7 +2,7 @@
 # Fetches the queries and ground truth of the Apache-2.0 sample of the ToI dataset (Belgrod, Ferguson et al.,
 # github.com/Continuous-Collision-Detection/Sample-Scalable-CCD-Data, LICENSE: Apache-2.0) at a pinned commit into a
 # directory outside the repository, and checks each file's SHA-256. The data is never committed (CLAUDE.md); PR-tier
-# tests never fetch it (owner 2026-11-13). About 157 MB.
+# tests never fetch it (owner 2026-11-13). About 216 MB (the queries, the ground truth and the two frames of each scene).
 #
 #   benchmarks/CcdBenchmark/fetch_sample.sh <target-dir>
 set -euo pipefail

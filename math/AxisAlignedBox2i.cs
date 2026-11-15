@@ -173,18 +173,18 @@ namespace g3
 
         public void Contain(Vector3d v)
         {
-            Min.x = Math.Min(Min.x, (int)Math.Floor(v.x));
-            Min.y = Math.Min(Min.y, (int)Math.Floor(v.y));
-            Max.x = Math.Max(Max.x, (int)Math.Floor(v.x));
-            Max.y = Math.Max(Max.y, (int)Math.Floor(v.y));
+            Min.x = Math.Min(Min.x, MathUtil.FloorToIntSaturating(v.x));
+            Min.y = Math.Min(Min.y, MathUtil.FloorToIntSaturating(v.y));
+            Max.x = Math.Max(Max.x, MathUtil.FloorToIntSaturating(v.x));
+            Max.y = Math.Max(Max.y, MathUtil.FloorToIntSaturating(v.y));
         }
 
         public void Contain(AxisAlignedBox3d box)
         {
-            Min.x = Math.Min(Min.x, (int)Math.Floor(box.Min.x));
-            Min.y = Math.Min(Min.y, (int)Math.Floor(box.Min.y));
-            Max.x = Math.Max(Max.x, (int)Math.Floor(box.Max.x));
-            Max.y = Math.Max(Max.y, (int)Math.Floor(box.Max.y));
+            Min.x = Math.Min(Min.x, MathUtil.FloorToIntSaturating(box.Min.x));
+            Min.y = Math.Min(Min.y, MathUtil.FloorToIntSaturating(box.Min.y));
+            Max.x = Math.Max(Max.x, MathUtil.FloorToIntSaturating(box.Max.x));
+            Max.y = Math.Max(Max.y, MathUtil.FloorToIntSaturating(box.Max.y));
         }
 
 

@@ -20,7 +20,11 @@ namespace g3.Clipper2
     /// apart from the rounding to the grid, and makes it scale invariant: inputs scaled by 2^k give the same integers,
     /// so the results are the same, scaled, bit for bit. Translated inputs give the same integers up to the rounding of
     /// the subtraction. With the default of 40 bits the grid spacing is the input extent times 2^-40 (about 1e-12):
-    /// 5 nm for a 10 km footprint at UTM coordinates.
+    /// 5 nm for a 10 km footprint at UTM coordinates. The grid is never finer than the doubles of the coordinates: with
+    /// half extent + margin at most 2^e and |Origin| (the larger coordinate of the bounds center) + half extent + margin
+    /// below 2^E, Resolution = max(2^(e - bits), 2^(E - 53)). The second term acts only for coordinates more than about
+    /// 2^(53 - bits) times the extent from zero (8192 at 40 bits, eg a millimetre design at UTM coordinates: 2^-30, about 1 nm); then the Origin is a grid point and every
+    /// grid point is a double, so results map back to doubles exactly.
     /// </summary>
     public readonly struct ClipperFrame
     {
@@ -63,7 +67,8 @@ namespace g3.Clipper2
         /// The frame for inputs within bounds, with room for a margin around them (offset distance, Minkowski pattern
         /// size): Origin = bounds center, Scale = the largest power of two with (half extent + margin) * Scale &lt;= 2^bits.
         /// False if the bounds are empty or not finite, if a coordinate plus the extent (and margin) exceeds the double
-        /// range, or if the scale is outside the double range (extents below about 1e-290).
+        /// range, or if the scale is outside the double range (extents below about 1e-290 near zero; far from zero the grid
+        /// is clamped to the doubles there, see the summary of the struct).
         /// </summary>
         public static bool ForBounds(AxisAlignedBox2d bounds, double margin, int precisionBits, out ClipperFrame frame)
         {
@@ -85,6 +90,23 @@ namespace g3.Clipper2
                 extent = 1;   // a single point: nothing to clip, any grid will do
             int e = CeilExponent(extent);   // extent <= 2^e
             double scale = PowerOfTwo(precisionBits - e);
+            // Far from the origin the grid must not be finer than the doubles there: with |coordinate| <= 2^E every
+            // multiple of 2^(E-53) is a double, so a grid of that spacing around an origin on it maps back to doubles
+            // exactly. A finer grid gives grid points that round to the same or to swapped doubles, and slivers of the
+            // integer result come out as rings of zero or reversed orientation (eg a millimetre design at UTM
+            // coordinates). The clamp only acts if the coordinates exceed the extent by about 2^(53 - precisionBits)
+            // (8192 at the default 40 bits); then the origin moves onto the grid (at most half a grid unit).
+            // reach = |Origin| + half extent + margin, rounded up: the rounded sum can lie below a power of two that the
+            // true reach (eg of a Minkowski pattern) passes, where the doubles are twice as far apart
+            int top = CeilExponent(NextUp(Math.Max(Math.Abs(origin.x), Math.Abs(origin.y)) + extent));
+            double coarsest = PowerOfTwo(53 - top);
+            if (coarsest < scale) {
+                scale = coarsest;   // >= 2^-971: coordinates are below 2^1024
+                // The clamp acts only for extent <= 2^(top - 4) (at most 50 bits), so the larger origin coordinate lies in
+                // [2^(top-1), 2^top), where every double is a grid point already, or just below 2^(top-1), where the move
+                // (at most half a grid unit) keeps it and the extent below 2^top: the coordinates stay where the grid points are doubles.
+                origin = new Vector2d(Math.Round(origin.x * scale) / scale, Math.Round(origin.y * scale) / scale);
+            }
             if (!(scale > 0) || !IsFinite(scale) || !IsFinite(1.0 / scale))
                 return false;
             frame = new ClipperFrame(origin, scale);
@@ -196,7 +218,9 @@ namespace g3.Clipper2
         /// <summary>
         /// The polygons of a Clipper2 PolyTree: one GeneralPolygon2d per outer boundary, with its holes; islands inside a hole are
         /// polygons of their own. Outer boundaries are counterclockwise and holes clockwise: each ring is oriented by its grid area
-        /// (the conversion to double does not change that except for rings of a few grid units of area far from the origin); a path
+        /// (the conversion to double rounds a grid point by at most half a grid unit, as ForBounds keeps the grid no finer than
+        /// the doubles, and not at all where it clamps the grid; so only rings of a few grid units of area can change sign, near
+        /// that threshold or in a frame set explicitly); a path
         /// of zero grid area whose vertices all lie on one line bounds nothing and is dropped (its children go to its parent; a
         /// zero-area path that is not collinear, eg a figure eight of two equal lobes, is kept as before). The
         /// tree decides outer or hole, except where it is certainly wrong, which a self-touching or self-overlapping result makes it:
@@ -373,6 +397,12 @@ namespace g3.Clipper2
         }
 
         /// <summary> 2^n for -1022 &lt;= n &lt;= 1023, otherwise 0 or infinity </summary>
+        /// <summary> the next double above a positive finite x (Math.BitIncrement is not in netstandard2.0) </summary>
+        internal static double NextUp(double x)
+        {
+            return BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(x) + 1);
+        }
+
         internal static double PowerOfTwo(int n)
         {
             if (n > 1023) return double.PositiveInfinity;

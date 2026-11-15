@@ -83,13 +83,10 @@ namespace geometry3Sharp.Clipper2.Tests
         {
             // as Clipper2MicroSelfIntersectionTests.RingFlippedByTheMicroFix_UnderSimilarity: power-of-two scales give the same
             // integers and so the same result bit for bit, any other similarity other integers, so the claim is the area.
-            // Two cases are left out at the UTM offset with scale 1e-3: their results have slivers narrower than the rounding of
-            // the grid points back to doubles there (an ulp of 5.7e6 is 2.6e5 grid units), which come out as rings of zero or
-            // negative area in doubles (the limit in ToGeneralPolygons' summary), so the structural check of Check fails on them
+            // (the UTM offset with scale 1e-3 is no exception since ClipperFrame keeps its grid no finer than the doubles there)
             Similarity s = Similarity.ByName(name);
             Polygon2d Map(Polygon2d p) => new Polygon2d(p.Vertices.Select(s.Apply2d));
-            bool slivers = s.Name == Similarity.RotatedZUtmMillimetre.Name;
-            foreach (object[] c in Cases.Where(c => !slivers || ((string)c[0] != "outside by a grid unit, 24-gons" && (string)c[0] != "negative island in a hole"))) {
+            foreach (object[] c in Cases) {
                 var (op, rule, a, b) = ((ClipType)c[1], (FillRule)c[2], Ring((double[])c[3]), Ring((double[])c[4]));
                 var (_, _, plain) = Clipper2DegenerateUnionTests.Check(op, rule, a, b);
                 var (error, slack, mapped) = Clipper2DegenerateUnionTests.Check(op, rule, Map(a), Map(b));

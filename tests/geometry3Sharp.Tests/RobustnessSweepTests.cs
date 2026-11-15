@@ -332,7 +332,6 @@ namespace geometry3Sharp.Tests
         static readonly object ReportLock = new object();
         /// <summary> expected failures on .NET Framework only (net48 CI job): "operation|case" -> finding id </summary>
         public static readonly Dictionary<string, string> KnownFailuresNet48 = new Dictionary<string, string> {
-            { "MeshInsertPolygon|+Inf vertex", "R36" },
         };
 
         static readonly TimeSpan Budget = TimeSpan.FromSeconds(20);
