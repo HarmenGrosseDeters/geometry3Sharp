@@ -41,6 +41,10 @@ namespace g3
     /// The weight of a two-type hybrid lattice (<see cref="TpmsLattice.SecondType"/>): w(p) in [0, 1] in the lattice frame, 1 selecting
     /// <see cref="TpmsLattice.Type"/> and 0 the second type, with a bound of its gradient (per unit length). Made by
     /// <see cref="TpmsLattice.SigmoidBlend"/> (the library derives the bound) or from a delegate with a caller supplied bound.
+    /// A delegate must be pure and thread safe (it is called from the parallel field evaluation) and its bound is trusted, not checked; the
+    /// error term of <see cref="TpmsLattice.Enclosure"/> assumes a rounding error of the weight of at most 8 u + 2 u s |grad w| (u = 2^-53, s the power of two above the
+    /// largest coordinate), which holds for <see cref="TpmsLattice.SigmoidBlend"/> and is the caller's responsibility for a delegate. A weight that returns NaN fails
+    /// the computation with <see cref="TpmsStatus.ContouringFailed"/>.
     /// </summary>
     public sealed class TpmsBlendWeight
     {
@@ -345,6 +349,7 @@ namespace g3
             public double Iso, Snap;          // the contouring level and the sliver guard: a value within Snap of Iso is moved to Iso - Snap
             public bool UseBox; public Vector3d Center, Half;
             public Func<Vector3d, double> LevelAt;    // grading: local position -> level
+            public volatile bool WeightNaN;
             public bool Hybrid; public TpmsType Type2; public double Level2; public Func<Vector3d, double> Weight;   // two-type hybrid (section 9)
             public DMeshAABBTree3 DomainTree; public AxisAlignedBox3d DomainBounds;
 
@@ -372,7 +377,9 @@ namespace g3
                 double g;
                 if (Hybrid) {
                     // h = w (g_A - c_A) + (1 - w) (g_B - c_B), w clamped to [0, 1] (a clamp keeps the Lipschitz bound; NaN stays NaN)
-                    double w = Math.Min(1.0, Math.Max(0.0, Weight(p)));
+                    double w0 = Weight(p);
+                    if (double.IsNaN(w0)) WeightNaN = true;
+                    double w = Math.Min(1.0, Math.Max(0.0, w0));
                     double ga = StyleValue(Style, Evaluate(Type, px, py, pz)) - Level;
                     double gb = StyleValue(Style, Evaluate(Type2, px, py, pz)) - Level2;
                     g = (w * ga + (1 - w) * gb) * InvLipschitz;
@@ -441,7 +448,8 @@ namespace g3
             if (hybrid != (Blend != null)) { Fail(TpmsStatus.InvalidOptions, "SecondType and Blend are set together"); return; }
             if (hybrid && !Enum.IsDefined(typeof(TpmsType), SecondType.Value)) { Fail(TpmsStatus.InvalidOptions, "unknown SecondType"); return; }
             if (hybrid && VolumeFractionAt != null) { Fail(TpmsStatus.InvalidOptions, "a hybrid (SecondType) has a constant volume fraction per type: not with VolumeFractionAt"); return; }
-            if (hybrid && Enclosure && !(Blend.GradientBound >= 0 && !double.IsInfinity(Blend.GradientBound))) { Fail(TpmsStatus.InvalidOptions, "Enclosure with a hybrid needs a Blend with a finite gradient bound (SigmoidBlend derives one)"); return; }
+            if (hybrid && !double.IsNaN(Blend.GradientBound) && !(Blend.GradientBound >= 0 && !double.IsInfinity(Blend.GradientBound))) { Fail(TpmsStatus.InvalidOptions, "the gradient bound of the Blend must be finite and not negative (or NaN for unknown, not with Enclosure)"); return; }
+            if (hybrid && Enclosure && double.IsNaN(Blend.GradientBound)) { Fail(TpmsStatus.InvalidOptions, "Enclosure with a hybrid needs a Blend with a finite gradient bound (SigmoidBlend derives one)"); return; }
 
             // ---- domain in the local frame ----
             AxisAlignedBox3d box = Box;
@@ -525,6 +533,7 @@ namespace g3
                 wmax = Blend.GradientBound;
                 lw = Math.Max(GradientBound(Type), GradientBound(SecondType.Value)) * phaseScale + (double.IsNaN(wmax) ? 0 : blendTermSum * wmax);
             }
+            if (!(lw > 0 && lw < double.MaxValue / 4)) { Fail(TpmsStatus.InvalidOptions, "the Lipschitz bound of the field is not finite (a gradient bound of the Blend that large cannot be normalised)"); return; }
             LipschitzBoundUsed = lw;
             Func<Vector3d, double> levelAt = null;
             if (VolumeFractionAt != null) {
@@ -548,7 +557,10 @@ namespace g3
             // edge. The ratio is a sampled estimate and only sizes the guard: the result is certified separately, and the enclosure pad
             // pays 2 Snap in field units whatever Snap is.
             double ratio = hybrid ? Math.Max(GradientRatio(Type), GradientRatio(SecondType.Value)) : GradientRatio(Type);   // a hybrid: the larger ratio (a larger guard only grows the solid)
-            double snap = h * SliverGuardCubeFraction * Math.Max(ratio * mapGradientRatio, 1.0 / 16);
+            // a hybrid's Lw includes the weight term, so the phase part of the normalised gradient is only phaseLw / lw of the single type's: the guard is scaled by it, which
+            // keeps the guard band the same fraction of the f change per edge (in field units Snap * Lw is then the single type's)
+            double guardScale = hybrid ? Math.Max(GradientBound(Type), GradientBound(SecondType.Value)) * (map == null ? k : 2 * Math.PI * jac) / lw : 1;
+            double snap = h * SliverGuardCubeFraction * Math.Max(ratio * mapGradientRatio, 1.0 / 16) * guardScale;
             var cells = new int[3];
             var kmin = new double[3];
             double nodes = 1;
@@ -644,6 +656,7 @@ namespace g3
                     Fail(TpmsStatus.ContouringFailed, e.Message); return;
                 }
                 if (CancelF()) { Fail(TpmsStatus.Cancelled, "cancelled"); return; }
+                if (field.WeightNaN) { Fail(TpmsStatus.ContouringFailed, "the blend weight returned NaN"); return; }
                 result = mc.Mesh;
                 if (result.TriangleCount == 0) { Fail(TpmsStatus.ContouringFailed, "the lattice is empty in this domain"); return; }
                 // ---- certificate of the result ----

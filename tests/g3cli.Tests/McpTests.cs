@@ -347,6 +347,10 @@ namespace g3cli.Tests
             Assert.False(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal("ok", S(r["result"]["structuredContent"]["tpms_status"]));
             Assert.True(B(r["result"]["structuredContent"]["mesh"]["closed"]));
+            r = Handle(server, Call(3, "tpms", new JsonObject() {
+                ["output"] = m.Path_("mcp_tpms_hybrid.stl"), ["type"] = "gyroid", ["second_type"] = "iwp", ["blend"] = "0,0.75,0.5", ["divisions"] = 12, ["box_max"] = "1.5,1.5,1.5" }));
+            Assert.False(B(r["result"]["isError"]), r.ToJsonString());
+            Assert.Equal("iwp", S(r["result"]["structuredContent"]["second_type"]));
             r = Handle(server, Call(2, "tpms", new JsonObject() { ["output"] = m.Path_("mcp_tpms2.stl"), ["divisions"] = 2 }));
             Assert.True(B(r["result"]["isError"]), r.ToJsonString());
             Assert.Equal("invalid_arguments", S(r["result"]["structuredContent"]["code"]));

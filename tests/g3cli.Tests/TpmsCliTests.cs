@@ -173,6 +173,13 @@ namespace g3cli.Tests
             Assert.Equal(0, exit);
             Assert.True(B(r["enclosure"]));
             Assert.True(B(r["mesh"]["clean"]));
+            var direct = new TpmsLattice { Type = TpmsType.Gyroid, SecondType = TpmsType.IWP, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), CellSize = 1, Divisions = 16,
+                Enclosure = true, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+            Assert.Equal(direct.IsoValueUsed, D(r["iso_value_used"]), 12);
+            Assert.Equal("iwp", S(r["second_type"]));
         }
 
         [Fact]

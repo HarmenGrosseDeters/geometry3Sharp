@@ -219,7 +219,7 @@ solid and the result is closed.
 ## 9. Hybrid of two types, in-plane (owner request 2026-11-15; built, see 9.7)
 
 Question: can `TpmsLattice` and `g3cli tpms` blend two lattices, eg Gyroid and I-WP, `w(x) f_G + (1 - w(x)) f_IWP`, and what would
-it take. This section is a design; no code, no entry in `SOURCES.md` until it is built.
+it take. Sections 9.1 to 9.6 are the design as approved; 9.7 records the owner decisions, what was built and the corrections found while building.
 
 ### 9.1 What the paper says (read from its open-access text)
 
@@ -267,7 +267,7 @@ with one level would give neither parent its fraction (the level sets of `f_G` a
 transition the fraction is whatever the blend gives; it is reported (`RealizedVolumeFraction`), not promised. Sheets:
 `g = |f|` and `c = t`, the blend of two non-smooth but 1-Lipschitz terms is still Lipschitz.
 
-API (additive, one new member group; nothing changes when unset):
+API (additive, one new member group; nothing changes when unset; as built: `SecondType` and `Blend` of the class `TpmsBlendWeight`, see 9.7):
 
 - `TpmsType? SecondType` and `Func<Vector3d, double> BlendWeight` (local frame, values in [0, 1], 1 selects `Type`) with a
   library-derived bound `BlendGradientBound` (as `LinearGrade` does for the phase map: a delegate without a bound is allowed only
@@ -289,8 +289,8 @@ gradient bound of section 5 (gyroid `2 sqrt 3`, I-WP `6 sqrt 3`):
     Lh = (2 pi / L) max(G_A, G_B) J + (M_A + |c_A| + M_B + |c_B|) * Wmax,
 
 with `J` the Jacobian bound of the grade (1 without) and `Wmax` the bound of `|grad w|`. Gyroid / I-WP at `L = 1`, `k = 1` gives about
-`65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`, so the enclosure
-offset (`sqrt 3 h / 2` in field units, divided by `Lh`) hardly changes. The rounding error of an evaluation gets one more term,
+`65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`; for a steep weight the bound grows with it (`Lh` is then dominated by the weight term, and the sliver
+guard is scaled by the phase part over `Lh`, see 9.7). The rounding error of an evaluation gets one more term,
 `(|g_A - c_A| + |g_B - c_B|) * eps_w` with `eps_w` a few ulps of `w` (the stable form above); it enters `EnclosureError` next to the
 existing terms. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
 solid contains the exact blend `{h <= 0}` of the stated `w`.
@@ -307,8 +307,8 @@ New options, no default of an existing option changes: `second_type` (same names
 Unchanged and from the same mechanism: `Status Ok` only after `MeshRobustRepair.NotCleanReason` and the exact self-intersection
 check (the contouring path and the certificate do not know the field), closed, manifold, oriented, finite. Not promised, as for the
 constant lattice: topology of walls thinner than about two cubes; additionally the wall thickness inside the transition (the blend of
-two fields at different wall thickness is not a wall of either), so the resolution rule `Divisions >= 2 L / wall` is checked against the thinner of the two
-types. The sliver guard needs the `GradientRatio` of the field: use the larger of the two per-type ratios (conservative: a larger
+two fields at different wall thickness is not a wall of either); the resolution rule `Divisions >= 2 L / wall` is the caller's to apply against the thinner of the two
+types (the library does not check it for the hybrid, as it does not for the constant lattice). The sliver guard needs the `GradientRatio` of the field: use the larger of the two per-type ratios (conservative: a larger
 `Snap` only grows the solid, section 4), sampled ratio of the blend itself is a refinement, not needed. `Enclosure` keeps its
 preconditions (dyadic grid, box domain, constant fractions, the bound above).
 
@@ -356,6 +356,13 @@ Built as designed in 9.2 to 9.5 (`TpmsLattice.SecondType`, `Blend` (`TpmsBlendWe
 - A weight delegate with an unknown gradient bound (NaN) leaves the weight term out of `Lh` and is refused with `Enclosure`; a weight outside [0, 1] is clamped (the
   clamp keeps the bound).
 - Sliver guard: the larger of the two per-type `GradientRatio`s sizes `Snap` (pinned through the level pad under `Enclosure`).
-- Cost: with a wide transition the hybrid costs about 2.4 times the constant sheet in `Compute` and allocates about 2.4 times as much (benchmark README); not diagnosed,
-  not the field evaluation.
+- Cost: about 1.15 times the constant sheet in `Compute` at 6 periods, the same allocation (benchmark README; before the sliver guard was scaled, below, 2.4 times).
 - Not done (as decided): the checkerboard weight and `blend_xy`; a hybrid of different periods; wall thickness control inside the transition.
+- Corrections from the independent review of the build: (a) the sliver guard is scaled by `max(G_A, G_B) 2 pi J / Lh` (at most 1): without it a steep weight (width much
+  below a cube) made `Snap * Lh` about one field unit and filled the pure halves of the lattice, while a larger guard "only grows the solid" was the (true but too
+  weak) argument of 9.4; the `Enclosure` pad shrinks with it too, so "the enclosure offset hardly changes" holds for every width; (b) a gradient bound of the weight that
+  is negative or infinite, or whose product with the value range overflows, is `InvalidOptions` for every hybrid (a negative one flipped the sign of the field, an
+  infinite one zeroed it and gave a solid box as `Ok`); (c) a weight that returns NaN anywhere gives `ContouringFailed` instead of holes; (d) the enclosure claim "contains the exact
+  blend of the stated `w`" holds for a delegate only if its bound and its rounding error (at most `8 u + 2 u s Wmax`) hold, which the library cannot check; the delegate must be pure and thread safe.
+- Test limits: the enclosure containment test samples near-surface points of the exact blend; the derived `Lh` (and so a dropped weight term) is pinned by an exact-value test
+  and a sampled-gradient bound, not by a worst-case-node construction as for the single point of `Recipe_LevelEnclosesAnExactSolidAtTheWorstPlaces`.

@@ -34,9 +34,9 @@ Neovius/Sheet, 6, 1092727, 846576, 53.8, 1008.0, 1194.7, 525.1, 10/10/8
 Gyroid(graded)/Sheet, 2, 59319, 29692, 3.1, 47.9, 32.2, 11.9, 1/1/1
 Gyroid(graded)/Sheet, 4, 357911, 224776, 16.4, 283.3, 242.7, 93.6, 8/8/8
 Gyroid(graded)/Sheet, 6, 1092727, 747280, 45.9, 775.6, 778.4, 334.2, 11/11/10
-Gyroid(+IWP)/Sheet, 2, 59319, 40596, 8.7, 147.8, 88.5, 45.6, 3/3/3
-Gyroid(+IWP)/Sheet, 4, 357911, 319172, 63.1, 795.6, 768.2, 350.9, 7/7/6
-Gyroid(+IWP)/Sheet, 6, 1092727, 1070356, 144.6, 2782.0, 2642.2, 1225.1, 11/11/7
+Gyroid(+IWP)/Sheet, 2, 59319, 40556, 8.7, 110.3, 52.9, 19.7, 3/3/3
+Gyroid(+IWP)/Sheet, 4, 357911, 319028, 61.3, 433.1, 330.0, 141.8, 9/9/9
+Gyroid(+IWP)/Sheet, 6, 1092727, 1070044, 147.5, 1333.0, 1166.2, 491.0, 10/10/9
 ```
 
 The `(+IWP)` rows are the two-type hybrid (docs/design/TPMS_LATTICE.md section 9): gyroid sheet with `SecondType = IWP` across the plane
@@ -44,11 +44,10 @@ The `(+IWP)` rows are the two-type hybrid (docs/design/TPMS_LATTICE.md section 9
 
 Reading (workload: gyroid / P / Neovius, 2 to 6 periods, 16 cubes per period; other workloads are not covered):
 
-- The hybrid costs about 2.4 times the constant gyroid sheet in `Compute` at 6 periods (2782 against 1157 ms) and allocates about 2.4 times as much
-  (1225 against 508 MB), at nearly the same triangle count. The second field and the weight are a small part of it (the field column is
-  145 against 59 ms): the extra time and allocation grow with the width of the transition (at 2 periods: width 0.05 gives 21 MB, 0.5 gives
-  46 MB, 5 gives 39 MB; a step weight 21 MB) and are not diagnosed here (not the field evaluation, and no grid retries: `GridShiftsUsed` is 0).
-  Nothing near the 20 s limit of CLAUDE.md; a diagnosis is a follow-up if the cost matters.
+- The hybrid costs about 1.15 times the constant gyroid sheet in `Compute` at 6 periods (1333 against 1157 ms; two fields and the weight at every node, the "field"
+  column is 148 against 59 ms) and allocates the same (491 against 508 MB) at nearly the same triangle count. An earlier run of the hybrid, before the sliver guard was scaled by
+  the phase part of the Lipschitz bound (docs/design/TPMS_LATTICE.md 9.7), took 2782 ms and 1225 MB: the unscaled guard was a larger fraction of the field's range
+  than for the constant lattice and made the contouring much more expensive (it also thickened the lattice for steep weights, `SteepBlend_DoesNotThickenThePureSides`).
 - The graded gyroid sheet has fewer triangles than the constant one (the period grows to 2, so the surface area per volume falls) and
   costs about 0.7 of it in `Compute` at the same node count (775.6 against 1119.9 ms at 6 periods). The cost of the phase-map delegate
   call per sample (one `Math.Log` and a few divisions) is not separated from the rest in this benchmark (the "field" column is the bare

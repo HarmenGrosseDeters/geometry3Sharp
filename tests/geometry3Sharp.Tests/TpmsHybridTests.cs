@@ -204,7 +204,8 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Enclosure_LevelPadUsesTheLargerGradientRatioOfTheTwoTypes()
         {
-            // the sliver guard of a hybrid is sized by the larger of the two per-type ratios (a larger guard only grows the solid); the level pays 2 Snap
+            // the sliver guard of a hybrid is sized by the larger of the two per-type ratios (a larger guard only grows the solid) and scaled by the phase part of the
+            // Lipschitz bound over the whole bound (the weight term does not make the lattice's own gradient larger); the level pays 2 Snap
             double ratio = Math.Max(TpmsLattice.GradientRatio(TpmsType.Gyroid), TpmsLattice.GradientRatio(TpmsType.IWP));
             Assert.NotEqual(TpmsLattice.GradientRatio(TpmsType.Gyroid), TpmsLattice.GradientRatio(TpmsType.IWP));
             foreach (var (a, b) in new[] { (TpmsType.Gyroid, TpmsType.IWP), (TpmsType.IWP, TpmsType.Gyroid) }) {
@@ -212,9 +213,10 @@ namespace geometry3Sharp.Tests
                 lattice.Enclosure = true;
                 lattice.Compute();
                 AssertOk(lattice);
-                double h = L / 16;
-                Assert.True(lattice.IsoValueUsed >= Math.Sqrt(3) * h / 2 + 2 * h / 256 * ratio + 4 * Math.Pow(2, -26), a + ": level " + lattice.IsoValueUsed);
-                Assert.True(lattice.IsoValueUsed <= Math.Sqrt(3) * h / 2 + 2 * h / 256 * ratio + 4 * Math.Pow(2, -22), a + ": level " + lattice.IsoValueUsed);
+                double h = L / 16, scale = 2 * Math.PI * 6 * Math.Sqrt(3) / lattice.LipschitzBoundUsed;
+                Assert.InRange(scale, 0.5, 0.999);   // the weight term is part of the bound
+                Assert.True(lattice.IsoValueUsed >= Math.Sqrt(3) * h / 2 + 2 * h / 256 * ratio * scale + 4 * Math.Pow(2, -26), a + ": level " + lattice.IsoValueUsed);
+                Assert.True(lattice.IsoValueUsed <= Math.Sqrt(3) * h / 2 + 2 * h / 256 * ratio * scale + 4 * Math.Pow(2, -22), a + ": level " + lattice.IsoValueUsed);
             }
         }
 
@@ -231,18 +233,25 @@ namespace geometry3Sharp.Tests
             Assert.True(TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, 16) > TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, 8));
         }
 
-        [Fact]
-        public void Compute_IsInvariantUnderSimilarities()
+        [Theory]
+        [InlineData(TpmsStyle.Sheet, false)]
+        [InlineData(TpmsStyle.SkeletalHigh, false)]
+        [InlineData(TpmsStyle.SkeletalLow, true)]
+        public void Compute_IsInvariantUnderSimilarities(TpmsStyle style, bool enclosure)
         {
-            // offset and width scale with the lattice (length units), the plane lives in the lattice frame: the 2^k scales give the mesh bit for bit
+            // offset and width scale with the lattice (length units), the plane lives in the lattice frame: the 2^k scales give the mesh bit for bit.
+            // Enclosure needs a dyadic grid, so only the power-of-two scales (and rotations / translations of the frame) run with it.
             TpmsLattice reference = null;
             foreach (Similarity s in Similarity.All()) {
-                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.Sheet, 0.3, 0.75, 0.5, 12, 1.5, 1.5);
+                double lg = Math.Log(s.Scale, 2);
+                if (enclosure && Math.Abs(lg - Math.Round(lg)) > 1e-12) continue;
+                var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, style, 0.3, 0.75, 0.5, enclosure ? 16 : 12, 1.5, 1.5);   // 16: a dyadic cube for Enclosure
                 lattice.CellSize = s.Scale * L;
                 lattice.Blend = TpmsLattice.SigmoidBlend(0, 0.75 * s.Scale, 0.5 * s.Scale);
                 lattice.Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(1.5 * s.Scale, 1.5 * s.Scale, 1.5 * s.Scale));
                 lattice.Origin = s.Apply(Vector3d.Zero);
                 lattice.Rotation = s.Rotation;
+                lattice.Enclosure = enclosure;
                 lattice.Compute();
                 AssertOk(lattice);
                 if (reference == null) { reference = lattice; continue; }
@@ -257,6 +266,7 @@ namespace geometry3Sharp.Tests
                         Assert.True((back.GetVertex(vid) - reference.Mesh.GetVertex(vid)).Length < 1e-6 * L, s.Name);
                 }
             }
+            Assert.NotNull(reference);
         }
 
         [Fact]
@@ -357,6 +367,86 @@ namespace geometry3Sharp.Tests
             nan.Blend = new TpmsBlendWeight(p => double.NaN);
             nan.Compute();
             Assert.NotEqual(TpmsStatus.Ok, nan.Status);
+        }
+
+        [Fact]
+        public void Options_RefuseABoundThatCannotBeNormalisedAndFailOnNaNWeights()
+        {
+            TpmsLattice With(TpmsBlendWeight blend)
+            {
+                var l = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.Sheet, 0.3, 1.0, 0.5, 12, 2, 2);
+                l.Blend = blend;
+                l.Compute();
+                return l;
+            }
+            // without Enclosure too: a negative bound flips the sign of the field, an infinite one zeroes it (a solid box would be reported as Ok)
+            foreach (double bound in new[] { -1000.0, double.NegativeInfinity, double.PositiveInfinity, 1e308 }) {
+                var l = With(new TpmsBlendWeight(p => 0.5, bound));
+                Assert.Equal(TpmsStatus.InvalidOptions, l.Status);
+                Assert.Null(l.Mesh);
+                if (bound != 1e308) Assert.Contains("finite and not negative", l.Message);
+            }
+            Assert.Equal(TpmsStatus.InvalidOptions, With(TpmsLattice.SigmoidBlend(0, 1, 1e-320)).Status);   // 1 / width is infinite
+            Assert.Equal(TpmsStatus.Ok, With(new TpmsBlendWeight(p => 0.5, 0)).Status);
+            Assert.Equal(TpmsStatus.Ok, With(new TpmsBlendWeight(p => 0.5)).Status);                         // unknown bound: fine without Enclosure
+            // NaN weights, everywhere or only in part of the domain: no silent holes
+            var all = With(new TpmsBlendWeight(p => double.NaN, 1));
+            Assert.Equal(TpmsStatus.ContouringFailed, all.Status);
+            Assert.Contains("NaN", all.Message);
+            var part = With(new TpmsBlendWeight(p => p.x > 1.5 ? double.NaN : 0.5, 1));
+            Assert.Equal(TpmsStatus.ContouringFailed, part.Status);
+            Assert.Null(part.Mesh);
+            // the outputs of an earlier success do not survive a failing Compute on the same instance
+            var again = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.Sheet, 0.3, 1.0, 0.5, 12, 2, 2);
+            again.Compute();
+            Assert.True(again.SecondLevel != 0);
+            again.Divisions = 2;
+            again.Compute();
+            Assert.Equal(TpmsStatus.InvalidOptions, again.Status);
+            Assert.Equal(0.0, again.SecondLevel);
+        }
+
+        [Fact]
+        public void SteepBlend_DoesNotThickenThePureSides()
+        {
+            // a weight much steeper than a cube (width 0.004, cube 1/16): the Lipschitz bound is dominated by the weight term, and the sliver guard must not follow it
+            // (an unscaled guard of 2^-8 cube times that bound is about one field unit and would fill the pure halves)
+            var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 2.0, 0.004, 16);
+            lattice.Compute();
+            AssertOk(lattice);
+            Assert.True(lattice.LipschitzBoundUsed > 5 * 2 * Math.PI * 6 * Math.Sqrt(3), "the weight term must dominate: " + lattice.LipschitzBoundUsed);
+            var tree = new DMeshAABBTree3(lattice.Mesh, true);
+            var rand = new Random(17);
+            int nLow = 0, low = 0, nHigh = 0, high = 0;
+            for (int i = 0; i < 9000; ++i) {
+                var q = new Vector3d(0.3 + 3.4 * rand.NextDouble(), 0.3 + 1.4 * rand.NextDouble(), 0.3 + 1.4 * rand.NextDouble());
+                bool inside = tree.IsInside(q);
+                if (q.x < 1.7) { ++nLow; if (inside) ++low; }
+                if (q.x > 2.3) { ++nHigh; if (inside) ++high; }
+            }
+            Assert.InRange((double)low / nLow, 0.3 - 0.06, 0.3 + 0.06);
+            Assert.InRange((double)high / nHigh, 0.3 - 0.06, 0.3 + 0.06);
+        }
+
+        [Fact]
+        public void Enclosure_ContainsTheExactHybrid_ForSkeletalHighAndAGrade()
+        {
+            var high = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalHigh, 0.3, 2.0, 0.125, 16);
+            high.Enclosure = true;
+            high.Compute();
+            AssertOk(high);
+            var graded = Make(TpmsType.IWP, TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.35, 0.0, 0.5, 16, 2, 2);
+            graded.Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0), new Vector3d(1, 1, 2));
+            graded.Grade = TpmsLattice.LinearGrade(2, 0, 1, 2, 1.25, 1.5);
+            graded.Blend = TpmsLattice.SigmoidBlend(2, 1.0, 0.25);
+            graded.Enclosure = true;
+            graded.Compute();
+            AssertOk(graded);
+            var plain = new TpmsLattice { Type = graded.Type, SecondType = graded.SecondType, Blend = graded.Blend, Style = graded.Style, CellSize = L, Divisions = 16, VolumeFraction = 0.35, Box = graded.Box, Grade = graded.Grade };
+            plain.Compute();
+            AssertOk(plain);
+            Assert.True(graded.RealizedVolumeFraction > plain.RealizedVolumeFraction, "the enclosure is larger than the target");
+            Assert.True(graded.LipschitzBoundUsed > 2 * Math.PI * 6 * Math.Sqrt(3));
         }
 
         [Fact]
