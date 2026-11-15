@@ -9,7 +9,7 @@ Part of the [roadmap](../ROADMAP.md).
   3.0 in progress, targets set (owner 2026-11-12; phase 1 done, see [ROADMAP.md](../ROADMAP.md#now); PR 0 #651, L4 #670
   and L1 #681 merged, L3, L3b and L2 dropped; the 800 run with a tail report and the CGAL comparison done 2026-11-12;
   lever 6 K merged as opt-in (#736, 2026-11-13); the raw-size budget merged as opt-in (#846, 2026-11-13); (B), the
-  round-based parallel carving, is #774 (open, near merge; owner: `RoundWindow` 256 by default, 0 as the opt-out).
+  round-based parallel carving, is #774 (merged 2026-11-15; owner: `RoundWindow` 256 by default, 0 as the opt-out).
   #747 (wrap simplification not certified) is partly done (#763, #840 merged). The runtime watch (#726) reports
   wrap pipelines of 21.9-77.7 s on 18 Thingi10K cases (#888). Earlier: wrap quality (#292), wrap resolution (#280), raw-wrap
   fixes (#311, #317), the volume check (#305) and Reducer A (#324) are merged; the envelope stopped (owner 2026-11-01).
@@ -151,7 +151,7 @@ runs/alpha-wrap-3-fable, master 1230482): the tail is size, not pathology (unit 
 (B) together with parallel trial passes (pinch / manifold, 18 % of the serial time), projected tail max 69 s to about
 10-12 s on 16 cores, output bits change, resolution does not; a raw-size budget (about 300k raw triangles) as an opt-in
 parameter, off by default (it closes lattice cavities: 40118 wrap-to-input 0.46 to 20.7 % of the diagonal), which is the
-only lever under 20 s on 4 cores (13 s with (B)). (B) is #774 (open, 2026-11-15): the main carving in deterministic
+only lever under 20 s on 4 cores (13 s with (B)). (B) is #774 (merged 2026-11-15): the main carving in deterministic
 rounds (`Delaunay3.PlanInsert` / `ApplyInsert`, `core/WorkerTeam.cs`, `MeshAlphaWrap.MaxThreads`); the same result for
 every thread count; on 4 cores the tail 20 pipeline 760 -> 603 s (1.26x, max 87.9 -> 81.5 s), main carving 1.53x, the
 normal 30 1.10x; p01 medians not lower, min angle per mesh both ways (not significant). Owner: `RoundWindow` = 256 is
@@ -162,6 +162,17 @@ same defect classes (32 s -> 8.7 s); #703 (2026-11-12) takes a small input's alp
 #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) is fixed in #744 (2026-11-13; the
 point-cloud variant #745 in #809) (cause: two absolute thresholds in `DMeshAABBTree3.FastWindingNumber`, the area / normal epsilon and the padded box test, so tiny triangles in the unit frame make every query brute force; owner 2026-11-12: option A, both made scale-relative, 62 s -> 2-2.5 s, FWN bit-identical under 2^k scaling, values on tiny-triangle meshes move to the documented approximation); the
 simplification sometimes not applied (175914, 51909 at diag / 245) is #747 (see the contact bugfix paragraph below).
+**Open, after 3.0: adaptive alpha spike (owner 2026-11-15).** Upper-bound study (measurement only,
+`aw3/adaptive/README.md` on runs/adaptive-alpha-study, 50 meshes, oracle per-triangle alpha levels 2^L diag / 300, L = 0..3):
+graded (Lipschitz 0.5) at 1 offset tolerance the wrap gets 3.9x smaller on the normal stratum (median), 2.9x on the tail;
+estimated wrap time 3.5x on the normal sum, 2.0x on the tail sum, 1.1x on the tail max (40118: 86 % of its area needs the
+full resolution). A distance-only predictor (coarse where the coarse wrap stays near the input) is wrong on 28 % of the
+tail's area (median), up to 616 offsets: coarse wraps close cavities the fine wrap enters. So it is a throughput lever for
+typical meshes, not a worst-case lever (that stays the size budget and more cores). Spike after 3.0 is complete (about
+1-2 days, measurement only): read Dai, Wang, Yan (CAGD 2024, adaptive alpha wrapping; not accessible so far), test a
+cavity-aware level predictor with the probe, estimate the saving on the 800-run sum. Proposed go criterion for the owner:
+predictor false area below about 1 % on the tail too, and at least about 2x on the corpus sum; then a roadmap phase with a
+grading-aware refinement and a weakened angle bound (with proof), otherwise it stays a study.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
@@ -498,8 +509,8 @@ Reducer A merged in #324 (2026-11-02): −11 to −37 % on the reducer cases, `S
 
 ### Open for the future (2026-11-15)
 
-1. Alpha Wrap 3.0 (B), round-based parallel carving: #774 (open, near merge; `RoundWindow` 256 by default, 0 as the opt-out); the 800 run is its gate.
-2. (B) part two, parallel trial passes (pinch / manifold): its own PR after #774 (not opened yet).
+1. Alpha Wrap 3.0 (B), round-based parallel carving: #774, merged 2026-11-15 (`RoundWindow` 256 by default, 0 as the opt-out); the 800 run is still to be run on master.
+2. (B) part two, parallel trial passes (pinch / manifold): #898 (draft, review fixes in progress).
 3. The wrap tail above the 20 s hard limit: 18 Thingi10K wrap pipelines of 21.9-77.7 s in the first runtime-watch report (#888).
 4. Wrap simplification not certified: a first-pass guard where the quadric is degenerate, upper bound first (#747; 175914 and 42179 still above 20 s).
 5. Default decisions for the opt-in levers: lever 6 K (`AlphaWrapFeaturePass`, #736) and the raw-size budget (#846), each after an 800 run.

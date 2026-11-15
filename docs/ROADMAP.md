@@ -52,12 +52,13 @@ priority; this section names only what is in flight.
 
 - **Exact Boolean 3.0** (in progress): T5 PR 2 (#675), option (A) (#766), candidate B (#772), lever 1 (#813) and the
   monomial fallback (#769, 2026-11-15) are merged. Open: #883 (fixes the `windingTrees` race #882 near 1e308, which
-  also hangs net48 CI; CI green, its boolean mutation shards time out and are being split by span), #881 (lever 4,
-  allocations), draft #893 (candidate D, limb Orient / InCircle, 55928 -12 %), #843 (SafeRounding outside the edits;
+  also hangs net48 CI), #881 (lever 4, allocations; owner 2026-11-15: merged without the boolean shards, which are re-run
+  once the shard fix lands: Stryker leaves the files outside the shard's span unmutated, plus a 7-part boolean split, after #615), #893 (candidate D, limb Orient / InCircle, 55928 -12 %), #843 (SafeRounding outside the edits;
   closes T1b; rounding-shard filters narrowed), draft #837 (rounding-search upper bound). The tail above 20 s is in #888.
   [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
-- **Alpha Wrap 3.0:** (B) round-based parallel carving #774 is near merge (owner 2026-11-14: `RoundWindow` 256 by
-  default, 0 as the opt-out); the 800 run is its gate. Wrap simplification certification #747 is partly done.
+- **Alpha Wrap 3.0:** (B) round-based parallel carving #774 is merged (2026-11-15; `RoundWindow` 256 by default, 0 as
+  the opt-out); the 800 run follows on master. Part two, the parallel trial passes, is #898 (draft). Adaptive alpha is a
+  spike after 3.0 (#899). Wrap simplification certification #747 is partly done.
   [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
 - **Determinism proof, option A:** stage 0 (analyzer rules G3D0001-9, #871) merged 2026-11-14. Open: #892 (#803,
   sign-of-zero Min / Max in `AxisAlignedBox3d`) and #891 (#804, saturating casts in the grid indexers), reviewed
@@ -100,7 +101,7 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 ## Next / queued
 
-In order, after the merges in flight (#883, #774, #868, #843, #884):
+In order, after the merges in flight (#883, #881, #893, #868, #843, #884, #898):
 - Meshing2D: the `QualityMesh2Candidate` provenance fields for #870's last dump.
 - Exact Boolean 3.0: re-measure candidate C after lever 1; the T6 check; then the thingi-pairs baseline and final runs
   (owner 2026-11-12).
