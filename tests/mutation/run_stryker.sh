@@ -43,7 +43,9 @@ if [ "${G3_NO_EXCLUDE:-}" != 1 ]; then
   }
   # (the exit code of the script is kept unless the restore failed; bash runs the EXIT trap also when SIGTERM (a cancelled
   # job) or SIGINT ends it, test_run_stryker_restore.py; only SIGKILL skips it, and the CI checkout is thrown away then)
-  finish() { local rc=$?; restore_sources; if [ "$rc_restore" = 1 ] && [ "$rc" = 0 ]; then rc=1; fi; exit "$rc"; }
+  # (the signals are ignored as the first step after $? is read: a second signal between the start of finish and the
+  # restore's own `trap '' INT TERM` would otherwise end bash with the EXIT trap already cleared)
+  finish() { local rc=$?; trap '' INT TERM; restore_sources; if [ "$rc_restore" = 1 ] && [ "$rc" = 0 ]; then rc=1; fi; exit "$rc"; }
   trap finish EXIT
   python3 "$here/exclude_other_sources.py" apply "$config" --root "$root" || exit 2
 fi
@@ -116,6 +118,8 @@ stryker() {
   local ticker=$!
   local rc=0
   wait "$pid" || rc=$?
+  # (reaped: the restore must not kill a process that reuses the id)
+  stryker_pid=
   if [ -f StrykerOutput/stopped-early ]; then
     wait "$ticker" 2>/dev/null
     return 3

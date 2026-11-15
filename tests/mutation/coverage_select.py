@@ -53,7 +53,8 @@ def durations(trx):
             if "|" not in item:
                 return dict.get(self, item, default)
             method, row = item.split("|", 1)
-            return sum(secs for name, secs in rows if name.split("(")[0] == method and row in name)
+            # (case-insensitive, as vstest's `DisplayName~`)
+            return sum(secs for name, secs in rows if name.split("(")[0] == method and row.lower() in name.lower())
     return Durations(out)
 
 
@@ -132,7 +133,7 @@ def choose(coverage_dir, trx, file_rel, configs):
         text = f.read().replace("\r\n", "\n")
     cov = load_coverage(coverage_dir, file_rel)
     dur = durations(trx)
-    # (the trx names carry the namespace: match a method by its full name, else by its Class.Method tail)
+    # (the trx names carry the namespace: a method is matched by its full name only, one missing from the trx costs FLOOR)
     def cost(m):
         return dur.get(m, 0.0)
     any_cov = set().union(*cov.values()) if cov else set()
