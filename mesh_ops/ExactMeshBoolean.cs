@@ -2868,7 +2868,7 @@ namespace g3
         /// uniform grid of their boxes clipped to t's box, in the projection that drops t's axis; a query returns those
         /// whose clipped boxes meet the segment's box (widened by the rounding of its ends), each once.
         /// </summary>
-        sealed class CrossingGrid
+        internal sealed class CrossingGrid
         {
             readonly int i, j;
             readonly double x0, y0, cw, ch;
@@ -2937,12 +2937,12 @@ namespace g3
                 return r;
             }
 
-            static int cell(double v, double v0, double w, int count)
+            internal static int cell(double v, double v0, double w, int count)
             {
                 if (double.IsInfinity(w))
                     return 0;
                 double c = Math.Floor((v - v0) / w);
-                return c < 0 ? 0 : c >= count ? count - 1 : (int)c;
+                return !(c >= 0) ? 0 : c >= count ? count - 1 : (int)c;      // (NaN: 0 on every runtime, #804)
             }
 
             // f(triangle) for each candidate of the segment p-q (grid coordinates, each within error of the exact point)
