@@ -1,0 +1,6 @@
+grid 100x100
+vertices=10000 triangles=19602 handles=200 status=Success iterations=1 residual=1.5411053657025116E-15 elapsed_ms=498.516 allocated_bytes=97800088 peak_working_set_bytes=114216960 mesh_hash=396eff26571287cf
+exit=0
+grid 400x250
+vertices=100000 triangles=198702 handles=500 status=Success iterations=1 residual=2.3983047744236893E-15 elapsed_ms=4193.112 allocated_bytes=1082984304 peak_working_set_bytes=851976192 mesh_hash=652e8a78c627c0be
+exit=0

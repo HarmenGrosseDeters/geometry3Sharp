@@ -4,6 +4,10 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## Biharmonic displacement deformation (`BiharmonicMeshDeformer`)
+
+The squared-Laplacian energy and `L^T M^-1 L` discretization follow Jacobson, Baran, Popović and Sorkine, *Bounded Biharmonic Weights for Real-Time Deformation* (2011), [DOI](https://doi.org/10.1145/1964921.1964973). The implementation solves for unbounded displacements with point constraints and barycentric lumped masses; it does not implement the paper's constrained skinning-weight optimization. The bounded numerical fallback reuses this repository's `ExactInterval` and `ExactDyadic`. No libigl source was read.
+
 ## Historical meshing recheck tools and data
 
 The standalone Python preparation tool in `benchmarks/Meshing2Benchmark/rechecks`
