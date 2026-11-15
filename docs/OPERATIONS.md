@@ -900,7 +900,7 @@ g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
 
 **TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal
 solid in a box (`--box-min` / `--box-max`, in the lattice frame, which moves with `--origin`) or inside a closed mesh (`--domain`), by `--volume-fraction` or (sheet) `--wall-thickness`, optionally
-with a linear `--grade` of the period and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
+with a linear `--grade` of the period, `--second-type` with `--blend 'axis,offset,width'` (a hybrid of two types across a plane with a sigmoid weight; each side has the fraction of its pure lattice, the transition only reported) and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
 `--verify-self-intersections false` the result says `self_intersection_verified: false` and warns. Tests: `TpmsCliTests`.
 
 ```

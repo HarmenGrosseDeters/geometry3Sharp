@@ -216,7 +216,7 @@ solid and the result is closed.
    reported `MeanWallThickness`.
 4. Lidinoid and graded cell size: not in the first PR (the Lidinoid was added afterwards; graded cell size follows).
 
-## 9. Hybrid of two types, in-plane (design only, nothing built; owner request 2026-11-15)
+## 9. Hybrid of two types, in-plane (owner request 2026-11-15; built, see 9.7)
 
 Question: can `TpmsLattice` and `g3cli tpms` blend two lattices, eg Gyroid and I-WP, `w(x) f_G + (1 - w(x)) f_IWP`, and what would
 it take. This section is a design; no code, no entry in `SOURCES.md` until it is built.
@@ -341,3 +341,21 @@ blend does not: a possible second step, only after reading them.
 
 Decisions for the owner: the option spelling in 9.3; whether the checkerboard weight ships in the first PR or only the single plane;
 whether reading Ren 2021 and Gao 2022 comes first.
+
+### 9.7 Owner decisions (2026-11-15) and what was built
+
+1. Single plane only (`SigmoidBlend`); no `CheckerBlend` and no `blend_xy` in the first PR.
+2. CLI names as proposed: `second_type` and `blend 'axis,offset,width'`.
+3. Ren 2021 and Gao 2022 are read later, not before the build.
+
+Built as designed in 9.2 to 9.5 (`TpmsLattice.SecondType`, `Blend` (`TpmsBlendWeight`), `SigmoidBlend`, `SecondLevel`, `EnclosureErrorBlend`; `g3cli tpms`
+`second_type`, `blend`; `TpmsHybridTests`, `TpmsCliTests`; benchmark rows), with these differences from the text above:
+
+- The stable form `0.5 (1 + tanh(2 eta / width))` is used for exact symmetry `w(eta) + w(-eta) = 1`, not because the printed form fails: in IEEE doubles `1 / (1 + exp(+large))`
+  is 0, not NaN (`exp` overflows to infinity), so test 7 pins the saturation, the symmetry and the scale invariance of the weight, and cannot tell the two forms apart.
+- A weight delegate with an unknown gradient bound (NaN) leaves the weight term out of `Lh` and is refused with `Enclosure`; a weight outside [0, 1] is clamped (the
+  clamp keeps the bound).
+- Sliver guard: the larger of the two per-type `GradientRatio`s sizes `Snap` (pinned through the level pad under `Enclosure`).
+- Cost: with a wide transition the hybrid costs about 2.4 times the constant sheet in `Compute` and allocates about 2.4 times as much (benchmark README); not diagnosed,
+  not the field evaluation.
+- Not done (as decided): the checkerboard weight and `blend_xy`; a hybrid of different periods; wall thickness control inside the transition.
