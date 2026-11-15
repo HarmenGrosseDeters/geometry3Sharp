@@ -579,6 +579,17 @@ namespace G3ExactCodeAnalyzers
             List<SyntaxNode> members = tree.GetRoot(c.CancellationToken).DescendantNodes()
                 .Where(m => (m is MemberDeclarationSyntax && !(m is BaseNamespaceDeclarationSyntax) && !(m is BaseTypeDeclarationSyntax) && !(m is DelegateDeclarationSyntax))
                             || m is AccessorDeclarationSyntax).ToList();
+            // the #if ... #endif ranges (inactive ones included: Roslyn parses directives in disabled text too); a member
+            // that lies wholly inside one may not exist on another target, so it never holds a block (a directive inside such
+            // a member goes to the first member after the range: no other member lies wholly inside it)
+            var ranges = new List<TextSpan>();
+            foreach (SyntaxTrivia tr in tree.GetRoot(c.CancellationToken).DescendantTrivia(descendIntoTrivia: true))
+                if (tr.IsKind(SyntaxKind.IfDirectiveTrivia) && tr.GetStructure() is DirectiveTriviaSyntax ifd) {
+                    DirectiveTriviaSyntax endif = ifd.GetRelatedDirectives().LastOrDefault();
+                    if (endif != null && endif.Span.End > tr.SpanStart)
+                        ranges.Add(TextSpan.FromBounds(tr.SpanStart, endif.Span.End));
+                }
+            members = members.Where(m => !ranges.Any(r => r.Contains(m.Span))).ToList();
             foreach (SyntaxTrivia tr in tree.GetRoot(c.CancellationToken).DescendantTrivia(descendIntoTrivia: true)) {
                 string bad = Forbidden(tr);
                 if (bad != null) {
@@ -592,7 +603,8 @@ namespace G3ExactCodeAnalyzers
                 // by position, the same whatever the #if disables (the token that carries the trivia is not: it depends
                 // on the target framework): the innermost member whose span holds the directive; else, for an #if around
                 // an attribute or around whole members, the first member whose span ends after the block's #endif (the
-                // attributed member; or the member after the block, which exists on every target)
+                // attributed member; or the member after the block, which exists on every target; after the last member
+                // of a type that is the first member of the next type, or 'file:' at the end of the file)
                 int pos = tr.SpanStart;
                 int end = pos;
                 if (tr.GetStructure() is DirectiveTriviaSyntax dir) {
