@@ -141,6 +141,16 @@ Part of the [roadmap](../ROADMAP.md).
      them (gap 0.5), and is not monotone (472011 at / 64 becomes wrong), always reported. Next (owner decision): stage
      2a of the note, a proof of an edge lemma (a double crossing next to one silhouette edge, with no contour crossing,
      removed by an isotopy of L supported in the cells around that edge), then stage 2 again on the thin-feature refusals; or stop at stage 1 (report only).
+     Stage 2a approved (owner decision relayed by the coordinator, 2026-11-15, after #923): proof first, docs only. Written 2026-11-15 as Theorem 6
+     (section 7.10 of the note): refused cells merged into blocks (unions of cells that are balls); Theorem 1 holds on
+     the coarser complex, and a block is decided by two exact counts (L: Euler characteristic by triangles, mesh edges
+     and vertices; the contour: patches - arcs + crossed edges inside), each against the number of components. Estimate
+     (probe on `claude/contouring-cert-merge-probe`): 70 % (/ 64) and 76 % (/ 128) of the refused cells of the clean T1
+     meshes lie in clusters that are balls as they are (at most 135 cells; conditions 3 and 4 not tested). Independent
+     review of the proof: correct in substance; its findings (the pattern comparison in condition 2, closed-set
+     predicates inside blocks, the probe's ball test) worked in. Go / no-go: go for
+     stage 2 as the block test first (report only, measured; stop below half of the refused cells at / 128), refinement
+     after it for the thin features.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
@@ -565,7 +575,7 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); the edge lemma for silhouette double crossings first (owner decision); options B and C only after a reviewed proof.
+5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), written and reviewed 2026-11-15 (#925); then stage 2 as the block test; options B and C only after a reviewed proof.
 6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
 7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
 8. #886: ARAP deformation, optionally biharmonic (research item 7).
