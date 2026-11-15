@@ -10,7 +10,9 @@ namespace g3
     /// bounds ("Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates", 1997)
     /// decides almost all cases; the uncertain ones go through Shewchuk's adaptive stages B to D
     /// (AdaptivePredicates, floating-point expansions, exact), or, where products could overflow or underflow,
-    /// through integer arithmetic (every double is m * 2^e). The sign is always right, also for nearly
+    /// through integer arithmetic (every double is m * 2^e): the generated kernels of DoublePredicates for
+    /// Orient2d, Orient3d and InCircle (the monomials of the determinant, added exactly on the stack; no
+    /// allocation), BigInteger for InSphere. The sign is always right, also for nearly
     /// degenerate input and coordinates far from the origin, unlike tests with a fixed epsilon.
     /// </summary>
     public static class ExactPredicates
@@ -201,7 +203,9 @@ namespace g3
 
 
         // exact versions: when no product can overflow or underflow, Shewchuk's adaptive stages B to D;
-        // otherwise all coordinates as integers with a common power-of-two scale
+        // otherwise integer arithmetic on the mantissas and exponents (DoublePredicates; docs/design/
+        // EXACT_FALLBACK_MONOMIALS.md). The *_bigint functions below evaluate the same determinants with all coordinates
+        // as BigInteger on a common power-of-two scale: InSphere's exact stage, and the reference of the tests
 
         [MethodImpl(JitHints.Optimize)]
         static int incircle_exact(Vector2d a, Vector2d b, Vector2d c, Vector2d d)
@@ -209,7 +213,7 @@ namespace g3
             if (a == d || b == d || c == d || a == b || b == c || a == c)
                 return 0;
             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y) == false)
-                return incircle_bigint(a, b, c, d);
+                return DoublePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
             return AdaptivePredicates.InCircle(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
         }
 
@@ -219,7 +223,7 @@ namespace g3
             if (a == b || b == c || a == c)
                 return 0;
             if (Expansion.InRange(a.x, a.y, b.x, b.y, c.x, c.y) == false)
-                return orient2d_bigint(a, b, c);
+                return DoublePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
             return AdaptivePredicates.Orient2d(a.x, a.y, b.x, b.y, c.x, c.y);
         }
 
@@ -232,7 +236,7 @@ namespace g3
             if (orient3d_int(a, b, c, d, out sign))
                 return sign;
             if (Expansion.InRange(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z) == false)
-                return orient3d_bigint(a, b, c, d);
+                return DoublePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
             // (Shewchuk's orient3d has the opposite sign)
             return -AdaptivePredicates.Orient3d(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z);
         }

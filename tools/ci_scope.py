@@ -31,8 +31,10 @@ SHARED = (
     "benchmarks/ReducerRemesherBaseline/Harness.cs",
     "tools/analyzers/",
     "tools/PredicateCompiler/Compiler.cs",
+    "tools/PredicateCompiler/Monomials.cs",
     "tools/PredicateCompiler/predicates.spec",
     "tools/PredicateCompiler/indirect.spec",
+    "tools/PredicateCompiler/doubles.spec",
     "tools/g3cli/TrianglePolyFormat.cs",
     "tools/ReaderFuzzPilot/FuzzTarget.cs",        # ReaderFuzzReplayTests
     "tools/ReaderFuzzPilot/ReaderTargets.cs",
@@ -40,6 +42,7 @@ SHARED = (
     "docs/examples/",
     "docs/OPERATIONS.md",             # DocExamplesTests
     "docs/ROBUSTNESS_SWEEP.md",      # RobustnessSweepTests
+    "docs/design/EXACT_FALLBACK_MONOMIALS.md",
     "docs/design/FIXED_WIDTH_EXACT_POINTS.md",
     "docs/design/DETERMINISM_PROOF.md",       # DeterminismScopeAnalyzerTests (the stage 0 ledger)
     "docs/design/INDIRECT_PREDICATES.md",
