@@ -65,6 +65,7 @@ code can notice. New classes are not listed (see the README and [OPERATIONS.md](
 | `Gradient` of `DenseGridTrilinearImplicit`, `CachingGridImplicit3d`, `CachingMeshSDF` | per grid cell | per unit length (divided by the cell size) |
 | `ImplicitIntersection3d.Bounds()` | union of the boxes | intersection |
 | `MeshScalarSamplingGrid` outside the narrow band | zeros | the last known value |
+| `ScaleGridIndexer2/3`, `ShiftGridIndexer2/3`, `FrameGridIndexer3` `ToGrid` | casting a non-finite or out-of-range floored coordinate differed between runtimes | the computed coordinate saturates at the integer limits, with NaN mapped to zero; intermediate floating-point overflow and the frame indexer's float conversion remain |
 | `GridIndexing` `ToGrid` / `ToBlock` | truncation (wrong cell for negative coordinates) | floor |
 | `Snapping.SnapToIncrementLow/High` on exact multiples | moved to the next increment | value kept |
 | `Units` miles | 1609.34 m | 1609.344 m |
