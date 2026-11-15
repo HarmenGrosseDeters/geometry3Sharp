@@ -225,11 +225,27 @@ namespace g3cli.Tests
             var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_rel.obj"), "--distance", "0.5", "--relative-cell-size", "0.04", "--method", "mesh_offset", "--compact");
             Assert.Equal(0, e1);
             Assert.Equal(0.04 * diagonal, D(r1["cell_size"]), 12);
-            // the cell must be at most |distance| / 2 (the default, a hundredth of the diagonal, is 0.0346 here: too large for 0.05)
-            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_big.obj"), "--distance", "0.05", "--method", "mesh_offset", "--compact");
+            // the cell must be at most |distance| / 2 (a hundredth of the diagonal, 0.0346 here, is too large for 0.05)
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_big.obj"), "--distance", "0.05", "--relative-cell-size", "0.01", "--method", "mesh_offset", "--compact");
             AssertError(e2, r2, "invalid_arguments");
             var (e3, r3) = Run("offset", m.Cube, m.Path_("mo_big2.obj"), "--distance", "0.5", "--cell-size", "0.3", "--method", "mesh_offset", "--compact");
             AssertError(e3, r3, "invalid_arguments");
+        }
+
+        [Fact]
+        public void MeshOffset_DefaultCell_IsAQuarterOfTheDistance()
+        {
+            // owner decision 2026-11-14: without cell_size / relative_cell_size, mesh_offset uses |distance| / 4 (sdf_mc keeps a hundredth of the diagonal)
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_def_out.obj"), "--distance", "0.5", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0.125, D(r1["cell_size"]));
+            Assert.True(B(r1["band_certified"]));
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_def_in.obj"), "--distance=-0.5", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e2);
+            Assert.Equal(0.125, D(r2["cell_size"]));
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("sm_def_cell.obj"), "--distance", "0.5", "--compact");
+            Assert.Equal(0, e3);
+            Assert.Equal(0.01 * 2 * Math.Sqrt(3), D(r3["cell_size"]), 12);
         }
 
         [Fact]

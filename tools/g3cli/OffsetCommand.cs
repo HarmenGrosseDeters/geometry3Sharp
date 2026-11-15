@@ -30,7 +30,7 @@ namespace g3cli
                     "not the exact 1-Lipschitz field the enclosure recipe (docs/design/CONSERVATIVE_MC_AUDIT.md) assumes. Inputs that are not closed, or whose triangles face inward (negative volume), are refused (the sign comes from the inside test; a mesh with some components inside out is not detected). " +
                     "method mesh_offset (opt-in) uses MeshOffset instead: dual contouring of the exact distance field with sharp creases where offset sheets meet, the self-intersection test decided exactly " +
                     "(self_intersection_free), and a proven one-sided band (band_deviation: every point of the result has a signed distance within that of distance; band_certified: within half a cell); " +
-                    "enclosure_claim is then \"band\". It needs a cell of at most half of |distance| (cell_size or relative_cell_size as for sdf_mc), max_cells bounds its grid nodes, root_mode other than " +
+                    "enclosure_claim is then \"band\". It needs a cell of at most half of |distance| (cell_size or relative_cell_size as for sdf_mc; default |distance| / 4), max_cells bounds its grid nodes, root_mode other than " +
                     "single_lerp and root_steps are refused, and the input must also be free of self-intersections (not checked; the inside test assumes it). " +
                     "Its result reports band_deviation, band_certified, uncertified_triangles and self_intersection_free (with a warning when one of them is not clean; " +
                     "enclosure_claim is \"none\" if the band bound is not finite) instead of the sdf_mc fields cells, grid_cells, root_mode and root_steps; both report method.",
@@ -40,7 +40,7 @@ namespace g3cli
             c.Params.Add(new Param("method", ParamType.String, "sdf_mc: signed distance grid + marching cubes (default); mesh_offset: MeshOffset (exact distance field, dual contouring, band certificate)") { Default = "sdf_mc", Enum = new[] { "sdf_mc", "mesh_offset" } });
             c.Params.Add(new Param("distance", ParamType.Number, "offset distance in mesh units, positive outward, negative inward") { Required = true });
             c.Params.Add(new Param("cell_size", ParamType.Number, "grid cell size in mesh units"));
-            c.Params.Add(new Param("relative_cell_size", ParamType.Number, "grid cell size as a fraction of the bounding box diagonal of the input (default 0.01)"));
+            c.Params.Add(new Param("relative_cell_size", ParamType.Number, "grid cell size as a fraction of the bounding box diagonal of the input (default 0.01; method mesh_offset: default cell |distance| / 4)"));
             c.Params.Add(new Param("root_mode", ParamType.String, "how vertices are placed along cell edges") { Default = "single_lerp", Enum = new[] { "single_lerp", "lerp_steps", "bisection", "linear_edges" } });
             c.Params.Add(new Param("root_steps", ParamType.Integer, "lerp_steps and bisection: number of steps, 1..64 (library default 5)"));
             c.Params.Add(new Param("max_cells", ParamType.Integer, "refuse a grid with more cells than this, counted for the marching cubes grid and the signed distance grid, which is wider by 4 times the band of the distance (default 16 million cells, 64 MB of float samples), at most 400 million; with method mesh_offset: refuse more grid nodes than this " +
@@ -88,7 +88,10 @@ namespace g3cli
                 double diagonal = box.Diagonal.Length;
                 if (!(diagonal > 0) || !double.IsFinite(diagonal))
                     throw new CommandException(ResultCodes.OperationFailed, "the input has no extent (or non-finite coordinates)");
-                double cell = args.Has("cell_size") ? args.Number("cell_size") : (args.Has("relative_cell_size") ? args.Number("relative_cell_size") : 0.01) * diagonal;
+                // default cell: a hundredth of the diagonal for sdf_mc; |distance| / 4 for mesh_offset (owner decision 2026-11-14), which needs a cell of at most |distance| / 2
+                double cell = args.Has("cell_size") ? args.Number("cell_size")
+                    : args.Has("relative_cell_size") ? args.Number("relative_cell_size") * diagonal
+                    : meshOffset ? 0.25 * Math.Abs(distance) : 0.01 * diagonal;
                 if (meshOffset)
                     return OffsetByMeshOffset(args, input, inputMetrics, distance, cell, maxCells, selfInt, warnings);
                 // the grid covers the input, the offset and two cells of margin (as docs/examples/OffsetSurfaceExample.cs)
