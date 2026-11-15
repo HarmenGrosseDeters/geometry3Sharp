@@ -154,7 +154,7 @@ static class Program
     // broad and the narrow phase, serial and parallel
     static int Sweep(string dir, double ms)
     {
-        Console.WriteLine("scene,vertices,triangles,mode,candidate_pairs,prepare_ms,pairs_ms,total_ms,prepare_share,status,earliest_toi,sub_steps,contacts");
+        Console.WriteLine("scene,vertices,triangles,mode,candidate_pairs,prepare_ms,pairs_ms,candidates_ms,total_ms,prepare_share,status,earliest_toi,sub_steps,contacts");
         string only = Environment.GetEnvironmentVariable("G3_SWEEP_SCENES");
         foreach (string scene in Directory.GetDirectories(dir).OrderBy(d => d, StringComparer.Ordinal)) {
             if (only != null && only.Split(',').Contains(Path.GetFileName(scene)) == false) continue;
@@ -172,11 +172,13 @@ static class Program
                 if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_BLOCK"), out int blk) && blk > 0) s.BlockSize = blk;
                 if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_TASKS"), out int tsk) && tsk > 0) s.SelfTasks = tsk;
                 if (int.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_SUBSTEPS"), out int sub) && sub > 0) s.SubSteps = sub;
+                // (G3_SWEEP_TREE_DOUBLES: the budget of the sub-step tree, 0 for the filter on the whole-step pairs)
+                if (long.TryParse(Environment.GetEnvironmentVariable("G3_SWEEP_TREE_DOUBLES"), out long td) && td >= 0) s.MaxTreeDoubles = td;
                 s.Compute();      // warm-up
                 var sw = Stopwatch.StartNew();
                 s.Compute();
                 double total = sw.Elapsed.TotalMilliseconds;
-                Console.WriteLine(FormattableString.Invariant($"{Path.GetFileName(scene)},{m0.VertexCount},{m0.TriangleCount},{(parallel ? "parallel" : "serial")},{s.CandidatePairs},{s.PrepareSeconds * 1000:F1},{s.PairsSeconds * 1000:F1},{total:F1},{s.PrepareSeconds * 1000 / total:F2},{s.Status},{s.EarliestTimeOfImpact:R},{s.SubSteps},{s.Contacts.Count}"));
+                Console.WriteLine(FormattableString.Invariant($"{Path.GetFileName(scene)},{m0.VertexCount},{m0.TriangleCount},{(parallel ? "parallel" : "serial")},{s.CandidatePairs},{s.PrepareSeconds * 1000:F1},{s.PairsSeconds * 1000:F1},{s.CandidateSeconds * 1000:F1},{total:F1},{s.PrepareSeconds * 1000 / total:F2},{s.Status},{s.EarliestTimeOfImpact:R},{s.SubSteps},{s.Contacts.Count}"));
             }
         }
         return 0;

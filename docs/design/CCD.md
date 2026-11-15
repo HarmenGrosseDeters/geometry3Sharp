@@ -674,3 +674,63 @@ Tests:
   The clip of the inner hulls to the whole-step range of a point, which the first version had, survived as
   equivalent: it changes boxes only by the interval's rounding unit, and the filter drops only candidates of the
   whole-step tree. It was removed.
+
+### 10.11 Sub-step boxes in the tree (#866, 2026-11-15)
+
+Upper bound (#866 after 10.10, puffer-ball, 4 cores, `CandidateSeconds`): collecting the candidates took 27.3 s of
+46.7 s serial and 13.3 s of 19.7 s parallel. Most of that is the enumeration of the 186M whole-step edge pairs and the 75M
+vertex-triangle pairs that the filter then drops. The narrow phase of the 25M candidates is about 18.4 s serial: a
+broad-phase change can lower the serial sweep to about 20 s at best. Lowering it further is the narrow phase's problem (#940).
+
+As built: `SubStepBoxTree` (internal, `spatial/`). It has one tree per set of primitives, as before. Each primitive has its
+whole-step box and its SubSteps sub-step boxes (`sub_boxes` from the hulls, the same doubles the filter of 10.10 uses);
+each node holds the union of its primitives' boxes, whole and per sub-step. A query, or a pair of nodes in `SelfPairs`,
+carries the mask of the sub-steps in which the boxes still overlap; the search drops it when the whole-step boxes are
+apart or the mask is empty. A leaf pair is reported when its whole-step boxes and its boxes of some sub-step overlap
+(closed boxes). That is the condition of 10.10 for a candidate: an overlap in the whole-step tree plus the filter. So the
+candidate set is the same, and the per-pair results, the reduction and `Contacts` are bit for bit those of 10.10. The node
+unions contain their primitives' boxes, so no pruned pair qualifies. Prior art: the multi-segment motion-blur BVHs of ray
+tracing, which keep one box per time segment in each node (Grünschloß et al. 2011, MSBVH; Woop et al. 2017, STBVH), and
+kinetic BVHs (Zachmann, Weller 2006). The ToI paper's broad phase (Belgrod et al.) sorts whole-step boxes on the GPU.
+
+- The order: Morton codes of the whole-step box centres, ties by index (the coordinates as ranks when one far or
+  infinite box would squeeze the others into a few cells, as `TriangleBoxTree`), median splits (leaves of up to 8). It only
+  decides which boxes share a node and the order of the candidates; the batches and the merge of 10.9 do not depend on
+  that order for the result, and it depends only on the input.
+- Memory: 6 (SubSteps + 1) doubles per triangle and edge for the leaves and about half that again for the nodes
+  (`SubStepBoxTree.Doubles`; about 1 GB for puffer-ball at k = 4, plus the transient whole-step boxes of the build).
+  Above `MaxTreeDoubles` (2^27 doubles for the trees together, 1 GB) the sweep falls back to the whole-step `TriangleBoxTree`s with the
+  filter of 10.10, with the same candidates. SubSteps = 1 and hulls above `MaxHullDoubles` keep the paths of 10.9 and
+  10.10.
+- `TriangleBoxTree` (exact code) is unchanged. The earlier rejected design (k trees, merged and deduplicated, 10.10)
+  needed the clipping of the sub-step boxes to the whole-step box to keep the subset property. This one tests both
+  boxes at the leaves.
+
+Measured: `benchmarks/CcdBenchmark/README.md` ("Sub-step box tree"). Over the runs of the PR puffer-ball went from
+46.6-46.8 s to 29.9-32.7 s serial and from 16.5-19.7 s to 10.6-10.9 s parallel, with the same candidate count, status,
+earliest time of impact and contact count in every scene (the contents of the candidates and contacts are checked
+by the tests). armadillo-rollers and n-body are
+faster, cloth-ball and rod-twist within noise, and cloth-funnel is 75 ms slower serial (small motion; no size threshold
+separates it from armadillo-rollers). k = 8 does not lower the serial time (29.9 s: fewer but harder pairs).
+
+Tests:
+- `SubStepTree_EqualsFilterOnWholeStepPairs`: random rounds, A against B, the self sweep, one mesh object against
+  itself with other end positions, k = 2, 4, 8, 64, CollectAll on and off, small and default jobs. The tree and the
+  filter path give the same candidate count, status, times and contacts. The budget boundary: at `MaxTreeDoubles` equal
+  to the trees' size the tree runs, one below it the filter.
+- `SubStepBoxTree_AgainstBruteForce`: random grid boxes with many touching faces, sub-step boxes that stick out of the
+  whole-step box, k = 1, 3, 4, 64, sizes 0 to 300. `Query` and `SelfPairTasks`/`SelfPairs` (1 to 100 000 tasks) give
+  each qualifying box or pair exactly once; the parallel build (build blocks of 3) gives the serial build's output in
+  the same order.
+- `SubStepBoxTree_OutlierKeepsTheOrderSpatial` (review): a shuffled grid plus one far or infinite box keeps a spatial
+  order (the rank fallback; without it the order is the shuffled index order).
+- `SubStepTree_Reuse`: the budget and SubSteps changed between Computes on one instance give the fresh results.
+- `SelfSweep_Invariance` over `Similarity.All()` on the tree and the filter path; `Invariance` (A against B) and
+  `Jobs_ParallelEqualsSerial` run the tree by default.
+- Mutants, killed: no whole-step or no sub-step test at the leaves (query and pairs), strict overlap, the last sub-step
+  skipped, a node box of one child only, the within-leaf pairs skipping a neighbour, a full mask lost in the (a, a)
+  items, a triangle's sub-step boxes of two vertices, a strict budget, the hulls of A for B, the query's sub-step boxes at
+  the wrong offset, an edge query's sub-step boxes from the wrong mesh, no rank fallback, a parallel build writing a
+  neighbour's sub-step boxes. Survived as equivalent: passing the full mask to
+  the children instead of the narrowed one. The mask only prunes, and the leaves test every sub-step in the mask they
+  get.
