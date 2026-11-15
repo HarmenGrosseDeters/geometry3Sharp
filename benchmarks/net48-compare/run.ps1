@@ -53,7 +53,12 @@ if (-not $NoBuild) {
 function Get-ToolCommand([string]$kind, [string]$runtime) {
     $name = $tools[$kind]
     if ($runtime -eq 'net48') {
-        return @{ File = (Join-Path $bench "$name\bin\Release\net48\$name.exe"); Prefix = @() }
+        # the newest <name>.exe below bin\Release\net48 (the SDK may add a runtime identifier folder), or an error that says where it looked
+        $dir = Join-Path $bench "$name\bin\Release\net48"
+        $exe = $null
+        if (Test-Path $dir) { $exe = Get-ChildItem $dir -Recurse -Filter "$name.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
+        if (-not $exe) { throw "net48 executable not found: $dir\$name.exe (build with -p:BenchNet48=true, or run without -NoBuild)" }
+        return @{ File = $exe.FullName; Prefix = @() }
     }
     return @{ File = 'dotnet'; Prefix = @((Join-Path $bench "$name\bin\Release\net10.0\$name.dll")) }
 }
