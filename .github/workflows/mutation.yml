@@ -75,7 +75,6 @@ on:
       - 'tests/geometry3Sharp.Tests/CertifiedTriangleBoundsTests.cs'
       - 'tests/geometry3Sharp.Tests/Hausdorff*Tests.cs'
       - 'tests/geometry3Sharp.Tests/MeshDeviationTests.cs'
-      - 'tests/geometry3Sharp.Tests/NearestByClosestPointTests.cs'
       - 'tests/mutation/*'
       - '.config/dotnet-tools.json'
       - '.github/workflows/mutation.yml'

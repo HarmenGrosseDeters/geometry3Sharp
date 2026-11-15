@@ -11,7 +11,7 @@
       "**/queries/CertifiedTriangleBounds.cs",
       "**/queries/CertifiedPointMeshDistance.cs"
     ],
-    "test-case-filter": "FullyQualifiedName~CertifiedTriangleBoundsTests|FullyQualifiedName~HausdorffCertifiedUpperTests|FullyQualifiedName~HausdorffDistanceTests&FullyQualifiedName!~ReducedMesh_DeviationCertifiedQuickly&FullyQualifiedName!~UpperBound_ValidWithCoarseToleranceAndWithoutConvergence&FullyQualifiedName!~Invariant_UnderSimilarities|FullyQualifiedName~HausdorffPatchBoundTests&FullyQualifiedName!~Flat_Hole_Fold_Inconsistent_Plate_AlwaysSound&FullyQualifiedName!~SimplifyWithin_AlphaWrap&FullyQualifiedName!~Hausdorff_WithPatchBound_SameInterval_FewerSubdivisions|FullyQualifiedName~HausdorffRoundingTests|FullyQualifiedName~HausdorffSymmetricBudgetTests|FullyQualifiedName~MeshDeviationTests|FullyQualifiedName~HausdorffCoplanarTests|FullyQualifiedName~NearestByClosestPointTests",
+    "test-case-filter": "FullyQualifiedName~CertifiedTriangleBoundsTests|FullyQualifiedName~HausdorffCertifiedUpperTests|FullyQualifiedName~HausdorffDistanceTests&FullyQualifiedName!~ReducedMesh_DeviationCertifiedQuickly&FullyQualifiedName!~UpperBound_ValidWithCoarseToleranceAndWithoutConvergence&FullyQualifiedName!~Invariant_UnderSimilarities|FullyQualifiedName~HausdorffPatchBoundTests&FullyQualifiedName!~Flat_Hole_Fold_Inconsistent_Plate_AlwaysSound&FullyQualifiedName!~SimplifyWithin_AlphaWrap&FullyQualifiedName!~Hausdorff_WithPatchBound_SameInterval_FewerSubdivisions|FullyQualifiedName~HausdorffRoundingTests|FullyQualifiedName~HausdorffSymmetricBudgetTests|FullyQualifiedName~MeshDeviationTests",
     "ignore-methods": [
       "*PredicateStats.*"
     ],

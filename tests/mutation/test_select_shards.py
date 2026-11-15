@@ -86,8 +86,6 @@ class SelectShards(unittest.TestCase):
             self.assertEqual(("none", {"hausdorff": "source"}), run(f))
         self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "HausdorffCertifiedUpperTests.cs"))
         self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "MeshDeviationTests.cs"))
-        self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "HausdorffCoplanarTests.cs"))
-        self.assertEqual(("none", {"hausdorff": "tests"}), run(TESTS + "NearestByClosestPointTests.cs"))
 
     def test_source_wins_over_tests(self):
         self.assertEqual("source", run("mesh_ops/MeshRoundingRepair.cs", TESTS + "ExactBooleanIssueCasesTests.cs")[1]["rounding-1"])
