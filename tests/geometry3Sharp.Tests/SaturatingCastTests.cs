@@ -57,6 +57,11 @@ namespace geometry3Sharp.Tests
         [InlineData(-2.9, -2, -2L)]         // (truncation toward zero, as the cast)
         [InlineData(-0.0, 0, 0L)]
         [InlineData(3e9, int.MaxValue, 3000000000L)]
+        [InlineData(2147483647.5, int.MaxValue, 2147483647L)]
+        [InlineData(-2147483648.5, int.MinValue, -2147483648L)]
+        [InlineData(9223372036854775808.0, int.MaxValue, long.MaxValue)]          // 2^63
+        [InlineData(9223372036854774784.0, int.MaxValue, 9223372036854774784L)]   // the largest double below 2^63
+        [InlineData(-9223372036854775808.0, int.MinValue, long.MinValue)]         // -2^63
         public void ToIntAndLongSaturating_TruncateAndSaturate(double x, int i, long l)
         {
             Assert.Equal(i, MathUtil.ToIntSaturating(x));
@@ -65,7 +70,7 @@ namespace geometry3Sharp.Tests
 
         // the sites outside the exact scope (#804): infinite and NaN coordinates give the net10 result everywhere
         [Fact]
-        public void TriangleBinsGrid_InfiniteBounds_TwoBins()
+        public void TriangleBinsGrid_InfiniteBounds_InsertDoesNotThrow()
         {
             // (ROBUSTNESS_SWEEP R36: a +Inf vertex of MeshInsertPolygon; net48 threw from the bin list's size)
             var grid = new TriangleBinsGrid2d(new AxisAlignedBox2d(0, 0, double.PositiveInfinity, 1), 16);
