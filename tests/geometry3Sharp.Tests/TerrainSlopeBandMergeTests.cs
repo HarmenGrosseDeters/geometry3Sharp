@@ -27,7 +27,8 @@ namespace geometry3Sharp.Tests
         });
 
         // the repro near the origin: band merges of edges longer than r, within the band radius, at most MinFeatureSize,
-        // the lowering counting the moves; at UTM none; the band radius and length scale bit for bit in the 2^k frames
+        // the lowering counting the moves (at UTM none and the band radius and length scale bit for bit in the 2^k frames: the
+        // two tests below, split so that no test is above 5 s in a full run, #696)
         [Trait("Category", "Slow")]
         [Fact]
         public void Repro_BandMergesAndTheirLowering()
@@ -45,20 +46,33 @@ namespace geometry3Sharp.Tests
             // within r moved positions too, so a band merge may carry labels by r + l: both add up)
             Assert.True(origin.MergedPositions > 0);
             Assert.True(origin.MergeLambdaRequired >= 2 / 1.5 * (origin.UsedMergeRadius + origin.MaxMergeDistance), $"{origin.MergeLambdaRequired:R} {origin.MaxMergeDistance:R}");
+        }
 
+        // at UTM no band merge (the design's facets are above the band radius there)
+        [Trait("Category", "Slow")]
+        [Fact]
+        public void Repro_AtUtm_NoBandMerges()
+        {
             var utm = Design(Similarity.Identity, new Vector3d(327000.25, 5642000.5, -340));
             Assert.True(utm.Compute(), utm.Message);
             Assert.Equal(0, utm.BandMerges);
+        }
 
-            foreach (string name in new[] { "scale 2^10", "scale 2^-10" }) {
-                Similarity s = Similarity.ByName(name);
-                var d = Design(s, new Vector3d(0, 0, -340));
-                Assert.True(d.Compute(), d.Message);
-                Assert.Equal(origin.BandMerges, d.BandMerges);
-                // (the band radius from the facets' slack scales bit for bit, so the band decisions are the same)
-                Assert.Equal(origin.UsedBandMergeRadius * s.Scale, d.UsedBandMergeRadius);
-                Assert.Equal(origin.MaxMergeDistance * s.Scale, d.MaxMergeDistance);
-            }
+        // the band radius and length scale bit for bit in the 2^k frames
+        [Trait("Category", "Slow")]
+        [Theory]
+        [InlineData("scale 2^10")]
+        [InlineData("scale 2^-10")]
+        public void Repro_BandRadiusScalesBitForBit(string name)
+        {
+            var origin = reference.Value;
+            Similarity s = Similarity.ByName(name);
+            var d = Design(s, new Vector3d(0, 0, -340));
+            Assert.True(d.Compute(), d.Message);
+            Assert.Equal(origin.BandMerges, d.BandMerges);
+            // (the band radius from the facets' slack scales bit for bit, so the band decisions are the same)
+            Assert.Equal(origin.UsedBandMergeRadius * s.Scale, d.UsedBandMergeRadius);
+            Assert.Equal(origin.MaxMergeDistance * s.Scale, d.MaxMergeDistance);
         }
 
         // two crease vertices p (0, 0) and q (dx, 0), dx far below the outer ring's size, inside a ring W, S, E, N: the
