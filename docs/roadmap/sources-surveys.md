@@ -222,6 +222,129 @@ With a permissive implementation (portable, see Licenses):
 | Spainhour, Gunderman, Weiss, *Robust Containment Queries over Collections of Rational Parametric Curves via Generalized Winding Numbers*, TOG 2024 | SIGGRAPH 2024 best paper | Axom (BSD) | high: inside / outside of regions bounded by NURBS and Bézier curves (`NURBSCurve2`, CAD contours); follow-up for trimmed NURBS surfaces (2025) |
 | Trettner, Bommes, Kobbelt, *Geodesic Distance Computation via Virtual Source Propagation*, CGF 2021 | SGP 2021 second place | MIT (C++ library of the authors) | medium: geodesic distances next to the heat method |
 
+#### Scientific Reports and related papers (checked 2026-11-15)
+
+Five papers named by the owner, plus one the owner found good. Read: papers only, no code.
+- **Access:** www.nature.com redirects every article to a cookie login host (idp.nature.com) that the cloud session
+  blocks, and link.springer.com is blocked too. No preprints were found on arXiv. So for the four Scientific Reports
+  papers and Juretić & Putz only the Crossref record was read: title, authors, licence and the reference list (no
+  abstract is deposited). The method notes for them are what the title and the cited works show, not what the paper
+  says; they are marked "(title and references only)". CWF was read in full (arXiv 2404.15661 v1, HTML).
+- **Licences:** a paper licence covers the text, not the method; implementing from a paper is fine under the rules in
+  [CLAUDE.md](../../CLAUDE.md). No paper was checked for patents. No code was looked for or opened.
+
+Documented only, nothing planned yet.
+
+##### 1. Gao, Yu, Cao, Yang, Xie, Guan, *Robust mesh generation for electromagnetic models with geometric defects through node alignment and mesh boolean operations*, Sci. Rep. 15, 23153 (2025)
+
+DOI 10.1038/s41598-025-04160-8. CC BY-NC-ND 4.0. Read in part (title and references only).
+- **Method (inferred):** surface meshes of electromagnetic (FEM) models with defects such as gaps, overlaps and
+  misaligned parts are made conformal. Nodes of neighbouring parts that lie within a tolerance are aligned, and the
+  parts are then combined by mesh booleans, so that touching bodies share their interface. The references point to
+  the classic engineering line: imprint and merge with tolerances (White, Saigal, Owen 2004), faceted sealing (Smith,
+  Tautges, Wilson 2010), surface-surface intersection and mesh merging (Lo and Wang 2004-2013), booleans via a
+  boundary-conforming tet mesh (Xiao et al. 2016), hole filling (Liepa 2003). The output is likely a conformal
+  multi-body surface mesh for a volume mesher; quality is reported as equiangle skewness.
+- **Compare with:** `ExactMeshBoolean` and the internal `ExactMeshArrangement` (exact, no tolerance), the float
+  `MeshMeshCut`, `MergeCoincidentEdges` (welds boundary edges within a distance), `MeshStitchLoops`, `MinimalHoleFill`.
+  The open item "exact imprint on `ExactMeshArrangement`" ([exact-boolean.md](exact-boolean.md) item 13) is the
+  closest planned work. We have no multi-body output that keeps region labels on shared faces.
+- **Verdict: reference only.** The pattern (snap within a tolerance, then an exact arrangement) fits our kernel, but
+  without the text we cannot tell what is new. Worth a read when the exact imprint or a multi-region output is designed.
+
+##### 2. Yu, Li, Gong, Lin, *A neural poly-vector based non-orthogonal frame field generation method for quad meshing*, Sci. Rep. 15, 33595 (2025)
+
+DOI 10.1038/s41598-025-18823-z. CC BY-NC-ND 4.0. Read in part (title and references only). The registered title says
+*non-orthogonal*; the title in the request ("Orthogonal frame field generation for quad meshing") does not match it.
+- **Method (inferred):** a frame field for quad meshing is represented as a PolyVector field (Diamanti et al. 2014),
+  which allows non-orthogonal frames (Desobry et al. 2021), and is computed by a neural network, in the line of
+  NeurCross (Dong et al. 2025), neural octahedral fields and SIREN-style implicit networks. The quad mesh is then
+  extracted with the usual field-aligned parametrization pipeline (mixed-integer quadrangulation, QEx, Instant Meshes
+  and QuadriFlow are cited as comparisons or tools). libigl is cited, so the prototype likely builds on it.
+- **Compare with:** nothing in the library. There is no cross field, frame field or quad mesher; quad remeshing is
+  on the "Later" list ([research.md](research.md)). `VectorHeatMethod` transports vectors but does not design
+  n-direction fields. Note: [CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md) is about problems across
+  scientific fields, not about cross fields.
+- **Verdict: not relevant now.** A neural field needs training and an ML runtime, which does not fit a deterministic
+  C# library. If quad remeshing is started, the classic sources come first (Knöppel et al. 2013 globally optimal
+  direction fields, Diamanti et al. 2014, Bommes et al. 2009).
+
+##### 3. Fang, Yan, Xie, Wang, Ke, Zhang, Li, *In-plane hybrid design and mechanical properties of Ti-6Al-4V TPMS structures*, Sci. Rep. 16, 17947 (2026)
+
+DOI 10.1038/s41598-026-49318-0. CC BY 4.0. Read in part (title and references only).
+- **Method (inferred):** two TPMS types (Gyroid and I-WP, per the request) are joined in one lattice by a transition
+  function that blends their implicit fields across a plane-parallel boundary, and the hybrids are printed in
+  Ti-6Al-4V and tested in compression (with a Johnson-Cook model for simulation). The cited design work is
+  multi-TPMS transition boundaries (Ren et al. 2021), configuration-varying TPMS with geometric continuity (Gao et
+  al. 2022) and multi-dimensional hybrid TPMS (Zhang et al. 2023-2025). The exact form of the transition function
+  (for example a sigmoid weight, its width) is not known from the record.
+- **Compare with:** `TpmsLattice` ([TPMS_LATTICE.md](../design/TPMS_LATTICE.md), `g3cli tpms`) already has Gyroid
+  and I-WP as nodal approximations, a graded volume fraction (`VolumeFractionAt`) and graded cell size
+  ([TPMS_GRADED_CELL.md](../design/TPMS_GRADED_CELL.md)). It has no blend of two types. A blend
+  w(x)·f_G + (1 − w(x))·f_IWP is a new field in front of the same contouring; the guarantees (closed, manifold,
+  self-intersection free) stay checked on the result. Two points need work: the quantile table that maps a volume
+  fraction to a level is per type, and the Lipschitz bound for `Enclosure` must include the gradient of w.
+- **Verdict: adopt as a candidate** (small, M): a hybrid type with a user transition (a plane and a width) in
+  `TpmsLattice` and the CLI. The paper is design input for the transition and the realized volume fraction; read the
+  full text first (CC BY, so it can be quoted with credit) once nature.com is reachable.
+
+##### 4. Juretić, Putz, *Applications of heat-diffusion equation for surface wrapping: hole detection and normal orientation*, Eng. Comput. 30(3), 363-374 (2014, online 2012)
+
+DOI 10.1007/s00366-012-0304-8. Springer subscription article (Crossref lists only Springer's TDM licence). Read in part
+(title and references only).
+- **Method (inferred):** a surface wrapper on a Cartesian grid (in the line of Lee et al. 2006 and Wang and
+  Srinivasan 2002, "dirty" geometry) solves a heat-diffusion equation, by finite volumes and multigrid, on the grid
+  around the input. Heat sources on one side and the resulting temperature field show where heat leaks through,
+  which locates holes in the input, and the sign of the field orients the normals. The references also cover
+  volumetric diffusion hole filling (Davis et al. 2002), level-set reconstruction (Zhao, Osher, Fedkiw 2001) and
+  Kobbelt's shrink wrapping (1999). The first author wrote cfMesh, which may have used it; not checked.
+- **Compare with:** `MeshAlphaWrap` (closes holes up to α by construction), `MeshWindingNumberSolidify` and the
+  generalized winding number for inside/outside of open inputs
+  ([INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md), stopped 2026-11-02),
+  `MeshRepairOrientation`, `PointCloudNormals` (orientation from a wrap), `AutoHoleFill`.
+- **Verdict: reference only.** A diffusion field is a smooth inside/outside indicator like the winding number, which we
+  already have, and the winding-number spike found too few gains. Possible use: a hole-location report for
+  `MeshRobustRepair` (where the field leaks), but there is no open item for it.
+
+##### 5. Xu, Liu, Wang, Chen, Xin, Guo, Zhong, Komura, Wang, Tu, *CWF: Consolidating Weak Features in High-quality Mesh Simplification*, ACM TOG 43(4) (SIGGRAPH 2024)
+
+DOI 10.1145/3658159; arXiv 2404.15661 v1 (CC BY-NC-SA 4.0); TOG version under ACM copyright. Read in full (arXiv HTML).
+- **Method:** N movable points on the input surface minimise E = λ_NA·E_NA + λ_CVT·E_CVT over a restricted Voronoi
+  diagram (RVD) of the points. E_NA = Σ_i ∫_Ωi ((x − x_i)·n_x)² ds is the normal-anisotropy term of LpCVT (Lévy and
+  Liu 2010), a continuous QEM that pulls points onto feature lines and corners; E_CVT is the usual CVT energy (identity,
+  density or anisotropic metric). λ_CVT decays by τ = 0.95 per iteration, so even spacing comes first and feature
+  alignment later; this lets weak features (smooth, large-scale creases) emerge, which QEM and LpCVT miss. L-BFGS
+  with an approximate gradient (the boundary terms are dropped), 6-point quadrature per triangle, Poisson-disk
+  initialisation, a stop when E_CVT rises above 1.05 times its minimum; the output is the dual of the RVD. A fix for
+  RVDs on thin plates biases the sites along the inward normal and reassigns the regions they take.
+- **Results and limits (the paper's):** 100 ABC CAD models and 21 organic models against QEM, LpCVT, CVT, probabilistic
+  quadrics and others; better normal consistency and triangle quality at equal vertex counts. It is slower than QEM
+  (about 5-10 s RVD plus L-BFGS for 0.5-10 K points on a 40 K-face input, QEM below 1 s), has no robust anisotropic
+  RVD, fails for very few target points (the RVD dual is not manifold) and may give non-manifold output on
+  self-intersecting input. No guarantee of a closed, manifold or intersection-free result.
+- **Compare with:** `Reducer` (QEM with feature planes and the Trettner-Kobbelt regularisation), `Remesher` /
+  `RemesherPro` (isotropic, crease handling), the research notes in
+  [RESEARCH_REDUCER_REMESHER.md](../design/RESEARCH_REDUCER_REMESHER.md) and
+  [REDUCER_REMESHER_20.md](../design/REDUCER_REMESHER_20.md). We have no surface RVD; geogram's `mesh_remesh`
+  (BSD, the geogram table above) is the permissive building block, and Yan, Lévy et al. 2009 is already cited in
+  [CERTIFIED_REMESHING.md](../design/CERTIFIED_REMESHING.md) (T14).
+- **Verdict: reference only, a candidate if a CVT remesher is built.** It is a remesher, not a decimator: it needs an
+  RVD on the surface and gives no validity guarantee, so our checks (`NotCleanReason`, the exact self-intersection
+  test) would have to run on its output with a fallback. The decaying-weight idea is cheap to try once a CVT
+  remesher exists; it does not transfer to the edge-collapse `Reducer` directly.
+
+##### Also noted
+
+Liu, Gao, Gong, Chen, Li, Guo, Xu, Liu, *Shrink wrap meshing via graph-based optimization*, Sci. Rep. 16, 4148 (2026),
+DOI 10.1038/s41598-025-34284-w, CC BY-NC-ND 4.0; from the reference list only: it cites Portaneri et al. 2022 (alpha
+wrap), Dai, Wang, Yan 2024 (feature-preserving shrink wrap), Juretić & Putz 2014 and CWF 2024, and graph neural
+networks for meshing. The owner found it good; not read, the text is behind the same nature.com block.
+
+Order if one is picked up:
+1. The Gyroid-I-WP hybrid in `TpmsLattice` (paper 3), after its full text is read.
+2. Paper 1 as input to the exact imprint on `ExactMeshArrangement`, once nature.com is reachable.
+3. CWF only if a CVT remesher becomes a goal.
+
 ### Open for the future (2026-11-15)
 
 1. Full Thingi10K run (draft #385): the EMBER re-evaluation and the octree-BSP paper wait for it.
@@ -232,3 +355,5 @@ With a permissive implementation (portable, see Licenses):
 6. The outer-hull and volumetric repair papers, as design input for the repair pipeline (after the Thingi10K bugfix task, status unverified).
 7. PaMO probe ideas: none planned; a patent check comes first.
 8. alecjacobson/alpha-wrap as a second alpha wrap reference: not scheduled (owner: not now).
+9. Hybrid TPMS (Gyroid–I-WP blend with a user transition) in `TpmsLattice`, from Fang et al. 2026 above: a small candidate; read the full text first.
+10. The Scientific Reports papers above could only be read from their Crossref records (nature.com needs a cookie login); a full read waits for access.
