@@ -10,7 +10,7 @@ Part of the [roadmap](../ROADMAP.md).
   Z3 pilot 3 (#443) and rule C on the snap grid (#462); coarsening closed; the QA 2.0 T5 findings and owner decisions of
   2026-11-09/10 (#496, #526, #535, #542, #546, #553) are merged. Since the inventory of 2026-11-12: the provenance delta
   6b-4 (#677, no (A) finding), the fixes of #637, #695, #723, #728/#729, #748, #863 and #864 part A (#876), and the #870
-  oracle fix #880 (10 of 11 dumps) are merged. Open: the last #870 dump (d6710852), the SplitTriangle measurement, the
+  oracle fix #880 (10 of 11 dumps) are merged; the last #870 dump (d6710852) is in review. Open: the SplitTriangle measurement, the
   inputs that stay blocked, and research.
 - **Related:** [design/MESHING2D_SPEC.md](../design/MESHING2D_SPEC.md),
   [MESHING2D_PLAN.md](../design/MESHING2D_PLAN.md), [MESHING2D_DECISIONS.md](../design/MESHING2D_DECISIONS.md),
@@ -30,11 +30,12 @@ are not in the repository, or research / not scheduled. Settled entries (done, o
 
 Actionable:
 
-- **#870, the last dump `d6710852` (bugfix, open).** The verdict of #880 (merged 2026-11-14): the oracle was wrong, not the
-  mesher; #880 fixed 10 of the 11 dumps. In `d6710852` the refused piece ends at a crossing, and the oracle cannot tell a
-  crossing from a split point near two constraints. Coordinator decision (2026-11-15): `QualityMesh2Candidate` reports two
-  additive output fields, each piece's sources and which vertices existed before refinement, in one PR with a test from the
-  dump's coordinates; API compatible (additive only). Queued for the meshing session after #884 (the Hausdorff mutation shard).
+- **#870, the last dump `d6710852` (bugfix, in review).** The verdict of #880 (merged 2026-11-14): the oracle was wrong, not the
+  mesher; #880 fixed 10 of the 11 dumps. In `d6710852` the refused piece ends at a crossing, and the oracle could not tell a
+  crossing from a split point near two constraints. Coordinator decision (2026-11-15), now implemented: the output reports each
+  piece's sources and which vertices existed before refinement (internal `ConstrainedMesh2` fields, `Mesh2Output`), and the oracle
+  models the split point from them. The mesher's output is unchanged (bit for bit on all 149 quality-mesh2 dumps of group f);
+  `d6710852` and three dumps of the resumed group (6a3aaa34, 8afddcaf, a4805a84) are accepted now.
 
 Blocked here (inputs not in the repository: corpus, Herne tiles, run-A outputs, stmlf; not fetched):
 
@@ -388,7 +389,7 @@ Also a small **snap-rounding Q&A** session (owner decision 2026-11-01): the dirt
 
 ### Open for the future (2026-11-15)
 
-1. #870: the last dump `d6710852`; `QualityMesh2Candidate` reports each piece's sources and the pre-refinement vertices (additive), after #884.
+1. #870: the last dump `d6710852` (in review).
 2. SplitTriangle breakdown (measurement only), then one speed PR with SplitSegment if the gain is worth its code (no issue).
 3. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; not scheduled).
 4. Blocked on inputs: judging the fork's huge Herne q20 outputs, the 72 run-A oracle timeouts, stmlf (no issue).
