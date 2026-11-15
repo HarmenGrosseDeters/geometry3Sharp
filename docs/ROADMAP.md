@@ -118,8 +118,8 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
    approved 2026-11-15, with the differential test relaxed to "differs only where the vendored code stays exact").
 2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files). Stage 1
    merged (#779); stage 2 stopped after its spike (2026-11-15, #923): refinement certifies thin features
-   but not the double crossings at silhouette edges, most refused cells; next is a proof of an edge lemma (a decision
-   for the owner).
+   but not the double crossings at silhouette edges, which come back at every level (uncertified cells -10 % at 15x
+   the contouring time); next is a proof of an edge lemma (a decision for the owner).
 3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
    a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
    it comes before the release; a no-go does not hold the release.

@@ -134,13 +134,13 @@ Part of the [roadmap](../ROADMAP.md).
      ([CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) section 4.8; prototype on the archive branch
      `claude/contouring-cert-stage2-spike`, not merged): on the clean T1 meshes at / 128, three levels certify 53 % of
      the 2322 refused coarse cells at 15 times the contouring time, while 989 others become uncertified (2322 -> 2082
-     in total); certified runs 4 -> 6 of 14. It certifies thin features; the rest are axis lines crossing L twice near
-     silhouette edges (82-100 % of the uncertified cells after three levels on the three meshes inspected, against
-     11-42 % of random surface cells), which every finer grid
-     has again. Refinement does fix the 5 wrong implicit-family results without certifying them, and is not monotone
-     (472011 at / 64 becomes wrong), always reported. Next (owner decision): a proof of an edge lemma (a double
-     crossing next to one silhouette edge removed by a local isotopy, stage 5's non-local relaxation), then stage 2
-     again on the thin-feature refusals; or stop at stage 1 (report only).
+     in total; / 64: 1269 -> 1232); certified runs 4 -> 6 of 14 (/ 64: 2 -> 6). It certifies thin features and one
+     wrong clean input (96773 at / 64); the rest are axis lines crossing L twice near silhouette edges (82-100 % of the
+     uncertified cells after three levels on the three meshes inspected, against 11-42 % of random surface cells),
+     which every finer grid has again. Refinement fixes the 5 wrong implicit-family results, certifying only one of
+     them (gap 0.5), and is not monotone (472011 at / 64 becomes wrong), always reported. Next (owner decision): stage
+     2a of the note, a proof of an edge lemma (a double crossing next to one silhouette edge, with no contour crossing,
+     removed by an isotopy of L supported in the cells around that edge), then stage 2 again on the thin-feature refusals; or stop at stage 1 (report only).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
