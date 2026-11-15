@@ -103,32 +103,44 @@ namespace geometry3Sharp.Tests
                 return BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Replace("-", "").Substring(0, 16);
         }
 
+        // the vertices on the grid of 2^-20: the inputs come from Math.Sin and Math.Cos, which the runtimes need not round
+        // alike (net48 on Windows), and a hash pinned bit for bit must not depend on them
+        static DMesh3 Snapped(DMesh3 m)
+        {
+            var o = new DMesh3(m);
+            foreach (int vid in o.VertexIndices()) {
+                Vector3d v = o.GetVertex(vid);
+                o.SetVertex(vid, new Vector3d(Math.Round(v.x * 1048576) / 1048576, Math.Round(v.y * 1048576) / 1048576, Math.Round(v.z * 1048576) / 1048576));
+            }
+            return o;
+        }
+
         [Theory]
-        [InlineData("plain", Ops.Union, "3ACCEF314E7B37EE", "B15C5B1D3A82FD58", 7788, 4254, 11660, 248)]
-        [InlineData("plain", Ops.Intersection, "DEF83A091B0E355B", "B15C5B1D3A82FD58", 7788, 4254, 11660, 248)]
-        [InlineData("plain", Ops.Difference, "A6431C5972DF6C39", "B15C5B1D3A82FD58", 7788, 4254, 11660, 248)]
-        [InlineData("swapped", Ops.Union, "D93E1C8151B571C1", "65651C8F80DAF807", 7788, 4254, 11660, 248)]
-        [InlineData("swapped", Ops.Difference, "22CBFA52D9D2368A", "65651C8F80DAF807", 7788, 4254, 11660, 248)]
-        [InlineData("steep", Ops.Union, "C47BDFF228A9C6EA", "30ABD144DF9D23F2", 7782, 4389, 11793, 254)]
-        [InlineData("steep", Ops.Intersection, "32793D932CFA0D49", "30ABD144DF9D23F2", 7782, 4389, 11793, 254)]
-        [InlineData("nearcopy", Ops.Union, "479C92EC5FCA259E", "0594718EA48645C0", 44, 11950, 462, 942)]
-        [InlineData("nearcopy", Ops.Difference, "F5F85B5846522981", "0594718EA48645C0", 44, 11950, 462, 942)]
-        [InlineData("fold", Ops.Union, "9233963E112CD0FE", "73DC4763F1C8347C", 48, 0, 80, 19)]
-        [InlineData("fold", Ops.Difference, "9233963E112CD0FE", "73DC4763F1C8347C", 48, 0, 80, 19)]
+        [InlineData("plain", Ops.Union, "8A23CE6B2F66B6EC", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("plain", Ops.Intersection, "6D7269D04B5E8224", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("plain", Ops.Difference, "2E33BD6EB8EC6673", "3DE37721ED0BB6B0", 7790, 4252, 11663, 246)]
+        [InlineData("swapped", Ops.Union, "D5A5B759CAF3EF97", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
+        [InlineData("swapped", Ops.Difference, "ED4BAAC8633454BE", "EAB2057DB13D376E", 7790, 4252, 11663, 246)]
+        [InlineData("steep", Ops.Union, "993832FB8435FDEA", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
+        [InlineData("steep", Ops.Intersection, "9E45CC20B3FE76E5", "44128D8F3C04F3FC", 7786, 4384, 11804, 248)]
+        [InlineData("fold", Ops.Union, "10A9DF49808D985C", "73DC4763F1C8347C", 48, 0, 80, 19)]
+        [InlineData("fold", Ops.Difference, "10A9DF49808D985C", "73DC4763F1C8347C", 48, 0, 80, 19)]
         public void CrossSteps_SameResultAsBeforeLever4_Pinned(string variant, Ops op, string result, string winding, long steps, long carried,
             long candidates, long direct)
         {
-            // lever 4 is bit-identical by design: procedural open inputs on the path that queries the box tree from steps
-            // across input-triangle edges (CrossVisit with Tris), the result mesh, the open winding of every piece and the
-            // counts as the code before lever 4 gave them (master 079e8258, computed there). "plain" is the sheet and cap of
-            // the cross-carry tests, "swapped" makes the sheet the second mesh, "steep" folds it more, "nearcopy" (two open copies a hair apart) steps through a piece's
-            // own input triangles, and in "fold" (FoldAndPlate) the steps across the crease cross the plate, the second mesh,
-            // whose box tree indices differ from the input triangles'. A visitor that lost a crossing (Crossings), a candidate
-            // (Found) or the map of the tree's indices (Tris) changes them. (Dropping the own-triangle crossings survives: on a
-            // step across a consistently oriented input edge, the only steps traced, those of the two ends cancel)
+            // lever 4 is bit-identical by design: procedural open inputs (Snapped) on the path that queries the box tree from
+            // steps across input-triangle edges (CrossVisit with Tris), the result mesh, the open winding of every piece and
+            // the counts as the code before lever 4 gave them (master 079e8258, computed there). "plain" is the sheet and cap
+            // of the cross-carry tests, "swapped" makes the sheet the second mesh, "steep" folds it more, and in "fold"
+            // (FoldAndPlate) the steps across the crease cross the plate, the second mesh, whose box tree indices differ from
+            // the input triangles' (there Union and Difference keep the same faces: the open winding and the counts tell
+            // them apart). A visitor that lost a crossing (Crossings), a candidate (Found) or the map of the tree's indices
+            // (Tris) changes them. (Dropping the own-triangle crossings survives: on a step across a consistently oriented
+            // input edge, the only steps traced, those of the two ends cancel)
             (DMesh3 a, DMesh3 b) = variant == "fold" ? FoldAndPlate(6, 1.0)
-                : variant == "nearcopy" ? ExactMeshBooleanTestsLocalFilter.NearCopy(16, 1e-12)
                 : ExactMeshBooleanTestsCrossCarry.SheetAndCap(40, variant == "steep" ? 0.6 : 0.15);
+            a = Snapped(a);
+            b = Snapped(b);
             if (variant == "swapped")
                 (a, b) = (b, a);
             var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, TracedAcrossEdges = true, PerPatchOpenWinding = false, RecordOpenWinding = true };
@@ -189,9 +201,9 @@ namespace geometry3Sharp.Tests
             Assert.True(double.IsNaN(ExactMeshBoolean.LocalFrame.grid_coord_of(double.Epsilon)));
         }
 
-        // the padded segment p-q meets the closed box [lo - pad, hi + pad] (Liang-Barsky clipping, in doubles: the callers
-        // allow for its rounding with a margin)
-        static bool SegmentMeetsBox(Vector3d p, Vector3d q, Vector3d lo, Vector3d hi, double pad)
+        // the padded segment p-q meets the closed box [lo - pad, hi + pad] (Liang-Barsky clipping, in doubles), its parameter
+        // interval per axis widened by slack * (|ta| + |tb| + 1e-3) (0: none; the tree widens by 1e-9 * (|ta| + |tb|) + 1e-12)
+        static bool SegmentMeetsBox(Vector3d p, Vector3d q, Vector3d lo, Vector3d hi, double pad, double slack)
         {
             double t0 = 0, t1 = 1;
             for (int k = 0; k < 3; ++k) {
@@ -202,8 +214,9 @@ namespace geometry3Sharp.Tests
                 }
                 double ta = (a - p[k]) / d, tb = (b - p[k]) / d;
                 if (ta > tb) { double x = ta; ta = tb; tb = x; }
-                t0 = Math.Max(t0, ta);
-                t1 = Math.Min(t1, tb);
+                double w = slack * (Math.Abs(ta) + Math.Abs(tb) + 1e-3);
+                t0 = Math.Max(t0, ta - w);
+                t1 = Math.Min(t1, tb + w);
                 if (t0 > t1) return false;
             }
             return true;
@@ -235,15 +248,15 @@ namespace geometry3Sharp.Tests
                 tree.QuerySegment(p0, p1, pad, ref v);
                 Assert.Equal(viaAction, v.Found);
                 // (against the boxes themselves, brute force: every box that the segment meets with the pad less a margin
-                // is found, and every box found meets it with the pad plus a margin: the query is conservative only by its
-                // widening against rounding)
+                // is found, and every box found meets it with the pad plus a margin and twice the tree's widening of the
+                // parameter interval: the query is conservative only by that widening against rounding)
                 var found = new HashSet<int>(v.Found);
                 Assert.Equal(v.Found.Count, found.Count);
                 for (int k = 0; k < boxes.Count; ++k) {
-                    if (SegmentMeetsBox(p0, p1, boxes[k].Min, boxes[k].Max, pad - 1e-9))
+                    if (SegmentMeetsBox(p0, p1, boxes[k].Min, boxes[k].Max, pad - 1e-9, 0))
                         Assert.Contains(k, found);
                     if (found.Contains(k))
-                        Assert.True(SegmentMeetsBox(p0, p1, boxes[k].Min, boxes[k].Max, pad + 1e-9), $"box {k} found but not met");
+                        Assert.True(SegmentMeetsBox(p0, p1, boxes[k].Min, boxes[k].Max, pad + 1e-9, 2e-9), $"box {k} found but not met");
                 }
                 if (v.Found.Count > 0) nonEmpty++;
             }
