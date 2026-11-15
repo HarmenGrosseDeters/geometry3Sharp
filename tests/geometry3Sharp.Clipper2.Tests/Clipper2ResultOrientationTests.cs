@@ -208,6 +208,10 @@ namespace geometry3Sharp.Clipper2.Tests
             var tree = new PolyTree64();
             tree.AddChild(Grid(0, 0, 10, 10, 10, 0, 0, 10));
             Assert.Single(Convert(tree));
+            // also with a repeated first vertex (the collinearity test skips it)
+            var tree1 = new PolyTree64();
+            tree1.AddChild(Grid(0, 0, 0, 0, 10, 10, 10, 0, 0, 10));
+            Assert.Single(Convert(tree1));
             // with a hole child (as in the review's hand-built tree): no exception
             var tree2 = new PolyTree64();
             ((PolyPath64)tree2.AddChild(Grid(0, 0, 10, 10, 10, 0, 0, 10))).AddChild(Grid(2, 4, 2, 6, 4, 5));
@@ -293,6 +297,37 @@ namespace geometry3Sharp.Clipper2.Tests
             var polygons = Convert(tree);
             Assert.Equal(2, polygons.Count);
             Assert.Equal(10000 - 400 + 400, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_ChildOfADroppedIsland_IsClassifiedAtItsNewDepth()
+        {
+            // P, its hole H, a collinear island L in H with a clockwise child C beside H: L is dropped and C comes under H as an
+            // island (not a hole, as the tree's own flag would say), so the island rule makes it another hole of P
+            var tree = new PolyTree64();
+            PolyPath64 p = (PolyPath64)tree.AddChild(Sq(0, 100, true));
+            PolyPath64 h = (PolyPath64)p.AddChild(Sq(10, 50, false));
+            PolyPath64 l = (PolyPath64)h.AddChild(Grid(20, 20, 30, 20, 40, 20));
+            l.AddChild(Grid(50, 10, 50, 30, 70, 30, 70, 10));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Equal(10000 - 1600 - 400, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_NegativeIslandOutsideItsOuterRing_IsAHoleOfThePathThatHoldsIt()
+        {
+            // as Tree_NegativeIslandBesideItsHoleAndOutsideItsOuterRing_IsAFilledLobe, with a second square q beside p that
+            // holds the island: a hole of q
+            var tree = new PolyTree64();
+            PolyPath64 p = (PolyPath64)tree.AddChild(Sq(0, 100, true));
+            PolyPath64 h = (PolyPath64)p.AddChild(Grid(80, 10, 80, 30, 100, 30, 100, 10));
+            h.AddChild(Grid(100, 10, 100, 30, 120, 30, 120, 10));
+            tree.AddChild(Grid(100, 0, 200, 0, 200, 100, 100, 100));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.All(polygons, g => Assert.Single(g.Holes));
+            Assert.Equal(2 * (10000 - 400), Net(polygons), 6);
         }
 
         [Fact]

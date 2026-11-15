@@ -218,7 +218,8 @@ namespace g3.Clipper2
                     PolyPath64 child = node.Child(i);
                     double area = Clipper.Area(child.Polygon);
                     if (area == 0 && AllCollinear(child.Polygon)) { Collect(child, parent); continue; }   // bounds nothing: dropped
-                    entries.Add((child.Polygon, area, child.IsHole, parent));
+                    // hole or not by the depth among the kept paths (PolyPath64.IsHole counts a dropped path too)
+                    entries.Add((child.Polygon, area, parent >= 0 && !entries[parent].treeHole, parent));
                     Collect(child, entries.Count - 1);
                 }
             }
