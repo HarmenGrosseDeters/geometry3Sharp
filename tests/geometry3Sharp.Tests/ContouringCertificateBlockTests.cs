@@ -115,6 +115,34 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        [Fact]
+        public void LevelSet_SurfaceThroughAVertexOnAnInsideFace_Fails()
+        {
+            // an octahedron's equator vertex exactly on a grid plane, inside a face between two cells of the block, with its
+            // star on both sides of the plane (the surface passes through the plane at the vertex): (G) fails inside the
+            // block; off the plane by a little, the block is a disk and passes
+            double h = 0.05;
+            foreach (bool onPlane in new[] { true, false }) {
+                Vector3d v0 = new Vector3d(O.x + h * 20 + (onPlane ? 0 : 0.0007), O.y + h * 20.37, O.z + h * 20.41);
+                Vector3d q = v0 - new Vector3d(0, 0.2, 0.013);
+                var m = new DMesh3();
+                int N = m.AppendVertex(q + new Vector3d(0.3, 0.011, 0.007)), Sp = m.AppendVertex(q - new Vector3d(0.3, 0.017, 0.005));
+                int[] e = { m.AppendVertex(v0), m.AppendVertex(q + new Vector3d(0.0013, 0.007, 0.2)),
+                            m.AppendVertex(q + new Vector3d(0.0029, -0.2, 0.011)), m.AppendVertex(q + new Vector3d(0.0039, 0.013, -0.2)) };
+                for (int i = 0; i < 4; ++i) { m.AppendTriangle(N, e[i], e[(i + 1) % 4]); m.AppendTriangle(Sp, e[(i + 1) % 4], e[i]); }
+                DMesh3 clean = ContouringLevelSet.CleanCopy(m) ?? ContouringLevelSet.CleanCopy(Reversed(m));
+                Assert.NotNull(clean);
+                int comps, lcomps;
+                bool[] inL = ContouringLevelSet.Classify(clean, out comps, out lcomps);
+                if (lcomps == 0) { clean = ContouringLevelSet.CleanCopy(Reversed(clean)); inL = ContouringLevelSet.Classify(clean, out comps, out lcomps); }
+                Assert.Equal(1, lcomps);
+                var cert = new ContouringTopologyCertificate(clean, inL, Grid(clean, O, h));
+                var cells = new List<Vector3i>();
+                for (int z = 19; z <= 21; ++z) for (int y = 19; y <= 21; ++y) for (int x = 19; x <= 20; ++x) cells.Add(new Vector3i(x, y, z));
+                Assert.Equal(!onPlane, cert.Block(cells, 1));
+            }
+        }
+
         // ---- the contour side (Lemma 6.4), on node signs ----
 
         sealed class SignGrid : CertificateGrid
@@ -177,6 +205,22 @@ namespace geometry3Sharp.Tests
             } finally { WindingContouring.CheckPatchesForTests = false; }
             Assert.True(WindingContouring.PatchCellsChecked > 1000, "checked " + WindingContouring.PatchCellsChecked);
             Assert.True(WindingContouring.AmbiguousCellsChecked > 0, "ambiguous " + WindingContouring.AmbiguousCellsChecked + " of " + WindingContouring.PatchCellsChecked);
+        }
+
+        [Fact]
+        public void Contour_FaceRule_OnAnAlternatingCell()
+        {
+            // the inside corners of a cell alternate (every face ambiguous): the face rule keeps the four inside corners
+            // apart and joins the outside ones across the faces, so four patches (corner disks), as DualContouring builds
+            // them; without the rule the outside corners would stay apart too (twelve)
+            bool ambiguous;
+            var g = new SignGrid() { Inside = n => ((n.x + n.y + n.z) & 1) == 0 };
+            Assert.Equal(4, ContouringTopologyCertificate.CellPatchCount(g, Vector3i.Zero, 1, out ambiguous));
+            Assert.True(ambiguous);
+            // one ambiguous face whose outside corners meet again on the far side: one patch per inside corner group
+            var h = new SignGrid() { Inside = n => (n.x == 0 && n.y == 0 && n.z == 0) || (n.x == 1 && n.y == 1 && n.z == 0) };
+            Assert.Equal(2, ContouringTopologyCertificate.CellPatchCount(h, Vector3i.Zero, 1, out ambiguous));
+            Assert.True(ambiguous);
         }
 
         [Fact]

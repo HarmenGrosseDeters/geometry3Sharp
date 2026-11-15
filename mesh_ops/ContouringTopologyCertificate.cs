@@ -921,45 +921,20 @@ namespace g3
             var index = new Dictionary<Vector3i, int>(n);
             for (int i = 0; i < n; ++i) index[cells[i]] = i;
             // nodes: (cell, local edge) of crossed edges; patch roots per cell
-            var id = new Dictionary<long, int>();
             var parList = new List<int>();
             var touchList = new List<bool>();
             long P = 0;
             var patchOfEdge = new int[n * 12];
             for (int i = 0; i < n; ++i) {
                 Vector3i min = cells[i];
-                bool[] inside = new bool[8];
-                int[] par = new int[8];
-                for (int lc = 0; lc < 8; ++lc) {
-                    inside[lc] = grid.NodeInside(min + s * new Vector3i(lc & 1, (lc >> 1) & 1, (lc >> 2) & 1));
-                    par[lc] = lc;
-                }
-                // corners joined along cube edges of one sign, and outside corners across an ambiguous face (the face rule)
-                for (int le = 0; le < 12; ++le) {
-                    int c0, c1; edge_corners(le, out c0, out c1);
-                    if (inside[c0] == inside[c1]) uf_union(par, c0, c1);
-                }
-                for (int a = 0; a < 3; ++a)
-                    for (int side = 0; side < 2; ++side) {
-                        int[] fc = face_corners(a, side);
-                        if (inside[fc[0]] == inside[fc[2]] && inside[fc[1]] == inside[fc[3]] && inside[fc[0]] != inside[fc[1]]) {
-                            if (inside[fc[0]]) uf_union(par, fc[1], fc[3]); else uf_union(par, fc[0], fc[2]);
-                        }
-                    }
-                var keys = new List<int>(4);
-                for (int le = 0; le < 12; ++le) {
-                    patchOfEdge[12 * i + le] = -1;
-                    int c0, c1; edge_corners(le, out c0, out c1);
-                    bool crossed = grid.Crossed(local_segment(min, s, le));
-                    if (crossed != (inside[c0] != inside[c1])) return false;
-                    if (!crossed) continue;
-                    int cin = inside[c0] ? c0 : c1, cout = inside[c0] ? c1 : c0;
-                    int key = uf_find(par, cin) * 8 + uf_find(par, cout);
-                    int g = keys.IndexOf(key);
-                    if (g < 0) { g = keys.Count; keys.Add(key); parList.Add(parList.Count); touchList.Add(false); }
-                    patchOfEdge[12 * i + le] = parList.Count - keys.Count + g;
-                }
-                P += keys.Count;
+                int[] local = new int[12];
+                bool ambiguous;
+                int np = cell_patches(grid, min, s, local, out ambiguous);
+                if (np < 0) return false;
+                int base0 = parList.Count;
+                for (int g = 0; g < np; ++g) { parList.Add(base0 + g); touchList.Add(false); }
+                for (int le = 0; le < 12; ++le) patchOfEdge[12 * i + le] = local[le] < 0 ? -1 : base0 + local[le];
+                P += np;
                 // a patch reaches the boundary if one of its edges lies on a face of the cell on the boundary of R
                 for (int le = 0; le < 12; ++le) {
                     int g = patchOfEdge[12 * i + le];
@@ -1028,6 +1003,15 @@ namespace g3
         /// <summary> (tests) the number of patches ContourBlock reads for one cell (as DualContouring builds them), -1 if the pattern is not the signs' </summary>
         internal static int CellPatchCount(CertificateGrid grid, Vector3i min, int s, out bool ambiguous)
         {
+            int[] patchOfEdge = new int[12];
+            return cell_patches(grid, min, s, patchOfEdge, out ambiguous);
+        }
+
+        // the marching-cubes patches of a cell from the node signs and the face rule (inside corners joined along cube edges,
+        // outside corners also across an ambiguous face; as DualContouring.cell_patches): the patch count, and per local
+        // edge its patch or -1; -1 if an edge is crossed where its node signs agree or the reverse
+        static int cell_patches(CertificateGrid grid, Vector3i min, int s, int[] patchOfEdge, out bool ambiguous)
+        {
             bool[] inside = new bool[8];
             int[] par = new int[8];
             for (int lc = 0; lc < 8; ++lc) { inside[lc] = grid.NodeInside(min + s * new Vector3i(lc & 1, (lc >> 1) & 1, (lc >> 2) & 1)); par[lc] = lc; }
@@ -1041,14 +1025,18 @@ namespace g3
                         if (inside[fc[0]]) uf_union(par, fc[1], fc[3]); else uf_union(par, fc[0], fc[2]);
                     }
                 }
-            var keys = new HashSet<int>();
+            var keys = new List<int>(4);
             for (int le = 0; le < 12; ++le) {
+                patchOfEdge[le] = -1;
                 int c0, c1; edge_corners(le, out c0, out c1);
                 bool crossed = grid.Crossed(local_segment(min, s, le));
                 if (crossed != (inside[c0] != inside[c1])) return -1;
                 if (!crossed) continue;
                 int cin = inside[c0] ? c0 : c1, cout = inside[c0] ? c1 : c0;
-                keys.Add(uf_find(par, cin) * 8 + uf_find(par, cout));
+                int key = uf_find(par, cin) * 8 + uf_find(par, cout);
+                int g = keys.IndexOf(key);
+                if (g < 0) { g = keys.Count; keys.Add(key); }
+                patchOfEdge[le] = g;
             }
             return keys.Count;
         }
