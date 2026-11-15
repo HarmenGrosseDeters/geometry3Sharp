@@ -1,0 +1,142 @@
+diff --git a/math/CProbe.cs b/math/CProbe.cs
+new file mode 100644
+index 00000000..724c6c55
+--- /dev/null
++++ b/math/CProbe.cs
+@@ -0,0 +1,29 @@
++// local measurement only (candidate C, upper bound): never part of a PR
++using System;
++using System.Diagnostics;
++using System.IO;
++
++namespace g3
++{
++    public static class CProbe
++    {
++        public static long CentroidTicks, CentroidCalls, CentroidBytes, LoadTicks, KernelTicks, KernelCalls, ExactTicks, ExactCalls, ExactBytes;
++
++        static CProbe()
++        {
++            AppDomain.CurrentDomain.ProcessExit += (s, e) => {
++                string f = Environment.GetEnvironmentVariable("CPROBE_OUT");
++                if (f == null) return;
++                // the cost of one timestamp
++                long t0 = Stopwatch.GetTimestamp(); long x = 0;
++                for (int i = 0; i < 5000000; ++i) x += Stopwatch.GetTimestamp();
++                double ns = (Stopwatch.GetTimestamp() - t0) * 1e9 / Stopwatch.Frequency / 5000000;
++                double ms = 1000.0 / Stopwatch.Frequency;
++                File.AppendAllText(f, "{\"centroid_ms\":" + (CentroidTicks * ms).ToString("F1") + ",\"centroid_calls\":" + CentroidCalls + ",\"centroid_mb\":" + (CentroidBytes / 1048576.0).ToString("F1")
++                    + ",\"load_ms\":" + (LoadTicks * ms).ToString("F1") + ",\"kernel_ms\":" + (KernelTicks * ms).ToString("F1") + ",\"kernel_calls\":" + KernelCalls
++                    + ",\"exact_ms\":" + (ExactTicks * ms).ToString("F1") + ",\"exact_calls\":" + ExactCalls + ",\"exact_mb\":" + (ExactBytes / 1048576.0).ToString("F1")
++                    + ",\"timestamp_ns\":" + ns.ToString("F1") + "}\n");
++            };
++        }
++    }
++}
+diff --git a/math/ExactLimbSigns.cs b/math/ExactLimbSigns.cs
+index 10e3bcc6..b193f793 100644
+--- a/math/ExactLimbSigns.cs
++++ b/math/ExactLimbSigns.cs
+@@ -83,6 +83,7 @@ namespace g3
+         internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, BigInteger w, out int used)
+         {
+ #if NET
++            long __t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+             int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z), nw = limbs_of(w);
+             int total = na + nb + nc + nd + nx + ny + nz + nw;
+             if (total <= MaxOperandLimbs) {
+@@ -99,9 +100,11 @@ namespace g3
+                 FixedInt fy = load(y, p, ny); p += ny;
+                 FixedInt fz = load(z, p, nz); p += nz;
+                 FixedInt fw = load(w, p, nw);
++                long __t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                 FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
+                 s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
+                 int sign = FixedArith.Sub(s, FixedArith.Mul(fd, fw, ref ar), ref ar).Sign;
++                CProbe.LoadTicks += __t1 - __t0; CProbe.KernelTicks += System.Diagnostics.Stopwatch.GetTimestamp() - __t0; CProbe.KernelCalls++;
+                 used = scratch - ar.Remaining;
+                 return sign;
+             }
+@@ -125,6 +128,7 @@ namespace g3
+         internal static int PlaneSide(BigInteger a, BigInteger b, BigInteger c, BigInteger d, BigInteger x, BigInteger y, BigInteger z, out int used)
+         {
+ #if NET
++            long __t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+             int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nd = limbs_of(d), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
+             int total = na + nb + nc + nd + nx + ny + nz;
+             if (total <= MaxOperandLimbs) {
+@@ -140,9 +144,11 @@ namespace g3
+                 FixedInt fx = load(x, p, nx); p += nx;
+                 FixedInt fy = load(y, p, ny); p += ny;
+                 FixedInt fz = load(z, p, nz);
++                long __t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                 FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
+                 s = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar);
+                 int sign = FixedArith.Sub(s, fd, ref ar).Sign;
++                CProbe.LoadTicks += __t1 - __t0; CProbe.KernelTicks += System.Diagnostics.Stopwatch.GetTimestamp() - __t0; CProbe.KernelCalls++;
+                 used = scratch - ar.Remaining;
+                 return sign;
+             }
+@@ -166,6 +172,7 @@ namespace g3
+         internal static int Dot(BigInteger a, BigInteger b, BigInteger c, BigInteger x, BigInteger y, BigInteger z, out int used)
+         {
+ #if NET
++            long __t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+             int na = limbs_of(a), nb = limbs_of(b), nc = limbs_of(c), nx = limbs_of(x), ny = limbs_of(y), nz = limbs_of(z);
+             int total = na + nb + nc + nx + ny + nz;
+             if (total <= MaxOperandLimbs) {
+@@ -180,8 +187,10 @@ namespace g3
+                 FixedInt fx = load(x, p, nx); p += nx;
+                 FixedInt fy = load(y, p, ny); p += ny;
+                 FixedInt fz = load(z, p, nz);
++                long __t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                 FixedInt s = FixedArith.Add(FixedArith.Mul(fa, fx, ref ar), FixedArith.Mul(fb, fy, ref ar), ref ar);
+                 int sign = FixedArith.Add(s, FixedArith.Mul(fc, fz, ref ar), ref ar).Sign;
++                CProbe.LoadTicks += __t1 - __t0; CProbe.KernelTicks += System.Diagnostics.Stopwatch.GetTimestamp() - __t0; CProbe.KernelCalls++;
+                 used = scratch - ar.Remaining;
+                 return sign;
+             }
+@@ -219,6 +228,7 @@ namespace g3
+         internal static int Det4(ExactPoint3 a, ExactPoint3 b, ExactPoint3 c, ExactPoint3 d, out int used)
+         {
+ #if NET
++            long __t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+             int* n = stackalloc int[16];
+             n[0] = limbs_of(a.X); n[1] = limbs_of(a.Y); n[2] = limbs_of(a.Z); n[3] = limbs_of(a.W);
+             n[4] = limbs_of(b.X); n[5] = limbs_of(b.Y); n[6] = limbs_of(b.Z); n[7] = limbs_of(b.W);
+@@ -242,6 +252,7 @@ namespace g3
+                 m[4] = load(b.X, p, n[4]); p += n[4]; m[5] = load(b.Y, p, n[5]); p += n[5]; m[6] = load(b.Z, p, n[6]); p += n[6]; m[7] = load(b.W, p, n[7]); p += n[7];
+                 m[8] = load(c.X, p, n[8]); p += n[8]; m[9] = load(c.Y, p, n[9]); p += n[9]; m[10] = load(c.Z, p, n[10]); p += n[10]; m[11] = load(c.W, p, n[11]); p += n[11];
+                 m[12] = load(d.X, p, n[12]); p += n[12]; m[13] = load(d.Y, p, n[13]); p += n[13]; m[14] = load(d.Z, p, n[14]); p += n[14]; m[15] = load(d.W, p, n[15]);
++                long __t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                 FixedInt det = new FixedInt(null, 0, false);
+                 for (int col = 0; col < 4; ++col) {
+                     int c0 = (col == 0) ? 1 : 0, c1 = (col <= 1) ? 2 : 1, c2 = (col <= 2) ? 3 : 2;
+@@ -249,6 +260,7 @@ namespace g3
+                     FixedInt term = FixedArith.Mul(m[col], minor, ref ar);
+                     det = (col % 2 == 0) ? FixedArith.Add(det, term, ref ar) : FixedArith.Sub(det, term, ref ar);
+                 }
++                CProbe.LoadTicks += __t1 - __t0; CProbe.KernelTicks += System.Diagnostics.Stopwatch.GetTimestamp() - __t0; CProbe.KernelCalls++;
+                 used = scratch - ar.Remaining;
+                 return det.Sign;
+             }
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index 88dff1e9..6da511ba 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -3213,6 +3213,15 @@ namespace g3
+         // the ray of front_crossings needs only its value
+         [MethodImpl(JitHints.Optimize)]
+         ExactPoint3 centroid_point(ExactMeshArrangement.OutputTriangle ot, bool canonical)
++        {
++            long __t0 = System.Diagnostics.Stopwatch.GetTimestamp(), __b0 = GC.GetAllocatedBytesForCurrentThread();
++            ExactPoint3 __r = centroid_point_inner(ot, canonical);
++            CProbe.CentroidTicks += System.Diagnostics.Stopwatch.GetTimestamp() - __t0; CProbe.CentroidBytes += GC.GetAllocatedBytesForCurrentThread() - __b0; CProbe.CentroidCalls++;
++            return __r;
++        }
++
++        [MethodImpl(JitHints.Optimize)]
++        ExactPoint3 centroid_point_inner(ExactMeshArrangement.OutputTriangle ot, bool canonical)
+         {
+             ExactPoint3 a = arr.Exact(ot.A), b = arr.Exact(ot.B), c = arr.Exact(ot.C);
+             BigInteger wbc = b.W * c.W, wac = a.W * c.W, wab = a.W * b.W;
