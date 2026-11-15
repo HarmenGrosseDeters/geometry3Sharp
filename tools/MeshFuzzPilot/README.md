@@ -100,15 +100,17 @@ the four raw bytes after the queries, as for the second wave. `Targets3.cs`.
   covers the same area (1e-4) and a second run gives the same mesh.
 - `insert-polygon`: `MeshInsertPolygon` of the convex hull of A's xy (halved about its centre, with a hole from B's hull when it fits with room)
   into a grid mesh over A's box. When `Insert()` is true the mesh is valid, covers the same area, `InteriorTriangles` cover the polygon's
-  area and every triangle is selected exactly if its centroid is inside (slivers along the boundary excepted).
+  area and every triangle is selected exactly if its centroid is inside (a sliver whose centroid is within 1e-9 of a cell on the polygon's edge excepted; thin outer polygons with triangles near the edge are still reported, FINDINGS.md: untriaged).
 - `trim-loop`: `MeshTrimLoop` of a sphere along a circle of latitude, the seed on either side. When `Trim()` is true the mesh is valid,
   finite, has one boundary loop, is smaller, and has no vertex on the removed side beyond three mean edge lengths from the cut.
 
 Domains of the third wave: the editing operations and the terrain judge a mesh up to 2^16 extents from the origin (farther, the coordinates'
 own rounding changes the input: a limit of the representation); `mesh-cut` also needs B between 2^-16 and 2^20 of A's size and a target of area
 at least 1e-3 (its snap tolerance is absolute, 1e-5); a polygon of `insert-polygon` has no vertex within 1e-6 of the previous one, and its hole
-keeps 1e-2 of the width from the ring and edges of 1e-3 of it. Three classes are gated, `MESH_FUZZ_STRICT=1` judges them (FINDINGS.md, third wave):
-`mesh-cut` "find_intersections: found quantity 0", `insert-polygon` "could not find seed triangle!", `trim-loop` an `ArgumentOutOfRangeException` from `loops[0]`.
+keeps 1e-2 of the width from the ring and edges of 1e-3 of it; `mesh-cut` also skips a case with a nonzero component below 2^-200 of the target's size, and
+`terrain-tin` judges the 2^40 scale claim only for nonzero grid values, origin, cell size and MaxError between 2^-200 and 2^150 (every other claim always). One class is gated,
+`MESH_FUZZ_STRICT=1` judges it (FINDINGS.md, third wave): `insert-polygon` "could not find seed triangle!" (an upstream TODO of the polygon inserter; about 1 in 5 000 inputs).
+The `trim-loop` and `mesh-cut` gates of the first smoke runs are gone (5 000 strict inputs each, no exception inside the domain).
 
 `MeshFuzzPilot random <n> <seed>` runs n pseudo-random inputs of the selected operations in one process with a 60 s watchdog and prints the hex
 of every input that gives a finding or an exception: a smoke test without coverage guidance and without libFuzzer, for a first look at a target

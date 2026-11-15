@@ -55,8 +55,15 @@ public static partial class Program
     {
         if (error != null) {
             Exception inner = error is AggregateException ae && ae.InnerExceptions.Count > 0 ? ae.InnerExceptions[0] : error;
-            if (mode == MarchingCubes.RootfindingModes.LinearEdges && (inner is InvalidOperationException || inner is ArgumentException))
-                return;     // the documented refusal of a field outside the preconditions of the mode
+            // the documented refusal of a field outside the preconditions of the mode: exactly these types (not their subclasses: an index bug is one), and the
+            // serial run and the scaled copy refuse the same way (a refusal that depends on the thread count or the scale is a finding)
+            if (mode == MarchingCubes.RootfindingModes.LinearEdges && (inner.GetType() == typeof(InvalidOperationException) || inner.GetType() == typeof(ArgumentException))) {
+                Exception? s1 = serialError is AggregateException sa && sa.InnerExceptions.Count > 0 ? sa.InnerExceptions[0] : serialError;
+                Exception? s2 = scaledError is AggregateException sc && sc.InnerExceptions.Count > 0 ? sc.InnerExceptions[0] : scaledError;
+                if (s1 == null || s2 == null || s1.GetType() != inner.GetType() || s2.GetType() != inner.GetType())
+                    throw new Finding($"{what}: the parallel run refused with {inner.GetType().Name}, the serial run {(s1 == null ? "did not" : "threw " + s1.GetType().Name)} and the scaled run {(s2 == null ? "did not" : "threw " + s2.GetType().Name)}");
+                return;
+            }
             throw new Finding($"{what}: Generate() threw {inner.GetType().Name} ({inner.Message.Split('\n')[0]}) in mode {mode}");
         }
         if (result == null)
@@ -207,10 +214,11 @@ public static partial class Program
                         if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
                         best = Math.Min(best, Math.Abs(l1 * a.z + l2 * b.z + l3 * d.z - z[i + nx * j]));
                     }
-                    recomputed = Math.Max(recomputed, best == double.MaxValue ? 0 : best);
+                    recomputed = Math.Max(recomputed, best == double.MaxValue ? double.PositiveInfinity : best);       // (a node that no triangle contains: the TIN does not cover the grid)
                 }
         }
-        CheckTerrain(what, ok1, first.Result, first.AchievedError, maxError, limited, areaRatio, clockwise, recomputed, 1e-9 * Math.Max(diag, 1), second.Result, big.Result, scale, judgeScale);
+        bool vertexLimited = limited && maxVertices < nx * ny;       // (a limit of at least the number of nodes cannot stop the insertion; with removal the final count can be below it even if it did)
+        CheckTerrain(what, ok1, first.Result, first.AchievedError, maxError, vertexLimited, areaRatio, clockwise, recomputed, 1e-9 * Math.Max(diag, 1), second.Result, big.Result, scale, judgeScale);
     }
 
     // ---- MeshMeshCut ----
@@ -252,36 +260,38 @@ public static partial class Program
             return;
         if (!(db >= Pow2(-16) && db <= Pow2(20)))
             return;
+        // (a nonzero coordinate or edge difference below 2^-200 of the target's size, after the normalization, is outside the range of QA.md 2.5a; the exception
+        // 'found quantity 0' of the tree search was seen only there: 1e-202 beside 1e21, 1e-187 beside 1e12, 1e-140 beside 1e39)
+        if (HasTinyComponents(s.Norm) || HasTinyComponents(cut))
+            return;
         // the supported path is the opt-in refusal of contact (issue 856): a cut mesh that touches the target is refused with ContactDetected and the
         // target unchanged; only the transversal cuts are judged (the default path, upstream's, is not robust on contact, QA.md 2.5a)
         MeshMeshCut.CutStatus lastStatus = MeshMeshCut.CutStatus.Ok;
+        int lastFailed = 0;
         DMesh3 Cut(out DMesh3 target)
         {
             target = new DMesh3(s.Norm);
             var op = new MeshMeshCut() { Target = target, CutMesh = cut, RefuseContact = true };
             op.Compute();
             lastStatus = op.Status;
+            lastFailed = op.FailedSegmentInsertions;
             return target;
         }
-        DMesh3 first, second;
-        MeshMeshCut.CutStatus status1, status2;
-        try {
-            first = Cut(out _);
-            status1 = lastStatus;
-            second = Cut(out _);
-            status2 = lastStatus;
-        } catch (Exception e) when (e.Message.Contains("find_intersections: found quantity 0") && Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") != "1") {
-            return;     // the known class (FINDINGS.md): DMeshAABBTree3.find_intersections throws for an intersection of quantity 0 (coplanar triangles)
-        }
-        CheckMeshCutRefusal(what, status1 == MeshMeshCut.CutStatus.ContactDetected, status2 == MeshMeshCut.CutStatus.ContactDetected, SameMesh(first, s.Norm, 1));
+        DMesh3 first = Cut(out _);
+        MeshMeshCut.CutStatus status1 = lastStatus;
+        DMesh3 second = Cut(out _);
+        MeshMeshCut.CutStatus status2 = lastStatus;       // (no gate for 'found quantity 0': with the refusal on, coplanar contact is refused before the tree search; 5 000 strict inputs give none)
+        CheckMeshCutRefusal(what, status1 == MeshMeshCut.CutStatus.ContactDetected, status2 == MeshMeshCut.CutStatus.ContactDetected, SameMesh(first, s.Norm, 1), lastFailed);
         if (status1 == MeshMeshCut.CutStatus.ContactDetected)
             return;     // refused: the contact class, not judged further
         CheckMeshCut(what, first.CheckValidity(true, FailMode.ReturnOnly), AllFinite(first), s.Norm.TriangleCount, first.TriangleCount, TotalArea(s.Norm), TotalArea(first), SameMesh(first, second, 1));
     }
 
     /// <summary> the refusal of contact (MeshMeshCut.RefuseContact): the same status in both runs, and a refused target is unchanged </summary>
-    public static void CheckMeshCutRefusal(string what, bool refused1, bool refused2, bool targetUnchanged)
+    public static void CheckMeshCutRefusal(string what, bool refused1, bool refused2, bool targetUnchanged, int failedInsertions = 0)
     {
+        if (!refused2 && failedInsertions != 0)
+            throw new Finding($"{what}: {failedInsertions} intersection segments could not be inserted (the cut has gaps) for a cut that was not refused");
         if (refused1 != refused2)
             throw new Finding($"{what}: the refusal of contact differs between two runs");
         if (refused1 && !targetUnchanged)
@@ -383,7 +393,7 @@ public static partial class Program
             return;     // the known class (FINDINGS.md): the polygon does not cross the grid so that a seed triangle exists
         }
         if (!ok)
-            return;
+            throw new Finding($"{what}: Insert() returned false for a polygon inside the grid");
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1")
             Console.Error.WriteLine("outer: " + string.Join(" ", polygon.Outer.Vertices.Select(p => $"({p.x:R},{p.y:R})")) + $" holes {polygon.Holes.Count}; grid {n} cells of {h:R} from ({x0:R},{y0:R})");
         var inside = new HashSet<int>(insert.InteriorTriangles);
@@ -452,12 +462,7 @@ public static partial class Program
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_TRACE") == "1")
             Console.Error.WriteLine($"sphere: centre ({center.x:R},{center.y:R},{center.z:R}) radius {r:R} edge vertices {8 + p0 % 17}; circle at y {cutY:R} radius {ring:R}; seed {(seedUp ? "above" : "below")}");
         var trim = new MeshTrimLoop(sphere, new DCurve3(pts, true), new Vector3d(center.x, center.y + (seedUp ? r : -r), center.z));
-        bool trimmed;
-        try {
-            trimmed = trim.Trim();
-        } catch (ArgumentOutOfRangeException e) when (e.StackTrace != null && e.StackTrace.Contains("MeshTrimLoop.Trim") && Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") != "1") {
-            return;     // the known class (FINDINGS.md): Trim() reads loops[0] of a mesh that has no boundary loop left
-        }
+        bool trimmed = trim.Trim();       // (no gate: 5 000 strict inputs give no exception inside the domain; the old class was only seen beyond 2^16 extents from the origin)
         if (!trimmed)
             return;
         int loops = 0;

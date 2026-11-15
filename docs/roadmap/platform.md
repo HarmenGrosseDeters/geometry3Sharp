@@ -290,8 +290,9 @@ Tier: S, M. Parallel: up to 2 sessions
        FINDINGS.md and gated in the targets (`MESH_FUZZ_STRICT=1`), none fixed.
     9. Fuzz targets, third wave (QA 2.0 gap list, 2026-11-12): `tools/MeshFuzzPilot` got `marching-cubes`, `terrain-tin`, `mesh-cut`, `insert-polygon` and `trim-loop`
        (`Targets3.cs`, README "Third wave"), each with self-test contradictions, seeds and the `random` smoke command. Smoke runs (2 500 to 4 000 inputs per target and seed):
-       marching cubes and terrain no finding; the editing operations gave classes that are domains now or gated (FINDINGS.md, third wave: a `find_intersections` exception for a
-       tiny cutting mesh, hole insertion near the outer ring, a trim far from the origin). The libFuzzer campaigns follow as runner jobs.
+       marching cubes and terrain no finding; the editing operations gave classes that are domains now or one gate (FINDINGS.md, third wave). The libFuzzer campaigns ran
+       (2026-11-13/15): bugfix issues #854 and #855 (terrain, fixed in #889 and #890) and #856 (`MeshMeshCut` contact, `RefuseContact` in #867); the 1 947 `insert-polygon`
+       artifacts are untriaged.
     Rules: campaigns get their own test category that the Stryker test filters exclude (no extra time per mutant);
     CI runs a small seeded campaign, large campaigns run locally or on a Haiku runner; every failing seed becomes a
     fixed example test (QA.md 2.4).

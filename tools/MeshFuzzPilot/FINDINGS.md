@@ -254,6 +254,7 @@ Ranked (a wrong result that claims to be right first):
 10. **The flip test of the edge collapse accepts a collapse when its normals overflow to NaN** (`MeshRefinerBase.edge_flip_metric`, found in the second review of #595): above an edge length of about 1e154 the cross products of the face normals overflow; a component that is infinite refuses the collapse, but inf - inf is NaN, `NaN <= tol` is false and the flip is accepted blindly. Refusing a NaN metric is safer, but two existing tests pin the reduction at those sizes: `RobustnessSweepRemainingTests.Reducer_ExtremeMidpointsRemainFinite` (1e308, 1.7e308) and `ReducerFoldOverOptionsTests.HugeCoordinates_NoReference_SameReductionAsWithoutTheCheck` (2^540); a change has to rescale the normals (the edges are the better input: the cross product of unit-sized edges) rather than refuse. **Fixed**: the edges of a triangle are scaled by one factor (the reciprocal of the longest component) outside [1e-70, 1e70] before the cross products, for the old and the new normal (`FlipTestHugeScaleTests`); the two pinning tests needed no change (the sphere still reduces at 1e308 and 2^540); the same scaling also removes the lower limit of #595 (a tiny sphere reduces down to 1e-300).
 
 Not found in 10 minutes: alpha-wrap, remesher, tree-ray, tree-winding. reducer and batch-queries ran only 18 600 and 2 300 executions (7 and 3 per second): a longer run is needed before they count as clean.
+
 ## Third wave (QA 2.0 gap list, 2026-11-12): MarchingCubes, TerrainGreedyTIN, MeshMeshCut, MeshInsertPolygon, MeshTrimLoop
 
 Smoke runs of `MeshFuzzPilot random` (no coverage guidance, uninstrumented), 2 500 to 4 000 inputs per target and seed, domains as in the README.
@@ -263,7 +264,10 @@ nodes and the sphere of the trim collapse: `terrain-tin` covered 1.0054 of its r
 sphere of radius 0.5 at 2.6e14), a hull polygon with a repeated vertex (`ConvexHull2` of nearly equal points), slivers along the inserted polygon's edge
 (their centroid is on it), a cutting mesh of 1e-300 of the target's size, a target of area 1e-11.
 
-Open, gated or outside the domain (none has a procedural reproduction inside the supported range yet):
+Open, gated or outside the domain (none has a procedural reproduction inside the supported range yet). Status of 2026-11-15: items 1 and 4 have no gate any more (the
+`mesh-cut` target skips components below 2^-200 and runs with `RefuseContact`; `trim-loop` is judged strictly: 5 000 strict inputs each, no exception); item 3 stays gated: it is the
+documented TODO of the upstream polygon inserter (`MeshPolygonsInserter`, "could not find seed triangle!"), about 1 in 5 000 inputs, not a defect of this repository to fix here.
+The `trim-loop` removed-side bound ("no vertex beyond 3 mean edges") is loose for coarse spheres at a cut far from the centre; the area-shrink and one-loop checks carry that target.
 1. **`mesh-cut`: `DMeshAABBTree3.find_intersections: found quantity 0`** (an exception of `MeshMeshCut.Compute()`, `IntrTriangle3Triangle3.Test()` true and
    `Find()` true with `Quantity` 0). 177 of 3 000 random inputs when B may be smaller than 2^-16 of A (B of 1e-307 beside A), 4 of 4 000 with B in [2^-16, 2^20]
    (A with a corner at 1e-61 beside others at 1e18: a size disparity inside one mesh), none otherwise. `MESH_FUZZ_STRICT=1` reports it; the smallest of the
@@ -282,7 +286,7 @@ Open, gated or outside the domain (none has a procedural reproduction inside the
 - **`marching-cubes`**: 55 minutes (about 3.4 million executions), no finding. The first minutes found a missing domain (a mesh beyond 2^16 extents
   from the origin: the bounds of the 2^40 copy overflow), now excluded in `RunMarchingCubes`.
 - **`terrain-tin`**: 55 minutes, 1 045 artifacts, two library classes:
-  - **#854** (145 of 150 sampled `crash-*`): the ear choice of `RemoveVertices` compares errors with an absolute 1e-12 (`TerrainGreedyTIN.cs:365`), so
+  - **#854** (145 of 150 sampled `crash-*`): the ear choice of `RemoveVertices` compared errors with an absolute 1e-12 (`TerrainGreedyTIN.cs:365` before #890), so
     the 2^40 copy differs from the scaled TIN; procedural reproduction in the issue (4 by 4 grid, plateau heights with 1e-14 noise), the mutation "no tolerance"
     removes it for 8 000 swept cases.
   - **#855** (the 27 `timeout-*`; one replayed): `Compute()` with `MaxError = 0` and a height of -2.87e-223 never ends and dies with out of memory

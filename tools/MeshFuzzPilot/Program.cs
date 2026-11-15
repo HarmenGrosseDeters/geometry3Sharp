@@ -822,7 +822,11 @@ public static partial class Program
         ExpectFinding("two runs differ", () => CheckMarchingCubes("t", mcMode, cube, null, cube, null, ShiftedBy(cube, 1), ScaledBy(cube, 2), null, 2), "two runs");
         ExpectFinding("the scaled run is not the scaled mesh", () => CheckMarchingCubes("t", mcMode, cube, null, cube, null, cube, ShiftedBy(cube, 1), null, 2), "scaled");
         CheckMarchingCubes("t", mcMode, cube, null, cube, null, cube, ScaledBy(cube, 2), null, 2);
-        CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new InvalidOperationException("x"), null, null, null, null, null, 1);
+        CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new InvalidOperationException("x"), null, new InvalidOperationException("x"), null, null, new InvalidOperationException("x"), 1);
+        ExpectFinding("a refusal of the parallel run only", () => CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new InvalidOperationException("x"), cube, null, cube, ScaledBy(cube, 2), null, 2), "refused");
+        ExpectFinding("a subclass of the documented refusal (an index bug)", () => CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new ArgumentOutOfRangeException("x"), null, new ArgumentOutOfRangeException("x"), null, null, new ArgumentOutOfRangeException("x"), 1), "threw");
+        ExpectFinding("a terrain TIN that is not finite", () => CheckTerrain("t", true, NotFinite(cube), 0, 0, false, 1, 0, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "not finite");
+        // (the validity branches of the marching cubes and terrain checks cannot be exercised here: DMesh3 refuses to be built invalid through its API)
         ExpectFinding("Compute() false for a valid grid", () => CheckTerrain("t", false, null, 0, 0, false, 1, 0, 0, 1e-9, null, null, 2), "Compute()");
         ExpectFinding("a clockwise TIN triangle", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 1, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "counter-clockwise");
         ExpectFinding("a TIN that does not tile the rectangle", () => CheckTerrain("t", true, cube, 0, 0, false, 0.9, 0, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "cover");
@@ -841,6 +845,7 @@ public static partial class Program
         CheckMeshCut("t", true, true, 12, 20, 6, 6 * (1 + 1e-6), true);
         ExpectFinding("a refusal of contact that changed the target", () => CheckMeshCutRefusal("t", true, true, false), "refused");
         ExpectFinding("a refusal that differs between two runs", () => CheckMeshCutRefusal("t", true, false, true), "differs");
+        ExpectFinding("a cut with gaps that was not refused", () => CheckMeshCutRefusal("t", false, false, true, 2), "gaps");
         CheckMeshCutRefusal("t", true, true, true);
         CheckMeshCutRefusal("t", false, false, false);
         ExpectFinding("an invalid mesh after Insert()", () => CheckInsertPolygon("t", false, 4, 4, 1, 1, 0), "valid");
