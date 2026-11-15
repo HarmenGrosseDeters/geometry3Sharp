@@ -120,15 +120,17 @@ namespace geometry3Sharp.Tests
         // 108 and 80 of 90; before the strip zip 51 and 41, before the moves stopped depending on the scale 85 and 80),
         // the others are counted (docs/design/SAFE_ROUNDING.md
         // section 2: strips that branch or fold, no disk with a monotone boundary)
+        // (one row per family: 108 and 90 Booleans, about 7 s each alone, instead of 15 s in one test; each family keeps its own count)
         [Trait("Category", "Slow")]
-        [Fact]
-        public void DenseClusters_WithinTheBound_MostlyClean()
+        [Theory]
+        [InlineData(Family.Cluster, 108, 89)]
+        [InlineData(Family.FoldedCluster, 90, 80)]
+        public void DenseClusters_WithinTheBound_MostlyClean(Family family, int total, int minClean)
         {
             DMesh3 sphere = Sphere(6);
             var failures = new List<string>();
-            var clean = new Dictionary<Family, int> { [Family.Cluster] = 0, [Family.FoldedCluster] = 0 };
-            int n = 0;
-            foreach (Family f in new[] { Family.Cluster, Family.FoldedCluster })
+            int clean = 0, n = 0;
+            foreach (Family f in new[] { family })
                 foreach (int k in new[] { 0, 30, 36, 40, 44, 52 })
                     foreach (int count in new[] { 2, 4, 8 })
                         for (int seed = 0; seed < 6; seed++) {
@@ -142,12 +144,12 @@ namespace geometry3Sharp.Tests
                             if (!(drift <= bound) || solid != "")
                                 failures.Add($"{f} k{k} count {count} seed {seed}: drift {drift:G3} / {bound:G3} {solid}");
                             if (op.RoundingClean && gs.MeshRobustRepair.NotCleanReasons(op.Result) == "")
-                                clean[f]++;
+                                clean++;
                         }
-            output.WriteLine($"clean: Cluster {clean[Family.Cluster]} of 108, FoldedCluster {clean[Family.FoldedCluster]} of 90");
+            output.WriteLine($"clean: {family} {clean} of {total}");
+            Assert.Equal(total, n);
             Assert.True(failures.Count == 0, string.Join("\n", failures));
-            Assert.True(clean[Family.Cluster] >= 89 && clean[Family.FoldedCluster] >= 80,
-                $"clean: Cluster {clean[Family.Cluster]}, FoldedCluster {clean[Family.FoldedCluster]}");
+            Assert.True(clean >= minClean, $"clean: {family} {clean} of {total}, at least {minClean} expected");
         }
 
         // degenerate input in Booleans: a box cuts the poked and split spheres; all 198 clean (before the strip zip 183,
