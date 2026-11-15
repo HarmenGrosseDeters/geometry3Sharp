@@ -75,7 +75,7 @@ priority; this section names only what is in flight.
   red since #879 (uncovered `TpmsCommand.cs` lines; stale unmeasurable entries that #883 fixes). Runtime watch built
   (#726); first report #888 (28 outliers, no baseline yet). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Research:** CCD (#778, #793, #872; #866 still 18-20 s parallel), tet meshing stages 1-2 (#775, #821) and the
-  fTetWild comparison (#885), TPMS (#838), topology certificate stage 1 (#779) are merged (stage 2 stopped after its spike, 2026-11-15). Open: geodesic oracle
+  fTetWild comparison (#885), TPMS (#838), topology certificate stages 1-2 (#779, #935) are merged (stage 3, growth of the blocks, #944). Open: geodesic oracle
   draft #869, 3D snap rounding #721 (plateau variant of the position search: no-go before the release, no spike,
   owner 2026-11-15; it stays a design), new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
   [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
@@ -123,7 +123,9 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
    but not the double crossings at silhouette edges, which come back at every level (uncertified cells -10 % at 15x
    the contouring time). Stage 2a (approved 2026-11-15): the proof, Theorem 6 (blocks of cells), written and
    reviewed (#925); stage 2 built as the block test (#935: clean T1 / 128 uncertified cells -72 %, certified
-   runs 4 -> 8 of 14, never wrong); next the refinement for the thin features left.
+   runs 4 -> 8 of 14, never wrong); stage 3 (#944): growth of the blocks, certified runs 8 -> 10 at / 128
+   (every right run but one thin tube) and 9 -> 12 at / 64, never wrong; refinement and transitions not built (upper
+   bound one run and none).
 3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
    a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
    it comes before the release; a no-go does not hold the release.
