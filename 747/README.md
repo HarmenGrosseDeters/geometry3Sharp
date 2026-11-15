@@ -50,3 +50,9 @@ BENCH_REPAIR=wrappipe BENCH_FIDELITY=none TIMEOUT=600 benchmarks/MeshRepairBench
 ```
 
 Three times each (BENCH_WRAP_WARMUP default = soup). Commit and push `retry_timings.jsonl`; report the file's rows.
+
+## issue5_master.jsonl
+
+The 5 meshes of #747 on d0298ad, run by the implementing session one after another, alone on the machine (`run.sh`,
+`BENCH_REPAIR=wrappipe BENCH_FIDELITY=none TIMEOUT=600`, soup, default warmup), one run each; no `simplify.retry*` phase =
+the first pass was certified.
