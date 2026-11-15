@@ -130,14 +130,37 @@ Part of the [roadmap](../ROADMAP.md).
      inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
      general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
      4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
-     serial 33-34 %). Stage 2 (refinement driven by the certificate): no PR yet.
+     serial 33-34 %). Stage 2 (refinement driven by the certificate): spike 2026-11-15 (#923), **stopped by the stop rule**
+     ([CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) section 4.8; prototype on the archive branch
+     `claude/contouring-cert-stage2-spike`, not merged): on the clean T1 meshes at / 128, three levels certify 53 % of
+     the 2322 refused coarse cells at 15 times the contouring time, while 989 others become uncertified (2322 -> 2082
+     in total; / 64: 1269 -> 1232); certified runs 4 -> 6 of 14 (/ 64: 2 -> 6). It certifies thin features and one
+     wrong clean input (96773 at / 64); the rest are axis lines crossing L twice near silhouette edges (82-100 % of the
+     uncertified cells after three levels on the three meshes inspected, against 11-42 % of random surface cells),
+     which every finer grid has again. Refinement fixes the 5 wrong implicit-family results, certifying only one of
+     them (gap 0.5), and is not monotone (472011 at / 64 becomes wrong), always reported. Next (owner decision): stage
+     2a of the note, a proof of an edge lemma (a double crossing next to one silhouette edge, with no contour crossing,
+     removed by an isotopy of L supported in the cells around that edge), then stage 2 again on the thin-feature refusals; or stop at stage 1 (report only).
+     Stage 2a approved (owner decision relayed by the coordinator, 2026-11-15, after #923): proof first, docs only. Written 2026-11-15 as Theorem 6
+     (section 7.10 of the note): refused cells merged into blocks (unions of cells that are balls); Theorem 1 holds on
+     the coarser complex, and a block is decided by two exact counts (L: Euler characteristic by triangles, mesh edges
+     and vertices; the contour: patches - arcs + crossed edges inside), each against the number of components. Estimate
+     (probe on `claude/contouring-cert-merge-probe`): 70 % (/ 64) and 76 % (/ 128) of the refused cells of the clean T1
+     meshes lie in clusters that are balls as they are (at most 135 cells; conditions 3 and 4 not tested). Independent
+     review of the proof: correct in substance; its findings (the pattern comparison in condition 2, closed-set
+     predicates inside blocks, the probe's ball test) worked in. Go / no-go: go for
+     stage 2 as the block test first (report only, measured; stop below half of the refused cells at / 128), refinement
+     after it for the thin features.
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
      Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
      (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
-     Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
-     `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
-     Merged 2026-11-13 (#750). Follow-ups, all merged: #817 (conservative-MC worst-case test, #833), #815 (Lidinoid, #835), the sliver guard (#838, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`, #860), #814 (CLI / MCP, `tpms` command, #879, 2026-11-14). Item 5 is done. Hybrid of two types across a plane (`SecondType` / `Blend`, `second_type` / `blend`; design section 9 of the note, #900): owner approved 2026-11-15, merged in #907 (2026-11-15).
+     Built (merged 2026-11-13 to 2026-11-15): `TpmsLattice` with gyroid, P, D, Neovius, I-WP and Lidinoid, sheet / skeletal, box and closed-mesh domain, `WallThickness`,
+     `Enclosure` (#750, #835 Lidinoid, #838 sliver guard, #833 conservative-MC worst-case test), graded cell size (`Grade` / `PhaseMap`, #860), the `tpms` command of
+     `g3cli` and the MCP server (#879, coverage entries #895), and the two-type hybrid across a plane (`SecondType` / `Blend` / `SigmoidBlend`, design section 9 of the
+     note #900, build #907, worst-case enclosure test #918, from Fang et al. 2026); `benchmarks/TpmsLattice`. Open, not scheduled: reading Ren et al. 2021 and Gao et al. 2022 (owner: later; Elsevier,
+     they need to be provided) for a transition that keeps the wall thickness, the checkerboard weight and a hybrid of different periods (both dropped from the first hybrid PR),
+     and primary-source verification of the nodal Lidinoid formula (the Lidin and Larsson citation data are verified, the paper itself was not opened; see `SOURCES.md`).
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
@@ -193,7 +216,9 @@ Part of the [roadmap](../ROADMAP.md).
 - **Later:** screened Poisson for point clouds (#887), mitered feature-preserving offsets, quad remeshing, deformation
   (#886), sparse SDF grids, AI bridges. Not scheduled. (Tet meshing, TPMS and batch queries left this list: built, see
   items 1, 3 and 5.)
-- **Open research questions:** practical 3D snap rounding (research draft #721: note, probes, Z3 lemma), the
+- **Open research questions:** practical 3D snap rounding (#721, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md):
+  ideas 1 and 3 of #368 probed 2026-11-12, idea 1 closed, idea 3 built as the position search of #755; its plateau
+  variant designed 2026-11-15; owner 2026-11-15: no-go before the release, it stays a design), the
   envelope-guaranteed pipeline, metamorphic testing, bit-for-bit determinism, exact intrinsic triangulations, Monte
   Carlo PDEs on soups, geometry APIs for agents, showcase domains with error bounds.
 
@@ -382,7 +407,7 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, draft #721), 11 (the
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12, #721), 11 (the
 proof part: study #776, probes #786 / #810, stage 0 analyzer rules #871 merged; issue #859 open). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
 Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
 Not now: 1 alone, 4, 5 (tet), 7, 14.
@@ -411,8 +436,24 @@ Ordered by expected value for the library.
    - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
      (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
      checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
-     Status 2026-11-15: research draft #721 (hard problems 1 and 3: note, probes, Z3 lemma), not merged; no recommendation
-     to the owner recorded yet.
+   - Result (2026-11-12, research note [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md), #721, with item 3): no
+     guarantee found (literature: Diazzi et al. 2023 call it unsolved). The empty-ball filter is closed (the pair tests
+     it could clear are 8 % of the rounding in the median); its directional form (a separating-axis prefilter, lemma
+     checked with Z3) is correct and gains −1.6 % in a real A/B, not built. Idea 3 survives: after D1 a random search
+     over representable positions with the triangles unchanged makes 29 of the 35 generated leftovers clean within the
+     drift left (15 with single-vertex moves that each improve). On the real leftovers (the 5 operations of the D1
+     cohort that the rounding leaves) single-vertex moves that each remove a defect make 4 of 5 clean. Owner
+     2026-11-12: built in its simple variant (enumerated single-vertex moves that each remove a defect) as the position
+     search of #755 (merged 2026-11-13, [SAFE_ROUNDING.md](../design/SAFE_ROUNDING.md) section 9).
+   - Plateau variant (2026-11-15, the note's section 10; a design, no library code): chains of single-vertex steps
+     that keep the defect counts, committed only when a step removes a defect and rolled back otherwise; termination,
+     the bound and the counts checked with Z3 (`tools/Z3Pilot/plateau_search.py`, 9 mutants SAT). Probe on what the
+     rounding leaves today: 1 of the 16 239 cohort operations (838003 difference; clean in 2 of 3 seeds at a budget of
+     2 000 evaluations), no clean result on the Thingi10K 400 self-unions (34 with a defect left by the rounding, all
+     open or with contacts; 21-25 of 31 lose their degenerate triangles, an upper bound), 3-9 of the 19 generated
+     leftovers the rule reaches (today's rule: 0). **Recommendation: no-go before the release** (the gain on real results is one operation,
+     the cost a rollback inside the repair at tier L; rounding-clean results are bit-identical either way, so the
+     release does not depend on it). **Owner 2026-11-15 (through the coordinator): no-go before the release, no three-day spike; the rule stays a design.** No guarantee found; problem 1 stays open as a guarantee.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -431,14 +472,28 @@ Ordered by expected value for the library.
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
    - **Done:** merged 2026-11-11 as 69f13be3 (#513, counted as Boolean 2.1), after its 8 rounding mutation shards passed
      ([exact-boolean.md](exact-boolean.md)).
-3. **Rounding cost on large or rotated results.**
-   - Measured:
-     - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
-     - rounding a 520k-triangle result costs 3-5 s, so 519511 / 1517923 are documented exceptions to the 5 s target.
+3. **Rounding cost: box-neighbour enumeration and linear setup** (restated 2026-11-12, owner; before: "rounding cost on
+   large or rotated results").
+   - Measured before (2026-11-01 to 11-08, out of date since #327, #335, #397, L1, the dirty tree and D1):
+     - SafeRounding was 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
+     - rounding a 520k-triangle result cost 3-5 s; 519511 / 1517923 are documented exceptions to the 5 s target.
    - The architecture survey (EMBER, BSPs, Cherchi 2022, Manifold, Lévy 2024) found no candidate that produces doubles
      with a no-intersection guarantee.
-   - Question: is there a rounding scheme that is sub-linear in the result size for local edits (incremental
-     self-intersection search, certified clearances)? Shares leads with item 1.
+   - Result (2026-11-12, [SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md)): the figures above are out of date.
+     On master 46529be the rounding is 1-69 % of a boolean on 33 rotated operations (median 23 %); 519511 union 4.7 of
+     17.0 s. Clean large results: the first search is the largest part (59-98 % of it on 519511, 1517923 and 668056, 22-43 %
+     on 1063860), and it is the enumeration of 20-355 box neighbours per query triangle (long thin triangles on tilted
+     faces), not exact arithmetic. Dirty rotated results: the
+     evaluations, and on 1368057 / 42327 union work after the evaluation limit. No sub-linear scheme: edits are local
+     already, the first search is linear in the rounded triangles. Found: stopping the passes at the limit gives
+     rounding −33 %, booleans −9 %, 33 of 33 hashes identical (changes `SmallestRejectedDrift`; owner decision, option
+     1 of the note); `near` is 14-56 % of the rounding where edits are evaluated (not diagnosed).
+   - The old question (a rounding scheme sub-linear in the result size, by an incremental search or certified
+     clearances) is answered: no, and the certificates do not pay (the note, sections 5.1 to 5.4).
+   - Open now: (a) done: the passes stop proposing at the evaluation limit (#725, merged 2026-11-12; the drift-only
+     variant was measured and dropped, the note, section 5.5); (b) the box-neighbour enumeration of the first search on results with long thin
+     triangles (a join of the rounded triangles against all, tree quality); (c) the cost of `near` in the evaluations;
+     (d) the tree and the setup over all triangles where few are rounded.
 4. **Sharp features (concave creases) in the alpha wrap, for tet meshing on CAD parts.**
    - The concave crease error is set by the empty α-ball: 4.7δ against the α limit (α+δ)/sin(θ/2) − α.
    - Closed without gain:
@@ -548,11 +603,13 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 
 ### Open for the future (2026-11-15)
 
-1. #721 (draft): practical 3D snap rounding and rounding cost (hard problems 1 and 3); a recommendation to the owner.
+1. #721: practical 3D snap rounding and rounding cost (hard problems 1 and 3). Options 1 and 2 are built (#725, #755);
+   the plateau variant of option 2 is designed ([SNAP_ROUNDING_3D.md](../design/SNAP_ROUNDING_3D.md) section 10) and
+   not built: owner 2026-11-15, no-go before the release, no spike; it stays a design. Open as research: a guarantee.
 2. Hard problem 11, determinism proof after stage 0: #859, #789, #803, #804.
 3. Tet meshing: a dihedral floor of 10° on 100 % of the inputs (16 of 40 today, #885); sliver exudation.
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
-5. Contouring topology certificate stage 2 (refinement driven by it); options B and C only after a reviewed proof.
+5. Contouring topology certificate stage 2: stopped after its spike (2026-11-15, item 4); stage 2a, the proof of blocks of cells (Theorem 6), written and reviewed 2026-11-15 (#925); then stage 2 as the block test; options B and C only after a reviewed proof.
 6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
 7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
 8. #886: ARAP deformation, optionally biharmonic (research item 7).

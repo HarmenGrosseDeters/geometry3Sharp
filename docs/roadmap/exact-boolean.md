@@ -236,7 +236,10 @@ fix is a narrower filter, applied in #883 and to the rounding shards of #843.
   identical, on the 33 rotated operations 28 identical, 2 newly clean, rounding +2.4 %); the D1 cohort acceptance run
   over all 5413 models (16 239 operations; `runs/position-search-cohort`, SAFE_ROUNDING.md section 9) is passed: no
   operation newly unclean, 16 232 rounding-clean results identical, 4 newly clean, MaxDrift within the bound;
-  (3) research.md problem 3 restated. A separate session studies every known extreme-runtime boolean case and ranks
+  (3) research.md problem 3 restated; (4) the plateau variant of (2), 2026-11-15 (the note's section 10: design,
+  Z3 lemma, probe on what the rounding leaves today): it can gain 1 of the 16 239 cohort operations and no clean result
+  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; owner 2026-11-15: no-go before the release, no
+  spike, the rule stays a design. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
 **Exact Boolean 4.0 (owner 2026-11-10, milestone, not scheduled):** exact output with provenance (pre-study topic 4,
@@ -658,7 +661,8 @@ exact Antipodal Method (LEVY_CLASSIFICATION.md 4.2, after the owner decision and
 9. Determinism obligation for `ExactPoint3` hash seeding: a test (#789).
 10. The Exact Boolean 3.0 mutation process PR: #615 (open).
 11. The thingi-pairs baseline and final runs, after Exact Boolean 3.0 (owner 2026-11-12).
-12. Research drafts: 3D snap rounding #721; Thingi10K full-corpus harness #385.
+12. Research: 3D snap rounding #721 (the plateau variant of the position search: no-go before the release, owner
+    2026-11-15); draft: Thingi10K full-corpus harness #385.
 13. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
     replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
     2026-11-15; #867 fixes the contact case of the float cut).

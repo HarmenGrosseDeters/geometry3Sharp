@@ -75,8 +75,9 @@ priority; this section names only what is in flight.
   red since #879 (uncovered `TpmsCommand.cs` lines; stale unmeasurable entries that #883 fixes). Runtime watch built
   (#726); first report #888 (28 outliers, no baseline yet). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
 - **Research:** CCD (#778, #793, #872; #866 still 18-20 s parallel), tet meshing stages 1-2 (#775, #821) and the
-  fTetWild comparison (#885), TPMS (#838), topology certificate stage 1 (#779) are merged. Open: geodesic oracle
-  draft #869, 3D snap rounding draft #721, new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
+  fTetWild comparison (#885), TPMS (#838), topology certificate stage 1 (#779) are merged (stage 2 stopped after its spike, 2026-11-15). Open: geodesic oracle
+  draft #869, 3D snap rounding #721 (plateau variant of the position search: no-go before the release, no spike,
+  owner 2026-11-15; it stays a design), new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
   [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
 - **Terrain:** ramps R1 (#841, #865), #861 (#878), #808 (#850), CoreMath in the slope kernel (#836) merged; next sector
   polygons E1 on demand. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
@@ -116,7 +117,11 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
 1. **Finish what runs.** Exact Boolean 3.0 (T1b #843, the mutation shards #913, the T6 check against CGAL #922, then the
    two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914, then the port of four C++ fixes,
    approved 2026-11-15, with the differential test relaxed to "differs only where the vendored code stays exact").
-2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files).
+2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files). Stage 1
+   merged (#779); stage 2 stopped after its spike (2026-11-15, #923): refinement certifies thin features
+   but not the double crossings at silhouette edges, which come back at every level (uncertified cells -10 % at 15x
+   the contouring time). Stage 2a (approved 2026-11-15): the proof, Theorem 6 (blocks of cells), written and
+   reviewed (#925); then stage 2 as the block test.
 3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
    a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
    it comes before the release; a no-go does not hold the release.
@@ -127,7 +132,8 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
    only if CAD cases need them.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
-measurement); a quality-aware manifold step in the alpha wrap (#919). Last, by "depth over breadth" (owner 2026-11-10):
+measurement); a quality-aware manifold step in the alpha wrap (diagnosis in #919, closed as valid
+output). Last, by "depth over breadth" (owner 2026-11-10):
 CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 
 ## Later / research
