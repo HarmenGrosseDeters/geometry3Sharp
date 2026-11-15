@@ -59,3 +59,9 @@ OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certifi
 ```
 
 For the measured rotated 20×20, 30×30 and 40×40 fixtures, the normalized error upper bounds are about 2.25e-12, 2.39e-11 and 1.04e-10, respectively, below the requested 1e-8. The 40×40 run required 120 decimal digits and around 19 seconds for assembly and factorization in this Python pilot; it does not establish scaling to 10k/100k. The final command perturbs one candidate by 1e-4 in normalized z and is rejected by the error bound. These checks apply to the exact recorded binary64 fixtures and trial shifts, not to the existing library solver or other meshes. Raw outputs are alongside the script.
+
+## Column-index and binary-port probes
+
+The interval pilot accepts `scan` or `indexed` as its fifth argument. The latter stores active entries by column instead of scanning the entire dictionary at each pivot. For 20×20 and 40×40, the recorded A/B outputs contain identical SHA-256 digests of all pivot intervals and identical residual bounds. One 40×40 run took 16.62 s for the scan and 15.88 s for the indexed factorization; this is one measurement of this Python prototype, not a general speedup. The 50×50 indexed case at 160 decimal digits had positive pivot intervals and a normalized error bound of about 4.04e-10, with about 47 s in factorization. Raw logs are `interval-ldl{20,40}-{scan,indexed}.txt` and `interval-ldl50-indexed.txt`. An independent review checked the column indexing and update order.
+
+Passing a sixth argument exports the permuted, shifted interval matrix as JSON before elimination. `benchmarks/BiharmonicCertificateArithmetic` tests a separate binary fixed-point LDLᵀ implementation against such files. Its README states the critical distinction between proving the imported matrix positive definite and proving that the export faithfully represents the original mesh.
