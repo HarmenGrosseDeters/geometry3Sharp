@@ -63,8 +63,14 @@ jobs:
             && make -j"$(nproc)" > ../../make.log 2>&1 \
             || { tail -n 60 ../../cmake.log; [ -f ../../make.log ] && tail -n 60 ../../make.log; exit 1; }
           bin=$(find . -maxdepth 2 -type f -name FloatTetwild_bin | head -1)
-          mkdir -p ../../ftbin && cp "$bin" ../../ftbin/ && ../../ftbin/FloatTetwild_bin --help > ../../ftbin/help.txt 2>&1 || true
-          ldd ../../ftbin/FloatTetwild_bin > ../../ftbin/ldd.txt
+          mkdir -p ../../ftbin/lib && cp "$bin" ../../ftbin/
+          # Bundle the shared libraries the binary resolves outside the system dirs (eg libraries of the build tree): the shard
+          # runners do not have the build tree, so without them the loader exits 127 (run 43533334096)
+          ldd ../../ftbin/FloatTetwild_bin | awk '$2 == "=>" && $3 ~ /^\// {print $3}' | grep -vE '^/(usr/)?lib(32|64|x32)?/' \
+            | while read -r l; do cp -L "$l" ../../ftbin/lib/; done
+          ls -l ../../ftbin/lib
+          LD_LIBRARY_PATH="$PWD/../../ftbin/lib" ../../ftbin/FloatTetwild_bin --help > ../../ftbin/help.txt 2>&1 || true
+          ldd ../../ftbin/FloatTetwild_bin > ../../ftbin/ldd.txt; cat ../../ftbin/ldd.txt
       - uses: actions/upload-artifact@v4
         with:
           name: ftetwild-bin
@@ -94,14 +100,18 @@ jobs:
         run: |
           sudo apt-get install -y -qq libgmp10 bc
           chmod +x ftbin/FloatTetwild_bin
+          export LD_LIBRARY_PATH="$PWD/ftbin/lib"
+          # Fail fast if the binary cannot load here (missing library, other image): no shard of NO_OUTPUT_rc127 rows
+          if ldd ftbin/FloatTetwild_bin | grep "not found"; then exit 1; fi
+          rc=0; ftbin/FloatTetwild_bin --help > /dev/null 2>&1 || rc=$?; [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] || { echo "fTetWild does not start (rc $rc)"; exit 1; }
           nproc > machine.txt; uname -a >> machine.txt; lscpu | grep -E "Model name|^CPU\(s\)" >> machine.txt; free -g | head -2 >> machine.txt
           bash benchmarks/TetMeshBenchmark/compare/run_shard.sh ${{ matrix.shard }} $SHARDS \
             benchmarks/TetMeshBenchmark/bin/Release/net10.0/TetMeshBenchmark.dll "$PWD/ftbin/FloatTetwild_bin" \
             "$RUNNER_TEMP/meshes" "$RUNNER_TEMP/work" "out" "${{ inputs.timeout_s || '1800' }}"
           cp machine.txt out/machine-${{ matrix.shard }}.txt
           for v in ours ft4 ft1; do [ -f out/$v.csv ] && mv out/$v.csv out/$v-${{ matrix.shard }}.csv; done
-          # diagnostics of failures only (format heads, evaluator errors): short-lived artifact, never published
-          mkdir -p diag && cp "$RUNNER_TEMP"/work/head_* "$RUNNER_TEMP"/work/eval_err_* diag/ 2>/dev/null || true
+          # diagnostics of failures only (format heads, evaluator errors, fTetWild log tails): short-lived artifact, never published
+          mkdir -p diag && cp "$RUNNER_TEMP"/work/head_* "$RUNNER_TEMP"/work/eval_err_* "$RUNNER_TEMP"/work/ftlog_* diag/ 2>/dev/null || true
           find diag -size 0 -delete
       - uses: actions/upload-artifact@v4
         if: always()

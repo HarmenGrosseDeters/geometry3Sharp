@@ -40,7 +40,7 @@ for id in $(cat "$IDS"); do
     t1=$(date +%s.%N); secs=$(echo "$t1 - $t0" | bc -l)
     res=$(ls "$WORK"/out_${id}_$n*.mesh "$WORK"/out_${id}_$n*.msh 2>/dev/null | grep -v "_sf\." | head -1)
     if [ "$rc" -eq 124 ]; then echo "$id.stl,$secs,$n,TIMEOUT" >> "$csv"
-    elif [ -z "$res" ]; then echo "$id.stl,$secs,$n,NO_OUTPUT_rc$rc" >> "$csv"
+    elif [ -z "$res" ]; then echo "$id.stl,$secs,$n,NO_OUTPUT_rc$rc" >> "$csv"; tail -n 20 "$WORK/log_${id}_$n.txt" > "$WORK/ftlog_${id}_$n.txt"
     else
       line=$(dotnet "$EVAL" eval "$res" "$f" "$id.stl" "$secs" "$n" 2> "$WORK/eval_err_${id}_$n.txt" | tail -n 1); erc=${PIPESTATUS[0]}
       if [ "$erc" -ne 0 ] || [ -z "$line" ]; then echo "$id.stl,$secs,$n,UNREADABLE_OUTPUT_rc$rc" >> "$csv"; head -c 300 "$res" > "$WORK/head_${id}_$n.txt"

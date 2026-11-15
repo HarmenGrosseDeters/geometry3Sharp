@@ -23,6 +23,7 @@ namespace DeterminismHarness
             list.Add(new Case("probe.hash-enumeration", serial => HashEnumeration()));
             list.Add(new Case("probe.sort-ties-large", serial => SortTiesLarge()));
             list.Add(new Case("probe.slope-degrees", serial => SlopeDegrees()));
+            ProbesBigInteger.AddTo(list);
             list.Add(new Case("terrain.slope-design", serial => SlopeDesign(serial, false)));
             list.Add(new Case("terrain.slope-design.degrees", serial => SlopeDesign(serial, true)));
         }

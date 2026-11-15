@@ -221,6 +221,8 @@ namespace Meshing2Acceptance
             Dictionary<long, List<(int tri, int opposite, int a, int b)>> edges;
             HashSet<long> constraintEdges;
             List<(Pt a, Pt b, int marker, int sourceId, bool locked)> sources;
+            /// <summary> the input points of sources[k]'s ends (O11Unsplittable takes them where the mesher merged them) </summary>
+            List<(int a, int b)> sourceInputs;
             HashSet<long> subsegmentSet;
             Q moved2 = Q.Zero;                 // the largest squared distance by which geometry really moved; 0 if nothing did
             int aliases;                       // merged input slots (identity rules): vertices in the list that are no vertices of the mesh
@@ -650,62 +652,235 @@ namespace Meshing2Acceptance
             }
 
             /// <summary>
-            /// The piece predicate, decided exactly:
-            /// - its own constraints: the input constraints that hold both ends within the mesher's tolerance (a hair more): the mesher makes
-            ///   such vertices vertices of the constraint and merges the sources of the shared piece; this also covers a split point that
-            ///   rounding put off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of
-            ///   a hull edge has none here and is judged);
-            /// - its candidate split points: the midpoint, and the concentric-shell point from either end (QualityMesh2.SplitSegment: next
-            ///   to a vertex that existed before refinement, the power of two from it nearest the middle, if within the middle third). Which
-            ///   one the mesher took depends on which ends existed before refinement (input points and crossings), so all must qualify;
-            /// - another input constraint (not a hull edge: the mesher's NearOtherSource knows input constraints only) within the mesher's
-            ///   tolerance (half the tube: 2^-41 against the tube's 2^-40 of the magnitude; less 2^-7 of it, as the mesher decides in doubles)
-            ///   of every candidate. With a tube given to the oracle (--tube) the tolerance follows it;
+            /// The piece predicate, decided exactly, on the constraints as the mesher has them (their ends where it merged them: the output
+            /// vertices of their input points; one merged to a point is left out, which only withholds excuses: the mesher still refuses
+            /// a split point near that point):
+            /// - its own constraints: those that hold both ends within the mesher's tolerance (a hair more): the mesher makes such vertices
+            ///   vertices of the constraint and merges the sources of the shared piece; this also covers a split point that rounding put
+            ///   off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of a hull
+            ///   edge has none here and is judged);
+            ///   Not proven: that the mesher's list of the piece's sources is among them. A split point of a merged piece lies on its
+            ///   first source and may be up to twice the tolerance from another of its sources, which the mesher then skips in
+            ///   NearOtherSource while this predicate may count it as refusing (review of #870; the rule is older than #870). Taking
+            ///   every constraint within twice the tolerance as a possible source instead excuses none of the fuzz cases of #864 and #870
+            ///   (the other leg of a narrow wedge lies within it), so the output would have to name the pieces' sources (#870 follow-up);
+            /// - the mesher's split point (QualityMesh2.SplitSegment, #870): on the piece's first source, between the projections of its
+            ///   ends, at the midpoint or, next to the one end that existed before refinement (input points and crossings), at the power of
+            ///   two from that end nearest the middle (concentric shells). The output names neither the first source nor which ends
+            ///   existed before, so every own constraint and every end status the ends allow is taken, and each such point must be
+            ///   refused;
+            /// - refused: a constraint that is not one of its own (not a hull edge: the mesher's NearOtherSource knows input constraints
+            ///   only, and skips the piece's sources) within the mesher's tolerance of it (half the tube: 2^-41 against the tube's 2^-40 of
+            ///   the magnitude), widened by the derived rounding of the mesher's point and distance (O11RefusalSlack2). With a tube given to
+            ///   the oracle (--tube) the tolerance follows it;
             /// - which meets each own constraint in at most one point (its ends and the own constraint's ends within the tube of the other
-            ///   are one point): nearly coincident lines, eg a double-digitised border, are merged by the mesher into pieces of both, and
-            ///   such a piece is split (review of the first version).
+            ///   are one point): nearly coincident lines, eg a double-digitised border, are merged by the mesher into pieces of both, and such
+            ///   a piece is split (review of the first version).
+            /// No excuse below a tolerance of 2^-1001 (a magnitude of 2^-960): there the mesher's unscaled split point rounds absolutely
+            /// in the subnormal range, which the slack does not cover.
             /// </summary>
             bool ComputeO11Unsplittable(int ia, int ib)
             {
                 Pt pa = v[ia], pb = v[ib];
-                // the mesher's tolerance is half the tube (2^-41 against 2^-40 of the same magnitude); a constraint holding both ends within it
-                // (a hair more, to be safe) is one of the piece's own: the mesher makes such vertices vertices of its chain and merges the
-                // sources of the shared piece (InsertPiece, Near; second review: two constraints crossing at a tiny angle). A split point
-                // counts as refused only a hair inside the tolerance, as the mesher decides in rounded doubles (second review)
-                Q tol2 = o11Tol2, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7), half2 = tol2 * new Q((BigInteger.One << 7) - BigInteger.One, BigInteger.One << 7);
+                Q tol2 = o11Tol2, ownTol2 = tol2 * new Q(BigInteger.One + (BigInteger.One << 7), BigInteger.One << 7);
+                if (tol2 < Pow2(-2002)) return false;
+                // (a foreign producer's input point that is not found has no output vertex: the constraints as the mesher has them are
+                // then not known)
+                if (map.Any(m => m < 0)) return false;
+                var ms = MergedSources();
                 var own = new List<(Pt a, Pt b)>();
                 var ownIds = new HashSet<int>();
-                for (int k = 0; k < sources.Count; ++k) {
-                    if (!MayBeNear(k, ia) || !MayBeNear(k, ib)) continue;
-                    var c = sources[k];
-                    Q da = Exact.Dist2ToSegment(c.a, c.b, pa), db = Exact.Dist2ToSegment(c.a, c.b, pb);
-                    if (da <= ownTol2 && db <= ownTol2) { own.Add((c.a, c.b)); ownIds.Add(k); }
+                for (int k = 0; k < ms.Count; ++k) {
+                    if (ms[k] == null || !MergedNear(k, ia) || !MergedNear(k, ib)) continue;
+                    var c = ms[k].Value;
+                    if (Exact.Dist2ToSegment(c.a, c.b, pa) <= ownTol2 && Exact.Dist2ToSegment(c.a, c.b, pb) <= ownTol2) { own.Add(c); ownIds.Add(k); }
                 }
                 if (own.Count == 0) return false;
-                var candidates = new List<Pt> { new Pt((pa.Qx + pb.Qx) / 2, (pa.Qy + pb.Qy) / 2) };
-                double length = Math.Sqrt(ToD(Exact.Len2(pa, pb)));
-                long bits = BitConverter.DoubleToInt64Bits(length / 2);
-                int field = (int)((bits >> 52) & 0x7FF);
-                if (field == 0 || field == 0x7FF) return false;   // (no shell point computable: not excused)
-                {
-                    // the power of two at or below half the length, from the bits, and the nearer of it and its double (as the mesher's)
-                    double lower = BitConverter.Int64BitsToDouble((long)field << 52), d = length / 2 - lower < 2 * lower - length / 2 ? lower : 2 * lower;
-                    if (d > length / 3 && d < 2 * length / 3) {
-                        Q f = Q.FromDouble(d / length);
-                        candidates.Add(new Pt(pa.Qx + (pb.Qx - pa.Qx) * f, pa.Qy + (pb.Qy - pa.Qy) * f));
-                        candidates.Add(new Pt(pb.Qx + (pa.Qx - pb.Qx) * f, pb.Qy + (pa.Qy - pb.Qy) * f));
+                // the mesher's split point: on the piece's first source, at the fraction of the piece between the projections of its
+                // ends; which source is first, and which ends existed before refinement, the output does not say, so every possibility
+                // must be refused (a hair is the rounding of the mesher's point and distance, O11RefusalSlack2)
+                var fractions = SplitFractions(ia, ib);
+                if (fractions == null) return false;
+                Q refused2 = tol2 * O11RefusalSlack2;
+                foreach (var w in own)
+                    foreach (var (f, fromA) in fractions) {
+                        Pt p = PointOnSource(w.a, w.b, fromA ? pa : pb, fromA ? pb : pa, f);
+                        bool any = false;
+                        for (int k = 0; k < ms.Count && !any; ++k) {
+                            // (the filter on the ends: a constraint near only the middle of the piece and farther than the tube from both its
+                            // ends meets an own constraint near both of its own ends, so the coincidence test below rejects it anyway)
+                            if (ms[k] == null || ownIds.Contains(k) || (!MergedNear(k, ia) && !MergedNear(k, ib))) continue;
+                            var c = ms[k].Value;
+                            if (Exact.Dist2ToSegment(c.a, c.b, p) > refused2) continue;
+                            if (own.Any(o2 => MeetInMoreThanOnePoint(o2.a, o2.b, c.a, c.b, ownTol2, tube2))) continue;
+                            any = true;
+                        }
+                        if (!any) return false;
                     }
-                }
+                return true;
+            }
+
+            List<(Pt a, Pt b)?> mergedSources;
+            double[] mergedBox;
+            double mergedPad;
+
+            /// <summary> the constraints with their ends where the mesher merged them (null: merged to a point), and their boxes </summary>
+            List<(Pt a, Pt b)?> MergedSources()
+            {
+                if (mergedSources != null) return mergedSources;
+                mergedSources = new List<(Pt a, Pt b)?>();
+                mergedBox = new double[4 * sources.Count];
+                // (four tolerances, with room for the doubles' rounding; the tolerance from its square scaled to about 1, as the square of
+                // one above the floor 2^-1001 is no double; no pad if it is not a finite double: then nothing is filtered)
+                int e2 = (int)Math.Floor((BigInteger.Log(o11Tol2.N, 2) - BigInteger.Log(o11Tol2.D, 2)) / 2);
+                double tolD = Math.Sqrt(Approx(o11Tol2 / Pow2(2 * e2))) * Math.Pow(2, e2);
+                mergedPad = tolD > 0 && tolD < double.PositiveInfinity ? 4.5 * tolD : double.NaN;
                 for (int k = 0; k < sources.Count; ++k) {
-                    // (the filter on the ends: a constraint near only the middle of the piece and farther than the tube from both its ends
-                    // meets an own constraint near both of its own ends, so the coincidence test below rejects it anyway)
-                    if (ownIds.Contains(k) || (!MayBeNear(k, ia) && !MayBeNear(k, ib))) continue;
-                    var c = sources[k];
-                    if (!candidates.All(p => Exact.Dist2ToSegment(c.a, c.b, p) <= half2)) continue;
-                    if (own.Any(w => MeetInMoreThanOnePoint(w.a, w.b, c.a, c.b, ownTol2, tube2))) continue;
-                    return true;
+                    var (ia, ib) = sourceInputs[k];
+                    Pt a = v[map[ia]], b = v[map[ib]];
+                    mergedSources.Add(a.Equals(b) ? ((Pt a, Pt b)?)null : (a, b));
+                    SegmentBox(a, b, 0, mergedBox, 4 * k);
                 }
-                return false;
+                return mergedSources;
+            }
+
+            /// <summary> the merged constraint k may lie within four tolerances of vertex i (false only if certainly not) </summary>
+            bool MergedNear(int k, int i)
+            {
+                if (e.Reference || !vKnown[i] || double.IsNaN(mergedBox[4 * k])) return true;
+                double d = mergedPad;
+                if (double.IsNaN(d)) return true;
+                return !(vxh[i] < mergedBox[4 * k] - d || vxl[i] > mergedBox[4 * k + 1] + d || vyh[i] < mergedBox[4 * k + 2] - d || vyl[i] > mergedBox[4 * k + 3] + d);
+            }
+
+            /// <summary>
+            /// (1 + 2^-6)^2: the mesher refuses a split point p~ whose ScaledDist2 to another constraint is at most its tolerance tol, both
+            /// in doubles (scaling by a power of two is exact). In units of the magnitude (every coordinate, and every difference of
+            /// coordinates per axis, at most 1; tol = 2^-41, the mesher's own within a relative u of it: its extent is a rounded
+            /// difference) and with u = 2^-53, p~ lies within 39 u of the point the oracle models:
+            /// - the projections tu, tw of the piece's ends (the differences from A, the dot products, the squared length, the division):
+            ///   gamma_5 |q| / |dir| each, times |dir| at most 5 sqrt2 u, weighted by 1 - f and f: 7.1 u; and their dependence on the
+            ///   rounded direction (projections onto dir~, not dir): about 6 u;
+            /// - the fraction: the mesher's d / length and the oracle's within 5 u of it relatively each, times |tw - tu| |dir| f
+            ///   (at most sqrt2 * 2/3): 9.5 u; the mesher's 1 - d / length from the other end, one more rounding of at most u / 2,
+            ///   times |tw - tu| |dir|: 0.7 u;
+            /// - tt = tu + (tw - tu) f and p = A + dir tt, one rounding each of terms at most 2 per axis (|dir tt| = |p - A|, whatever
+            ///   the source's length): 8 u per axis, 11.4 u;
+            /// - the rounded direction: |dir~ - dir| |tt| at most sqrt2 u |dir| |tt| = sqrt2 u |p - A|, at most 4 u;
+            /// and the computed distance is at most 7 u below the exact distance of p~ (the differences from the constraint's end and its
+            /// direction, 2 u each; t dx, 1.5 u; a wrong parameter t only lengthens the vector; the squares and the tolerance's square are
+            /// relative, below 1 u). So a refused point lies within tol + 46 u = tol (1 + 46 * 2^-12) of the other constraint, inside
+            /// tol (1 + 64 * 2^-12). (This needs every intermediate in the normal range, which ComputeO11Unsplittable's floor on the
+            /// tolerance provides: below it the subnormal rounding is absolute.)
+            /// </summary>
+            static readonly Q O11RefusalSlack2 = new Q(BigInteger.Pow(65, 2), BigInteger.Pow(64, 2));
+
+            /// <summary> the point of source a-b at fraction f from the projection of from to that of to (the mesher's p = A + dir tt) </summary>
+            static Pt PointOnSource(Pt a, Pt b, Pt from, Pt to, Q f)
+            {
+                Q dx = b.Qx - a.Qx, dy = b.Qy - a.Qy, l2 = dx * dx + dy * dy;
+                if (l2.Sign == 0) return a;
+                Q t0 = ((from.Qx - a.Qx) * dx + (from.Qy - a.Qy) * dy) / l2, t1 = ((to.Qx - a.Qx) * dx + (to.Qy - a.Qy) * dy) / l2;
+                Q t = t0 + (t1 - t0) * f;
+                return new Pt(a.Qx + dx * t, a.Qy + dy * t);
+            }
+
+            enum EndKind { Before, Steiner, Unknown }
+
+            /// <summary>
+            /// Whether piece end id existed before refinement:
+            /// - an input point did (its surviving output vertex);
+            /// - a crossing did: it lies on the chords of two pieces of different constraints, each within the tolerance of its sources
+            ///   (before refinement every chain vertex is an input point or a crossing within the tolerance of the chain's sources, and the
+            ///   distance to a segment is convex along another), so within the tolerance of at least two constraints, plus the rounding of
+            ///   the crossings it was computed from: at most 0.71 u of the magnitude per crossing, and the hair (2^-6 of the tolerance,
+            ///   64 u) covers about 90 nested ones;
+            /// - so one within it of at most one constraint is a split point; one within it of two or more may be either (review of #870).
+            /// </summary>
+            EndKind KindOfEnd(int id)
+            {
+                inSet = inSet ?? new HashSet<int>(map);
+                if (inSet.Contains(id)) return EndKind.Before;
+                var ms = MergedSources();
+                Q near2 = o11Tol2 * O11RefusalSlack2;
+                int near = 0;
+                for (int k = 0; k < ms.Count && near < 2; ++k)
+                    if (ms[k] != null && MergedNear(k, id) && Exact.Dist2ToSegment(ms[k].Value.a, ms[k].Value.b, v[id]) <= near2) ++near;
+                return near < 2 ? EndKind.Steiner : EndKind.Unknown;
+            }
+
+            HashSet<int> inSet;
+
+            /// <summary>
+            /// The fractions of the mesher's split point (QualityMesh2.SplitSegment), each with the end it is measured from: the midpoint,
+            /// or next to the one end that existed before refinement the power of two from it nearest half the length (concentric shells).
+            /// Decided exactly; a decision within 2^-40 of a tie (the mesher's rounded length) takes both sides.
+            /// Null if the piece is degenerate
+            /// </summary>
+            List<(Q f, bool fromA)> SplitFractions(int ia, int ib)
+            {
+                Q l2 = Exact.Len2(v[ia], v[ib]);
+                if (l2.Sign == 0) return null;
+                EndKind ka = KindOfEnd(ia), kb = KindOfEnd(ib);
+                var result = new List<(Q f, bool fromA)>();
+                void add(Q f, bool fromA) { if (!result.Contains((f, fromA))) result.Add((f, fromA)); }
+                bool aMay = ka != EndKind.Steiner, aMayNot = ka != EndKind.Before, bMay = kb != EndKind.Steiner, bMayNot = kb != EndKind.Before;
+                if ((aMay && bMay) || (aMayNot && bMayNot)) add(new Q(1, 2), true);
+                if (aMay && bMayNot) foreach (var f in ShellFractions(l2)) add(f, true);
+                if (bMay && aMayNot) foreach (var f in ShellFractions(l2)) add(f, false);
+                return result;
+            }
+
+            /// <summary> the shell fractions d / length of a piece of squared length l2, as the mesher's double fraction within its rounding.
+            /// The mesher takes the power of two nearest half the length if it lies within the middle third, else the midpoint; the nearest
+            /// always does (2^k is nearer than 2^(k+1) iff length < 3 2^k, iff 2^k > length / 3, and 2^(k+1) < 2 length / 3 iff
+            /// length > 3 2^k), so the midpoint is taken only at a tie, which the mesher's rounded length may break either way </summary>
+            static List<Q> ShellFractions(Q l2)
+            {
+                // k: the largest with (2^k)^2 <= l2 / 4, from the logarithms, then exactly
+                int k = (int)Math.Floor((BigInteger.Log(l2.N, 2) - BigInteger.Log(l2.D, 2)) / 2) - 1;
+                while (Pow2(2 * (k + 1)) > l2) --k;
+                while (Pow2(2 * (k + 2)) <= l2) ++k;
+                // 2^k is the nearer iff l2 < 9 4^k
+                int near = Tie(l2, 9 * Pow2(2 * k));
+                var result = new List<Q>();
+                if (near >= 0) result.Add(Fraction(k + 1, l2));
+                if (near <= 0) result.Add(Fraction(k, l2));
+                if (near == 0) result.Add(new Q(1, 2));
+                return result;
+            }
+
+            /// <summary> 2^j / sqrt(l2) in doubles (within a few ulps: the mesher's own is), as an exact rational </summary>
+            static Q Fraction(int j, Q l2)
+            {
+                // scaled by 4^-j to about 1 (no underflow); 2^j / sqrt(l2) = 1 / sqrt(l2 / 4^j)
+                Q s = l2 / Pow2(2 * j);
+                return Q.FromDouble(1 / Math.Sqrt(Near1(s)));
+            }
+
+            /// <summary> a positive rational of order 1 (within 2^+-8) as a double within a few ulps, whatever the size of its numerator and
+            /// denominator (Q.Bounds fails beyond a double's range) </summary>
+            static double Near1(Q s)
+            {
+                int en = Math.Max(0, (int)BigInteger.Log(s.N, 2) - 62), ed = Math.Max(0, (int)BigInteger.Log(s.D, 2) - 62);
+                return (double)(s.N >> en) / (double)(s.D >> ed) * Math.Pow(2, en - ed);
+            }
+
+            /// <summary> a nonnegative rational as a double within a few ulps (0 or infinity beyond a double's range) </summary>
+            static double Approx(Q s)
+            {
+                if (s.Sign <= 0) return 0;
+                int en = Math.Max(0, (int)BigInteger.Log(s.N, 2) - 62), ed = Math.Max(0, (int)BigInteger.Log(s.D, 2) - 62);
+                return (double)(s.N >> en) / (double)(s.D >> ed) * Math.Pow(2, en - ed);
+            }
+
+            static Q Pow2(int j) => j >= 0 ? new Q(BigInteger.One << j, BigInteger.One) : new Q(BigInteger.One, BigInteger.One << -j);
+
+            /// <summary> +1 if a > b, -1 if a < b, beyond a relative 2^-40 (the mesher decides on its rounded length); 0 within it </summary>
+            static int Tie(Q a, Q b)
+            {
+                Q m = Q.Abs(b) * new Q(BigInteger.One, BigInteger.One << 40);
+                return a > b + m ? 1 : a < b - m ? -1 : 0;
             }
 
             /// <summary> the ends of each segment that lie near the other (within near2: the mesher's tolerance and a hair) are more than one
@@ -2311,16 +2486,17 @@ namespace Meshing2Acceptance
             void Sources()
             {
                 sources = new List<(Pt, Pt, int, int, bool)>();
+                sourceInputs = new List<(int, int)>();
                 int id = 0;
                 foreach (var s in input.Segments) {
-                    if (!inPts[s.A].Equals(inPts[s.B])) sources.Add((inPts[s.A], inPts[s.B], s.Marker, id, s.Locked));
+                    if (!inPts[s.A].Equals(inPts[s.B])) { sources.Add((inPts[s.A], inPts[s.B], s.Marker, id, s.Locked)); sourceInputs.Add((s.A, s.B)); }
                     ++id;
                 }
                 foreach (var ring in input.Rings) {
                     var idx = ring.Vertices;
                     for (int i = 0; i < idx.Length; ++i) {
                         Pt a = inPts[idx[i]], b = inPts[idx[(i + 1) % idx.Length]];
-                        if (!a.Equals(b)) sources.Add((a, b, ring.Marker, id, false));
+                        if (!a.Equals(b)) { sources.Add((a, b, ring.Marker, id, false)); sourceInputs.Add((idx[i], idx[(i + 1) % idx.Length])); }
                         ++id;
                     }
                 }
@@ -2328,7 +2504,7 @@ namespace Meshing2Acceptance
                     if (region.Ring == null) continue;
                     for (int i = 0; i < region.Ring.Length; ++i) {
                         Pt a = inPts[region.Ring[i]], b = inPts[region.Ring[(i + 1) % region.Ring.Length]];
-                        if (!a.Equals(b)) sources.Add((a, b, 0, id, false));
+                        if (!a.Equals(b)) { sources.Add((a, b, 0, id, false)); sourceInputs.Add((region.Ring[i], region.Ring[(i + 1) % region.Ring.Length])); }
                         ++id;
                     }
                 }

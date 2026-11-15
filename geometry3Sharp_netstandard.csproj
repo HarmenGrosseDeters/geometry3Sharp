@@ -91,6 +91,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="4.14.0" PrivateAssets="all" />
     <AdditionalFiles Include="BannedSymbols.txt" />
+    <!-- G3D0001-9: the allow list and the registrations of the determinism proof scope (the exact kernel, .editorconfig) -->
+    <AdditionalFiles Include="DeterministicApis.txt" />
     <!-- G3E0001-3: float, parallel loops (with the allow-list core/ExactCodeAllowList.cs) and FMA in the exact code -->
     <ProjectReference Include="tools\analyzers\G3ExactCodeAnalyzers\G3ExactCodeAnalyzers.csproj"
                       OutputItemType="Analyzer" ReferenceOutputAssembly="false" PrivateAssets="all" />

@@ -48,11 +48,12 @@ namespace geometry3Sharp.Tests
         }
 
         // the default (budget off) is bit for bit the wrap of master df429d6f, before the budget (hash computed there with the same
-        // settings and the old API)
+        // settings and the old API; with the serial carving, RoundWindow = 0, which that master had: the round-based carving of #774
+        // gives another wrap)
         [Fact]
         public void Default_Off_BitIdenticalToMaster()
         {
-            var w = new MeshAlphaWrap(Flat()) { RelativeAlpha = 50, RelativeOffset = 500 };
+            var w = new MeshAlphaWrap(Flat()) { RelativeAlpha = 50, RelativeOffset = 500, RoundWindow = 0 };
             Assert.True(w.Compute(), w.Error);
             Assert.Equal(0, w.MaxEstimatedTriangles);
             Assert.Equal(1.0, w.AlphaCoarsening);

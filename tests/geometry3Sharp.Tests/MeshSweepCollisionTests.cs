@@ -278,6 +278,13 @@ namespace geometry3Sharp.Tests
         public void SelfSweep_Invariance(string name)
         {
             Similarity sim = Similarity.ByName(name);
+            foreach (int subSteps in new[] { 1, 4 })
+                self_sweep_invariance(sim, subSteps);
+        }
+
+        void self_sweep_invariance(Similarity sim, int subSteps)
+        {
+            string name = sim.Name;
             DMesh3 a = box(new Vector3d(-0.5, 0, 0), 1), b = box(new Vector3d(0.75, 0.25, 0.125), 1);
             var both = new DMesh3(a);
             int n = both.MaxVertexID;
@@ -287,7 +294,7 @@ namespace geometry3Sharp.Tests
                 DMesh3 m = map(both, f);
                 var end = new Vector3d[both.MaxVertexID];
                 foreach (int vid in both.VertexIndices()) end[vid] = f(both.GetVertex(vid) + (vid < n ? new Vector3d(0.5, 0, 0) : Vector3d.Zero));
-                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5 };
+                var s = new MeshSweepCollision(m, end) { BlockSize = 3, SelfTasks = 5, SubSteps = subSteps };
                 Assert.Equal(MeshSweepStatus.Collision, s.Compute());
                 return s;
             }
@@ -299,6 +306,164 @@ namespace geometry3Sharp.Tests
             } else {
                 double slack = 1e-5 + 256 * sim.Resolution(2) / 0.5;
                 Assert.True(r.EarliestTimeOfImpact <= 0.5 + 1e-12 && r.EarliestTimeOfImpact >= 0.5 - slack, $"{name}: {r.EarliestTimeOfImpact:R}");
+            }
+        }
+
+        // #866: with sub-steps the candidates are a subset of those of SubSteps = 1 (with the same results, the pairs are
+        // solved over the whole step), on random scenes the contacts and times are identical, and large motions give
+        // fewer candidates
+        [Fact]
+        public void SubSteps_SubsetOfOneSubStep()
+        {
+            var rnd = new Random(21);
+            for (int round = 0; round < 8; ++round) {
+                bool self = round % 2 == 1;
+                DMesh3 a = sphere(Vector3d.Zero, 1, 4), b = sphere(new Vector3d(2.1, 0.3 * rnd.NextDouble(), 0.1), 1, 4);
+                Vector3d move = new Vector3d(0.4 + 0.5 * rnd.NextDouble(), 0.3 * rnd.NextDouble(), 0.2 * rnd.NextDouble());
+                double twist = rnd.NextDouble();
+                Func<Vector3d, Vector3d> fa = x => x + move + twist * new Vector3d(0, 0.3 * x.z, -0.3 * x.y);
+                var o = new CcdOptions { MinSeparation = (round % 3) * 0.004 };
+                MeshSweepCollision make(int k, bool all, long maxHull = 1L << 27)
+                {
+                    MeshSweepCollision sw;
+                    if (self) {
+                        var m = new DMesh3(a);
+                        int n = m.MaxVertexID;
+                        new MeshEditor(m).AppendMesh(b);
+                        var end = new Vector3d[m.MaxVertexID];
+                        foreach (int v in m.VertexIndices()) end[v] = v < n ? fa(m.GetVertex(v)) : m.GetVertex(v);
+                        sw = new MeshSweepCollision(m, end);
+                    } else
+                        sw = new MeshSweepCollision(a, moved(a, fa), b, moved(b, x => x));
+                    sw.SubSteps = k; sw.CollectAll = all; sw.Options = o; sw.MaxHullDoubles = maxHull;
+                    sw.Compute();
+                    return sw;
+                }
+                var one = make(1, true);
+                var a1 = make(1, false);
+                var key = new Dictionary<(SweepContactKind, bool, int, int), CcdResult>();
+                foreach (SweepContact c in one.Contacts) key[(c.Kind, c.FirstOfMeshA, c.First, c.Second)] = c.Result;
+                foreach (int k in new[] { 2, 4, 8 }) {
+                    var sub = make(k, true);
+                    Assert.True(sub.CandidatePairCount <= one.CandidatePairCount);
+                    foreach (SweepContact c in sub.Contacts) {
+                        Assert.True(key.TryGetValue((c.Kind, c.FirstOfMeshA, c.First, c.Second), out CcdResult r), $"round {round} k {k}: a candidate SubSteps = 1 does not have");
+                        Assert.Equal(r, c.Result);
+                    }
+                    // (the dropped pairs are farther apart than the minimum separation in every sub-step: no contact)
+                    var ak = make(k, false);
+                    Assert.Equal(a1.Status, ak.Status);
+                    Assert.Equal(a1.EarliestTimeOfImpact, ak.EarliestTimeOfImpact);
+                    Assert.Equal(a1.EarliestNearContactTime, ak.EarliestNearContactTime);
+                    Assert.Equal(a1.Contacts, ak.Contacts);
+                    if (k == 4 && move.x > 0.6) Assert.True(sub.CandidatePairCount < one.CandidatePairCount, $"round {round}: no fewer candidates");
+                }
+                // hulls above MaxHullDoubles: no filter, the candidates of SubSteps = 1
+                var big = make(4, true, 0);
+                Assert.Equal(one.CandidatePairCount, big.CandidatePairCount);
+                Assert.Equal(one.Contacts, big.Contacts);
+            }
+            foreach (int bad in new[] { 0, 3, 6, 128, -4 }) {
+                DMesh3 a = box(Vector3d.Zero, 1);
+                Assert.Equal(MeshSweepStatus.InvalidInput, new MeshSweepCollision(a, moved(a, x => x)) { SubSteps = bad }.Compute());
+            }
+        }
+
+        // review #872: SubSteps changed between two Computes on one instance gives the result of a fresh instance (the
+        // hulls are rebuilt for the new SubSteps and released after each Compute)
+        [Fact]
+        public void SubSteps_ChangedBetweenComputes()
+        {
+            DMesh3 a = sphere(Vector3d.Zero, 1, 4), b = sphere(new Vector3d(2.1, 0.2, 0.1), 1, 4);
+            Vector3d[] ea = moved(a, x => x + new Vector3d(1.6, 0.4, 0)), eb = moved(b, x => x);
+            MeshSweepCollision fresh(int k)
+            {
+                var f = new MeshSweepCollision(a, ea, b, eb) { SubSteps = k, CollectAll = true };
+                f.Compute();
+                return f;
+            }
+            var sweep = new MeshSweepCollision(a, ea, b, eb) { CollectAll = true };
+            foreach (int k in new[] { 4, 1, 8, 4, 2 }) {
+                sweep.SubSteps = k;
+                sweep.Compute();
+                var f = fresh(k);
+                Assert.Equal(f.CandidatePairCount, sweep.CandidatePairCount);
+                Assert.Equal(f.Status, sweep.Status);
+                Assert.Equal(f.EarliestTimeOfImpact, sweep.EarliestTimeOfImpact);
+                Assert.Equal(f.Contacts, sweep.Contacts);
+            }
+            Assert.True(fresh(4).CandidatePairCount < fresh(1).CandidatePairCount);
+        }
+
+        static DMesh3 triangle(Vector3d p0, Vector3d p1, Vector3d p2)
+        {
+            var m = new DMesh3();
+            m.AppendTriangle(m.AppendVertex(p0), m.AppendVertex(p1), m.AppendVertex(p2));
+            return m;
+        }
+
+        // #866 sub-step filter, per sub-step: both of its ends count (a vertex and a triangle that meet exactly at t = 1,
+        // from either side of each axis, so the last sub-step's boxes only touch), the overlap test is
+        // closed, and the sub-step times are i / SubSteps (a vertex passing diagonally by a triangle overlaps it in the
+        // whole step and in [0, 1/2], but in none of the four quarters)
+        [Fact]
+        public void SubSteps_TouchAtTheEndAndDiagonalPassBy()
+        {
+            var o = new CcdOptions { MinSeparation = 0 };
+            for (int axis = 0; axis < 3; ++axis)
+                for (int sign = -1; sign <= 1; sign += 2)
+                    foreach (bool movingA in new[] { true, false }) {
+                        // the target triangle from the plane x_axis = -sign to 0, the moving triangle's tip from x_axis =
+                        // sign to 0: they meet at t = 1, where the last sub-step's boxes only touch (the inner hulls are
+                        // widened by a rounding unit, the ends are exact)
+                        Vector3d at(double c, double u, double v)
+                        {
+                            var q = Vector3d.Zero;
+                            q[axis] = c; q[(axis + 1) % 3] = u; q[(axis + 2) % 3] = v;
+                            return q;
+                        }
+                        DMesh3 target = triangle(at(-sign, -1, -1), at(-sign, 2, -1), at(-sign, -1, 2));
+                        DMesh3 mover = triangle(at(sign, 0.25, 0.25), at(1.5 * sign, 0.5, 0.25), at(1.5 * sign, 0.25, 0.5));
+                        Vector3d[] me = moved(mover, x => { var y = x; y[axis] -= sign; return y; });
+                        Vector3d[] te = moved(target, x => { var y = x; y[axis] += sign; return y; });
+                        MeshSweepCollision make(int k)
+                        {
+                            var sw = movingA ? new MeshSweepCollision(mover, me, target, te)
+                                             : new MeshSweepCollision(target, te, mover, me);
+                            sw.SubSteps = k; sw.Options = o;
+                            sw.Compute();
+                            return sw;
+                        }
+                        MeshSweepCollision one = make(1), four = make(4);
+                        string name = $"axis {axis} sign {sign} A {movingA}";
+                        Assert.True(one.Status == MeshSweepStatus.Collision, name);
+                        Assert.Equal(one.Status, four.Status);
+                        Assert.Equal(one.EarliestNearContactTime, four.EarliestNearContactTime);
+                        Assert.Equal(one.Contacts, four.Contacts);
+                    }
+
+            foreach (bool movingA in new[] { true, false }) {
+                // the moving vertices go from about (-10, 0, 0) to (10, 20, 0); the target is at (-7, 7, 0), 2.8 from the
+                // path
+                DMesh3 mover = triangle(new Vector3d(-10, 0, 0), new Vector3d(-9.75, 0, 0), new Vector3d(-10, 0.25, 0));
+                DMesh3 target = triangle(new Vector3d(-7, 7, 0), new Vector3d(-6.75, 7, 0), new Vector3d(-7, 7.25, 0));
+                Vector3d[] me = moved(mover, x => x + new Vector3d(20, 20, 0));
+                MeshSweepCollision make(int k, long maxHull = 1L << 27)
+                {
+                    var sw = movingA ? new MeshSweepCollision(mover, me, target, moved(target, x => x))
+                                     : new MeshSweepCollision(target, moved(target, x => x), mover, me);
+                    sw.SubSteps = k; sw.MaxHullDoubles = maxHull;
+                    sw.Compute();
+                    return sw;
+                }
+                MeshSweepCollision one = make(1), four = make(4);
+                Assert.Equal(MeshSweepStatus.NoCollision, one.Status);
+                Assert.True(one.CandidatePairCount > 0);
+                Assert.Equal(0, four.CandidatePairCount);
+                Assert.Equal(MeshSweepStatus.NoCollision, four.Status);
+                // the hulls take (3 + 3) vertices * 6 * (4 + 1) doubles: the filter runs at that bound, not below it
+                Assert.Equal(0, make(4, 180).CandidatePairCount);
+                Assert.Equal(one.CandidatePairCount, make(4, 179).CandidatePairCount);
             }
         }
 
