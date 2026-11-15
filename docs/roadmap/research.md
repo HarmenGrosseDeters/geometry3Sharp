@@ -142,7 +142,7 @@ Part of the [roadmap](../ROADMAP.md).
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
-     points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; it is now issue #887 (codex, open).
+     points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request; issue #887 deferred (owner 2026-11-15: closed as not planned until a scan use case and a measured gap of C1 exist).
      Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
      Issue #886 (codex, open): ARAP, optionally biharmonic.
@@ -554,7 +554,7 @@ Not on this list: problems with a measured, working lever or a bug fix in progre
 4. #866: `MeshSweepCollision` on the 1M-triangle ToI frame above the 20 s rule (after #872).
 5. Contouring topology certificate stage 2 (refinement driven by it); options B and C only after a reviewed proof.
 6. #848 and #873: certified Hausdorff upper bound (patch bound; coplanar stall); hard problem 10, the envelope algorithm (Phase 5 #2).
-7. #887: point clouds step C2, screened Poisson on `PointCloudSurface` (research item 6).
+7. #887 (deferred, owner 2026-11-15): screened Poisson (C2) only after a scan use case and a measured gap of `PointCloudSurface`.
 8. #886: ARAP deformation, optionally biharmonic (research item 7).
 9. Hard problem 9 (scale-free repair) and 8 (Lévy-style propagation for open operands).
 10. `ContourLoft` stage 2 (several contours, branching); `CoreMath` `Acos` / `Tan`; Later list (no issues).
