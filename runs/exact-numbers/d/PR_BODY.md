@@ -127,19 +127,19 @@ maps a filter term to a file, so `mesh-fixed` names the new class.
 
 ### Local checks
 
-The full list of CLAUDE.md on a1f0d24a (this change on master 2fea6ac7), 4-core cloud container, every step with exit
-code 0: library tests net10.0 12970 passed, 0 failed, 2 skipped (18 m 31 s); g3cli tests 566 passed; `dotnet pack` with the API
-validation against 1.0.324 and the package smoke test; the net48 build of the library tests; Clipper2 tests 96
-passed, its pack, smoke test and net48 build; the 39 benchmark projects and `tools/PredicateCompiler` build. The head
-adds only the two filter terms of the mutation configs to it: on it the tool tests of ci.yml and of `tests/mutation`
-pass (7), the library builds for both targets, and `MutationConfigTests`, `ExactLimbSignsTests*` and
-`ExactBooleanWidePointTests` pass (33). The net48 tests themselves run only on GitHub (no .NET Framework here).
+The full list of CLAUDE.md on the head 6a840e71 (this change on master 97909549), 4-core cloud container, every step
+with exit code 0: library tests net10.0 13245 passed, 0 failed, 2 skipped (19 m 45 s); g3cli tests 583 passed;
+`dotnet pack` with the API validation against 1.0.324 and the package smoke test; the net48 build of the library
+tests; Clipper2 tests 106 passed, its pack, smoke test and net48 build; the 39 benchmark projects and
+`tools/PredicateCompiler` build; the tool tests of ci.yml and of `tests/mutation` (7). The same list passed before on
+a1f0d24a (the change on master 2fea6ac7, before #769). The net48 tests themselves run only on GitHub (no .NET
+Framework here). Draft CI on 6a840e71: `linux`, `changes`, `scope`, `new-tests-on-base`, `verify` green.
 
 ### Review notes (exact code)
 
 - No floating point in the change. What to check: the two determinants against the BigInteger ones they replace (row
   and column order, the factor `t.Sign` at the call sites), the scratch-space bounds and the limit (design note,
-  section 5), the fallback on a false return.
+  section 5), the BigInteger form beyond the limit.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
