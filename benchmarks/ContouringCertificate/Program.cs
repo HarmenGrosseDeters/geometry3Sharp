@@ -213,13 +213,90 @@ class Program
                 if (elems.Add((k, key))) chi[k] += (odd % 2 == 0) ? 1 : -1;
             }
         }
-        int ballCells = 0, ballClusters = 0, maxCluster = 0;
+        int ballCells = 0, ballClusters = 0, maxCluster = 0, pballCells = 0, pballClusters = 0;
+        var cubesOf = new List<List<Vector3i>>(); for (int k = 0; k < nc; ++k) cubesOf.Add(new List<Vector3i>());
+        foreach (var kv in comp) cubesOf[kv.Value].Add(kv.Key);
         for (int k = 0; k < nc; ++k) {
             maxCluster = Math.Max(maxCluster, cellsOf[k].Count);
             if (chi[k] == 1) { ballCells += cellsOf[k].Count; ballClusters++; }
+            if (chi[k] == 1 && IsBall(cubesOf[k])) { pballCells += cellsOf[k].Count; pballClusters++; }
         }
         r["clusters"] = nc; r["clusters_chi1"] = ballClusters; r["cells_chi1"] = ballCells; r["max_cluster_cells"] = maxCluster;
         r["run_chi1"] = ballClusters == nc;
+        r["clusters_ball"] = pballClusters; r["cells_ball"] = pballCells; r["run_ball"] = pballClusters == nc;
+    }
+
+    // the ball test of the design note's section 7.10, remark 2, for a union of unit cubes with chi = 1: every node's link (the
+    // octants of the node in the union) is a disk or the sphere, and the boundary is connected
+    static bool IsBall(List<Vector3i> cubes)
+    {
+        var set = new HashSet<Vector3i>(cubes);
+        var nodes = new HashSet<Vector3i>();
+        foreach (var c in cubes) for (int dz = 0; dz <= 1; ++dz) for (int dy = 0; dy <= 1; ++dy) for (int dx = 0; dx <= 1; ++dx) nodes.Add(new Vector3i(c.x + dx, c.y + dy, c.z + dz));
+        foreach (var v in nodes) {
+            int mask = 0;
+            for (int o = 0; o < 8; ++o) {
+                var c = new Vector3i(v.x - 1 + (o & 1), v.y - 1 + ((o >> 1) & 1), v.z - 1 + ((o >> 2) & 1));
+                if (set.Contains(c)) mask |= 1 << o;
+            }
+            if (!LinkIsDiskOrSphere(mask)) return false;
+        }
+        // boundary faces (one cube of the union on one side), connected through shared edges
+        var faces = new List<(int, Vector3i)>();   // (axis, min corner of the face)
+        foreach (var c in cubes)
+            for (int a = 0; a < 3; ++a)
+                for (int side = 0; side < 2; ++side) {
+                    var nb = c; nb[a] += side == 0 ? -1 : 1;
+                    if (set.Contains(nb)) continue;
+                    var m = c; m[a] += side; faces.Add((a, m));
+                }
+        var edgeOwner = new Dictionary<(int, Vector3i), int>();
+        var parent = Enumerable.Range(0, faces.Count).ToArray();
+        int find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
+        for (int i = 0; i < faces.Count; ++i) {
+            var (a, m) = faces[i]; int u = (a + 1) % 3, w = (a + 2) % 3;
+            var es = new[] { (u, m), (u, m + Unit(w)), (w, m), (w, m + Unit(u)) };
+            foreach (var e in es) {
+                if (edgeOwner.TryGetValue(e, out int j)) parent[find(i)] = find(j); else edgeOwner[e] = i;
+            }
+        }
+        int roots = 0; for (int i = 0; i < faces.Count; ++i) if (find(i) == i) roots++;
+        return roots == 1;
+    }
+    static Vector3i Unit(int a) { var v = Vector3i.Zero; v[a] = 1; return v; }
+
+    // the octants (bit o = (x, y, z) bits of o) as triangles of the octahedral sphere; a disk or the whole sphere?
+    static bool LinkIsDiskOrSphere(int mask)
+    {
+        if (mask == 255) return true;
+        if (mask == 0) return false;
+        // around each of the 6 axis directions the 4 octants touching it, in cyclic order: occupied ones must be one arc
+        for (int a = 0; a < 3; ++a)
+            for (int sgn = 0; sgn < 2; ++sgn) {
+                int u = (a + 1) % 3, w = (a + 2) % 3;
+                int[] ring = new int[4]; int[,] uv = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+                for (int k = 0; k < 4; ++k) ring[k] = (sgn << a) | (uv[k, 0] << u) | (uv[k, 1] << w);
+                int occ = 0, runs = 0;
+                for (int k = 0; k < 4; ++k) {
+                    bool cur = (mask >> ring[k] & 1) != 0, prev = (mask >> ring[(k + 3) % 4] & 1) != 0;
+                    if (cur) occ++;
+                    if (cur && !prev) runs++;
+                }
+                if (occ > 0 && occ < 4 && runs != 1) return false;
+            }
+        // connected (octants sharing an edge of the sphere, ie differing in one bit) and chi = V - E + F = 1
+        var oct = Enumerable.Range(0, 8).Where(o => (mask >> o & 1) != 0).ToList();
+        var seen = new HashSet<int> { oct[0] }; var st = new Stack<int>(); st.Push(oct[0]);
+        while (st.Count > 0) { int o = st.Pop(); for (int b = 0; b < 3; ++b) { int q = o ^ (1 << b); if ((mask >> q & 1) != 0 && seen.Add(q)) st.Push(q); } }
+        if (seen.Count != oct.Count) return false;
+        var V = new HashSet<(int, int)>(); var E = new HashSet<(int, int, int, int)>();
+        foreach (int o in oct) {
+            var vs = new List<(int, int)>();
+            for (int a = 0; a < 3; ++a) vs.Add((a, (o >> a) & 1));
+            foreach (var x in vs) V.Add(x);
+            for (int i = 0; i < 3; ++i) for (int j = i + 1; j < 3; ++j) E.Add((vs[i].Item1, vs[i].Item2, vs[j].Item1, vs[j].Item2));
+        }
+        return V.Count - E.Count + oct.Count == 1;
     }
 
     // vertices with identical coordinates merged (exact: the geometry and the winding number do not change)
