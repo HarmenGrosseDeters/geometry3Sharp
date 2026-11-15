@@ -130,7 +130,7 @@ Part of the [roadmap](../ROADMAP.md).
      inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
      general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
      4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
-     serial 33-34 %). Stage 2 (refinement driven by the certificate): spike 2026-11-15, **stopped by the stop rule**
+     serial 33-34 %). Stage 2 (refinement driven by the certificate): spike 2026-11-15 (#923), **stopped by the stop rule**
      ([CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md) section 4.8; prototype on the archive branch
      `claude/contouring-cert-stage2-spike`, not merged): on the clean T1 meshes at / 128, three levels certify 53 % of
      the 2322 refused coarse cells at 15 times the contouring time, while 989 others become uncertified (2322 -> 2082

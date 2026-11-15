@@ -117,7 +117,7 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
    two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914, then the port of four C++ fixes,
    approved 2026-11-15, with the differential test relaxed to "differs only where the vendored code stays exact").
 2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files). Stage 1
-   merged (#779); stage 2 stopped after its spike (2026-11-15, PR with the numbers): refinement certifies thin features
+   merged (#779); stage 2 stopped after its spike (2026-11-15, #923): refinement certifies thin features
    but not the double crossings at silhouette edges, most refused cells; next is a proof of an edge lemma (a decision
    for the owner).
 3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
