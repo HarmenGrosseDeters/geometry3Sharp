@@ -372,6 +372,50 @@ lines of exact code, a limb array kept with every plane and centre, and twelve c
 of candidate C is closed with this; the BigInteger operands stay, and the kernels of sections 2 and 5 keep loading
 them per call.
 
+## 7a. netstandard2.0 (2026-11-15): the same probe on the netstandard2.0 DLL, a .NET 10 host
+
+Question: does the carried-limbs probe of section 7 gain more on netstandard2.0, where the load is `ToByteArray`
+(allocating) instead of `TryWriteBytes`, and does it reach the 5 % line there? Measured on a .NET 10.0.115 SDK
+(runtime 10.0.15), 4-core container, one thread (core 0, serial loops, no concurrent GC), `DOTNET_TieredPGO=0`, five
+rounds with the order of the two settings rotated; medians of the five runs (range in brackets); sums of the three
+operations of each stratum, collections included. The probe is throwaway (not in any PR): the section 2 kernels and
+the section 7 patch with a netstandard2.0 port (`ToByteArray` load, byte-array conversions, `limbs_of` via
+`ToByteArray().Length`, no `#if NET`). Rows, the port, the run script and `analysis.txt`: branch
+`runs/exact-numbers-ns`, `results/ns`, `c/probe_ns_port_and_carried.diff`.
+
+**Base is the kernels of section 2 on netstandard2.0 without carried limbs, not the shipped netstandard2.0 (which
+takes the BigInteger expressions for every call).** The gain below is the carried limbs on top of the kernels.
+
+| stratum | setting | one thread | change | classification | allocated (sum of 5 runs) |
+|---|---|---|---|---|---|
+| tail, 42327, 3 operations | base | 267.4 s (260.3-276.6) | | 168.1 s (161.7-174.0) | 70.5 GB / 5 runs |
+| | carried + centroid | 224.3 s (221.8-245.1) | -16.1 % | 123.9 s (120.7-140.5) | 27.1 GB / 5 runs |
+| tail, 107554, 3 operations | base | 133.9 s (132.1-142.3) | | 68.0 s (66.5-73.0) | 29.7 GB / 5 runs |
+| | carried + centroid | 132.7 s (128.6-137.8) | -0.9 % | 66.4 s (64.5-68.6) | 26.2 GB / 5 runs |
+| normal, 20 pairs, 3 operations | base | 11.5 s (10.6-12.8) | | 0.54 s | 2.29 GB / 5 runs |
+| | carried + centroid | 11.2 s (10.7-12.1) | -2.8 % | 0.51 s | 2.29 GB / 5 runs |
+
+- Overall (sum of the stratum medians, 42327 included): 412.8 s -> 368.1 s, -10.8 %.
+- Paired per round, 42327: -15.8, -18.9, -8.3, -14.5, -15.4 %; 107554: -3.9, -3.6, -6.4, -0.2, +4.3 %; normal:
+  +7.7, -15.9, -8.8, +7.4, -2.8 % (the 20-pair runs are 10 to 13 s and scatter by several percent).
+- Hashes and statuses: 660 operations (5 rounds, 2 settings, 66 operations each), all `Success`, one hash per
+  operation across all runs; the 42327 hashes equal the .NET 10 rows of section 7.
+
+**Verdict against the 5 % line: confirmed on 42327.** Its range of carried + centroid (221.8-245.1 s) lies
+entirely below the range of base (260.3-276.6 s), and its classification is 26 % lower. The normal stratum shows
+no regression beyond the run-to-run range (its ranges overlap). On 107554 the change is inside the range (-0.9 %).
+
+Reading: on netstandard2.0 the per-call `ToByteArray` loads (and the byte count, allocating too) are a bigger cost
+than on .NET 10, so the probe gains more there (42327: -16 % here against -5.0 % on .NET 10 in section 7, the same
+method with three settings). That is what the hypothesis of this section predicted. This does not say that netstandard2.0
+gains from the probe against the shipped library, which has no kernels and takes the BigInteger expressions: the
+kernels' own gain on netstandard2.0 is not measured here.
+
+What this does not measure: .NET Framework 4.8 (its JIT and BigInteger are not used here; this is netstandard2.0 on
+a .NET 10 host, so it is an upper-level indication only), the 4-core strata, and the `ncopy` stratum. The
+recommendation of section 7 (no-go as a restructuring) stands unless the owner weighs the netstandard2.0 gain as
+its own goal; the probe was not built and would need the restructuring of section 7 to reach the normal stratum.
+
 ## 8. Sources
 
 Own work on the library's `FixedArith` (`math/FixedPoint3.cs`); the stages and their filters are those of
