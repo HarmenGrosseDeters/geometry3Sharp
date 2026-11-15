@@ -156,3 +156,8 @@ jobs:
           done
           if [ -d traces/macos-arm64-net10-serial ]; then cmp linux-arm64-net10-serial macos-arm64-net10-serial; fi
           for d in traces/*/; do echo "--- $d"; head -5 "$d/summary.txt"; done
+      # the table of DETERMINISM_PROOF.md 5.3 (the exact kernel, its allow list, the rounding Booleans and the probes behind them)
+      - name: Measurement rows
+        run: |
+          python3 -m unittest discover -s tools/DeterminismHarness -p 'test_measurement_rows.py'
+          python3 tools/DeterminismHarness/measurement_rows.py traces
