@@ -34,7 +34,7 @@ dotnet build tests/geometry3Sharp.Tests -c Release -f net48 -p:TestNet48=true -m
 dotnet pack geometry3Sharp_netstandard.csproj -c Release -o /tmp/longhash-pack -p:Version=1.0.0-ci.1 -m:1
 ```
 
-The area run passed 755 of 756 tests; its sole failure was the new source scan's expected constructor count (39 instead of 40: one line creates two sets). After correcting that assertion, all five new tests passed, including the source scan. No operation test failed. Both library targets, the net48 test build and package API validation passed. No net48 execution on Linux; full repository CI is left to the draft PR.
+The area run passed 755 of 756 tests; its sole failure was the new source scan's expected constructor count (39 instead of 40: one line creates two sets). After correcting that assertion, all five new tests passed, including the source scan. No operation test failed. Both library targets, the net48 test build and package API validation passed. No net48 execution on Linux; full repository CI is left to the draft PR (#431, merged 2026-11-08).
 
 Mutation check: temporarily replace `MeshGeodesicPath`'s `new HashSet<long>(EdgeKeyComparer.Instance)` with `new HashSet<long>()`; run `dotnet test tests/geometry3Sharp.Tests -c Release --no-build --no-restore --filter FullyQualifiedName~AuditedPackedTables_UseTheMeasuredComparer`. It fails (1 failed, 0 passed). Restore the file and run all five new tests with `--no-build --no-restore`: 5 passed. This is a source-policy mutation, not a Stryker run.
 

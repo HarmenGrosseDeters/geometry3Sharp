@@ -23,6 +23,8 @@ def mutant(status, reason=""):
             "location": {"start": {"line": 1, "column": 1}, "end": {"line": 1, "column": 2}}}
 
 
+CONFIG = {"mutate": ["**/mesh_ops/MeshRoundingRepair.cs{0..10}"], "thresholds": {"break": 1}}
+
 # as Stryker 5.0 writes it: files keyed by absolute paths
 REPORT = {"schemaVersion": "2", "thresholds": {"high": 80, "low": 60}, "projectRoot": "/w/repo", "files": {
     "/w/repo/mesh_ops/MeshRoundingRepair.cs": {"language": "cs", "source": "class A {}",
@@ -90,8 +92,10 @@ class Baseline(unittest.TestCase):
             with open(os.path.join(d, "out", run, "reports", "mutation-report.json"), "w") as f:
                 json.dump(dict(REPORT, files=files), f)
         env = dict(os.environ, GITHUB_OUTPUT=os.path.join(d, "gh-output"))
+        with open(os.path.join(d, "cfg.json"), "w") as f:
+            json.dump({"stryker-config": CONFIG}, f)
         p = subprocess.run([sys.executable, os.path.join(HERE, "baseline.py"), "store", os.path.join(d, "out"),
-                            os.path.join(d, "baseline")], env=env, capture_output=True, text=True)
+                            os.path.join(d, "baseline"), os.path.join(d, "cfg.json")], env=env, capture_output=True, text=True)
         with open(env["GITHUB_OUTPUT"]) as f:
             return p, f.read()
 
@@ -100,7 +104,9 @@ class Baseline(unittest.TestCase):
             p, gh = self.store(d, [("2026-10-01.10-00-00", {}), ("2026-10-02.10-00-00", REPORT["files"])])
             self.assertEqual(0, p.returncode, p.stdout + p.stderr)
             with open(os.path.join(d, "baseline", "stryker-report.json")) as f:
-                self.assertEqual(["mesh_ops/MeshRoundingRepair.cs"], list(json.load(f)["files"]))
+                stored = json.load(f)
+            self.assertEqual(["mesh_ops/MeshRoundingRepair.cs"], list(stored["files"]))
+            self.assertEqual(CONFIG, stored["g3-config"])          # (incremental.plan reuses it only for this config)
             self.assertEqual("stored=true\n", gh)
 
     def test_store_without_a_report_stores_nothing(self):

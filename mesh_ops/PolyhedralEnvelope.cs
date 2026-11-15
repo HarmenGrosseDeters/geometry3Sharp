@@ -90,17 +90,10 @@ namespace gs
             double M = Math.Max(norm_inf(box.Min), norm_inf(box.Max));
             double pad = Epsilon * (1 + 4 * U) + 4 * U * M;
             box.Expand(pad);
-            return finite(box.Min) && finite(box.Max);
+            return box.Min.IsFinite && box.Max.IsFinite;
         }
 
         internal static double norm_inf(Vector3d v) { return Math.Max(Math.Abs(v.x), Math.Max(Math.Abs(v.y), Math.Abs(v.z))); }
-
-        // all components finite (Vector3d.IsFinite tests their sum, which overflows)
-        internal static bool finite(Vector3d v)
-        {
-            return !(double.IsNaN(v.x) || double.IsInfinity(v.x) || double.IsNaN(v.y) || double.IsInfinity(v.y)
-                || double.IsNaN(v.z) || double.IsInfinity(v.z));
-        }
 
         /// <summary>
         /// the polyhedron of one triangle (ENVELOPE.md 4.4); internal for the tests, which check its bounds a
@@ -136,9 +129,9 @@ namespace gs
                 outp = dst; outBase = offset; nf = 0;
                 facetCount = 0;
                 Vector3d[] v = { v0, v1, v2 };
-                foreach (Vector3d q in v) if (finite(q) == false) return EnvelopeStatus.OutOfRange;
+                foreach (Vector3d q in v) if (q.IsFinite == false) return EnvelopeStatus.OutOfRange;
                 Vector3d[] e = { v1 - v0, v2 - v1, v0 - v2 };
-                foreach (Vector3d q in e) if (finite(q) == false) return EnvelopeStatus.OutOfRange;
+                foreach (Vector3d q in e) if (q.IsFinite == false) return EnvelopeStatus.OutOfRange;
                 // every dot product of the facets' points and the vertices stays finite
                 if (!(R < double.MaxValue / 64) || !(3 * (cinf + 8 * R) < double.MaxValue))
                     return EnvelopeStatus.OutOfRange;
@@ -230,7 +223,7 @@ namespace gs
                 Vector3d q0 = o, q1 = o + S * a, q2 = o + S * b;
                 // Lemma 2's conditions: the rounding of the points small against R
                 double qinf = Math.Max(norm_inf(q0), Math.Max(norm_inf(q1), norm_inf(q2)));
-                if (!(1.7320508075688772 * U * qinf <= R / 200) || finite(q1) == false || finite(q2) == false) {
+                if (!(1.7320508075688772 * U * qinf <= R / 200) || q1.IsFinite == false || q2.IsFinite == false) {
                     status = EnvelopeStatus.TooThin; return;
                 }
                 double mu = 0;
@@ -354,7 +347,7 @@ namespace gs
         /// <summary> is the point strictly inside some polyhedron? </summary>
         public bool Contains(Vector3d q)
         {
-            if (Status != EnvelopeStatus.Ready || finite(q) == false) return false;
+            if (Status != EnvelopeStatus.Ready || q.IsFinite == false) return false;
             foreach (int p in candidates(q, q))
                 if (inside(p, q)) return true;
             return false;
@@ -363,7 +356,7 @@ namespace gs
         /// <summary> is every point of the segment strictly inside some polyhedron? </summary>
         public bool ContainsSegment(Vector3d a, Vector3d b)
         {
-            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false) return false;
+            if (Status != EnvelopeStatus.Ready || a.IsFinite == false || b.IsFinite == false) return false;
             List<int> cand = candidates(a, b);
             // C1: the endpoints
             bool ia = false, ib = false;
@@ -403,7 +396,7 @@ namespace gs
         /// </summary>
         public bool ContainsTriangle(Vector3d a, Vector3d b, Vector3d c)
         {
-            if (Status != EnvelopeStatus.Ready || finite(a) == false || finite(b) == false || finite(c) == false) return false;
+            if (Status != EnvelopeStatus.Ready || a.IsFinite == false || b.IsFinite == false || c.IsFinite == false) return false;
             Vector3d N;
             if (exact_normal(a, b, c, out N) == false)
                 return ContainsSegment(a, b) && ContainsSegment(b, c) && ContainsSegment(c, a);

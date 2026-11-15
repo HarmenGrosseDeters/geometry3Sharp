@@ -1,0 +1,901 @@
+{
+  "version": 1,
+  "rules": {
+    "ratio": 1.3,
+    "abs_s": 1.0,
+    "hard_s": 20.0,
+    "window": 10,
+    "repeats": 3,
+    "repeat_budget_s": 60,
+    "timeout_s": 900
+  },
+  "cases": [
+    {
+      "id": "boolean-knot-default-union",
+      "area": "boolean",
+      "kind": "procedural",
+      "description": "Exact Boolean union of the procedural 55928 stand-in (open tube wound inside a ball) with its rotated, shifted copy, default knot options (benchmarks/BooleanComparison/README.md, tail case knot).",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "time_field": "ms"
+    },
+    {
+      "id": "boolean-knot-dense-union",
+      "area": "boolean",
+      "kind": "procedural",
+      "description": "Same stand-in with a denser tube (more rings, more turns): more self-intersecting pairs per triangle.",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}",
+          "--segments",
+          "1200",
+          "--turns",
+          "20"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "time_field": "ms"
+    },
+    {
+      "id": "boolean-thingi-55928-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 55928 (the open, self-intersecting knot, docs/design/EXACT_BOOLEAN_TAIL_55928.md) with its rotated, shifted copy (BooleanComparison export), union. Fetched at run time.",
+      "thingi": [
+        "55928"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:55928}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "time_field": "ms"
+    },
+    {
+      "id": "alphawrap-knot-default-wrap",
+      "area": "alphawrap",
+      "kind": "procedural",
+      "description": "Alpha Wrap (MeshAlphaWrap, MeshRepairBenchmark BENCH_REPAIR=wrap, library defaults) of the procedural knot: an open tube wound tightly inside a ball, self-intersecting, many small triangles in every direction.",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{work}/A.off",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrap",
+        "BENCH_FIDELITY": "0",
+        "BENCH_IOU_CELLS": "0"
+      },
+      "time_field": "repair_ms"
+    },
+    {
+      "id": "alphawrap-knot-dense-wrap",
+      "area": "alphawrap",
+      "kind": "procedural",
+      "description": "Alpha Wrap of the denser knot (more rings and turns).",
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "knot",
+          "{work}",
+          "--segments",
+          "1200",
+          "--turns",
+          "20"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{work}/A.off",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrap",
+        "BENCH_FIDELITY": "0",
+        "BENCH_IOU_CELLS": "0"
+      },
+      "time_field": "repair_ms"
+    },
+    {
+      "id": "alphawrap-thingi-40118-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 40118, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 66.5 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "40118"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:40118}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-860049-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 860049, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 53.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "860049"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:860049}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-69261-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 69261, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 36.0 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "69261"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:69261}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-222695-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 222695, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 34.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "222695"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:222695}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-535629-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 535629, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 33.6 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "535629"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:535629}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-222687-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 222687, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 32.6 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "222687"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:222687}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-500097-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 500097, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 31.9 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "500097"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:500097}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-520646-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 520646, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 30.4 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "520646"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:520646}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-500115-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 500115, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 29.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "500115"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:500115}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-78968-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 78968, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 28.8 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "78968"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:78968}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-679615-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 679615, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 28.1 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "679615"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:679615}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-500099-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 500099, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 24.5 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "500099"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:500099}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-49901-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 49901, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 23.4 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "49901"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:49901}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-111959-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 111959, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 23.0 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "111959"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:111959}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-224108-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 224108, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.9 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "224108"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:224108}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-49998-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 49998, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.9 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "49998"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:49998}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-84042-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 84042, tail of the Alpha Wrap 800 run (alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.3 s (2026-11-12, master 14a27e45, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "84042"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:84042}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "boolean-thingi-55928-difference",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 55928 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean difference, SafeRounding on. Last isolated time 380 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "55928"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:55928}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "difference",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-117959-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 117959 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 110.6 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "117959"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:117959}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-1087141-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 1087141 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 108.8 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "1087141"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:1087141}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-1005586-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 1005586 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 69.8 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "1005586"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:1005586}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 900
+    },
+    {
+      "id": "boolean-thingi-112798-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 112798 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 53.7 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "112798"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:112798}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-42327-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 42327 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 40.2 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "42327"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:42327}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-1368057-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 1368057 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 39.0 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "1368057"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:1368057}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-107554-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 107554 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 30.6 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "107554"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:107554}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-113906-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 113906 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 28.6 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "113906"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:113906}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-519511-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 519511 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 20.3 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "519511"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:519511}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "boolean-thingi-498458-union",
+      "area": "boolean",
+      "kind": "thingi",
+      "description": "Thingi10K 498458 with its rotated, shifted copy (BooleanComparison export: 20 degrees about (1,1,0), shifted by 0.25 x size), ExactMeshBoolean union, SafeRounding on. Last isolated time 17.0 s (boolean extreme-runtime study, master 8124a7d3 + #675, 4-core cloud container; sum of the phases, wall 1-8 s more). Fetched at run time.",
+      "thingi": [
+        "498458"
+      ],
+      "setup": [
+        [
+          "dotnet",
+          "{dll:BooleanComparison}",
+          "export",
+          "{thingi:498458}",
+          "{work}"
+        ]
+      ],
+      "run": [
+        "dotnet",
+        "{dll:BooleanComparison}",
+        "run",
+        "{work}/A.off",
+        "{work}/B.off",
+        "union",
+        "{work}/out.off"
+      ],
+      "env": {
+        "BOOLCMP_SAFE_ROUNDING": "1"
+      },
+      "time_field": "ms",
+      "timeout_s": 600
+    },
+    {
+      "id": "alphawrap-thingi-39368-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 39368 (tail of the 800 run; alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 20.6 s (AW3 performance study, master 1230482, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "39368"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:39368}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    },
+    {
+      "id": "alphawrap-thingi-1514905-wrappipe",
+      "area": "alphawrap",
+      "kind": "thingi",
+      "description": "Thingi10K 1514905 (highest time per raw triangle; alpha diagonal/300, offset diagonal/3000; wrap + simplify + certify, pipe_ms). Last isolated time 14.4 s (AW3 performance study, master 1230482, 4-core cloud container). Fetched at run time.",
+      "thingi": [
+        "1514905"
+      ],
+      "run": [
+        "dotnet",
+        "{dll:MeshRepairBenchmark}",
+        "{thingi:1514905}",
+        "std"
+      ],
+      "env": {
+        "BENCH_REPAIR": "wrappipe",
+        "BENCH_FIDELITY": "hd"
+      },
+      "time_field": "pipe_ms",
+      "timeout_s": 400
+    }
+  ]
+}

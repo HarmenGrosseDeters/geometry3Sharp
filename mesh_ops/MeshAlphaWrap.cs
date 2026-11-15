@@ -110,6 +110,31 @@ namespace gs
         /// <summary> stop refining after this many Steiner points (status PointLimitReached) </summary>
         public int MaxSteinerPoints = 2000000;
         /// <summary>
+        /// Raw-size budget (0 or less = off, the default): if EstimatedTriangles, the size of the result estimated from the input before
+        /// the refinement, is above this, Alpha and Offset are both scaled by sqrt(EstimatedTriangles / MaxEstimatedTriangles) (the size
+        /// goes with 1 / Alpha^2; the ratio Offset / Alpha, and with it the angle bound of the class doc, stays), and AlphaCoarsening
+        /// reports the factor (UsedAlpha and UsedOffset are the coarsened values). Unlike MaxSteinerPoints, which stops a refinement under
+        /// way (PointLimitReached, the box corners can be on the result), the coarsened wrap is a complete wrap with all the guarantees, at
+        /// the larger alpha: cavities and gaps up to about 2 * UsedAlpha are wrapped over. The wrap's time and its simplification's go with
+        /// its size, not with the input's triangle count (issue #694: a closed sphere of 260 triangles flattened onto a plane gave 211,614
+        /// triangles at diagonal / 300). The budget is on the estimate, not a bound on the result. Measured (EstimateDensity): the estimate
+        /// is about twice the size of a closed solid, about the size of a closed surface of zero volume, and about half the size of an open
+        /// sheet, so the result is about half the budget, the budget, or twice the budget. The area counts every input triangle, also
+        /// duplicated faces, nested shells and interior walls that the wrap does not follow: their estimate is higher still, and the wrap
+        /// coarser than the budget needs. Input points and segments have no area: an input of only points or segments is not coarsened.
+        /// A budget far below the input's detail gives an alpha up to the size of the input (MaxEstimatedTriangles = 1: about the
+        /// bounding box diagonal), a wrap of a few triangles around it; there is no lower bound.
+        /// </summary>
+        public int MaxEstimatedTriangles = 0;
+        /// <summary>
+        /// Density of the size estimate: EstimatedTriangles = EstimateDensity * (area of the input triangles) / Alpha^2. Measured (issue #694;
+        /// relative alpha 50 to 200): closed solids (sphere, boxes, a plate of 1/100 thickness) 1.35 to 1.7 triangles per area / Alpha^2, so
+        /// the estimate is about twice their size; a closed surface of zero volume (a sphere flattened onto a plane: the wrap covers both
+        /// sheets, at the double density of zero thickness, see TraverseByEmptyBall) 3.0 to 3.3, about the estimate; an open sheet (a disc:
+        /// the wrap covers its two sides, twice its area) 6.0 to 6.6, about twice the estimate.
+        /// </summary>
+        public const double EstimateDensity = 3.0;
+        /// <summary>
         /// Refine at the non-manifold spots of the carved surface before the manifold step (default true): the outside
         /// cells that the manifold step would move inside get a Steiner point on the offset surface, and the refinement
         /// continues (up to 10 rounds). The facets of moved cells were never gates (circumradius above Alpha, caps up to
@@ -142,6 +167,25 @@ namespace gs
         /// </summary>
         public double RefineMinAngleDegrees = 15;
         const int MaxQualityRounds = 10;
+
+        /// <summary>
+        /// Threads of the carving (0 = all cores, or one thread when Compute runs on a thread-pool thread, ie inside a caller
+        /// that is parallel already; 1 = one thread). The result is the same for every value: the carving processes its queue in
+        /// rounds of gates whose cells do not overlap, chosen and committed in a fixed order (docs/design/ALPHA_WRAP_ROUNDS.md),
+        /// so only the time depends on it. The same threads run the trial passes of the pinch refinement and the manifold step
+        /// (the same result as one thread, bit for bit). They live for one Compute(); between parallel loops they spin for at
+        /// most about a millisecond, then block.
+        /// </summary>
+        public int MaxThreads = 0;
+        /// <summary> (tests) the threads the last main carving used (from MaxThreads) </summary>
+        internal int UsedThreads { get; private set; }
+        /// <summary>
+        /// (tests) gates per round of the carving (Alpha Wrap 3.0 lever (B), docs/design/ALPHA_WRAP_ROUNDS.md); 0 = one gate at
+        /// a time: the order, and the result bit for bit, of the serial loop before the rounds
+        /// </summary>
+        internal int RoundWindow = 256;
+        /// <summary> (tests) a round takes at most the queue's size divided by this (at least 1, at most RoundWindow) gates </summary>
+        internal int RoundQueueDivisor = 64;
 
         /// <summary>
         /// (tests) gates by the paper's Phi(f) (Definition 2: the smallest empty ball through the facet's vertices, along
@@ -181,6 +225,14 @@ namespace gs
         public string Error;
         /// <summary> the alpha and offset used (absolute) </summary>
         public double UsedAlpha, UsedOffset;
+        /// <summary>
+        /// the estimated size of the result at the requested alpha (EstimateDensity * area of the input triangles / alpha^2; input
+        /// segments and points are not counted), set by Compute() whether or not MaxEstimatedTriangles is on; 0 before, and for an
+        /// input Compute() rejects before the alpha is known
+        /// </summary>
+        public double EstimatedTriangles;
+        /// <summary> the factor by which MaxEstimatedTriangles scaled alpha and offset (1: not coarsened) </summary>
+        public double AlphaCoarsening = 1;
         /// <summary> time per phase, for diagnostics </summary>
         public Dictionary<string, long> PhaseMilliseconds = new Dictionary<string, long>();
         /// <summary> Steiner points, carved cells etc, for diagnostics </summary>
@@ -192,6 +244,8 @@ namespace gs
         public Dictionary<string, long> Counts = new Dictionary<string, long>();
         /// <summary> the triangulation of the last Compute() (for tests) </summary>
         internal Delaunay3 Triangulation { get { return dt; } }
+        /// <summary> (tet meshing) true if cell c of Triangulation is inside the wrap after the last successful Compute() </summary>
+        internal bool IsInsideCell(int c) { return label_of(c) == Inside; }
 
         public MeshAlphaWrap(DMesh3 mesh)
         {
@@ -245,6 +299,21 @@ namespace gs
         /// <summary> computes Result; true on Success (see Status; Result is also set for PointLimitReached) </summary>
         public bool Compute()
         {
+            // (the threads of the carving rounds and the trial passes, for this call)
+            int threads = MaxThreads > 0 ? MaxThreads
+                : System.Threading.Thread.CurrentThread.IsThreadPoolThread ? 1 : Environment.ProcessorCount;
+            UsedThreads = threads;
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            try {
+                return compute_with_retry();
+            } finally {
+                team?.Dispose();
+                team = null;
+            }
+        }
+
+        bool compute_with_retry()
+        {
             asymmetricBox = StartWithOtherBox;
             forceRefineNonManifold = false;
             bool ok = compute_once();
@@ -259,11 +328,6 @@ namespace gs
                 Counts["box_retries"] = 1;
             }
             return ok;
-        }
-
-        static bool finite(Vector3d v)
-        {
-            return Math.Abs(v.x) <= double.MaxValue && Math.Abs(v.y) <= double.MaxValue && Math.Abs(v.z) <= double.MaxValue;
         }
 
         bool compute_once()
@@ -285,7 +349,7 @@ namespace gs
             changedSinceTrial = null;
             lastTrialVertices.Clear();
             localTrials = localFound = confirmTrials = confirmFound = 0;
-            Status = refine_and_carve();
+            Status = refine_and_carve(RoundWindow > 0);
             end_phase("wrap");
             if (Status != WrapStatus.Success && Status != WrapStatus.PointLimitReached)
                 return false;
@@ -389,6 +453,8 @@ namespace gs
 
         WrapStatus setup()
         {
+            EstimatedTriangles = 0;
+            AlphaCoarsening = 1;
             var tris = new List<Vector3d>();
             var pts = new List<Vector3d>();
             if (Mesh != null) {
@@ -427,6 +493,19 @@ namespace gs
             diag = bounds.DiagonalLength;
             alpha = Alpha > 0 ? Alpha : (RelativeAlpha > 0 ? diag / RelativeAlpha : 0);
             offset = Offset > 0 ? Offset : (RelativeOffset > 0 ? diag / RelativeOffset : 0);
+            // the raw-size budget: from the area of the input triangles, before anything is inserted
+            double area = 0;
+            for (int i = 0; i + 2 < tris.Count; i += 3)
+                area += 0.5 * (tris[i + 1] - tris[i]).Cross(tris[i + 2] - tris[i]).Length;
+            // (divided twice: alpha^2 underflows below about 1e-162, and an infinite estimate must still be coarsened)
+            EstimatedTriangles = alpha > 0 ? EstimateDensity * area / alpha / alpha : 0;
+            if (MaxEstimatedTriangles > 0 && EstimatedTriangles > MaxEstimatedTriangles) {
+                // the alpha whose estimate is the budget, sqrt(density * area / budget): it does not depend on the requested alpha
+                double coarse = Math.Sqrt(EstimateDensity * area / MaxEstimatedTriangles);
+                AlphaCoarsening = coarse / alpha;
+                alpha = coarse;
+                offset *= AlphaCoarsening;
+            }
             UsedAlpha = alpha; UsedOffset = offset;
             if (!(alpha > 0) || !(offset > 0) || double.IsInfinity(alpha) || double.IsInfinity(offset)) {
                 Error = "alpha and offset must be positive (relative values need an input of nonzero size)";
@@ -446,8 +525,7 @@ namespace gs
             }
             // a margin below the units in the last place of the coordinates is lost (a flat input far from the origin gives
             // a box of no extent), and a box that overflows has corners that are not finite
-            // (each coordinate: Vector3d.IsFinite tests their sum, which can overflow)
-            if (!(finite(box.Min) && finite(box.Max) && box.Max.x > box.Min.x && box.Max.y > box.Min.y && box.Max.z > box.Min.z)) {
+            if (!(box.Min.IsFinite && box.Max.IsFinite && box.Max.x > box.Min.x && box.Max.y > box.Min.y && box.Max.z > box.Min.z)) {
                 Error = "the extent of the input (with the margin of the box) does not fit double coordinates";
                 return WrapStatus.InvalidInput;
             }
@@ -484,9 +562,16 @@ namespace gs
             }
         }
 
-        Vector3d circumcenter(int c)
+        Vector3d circumcenter(int c, RoundGate g = null)
         {
             int st = dt.CellStamp(c);
+            if (g != null) {
+                // (a parallel phase: read the cache, never write it; the value is written back in a serial pass)
+                if (centerStamp[c] == st) return centerCache[c];
+                Vector3d x = dt.Circumcenter(c);
+                g.Centers.Add((c, st, x));
+                return x;
+            }
             if (centerStamp[c] != st) {
                 centerCache[c] = dt.Circumcenter(c);
                 centerStamp[c] = st;
@@ -521,15 +606,25 @@ namespace gs
         // gates whose Phi(f) changed after they were queued (see refine_and_carve): dropped, queued again
         long staleGates, requeuedGates;
 
-        WrapStatus refine_and_carve()
+        // rounds: the main carving (most of the wrap's time); the carving after the pinch and quality points stays serial
+        WrapStatus refine_and_carve(bool rounds = false)
         {
             long carveStart = Stopwatch.GetTimestamp();
-            WrapStatus status = refine_and_carve_loop();
+            WrapStatus status = refine_and_carve_loop(rounds);
             ticksCarve += Stopwatch.GetTimestamp() - carveStart;
             return status;
         }
 
-        WrapStatus refine_and_carve_loop()
+        WrapStatus refine_and_carve_loop(bool rounds)
+        {
+            WrapStatus status = rounds ? carve_rounds() : carve_serial();
+            // (as before the rounds: a cancelled carving leaves the counts of the last completed one)
+            if (status != WrapStatus.Cancelled)
+                report_carve_counts();
+            return status;
+        }
+
+        WrapStatus carve_serial()
         {
             WrapStatus status = WrapStatus.Success;
             while (gates.Count > 0) {
@@ -597,6 +692,11 @@ namespace gs
                         push_gate(m, dt.FacetTo(m, c));
                 }
             }
+            return status;
+        }
+
+        void report_carve_counts()
+        {
             Counts["steiner_points"] = steiner;
             if (staleGates > 0) Counts["gates_stale"] = staleGates;
             if (requeuedGates > 0) Counts["gates_requeued"] = requeuedGates;
@@ -617,7 +717,403 @@ namespace gs
             PhaseMilliseconds["wrap.intersection"] = ticksIntersection * 1000 / Stopwatch.Frequency;
             PhaseMilliseconds["wrap.touch"] = ticksTouch * 1000 / Stopwatch.Frequency;
             PhaseMilliseconds["wrap.insert"] = ticksInsert * 1000 / Stopwatch.Frequency;
+        }
+
+        // ---- round-based carving (Alpha Wrap 3.0 lever (B), docs/design/ALPHA_WRAP_ROUNDS.md) ----
+        //
+        // A round: pop up to min(RoundWindow, queue / RoundQueueDivisor) gates in heap order; evaluate them in parallel
+        // against the triangulation at the start of the round (read only: no cache, counter or triangulation field is
+        // written); keep in heap order each gate whose read set misses the write sets of the gates kept before it (the
+        // others go back into the queue); assign the vertex and cell ids of the kept insertions serially in heap order and
+        // apply them in parallel (disjoint cells); compute the new gates in parallel from the state after the round and push
+        // them serially in heap order. The kept gates of a round give the state that the serial loop gives when it pops them
+        // one after the other (the note's lemma), so the wrap's guarantees hold; the schedule and every write depend on the
+        // state only, so the result is the same for every MaxThreads.
+
+        const int GateDrop = 0, GateRequeue = 1, GateRejected = 2, GateInsert = 3, GateCarve = 4;
+        // rounds smaller than this run in a plain loop (a constant: the result does not depend on it)
+        const int MinParallelRound = 16;
+
+        /// <summary> one gate of a round: its evaluation (read only), then what the round did with it </summary>
+        internal sealed class RoundGate
+        {
+            public double Key; public int C, I, Stamp, N;
+            public int Kind, Which;
+            public double NewKey;
+            public Vector3d P;
+            public uint Seed;
+            public bool Fallback;
+            public long TicksIntersection, TicksTouch, TicksEval;
+            public readonly Delaunay3.InsertPlan Plan = new Delaunay3.InsertPlan();
+            // cache values computed in a parallel phase, written back serially
+            public readonly List<(int cell, int stamp, Vector3d center)> Centers = new List<(int, int, Vector3d)>();
+            public readonly List<(int cell, int stamp, bool touches)> Touches = new List<(int, int, bool)>();
+            public readonly List<(int vertex, double distance)> Distances = new List<(int, double)>();
+            // the new gates after the round
+            public readonly List<(double key, int c, int i)> Pushes = new List<(double, int, int)>();
+            public void Reset(double key, int c, int i, int stamp, int n)
+            {
+                Key = key; C = c; I = i; Stamp = stamp; N = n;
+                Kind = GateDrop; Which = 0; NewKey = 0; P = Vector3d.Zero; Fallback = false;
+                TicksIntersection = TicksTouch = TicksEval = 0;
+                Centers.Clear(); Touches.Clear(); Distances.Clear(); Pushes.Clear();
+            }
+        }
+
+        readonly List<RoundGate> roundPool = new List<RoundGate>();
+        readonly List<RoundGate> roundGates = new List<RoundGate>(), roundKept = new List<RoundGate>(), roundDeferred = new List<RoundGate>();
+        // per cell: written by a kept gate of this round (roundMark), the outside cell of a kept carving (roundOutside), the
+        // inside cell of a gate of this round (roundInner)
+        int[] roundMark = new int[0], roundOutside = new int[0], roundInner = new int[0];
+        int roundMarkValue = 0;
+        WorkerTeam team;
+        Action<int> evaluateBody, applyBody, pushBody;
+        double roundMinSeparation;
+
+        bool round_marked(int c) { return c >= 0 && roundMark[c] == roundMarkValue; }
+        void round_mark(int c) { if (c >= 0) roundMark[c] = roundMarkValue; }
+
+        // body(k) for k in [0, count): on the team unless one thread or a small round (the result is the same)
+        void round_for(int count, Action<int> body)
+        {
+            if (team == null || count < MinParallelRound) {
+                for (int k = 0; k < count; ++k) body(k);
+                return;
+            }
+            team.For(count, body);
+        }
+
+        WrapStatus carve_rounds()
+        {
+            if (evaluateBody == null) {
+                evaluateBody = k => {
+                    RoundGate g = roundGates[k];
+                    g.Seed = unchecked(2463534242u ^ (uint)(k + 1) * 2654435761u);
+                    evaluate_gate(g, g.Seed);
+                };
+                applyBody = k => apply_gate(roundKept[k]);
+                pushBody = k => compute_pushes(roundKept[k]);
+            }
+            return carve_rounds_loop();
+        }
+
+        WrapStatus carve_rounds_loop()
+        {
+            WrapStatus status = WrapStatus.Success;
+            roundMinSeparation = 1e-9 * alpha;
+            long rounds = 0, largeRounds = 0, kept = 0, deferred = 0, sharedOutside = 0, limitMidRound = 0;
+            while (gates.Count > 0 && status == WrapStatus.Success) {
+                if (cancelled())
+                    return WrapStatus.Cancelled;
+                if (roundMark.Length < dt.MaxCellID) {
+                    int len = Math.Max(dt.MaxCellID, 2 * roundMark.Length);
+                    Array.Resize(ref roundMark, len); Array.Resize(ref roundOutside, len); Array.Resize(ref roundInner, len);
+                }
+                if (++roundMarkValue == int.MaxValue) {
+                    Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);
+                    Array.Clear(roundInner, 0, roundInner.Length);
+                    roundMarkValue = 1;
+                }
+                roundKept.Clear(); roundDeferred.Clear();
+                // 1. pop (the stale test of the serial loop, against the state at the start of the round). A gate whose inside
+                // cell already has a gate in this round is deferred unevaluated: after that gate the cell is carved or
+                // replaced in almost every case, and the deferred gate is then dropped as stale when it is popped again
+                roundGates.Clear();
+                int window = Math.Max(1, Math.Min(RoundWindow, gates.Count / Math.Max(1, RoundQueueDivisor)));
+                for (int k = 0; k < window && gates.Count > 0; ++k) {
+                    gates.Pop(out double key, out int c, out int i, out int stampC);
+                    ++popped;
+                    if (!dt.IsCell(c) || dt.CellStamp(c) != stampC || label[c] != Inside)
+                        continue;
+                    int n = dt.Neighbour(c, i);
+                    if (label_of(n) != Outside)
+                        continue;
+                    if (roundPool.Count <= roundGates.Count + roundDeferred.Count) roundPool.Add(new RoundGate());
+                    RoundGate g = roundPool[roundGates.Count + roundDeferred.Count];
+                    g.Reset(key, c, i, stampC, n);
+                    if (roundInner[c] == roundMarkValue) {
+                        roundDeferred.Add(g);
+                        continue;
+                    }
+                    roundInner[c] = roundMarkValue;
+                    roundGates.Add(g);
+                }
+                if (roundGates.Count == 0) {
+                    // (only stale gates and none deferred: the first gate of a cell is never deferred at the pop)
+                    continue;
+                }
+                rounds++;
+                if (roundGates.Count >= MinParallelRound) largeRounds++;
+                // 2. evaluate (read only)
+                long te = Stopwatch.GetTimestamp();
+                round_for(roundGates.Count, evaluateBody);
+                te = Stopwatch.GetTimestamp() - te;
+                // 3. select in heap order
+                int keptInsertions = 0;
+                bool rejectedInRound = false;
+                long cpuEval = 0, cpuIntersection = 0, cpuTouch = 0;
+                for (int k = 0; k < roundGates.Count; ++k) {
+                    RoundGate g = roundGates[k];
+                    cpuEval += g.TicksEval; cpuIntersection += g.TicksIntersection; cpuTouch += g.TicksTouch;
+                    bool clash = round_marked(g.C) || round_marked(g.N);
+                    if (!clash && g.Kind == GateInsert)
+                        foreach (int q in g.Plan.Reads)
+                            if (round_marked(q)) { clash = true; break; }
+                    if (clash) { roundDeferred.Add(g); continue; }
+                    write_back_caches(g);
+                    if (g.Fallback) projectionFallbacks++;
+                    if (g.Kind == GateDrop) { staleGates++; continue; }
+                    if (g.Kind == GateRequeue) { requeuedGates++; roundKept.Add(g); continue; }
+                    if (g.Kind == GateRejected) { rejected++; rejected2++; continue; }
+                    if (g.Kind == GateInsert) {
+                        // (as the serial loop: the limit is checked when the rule decides to insert, before the triangulation
+                        // can reject the point; this gate is consumed, the ones after it were not popped there)
+                        if (steiner + keptInsertions >= MaxSteinerPoints) {
+                            status = WrapStatus.PointLimitReached;
+                            if (rejectedInRound && roundKept.Count > 0) limitMidRound++;
+                            for (int j = k + 1; j < roundGates.Count; ++j)
+                                roundDeferred.Add(roundGates[j]);
+                            break;
+                        }
+                        if ((RejectInsertF != null && RejectInsertF(g.Which)) || g.Plan.Result != Delaunay3.InsertResult.Inserted) {
+                            rejectedInRound = true;
+                            rejected++;
+                            if (g.Which == 1) rejected1++; else rejected2++;
+                            continue;
+                        }
+                        keptInsertions++;
+                        round_mark(g.C); round_mark(g.N);
+                        foreach (int q in g.Plan.Reads) round_mark(q);
+                        roundKept.Add(g);
+                        continue;
+                    }
+                    // carve: writes label[c] only (n is read: it can be the outside cell of other gates of the round)
+                    round_mark(g.C);
+                    if (g.N >= 0) {
+                        if (roundOutside[g.N] == roundMarkValue) sharedOutside++;
+                        roundOutside[g.N] = roundMarkValue;
+                    }
+                    roundKept.Add(g);
+                }
+                // (the evaluation's wall time, split by its CPU time, so that the parts add up to the phase as in the serial loop)
+                if (cpuEval > 0) {
+                    ticksIntersection += (long)((double)te * cpuIntersection / cpuEval);
+                    ticksTouch += (long)((double)te * cpuTouch / cpuEval);
+                }
+                // 4. assign ids (serial, heap order), apply (parallel, disjoint)
+                long t2 = Stopwatch.GetTimestamp();
+                bool anyWrite = false;
+                if (ValidateRounds) {
+                    anyWrite = replay_round();
+                } else {
+                    foreach (RoundGate g in roundKept)
+                        anyWrite |= assign_gate(g);
+                    if (anyWrite) {
+                        ensure_labels();
+                        round_for(roundKept.Count, applyBody);
+                    }
+                }
+                if (anyWrite) {
+                    foreach (RoundGate g in roundKept) {
+                        if (g.Kind == GateInsert) {
+                            changedSinceTrial?.AddRange(g.Plan.NewIds);
+                            touched?.AddRange(g.Plan.NewIds);
+                        } else if (g.Kind == GateCarve) {
+                            changedSinceTrial?.Add(g.C);
+                            touched?.Add(g.C);
+                        }
+                    }
+                }
+                ticksInsert += Stopwatch.GetTimestamp() - t2;
+                // 5. the new gates (computed in parallel from the state after the round, pushed in heap order), then the deferred
+                round_for(roundKept.Count, pushBody);
+                foreach (RoundGate g in roundKept) {
+                    write_back_caches(g);
+                    if (g.Kind == GateRequeue) {
+                        gates.Push(g.NewKey, g.C, g.I, g.Stamp);
+                        continue;
+                    }
+                    foreach (var (r, c, i) in g.Pushes)
+                        gates.Push(r, c, i, dt.CellStamp(c));
+                }
+                foreach (RoundGate g in roundDeferred)
+                    gates.Push(g.Key, g.C, g.I, g.Stamp);
+                kept += roundKept.Count;
+                deferred += roundDeferred.Count;
+            }
+            // (diagnostics: rounds, kept and deferred gates, kept carvings sharing their outside cell with an earlier one of
+            // their round, point limits reached in the middle of a round after a rejected insertion of that round)
+            add_count("rounds", rounds);
+            // (rounds large enough for the parallel phases, whatever the thread count)
+            add_count("round_parallel", largeRounds);
+            add_count("round_kept", kept);
+            add_count("round_deferred", deferred);
+            if (sharedOutside > 0) add_count("round_shared_outside", sharedOutside);
+            if (limitMidRound > 0) add_count("round_limit_mid_round", limitMidRound);
             return status;
+        }
+
+        // the serial part of a kept gate's commit (ids, counters); true if it writes
+        bool assign_gate(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                dt.AssignInsertIds(g.Plan);
+                labelsManifold = false;
+                steiner++;
+                insertions++;
+                vertexDistance.Add(offset);
+                if (g.Which == 1) rule1++; else rule2++;
+                return true;
+            }
+            if (g.Kind == GateCarve) {
+                labelsManifold = false;
+                carved++;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// (tests) checks the note's lemma in every round: the kept gates are committed one after the other, and before each,
+        /// its evaluation is repeated against the state after the gates kept before it (its stale test, decision, key, point
+        /// and plan must be those of the evaluation against the state at the start of the round). The result is the same as
+        /// without the check (the ids are assigned in the same order). Counts round_checked, round_checked_shared_outside
+        /// (carvings whose outside cell an earlier kept carving of the round had), round_check_mismatches.
+        /// </summary>
+        internal bool ValidateRounds = false;
+        readonly RoundGate replayGate = new RoundGate();
+        readonly HashSet<(int, int, int, int, int)> replayCells = new HashSet<(int, int, int, int, int)>();
+
+        bool replay_round()
+        {
+            bool anyWrite = false;
+            long checkedGates = 0, shared = 0, mismatches = 0;
+            var outsideOfKept = new HashSet<int>();
+            for (int j = 0; j < roundKept.Count; ++j) {
+                RoundGate g = roundKept[j];
+                if (j > 0) {
+                    checkedGates++;
+                    if (g.Kind == GateCarve && outsideOfKept.Contains(g.N)) shared++;
+                    if (!replay_matches(g)) mismatches++;
+                }
+                if (g.Kind == GateCarve && g.N >= 0) outsideOfKept.Add(g.N);
+                if (assign_gate(g)) {
+                    anyWrite = true;
+                    ensure_labels();
+                    apply_gate(g);
+                }
+            }
+            add_count("round_checked", checkedGates);
+            add_count("round_checked_shared_outside", shared);
+            add_count("round_check_mismatches", mismatches);
+            return anyWrite;
+        }
+
+        // the gate evaluated again against the current state: the same as its evaluation at the start of the round?
+        bool replay_matches(RoundGate g)
+        {
+            int c = g.C, i = g.I;
+            if (!dt.IsCell(c) || dt.CellStamp(c) != g.Stamp || label[c] != Inside || dt.Neighbour(c, i) != g.N || label_of(g.N) != Outside)
+                return false;
+            RoundGate r = replayGate;
+            r.Reset(g.Key, c, i, g.Stamp, g.N);
+            evaluate(r, g.Seed);
+            if (r.Kind != g.Kind || r.Which != g.Which || r.Fallback != g.Fallback)
+                return false;
+            if (g.Kind == GateRequeue && BitConverter.DoubleToInt64Bits(r.NewKey) != BitConverter.DoubleToInt64Bits(g.NewKey))
+                return false;
+            if (g.Kind != GateInsert)
+                return true;
+            if (r.P != g.P || r.Plan.Result != g.Plan.Result || r.Plan.Cells.Count != g.Plan.Cells.Count)
+                return false;
+            // (the cavity as a set of new cells: its order follows the walk, which may pass other cells now)
+            replayCells.Clear();
+            foreach (var x in g.Plan.Cells) replayCells.Add((x.A, x.B, x.C, x.Outer, x.OuterFacet));
+            foreach (var x in r.Plan.Cells)
+                if (!replayCells.Contains((x.A, x.B, x.C, x.Outer, x.OuterFacet))) return false;
+            return true;
+        }
+
+        // the serial loop's evaluation of a gate, against the current state, writing nothing shared
+        void evaluate_gate(RoundGate g, uint walkSeed)
+        {
+            long t = Stopwatch.GetTimestamp();
+            evaluate(g, walkSeed);
+            g.TicksEval = Stopwatch.GetTimestamp() - t;
+        }
+
+        void evaluate(RoundGate g, uint walkSeed)
+        {
+            int c = g.C, i = g.I;
+            if (TraverseByEmptyBall) {
+                double r = facet_empty_ball(c, i, g);
+                if (!(r > alpha)) { g.Kind = GateDrop; return; }
+                if (r != g.Key) { g.Kind = GateRequeue; g.NewKey = r; return; }
+            }
+            dual_edge(c, i, out Vector3d from, out Vector3d to, g);
+            long t0 = Stopwatch.GetTimestamp();
+            bool crossing = rule_intersection(from, to, out Vector3d p);
+            long t1 = Stopwatch.GetTimestamp();
+            g.TicksIntersection = t1 - t0;
+            bool touching = !crossing && cell_touches_input(c, g);
+            g.TicksTouch = Stopwatch.GetTimestamp() - t1;
+            if (crossing) {
+                g.Kind = GateInsert; g.Which = 1;
+            } else if (touching) {
+                g.Which = 2;
+                if (!rule_projection(c, i, to, out p, g)) { g.Kind = GateRejected; return; }
+                g.Kind = GateInsert;
+            } else {
+                g.Kind = GateCarve;
+                return;
+            }
+            g.P = p;
+            dt.PlanInsert(p, c, roundMinSeparation, g.Plan, walkSeed);
+        }
+
+        // the writes of a kept gate (disjoint from those of the other kept gates of its round)
+        void apply_gate(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                dt.ApplyInsert(g.Plan);
+                foreach (int nc in g.Plan.NewIds) label[nc] = Inside;
+            } else if (g.Kind == GateCarve) {
+                label[g.C] = Outside;
+            }
+        }
+
+        // the gates the serial loop pushes after the gate, from the state after the round (read only)
+        void compute_pushes(RoundGate g)
+        {
+            if (g.Kind == GateInsert) {
+                foreach (int nc in g.Plan.NewIds)
+                    for (int j = 0; j < 4; ++j)
+                        if (label_of(dt.Neighbour(nc, j)) == Outside) add_push(g, nc, j);
+            } else if (g.Kind == GateCarve) {
+                for (int j = 0; j < 4; ++j) {
+                    int m = dt.Neighbour(g.C, j);
+                    if (m >= 0 && label[m] == Inside)
+                        add_push(g, m, dt.FacetTo(m, g.C));
+                }
+            }
+        }
+
+        void add_push(RoundGate g, int c, int i)
+        {
+            double r = TraverseByEmptyBall ? facet_empty_ball(c, i, g) : facet_radius(c, i);
+            if (r > alpha)
+                g.Pushes.Add((r, c, i));
+        }
+
+        // the cache values a parallel phase computed (the values a serial fill writes), each with the stamp of the cell it was
+        // computed for (an entry whose cell has changed since is not used, as any other)
+        void write_back_caches(RoundGate g)
+        {
+            foreach (var (c, st, x) in g.Centers) { centerCache[c] = x; centerStamp[c] = st; }
+            foreach (var (c, st, x) in g.Touches) { touchCache[c] = (sbyte)(x ? 1 : 0); touchStamp[c] = st; }
+            foreach (var (v, d) in g.Distances)
+                vertexDistance[v] = d;
+            g.Centers.Clear(); g.Touches.Clear(); g.Distances.Clear();
         }
 
         // inserts a Steiner point on the offset surface (from cell hint); its new cells are inside, and their facets
@@ -661,10 +1157,10 @@ namespace gs
         /// circumradius if the edge passes through the facet's plane, otherwise the radius at the edge's end nearer to
         /// it. An alpha ball can pass through the facet if Phi(f) is larger than alpha. At least the circumradius.
         /// </summary>
-        double facet_empty_ball(int c, int i)
+        double facet_empty_ball(int c, int i, RoundGate g = null)
         {
             Index3i f = dt.FacetVertices(c, i);
-            dual_edge(c, i, out Vector3d from, out Vector3d to);
+            dual_edge(c, i, out Vector3d from, out Vector3d to, g);
             return EmptyBallRadius(dt.GetVertex(f.a), dt.GetVertex(f.b), dt.GetVertex(f.c), from, to);
         }
 
@@ -703,7 +1199,7 @@ namespace gs
         /// The Voronoi edge dual to facet i of the inside cell c, from the circumcenter of the outside cell to
         /// that of c (centers of the empty balls through the facet; a ray for a facet on the box)
         /// </summary>
-        void dual_edge(int c, int i, out Vector3d from, out Vector3d to)
+        void dual_edge(int c, int i, out Vector3d from, out Vector3d to, RoundGate g = null)
         {
             Index3i f = dt.FacetVertices(c, i);
             Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
@@ -711,12 +1207,12 @@ namespace gs
             double w2 = w.LengthSquared;
             Vector3d nrm = w / Math.Sqrt(w2);       // outwards of c
             Vector3d fc = a + (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w2);
-            to = clamp_center(circumcenter(c), fc, nrm, -1);
+            to = clamp_center(circumcenter(c, g), fc, nrm, -1);
             int n = dt.Neighbour(c, i);
             if (n < 0)
                 from = fc + (Math.Max((to - fc).Dot(nrm), 0) + 4 * dt.Box.DiagonalLength) * nrm;
             else
-                from = clamp_center(circumcenter(n), fc, nrm, 1);
+                from = clamp_center(circumcenter(n, g), fc, nrm, 1);
         }
 
         // circumcenters of flat cells can be far away or not finite: keep them on the facet's normal line,
@@ -724,9 +1220,12 @@ namespace gs
         Vector3d clamp_center(Vector3d cc, Vector3d fc, Vector3d nrm, int side)
         {
             double lim = 4 * dt.Box.DiagonalLength;
-            if (double.IsNaN(cc.x + cc.y + cc.z) || double.IsInfinity(cc.x + cc.y + cc.z))
+            if (!cc.IsFinite)
                 return fc + side * lim * nrm;
             double t = (cc - fc).Dot(nrm);
+            // (a difference that overflows can make t NaN: then the centre is not trusted either)
+            if (double.IsNaN(t))
+                return fc + side * lim * nrm;
             if (Math.Abs(t) > lim)
                 return fc + Math.Sign(t) * lim * nrm;
             return cc;
@@ -756,20 +1255,27 @@ namespace gs
             return true;
         }
 
-        double vertex_distance(int v)
+        double vertex_distance(int v, RoundGate g = null)
         {
             double d = vertexDistance[v];
             if (double.IsNaN(d)) {
                 d = oracle.Distance(dt.GetVertex(v));
-                vertexDistance[v] = d;
+                if (g != null) g.Distances.Add((v, d));
+                else vertexDistance[v] = d;
             }
             return d;
         }
 
         // does cell c intersect the input (come closer than the contact tolerance)?
-        bool cell_touches_input(int c)
+        bool cell_touches_input(int c, RoundGate g = null)
         {
             int st = dt.CellStamp(c);
+            if (g != null) {
+                if (touchStamp[c] == st) return touchCache[c] == 1;
+                bool x = touches_input(c, g);
+                g.Touches.Add((c, st, x));
+                return x;
+            }
             if (touchStamp[c] != st) {
                 touchCache[c] = (sbyte)(touches_input(c) ? 1 : 0);
                 touchStamp[c] = st;
@@ -777,18 +1283,18 @@ namespace gs
             return touchCache[c] == 1;
         }
 
-        bool touches_input(int c)
+        bool touches_input(int c, RoundGate g = null)
         {
             Index4i t = dt.GetCell(c);
             for (int j = 0; j < 4; ++j)
-                if (vertex_distance(t[j]) < contact) return true;
+                if (vertex_distance(t[j], g) < contact) return true;
             Vector3d a = dt.GetVertex(t.a), b = dt.GetVertex(t.b), d = dt.GetVertex(t.c), e = dt.GetVertex(t.d);
             // the cell is within (longest edge at v) of each vertex v: far enough from the input if a vertex is
             // farther from it than that (distance is 1-Lipschitz). (A closest point query at the centroid rejects
             // almost nothing either: near the result the cells are larger than their distance to the input.)
             double ab = a.Distance(b), ad = a.Distance(d), ae = a.Distance(e), bd = b.Distance(d), be = b.Distance(e), de = d.Distance(e);
-            if (vertex_distance(t.a) - Math.Max(ab, Math.Max(ad, ae)) > contact || vertex_distance(t.b) - Math.Max(ab, Math.Max(bd, be)) > contact
-                || vertex_distance(t.c) - Math.Max(ad, Math.Max(bd, de)) > contact || vertex_distance(t.d) - Math.Max(ae, Math.Max(be, de)) > contact)
+            if (vertex_distance(t.a, g) - Math.Max(ab, Math.Max(ad, ae)) > contact || vertex_distance(t.b, g) - Math.Max(ab, Math.Max(bd, be)) > contact
+                || vertex_distance(t.c, g) - Math.Max(ad, Math.Max(bd, de)) > contact || vertex_distance(t.d, g) - Math.Max(ae, Math.Max(be, de)) > contact)
                 return false;
             return oracle.TetrahedronTouches(a, b, d, e, contact);
         }
@@ -804,13 +1310,14 @@ namespace gs
         // circumsphere after all (center not finite, rounding), the clamped end of the dual edge is projected as before
         // (counted, see Counts["projection_fallbacks"]). The guard proves that the cell is removed, not the depth: with
         // a rounded circumcenter the separation holds up to that rounding.
-        bool rule_projection(int c, int i, Vector3d to, out Vector3d p)
+        bool rule_projection(int c, int i, Vector3d to, out Vector3d p, RoundGate g = null)
         {
-            Vector3d cc = circumcenter(c);
+            Vector3d cc = circumcenter(c, g);
             if (ForceProjectionFallback == false && MathUtil.IsFinite(cc.x) && MathUtil.IsFinite(cc.y) && MathUtil.IsFinite(cc.z)
                 && project_to_offset(c, i, cc, out p) && dt.InCircumsphere(c, p) > 0)
                 return true;
-            projectionFallbacks++;
+            if (g != null) g.Fallback = true;
+            else projectionFallbacks++;
             return project_to_offset(c, i, to, out p);
         }
 
@@ -1187,6 +1694,8 @@ namespace gs
             if (++pocketStampValue == int.MaxValue) { Array.Clear(pocketStamp, 0, pocketStamp.Length); pocketStampValue = 1; }
             int[] reachedAt = pocketStamp;
             int mark = pocketStampValue;
+            if (parallel_trials(dt.MaxCellID))
+                return remove_pockets_parallel(reachedAt, mark, flipped);
             var stack = pocketStack;
             stack.Clear();
             foreach (int c in dt.CellIndices()) {
@@ -1212,6 +1721,149 @@ namespace gs
             return count;
         }
 
+        /// <summary> (tests) the stars of the last triangulation (offsets, cells), built in parallel or not, with `threads` threads </summary>
+        internal (int[] start, int[] cells) StarsForTests(bool parallel, int threads)
+        {
+            bool saved = ParallelTrials;
+            int savedMin = MinParallelTrialCells;
+            ParallelTrials = parallel;
+            MinParallelTrialCells = 0;
+            if (team != null) throw new InvalidOperationException("a test hook inside Compute");
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            try {
+                starsOf = null;
+                build_stars();
+                int nv = dt.VertexCount;
+                var start = new int[nv + 1];
+                Array.Copy(starStart, start, nv + 1);
+                var cells = new int[start[nv]];
+                Array.Copy(starCells, cells, start[nv]);
+                return (start, cells);
+            } finally {
+                team?.Dispose();
+                team = null;
+                ParallelTrials = saved;
+                MinParallelTrialCells = savedMin;
+            }
+        }
+
+        /// <summary>
+        /// (tests) labels every cell of the last triangulation by outside(cell) and returns the vertices whose manifold-step
+        /// check the parallel precheck finds to change nothing (all vertices checked, `threads` threads); the labels stay changed
+        /// </summary>
+        internal List<int> UnchangedByCheckForTests(Func<int, bool> outside, int threads)
+        {
+            foreach (int c in dt.CellIndices()) label[c] = outside(c) ? Outside : Inside;
+            int savedMin = MinParallelTrialCells;
+            MinParallelTrialCells = 0;
+            if (team != null) throw new InvalidOperationException("a test hook inside Compute");
+            team = new WorkerTeam(Math.Max(2, threads));
+            try {
+                starsOf = null;
+                build_stars();
+                var work = new Queue<int>();
+                for (int v = 0; v < dt.VertexCount; ++v) work.Enqueue(v);
+                precheck_stars(work);
+                var res = new List<int>();
+                for (int v = 0; v < dt.VertexCount; ++v)
+                    if (starTrivial[v] == starMark) res.Add(v);
+                return res;
+            } finally {
+                team.Dispose();
+                team = null;
+                MinParallelTrialCells = savedMin;
+            }
+        }
+
+        /// <summary>
+        /// (tests) labels every cell of the last triangulation by outside(cell), runs the pocket search (in parallel if
+        /// parallel, with `threads` threads) and returns the cells it moved inside, in its order; the labels stay changed
+        /// </summary>
+        internal List<int> PocketsForTests(Func<int, bool> outside, bool parallel, int threads)
+        {
+            foreach (int c in dt.CellIndices()) label[c] = outside(c) ? Outside : Inside;
+            var flipped = new List<int>();
+            bool saved = ParallelTrials;
+            int savedMin = MinParallelTrialCells;
+            ParallelTrials = parallel;
+            MinParallelTrialCells = 0;
+            if (team != null) throw new InvalidOperationException("a test hook inside Compute");
+            team = threads > 1 ? new WorkerTeam(threads) : null;
+            try {
+                remove_pockets(flipped);
+            } finally {
+                team?.Dispose();
+                team = null;
+                ParallelTrials = saved;
+                MinParallelTrialCells = savedMin;
+            }
+            return flipped;
+        }
+
+        // remove_pockets with a level-synchronous search: the reached set is the outside region connected to the box boundary,
+        // whatever the order; the flipped cells are collected per block of ids and joined in block order, which is the order of
+        // the serial scan (increasing id)
+        readonly List<List<int>> blockLists = new List<List<int>>();
+        int remove_pockets_parallel(int[] reachedAt, int mark, List<int> flipped)
+        {
+            int nc = dt.MaxCellID;
+            int blocks = (nc + TrialBlock - 1) / TrialBlock;
+            while (blockLists.Count < Math.Max(blocks, 64)) blockLists.Add(new List<int>());
+            // the outside cells on the box
+            for_cell_blocks(nc, (b, c0, c1) => {
+                var list = blockLists[b];
+                list.Clear();
+                for (int c = c0; c < c1; ++c) {
+                    if (!dt.IsCell(c) || label[c] != Outside) continue;
+                    for (int i = 0; i < 4; ++i)
+                        if (dt.Neighbour(c, i) < 0) { reachedAt[c] = mark; list.Add(c); break; }
+                }
+            });
+            var frontier = new List<int>();
+            for (int b = 0; b < blocks; ++b) frontier.AddRange(blockLists[b]);
+            var next = new List<int>();
+            while (frontier.Count > 0) {
+                int chunks = Math.Min(blockLists.Count, Math.Max(1, frontier.Count / 256));
+                List<int> f = frontier;
+                team.For(chunks, k => {
+                    var list = blockLists[k];
+                    list.Clear();
+                    int i0 = (int)((long)f.Count * k / chunks), i1 = (int)((long)f.Count * (k + 1) / chunks);
+                    for (int q = i0; q < i1; ++q) {
+                        int c = f[q];
+                        for (int i = 0; i < 4; ++i) {
+                            int n = dt.Neighbour(c, i);
+                            if (n < 0 || label[n] != Outside) continue;
+                            int was = System.Threading.Volatile.Read(ref reachedAt[n]);
+                            if (was != mark && System.Threading.Interlocked.CompareExchange(ref reachedAt[n], mark, was) == was)
+                                list.Add(n);
+                        }
+                    }
+                });
+                next.Clear();
+                for (int k = 0; k < chunks; ++k) next.AddRange(blockLists[k]);
+                var t = frontier; frontier = next; next = t;
+            }
+            // the outside cells not reached become inside (if a worker throws here, some blocks are flipped and others not;
+            // the exception ends Compute, nothing reads these labels again before the next setup)
+            for_cell_blocks(nc, (b, c0, c1) => {
+                var list = blockLists[b];
+                list.Clear();
+                for (int c = c0; c < c1; ++c)
+                    if (dt.IsCell(c) && label[c] == Outside && reachedAt[c] != mark) {
+                        label[c] = Inside;
+                        list.Add(c);
+                    }
+            });
+            int count = 0;
+            for (int b = 0; b < blocks; ++b) {
+                count += blockLists[b].Count;
+                flipped?.AddRange(blockLists[b]);
+            }
+            Counts["pocket_cells"] = (Counts.TryGetValue("pocket_cells", out long pc) ? pc : 0) + count;
+            return count;
+        }
+
         // cells incident to each vertex (CSR), built for the triangulation starsOf after starsInsertions successful insertions
         // into it (only insertions change it: the manifold step changes labels)
         int[] starStart = new int[0], starCells = new int[0], starFill = new int[0];
@@ -1223,6 +1875,10 @@ namespace gs
                 return;
             starsOf = dt;
             starsInsertions = insertions;
+            if (parallel_trials(dt.MaxCellID)) {
+                build_stars_parallel();
+                return;
+            }
             int nv = dt.VertexCount;
             if (starStart.Length < nv + 1) starStart = new int[Math.Max(nv + 1, 2 * starStart.Length)];
             else Array.Clear(starStart, 0, nv + 1);
@@ -1238,6 +1894,77 @@ namespace gs
                     int v = dt.CellVertex(c, j);
                     starCells[starStart[v] + fill[v]++] = c;
                 }
+        }
+
+        // ---- the trial passes in parallel (Alpha Wrap 3.0 lever (B), second part): the same results bit for bit ----
+
+        /// <summary> (tests) false: the trial passes (stars, pockets, the vertex checks of the manifold step) in one thread </summary>
+        internal bool ParallelTrials = true;
+        // cells per block of a parallel pass over the cells (a constant: the result does not depend on it)
+        const int TrialBlock = 4096;
+        /// <summary> (tests) the size (cells; 4 per queued vertex) from which a trial pass runs in parallel; the result does not depend on it </summary>
+        internal int MinParallelTrialCells = 4 * TrialBlock;
+
+        bool parallel_trials(int cells) { return ParallelTrials && team != null && cells >= MinParallelTrialCells; }
+
+        // body(c0, c1) for the blocks [c0, c1) of [0, n), on the team
+        void for_cell_blocks(int n, Action<int, int, int> body)
+        {
+            int blocks = (n + TrialBlock - 1) / TrialBlock;
+            team.For(blocks, b => body(b, b * TrialBlock, Math.Min(n, (b + 1) * TrialBlock)));
+        }
+
+        // the stars as build_stars makes them, in two partitions: the cells are split into T blocks, and each block sorts its
+        // cells into T buckets by the vertex ranges they touch (a cell once per range); then part r counts and fills the stars
+        // of range r from the buckets (r, block 0..T-1), in increasing cell id as the serial fill. Every part reads 1/T of the
+        // cells and its own buckets; no atomics, no shared writes
+        readonly List<List<int>> starBuckets = new List<List<int>>();
+
+        void build_stars_parallel()
+        {
+            int nv = dt.VertexCount, nc = dt.MaxCellID;
+            if (starStart.Length < nv + 1) starStart = new int[Math.Max(nv + 1, 2 * starStart.Length)];
+            else Array.Clear(starStart, 0, nv + 1);
+            int[] start = starStart;
+            int parts = team.Threads;
+            int range = Math.Max(1, (nv + parts - 1) / parts);      // vertex range r: [r * range, (r + 1) * range)
+            while (starBuckets.Count < parts * parts) starBuckets.Add(new List<int>());
+            team.For(parts, k => {
+                int c0 = (int)((long)nc * k / parts), c1 = (int)((long)nc * (k + 1) / parts);
+                for (int r = 0; r < parts; ++r) starBuckets[k * parts + r].Clear();
+                for (int c = c0; c < c1; ++c) {
+                    if (!dt.IsCell(c)) continue;
+                    int r0 = dt.CellVertex(c, 0) / range, r1 = dt.CellVertex(c, 1) / range,
+                        r2 = dt.CellVertex(c, 2) / range, r3 = dt.CellVertex(c, 3) / range;
+                    starBuckets[k * parts + r0].Add(c);
+                    if (r1 != r0) starBuckets[k * parts + r1].Add(c);
+                    if (r2 != r0 && r2 != r1) starBuckets[k * parts + r2].Add(c);
+                    if (r3 != r0 && r3 != r1 && r3 != r2) starBuckets[k * parts + r3].Add(c);
+                }
+            });
+            team.For(parts, r => {
+                int v0 = r * range, v1 = v0 + range;
+                for (int k = 0; k < parts; ++k)
+                    foreach (int c in starBuckets[k * parts + r])
+                        for (int j = 0; j < 4; ++j) {
+                            int v = dt.CellVertex(c, j);
+                            if (v >= v0 && v < v1) start[v + 1]++;
+                        }
+            });
+            for (int v = 0; v < nv; ++v) start[v + 1] += start[v];
+            if (starCells.Length < start[nv]) starCells = new int[Math.Max(start[nv], 2 * starCells.Length)];
+            if (starFill.Length < nv) starFill = new int[Math.Max(nv, 2 * starFill.Length)];
+            else Array.Clear(starFill, 0, nv);
+            int[] fill = starFill, cells = starCells;
+            team.For(parts, r => {
+                int v0 = r * range, v1 = v0 + range;
+                for (int k = 0; k < parts; ++k)
+                    foreach (int c in starBuckets[k * parts + r])
+                        for (int j = 0; j < 4; ++j) {
+                            int v = dt.CellVertex(c, j);
+                            if (v >= v0 && v < v1) cells[start[v] + fill[v]++] = c;
+                        }
+            });
         }
 
         /// <summary>
@@ -1283,6 +2010,9 @@ namespace gs
                 edgeStampValue = 0;
             }
             long limit = 100L * dt.VertexCount + 1000;
+            // (in parallel, before the loop: the queued vertices whose check changes nothing; such a result stays valid while
+            // no cell of the vertex's star is flipped, as the check reads only the labels of its star)
+            bool pre = precheck_stars(work);
             while (true) {
                 while (work.Count > 0) {
                     if (++processed > limit)
@@ -1292,6 +2022,8 @@ namespace gs
                     int v = work.Dequeue();
                     queued[v] = false;
                     flippedCells.Clear();
+                    if (pre && starTrivial[v] == starMark && starDirty[v] != starMark)
+                        continue;
                     // edges v-x: result facets around them (all contain v, so they are facets of the star of v)
                     edgeX.Clear(); edgeN.Clear();
                     if (++edgeStampValue == int.MaxValue) { Array.Clear(edgeStamp, 0, edgeStamp.Length); edgeStampValue = 1; }
@@ -1329,15 +2061,19 @@ namespace gs
                     if (flippedCells.Count == 0 && !(edgeX.Count == 0 || !hull && link_is_one_cycle()))
                         fix_star(v, -1);
                     flips += flippedCells.Count;
-                    foreach (int c in flippedCells)
+                    foreach (int c in flippedCells) {
                         enqueue_cell(c);
+                        if (pre) mark_dirty(c);
+                    }
                 }
                 flippedCells.Clear();
                 remove_pockets(flippedCells);
                 if (flippedCells.Count == 0)
                     break;
-                foreach (int c in flippedCells)
+                foreach (int c in flippedCells) {
                     enqueue_cell(c);
+                    if (pre) mark_dirty(c);
+                }
             }
             Counts["manifold_flips"] = flips;
             Counts["manifold_vertex_checks"] = processed;
@@ -1345,6 +2081,87 @@ namespace gs
         }
 
         readonly List<int> flippedCells = new List<int>();
+
+        // per vertex: its check changes nothing (starTrivial == starMark), a cell of its star was flipped since (starDirty == starMark)
+        int[] starTrivial = new int[0], starDirty = new int[0];
+        int starMark;
+        sealed class StarScratch
+        {
+            public readonly List<int> X = new List<int>(), N = new List<int>(), A = new List<int>(), B = new List<int>(), P = new List<int>();
+        }
+        readonly List<StarScratch> starScratch = new List<StarScratch>();
+
+        void mark_dirty(int c)
+        {
+            for (int j = 0; j < 4; ++j) starDirty[dt.CellVertex(c, j)] = starMark;
+        }
+
+        bool precheck_stars(Queue<int> work)
+        {
+            if (!parallel_trials(4 * work.Count))
+                return false;
+            int nv = dt.VertexCount;
+            if (starTrivial.Length < nv) {
+                starTrivial = new int[Math.Max(nv, 2 * starTrivial.Length)];
+                starDirty = new int[starTrivial.Length];
+                starMark = 0;
+            }
+            if (++starMark == int.MaxValue) { Array.Clear(starTrivial, 0, starTrivial.Length); Array.Clear(starDirty, 0, starDirty.Length); starMark = 1; }
+            int[] vs = work.ToArray();
+            int chunks = Math.Min(64, Math.Max(1, vs.Length / 256));
+            while (starScratch.Count < chunks) starScratch.Add(new StarScratch());
+            int mark = starMark;
+            team.For(chunks, k => {
+                StarScratch sc = starScratch[k];
+                int i0 = (int)((long)vs.Length * k / chunks), i1 = (int)((long)vs.Length * (k + 1) / chunks);
+                for (int q = i0; q < i1; ++q)
+                    if (check_changes_nothing(vs[q], sc)) starTrivial[vs[q]] = mark;
+            });
+            return true;
+        }
+
+        // (read only) true if the manifold step's check of v changes nothing: no result facet around v, or (away from the box)
+        // every edge v-x on two result facets and those facets forming one cycle around v, as in make_manifold
+        bool check_changes_nothing(int v, StarScratch sc)
+        {
+            sc.X.Clear(); sc.N.Clear(); sc.A.Clear(); sc.B.Clear();
+            bool hull = false;
+            for (int k = starStart[v]; k < starStart[v + 1]; ++k) {
+                int c = starCells[k];
+                for (int i = 0; i < 4; ++i) {
+                    if (dt.CellVertex(c, i) == v) continue;
+                    int nb = dt.Neighbour(c, i);
+                    if (nb < 0) hull = true;
+                    if (label[c] != Inside || label_of(nb) != Outside) continue;
+                    int first = -1;
+                    for (int j = 0; j < 4; ++j) {
+                        int x = dt.CellVertex(c, j);
+                        if (j == i || x == v) continue;
+                        int slot = sc.X.IndexOf(x);
+                        if (slot < 0) { slot = sc.X.Count; sc.X.Add(x); sc.N.Add(0); }
+                        sc.N[slot]++;
+                        if (first < 0) first = slot;
+                        else { sc.A.Add(first); sc.B.Add(slot); }
+                    }
+                }
+            }
+            int n = sc.X.Count;
+            if (n == 0) return true;
+            if (hull) return false;
+            for (int e = 0; e < n; ++e)
+                if (sc.N[e] != 2) return false;
+            var parent = sc.P;
+            parent.Clear();
+            for (int e = 0; e < n; ++e) parent.Add(e);
+            int parts = n;
+            for (int k = 0; k < sc.A.Count; ++k) {
+                int a = sc.A[k], b = sc.B[k];
+                while (parent[a] != a) a = parent[a];
+                while (parent[b] != b) b = parent[b];
+                if (a != b) { parent[a] = b; parts--; }
+            }
+            return parts == 1;
+        }
         // the link of a vertex v away from the box: a triangulated sphere, whose triangles are the cells of the star and whose
         // edges are their facets through v. The result facets through v are link edges between an inside and an outside
         // triangle. If every link vertex x has exactly two of them (edge v-x on two result facets) and they are connected,

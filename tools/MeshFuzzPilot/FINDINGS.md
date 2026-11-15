@@ -23,6 +23,7 @@ PR #493 and #495 where noted.
 |---|---|---|---|---|
 | 1 (fixed, #516) | partitioned-reducer | **in** | closed skewed tetrahedron, 3x subdivided (256 triangles), error (0.01 diagonal)^2, no area weights, MinTriangles 0: result 3 triangles, open; the serial Reducer gives 4, closed. Normalized corners (0,0,0), (1,.25,.1875), (0,1.25,.1875), (0,.25,1.1875) | `000000000000000403fe0cfe0000fe0000000000000000000000000000000000000000050300` |
 | 2 (resolved, #516: subnormal coordinate) | partitioned-reducer | out: subnormal | the result for the 2^40 scaled copy is not the scaled result (documented contract) | `000403fe03fe000004040483fe000000000403fe03fe0000fe0000010000` |
+| 2b (resolved, #794: the upper end of 2) | partitioned-reducer | out: magnitude | a tiny shape far from the origin (collapsed tetrahedron of 4e-307 at about 6e-4): normalized, the coordinates are 2^985 .. 2^1019 and the 2^40 copy overflows to infinity, so "not the scaled result" (48 of 48 crashes of the #624 group (d) campaign). Harness domain gap: the scale claim is judged only up to a coordinate of 2^150, as for the Reducer (`HasHugeCoordinates`); the other claims stay judged | `crash-c6704a71…` (A: 3.66e-4, -6.10e-4, z in [-4.45e-308, 3.56e-307]) |
 | 3 | robust-repair (with the six Boolean/repair operations) | out: magnitude 1e176; **hang** | `MeshRobustRepair` runs over 120 s on collinear points at y, z about 1.9e176 (20 of 32 artifacts of one run) | `030303fefe08000303` |
 | 4 | alpha-wrap | out: size disparity 1e293; **false success** | Success, an input vertex is outside the wrap (tetrahedron 1e-276 .. 3e17) | `3b5454204854542054545474a35454545454545454542c54cc54cc000000cc0000005454` |
 | 5a | union (+ six ops) | out: scale below 1e-285, pair more than 2^60 apart; **false success** | `RoundingClean` with degenerate triangles at the rounding's scale (cube 2.6e-290, tetrahedron 3.6e-307) | `fcfefff8fbff00` |
@@ -43,16 +44,17 @@ PR #493 and #495 where noted.
 |---|---|---|---|
 | 3 | robust repair: magnitude 2^-200 .. 2^400, extent >= 2^-40 of it | out (1e176) **hang** | range check, `Apply()` false with a reason (bugfix PR) |
 | 4 | alpha wrap: magnitude 2^-128 .. 2^128 | out (1e-276, 3e17) **false success** | range check, `InvalidInput` (bugfix PR) |
-| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (follows, held until #513) |
+| 5a, 5b | `RoundingClean` of the Boolean: the SafeRounding stage (`MeshRoundingRepair`) 2^-200 .. 2^200, disparity 2^60; the exact arrangement has no range | out **false success** | range check in `MeshRoundingRepair` (#593): the Boolean keeps its exact result, `RoundingClean` false |
 | 5c, 5d | robust repair: no subnormal coordinates | out **false success** | range check (bugfix PR) |
-| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (follows, held until #513): not clean, mesh not touched |
+| 6 | rounding repair: magnitude 2^200 | out, wrong result, honest | range check of the rounding repair (#593): `OutsideRange`, not clean, mesh not touched |
 | 7 | alpha wrap: usable 2^-160 .. 2^160 | out, honest `Failed` / hang at 2^+-180..200 | range check (hang), rest documented |
 | 8 | alpha wrap: extent >= 2^-40 of the magnitude | out, honest `Failed` | range check (#527): `InvalidInput` |
 
 Since 2026-11-10 the decoder samples the scale exponents inside the supported ranges (QA.md 2.5a) three times in four and
 judges out-of-range cases only for no crash, no hang, no false success (README, "Range domains"). The hex strings above decode to other
 cases now; with the range checks of the per-module PRs, the original cases (decoded by the earlier decoder, see `git log` of Program.cs)
-return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 follow with the range check of the rounding repair (held until #513).
+return the documented statuses: 3, 5c, 5d `OutsideRange`, 4, 7, 8 `InvalidInput`; 5a, 5b and 6 are covered by the range check of the rounding repair
+(#593, merged 2026-11-11: 6 `OutsideRange`; 5a, 5b `RoundingClean` false, `StrictRounding` fails; not replayed here).
 
 ## Second wave (QA 2.0 T13, 2026-11-10): smoke runs of the new targets
 
@@ -68,15 +70,17 @@ bytes now and the numbers below are from the second round.
 | clipper2 | 2 000 + 4 000 | no finding; coordinates more than 2^16 extents from the origin (1e14 against an extent of 1) gave rings of zero area (the grid, 2^-40 of the extent, is finer than a double there): a limit of the representation, judged there only for no crash, Success and finite vertices |
 | quality-mesh2 | 2 000 + 2 500 | the open classes below |
 
-Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; both are gated in the target, `MESH_FUZZ_STRICT=1`
-judges them):
+Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are another session's area; the open classes 2 and 3 are gated in the target,
+`MESH_FUZZ_STRICT=1` judges them):
 
-1. `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, **in every quality mode** (constrained,
-   conforming and neither) with a minimum angle of 20 or 25 degrees, on a projected polyhedron with 17 to 36 crossing segments over 8 to 16 points (the
-   Steiner limit is not reached). The first guess "constrained mode only" was wrong (the options were constants then). Whether the mesher or the oracle's notion of a
-   forced small angle at crossings is at fault is not known: the shortest first-round input had points about 1e-25 from zero next to coincident points,
-   so a snap or tube interplay is as likely as the crossings. Replay with `MESH_FUZZ_OPS=quality-mesh2` (the options are the last four bytes of an input; the
-   hex of the first-round input, whose options are the old constants, is no longer a valid reproducer; `random 2500 22` with that filter finds it again).
+1. (fixed in the oracle, #637) `AngleBelowBound` ("triangle ... is below 20 (25) degrees with no forced small angle"), about 1 in 700 inputs, in every
+   quality mode, on a projected polyhedron with crossing segments. Triage: the oracle was too strict. A corner of the projection lies a rounding (1.6e-40 in the
+   shortest input) beside another projected edge, where in exact arithmetic it would end on it: a T-junction at a small input angle (16.7 degrees there)
+   whose closed segments miss each other. The mesher's O11 rule makes that end a vertex of both chains, so the constraints meet there at that angle and the
+   triangles at it are forced (Shewchuk 2002, small input angles), but the oracle excused a small input angle only where the closed segments meet exactly.
+   #664 added the near-meeting apex (`NearMeetAngleExcused`); the mesher's part of #664 does not change the verdict on this input.
+   `QualityMesh2ProjectedPolyhedronTests` pins the shortest input (it fails on 1f227db, before #664). The target no longer gates the class; on master
+   `MESH_FUZZ_STRICT=1 MESH_FUZZ_OPS=quality-mesh2 random 4000 22` and `random 4000 23`, `random 3000 24` and `random 3000 25` give 0 findings.
 2. `VertexUnused` / `SegmentMissing` with status Success for coordinates more than 2^16 extents from the origin (about 2^35 seen: automatic snap grid): a false
    success inside the documented range (up to 1e70).
 3. `VertexUnused` / `SegmentMissing` with status Success for a coordinate of a tiny magnitude beside an extent of about 1 (1e-119 seen): the same gate.
@@ -105,7 +109,52 @@ judges them):
      there came from the inputs, where Clipper2's own output is wrong). The signed sum stays; the split was not merged. On the same data #583 changes
      none of the 64 000 results (it acts on the rarer degenerate rings the fuzzer found); 1.7% of the results of both versions differ from the sampled
      truth by more than 0.25 (Clipper2 itself or the sampling; not analysed).
-   - **Clipper2 2.0.0 itself (open, 16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
+   - **Fixed 2026-11-12 in the vendored sources (PR 2 of the owner decision 2026-11-12, option (b); `Clipper2DegenerateUnionTests`).**
+     Cause (`Clipper.Engine.cs`, `DoSplitOp`, called by `FixSelfIntersects` in the output cleanup): an output path with a hole that
+     touches it at a vertex (a vertex of one input exactly on an edge of the other) becomes self-crossing once a nearby intersection
+     point is rounded to the grid; `FixSelfIntersects` splits at the crossing and `DoSplitOp` dropped the split-off triangle because its
+     area has the other sign than the path's (its rule for a figure-eight twist), which filled the hole. Smallest case (16-gons
+     shrunk): A = (2,-2) (-2,0) (3,-4) (1,3) (-4,-4), B = (-1,2) (-4,0) (-3,-3) (-1,3), union 24.4246 instead of 23.6474 (the hole
+     (-3.09,-2.73) (-2,0) (-1.45,-0.44)). Fix: such a triangle is kept as a path of its own if it lies inside the rest of the path,
+     owned by that path (so that a PolyTree nests it as its hole; the review of the fix found that with its path's owner it came out
+     beside the path, and the adapter made it an extra filled polygon: `KeptHole_IsNestedUnderItsPath`).
+     Oracle: the exact area of the region by its definition (`ExactRegionArea`: winding numbers on rational vertical slabs, no code
+     shared with Clipper2), against the result area within the grid rounding. Measured with the raw engine, 1000 pairs each, every
+     clip type and fill rule (16 combinations): 16-gons on -4..4: 29 wrong results of the package, 1 of the fix (an Intersection
+     NonZero wrong in both, below); 8-gons on -3..3: 5 / 0; 8-gons on -64..64: 0 / 0. Every result the fix changes was wrong
+     before (no result within the rounding changed); the independent review's run (6 seeds, 8- to 16-gons on -3..3 and -4..4): 100 / 1.
+     Through the adapter (`BooleanPaths`, default grid; 1000 pairs of 16-gons on -4..4, seed 77, every combination, area and overlap
+     by 64 samples): 43 wrong before (29 unions, 7 differences, 7 xors), 0 after, no overlaps.
+   - **Fixed in part 2026-11-13 (#756, owner decision 2026-11-13: option "c-guard"; `Clipper2MicroSelfIntersectionTests`),
+     the same cleanup:** the "adjacent intersections (micro self-intersection)" branch of `FixSelfIntersects` (`DuplicateOp`)
+     inserts a copy of the vertex two ahead. Shrunk case: A = (0,4) (-2,-1) (4,2) (-4,2) (-1,-1) (-4,-2) (1,-1), B = (-2,-3)
+     (-2,0) (0,-2), Intersection NonZero: the insertion moves the path by 1.3 units and flips the ring (area +0.295 -> -0.038 in
+     the engine's units), the result was -0.076 for an exact 0.590. Fix: the insertion is undone when it flips the ring's
+     orientation, and the crossing goes to `DoSplitOp`. Exact oracle, 1000 pairs x 16 combinations (24-gons 500): no result that
+     was right changes; fixed are this case and a Xor NonZero of 24-gons on -2..2 (6.4559 -> exact 6.7892).
+     Measured first (#756): the branch is never taken with a move of at most one grid unit on these inputs (16-gons at 2^20: 173
+     hits, smallest move 114 389 units), so the option first decided, "only moves <= 1 unit", would have acted as upstream's
+     removal of the branch (`4da1564`, issue #1067, 2026-02-22, after 2.0.0): every failure fixed, but 2-3 % of the results
+     changed within the rounding, most of them less accurate (16-gons: 250 farther from the exact area, 88 closer). 4da1564 is
+     **not adopted** (owner 2026-11-13).
+   - **Known, open (option a, owner 2026-11-13): the insertions that cost area without flipping the ring.** The guard catches only
+     an insertion that flips its ring. The independent review of the fix measured the rest of the class on the raw engine (random
+     8- to 24-gons on -2..2 and -4..4, every clip type and fill rule, against the exact area): 9 wrong results of 320 000 at 2^20
+     (4 pairs; 26 before the fix) and 4 of 128 000 at 2^50 (11 before), all from this branch, about 3 per 100 000; through the
+     adapter 2 of 96 000 changed, both from wrong to right. The repros are in issue #756. One of them, the unshrunk pair of that case, 16-gons A = (2,3) (0,4) (-2,-1) (4,2) (-4,2)
+     (-1,-1) (-4,-2) (4,-4) (3,1) (-2,2) (0,-1) (-4,4) (-3,2) (2,-3) (0,0) (1,-1), B = (-2,1) (1,1) (4,0) (2,4) (1,-4) (-2,-3) (-2,0)
+     (0,-2) (-3,-2) (-4,-3) (0,0) (-1,-1) (2,1) (2,0) (1,3) (-2,1), Intersection NonZero: 13.838 for an exact 14.267. The same
+     insertion (vertex (-2,0), copy of (-2,-1)) costs 0.43 of area here without flipping the larger ring, so the guard does not
+     see it. Analysed for one bounded step: a bound on the area the insertion changes is the "distance from the edge <= 1" test,
+     which rejects the large moves that usually help (and gave 2 new wrong results); no clean criterion found.
+   - **Open, found in the review of the fix (wrong before and after, not caused by it; issue #756):** a Union that is right on a
+     2^20 grid and wrong on the adapter's grid (scale 2^38): A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4)
+     (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4) (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1):
+     NonZero 27.971 against an exact 29.718 (the package's engine gives the same), EvenOdd and Negative off by the same 1.747; not
+     analysed. The review also reported results where the engine is right and `ClipperFrame.ToGeneralPolygons` fails to nest a
+     negative top-level path (its `Contains` has no tolerance for a vertex up to one grid unit outside its holder; eg a Difference
+     Positive of 14.45 against an exact 10.99); not pinned.
+   - *Before the fix* (kept for the record) **Clipper2 2.0.0 itself (16 crashes; not reported upstream, owner decision 2026-11-11: the C# upstream is archived, see below):** `Clipper.Union` of two self-intersecting rings (NonZero) returns a region that
      neither input fills (inclusion-exclusion off by 10 percent, the winding of the union's flat paths is 1 where each input's is 0). No adapter code is
      involved (the flat paths of a raw `Clipper64.Execute` show it). Input (doubles, A then B):
      A = (0,0) (0.125,0) (0.125,0.125) (0,0.125) (0.5703125,0.5703125) (0.6953125,0.5703125) (0.125,0.125) (0,0.125);
@@ -136,11 +185,11 @@ beside others of 1 (the case's offset against its extent) gave a mesh that is no
 
 ### Independent review of the second wave (2026-11-10) and what was done
 
-Done in this PR: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
+Done in #577: options from raw bytes; the 2^16 cut-offs removed for the mesher (judged at any distance; classes gated) and replaced for Clipper2 by a
 judgment for no crash / Success / finite; Offset and Simplify results checked for finite vertices (holes too) and orientation; the self-test contradictions reach
 every branch of `CheckRemesh` and `CheckReduce` that can be reached (the validity branches cannot: DMesh3 cannot hold an invalid mesh) and
 `ExpectFinding` checks the branch by its message; `random` writes the running input's hex first (`MESH_FUZZ_LAST`), stops at a hang and uses the 8 MB stack
-of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` and `Clipper2Lib.dll`; `MeshCommand.cs` and `TrianglePolyFormat.cs` are
+of libFuzzer's main thread; `run.sh` also instruments `geometry3Sharp.Clipper2.dll` (and, before its 2.0, `Clipper2Lib.dll`); `MeshCommand.cs` and `TrianglePolyFormat.cs` are
 no longer compiled. Not done: the oracle and the adapter of the mesher are not instrumented (the oracle judges, the mesher is `geometry3Sharp.dll`).
 
 ## T13 libFuzzer campaign (2026-11-11): 17 targets, 10 minutes each, 2 fork jobs
@@ -171,6 +220,8 @@ Clipper2 result classification (#583, item 5 above).
 Ranked (a wrong result that claims to be right first):
 
 1. **MeshRoundingRepair: results that claim to be clean are not** (41 crashes; #513 (D1, head b26f016d) replayed: all 41 behave exactly as on master).
+   **Update 2026-11-12:** the range check of #593 (merged 2026-11-11) covers this rank and rank 2; on master 0861e828 the seven hex inputs of
+   ranks 1 and 2 below replay without a finding (same `MESH_FUZZ_OPS`, uninstrumented build). The other saved artifacts were not replayed here.
    - "the mesh is not valid after the rounding repair" (21), 8 bytes: `000000101e000105`.
    - "IsClean but N degenerate triangles (at the rounding's scale)" (20, N from 1 to 8), 4 bytes: `3f1e6040` (an open cube of edge 5e-293 and a tetrahedron of 3.6e-307).
 2. **ExactMeshBoolean with `RoundingClean`: results that claim to be clean are not** (union 24, intersection 12, difference 20).
@@ -179,10 +230,11 @@ Ranked (a wrong result that claims to be right first):
    - "RoundingClean but self-intersections" (difference, 1), 139 bytes: `00fffffffffe0000000000000000000000000000000000000000000103fe030002030000000103fe03000203fe03fe04030200000000002c0505fe0000004b0000fe0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00000000050000002c0505fe0000004b050505050505050505050505050505050505`.
 3. **DualContouring.find_crossings throws on finite input** (robust-repair-soup, 2 artifacts): `DMeshAABBTree3.FindNearestHitTriangle: ray direction is not normalized`,
    an `AggregateException` from the parallel loop at `DualContouring.cs:1122`. The crash input (79 bytes): `000103fe03fe0004034848484848484848484848484848484848484848484848480000ffffffff000000000000abffff00000000000002fe03fe000000000000000000000000000002fe03fe000300`; the timeout input (51 bytes, 146 s before the same throw): `000103fe15001103fe03fe0000000000000000000000000000000100000000040d061403fe0614030000000000010000000004`.
-4. **Clipper2 2.0.0 itself** (item 5): a Union of degenerate self-intersecting rings returns an area that neither input fills; independent of `PrecisionBits`;
+   **Update 2026-11-12:** both inputs no longer reproduce on master 1f227db (replay in [QA20_STATUS.md](../../docs/design/QA20_STATUS.md) section 5), so no issue is opened.
+4. **Clipper2 2.0.0 itself** (item 5, **fixed 2026-11-12** in the vendored sources of `geometry3Sharp.Clipper2`, see item 5): a Union of degenerate self-intersecting rings returned an area that neither input fills; independent of `PrecisionBits`;
    not reported upstream (owner 2026-11-11): AngusJohnson/Clipper2 was archived on 2026-10-28 and its C# port is no longer
-   developed; Clipper2 continues as a C++ only library at PolyClipping/Clipper2 (maintainer Seth Hillibrand). Whether to
-   integrate the C# sources and fix it ourselves is an open roadmap item ([platform.md](../../docs/roadmap/platform.md#open)).
+   developed; Clipper2 continues as a C++ only library at PolyClipping/Clipper2 (maintainer Seth Hillibrand). The owner decided on
+   2026-11-12 to vendor the C# sources and fix it ourselves ([platform.md](../../docs/roadmap/platform.md#open)).
 5. **AABB tree queries at tiny coordinates** (tree-nearest 997 crashes: the nearest triangle is not the nearest, e.g. at squared distance 4.5e-277 where the minimum is 0, or the brute force minimum is NaN;
    tree-inside 1: "2 crossings, brute force 0" at raw scale). Smallest tree-nearest, 20 bytes: `000503fe0700fe0000000000000000ffffffff05` (a cube of edge 2.4e-35 with a vertex at 7.6e-321 and one at -3.2e-173).
    Cause found and fixed in #586: not the tree but the point-triangle distance arithmetic (`a00`, `a11` and `det` leave the accurate range for tiny or sliver triangles). The "(raw scale)" messages with squared distance 4.5e-277 against minimum 0 are a false positive of the pilot (exact equality on the normalised copy); the raw tree answer is right. The tree-inside artifact (133 bytes): `000403fe030100080000ffffffff3f03fe03fe00010000000000000002000000000000000000000000010000800000000000ffffff3f03fe03fe0001000000000000000203fe03fe0203040000005400000000000000000300000000fe03fe0203040000000000000000000000020300000a0403ff240f0000000104030500000015000000`.
@@ -197,11 +249,65 @@ Ranked (a wrong result that claims to be right first):
    - **Open (b)**: per-triangle scale-safe arithmetic in `Reducer.tri_info` / `plane_quadric` (as `flip_edge_scale` does for the flip test, #614) would extend the range to meshes with such components. A library change; owner 2026-11-11: documented, on demand only (when a real input shows the case, or when scale-free results become a documented guarantee); listed in [alpha-wrap-and-repair.md](../../docs/roadmap/alpha-wrap-and-repair.md).
 7. **QualityMesh2: `Failed (RefinementLimit)` on a valid input** (1): the defect cap of the refinement loop (`steps > 64 * (limit + slots) + 100000`, "refinement did not settle within 296225 steps"),
    a livelock on a point 1e-286 of the extent away from the others (a cube projected to xy, MinAngle 25, SteinerLimit 1500), 144 bytes: `00020303fe03fe00dcf9ecf70000000000000000000000000000000000000000000010000000000000000000000000f8fffc00000000003100000000000000000000000000000102000000010403050107001007e7fadcf9ecf7e1f50000000000c2dcf90200000000000000000000000000000000000007040a020e030a050f031504e1f52aff13092307324a123a16`.
-8. **MeshRobustRepair slow inputs** (robust-repair, 6; 2.7 to 10.8 s on this machine, over the 5 s target, no wrong result). The slowest, 62 bytes (10.8 s): `000103fe03fe00000000000000000000000000000011002000002c0000000000100000000000000000000000000002030203fe03000000000300002c0000`.
+8. **MeshRobustRepair slow inputs** (robust-repair, 6; 2.7 to 10.8 s on this machine, over the 5 s target, no wrong result; **fixed** for #636: a small input's alpha wrap no longer goes finer than its own edge length, `MeshRobustRepair.SmallInputWrapTriangles`). The slowest, 62 bytes (10.8 s): `000103fe03fe00000000000000000000000000000011002000002c0000000000100000000000000000000000000002030203fe03000000000300002c0000`.
 9. **`DMesh3.CheckValidity` reports a valid mesh as invalid from a vertex magnitude of about 1e154** (found while pinning the Reducer range, #595): `mesh/DMesh3_debug.cs:259-260` requires `v.LengthSquared` to be finite per vertex, which overflows for a vertex with all three components above about 7.7e153, or a single component above 1.34e154 (`sqrt(double.MaxValue)`). Repro: `new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 10 }.Generate().MakeDMesh()` with every vertex multiplied by 1e160: `CheckValidity(false, FailMode.ReturnOnly)` is false for the unreduced input (true at 1e150). Not a mesh-operation bug: the operations that work at these sizes (Reducer, since #595, up to 1e300) return meshes that this check then rejects, so tests of the range cannot use it above 1e150. **Fixed** by comparing the components (`CheckValidityRangeTests`; the lines were 259-260). The same `IsNaN/IsInfinity(v.LengthSquared)` pattern in `mesh/NTMesh3.cs`, `curve/DGraph3.cs` and `curve/DGraph2.cs` is **fixed** the same way (`NTMesh3ValidityRangeTests`, `DGraph3ValidityRangeTests`, `DGraph2ValidityRangeTests`); the two commented-out lines in `curve/DGraph.cs:586-587` are dead code and stay.
 10. **The flip test of the edge collapse accepts a collapse when its normals overflow to NaN** (`MeshRefinerBase.edge_flip_metric`, found in the second review of #595): above an edge length of about 1e154 the cross products of the face normals overflow; a component that is infinite refuses the collapse, but inf - inf is NaN, `NaN <= tol` is false and the flip is accepted blindly. Refusing a NaN metric is safer, but two existing tests pin the reduction at those sizes: `RobustnessSweepRemainingTests.Reducer_ExtremeMidpointsRemainFinite` (1e308, 1.7e308) and `ReducerFoldOverOptionsTests.HugeCoordinates_NoReference_SameReductionAsWithoutTheCheck` (2^540); a change has to rescale the normals (the edges are the better input: the cross product of unit-sized edges) rather than refuse. **Fixed**: the edges of a triangle are scaled by one factor (the reciprocal of the longest component) outside [1e-70, 1e70] before the cross products, for the old and the new normal (`FlipTestHugeScaleTests`); the two pinning tests needed no change (the sphere still reduces at 1e308 and 2^540); the same scaling also removes the lower limit of #595 (a tiny sphere reduces down to 1e-300).
 
 Not found in 10 minutes: alpha-wrap, remesher, tree-ray, tree-winding. reducer and batch-queries ran only 18 600 and 2 300 executions (7 and 3 per second): a longer run is needed before they count as clean.
+
+## Third wave (QA 2.0 gap list, 2026-11-12): MarchingCubes, TerrainGreedyTIN, MeshMeshCut, MeshInsertPolygon, MeshTrimLoop
+
+Smoke runs of `MeshFuzzPilot random` (no coverage guidance, uninstrumented), 2 500 to 4 000 inputs per target and seed, domains as in the README.
+`marching-cubes` and `terrain-tin`: no finding in 15 000 inputs each (all four root modes; the 2^40 copy bit for bit). The first runs found
+classes that were limits of the representation or of the target's input, now domains: a mesh farther than 2^16 extents from the origin (the TIN
+nodes and the sphere of the trim collapse: `terrain-tin` covered 1.0054 of its rectangle, `trim-loop` ran 2 minutes and grew the area 800 times at a
+sphere of radius 0.5 at 2.6e14), a hull polygon with a repeated vertex (`ConvexHull2` of nearly equal points), slivers along the inserted polygon's edge
+(their centroid is on it), a cutting mesh of 1e-300 of the target's size, a target of area 1e-11.
+
+Open, gated or outside the domain (none has a procedural reproduction inside the supported range yet). Status of 2026-11-15: items 1 and 4 have no gate any more (the
+`mesh-cut` target skips components below 2^-200 and runs with `RefuseContact`; `trim-loop` is judged strictly: 5 000 strict inputs each, no exception); item 3 stays gated: it is the
+documented TODO of the upstream polygon inserter (`MeshPolygonsInserter`, "could not find seed triangle!"), about 1 in 5 000 inputs, not a defect of this repository to fix here.
+The `trim-loop` removed-side bound ("no vertex beyond 3 mean edges") is loose for coarse spheres at a cut far from the centre; the area-shrink and one-loop checks carry that target.
+1. **`mesh-cut`: `DMeshAABBTree3.find_intersections: found quantity 0`** (an exception of `MeshMeshCut.Compute()`, `IntrTriangle3Triangle3.Test()` true and
+   `Find()` true with `Quantity` 0). 177 of 3 000 random inputs when B may be smaller than 2^-16 of A (B of 1e-307 beside A), 4 of 4 000 with B in [2^-16, 2^20]
+   (A with a corner at 1e-61 beside others at 1e18: a size disparity inside one mesh), none otherwise. `MESH_FUZZ_STRICT=1` reports it; the smallest of the
+   four (replay with `MESH_FUZZ_STRICT=1 MESH_FUZZ_OPS=mesh-cut`, dump for the numbers) is `73a219d11972a490c422af60b2184bbcbbe61be3e17774276233fe16a6930083322144f0dee20269b9092bfb0ec223a65dfb5274e84a7cfc2df26ee6738de9`. A cheap fix would be to treat `Quantity` 0 as no intersection.
+2. **`insert-polygon`: a hole close to the outer ring or with short edges.** With holes of arbitrary position 3 of 4 000 inputs gave `find_cut_paths: how did this
+   possibly happen?!?`, an `ArgumentOutOfRangeException` at `MeshInsertPolygon.Insert()` (`insertion.Loops[0]` when the hole's insertion produced no loop), or
+   `InteriorTriangles` that cover 0.1499 instead of 0.1426 (5 %) on a 3 by 3 grid. With the hole kept 1e-2 of the width from the ring and its edges at least 1e-3 of
+   it, none in 4 000. The exceptions are the unchecked result of `insert.Apply()` for a hole; the class belongs to the hole's tolerance (`SpatialEpsilon`, absolute).
+3. **`insert-polygon`: "could not find seed triangle!"** (documented in the code as a TODO, gated).
+4. **`trim-loop`: `ArgumentOutOfRangeException` from `MeshTrimLoop.Trim()` (`loops[0]` of a mesh with no boundary loop left)**, only seen at 2.6e14 from the origin (out of
+   the domain); the code returns false for more than one loop but not for none.
+5. **`mesh-cut`: the snap tolerance is absolute (1e-5).** A target of area 4e-11 (a flat mesh of the size 1) lost 2 % of its area to the snap.
+
+### libFuzzer campaigns of the third wave (2026-11-13, 3 workers, `-max_total_time` per target)
+
+- **`marching-cubes`**: 55 minutes (about 3.4 million executions), no finding. The first minutes found a missing domain (a mesh beyond 2^16 extents
+  from the origin: the bounds of the 2^40 copy overflow), now excluded in `RunMarchingCubes`.
+- **`terrain-tin`**: 55 minutes, 1 045 artifacts, two library classes:
+  - **#854** (145 of 150 sampled `crash-*`): the ear choice of `RemoveVertices` compared errors with an absolute 1e-12 (`TerrainGreedyTIN.cs:365` before #890), so
+    the 2^40 copy differs from the scaled TIN; procedural reproduction in the issue (4 by 4 grid, plateau heights with 1e-14 noise), the mutation "no tolerance"
+    removes it for 8 000 swept cases.
+  - **#855** (the 27 `timeout-*`; one replayed): `Compute()` with `MaxError = 0` and a height of -2.87e-223 never ends and dies with out of memory
+    (the default `MaxVertices` is `int.MaxValue`).
+- **`terrain-tin`, second run on the fixed library** (#889 and #890 merged, 30 minutes): the class of #854 and #855 is gone; the artifacts left (19 at the time of writing) were all one class,
+  `RemoveVertices` with a nonzero height or origin below 2^-200 (1e-171, 1e-241, 1e-286) beside heights of order 1: the squared error of an ear underflows in one of the two copies, so the
+  2^40 copy chooses another ear. That is outside the range of QA.md 2.5a, so it is a domain of the scale claim now (nonzero values of the grid, origin, cell and MaxError between 2^-200 and
+  2^150; every other claim is judged always). All 19 pass after the change.
+- **`mesh-cut`**: stopped by the session limit after about 50 minutes, 105 artifacts: 47 "the area changed", 12 `update_from_split: unsortable vertex?`, most
+  with a dynamic range of 1e-130 and below inside the case (outside the range). The in-range class is a cut mesh that touches the target (vertices exactly on a
+  face plane): **#856** (the same case at 2^108 .. 2^120 gives 14, 14, ... , an exception at 2^113, then 20 triangles; no contact gives 12 at every scale).
+  Decided by the owner (#856, merged as #867): contact is refused on request. The target now runs `MeshMeshCut` with `RefuseContact = true` and accepts
+  `ContactDetected` (checked: the same status in both runs, the target unchanged), judging only the transversal cuts. Replay of the 105 artifacts against it:
+  83 pass; the 22 left have a dynamic range of 1e-138 and below inside the case, or subnormal coordinates (below the range of QA.md 2.5a). 9 000 random inputs: no finding.
+- **`insert-polygon`** (30 minutes): 1 947 artifacts, **untriaged** (triage is a separate step). 120 sampled: 71 "the interior triangles cover X, the polygon Y",
+  25 `find_cut_paths: how did this possibly happen?!?`, 9 `ArgumentOutOfRangeException` (index), 9 "triangles are selected or not against the centroid
+  test", 2 `ConvexHull2: vertex is not finite`, 1 area change. Of 400 classified by the ratio of the smallest to the largest nonzero coordinate, most are far outside the
+  range (below 1e-130); the in-range ones (ratio above 1e-6) that were looked at have a thin outer polygon (a hull of width about 0.06 against a length of 0.65) with grid
+  triangles whose centroid is within 1e-4 of the polygon's edge; they are likely the absolute tolerance of the insertion (`SpatialEpsilon`), not a new class.
+- **`trim-loop`** (30 minutes, about 45 000 executions with coverage guidance): no finding.
+
 ## Judgement notes
 
 - **The tree and the brute force use different distance code.** `DMeshAABBTree3.FindNearestTriangle` computes the distance of a triangle with

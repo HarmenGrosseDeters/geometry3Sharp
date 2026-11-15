@@ -54,38 +54,11 @@ namespace geometry3Sharp.Tests
             int checkedCount = 0;
             foreach (double x in Values(20000)) {
                 string s = MeshIOUtil.FormatDouble(x);
-                double back = double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+                double back = MeshIOUtil.ParseDouble(s);
                 Assert.True(SameValueBits(x, back), $"{x:R} -> \"{s}\" -> {back:R}");
                 ++checkedCount;
             }
             Assert.True(checkedCount > 20000);
-        }
-
-        // the path .NET Framework takes, on every framework
-        [Fact]
-        public void FormatDoubleByDigits_ReadsBackBitForBit()
-        {
-            foreach (double x in Values(20000)) {
-                string s = MeshIOUtil.FormatDoubleByDigits(x);
-                double back = double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
-                Assert.True(SameValueBits(x, back), $"{x:R} -> \"{s}\" -> {back:R}");
-            }
-            Assert.Equal("0.1", MeshIOUtil.FormatDoubleByDigits(0.1));
-            Assert.Equal("0.3333333333333333", MeshIOUtil.FormatDoubleByDigits(1.0 / 3.0));
-            Assert.Equal("0.30000000000000004", MeshIOUtil.FormatDoubleByDigits(0.1 + 0.2));
-        }
-
-        [Fact]
-        public void FormatFloatByDigits_ReadsBackBitForBit()
-        {
-            state = 99;
-            for (int i = 0; i < 20000; ++i) {
-                float x = i % 2 == 0 ? BitConverter.ToSingle(BitConverter.GetBytes((uint)Next()), 0) : (float)(((Next() >> 11) * (1.0 / 9007199254740992.0) - 0.5) * 2000.0);
-                if (float.IsNaN(x) || float.IsInfinity(x)) continue;
-                string s = MeshIOUtil.FormatFloatByDigits(x);
-                float back = float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
-                Assert.True((x == 0 && back == 0) || BitConverter.ToInt32(BitConverter.GetBytes(x), 0) == BitConverter.ToInt32(BitConverter.GetBytes(back), 0), $"{x:R} -> \"{s}\" -> {back:R}");
-            }
         }
 
         [Fact]
@@ -96,27 +69,39 @@ namespace geometry3Sharp.Tests
                 float x = i % 2 == 0 ? BitConverter.ToSingle(BitConverter.GetBytes((uint)Next()), 0) : (float)(((Next() >> 11) * (1.0 / 9007199254740992.0) - 0.5) * 2000.0);
                 if (float.IsNaN(x) || float.IsInfinity(x)) continue;
                 string s = MeshIOUtil.FormatFloat(x);
-                float back = float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+                float back = MeshIOUtil.ParseFloat(s);
                 Assert.True((x == 0 && back == 0) || BitConverter.ToInt32(BitConverter.GetBytes(x), 0) == BitConverter.ToInt32(BitConverter.GetBytes(back), 0), $"{x:R} -> \"{s}\" -> {back:R}");
             }
         }
 
-        // .NET Framework throws OverflowException when parsing the 15-digit rounding of double.MaxValue (it is above the maximum)
+        // (the old G15 / G16 search threw OverflowException on .NET Framework for the 15-digit rounding of double.MaxValue, which is above the maximum)
         [Fact]
-        public void FormatByDigits_NearTheLimits_DoesNotThrow_AndKeepsTheSignOfZero()
+        public void Format_NearTheLimits_ReadsBack_AndKeepsTheSignOfZero()
         {
             foreach (double x in new[] { double.MaxValue, -double.MaxValue, BitConverter.Int64BitsToDouble(0x7FEFFFFFFFFFFFFEL), BitConverter.Int64BitsToDouble(0x7FEFFFFFFFFFFFF0L), 1.7976931348623155E+308 }) {
-                string s = MeshIOUtil.FormatDoubleByDigits(x);
-                Assert.Equal(BitConverter.DoubleToInt64Bits(x), BitConverter.DoubleToInt64Bits(double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture)));
+                string s = MeshIOUtil.FormatDouble(x);
+                Assert.Equal(BitConverter.DoubleToInt64Bits(x), BitConverter.DoubleToInt64Bits(MeshIOUtil.ParseDouble(s)));
             }
             foreach (float x in new[] { float.MaxValue, -float.MaxValue, BitConverter.ToSingle(BitConverter.GetBytes(0x7F7FFFFEu), 0) }) {
-                string s = MeshIOUtil.FormatFloatByDigits(x);
-                Assert.Equal(BitConverter.ToInt32(BitConverter.GetBytes(x), 0), BitConverter.ToInt32(BitConverter.GetBytes(float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture)), 0));
+                string s = MeshIOUtil.FormatFloat(x);
+                Assert.Equal(BitConverter.ToInt32(BitConverter.GetBytes(x), 0), BitConverter.ToInt32(BitConverter.GetBytes(MeshIOUtil.ParseFloat(s)), 0));
             }
-            Assert.Equal("-0", MeshIOUtil.FormatDoubleByDigits(-0.0));
-            Assert.Equal("0", MeshIOUtil.FormatDoubleByDigits(0.0));
-            Assert.Equal("-0", MeshIOUtil.FormatFloatByDigits(-0.0f));
             Assert.Equal("-0", MeshIOUtil.FormatDouble(-0.0));
+            Assert.Equal("0", MeshIOUtil.FormatDouble(0.0));
+            Assert.Equal("-0", MeshIOUtil.FormatFloat(-0.0f));
+            Assert.Equal("-0", MeshIOUtil.FormatDouble(-0.0));
+        }
+
+        // The path .NET Framework took (G15, G16, G17 and the platform parser), run on every framework: it wrote 15 digits for a
+        // subnormal, "4.94065645841247E-324" for the smallest, which is not the shortest text and differs from net10's
+        [Fact]
+        public void FormatDoubleByDigits_Subnormals_AreTheShortestText()
+        {
+            Assert.Equal("5E-324", MeshIOUtil.FormatDoubleByDigits(double.Epsilon));
+            Assert.Equal("-5E-324", MeshIOUtil.FormatDoubleByDigits(-double.Epsilon));
+            Assert.Equal("5E-320", MeshIOUtil.FormatDoubleByDigits(5e-320));
+            Assert.Equal("1E-45", MeshIOUtil.FormatFloatByDigits(float.Epsilon));
+            Assert.Equal("1E-310", MeshIOUtil.FormatDoubleByDigits(1e-310));
         }
 
         [Fact]

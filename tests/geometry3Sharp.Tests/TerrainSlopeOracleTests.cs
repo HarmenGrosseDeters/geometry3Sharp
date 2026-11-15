@@ -107,10 +107,114 @@ namespace geometry3Sharp.Tests
         {
             Assert.False(SlopeSpec.Degrees(45).ExactlyCheckable);
             Assert.True(SlopeSpec.Ratio(1).ExactlyCheckable && SlopeSpec.Percent(100).ExactlyCheckable);
-            // slope exactly 1: tan(45 deg) in doubles is 0.9999999999999999, so the check against the double fails
+            // slope exactly 1: tan(45 deg) is exactly 1 (S = 1 since 2026-11-13; Math.Tan gave 0.9999999999999999)
             Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 1);
             Assert.Equal(SlopeSpec.Degrees(45).S >= 1, Slope.IsNotSteeper(a, b, c, SlopeSpec.Degrees(45)));
             Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Ratio(1)));
+        }
+
+        // the largest double at or below tan(a deg), from a 60-digit reference (Python decimal: pi by its series, sin and
+        // cos by 80 Taylor terms, then rounded down to a double), independent of the library's bound
+        [Theory]
+        [InlineData(1e-6, 1.7453292519943295e-08)]
+        [InlineData(0.5, 0.00872686779075879)]
+        [InlineData(1.0, 0.017455064928217585)]
+        [InlineData(5.0, 0.087488663525924)]
+        [InlineData(10.0, 0.17632698070846495)]
+        [InlineData(30.0, 0.5773502691896257)]
+        [InlineData(45.0, 1.0)]
+        [InlineData(50.0, 1.1917535925942098)]
+        [InlineData(60.0, 1.7320508075688772)]
+        [InlineData(75.0, 3.732050807568877)]
+        [InlineData(85.0, 11.430052302761343)]
+        [InlineData(89.0, 57.28996163075942)]
+        [InlineData(89.9, 572.9572133543203)]
+        [InlineData(89.99999, 5729577.949489527)]
+        public void Degrees_S_IsAProvenLowerBoundOfTheTangent(double angle, double reference)
+        {
+            double s = SlopeSpec.Degrees(angle).S;
+            // never above the tangent of the angle as entered (the reference is the largest double not above it) ...
+            Assert.True(s <= reference, $"S {s:R} above the tangent's {reference:R}");
+            // ... and within 4 ulps of it
+            double low = reference;
+            for (int i = 0; i < 4; ++i) low = ExactInterval.Down(low);
+            Assert.True(s >= low, $"S {s:R} more than 4 ulps below {reference:R}");
+            // (the same again: cached)
+            Assert.Equal(s, SlopeSpec.Degrees(angle).S);
+        }
+
+        // 45 deg, the one angle in range whose tangent is a double (1): exactly 1, so a 1:1 slope entered as 45 deg passes, and
+        // one a bit steeper does not (the general bound would give the double just below 1: x = 45 pi_lo / 180 is below pi / 4)
+        [Fact]
+        public void Degrees_45_IsExactlyOne()
+        {
+            Assert.Equal(1.0, SlopeSpec.Degrees(45).S);
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 1), c = new Vector3d(0, 1, 0);
+            Assert.True(Slope.IsNotSteeper(a, b, c, SlopeSpec.Degrees(45)));
+            Assert.False(Slope.IsNotSteeper(a, new Vector3d(1, 0, 1.0000000000000002), c, SlopeSpec.Degrees(45)));
+            // (just beside 45: the general bound, below 1 and above 1)
+            Assert.True(SlopeSpec.Degrees(44.99999999999999).S < 1 && SlopeSpec.Degrees(45.00000000000001).S > 1);
+        }
+
+        // the domain of the bound and its two ends: NaN outside (0, 90), 0 where tan is below the smallest double (no positive
+        // double proven), a subnormal just above; and the cache: bounded (cleared at TanCacheSize), the values the same
+        [Fact]
+        public void Degrees_TanLowerBound_DomainAndCache()
+        {
+            foreach (double a in new[] { 0.0, -1.0, 90.0, 95.0, double.NaN, double.PositiveInfinity })
+                Assert.True(double.IsNaN(SlopeSpec.TanLowerBound(a)), $"{a}");
+            Assert.Equal(0.0, SlopeSpec.TanLowerBound(1e-323));
+            double tiny = SlopeSpec.TanLowerBound(1e-320);
+            Assert.True(tiny > 0 && tiny <= 1e-320 * Math.PI / 180 * (1 + 1e-3), $"{tiny}");
+            double t30 = SlopeSpec.TanLowerBound(30);
+            SlopeSpec.ClearTanCache();
+            for (int i = 1; i <= 10; ++i) SlopeSpec.TanLowerBound(10 + i * 1e-3);
+            Assert.Equal(10, SlopeSpec.TanCacheCount);
+            for (int i = 0; i < SlopeSpec.TanCacheSize + 5; ++i) SlopeSpec.TanLowerBound(20 + i * 1e-4);
+            Assert.InRange(SlopeSpec.TanCacheCount, 1, SlopeSpec.TanCacheSize);
+            Assert.Equal(t30, SlopeSpec.TanLowerBound(30));
+        }
+
+        // the premises of the bound (TERRAIN.md section 1): pi_lo below pi (against pi truncated to 35 decimals, itself
+        // below pi and above pi_lo, which is 2.2e-32 below), N = 0 mod 4, and the Taylor sums as bounds: with N = 4,
+        // x - x^3 / 6 below sin x and 1 - x^2 / 2 + x^4 / 24 above cos x by far more than rounding
+        [Fact]
+        public void Degrees_TheBoundsPremises()
+        {
+            var pi35 = new ExactDyadic(System.Numerics.BigInteger.Parse("314159265358979323846264338327950288"), 0);
+            var ten35 = new ExactDyadic(System.Numerics.BigInteger.Pow(10, 35), 0);
+            Assert.True(ExactDyadic.Compare(SlopeSpec.PiLo() * ten35, pi35) < 0);
+            Assert.Equal(0, SlopeSpec.TaylorTerms % 4);
+            foreach (double a in new[] { 1.0, 30.0, 60.0, 89.0 }) {
+                ExactDyadic sinL, cosH;
+                SlopeSpec.TaylorSums(a, 4, out sinL, out cosH);
+                // (L = 180^4 4!)
+                var L = new ExactDyadic(System.Numerics.BigInteger.Pow(180, 4) * 24, 0);
+                double x = a * Math.PI / 180;
+                double s = ExactDyadic.Quotient(sinL, L), c = ExactDyadic.Quotient(cosH, L);
+                double gs = Math.Pow(x, 5) / 120, gc = Math.Pow(x, 6) / 720;
+                Assert.True(s < Math.Sin(x) - 0.5 * gs, $"{a}: {s} {Math.Sin(x)}");
+                Assert.True(c > Math.Cos(x) + 0.5 * gc, $"{a}: {c} {Math.Cos(x)}");
+            }
+        }
+
+        // Math.Tan's double is above the tangent of these angles (glibc; by 64 ulps at 89 deg, as Math.PI is below
+        // pi), so the check against it accepted a triangle at that slope although steeper than the angle; against the
+        // proven bound it is rejected, and the triangle at the largest double below the tangent is accepted
+        [Theory]
+        [InlineData(10.0, 0.17632698070846498, 0.17632698070846495)]
+        [InlineData(50.0, 1.19175359259421, 1.1917535925942098)]
+        [InlineData(75.0, 3.7320508075688776, 3.732050807568877)]
+        [InlineData(85.0, 11.430052302761348, 11.430052302761343)]
+        [InlineData(89.0, 57.289961630759876, 57.28996163075942)]
+        public void Degrees_ATriangleSteeperThanTheAngle_IsRejected(double angle, double steeper, double reference)
+        {
+            Vector3d a = new Vector3d(0, 0, 0), b = new Vector3d(1, 0, 0), c = new Vector3d(0, 1, 0);
+            // (the gradient is (z_b, z_c): exactly 'steeper', then exactly 'reference')
+            Assert.False(Slope.IsNotSteeper(a, new Vector3d(1, 0, steeper), c, SlopeSpec.Degrees(angle)));
+            Assert.True(Slope.IsNotSteeper(a, new Vector3d(1, 0, reference), c, SlopeSpec.Degrees(angle)) == (SlopeSpec.Degrees(angle).S >= reference));
+            Assert.True(Slope.IsNotSteeper(a, new Vector3d(1, 0, SlopeSpec.Degrees(angle).S), c, SlopeSpec.Degrees(angle)));
+            Assert.False(Slope.IsSupportedBy(a, new Vector3d(1, 0, steeper), c, a, a, SlopeSpec.Degrees(angle)));
         }
 
         [Fact]
@@ -288,7 +392,7 @@ namespace geometry3Sharp.Tests
             Assert.Equal(0.25, SlopeSpec.Ratio(4).S);
             Assert.Equal(0.5, SlopeSpec.Percent(50).S);
             Assert.Equal(1.0, SlopeSpec.Degrees(45).S, 15);
-            Assert.Equal(Math.Tan(Math.PI / 6), SlopeSpec.Degrees(30).S);
+            Assert.Equal(0.5773502691896257, SlopeSpec.Degrees(30).S);     // (the largest double below tan 30 deg)
             // validity: positive, finite, S at least the smallest normal double
             Assert.True(SlopeSpec.Rise(2.2250738585072014E-308).IsValid);
             Assert.False(SlopeSpec.Rise(2.2250738585072009E-308).IsValid);

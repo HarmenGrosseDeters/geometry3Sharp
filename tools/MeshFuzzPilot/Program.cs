@@ -33,7 +33,7 @@ public static partial class Program
 
     public static readonly string[] Ops = { "union", "intersection", "difference", "robust-repair", "robust-repair-soup", "rounding-repair",
         "tree-nearest", "tree-ray", "tree-inside", "batch-queries", "alpha-wrap", "tree-winding", "partitioned-reducer",
-        "remesher", "reducer", "quality-mesh2", "clipper2" };
+        "remesher", "reducer", "quality-mesh2", "clipper2", "marching-cubes", "terrain-tin", "mesh-cut", "insert-polygon", "trim-loop" };
 
     /// <summary>
     /// the operations a campaign runs: MESH_FUZZ_OPS, a comma separated list of names or numbers (default: all). The
@@ -464,8 +464,18 @@ public static partial class Program
             RunReducer(c, what);
         } else if (c.Op == 15) {
             RunQualityMesh2(c, what);
-        } else {
+        } else if (c.Op == 16) {
             RunClipper(c, what);
+        } else if (c.Op == 17) {
+            RunMarchingCubes(c, what);
+        } else if (c.Op == 18) {
+            RunTerrain(c, what);
+        } else if (c.Op == 19) {
+            RunMeshCut(c, what);
+        } else if (c.Op == 20) {
+            RunInsertPolygon(c, what);
+        } else {
+            RunTrimLoop(c, what);
         }
     }
 
@@ -734,6 +744,29 @@ public static partial class Program
                 throw new InvalidOperationException("an artifact of the campaign is inside the domain of the scale claim");
             Run(new Case { Op = Array.IndexOf(Ops, "partitioned-reducer"), A = artifact, B = new DMesh3() });
         }
+        // issue 794: a tiny shape far from the origin (here a tetrahedron collapsed to a segment of 4e-307 at about 6e-4): normalized, its coordinates are
+        // about 2^1019 and the 2^40 copy overflows, so the scale claim is out of the domain; the other claims are judged and hold
+        var farTiny = new DMesh3();
+        foreach (var v in new[] { new Vector3d(0.0003662109375, -0.0006103515625, -4.450147717014403E-308), new Vector3d(0.0003662109375, -0.0006103515625, 0),
+            new Vector3d(0.0003662109375, -0.0006103515625, 0), new Vector3d(0.0003662109375, -0.0006103515625, 3.5601181736115222E-307) })
+            farTiny.AppendVertex(v);
+        foreach (var t in new[] { (0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3) })
+            farTiny.AppendTriangle(t.Item1, t.Item2, t.Item3);
+        if (!HasHugeCoordinates(NormalizeWhole(farTiny, out _)))
+            throw new InvalidOperationException("the reproducer of issue 794 is inside the domain of the scale claim");
+        Run(new Case { Op = Array.IndexOf(Ops, "partitioned-reducer"), A = farTiny, B = new DMesh3() });
+        // the bound itself: 2^150 is in, beyond it is out (the copy of 2^150 is 2^190, inside the doubles); any coordinate, either sign and axis
+        foreach (int axis in new[] { 0, 1, 2 })
+            foreach (double sign in new[] { 1.0, -1.0 }) {
+                DMesh3 atBound = new DMesh3(unitTet), beyond = new DMesh3(unitTet);
+                Vector3d pa = atBound.GetVertex(0), pb = beyond.GetVertex(0);
+                pa[axis] = sign * Math.Pow(2, 150);
+                pb[axis] = sign * Math.Pow(2, 151);
+                atBound.SetVertex(0, pa);
+                beyond.SetVertex(0, pb);
+                if (HasHugeCoordinates(atBound) || !HasHugeCoordinates(beyond))
+                    throw new InvalidOperationException("the upper bound 2^150 of the scale claim is off (axis " + axis + ", sign " + sign + ")");
+            }
         // all 17 saved artifacts of the partitioned-reducer campaign (T13; 12 pass without the domain rule, 5 gave "not the scaled result"): decoded
         // with the operation set by hand (the first byte selects it only under the campaign's MESH_FUZZ_OPS), each runs the whole target without a finding
         foreach (string hex in new[] {
@@ -778,6 +811,54 @@ public static partial class Program
         CheckReduce("t", true, cube, cube, cube, cube, 1, 0.1);
         CheckMesher2("t", "Success", "", true, "");
         CheckClipper("t", "Success", "", true, true, 0, "");
+        // the third wave: contradictions, then clean results
+        var mcMode = MarchingCubes.RootfindingModes.Bisection;
+        var mcSolid = new DMesh3(cube);
+        ExpectFinding("an exception of marching cubes outside LinearEdges", () => CheckMarchingCubes("t", mcMode, null, new InvalidOperationException("x"), null, null, null, null, null, 1), "threw");
+        ExpectFinding("an exception other than the documented ones in LinearEdges", () => CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new IndexOutOfRangeException("x"), null, null, null, null, null, 1), "threw");
+        ExpectFinding("no mesh and no exception", () => CheckMarchingCubes("t", mcMode, null, null, null, null, null, null, null, 1), "no mesh");
+        ExpectFinding("an invalid marching cubes mesh", () => CheckMarchingCubes("t", mcMode, NotFinite(cube), null, cube, null, cube, ScaledBy(cube, 2), null, 2), "not finite");
+        ExpectFinding("parallel and serial differ", () => CheckMarchingCubes("t", mcMode, cube, null, ShiftedBy(cube, 1), null, cube, ScaledBy(cube, 2), null, 2), "serial");
+        ExpectFinding("two runs differ", () => CheckMarchingCubes("t", mcMode, cube, null, cube, null, ShiftedBy(cube, 1), ScaledBy(cube, 2), null, 2), "two runs");
+        ExpectFinding("the scaled run is not the scaled mesh", () => CheckMarchingCubes("t", mcMode, cube, null, cube, null, cube, ShiftedBy(cube, 1), null, 2), "scaled");
+        CheckMarchingCubes("t", mcMode, cube, null, cube, null, cube, ScaledBy(cube, 2), null, 2);
+        CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new InvalidOperationException("x"), null, new InvalidOperationException("x"), null, null, new InvalidOperationException("x"), 1);
+        ExpectFinding("a refusal of the parallel run only", () => CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new InvalidOperationException("x"), cube, null, cube, ScaledBy(cube, 2), null, 2), "refused");
+        ExpectFinding("a subclass of the documented refusal (an index bug)", () => CheckMarchingCubes("t", MarchingCubes.RootfindingModes.LinearEdges, null, new ArgumentOutOfRangeException("x"), null, new ArgumentOutOfRangeException("x"), null, null, new ArgumentOutOfRangeException("x"), 1), "threw");
+        ExpectFinding("a terrain TIN that is not finite", () => CheckTerrain("t", true, NotFinite(cube), 0, 0, false, 1, 0, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "not finite");
+        // (the validity branches of the marching cubes and terrain checks cannot be exercised here: DMesh3 refuses to be built invalid through its API)
+        ExpectFinding("Compute() false for a valid grid", () => CheckTerrain("t", false, null, 0, 0, false, 1, 0, 0, 1e-9, null, null, 2), "Compute()");
+        ExpectFinding("a clockwise TIN triangle", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 1, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "counter-clockwise");
+        ExpectFinding("a TIN that does not tile the rectangle", () => CheckTerrain("t", true, cube, 0, 0, false, 0.9, 0, 0, 1e-9, cube, ScaledBy(cube, 2), 2), "cover");
+        ExpectFinding("a grid node farther than AchievedError", () => CheckTerrain("t", true, cube, 0.1, 1, false, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2), "AchievedError says");
+        ExpectFinding("AchievedError above MaxError", () => CheckTerrain("t", true, cube, 0.5, 0.1, false, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2), "above MaxError");
+        ExpectFinding("a TIN that depends on the run", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 0, 0, 1e-9, ShiftedBy(cube, 1), ScaledBy(cube, 2), 2), "two runs");
+        ExpectFinding("a TIN that is not scale free", () => CheckTerrain("t", true, cube, 0, 0, false, 1, 0, 0, 1e-9, cube, ShiftedBy(cube, 1), 2), "scaled TIN");
+        CheckTerrain("t", true, cube, 0.5, 0.1, true, 1, 0, 0.5, 1e-9, cube, ScaledBy(cube, 2), 2);
+        CheckTerrain("t", true, cube, 0.5, 0.1, true, 1, 0, 0.5, 1e-9, cube, ShiftedBy(cube, 1), 2, judgeScale: false);       // out of the range of the scale claim: not judged
+        CheckTerrain("t", true, cube, 0.05, 0.1, false, 1, 0, 0.05, 1e-9, cube, ScaledBy(cube, 2), 2);
+        ExpectFinding("a cut mesh with a vertex that is not finite", () => CheckMeshCut("t", true, false, 12, 20, 6, 6, true), "finite");
+        ExpectFinding("an invalid cut mesh", () => CheckMeshCut("t", false, true, 12, 20, 6, 6, true), "valid");
+        ExpectFinding("a cut mesh with fewer triangles", () => CheckMeshCut("t", true, true, 12, 11, 6, 6, true), "triangles");
+        ExpectFinding("a cut mesh with another area", () => CheckMeshCut("t", true, true, 12, 20, 6, 5, true), "area");
+        ExpectFinding("a cut that depends on the run", () => CheckMeshCut("t", true, true, 12, 20, 6, 6, false), "two runs");
+        CheckMeshCut("t", true, true, 12, 20, 6, 6 * (1 + 1e-6), true);
+        ExpectFinding("a refusal of contact that changed the target", () => CheckMeshCutRefusal("t", true, true, false), "refused");
+        ExpectFinding("a refusal that differs between two runs", () => CheckMeshCutRefusal("t", true, false, true), "differs");
+        ExpectFinding("a cut with gaps that was not refused", () => CheckMeshCutRefusal("t", false, false, true, 2), "gaps");
+        CheckMeshCutRefusal("t", true, true, true);
+        CheckMeshCutRefusal("t", false, false, false);
+        ExpectFinding("an invalid mesh after Insert()", () => CheckInsertPolygon("t", false, 4, 4, 1, 1, 0), "valid");
+        ExpectFinding("another area after Insert()", () => CheckInsertPolygon("t", true, 4, 3, 1, 1, 0), "area changed");
+        ExpectFinding("interior triangles that do not cover the polygon", () => CheckInsertPolygon("t", true, 4, 4, 0.5, 1, 0), "interior");
+        ExpectFinding("a triangle selected against the centroid test", () => CheckInsertPolygon("t", true, 4, 4, 1, 1, 2), "centroid");
+        CheckInsertPolygon("t", true, 4, 4, 1, 1 + 1e-9, 0);
+        ExpectFinding("a trimmed mesh with a vertex that is not finite", () => CheckTrimLoop("t", true, false, 1, 4, 3, 0), "finite");
+        ExpectFinding("an invalid trimmed mesh", () => CheckTrimLoop("t", false, true, 1, 4, 3, 0), "valid");
+        ExpectFinding("two boundary loops after Trim()", () => CheckTrimLoop("t", true, true, 2, 4, 3, 0), "boundary loops");
+        ExpectFinding("a trim that did not shrink the mesh", () => CheckTrimLoop("t", true, true, 1, 4, 4, 0), "shrink");
+        ExpectFinding("vertices on the removed side", () => CheckTrimLoop("t", true, true, 1, 4, 3, 5), "removed side");
+        CheckTrimLoop("t", true, true, 1, 4, 3, 0);
         return 0;
     }
 

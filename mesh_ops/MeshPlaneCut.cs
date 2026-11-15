@@ -97,6 +97,19 @@ namespace g3
 		}
 
 
+		// rel times the diagonal of the bounds. Where the diagonal overflows (corners finite, extent beyond about 1e308), from the half
+		// extent scaled by its largest component, rel applied first, so that the relative tolerance stays finite (before, Vector3d.IsFinite
+		// tested the sum of the components, which kept most such bounds out and used the absolute tolerance)
+		static double relative_to_diagonal(AxisAlignedBox3d bounds, double rel)
+		{
+			double d = bounds.DiagonalLength;
+			if (double.IsInfinity(d) == false)
+				return rel * d;
+			Vector3d h = 0.5 * bounds.Max - 0.5 * bounds.Min;
+			double m = h.MaxAbs;
+			return (rel * m) * 2 * Math.Sqrt((h.x / m) * (h.x / m) + (h.y / m) * (h.y / m) + (h.z / m) * (h.z / m));
+		}
+
 		/// <summary>
 		/// Split the edges that cross the plane, remove the triangles on the positive side, and find the cut
 		/// boundary loops/spans (CutLoops, CutSpans, CutLoopsFailed, FoundOpenSpans). Modifies Mesh in place.
@@ -126,7 +139,7 @@ namespace g3
 			double zeroTol = MathUtil.Epsilon;
 			if (bounds.Max.x >= bounds.Min.x && bounds.Min.IsFinite && bounds.Max.IsFinite && PlaneOrigin.IsFinite) {
 				if (DegenerateEdgeTol == MathUtil.ZeroTolerancef)
-					EffectiveDegenerateEdgeTol = RelativeDegenerateEdgeTol * bounds.DiagonalLength;
+					EffectiveDegenerateEdgeTol = relative_to_diagonal(bounds, RelativeDegenerateEdgeTol);
 				double maxAbs = Math.Max(bounds.Min.MaxAbs, Math.Max(bounds.Max.MaxAbs, PlaneOrigin.MaxAbs));
 				zeroTol = 16 * MathUtil.Epsilon * maxAbs;
 			}
@@ -248,6 +261,20 @@ namespace g3
 
 
 
+        // |a - b| > tol. In squares where neither overflows (as upstream); else from the half difference scaled by its largest component
+        // (coordinates beyond about 1e154: tol2 or the squared length is infinite, and every edge was collapsed)
+        static bool longer_than(Vector3d a, Vector3d b, double tol, double tol2)
+        {
+            double d2 = a.DistanceSquared(b);
+            if (double.IsInfinity(d2) == false && double.IsInfinity(tol2) == false)
+                return d2 > tol2;
+            Vector3d h = 0.5 * a - 0.5 * b;
+            double m = h.MaxAbs;
+            if (m == 0)
+                return false;
+            return m * Math.Sqrt((h.x / m) * (h.x / m) + (h.y / m) * (h.y / m) + (h.z / m) * (h.z / m)) > 0.5 * tol;
+        }
+
         protected void collapse_degenerate_edges(HashSet<int> OnCutEdges, HashSet<int> ZeroEdges)
         {
             HashSet<int>[] sets = new HashSet<int>[2] { OnCutEdges, ZeroEdges };
@@ -264,7 +291,7 @@ namespace g3
                         if (Mesh.IsEdge(eid) == false)
                             continue;
                         Mesh.GetEdgeV(eid, ref a, ref b);
-                        if (a.DistanceSquared(b) > tol2)
+                        if (longer_than(a, b, tol, tol2))
                             continue;
 
                         Index2i ev = Mesh.GetEdgeV(eid);

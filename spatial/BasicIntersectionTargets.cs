@@ -85,8 +85,7 @@ namespace g3
             double div = ray.Direction.Dot(normal);
             if (Math.Abs(div) > MathUtil.ZeroTolerancef) {
                 vHit = ray.Origin + (((Vector3d)PlaneFrame.Origin - ray.Origin).Dot(normal) / div) * ray.Direction;
-                // per component: Vector3d.IsFinite sums them, and the sum can overflow for a finite hit
-                if (MathUtil.IsFinite(vHit.x) && MathUtil.IsFinite(vHit.y) && MathUtil.IsFinite(vHit.z))
+                if (vHit.IsFinite)
                     return true;
             }
             vHit = Vector3f.Invalid;

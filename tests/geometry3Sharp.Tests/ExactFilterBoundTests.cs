@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Numerics;
 using g3;
@@ -143,6 +144,77 @@ namespace geometry3Sharp.Tests
                     }
                 }
             }
+        }
+
+        [Fact]
+        public void InCircle_DecidesOnlyCorrectly_WhereItsTermsOverflow()
+        {
+            // #710: coordinates near 2^255 (about 1e77), where the terms of the determinant (up to 12 M^4) overflow while
+            // the bound's M^4 is still finite; the filter returned the sign of an infinite or NaN sum. Where it decides
+            // now, the sign is the exact one (the doubles exact, e = 0, and with an error); in this band the overflowed
+            // cases are undecided
+            var r = new Random(7);
+            int decided = 0, overflowed = 0;
+            for (int iter = 0; iter < 4000; ++iter) {
+                int k = 252 + r.Next(6);
+                double rad = Math.Pow(2, k), ox = (r.NextDouble() - 0.5) * rad, oy = (r.NextDouble() - 0.5) * rad;
+                var p = new Vector3d[4];
+                for (int m = 0; m < 4; ++m) {
+                    double ang = r.NextDouble() * 2 * Math.PI, rr = rad * (0.5 + r.NextDouble());
+                    p[m] = new Vector3d(ox + rr * Math.Cos(ang), oy + rr * Math.Sin(ang), 0);
+                }
+                double e = iter % 2 == 0 ? 0 : 1e-16 * rad;
+                double bound;
+                double f = ExactMeshArrangement.incircle_approx(p[0], p[1], p[2], p[3], 0, 1, e, out bound);
+                if (!(Math.Abs(f) <= double.MaxValue)) overflowed++;
+                int sign = f > bound ? 1 : -f > bound ? -1 : 0;
+                if (sign == 0)
+                    continue;
+                decided++;
+                BigInteger[] X = p.Select(v => Q(v.x)).ToArray(), Y = p.Select(v => Q(v.y)).ToArray();
+                BigInteger adx = X[0] - X[3], ady = Y[0] - Y[3], bdx = X[1] - X[3], bdy = Y[1] - Y[3], cdx = X[2] - X[3], cdy = Y[2] - Y[3];
+                BigInteger det = (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) + (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy)
+                    + (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady);
+                Assert.True(det.Sign == sign, $"iter {iter} k {k}: filter {sign}, exact {det.Sign} (f {f}, bound {bound})");
+            }
+            Assert.True(decided > 500 && overflowed > 200, $"{decided} decided, {overflowed} overflowed");
+        }
+
+        [Fact]
+        public void Orient2d_DecidesOnlyCorrectly_WhereItsProductsOverflow()
+        {
+            // review of #732: differences near 1.3e154 to 1.5e154, where a product can overflow while the bound, 3 U M M
+            // evaluated from the left, stays finite. Where the filter decides, the sign is the exact one at every corner of
+            // the error boxes (e > 0: the points are approximations), and the overflowed cases are undecided. The case the
+            // review found: the determinant of the doubles is +1.03e290, below the bound 3.4e293
+            var r = new Random(13);
+            int decided = 0, overflowed = 0;
+            for (int iter = 0; iter < 3000; ++iter) {
+                double M = Math.Pow(2, 512) * (0.95 + 0.15 * r.NextDouble());
+                Func<double> c = () => (r.NextDouble() < 0.5 ? -1 : 1) * M * (0.9 + 0.1 * r.NextDouble());
+                double bx = c(), cy = c(), by = c(), cx = c();
+                if (iter == 0) { bx = 1.463843223656292e154; cy = 1.2280639796741043e154; by = 1.360334066409679e154; cx = 1.32150857590956e154; }
+                var a = new Vector3d(0, 0, 0);
+                var b = new Vector3d(bx, by, 0);
+                var cc = new Vector3d(cx, cy, 0);
+                // (the review's case with an error of 1e138, which moves the determinant by about 1.4e292, more than its
+                // value at the doubles)
+                double e = iter == 0 || iter % 2 == 1 ? 1e138 : 0;
+                double err;
+                double f = ExactMeshArrangement.orient2d_approx(a, b, cc, 0, 1, e, out err);
+                if (!(Math.Abs(f) <= double.MaxValue)) overflowed++;
+                int sign = f > err ? 1 : -f > err ? -1 : 0;
+                if (sign == 0)
+                    continue;
+                decided++;
+                for (int mask = 0; mask < 64; ++mask) {
+                    BigInteger ax0 = Corner(0, e, mask, 0), ay0 = Corner(0, e, mask, 1), bx0 = Corner(bx, e, mask, 2), by0 = Corner(by, e, mask, 3),
+                        cx0 = Corner(cx, e, mask, 4), cy0 = Corner(cy, e, mask, 5);
+                    BigInteger det = (bx0 - ax0) * (cy0 - ay0) - (by0 - ay0) * (cx0 - ax0);
+                    Assert.True(det.Sign == sign, $"iter {iter} mask {mask}: filter {sign}, exact {det.Sign} (f {f}, err {err})");
+                }
+            }
+            Assert.True(decided > 500 && overflowed > 100, $"{decided} decided, {overflowed} overflowed");
         }
 
         [Fact]

@@ -169,7 +169,7 @@ namespace g3
             var noResult = new NearestPointResult() { Triangle = DMesh3.InvalidID, Distance = double.MaxValue };
             Action<int> one = i => {
                 Vector3d p = points[i];
-                if (Finite(p) == false) {
+                if (p.IsFinite == false) {
                     results[i] = noResult;
                     if (status != null) status[i] = PointStatus.NonFinite;
                     return;
@@ -218,11 +218,11 @@ namespace g3
             if (method == InsideMethod.WindingNumber && !empty) {
                 // (built under a lock on first use anyway; once here, so that the workers do not queue up on it)
                 for (int i = 0; i < points.Length; ++i)
-                    if (Finite(points[i])) { tree.FastWindingNumber(points[i]); break; }
+                    if (points[i].IsFinite) { tree.FastWindingNumber(points[i]); break; }
             }
             Action<int> one = i => {
                 Vector3d p = points[i];
-                if (Finite(p) == false)
+                if (p.IsFinite == false)
                     results[i] = InsideStatus.Invalid;
                 else if (empty)
                     results[i] = InsideStatus.Outside;
@@ -237,12 +237,6 @@ namespace g3
 
         // ---- shared implementation ----
 
-        // every component finite (Vector3d.IsFinite sums the components, which overflows for finite 1e308 values)
-        static bool Finite(Vector3d v)
-        {
-            return (v.x - v.x) == 0 && (v.y - v.y) == 0 && (v.z - v.z) == 0;
-        }
-
         delegate void RayQuery(Ray3d ray, int index, double maxDist);
 
         static BatchStatus RunRays(DMeshAABBTree3 tree, Ray3d[] rays, RayStatus[] status, BatchOptions options, RayQuery query, Action<int> noHit)
@@ -255,7 +249,7 @@ namespace g3
             Action<int> one = i => {
                 Ray3d ray = rays[i];
                 RayStatus rs = RayStatus.Ok;
-                if (Finite(ray.Origin) == false || Finite(ray.Direction) == false)
+                if (ray.Origin.IsFinite == false || ray.Direction.IsFinite == false)
                     rs = RayStatus.NonFinite;
                 else if (ray.Direction.IsNormalized == false)
                     rs = RayStatus.NotNormalized;
@@ -344,12 +338,12 @@ namespace g3
         {
             var b = AxisAlignedBox3d.Empty;
             for (int i = 0; i < rays.Length; ++i)
-                if (Finite(rays[i].Origin))
+                if (rays[i].Origin.IsFinite)
                     b.Contain(rays[i].Origin);
             var keys = new ulong[rays.Length];
             for (int i = 0; i < rays.Length; ++i) {
                 Ray3d r = rays[i];
-                if (Finite(r.Origin) == false || Finite(r.Direction) == false)
+                if (r.Origin.IsFinite == false || r.Direction.IsFinite == false)
                     continue;       // key 0
                 ulong mo = Morton3(Q10(Unit(r.Origin.x, b.Min.x, b.Max.x)), Q10(Unit(r.Origin.y, b.Min.y, b.Max.y)), Q10(Unit(r.Origin.z, b.Min.z, b.Max.z)));
                 ulong md = Morton3(Q10(Unit(r.Direction.x, -1, 1)), Q10(Unit(r.Direction.y, -1, 1)), Q10(Unit(r.Direction.z, -1, 1)));
@@ -362,12 +356,12 @@ namespace g3
         {
             var b = AxisAlignedBox3d.Empty;
             for (int i = 0; i < points.Length; ++i)
-                if (Finite(points[i]))
+                if (points[i].IsFinite)
                     b.Contain(points[i]);
             var keys = new ulong[points.Length];
             for (int i = 0; i < points.Length; ++i) {
                 Vector3d p = points[i];
-                if (Finite(p) == false)
+                if (p.IsFinite == false)
                     continue;
                 keys[i] = Morton3(Q10(Unit(p.x, b.Min.x, b.Max.x)), Q10(Unit(p.y, b.Min.y, b.Max.y)), Q10(Unit(p.z, b.Min.z, b.Max.z)));
             }

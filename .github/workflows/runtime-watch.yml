@@ -1,0 +1,103 @@
+name: Runtime watch
+
+# Per master commit, time a fixed list of known extreme cases of the Exact Boolean and the Alpha Wrap
+# (tools/runtime-watch/cases.json) and report the outliers: a median more than 1.3x the median of the last 10 runs and more than
+# 1 s above it, anything over 20 s (owner 2026-11-12: a potential defect), a failed or timed-out case. Isolated runs (one process per
+# run), median of the repeats, machine recorded. Thingi10K meshes are fetched here at run time and never committed; no PR-tier test
+# fetches from the network. The history is one JSON file on the data branch `runs/runtime-watch` (docs/QA.md, "Runtime watch").
+# Daily at 01:17 UTC (owner 2026-11-13; a full run is about 1 h typical, about 4 h in the worst case; the schedule only takes effect on
+# master), and on demand (inputs: a case subset, no history update).
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated case ids (default: all). A subset run does not update the history.'
+        required: false
+        default: ''
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+permissions:
+  contents: write   # the history on the data branch runs/runtime-watch
+  issues: write     # the tracking issue "Runtime watch: outliers"
+
+concurrency:
+  group: runtime-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    # not on forks: the job pushes to a data branch and writes issues
+    if: github.repository == 'harmengrossedeters/geometry3Sharp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300   # 17 Alpha Wrap tail cases alone can take 2 h if they all hit their 400 s timeout
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Validate the case list
+        run: python3 tools/runtime_watch.py validate tools/runtime-watch/cases.json
+      - name: Build the benchmark programs
+        run: |
+          dotnet build benchmarks/BooleanComparison/BooleanComparison.csproj -c Release
+          dotnet build benchmarks/MeshRepairBenchmark/MeshRepairBenchmark.csproj -c Release
+      - name: Measure
+        env:
+          ONLY: ${{ inputs.only }}
+        run: python3 tools/runtime_watch.py run tools/runtime-watch/cases.json --out results.json --only "$ONLY" --sha "$GITHUB_SHA"
+      - name: Fetch the history
+        run: |
+          # exit 2 of ls-remote = the branch does not exist yet (first run); any other failure stops the job instead of
+          # judging against an empty history
+          rc=0; git ls-remote --exit-code --heads origin runs/runtime-watch > /dev/null || rc=$?
+          if [ "$rc" = 0 ]; then git fetch --depth=1 origin runs/runtime-watch:refs/remotes/origin/runs/runtime-watch
+          elif [ "$rc" != 2 ]; then exit "$rc"; fi
+          git show origin/runs/runtime-watch:history.json > history.json 2>/dev/null || echo '{"version": 1, "entries": {}}' > history.json
+      - name: Evaluate
+        id: eval
+        run: |
+          set -o pipefail
+          python3 tools/runtime_watch.py evaluate results.json --history history.json --out-history history-new.json --report report.md | tee -a "$GITHUB_OUTPUT"
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-watch-results
+          path: |
+            results.json
+            report.md
+            history-new.json
+      - name: Report outliers in the tracking issue
+        if: steps.eval.outputs.notify == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh issue list --state open --search 'in:title "Runtime watch: outliers"' --json number,title --jq '[.[] | select(.title == "Runtime watch: outliers")] | .[0].number // empty')
+          { echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (commit $GITHUB_SHA)"; echo; cat report.md; } > comment.md
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file comment.md
+          else gh issue create --title "Runtime watch: outliers" --body-file comment.md; fi
+      - name: Update the history on runs/runtime-watch
+        if: ${{ !cancelled() && steps.eval.conclusion == 'success' && (github.event_name == 'schedule' || inputs.only == '') }}
+        run: |
+          d=$(mktemp -d)
+          git worktree add -q --detach "$d"
+          cd "$d"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git rev-parse -q --verify origin/runs/runtime-watch > /dev/null; then
+            git checkout -q -B runs/runtime-watch origin/runs/runtime-watch
+          else
+            git checkout -q --orphan runs/runtime-watch
+            git rm -rqf .
+          fi
+          cp "$GITHUB_WORKSPACE/history-new.json" history.json
+          mkdir -p results && cp "$GITHUB_WORKSPACE/results.json" "results/${GITHUB_SHA}.json"
+          git add history.json results
+          git diff --cached --quiet && exit 0
+          git commit -q -m "Runtime watch ${GITHUB_SHA}"
+          git push origin runs/runtime-watch

@@ -12,7 +12,7 @@ result="$work/result.log"
 cd "$work"
 "$base/fptaylor" --opt bb-eval --abs-error true --opt-exact true "$input" > "$result" 2>&1 || { cat "$result" >&2; exit 1; }
 cat "$result"
-python3 - "$result" <<'PY'
+"${PYTHON:-python3}" - "$result" <<'PY'
 from decimal import Decimal, InvalidOperation
 import re, sys
 text = open(sys.argv[1], encoding='utf-8').read()

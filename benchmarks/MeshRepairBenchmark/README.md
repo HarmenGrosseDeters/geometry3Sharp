@@ -810,7 +810,8 @@ input), the exact resolve, the solidify, or the alpha wrap (last resort, see abo
 strict criterion and why the earlier stages were not used. One row per mesh (category, stage, outcome, reasons,
 Hausdorff, IoU, triangles, time): [`cases/robust_stages_2026-10-25.csv`](cases/robust_stages_2026-10-25.csv).
 The run below is master after #47 (alpha wrap fallback), before #44 (touching edges in the exact resolve),
-#49 (faster checks) and #40 (orientation seams); it will be replaced by the final run.
+#49 (faster checks) and #40 (orientation seams). Update 2026-11-12: this table was not rerun; the path taken on
+master of 2026-10-25 night is in the next section, the stage times of 1 November in "Time per stage" above.
 
 Stage that produced the result, and its outcome ("deviation": Hausdorff ≥ 1 % of the diagonal):
 
@@ -873,7 +874,7 @@ the median, so they rarely meet the strict criterion. Their inputs are mostly me
 take: not closed in the winding number sense, or whose resolved solid differs from the input's.
 
 
-### `robust` on the current master (both selections)
+### `robust` on master of 2026-10-25 night (both selections)
 Master of 2026-10-25 night (`56a8ed5`), with the changes merged since `a66049b`: among them the exact resolve
 before the solidify, the alpha wrap as the last resort (#47) and the faster checks (#49). Before: the holdout run above (build `a66049b`). Same machine, `BENCH_P=2
 TIMEOUT=300`. The large meshes of the first selection were not rerun.
@@ -1165,6 +1166,24 @@ Two earlier versions on the same 13 meshes (master `3d58441`):
   wrap can then reach the input (the wrap lies only about one offset outside it), and on 87345.stl the quadric
   underestimated the distance (2.5 offsets, rejected by the check).
 
+Retry of an uncertified simplification in two stages (#747, 2026-11-13): first with `Reducer.SampleDeviation` (the
+centroid and edge midpoints of each new triangle within half the distance of the unsimplified wrap: a sampled filter,
+not a certificate; the certification still decides), then, only if that is not certified either, with
+`Reducer.MaxDeviation` (#763). `wrappipe`, `BENCH_FIDELITY=0`, the 5 wraps of the 800 sample whose first pass is not
+certified plus 30 that are (seed 747), master `cbb96ad` vs the change: the 30 give the same output bit for bit (time
+sum x1.012); the 5 all certify in the sampled stage:
+
+| mesh | pipeline before | after | triangles before | after |
+|---|---:|---:|---:|---:|
+| 175914 | 84.8 s | 29.3 s | 114,202 | 114,276 |
+| 42179 | 49.2 s | 19.4 s | 101,804 | 101,886 |
+| 64891 | 14.2 s | 8.8 s | 65,072 | 65,072 |
+| 67121 | 26.1 s | 8.1 s | 39,172 | 39,188 |
+| 69259 | 30.3 s | 14.4 s | 49,904 | 49,970 |
+
+The same sampled guard in the first pass was discarded: median pipeline +9.2 %, simplification +24 %, every output
+changed.
+
 ## Alpha wrap quality pass (`MeshRobustRepair.AlphaWrapQualityPass`, stage 7b)
 
 The simplified wrap keeps slivers: the `Reducer` stops at needles and caps of about 1.7 degrees.
@@ -1184,6 +1203,9 @@ The angle diagnostics of the result are in `AlphaWrapMinAngleDegrees`, `AlphaWra
 above 170 degrees is kept, and only these fields show it.
 
 Switches:
+- `BENCH_WRAP_FEATURES=1` (`wrappipe`): the sharp-feature pass (`AlphaWrapFeaturePass`, `MeshRobustRepair.AlphaWrapSharpFeatures`)
+  on the raw wrap before the simplification (off by default, as in the library); `features` = plane moves / crease snaps / splits / flips /
+  rejected, phase `wrap.features`.
 - `BENCH_WRAP_QUALITY=1`: turns the pass on (off by default, as in the library; in `wrappipe` mode it was on unless
   `BENCH_WRAP_QUALITY=0` until 2026-11-09).
 - `BENCH_WRAP_THREADS=n`: threads of the simplification's partitioned reduction (0, the default: the platform's; the
@@ -1604,3 +1626,110 @@ triangle count of about one mesh in seven and, through the later stages, the pat
 (1.00 % instead of 0.99 %), 1505037.stl and 94484.stl are wrapped instead of resolved exactly (IoU 0.993 → 0.926 and
 0.991 → 0.973, neither repaired before), 1368057.stl no longer times out. 57312.stl now gives 36154 triangles every
 run (10 of 10 processes with the final build).
+
+## Alpha Wrap 3.0 L1: oracle pruning (`AlphaWrapOracle`, #681)
+
+Bit-identical to master: the segment query (rule 1) computes the direction's reciprocals once per query, no longer repeats
+the child box test, and tests each triangle's vertex balls once; the touch test skips BVH nodes that a face plane of the
+tetrahedron separates (the last separating face at inner nodes, all four at leaves); nodes as one array of structs.
+
+`BENCH_REPAIR=wrappipe BENCH_FIDELITY=hd TIMEOUT=400`, one process at a time on the 4-core container, master cab88798 and
+the branch alternating per mesh, the 24-mesh list of `runs/alpha-wrap-3` (`aw3/l4/list_ab.txt`; scripts `aw3/l4/ab.sh`,
+`aw3/l1/ab2.py`), sums:
+
+| | master | L1 | ratio |
+|---|---:|---:|---:|
+| pipeline | 242.5 s | 230.2 s | **0.949** (median 0.968) |
+| wrap | 171.5 s | 158.0 s | 0.921 |
+| intersection oracle (`wrap*/intersection`) | 35.2 s | 22.2 s | **0.631** |
+| touch test (`wrap*/touch`) | 25.5 s | 26.5 s | 1.040 |
+| insertion (unchanged code) | 31.3 s | 31.7 s | 1.013 |
+
+Output 24/24 identical (`after_hash`, raw triangles); the 269 meshes of phase 1: 269/269 identical. The face test is a
+tail lever: 48367 (46 % touch) 4.0 s -> 0.57 s of touch; leaf-only face tests (1.6 s there) and all four faces at every
+node (slower on typical meshes) were measured and not taken.
+
+## Alpha Wrap 3.0 lever 2: raw-size budget (`WrapMaxEstimatedTriangles`, #694)
+
+The wrap's size, and the time of the wrap and its simplification, go with the input's surface area / alpha^2, not with its
+triangle count: the corpus case "flat" (`RegressionCorpusTests`, a closed sphere of 260 triangles flattened onto z = 0) wraps
+to 211,614 raw triangles at the default alpha (diagonal / 300). `MeshAlphaWrap.MaxEstimatedTriangles` (through
+`MeshRobustRepair.WrapMaxEstimatedTriangles`; off by default) estimates the size before the refinement as
+`EstimateDensity` (3) * input area / alpha^2 and, above the budget, scales alpha and offset by sqrt(estimate / budget)
+(`AlphaCoarsening`, `AlphaWrapCoarsening`). `BENCH_WRAP_BUDGET=n` sets it; `robust_wrap_estimate` and
+`robust_wrap_coarsening` are in the output.
+
+Density measured (relative alpha 50 to 200, raw triangles per area / alpha^2): closed solids (sphere, box, plate of 1/100
+thickness) 1.35 to 1.7; a closed surface of zero volume ("flat") 3.0 to 3.3; an open disc 6.0 to 6.6 (the wrap covers both
+sides). So the estimate is about twice the size of a closed solid and about half that of an open sheet.
+
+`BENCH_REPAIR=robust BENCH_FIDELITY=0`, the two corpus cases (written from the test harness, `Defects`), 2 runs each (equal
+outputs), 4-core container, one process at a time:
+
+| case | budget | repair time | raw wrap triangles | estimate | coarsening |
+|---|---|---:|---:|---:|---:|
+| flat | off | 10.1-10.6 s | 211,614 | 213,290 | 1 |
+| flat | 20,000 | 3.4-3.5 s | 20,654 | | 3.27 |
+| flat | 8,000 | 2.6 s | 8,642 | | 5.16 |
+| partly flipped | off | 8.6-8.8 s | 129,632 | 288,187 | 1 |
+| partly flipped | 20,000 | 3.8-4.1 s | 9,466 | | 3.80 |
+| partly flipped | 8,000 | 3.5-4.1 s | 3,994 | | 6.00 |
+
+All results closed and clean. "partly flipped" is a closed sphere with flipped triangles: its estimate is 2.2 times its
+size, as for closed solids. The coarsened wrap is a complete wrap at the larger alpha (bit for bit the wrap with that
+alpha and offset given), so it wraps over cavities and gaps up to about 2 * UsedAlpha.
+
+## Alpha Wrap 3.0 lever (B): round-based parallel carving (`MeshAlphaWrap`, 2026-11-13)
+
+The main carving in rounds of gates with disjoint cells, evaluated in parallel, committed in heap order
+([docs/design/ALPHA_WRAP_ROUNDS.md](../../docs/design/ALPHA_WRAP_ROUNDS.md)); the output bits change against master, the
+resolution does not (alpha, offset, size criterion unchanged; raw triangles +0.03 %). Run: master 58644af against the
+branch, `BENCH_REPAIR=wrappipe BENCH_FIDELITY=none` (alpha = diag / 300, offset = diag / 3000, warm = soup, quality pass
+off), one process at a time on the 4-core cloud container (default thread count 4). Corpus: the first 20 of the
+performance study's tail list and its normal stratum of 30 meshes near the median (`aw3study/list_tail.txt`,
+`list_normal.txt` on runs/alpha-wrap-3-fable), Thingi10K sample800 seed 2611. 50 / 50 closed on both.
+
+| | tail 20: master | rounds | normal 30: master | rounds |
+|---|---:|---:|---:|---:|
+| pipeline (`pipe_ms`) sum / max | 760 s / 87.9 s | 603 s / 81.5 s (1.26x) | 179 s / 8.5 s | 163 s / 6.8 s (1.10x) |
+| wrap sum | 544 s | 401 s (1.36x) | 109 s | 92 s (1.19x) |
+| main carving (`wrap/carve`) sum / max | 402 s / 51.6 s | 263 s / 40.0 s (1.53x) | 82 s / 3.9 s | 65 s / 2.8 s (1.27x) |
+| final p01 median / worst | 11.36 / 10.79 | 11.42 / 10.74 | 11.49 / 10.90 | 11.52 / 10.81 |
+| final min angle median / worst | 6.99 / 1.29 | 6.84 / 2.95 | 9.98 / 4.74 | 8.45 / 4.64 |
+| raw p01 median / worst | 20.90 / 15.78 | 20.93 / 15.77 | 20.44 / 17.21 | 20.45 / 17.23 |
+| raw min angle median / worst | 6.18 / 0.72 | 6.84 / 2.95 | 8.98 / 4.26 | 8.44 / 4.34 |
+| final triangles < 0.5 deg / > 170 deg | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+
+Paired per mesh: final p01 difference median -0.00 (tail) / +0.01 (normal); raw p01 within -0.62 .. +0.73; the min angle
+is one triangle per mesh and moves both ways (tail: median +0.59, 3 meshes more than 0.5 deg worse; normal: median
+-0.02, 10 worse, 9 better). The three large p01 / triangle differences are the known case of a simplification that is
+not applied (the result is the raw wrap, p01 about 20): 78968 is unsimplified with the rounds (master simplified it),
+111959 and 67121 are unsimplified on master and simplified with the rounds; without them the final triangle sums differ
+by less than 0.5 %. That defect check is the AW3 session's (roadmap, "Lever choice"); the rounds only change which raw
+wraps hit it.
+
+Where the time goes: on the tail the main carving is 1.53x faster on 4 cores; the remaining serial parts (pinch and
+manifold trials, the rest of the wrap, the serial share of the simplification) bound the pipeline at 1.26x. A round
+evaluates more than the serial loop evaluates: gates deferred because an earlier gate of the round took their cells are
+evaluated again (deferred / kept 0.46 on 40118, about 0.2 elsewhere), and the evaluation runs about 1.2x slower per gate
+on 4 threads than on one (memory access over a triangulation of up to 7.6 M cells). Before the fixed thread team
+(`core/WorkerTeam.cs`), `Parallel.For` per round phase kept only about 2 of the 4 threads busy (49998: carve 14.7 s
+against 10.3 s with the team). 16 cores were not available here; the next lever for the tail is the parallel trial
+passes (second PR).
+
+### Lever (B), part 2: the trial passes in parallel (2026-11-14)
+
+The pinch refinement's and the manifold step's passes run in parallel (the stars by vertex ranges, the pocket search
+level-synchronous, the manifold step's vertex checks prechecked; [ALPHA_WRAP_ROUNDS.md](../../docs/design/ALPHA_WRAP_ROUNDS.md)
+section 5). The result is the serial passes' bit for bit: 50 / 50 outputs equal to the round-based carving alone. The run and
+corpus are those of the section above: 4 cores, `wrappipe`; master 58644af, the round-based carving, and both levers together.
+
+| | tail 20: master | rounds | rounds + trials | normal 30: master | rounds | rounds + trials |
+|---|---:|---:|---:|---:|---:|---:|
+| pipeline sum / max | 760 s / 87.9 s | 603 s / 81.5 s | 515 s / 68.7 s (1.47x) | 179 s / 8.5 s | 163 s / 6.8 s | 153 s / 6.4 s (1.17x) |
+| wrap sum / max | 544 s / 66.7 s | 401 s / 62.2 s | 326 s / 50.3 s (1.67x) | 109 s / 5.1 s | 92 s / 3.8 s | 83 s / 3.4 s (1.30x) |
+
+On 860049 (the trial-heaviest tail mesh) the trials fall from 14.5 s to 6.9 s and the final manifold step from 1.8 s to
+0.55 s. Of the remaining trial time, about 3 s goes to the pocket searches, and the local trials with few seed vertices
+stay serial. A first version of the stars with atomic counters was no faster than serial (4.3 s either way, memory bound);
+the vertex-range version scans the cells once per part.

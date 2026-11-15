@@ -3,6 +3,7 @@
 Status: stage 1 done (2026-11-08); owner decision the same day: see section 0. Stage 2 merged in #448 (fb114adf, 2026-11-09,
 `spatial/MeshBatchQueries.cs`). Stage 1 changed no library code. The benchmark prototype is
 [benchmarks/BatchQueryBenchmark](../../benchmarks/BatchQueryBenchmark/README.md) (raw results there).
+Update 2026-11-12: the caller profile of section 7 was merged in #678; nothing is switched.
 
 ## 0. Decisions (owner, 2026-11-08)
 
@@ -40,7 +41,7 @@ Finding on the way: `FindNearestTriangle`'s choice among equidistant triangles (
   also defined for open meshes.
 - Nearest point in the same pattern: sorted + parallel 3.7-7.2x, bit-identical (section 3).
 - Recommendation: stage 2 = **b1 only** (new static class, new file, no new tree, no SIMD). It is small, exact by
-  construction, allocation-free, and does not touch `DMeshAABBTree3.cs`.
+  construction, allocation-free, and does not touch `spatial/DMeshAABBTree.cs`.
 
 ## 2. Prior art ("how others solve it")
 
@@ -199,7 +200,7 @@ MCP: tools `raycast` and `inside` with the same schema (the `Param` list), array
 ## 6. Open questions for the coordinator / owner
 
 - Decided: the first PR has nearest hit and any-hit (`IntersectBatch`, `AnyHitBatch`, same options and statuses; any-hit equals `FindNearestHitTriangle(ray, maxDistance) != InvalidID`); all-hits later.
-- b1 with the Lévy phase-2 fast-winding cache: the winding batch only calls `FastWindingNumber`, so it needs no change when that PR lands.
+- b1 with the Lévy phase-2 fast-winding cache: the winding batch only calls `FastWindingNumber`, so it needs no change when that PR lands. (Update 2026-11-12: Lévy phase 2 merged in #501.)
 
 ## 7. Profile of the internal callers (2026-11-12)
 

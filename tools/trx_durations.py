@@ -18,6 +18,17 @@ The backlog (tests/geometry3Sharp.Tests/SLOW_BACKLOG.txt) has one `Class.Method`
 trx: every method with a row of --backlog-from seconds or more (default 4: a margin under the threshold, the CI
 runner is not the machine the list was made on).
 
+Isolated re-run (contention): in a full run the test classes and the library's parallel loops compete for the cores, so a
+test takes several times its time alone (RemeshReduceCampaignTests.Reducer 3 to 95 s between runs of the same code, 6 s
+alone). The rule is judged on the time alone:
+  - --rerun-filter FILE (with --slow-list and --backlog, no trx) writes the expression for the tests tagged Slow and the
+    backlog methods: the candidates, known before the full run, so CI re-runs them in a job parallel to it;
+  - --flag-filter FILE writes a `dotnet test --filter` expression for every method with a row of --threshold seconds or
+    more (or of --flag-from);
+  - the flagged tests run again alone (`dotnet test --no-build --filter "$(cat FILE)" --logger trx -- xUnit.ParallelizeTestCollections=false`), and --isolated TRX... gives that trx: the time of a test in it replaces its time in the full run for
+    the ratchet and the lists (the full-run time stays in the report as "full run N s"). Rows that were not re-run keep
+    their full-run time.
+
 Usage:
     python3 tools/trx_durations.py <file.trx>... [--slow-list <file>] [--top N] [--threshold SECONDS]
         [--fail-above SECONDS] [--backlog FILE [--backlog-base FILE] [--max-seconds S]] [--summary <markdown file>]
@@ -96,6 +107,54 @@ def make_backlog(rows, floor):
     return sorted(k for k, v in max_by_method(rows).items() if v >= floor)
 
 
+def flag_filter(rows, threshold):
+    """-> a `dotnet test --filter` expression (FullyQualifiedName~Class.Method joined by |) for the methods with a row of
+    threshold seconds or more; the namespace and nested classes (Outer+Inner) are kept, theory arguments dropped."""
+    methods = set()
+    for name, sec, _, _ in rows:
+        if sec >= threshold:
+            methods.add(name.split("(")[0])
+    return "|".join("FullyQualifiedName~" + m for m in sorted(methods))
+
+
+def rerun_filter(slow_names, backlog):
+    """-> a `dotnet test --filter` expression for the tests that can be above the rule: the tests tagged Slow (their names from
+    `--list-tests`, theory arguments dropped) and the methods on the backlog (`Class.Method`). CI re-runs these alone in a job of its
+    own, in parallel to the full run, whose trx is not needed to know them (the rule is: a test of 5 s or more carries Slow)."""
+    parts = {m.split("(")[0] for m in slow_names} | set(backlog)
+    return "|".join("FullyQualifiedName~" + m for m in sorted(parts))
+
+
+def merge_isolated(rows, isolated):
+    """-> (rows with the time alone where a test was re-run, {name: full-run seconds}). A test is matched by its display
+    name; a re-run that did not pass keeps the full-run time."""
+    alone = {}
+    for name, sec, outcome, _ in isolated:
+        if outcome == "Passed":
+            alone[name] = max(alone.get(name, 0.0), sec)       # (equal display names: the slowest)
+    merged, full = [], {}
+    for name, sec, outcome, slow in rows:
+        if name in alone:
+            full[name] = sec
+            merged.append((name, alone[name], outcome, slow))
+        else:
+            merged.append((name, sec, outcome, slow))
+    return merged, full
+
+
+def missing_from_rerun(rows, isolated, threshold):
+    """-> [(name, full-run seconds)] for the tests of threshold seconds or more in the full run that the isolated trx has no
+    passed result for (the filter missed them, or the re-run failed or was cut off): they stay judged on the full-run time."""
+    ok = {name for name, _, outcome, _ in isolated if outcome == "Passed"}
+    return sorted(((n, sec) for n, sec, _, _ in rows if sec >= threshold and n not in ok), key=lambda x: -x[1])
+
+
+def potential_defects(rows, alone_by_name, limit):
+    """-> [(name, full-run seconds, seconds alone or None)] for the tests above limit seconds in the run (owner 2026-11-12: a
+    test above 20 s in any run, the full run included, is a potential defect and gets an issue with a diagnosis)."""
+    return sorted(((n, sec, alone_by_name.get(n)) for n, sec, _, _ in rows if sec > limit), key=lambda x: -x[1])
+
+
 def ratchet(rows, backlog, base, threshold, max_seconds, fail_from=7.0):
     """-> list of error lines (the untagged tests from threshold to fail_from are not errors: see untagged_warnings)."""
     errors = []
@@ -123,7 +182,7 @@ def untagged_warnings(rows, backlog, threshold, fail_from=7.0):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("trx", nargs="+")
+    p.add_argument("trx", nargs="*")
     p.add_argument("--slow-list", help="output of dotnet test --list-tests --filter Category=Slow")
     p.add_argument("--top", type=int, default=20)
     p.add_argument("--threshold", type=float, default=5.0)
@@ -136,12 +195,38 @@ def main(argv=None):
     p.add_argument("--fail-from", type=float, default=7.0, help="untagged tests from this many seconds fail the ratchet (default 7)")
     p.add_argument("--make-backlog", help="write a backlog from the trx to this file and stop")
     p.add_argument("--backlog-from", type=float, default=4.0)
+    p.add_argument("--flag-filter", help="write a dotnet test --filter expression for the tests of --flag-from seconds or more and stop")
+    p.add_argument("--flag-from", type=float, default=None, help="default: --threshold")
+    p.add_argument("--rerun-filter", help="write a dotnet test --filter expression for the tests tagged Slow (--slow-list) and the backlog (--backlog), no trx needed, and stop")
+    p.add_argument("--defect-above", type=float, default=20.0, help="tests above this many seconds in any run are listed as potential defects (default 20)")
+    p.add_argument("--isolated", nargs="+", help="trx of the flagged tests run again alone: their times replace the full-run times")
     a = p.parse_args(argv)
 
+    if a.rerun_filter:
+        expression = rerun_filter(read_slow_list(a.slow_list) if a.slow_list else set(), read_backlog(a.backlog) if a.backlog else set())
+        with open(a.rerun_filter, "w", encoding="utf-8", newline="\n") as f:
+            f.write(expression)
+        print(f"{expression.count('FullyQualifiedName~')} methods to re-run alone")
+        return 0
+    if not a.trx:
+        p.error("a trx file is needed (or --rerun-filter)")
     rows = [r for f in a.trx for r in read_trx(f)]
     if a.slow_list:
         names = read_slow_list(a.slow_list)
         rows = [(n, sec, o, slow or n in names) for n, sec, o, slow in rows]
+    if a.flag_filter:
+        expression = flag_filter(rows, a.flag_from if a.flag_from is not None else a.threshold)
+        with open(a.flag_filter, "w", encoding="utf-8", newline="\n") as f:
+            f.write(expression)
+        print(f"{expression.count('FullyQualifiedName~')} methods flagged")
+        return 0
+    full_run, alone_by_name, missing = {}, {}, []
+    original = rows
+    if a.isolated:
+        isolated_rows = [r for f in a.isolated for r in read_trx(f)]
+        missing = missing_from_rerun(rows, isolated_rows, a.flag_from if a.flag_from is not None else a.threshold)
+        rows, full_run = merge_isolated(rows, isolated_rows)
+        alone_by_name = {n: sec for n, sec, _, _ in rows if n in full_run}
     if a.make_backlog:
         entries = make_backlog(rows, a.backlog_from)
         with open(a.make_backlog, "w", encoding="utf-8", newline="\n") as f:
@@ -151,25 +236,40 @@ def main(argv=None):
         print(f"{len(entries)} entries written")
         return 0
     total = sum(r[1] for r in rows)
-    lines = [f"{len(rows)} tests, sum of durations {total:.0f} s", ""]
+    lines = [f"{len(rows)} tests, sum of durations {total:.0f} s" + (f" ({len(full_run)} of them as measured alone)" if full_run else ""), ""]
+    def note(name):
+        return f"  (full run {full_run[name]:.1f} s)" if name in full_run else ""
     lines.append(f"Slowest {a.top} tests:")
     for name, sec, outcome, slow in sorted(rows, key=lambda r: -r[1])[:a.top]:
-        lines.append(f"  {sec:8.1f} s  {'Slow    ' if slow else 'untagged'}  {name}")
+        lines.append(f"  {sec:8.1f} s  {'Slow    ' if slow else 'untagged'}  {name}{note(name)}")
     untagged = sorted((r for r in rows if r[1] >= a.threshold and not r[3]), key=lambda r: -r[1])
     tagged_fast = sorted((r for r in rows if r[3] and r[1] < a.threshold / 5), key=lambda r: -r[1])
     lines += ["", f"Tests of {a.threshold:g} s or more without the trait Category=Slow: {len(untagged)}"]
     for name, sec, _, _ in untagged[:50]:
-        lines.append(f"  {sec:8.1f} s  {name}")
+        lines.append(f"  {sec:8.1f} s  {name}{note(name)}")
     if len(untagged) > 50:
         lines.append(f"  ... and {len(untagged) - 50} more")
     lines += ["", f"Tests tagged Slow that took less than {a.threshold / 5:g} s: {len(tagged_fast)} (candidates to untag)"]
     for name, sec, _, _ in tagged_fast[:5]:
         lines.append(f"  {sec:8.1f} s  {name}")
+    if missing:
+        lines += ["", f"Flagged in the full run but without a passed result in the re-run alone: {len(missing)} (judged on the full-run time)"]
+        lines += [f"  {sec:8.1f} s  {name}" for name, sec in missing[:50]]
+        if len(missing) > 50:
+            lines.append(f"  ... and {len(missing) - 50} more")
+    defects = potential_defects(original, alone_by_name, a.defect_above)
+    if defects:
+        lines += ["", f"Potential defects: {len(defects)} tests above {a.defect_above:g} s in the full run (owner rule 2026-11-12: each gets an issue with a diagnosis)"]
+        for name, sec, alone in defects[:50]:
+            lines.append(f"  {sec:8.1f} s  {name}" + (f"  (alone {alone:.1f} s)" if alone is not None else "  (not re-run alone)"))
+        if len(defects) > 50:
+            lines.append(f"  ... and {len(defects) - 50} more")
     errors = []
     if a.backlog:
         backlog = read_backlog(a.backlog)
         base = read_backlog(a.backlog_base) if a.backlog_base else None
         errors = ratchet(rows, backlog, base, a.threshold, a.max_seconds, a.fail_from)
+        errors = [e + next((note(n) for n in full_run if e.endswith(": " + n)), "") for e in errors]
         warnings = untagged_warnings(rows, backlog, a.threshold, a.fail_from)
         lines += ["", f"Ratchet: backlog of {len(backlog)} methods, {len(errors)} violations, {len(warnings)} warnings (untagged, {a.threshold:g} to {a.fail_from:g} s)"]
         lines += ["  " + e for e in errors[:50]] + ["  warning: " + w for w in warnings[:50]]

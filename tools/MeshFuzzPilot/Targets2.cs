@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Clipper2Lib;
 using g3;
 using g3.Clipper2;
 using gs;
@@ -165,7 +164,7 @@ public static partial class Program
         // the scale claim holds inside the Reducer's range (QA.md 2.5a: nonzero coordinates 2^-200 .. 2^200; the copy is 2^40 larger): a mesh
         // with a coordinate of a tiny magnitude beside large ones (the case's offset against its extent) is judged without it
         double k = Pow2(40);
-        bool inRange = input.Vertices().All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || (Math.Abs(v) >= Pow2(-200) && Math.Abs(v) <= Pow2(150))));
+        bool inRange = !HasHugeCoordinates(input) && input.Vertices().All(p => new[] { p.x, p.y, p.z }.All(v => v == 0 || Math.Abs(v) >= Pow2(-200)));
         DMesh3? scaled = null;
         if (inRange) {
             DMesh3 big = new DMesh3(input);
@@ -192,17 +191,15 @@ public static partial class Program
 
     /// <summary>
     /// The open findings of the 2D mesher that this target meets (FINDINGS.md, second wave), so that a campaign goes on to other findings;
-    /// MESH_FUZZ_STRICT=1 turns the gate off. 1: AngleBelowBound only, with a minimum angle, in any quality mode (about 1 in 700
-    /// random inputs, a projected polyhedron with 17 to 36 crossing segments, the Steiner limit not reached). 2: VertexUnused / SegmentMissing only,
-    /// for coordinates more than 2^16 extents from the origin (the automatic snap grid).
+    /// MESH_FUZZ_STRICT=1 turns the gate off. VertexUnused / SegmentMissing only, for coordinates more than 2^16 extents from the origin
+    /// (the automatic snap grid). (AngleBelowBound alone was gated too, until #637: the oracle's small-input-angle rule missed T-junctions
+    /// whose end lies a rounding beside the other segment, fixed with #664; it is judged again.)
     /// </summary>
     static string? KnownMesher2Class(Mesh2Input input, OracleReport report)
     {
         if (Environment.GetEnvironmentVariable("MESH_FUZZ_STRICT") == "1")
             return null;
         var kinds = new HashSet<Violation>(report.Violations.Select(v => v.Kind));
-        if (kinds.Count > 0 && kinds.IsSubsetOf(new[] { Violation.AngleBelowBound }) && input.MinAngleDeg != null)
-            return "AngleBelowBound";
         double far = Math.Max(input.X.Max(v => Math.Abs(v)), input.Y.Max(v => Math.Abs(v)));
         if (kinds.Count > 0 && kinds.IsSubsetOf(new[] { Violation.VertexUnused, Violation.SegmentMissing, Violation.ChainSkipsHotPixel }))
             return far > Pow2(16) ? "VertexUnused / SegmentMissing far from the origin" : "VertexUnused / SegmentMissing";

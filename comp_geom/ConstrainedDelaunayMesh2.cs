@@ -155,6 +155,9 @@ namespace g3
             /// </summary>
             internal int HullSegmentsFrom = int.MaxValue, HullSegmentsTo = int.MaxValue;
             internal bool HullFromSegments => HullSegmentsFrom != int.MaxValue;
+            /// <summary> input points and input segments that refinement left in no triangle (QualityMesh2: parts narrower than the
+            /// tolerance); published on the mesh for the tests </summary>
+            internal int[] DroppedInputPoints = new int[0], DroppedInputSegments = new int[0];
             internal readonly ConstrainedMesh2Input input;
             readonly bool resolve;
             internal readonly CancellationToken cancel;
@@ -256,6 +259,10 @@ namespace g3
             /// Points within the automatic tolerance of an earlier point are merged into it (spec O11, Q14): they get its coordinates
             /// for the triangulation, so the kernel maps them to it as exact duplicates; their slots keep their own coordinates
             /// (D17). A point merges only into a point that merged into nothing, so no chain moves anything farther than the tolerance.
+            /// An exact duplicate of an earlier point takes that point's coordinates as they are then: identical inputs map to one vertex,
+            /// also when the earlier one merged into a third point (a merged point is not in the cells, so the duplicate found another point
+            /// within the tolerance, and the two inputs mapped differently; #863). The diagnostic counts the points merged into another
+            /// point; exact duplicates, also of a merged point, are not counted
             /// </summary>
             void MergeNearPoints(double[] x, double[] y)
             {
@@ -265,21 +272,25 @@ namespace g3
                 var cells = new Dictionary<long, List<int>>(PairKeys.Comparer);
                 long Key(long cx, long cy) => (cx << 32) ^ (cy & 0xffffffff);
                 int merged = 0;
+                var first = new Dictionary<(double, double), int>(n);
                 for (int i = 0; i < n; ++i) {
+                    // (keyed by the input coordinates, before any merge moved them; Run has turned -0 into 0 already)
+                    if (first.TryGetValue((x[i], y[i]), out int twin)) { x[i] = x[twin]; y[i] = y[twin]; continue; }
+                    first.Add((x[i], y[i]), i);
                     double sx = Scaled(x[i] - ox), sy = Scaled(y[i] - oy);
                     long cx = (long)Math.Floor(sx / cell), cy = (long)Math.Floor(sy / cell);
                     int into = -1;
                     for (long dx = -1; dx <= 1 && into < 0; ++dx)
                         for (long dy = -1; dy <= 1 && into < 0; ++dy) {
                             if (!cells.TryGetValue(Key(cx + dx, cy + dy), out var list)) continue;
+                            // (no exact duplicate of a point in the cells comes here: the cells hold first occurrences at their input
+                            // coordinates, and a later occurrence took the branch above)
                             foreach (int j in list) {
-                                if (x[j] == x[i] && y[j] == y[i]) { into = -2; break; }   // an exact duplicate: the kernel maps it
                                 double ex = Scaled(x[i] - x[j]), ey = Scaled(y[i] - y[j]);
                                 if (ex * ex + ey * ey <= tol2) { into = j; break; }
                             }
                         }
                     if (into >= 0) { x[i] = x[into]; y[i] = y[into]; ++merged; continue; }
-                    if (into == -2) continue;
                     if (!cells.TryGetValue(Key(cx, cy), out var own)) cells.Add(Key(cx, cy), own = new List<int>());
                     own.Add(i);
                 }
@@ -320,7 +331,7 @@ namespace g3
                 }
             }
 
-            int KV(int inputIndex) => k.Vertex[rank[inputIndex]];
+            internal int KV(int inputIndex) => k.Vertex[rank[inputIndex]];
 
             void InitHeights()
             {
@@ -1042,6 +1053,7 @@ namespace g3
                     for (int t = 0; t < slots; ++t) if (id[t] >= 0 && IsBad(t)) bad.Add(id[t]);
                 mesh.BadTriangles = bad.AsReadOnly();
                 mesh.SteinerLimitReached = SteinerLimitReached;
+                mesh.DroppedInputPoints = DroppedInputPoints; mesh.DroppedInputSegments = DroppedInputSegments;
                 var status = count == 0 ? Triangulation2Status.Empty : Triangulation2Status.Success;
                 return new ConstrainedTriangulation2Result(status, Triangulation2FailureKind.None, mesh, diagnostics);
             }

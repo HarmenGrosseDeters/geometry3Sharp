@@ -1,0 +1,336 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Text.Json.Nodes;
+using Xunit;
+using g3;
+using static g3cli.Tests.TestMeshes;
+
+namespace g3cli.Tests
+{
+    /// <summary> offset (MeshSignedDistanceGrid + MarchingCubes, root modes incl. LinearEdges; docs/design/CLI_MCP_UPDATE.md section 1). The cube is [-1, 1]^3. </summary>
+    public class OffsetCliTests : IClassFixture<TestMeshes>
+    {
+        readonly TestMeshes m;
+        public OffsetCliTests(TestMeshes meshes) { m = meshes; }
+
+        static void AssertError(int exit, JsonObject r, string code)
+        {
+            Assert.Equal("error", S(r["status"]));
+            Assert.Equal(code, S(r["code"]));
+            Assert.Equal(ResultCodes.ExitCode(code), exit);
+        }
+
+        // the volume of the cube [-1,1]^3 grown by d: 8 + 6 * 4 d + 12 * 2 * pi d^2 / 4 + 4 pi d^3 / 3
+        static double RoundedBoxVolume(double d) => 8 + 24 * d + 6 * Math.PI * d * d + 4 * Math.PI * d * d * d / 3;
+
+        [Fact]
+        public void Outward_IsTheRoundedBox()
+        {
+            string output = m.Path_("off_out.obj");
+            var (exit, r) = Run("offset", m.Cube, output, "--distance", "0.5", "--cell-size", "0.1", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["offset_status"]));
+            Assert.Equal("none", S(r["enclosure_claim"]));
+            Assert.Equal("single_lerp", S(r["root_mode"]));
+            Assert.Null(r["root_steps"]);
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.99 * RoundedBoxVolume(0.5), 1.01 * RoundedBoxVolume(0.5));
+            Assert.Equal(1.5, D(r["mesh"]["bounds"]["max"][0]), 3);
+            Assert.Equal(-1.5, D(r["mesh"]["bounds"]["min"][2]), 3);
+            Assert.Equal(8.0, D(r["input_mesh"]["volume"]), 9);
+            Assert.Equal(35, I(r["cells"][0]));
+            Assert.Equal(35L * 35 * 35, r["grid_cells"].GetValue<long>());
+            Assert.True(File.Exists(output));
+            Assert.Equal(I(r["mesh"]["triangles"]), StandardMeshReader.ReadMesh(output).TriangleCount);
+        }
+
+        [Fact]
+        public void Inward_IsTheSmallerCube_AndTooDeepIsEmpty()
+        {
+            var (exit, r) = Run("offset", m.Cube, m.Path_("off_in.obj"), "--distance=-0.5", "--cell-size", "0.1", "--compact");
+            Assert.Equal(0, exit);
+            Assert.InRange(D(r["mesh"]["volume"]), 0.9, 1.05);                        // the cube [-0.5, 0.5]^3, its edges cut by the cells
+            Assert.Equal(0.5, D(r["mesh"]["bounds"]["max"][1]), 3);
+            string never = m.Path_("never.obj");
+            var (e2, r2) = Run("offset", m.Cube, never, "--distance=-1.5", "--cell-size", "0.1", "--compact");
+            AssertError(e2, r2, "operation_failed");
+            Assert.Equal("empty", S(r2["offset_status"]));
+            Assert.False(File.Exists(never));
+        }
+
+        [Fact]
+        public void RelativeCellSize_DefaultsToAHundredthOfTheDiagonal()
+        {
+            double diagonal = 2 * Math.Sqrt(3);                                            // the box [-1, 1]^3
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("off_rel.obj"), "--distance", "0.2", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0.01 * diagonal, D(r1["cell_size"]), 12);
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("off_rel2.obj"), "--distance", "0.2", "--relative-cell-size", "0.05", "--compact");
+            Assert.Equal(0, e2);
+            Assert.Equal(0.05 * diagonal, D(r2["cell_size"]), 12);
+        }
+
+        [Theory]
+        [InlineData("single_lerp", null)]
+        [InlineData("lerp_steps", "3")]
+        [InlineData("bisection", "8")]
+        [InlineData("linear_edges", null)]
+        public void RootModes_GiveTheSameBoxWithinACell(string mode, string steps)
+        {
+            var args = new System.Collections.Generic.List<string> { "offset", m.Cube, m.Path_($"off_{mode}.obj"), "--distance", "0.5", "--cell-size", "0.1", "--root-mode", mode, "--compact" };
+            if (steps != null) { args.Add("--root-steps"); args.Add(steps); }
+            var (exit, r) = Run(args.ToArray());
+            Assert.Equal(0, exit);
+            Assert.Equal(mode, S(r["root_mode"]));
+            if (steps != null) Assert.Equal(int.Parse(steps), I(r["root_steps"]));
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.99 * RoundedBoxVolume(0.5), 1.01 * RoundedBoxVolume(0.5));
+        }
+
+        [Fact]
+        public void LinearEdges_FailsOnAViolatedPrecondition_WritesNothing_OtherModesAreFine()
+        {
+            // distance 0 on a grid whose corners lie on the faces of the cube: samples exactly at the iso value
+            string output = m.Path_("off_linear.obj");
+            var (exit, r) = Run("offset", m.Cube, output, "--distance", "0", "--cell-size", "0.25", "--root-mode", "linear_edges", "--compact");
+            AssertError(exit, r, "operation_failed");
+            Assert.Equal("linear_edges_precondition", S(r["offset_status"]));
+            Assert.Equal("none", S(r["enclosure_claim"]));
+            Assert.False(File.Exists(output));
+            var (e2, ok) = Run("offset", m.Cube, m.Path_("off_single.obj"), "--distance", "0", "--cell-size", "0.25", "--compact");
+            Assert.Equal(0, e2);
+            Assert.True(B(ok["mesh"]["closed"]));
+        }
+
+        [Fact]
+        public void ParallelOrNot_AndPowerOfTwoScales_GiveTheSameMesh()
+        {
+            var (_, a) = Run("offset", m.Cube, m.Path_("off_p.obj"), "--distance", "0.5", "--cell-size", "0.125", "--compact");
+            var (e, b) = Run("offset", m.Cube, m.Path_("off_s.obj"), "--distance", "0.5", "--cell-size", "0.125", "--no-parallel", "--compact");
+            Assert.Equal(0, e);
+            Assert.Equal(I(a["mesh"]["triangles"]), I(b["mesh"]["triangles"]));
+            Assert.Equal(D(a["mesh"]["volume"]), D(b["mesh"]["volume"]));
+            // the cube scaled by 2^k, distance and cell with it: the same triangles, the volume times s^3
+            foreach (int k in new[] { -3, 4 }) {
+                double s = Math.Pow(2, k);
+                DMesh3 cube = StandardMeshReader.ReadMesh(m.Cube);
+                MeshTransforms.Scale(cube, s, s, s);
+                string scaled = m.Path_($"cube_{k}.obj");
+                Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(scaled, cube, WriteOptions.Defaults).code);
+                var (e2, c) = Run("offset", scaled, m.Path_($"off_k{k}.obj"), "--distance", (0.5 * s).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    "--cell-size", (0.125 * s).ToString("R", System.Globalization.CultureInfo.InvariantCulture), "--compact");
+                Assert.Equal(0, e2);
+                Assert.Equal(I(a["mesh"]["triangles"]), I(c["mesh"]["triangles"]));
+                Assert.Equal(D(a["mesh"]["volume"]) * s * s * s, D(c["mesh"]["volume"]), 6);
+            }
+        }
+
+        [Theory]
+        [InlineData("--distance", "NaN")]
+        [InlineData("--distance", "0.5", "--cell-size", "0")]
+        [InlineData("--distance", "0.5", "--cell-size", "-1")]
+        [InlineData("--distance", "0.5", "--relative-cell-size", "0")]
+        [InlineData("--distance", "0.5", "--relative-cell-size", "1.5")]
+        [InlineData("--distance", "0.5", "--cell-size", "0.1", "--relative-cell-size", "0.01")]
+        [InlineData("--distance", "0.5", "--root-steps", "3")]                                       // single_lerp
+        [InlineData("--distance", "0.5", "--root-mode", "bisection", "--root-steps", "0")]
+        [InlineData("--distance", "0.5", "--root-mode", "bisection", "--root-steps", "65")]
+        [InlineData("--distance", "0.5", "--max-cells", "0")]
+        [InlineData("--distance", "0.5", "--cell-size", "0.01", "--max-cells", "1000")]                // too many cells
+        [InlineData("--distance", "1e9", "--cell-size", "0.1")]                                      // more than a million cells of distance
+        [InlineData("--distance=-25", "--cell-size", "0.1")]                                         // the signed distance grid is padded by the band on each side
+        [InlineData("--distance", "3", "--cell-size", "0.1", "--max-cells", "1000000")]              // 83^3 marching cubes cells, but 149^3 signed distance cells
+        public void BadArguments_AreInvalidArguments_AndWriteNothing(params string[] more)
+        {
+            string output = m.Path_("off_bad.obj");
+            if (File.Exists(output)) File.Delete(output);
+            var (exit, r) = Run(new[] { "offset", m.Cube, output, "--compact" }.Concat(more).ToArray());
+            AssertError(exit, r, "invalid_arguments");
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
+        public void AnInsideOutClosedInput_IsRefused()
+        {
+            DMesh3 cube = StandardMeshReader.ReadMesh(m.Cube);
+            cube.ReverseOrientation();
+            string flipped = m.Path_("cube_flipped.obj");
+            Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(flipped, cube, WriteOptions.Defaults).code);
+            string output = m.Path_("off_flipped.obj");
+            var (exit, r) = Run("offset", flipped, output, "--distance", "0.2", "--cell-size", "0.1", "--compact");
+            AssertError(exit, r, "operation_failed");
+            Assert.Equal("inside_out_input", S(r["offset_status"]));
+            Assert.Contains("negative volume", S(r["message"]));
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
+        public void MissingDistance_OpenMesh_AndFormats()
+        {
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("x.obj"), "--compact");
+            AssertError(e1, r1, "invalid_arguments");
+            string output = m.Path_("off_open.obj");
+            var (e2, r2) = Run("offset", m.Open, output, "--distance", "0.1", "--cell-size", "0.1", "--compact");
+            AssertError(e2, r2, "operation_failed");
+            Assert.Contains("closed", S(r2["message"]));
+            Assert.False(File.Exists(output));
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("x.dwg"), "--distance", "0.1", "--compact");
+            AssertError(e3, r3, "unknown_format");
+            var (e4, r4) = Run("offset", m.Path_("missing.obj"), m.Path_("x.obj"), "--distance", "0.1", "--compact");
+            AssertError(e4, r4, "read_error");
+            var (e5, r5) = Run("offset", m.Empty, m.Path_("x.obj"), "--distance", "0.1", "--compact");
+            AssertError(e5, r5, "empty_mesh");
+        }
+
+        // ---- method mesh_offset (gs.MeshOffset, opt-in; the default stays sdf_mc) ----
+
+        [Fact]
+        public void MeshOffset_Outward_IsTheRoundedBox_WithACertifiedBand()
+        {
+            string output = m.Path_("mo_out.obj");
+            var (exit, r) = Run("offset", m.Cube, output, "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["offset_status"]));
+            Assert.Equal("mesh_offset", S(r["method"]));
+            Assert.Equal("band", S(r["enclosure_claim"]));
+            Assert.Equal(0.1, D(r["cell_size"]), 12);
+            Assert.True(B(r["band_certified"]));
+            Assert.InRange(D(r["band_deviation"]), 0, 0.05 + 1e-12);           // half a cell
+            Assert.True(B(r["self_intersection_free"]));
+            Assert.Equal(0, I(r["uncertified_triangles"]));
+            Assert.Empty(r["warnings"].AsArray());
+            Assert.True(B(r["mesh"]["closed"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.99 * RoundedBoxVolume(0.5), 1.01 * RoundedBoxVolume(0.5));
+            Assert.Null(r["root_mode"]);
+            Assert.Null(r["cells"]);
+            Assert.True(File.Exists(output));
+            Assert.Equal(I(r["mesh"]["triangles"]), StandardMeshReader.ReadMesh(output).TriangleCount);
+        }
+
+        [Fact]
+        public void MeshOffset_Inward_IsTheSharpSmallerCube()
+        {
+            var (exit, r) = Run("offset", m.Cube, m.Path_("mo_in.obj"), "--distance=-0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, exit);
+            Assert.True(B(r["band_certified"]));
+            Assert.InRange(D(r["mesh"]["volume"]), 0.999, 1.001);                 // the cube [-0.5, 0.5]^3 with its corners (dual contouring)
+            Assert.Equal(0.5, D(r["mesh"]["bounds"]["max"][1]), 6);
+        }
+
+        [Fact]
+        public void MeshOffset_CellMapping_RelativeCellSize_AndTheHalfDistanceLimit()
+        {
+            double diagonal = 2 * Math.Sqrt(3);
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_rel.obj"), "--distance", "0.5", "--relative-cell-size", "0.04", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0.04 * diagonal, D(r1["cell_size"]), 12);
+            // the cell must be at most |distance| / 2 (a hundredth of the diagonal, 0.0346 here, is too large for 0.05)
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_big.obj"), "--distance", "0.05", "--relative-cell-size", "0.01", "--method", "mesh_offset", "--compact");
+            AssertError(e2, r2, "invalid_arguments");
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("mo_big2.obj"), "--distance", "0.5", "--cell-size", "0.3", "--method", "mesh_offset", "--compact");
+            AssertError(e3, r3, "invalid_arguments");
+        }
+
+        [Fact]
+        public void MeshOffset_DefaultCell_IsAQuarterOfTheDistance()
+        {
+            // owner decision 2026-11-14: without cell_size / relative_cell_size, mesh_offset uses |distance| / 4 (sdf_mc keeps a hundredth of the diagonal)
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_def_out.obj"), "--distance", "0.5", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0.125, D(r1["cell_size"]));
+            Assert.True(B(r1["band_certified"]));
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_def_in.obj"), "--distance=-0.5", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e2);
+            Assert.Equal(0.125, D(r2["cell_size"]));
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("sm_def_cell.obj"), "--distance", "0.5", "--compact");
+            Assert.Equal(0, e3);
+            Assert.Equal(0.01 * 2 * Math.Sqrt(3), D(r3["cell_size"]), 12);
+        }
+
+        [Fact]
+        public void MeshOffset_MaxCells_BoundsTheGridNodes()
+        {
+            string never = m.Path_("mo_never.obj");
+            var (exit, r) = Run("offset", m.Cube, never, "--distance", "0.5", "--cell-size", "0.1", "--max-cells", "1000", "--method", "mesh_offset", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Equal("grid_too_large", S(r["offset_status"]));
+            Assert.False(File.Exists(never));
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_ok.obj"), "--distance", "0.5", "--cell-size", "0.1", "--max-cells", "200000", "--method", "mesh_offset", "--compact");
+            Assert.Equal(0, e2);
+        }
+
+        [Fact]
+        public void MeshOffset_ParallelOrNot_AndPowerOfTwoScales_GiveTheSameMesh()
+        {
+            // parallel and serial write the same file; the cube scaled by 2^k (distance and cell with it) gives the vertices times 2^k, bit for bit
+            string pPath = m.Path_("mo_p.obj"), sPath = m.Path_("mo_s.obj");
+            var (e1, a) = Run("offset", m.Cube, pPath, "--distance", "0.5", "--cell-size", "0.125", "--method", "mesh_offset", "--compact");
+            var (e2, b) = Run("offset", m.Cube, sPath, "--distance", "0.5", "--cell-size", "0.125", "--method", "mesh_offset", "--no-parallel", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0, e2);
+            Assert.Equal(File.ReadAllText(pPath), File.ReadAllText(sPath));
+            Assert.Equal(D(a["band_deviation"]), D(b["band_deviation"]));
+            DMesh3 baseMesh = StandardMeshReader.ReadMesh(pPath);
+            foreach (int k in new[] { -3, 4 }) {
+                double s = Math.Pow(2, k);
+                DMesh3 cube = StandardMeshReader.ReadMesh(m.Cube);
+                MeshTransforms.Scale(cube, s, s, s);
+                string scaled = m.Path_($"mo_cube_{k}.obj"), outPath = m.Path_($"mo_k{k}.obj");
+                Assert.Equal(IOCode.Ok, StandardMeshWriter.WriteMesh(scaled, cube, WriteOptions.Defaults).code);
+                var (e3, c) = Run("offset", scaled, outPath, "--distance", (0.5 * s).ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    "--cell-size", (0.125 * s).ToString("R", System.Globalization.CultureInfo.InvariantCulture), "--method", "mesh_offset", "--compact");
+                Assert.Equal(0, e3);
+                Assert.Equal(D(a["band_deviation"]) * s, D(c["band_deviation"]));
+                DMesh3 sm = StandardMeshReader.ReadMesh(outPath);
+                Assert.Equal(baseMesh.VertexCount, sm.VertexCount);
+                Assert.Equal(baseMesh.TriangleCount, sm.TriangleCount);
+                foreach (int vid in baseMesh.VertexIndices())
+                    Assert.Equal(baseMesh.GetVertex(vid) * s, sm.GetVertex(vid));
+            }
+        }
+
+        [Fact]
+        public void MeshOffset_Binary_And_EmptyInset()
+        {
+            string bin = m.Path_("mo_bin.stl"), ascii = m.Path_("mo_ascii.stl");
+            var (e1, _) = Run("offset", m.Cube, bin, "--distance", "0.5", "--cell-size", "0.25", "--method", "mesh_offset", "--compact");
+            var (e2, _) = Run("offset", m.Cube, ascii, "--distance", "0.5", "--cell-size", "0.25", "--method", "mesh_offset", "--binary=false", "--compact");
+            Assert.Equal(0, e1);
+            Assert.Equal(0, e2);
+            Assert.StartsWith("solid", File.ReadAllText(ascii));
+            Assert.NotEqual(File.ReadAllBytes(bin).Length, File.ReadAllBytes(ascii).Length);
+            // an inset deeper than the half thickness of the cube [-1, 1]^3 leaves nothing
+            string never = m.Path_("mo_empty.obj");
+            var (e3, r3) = Run("offset", m.Cube, never, "--distance=-1.5", "--cell-size", "0.25", "--method", "mesh_offset", "--compact");
+            AssertError(e3, r3, "operation_failed");
+            Assert.Equal("empty", S(r3["offset_status"]));
+            Assert.False(File.Exists(never));
+        }
+
+        [Fact]
+        public void MeshOffset_RefusesRootModeAndRootSteps()
+        {
+            var (e1, r1) = Run("offset", m.Cube, m.Path_("mo_rm.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--root-mode", "bisection", "--compact");
+            AssertError(e1, r1, "invalid_arguments");
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("mo_rs.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "mesh_offset", "--root-steps", "4", "--compact");
+            AssertError(e2, r2, "invalid_arguments");
+        }
+
+        [Fact]
+        public void SdfMc_IsTheDefault_AndClaimsNoEnclosure()
+        {
+            var (exit, r) = Run("offset", m.Cube, m.Path_("sm_def.obj"), "--distance", "0.5", "--cell-size", "0.1", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("sdf_mc", S(r["method"]));
+            Assert.Equal("none", S(r["enclosure_claim"]));
+            Assert.Null(r["band_deviation"]);
+            Assert.Null(r["band_certified"]);
+            var (e2, r2) = Run("offset", m.Cube, m.Path_("sm_exp.obj"), "--distance", "0.5", "--cell-size", "0.1", "--method", "sdf_mc", "--compact");
+            Assert.Equal(0, e2);
+            Assert.Equal("none", S(r2["enclosure_claim"]));
+            var (e3, r3) = Run("offset", m.Cube, m.Path_("sm_bad.obj"), "--distance", "0.5", "--method", "exact", "--compact");
+            AssertError(e3, r3, "invalid_arguments");
+        }
+    }
+}

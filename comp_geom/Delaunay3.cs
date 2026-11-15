@@ -1,6 +1,7 @@
 // Distributed under the Boost Software License, Version 1.0. http://www.boost.org/LICENSE_1_0.txt
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace g3
 {
@@ -17,6 +18,10 @@ namespace g3
     /// With cospherical points (eg the box corners) the triangulation is one of the Delaunay triangulations.
     /// The conflict region of a new point is grown, where needed, until it is star-shaped from the point, so
     /// every cell has positive volume (exactly) and the adjacency stays valid also for degenerate input.
+    ///
+    /// RefinementSupport (off by default) adds what Delaunay refinement needs (docs/design/TET_MESHING.md section 14.6 step 1):
+    /// an int label per cell (new cells take the label of the cavity cell whose facet they are built on), one incident cell
+    /// per vertex (IncidentCells, IsEdge, IsFacet), and an undo record of the last successful insertion (UndoLastInsert).
     ///
     /// Sources (docs/SOURCES.md): A. Bowyer 1981, D. F. Watson 1981 (insertion by cavities); O. Devillers,
     /// S. Pion, M. Teillaud, "Walking in a triangulation", 2002 (point location by a stochastic walk).
@@ -51,6 +56,17 @@ namespace g3
         int lastCell = 0;
         uint rng = 2463534242;
 
+        // RefinementSupport: per-cell labels, a live incident cell per vertex, the undo record of the last insertion
+        bool support;
+        int[] label = new int[0];
+        int[] vcell = new int[0];
+        bool undoValid;
+        int undoVertex, undoMaxCell, undoLastCell;
+        uint undoRng, insertRng;
+        readonly List<int> undoCavity = new List<int>();       // the cavity's cells keep their data while dead (new cells get other ids)
+        readonly List<int> undoNewCells = new List<int>();
+        readonly List<int> undoFreePopped = new List<int>();   // per new cell: 1 if its id came from the free list
+
         /// <summary> cells visited by the last point location (for diagnostics) </summary>
         public int LastWalkSteps;
 
@@ -82,6 +98,24 @@ namespace g3
                 }
             }
         }
+
+        Delaunay3(Delaunay3 other)
+        {
+            Box = other.Box;
+            vertices.AddRange(other.vertices);
+            cv = (int[])other.cv.Clone(); cn = (int[])other.cn.Clone(); stamp = (int[])other.stamp.Clone();
+            alive = (bool[])other.alive.Clone(); mark = new int[other.mark.Length];
+            maxCell = other.maxCell; cellCount = other.cellCount; lastCell = other.lastCell; rng = other.rng;
+            foreach (int c in other.freeCells.ToArray().Reverse()) freeCells.Push(c);
+            support = other.support;
+            label = (int[])other.label.Clone(); vcell = (int[])other.vcell.Clone();
+        }
+
+        /// <summary>
+        /// an independent copy (cells, ids, neighbours, stamps, the free ids and the walk's random state, so the same
+        /// insertions give the same result on both; RefinementSupport and the labels too, but not the undo record)
+        /// </summary>
+        public Delaunay3 Clone() { return new Delaunay3(this); }
 
         static (int, int, int) sorted_key(int a, int b, int c)
         {
@@ -152,7 +186,8 @@ namespace g3
         int new_cell(int a, int b, int c, int d)
         {
             int id;
-            if (freeCells.Count > 0) {
+            bool fromFree = freeCells.Count > 0;
+            if (fromFree) {
                 id = freeCells.Pop();
             } else {
                 id = maxCell++;
@@ -160,6 +195,7 @@ namespace g3
                     int n = Math.Max(64, 2 * alive.Length);
                     Array.Resize(ref cv, 4 * n); Array.Resize(ref cn, 4 * n);
                     Array.Resize(ref stamp, n); Array.Resize(ref alive, n); Array.Resize(ref mark, n);
+                    if (support) Array.Resize(ref label, n);
                 }
             }
             cv[4 * id] = a; cv[4 * id + 1] = b; cv[4 * id + 2] = c; cv[4 * id + 3] = d;
@@ -169,7 +205,140 @@ namespace g3
             mark[id] = 0;
             cellCount++;
             lastCell = id;
+            if (support) {
+                label[id] = 0;
+                set_vcells(id);
+                undoFreePopped.Add(fromFree ? 1 : 0);
+            }
             return id;
+        }
+
+        void set_vcells(int c)
+        {
+            for (int i = 0; i < 4; ++i) {
+                int v = cv[4 * c + i];
+                if (v >= vcell.Length) Array.Resize(ref vcell, Math.Max(v + 1, 2 * vcell.Length));
+                vcell[v] = c;
+            }
+        }
+
+        /// <summary>
+        /// Turns on the bookkeeping for refinement (see the class comment): labels (all 0 when turned on), an incident cell per
+        /// vertex, the undo record. Off by default; turning it on scans the cells once, turning it off drops the bookkeeping.
+        /// </summary>
+        public bool RefinementSupport
+        {
+            get { return support; }
+            set {
+                if (value == support) return;
+                support = value;
+                undoValid = false;
+                if (!support) { label = new int[0]; vcell = new int[0]; return; }
+                label = new int[alive.Length];
+                vcell = new int[Math.Max(1, vertices.Count)];
+                for (int v = 0; v < vcell.Length; ++v) vcell[v] = -1;
+                for (int c = 0; c < maxCell; ++c)
+                    if (alive[c]) set_vcells(c);
+            }
+        }
+
+        /// <summary> label of cell c (RefinementSupport); new cells take the label of the cavity cell they replace </summary>
+        public int CellLabel(int c) { return label[c]; }
+        public void SetCellLabel(int c, int value) { label[c] = value; }
+
+        /// <summary> the cells incident to vertex v, into cells (cleared first; RefinementSupport) </summary>
+        public void IncidentCells(int v, List<int> cells)
+        {
+            cells.Clear();
+            int c0 = v < vcell.Length ? vcell[v] : -1;
+            if (c0 < 0 || !IsCell(c0)) return;
+            if (++markValue == int.MaxValue) { Array.Clear(mark, 0, mark.Length); markValue = 1; }
+            cells.Add(c0); mark[c0] = markValue;
+            for (int k = 0; k < cells.Count; ++k) {
+                int c = cells[k];
+                for (int i = 0; i < 4; ++i) {
+                    if (cv[4 * c + i] == v) continue;             // the facet opposite v does not contain v
+                    int n = cn[4 * c + i];
+                    if (n >= 0 && mark[n] != markValue) { mark[n] = markValue; cells.Add(n); }
+                }
+            }
+        }
+
+        bool mark_is_cavity(int c) { return mark[c] == markValue; }
+
+        readonly List<int> starCells = new List<int>();
+
+        /// <summary> true if (a, b) is an edge of the triangulation; cell then contains both (RefinementSupport) </summary>
+        public bool IsEdge(int a, int b, out int cell)
+        {
+            cell = -1;
+            IncidentCells(a, starCells);
+            foreach (int c in starCells)
+                if (VertexIndexIn(c, b) >= 0) { cell = c; return true; }
+            return false;
+        }
+
+        /// <summary>
+        /// true if (a, b, c) is a facet of the triangulation (any orientation); cell and facet then name it in one of its two
+        /// cells (RefinementSupport)
+        /// </summary>
+        public bool IsFacet(int a, int b, int c, out int cell, out int facet)
+        {
+            cell = facet = -1;
+            IncidentCells(a, starCells);
+            foreach (int t in starCells) {
+                int ib = VertexIndexIn(t, b), ic = VertexIndexIn(t, c);
+                if (ib < 0 || ic < 0) continue;
+                cell = t; facet = 6 - VertexIndexIn(t, a) - ib - ic;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Undoes the last successful Insert (RefinementSupport; only directly after it, at most once): the cavity's cells come
+        /// back with their ids, vertices, neighbours, stamps and labels, the new vertex and cells are removed, and the cell id
+        /// allocation and the point location's random state are as before the insertion (so the same insertion again gives the
+        /// same cells and ids). Not restored: the stamps of the ids the undone insertion took from the free list stay incremented
+        /// (stamps only mark staleness, so a cell id reused later just has a higher stamp). Lists passed to Insert as removed /
+        /// added are not changed. False if there is nothing to undo.
+        /// </summary>
+        public bool UndoLastInsert()
+        {
+            if (!support || !undoValid) return false;
+            undoValid = false;
+            // the cavity ids were pushed onto the free list last, in cavity order
+            for (int k = undoCavity.Count - 1; k >= 0; --k) freeCells.Pop();
+            for (int k = undoNewCells.Count - 1; k >= 0; --k) {
+                int nc = undoNewCells[k];
+                alive[nc] = false;
+                cellCount--;
+                if (undoFreePopped[k] != 0) freeCells.Push(nc);
+            }
+            if (++markValue == int.MaxValue) { Array.Clear(mark, 0, mark.Length); markValue = 1; }
+            foreach (int c in undoCavity) mark[c] = markValue;
+            // the cavity's cells were only marked dead: their vertices, neighbours, stamps and labels are unchanged (the new
+            // cells took ids from before the cavity was freed)
+            foreach (int c in undoCavity) { alive[c] = true; cellCount++; }
+            // outside neighbours pointed at the new cells: back to the cavity cells. The slot of n is the one opposite n's
+            // vertex that is not on the shared facet (n can border several cavity cells)
+            for (int k = 0; k < undoCavity.Count; ++k) {
+                int c = undoCavity[k];
+                for (int i = 0; i < 4; ++i) {
+                    int n = cn[4 * c + i];
+                    if (n < 0 || mark_is_cavity(n)) continue;
+                    int f0 = cv[4 * c + FacetIndices[i, 0]], f1 = cv[4 * c + FacetIndices[i, 1]], f2 = cv[4 * c + FacetIndices[i, 2]];
+                    for (int j = 0; j < 4; ++j) {
+                        int w = cv[4 * n + j];
+                        if (w != f0 && w != f1 && w != f2) { cn[4 * n + j] = c; break; }
+                    }
+                }
+            }
+            for (int k = 0; k < undoCavity.Count; ++k) set_vcells(undoCavity[k]);
+            maxCell = undoMaxCell; lastCell = undoLastCell; rng = undoRng;
+            vertices.RemoveAt(undoVertex);
+            if (undoVertex < vcell.Length) vcell[undoVertex] = -1;
+            return true;
         }
 
         void free_cell(int c)
@@ -262,6 +431,8 @@ namespace g3
         public InsertResult Insert(Vector3d p, int hint, double minSeparation, out int vertex, List<int> removed = null, List<int> added = null)
         {
             vertex = -1;
+            undoValid = false;
+            insertRng = rng;
             if (!(p.x > Box.Min.x && p.x < Box.Max.x && p.y > Box.Min.y && p.y < Box.Max.y && p.z > Box.Min.z && p.z < Box.Max.z))
                 return InsertResult.Outside;
             int c0 = Locate(p, hint);
@@ -337,6 +508,11 @@ namespace g3
             foreach (int v in boundaryVerts)
                 if (vertices[v].DistanceSquared(p) <= minSqr) return InsertResult.TooClose;
 
+            if (support) {
+                undoVertex = vertices.Count; undoMaxCell = maxCell; undoLastCell = lastCell; undoRng = insertRng;
+                undoCavity.Clear(); undoNewCells.Clear(); undoFreePopped.Clear();
+                undoCavity.AddRange(cavity);
+            }
             vertex = vertices.Count;
             vertices.Add(p);
             int nb = boundary.Count;
@@ -348,6 +524,7 @@ namespace g3
                 // the facet is outward for the cavity, so (a, d, b) faces p
                 int nc = new_cell(a, d, b, vertex);
                 newCells.Add(nc);
+                if (support) { label[nc] = label[c]; undoNewCells.Add(nc); }
                 int n = cn[4 * c + i];
                 cn[4 * nc + 3] = n;
                 if (n >= 0)
@@ -375,9 +552,322 @@ namespace g3
             if (added != null)
                 added.AddRange(newCells);
             lastCell = newCells[0];
+            if (support) undoValid = true;
             return InsertResult.Inserted;
         }
 
+
+        // ---- round insertion (Alpha Wrap 3.0 lever (B), docs/design/ALPHA_WRAP_ROUNDS.md) ----
+        //
+        // Insert split in three steps so that several points with pairwise disjoint cavities can be inserted in parallel
+        // with the same result for every thread count: PlanInsert (read only: the cavity, its boundary and the checks of
+        // Insert, against the current triangulation; any thread), AssignInsertIds (serial, in a fixed order: the vertex
+        // id and the cell ids), ApplyInsert (writes only the plan's cells and the cavity's outer neighbours; plans whose
+        // Reads are pairwise disjoint can be applied in parallel). For one plan, the three steps give the cells of Insert
+        // (as a set of tetrahedra with their adjacency); the cell ids can differ.
+
+        /// <summary> (round insertion) a boundary facet of a cavity: the new cell (A, B, C, new vertex) and its outer neighbour </summary>
+        internal struct PlannedCell
+        {
+            public int A, B, C;
+            /// <summary> the cell across the facet (-1 on the box) and the index of the facet in it </summary>
+            public int Outer, OuterFacet;
+        }
+
+        /// <summary> (round insertion) the plan of one insertion; reusable, with its own scratch (one plan per task) </summary>
+        internal sealed class InsertPlan
+        {
+            public Vector3d P;
+            public InsertResult Result;
+            /// <summary> the cavity (removed cells), in search order </summary>
+            public readonly List<int> Cavity = new List<int>();
+            /// <summary> every cell the plan read: the located cell, the cavity and the cells adjacent to it </summary>
+            public readonly List<int> Reads = new List<int>();
+            /// <summary> per boundary facet, from the triangulation the plan was made in </summary>
+            public readonly List<PlannedCell> Cells = new List<PlannedCell>();
+            /// <summary> set by AssignInsertIds: the new vertex and the ids of the new cells (in the order of Cells) </summary>
+            public int Vertex = -1;
+            public readonly List<int> NewIds = new List<int>();
+            // scratch
+            internal readonly CellSet InCavity = new CellSet(), Seen = new CellSet();
+            internal readonly List<(int cell, int facet)> Boundary = new List<(int, int)>();
+            internal readonly List<int> BoundaryVerts = new List<int>();
+            internal readonly CellSet VertSet = new CellSet();
+            internal readonly Dictionary<long, int> EdgeLinks = new Dictionary<long, int>();
+        }
+
+        /// <summary> small open-addressed set of non-negative ints with O(count) clear </summary>
+        internal sealed class CellSet
+        {
+            int[] slots = new int[64];
+            readonly List<int> used = new List<int>();
+            public CellSet() { for (int k = 0; k < slots.Length; ++k) slots[k] = -1; }
+            public void Clear()
+            {
+                foreach (int k in used) slots[k] = -1;
+                used.Clear();
+            }
+            /// <summary> true if x was added (not in the set before) </summary>
+            public bool Add(int x)
+            {
+                if (2 * (used.Count + 1) > slots.Length) grow();
+                int mask = slots.Length - 1;
+                int k = (int)(((uint)x * 2654435761u) >> 7) & mask;
+                while (slots[k] >= 0) {
+                    if (slots[k] == x) return false;
+                    k = (k + 1) & mask;
+                }
+                slots[k] = x;
+                used.Add(k);
+                return true;
+            }
+            public bool Contains(int x)
+            {
+                int mask = slots.Length - 1;
+                int k = (int)(((uint)x * 2654435761u) >> 7) & mask;
+                while (slots[k] >= 0) {
+                    if (slots[k] == x) return true;
+                    k = (k + 1) & mask;
+                }
+                return false;
+            }
+            void grow()
+            {
+                var items = new List<int>(used.Count);
+                foreach (int k in used) items.Add(slots[k]);
+                slots = new int[2 * slots.Length];
+                for (int k = 0; k < slots.Length; ++k) slots[k] = -1;
+                used.Clear();
+                foreach (int x in items) Add(x);
+            }
+        }
+
+        // Locate without writing any field: its own walk state, no LastWalkSteps / lastCell
+        int locate_readonly(Vector3d p, int hint, ref uint walk)
+        {
+            int c = hint;
+            if (!IsCell(c)) {
+                for (c = 0; c < maxCell && !alive[c]; ++c) { }
+            }
+            int prev = -1;
+            int maxSteps = 64 + 4 * cellCount;
+            for (int step = 0; step < maxSteps; ++step) {
+                walk ^= walk << 13; walk ^= walk >> 17; walk ^= walk << 5;
+                int start = (int)(walk & 3);
+                int next = -2;
+                for (int k = 0; k < 4; ++k) {
+                    int i = (start + k) & 3;
+                    int n = cn[4 * c + i];
+                    if (n == prev && n >= 0)
+                        continue;
+                    Vector3d a = vertices[cv[4 * c + FacetIndices[i, 0]]], b = vertices[cv[4 * c + FacetIndices[i, 1]]],
+                        d = vertices[cv[4 * c + FacetIndices[i, 2]]];
+                    if (ExactPredicates.Orient3d(a, b, d, p) > 0) {
+                        next = n;
+                        break;
+                    }
+                }
+                if (next == -2)
+                    return c;
+                if (next == -1)
+                    return -1;
+                prev = c;
+                c = next;
+            }
+            for (c = 0; c < maxCell; ++c) {
+                if (alive[c] && contains(c, p))
+                    return c;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// (round insertion) the plan of Insert(p, hint, minSeparation) without changing the triangulation or any field of
+        /// it (safe to call from several threads while nothing writes): plan.Result is what Insert would return, and for
+        /// Inserted plan.Cavity / plan.Cells describe the change. The walk that locates p uses walkSeed (nonzero) instead of
+        /// the shared random state; the cavity as a set does not depend on it.
+        /// </summary>
+        internal void PlanInsert(Vector3d p, int hint, double minSeparation, InsertPlan plan, uint walkSeed)
+        {
+            plan.P = p;
+            plan.Cavity.Clear(); plan.Reads.Clear(); plan.Cells.Clear(); plan.NewIds.Clear(); plan.Vertex = -1;
+            plan.Result = plan_insert(p, hint, minSeparation, plan, walkSeed == 0 ? 1u : walkSeed);
+            if (plan.Result != InsertResult.Inserted)
+                plan.Cells.Clear();
+        }
+
+        InsertResult plan_insert(Vector3d p, int hint, double minSeparation, InsertPlan plan, uint walk)
+        {
+            if (!(p.x > Box.Min.x && p.x < Box.Max.x && p.y > Box.Min.y && p.y < Box.Max.y && p.z > Box.Min.z && p.z < Box.Max.z))
+                return InsertResult.Outside;
+            int c0 = locate_readonly(p, hint, ref walk);
+            if (c0 < 0)
+                return InsertResult.Outside;
+            plan.Reads.Add(c0);
+            for (int i = 0; i < 4; ++i)
+                if (vertices[cv[4 * c0 + i]] == p) return InsertResult.TooClose;
+            if (InCircumsphere(c0, p) <= 0)
+                return InsertResult.TooClose;
+
+            var cavity = plan.Cavity;
+            var inCavity = plan.InCavity;
+            inCavity.Clear();
+            cavity.Add(c0);
+            inCavity.Add(c0);
+            InsertResult result = InsertResult.Inserted;
+            for (int k = 0; k < cavity.Count; ++k) {
+                int c = cavity[k];
+                for (int i = 0; i < 4; ++i) {
+                    int n = cn[4 * c + i];
+                    if (n >= 0 && !inCavity.Contains(n) && InCircumsphere(n, p) > 0) {
+                        inCavity.Add(n);
+                        cavity.Add(n);
+                    }
+                }
+            }
+            var boundary = plan.Boundary;
+            // (the star-shape growth of Insert, kept for parity with it: in an exact Delaunay triangulation it never adds a
+            // cell, as a point in the plane of a boundary facet lies inside both circumspheres of the facet's cells or inside
+            // neither, both meeting that plane in the facet's circumcircle; docs/design/ALPHA_WRAP_ROUNDS.md section 6)
+            while (true) {
+                boundary.Clear();
+                bool grown = false, outside = false;
+                for (int k = 0; k < cavity.Count && !outside; ++k) {
+                    int c = cavity[k];
+                    for (int i = 0; i < 4; ++i) {
+                        int n = cn[4 * c + i];
+                        if (n >= 0 && inCavity.Contains(n))
+                            continue;
+                        Vector3d a = vertices[cv[4 * c + FacetIndices[i, 0]]], b = vertices[cv[4 * c + FacetIndices[i, 1]]],
+                            d = vertices[cv[4 * c + FacetIndices[i, 2]]];
+                        if (ExactPredicates.Orient3d(a, b, d, p) >= 0) {
+                            if (n < 0) { outside = true; break; }
+                            inCavity.Add(n);
+                            cavity.Add(n);
+                            grown = true;
+                        } else
+                            boundary.Add((c, i));
+                    }
+                }
+                if (outside) { result = InsertResult.Outside; break; }
+                if (!grown)
+                    break;
+            }
+            // the read set: the cavity and every cell adjacent to it (all cells the search tested are among them)
+            var seen = plan.Seen;
+            seen.Clear();
+            seen.Add(c0);
+            foreach (int c in cavity) {
+                if (seen.Add(c)) plan.Reads.Add(c);
+                for (int i = 0; i < 4; ++i) {
+                    int n = cn[4 * c + i];
+                    if (n >= 0 && seen.Add(n)) plan.Reads.Add(n);
+                }
+            }
+            if (result != InsertResult.Inserted)
+                return result;
+            var vset = plan.VertSet;
+            vset.Clear();
+            var boundaryVerts = plan.BoundaryVerts;
+            boundaryVerts.Clear();
+            foreach (var bf in boundary)
+                for (int j = 0; j < 3; ++j) {
+                    int v = cv[4 * bf.cell + FacetIndices[bf.facet, j]];
+                    if (vset.Add(v)) boundaryVerts.Add(v);
+                }
+            foreach (int c in cavity)
+                for (int i = 0; i < 4; ++i)
+                    if (!vset.Contains(cv[4 * c + i])) return InsertResult.Failed;
+            double minSqr = minSeparation * minSeparation;
+            foreach (int v in boundaryVerts)
+                if (vertices[v].DistanceSquared(p) <= minSqr) return InsertResult.TooClose;
+            foreach (var (c, i) in boundary) {
+                int n = cn[4 * c + i];
+                plan.Cells.Add(new PlannedCell() {
+                    A = cv[4 * c + FacetIndices[i, 0]], B = cv[4 * c + FacetIndices[i, 2]], C = cv[4 * c + FacetIndices[i, 1]],
+                    Outer = n, OuterFacet = n >= 0 ? FacetTo(n, c) : -1
+                });
+            }
+            return InsertResult.Inserted;
+        }
+
+        /// <summary>
+        /// (round insertion, serial, in the commit order) assigns the vertex id and the new cell ids of an Inserted plan:
+        /// first the cavity's own ids (in cavity order), then ids from the free stack, then fresh ids; cavity ids left over
+        /// (fewer new cells than removed ones) are freed here. Grows the cell arrays; ApplyInsert writes the cells.
+        /// </summary>
+        internal void AssignInsertIds(InsertPlan plan)
+        {
+            if (plan.Result != InsertResult.Inserted)
+                throw new InvalidOperationException("Delaunay3: plan is not an insertion");
+            // (the round insertion keeps no labels, incident cells or undo record: RefinementSupport is for a serial refiner,
+            // eg MeshTetrahedralization on a Clone of the wrap's triangulation)
+            if (support)
+                throw new InvalidOperationException("Delaunay3: round insertion with RefinementSupport on");
+            undoValid = false;
+            plan.Vertex = vertices.Count;
+            vertices.Add(plan.P);
+            int nb = plan.Cells.Count, nt = plan.Cavity.Count;
+            plan.NewIds.Clear();
+            for (int k = 0; k < nb; ++k) {
+                int id;
+                if (k < nt) {
+                    id = plan.Cavity[k];
+                } else if (freeCells.Count > 0) {
+                    id = freeCells.Pop();
+                    cellCount++;
+                } else {
+                    id = maxCell++;
+                    if (id >= alive.Length) {
+                        int n = Math.Max(64, 2 * alive.Length);
+                        Array.Resize(ref cv, 4 * n); Array.Resize(ref cn, 4 * n);
+                        Array.Resize(ref stamp, n); Array.Resize(ref alive, n); Array.Resize(ref mark, n);
+                    }
+                    cellCount++;
+                }
+                plan.NewIds.Add(id);
+            }
+            for (int k = nb; k < nt; ++k)
+                free_cell(plan.Cavity[k]);
+            lastCell = plan.NewIds[0];
+        }
+
+        /// <summary>
+        /// (round insertion) writes the new cells of a plan whose ids are assigned: only its new cell ids and the facet
+        /// entries of the cavity's outer neighbours, from the plan alone (never from the cavity cells, whose ids are
+        /// reused). Plans with pairwise disjoint Reads can be applied in parallel, in any order.
+        /// </summary>
+        internal void ApplyInsert(InsertPlan plan)
+        {
+            int nb = plan.Cells.Count, vertex = plan.Vertex;
+            for (int k = 0; k < nb; ++k) {
+                PlannedCell pc = plan.Cells[k];
+                int id = plan.NewIds[k];
+                cv[4 * id] = pc.A; cv[4 * id + 1] = pc.B; cv[4 * id + 2] = pc.C; cv[4 * id + 3] = vertex;
+                cn[4 * id] = cn[4 * id + 1] = cn[4 * id + 2] = -1;
+                cn[4 * id + 3] = pc.Outer;
+                if (pc.Outer >= 0)
+                    cn[4 * pc.Outer + pc.OuterFacet] = id;
+                alive[id] = true;
+                stamp[id]++;
+                mark[id] = 0;
+            }
+            var edgeLinks = plan.EdgeLinks;
+            edgeLinks.Clear();
+            foreach (int nc in plan.NewIds) {
+                for (int j = 0; j < 3; ++j) {
+                    int u = cv[4 * nc + (j + 1) % 3], w = cv[4 * nc + (j + 2) % 3];
+                    long key = u < w ? ((long)u << 32) | (uint)w : ((long)w << 32) | (uint)u;
+                    if (edgeLinks.TryGetValue(key, out int other)) {
+                        int oc = other >> 2, oj = other & 3;
+                        cn[4 * nc + j] = oc;
+                        cn[4 * oc + oj] = nc;
+                        edgeLinks.Remove(key);
+                    } else
+                        edgeLinks[key] = (nc << 2) | j;
+                }
+            }
+        }
 
         /// <summary>
         /// Checks orientation, adjacency (symmetric, matching facets) and, if checkDelaunay, the empty sphere

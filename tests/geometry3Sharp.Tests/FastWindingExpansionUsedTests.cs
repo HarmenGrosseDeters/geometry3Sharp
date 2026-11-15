@@ -1,0 +1,169 @@
+using System;
+using System.Linq;
+using g3;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// The far-field expansion of FastWindingNumber is used, counted by the test hook FastWindingExactTriangleCount (the
+    /// triangles a query sums exactly; it shares the gate with the evaluation). Scenes of FastWindingScaleTests (#693):
+    /// before, every query near the spheres summed all 8664 of their triangles in the unit frame (areas 0 by an absolute
+    /// epsilon), and several thousand at 1e12 in the scene's own coordinates (the gate by the padded box).
+    /// </summary>
+    public class FastWindingExpansionUsedTests
+    {
+        static int NearTriangles => RobustRepairFarPartTests.Scene(0).TriangleCount;
+
+        static double ExactPerQuery(DMeshAABBTree3 tree, Vector3d[] points, double scale, Func<Vector3d, Vector3d> map, double maxError, string label)
+        {
+            long exact = 0;
+            foreach (Vector3d p0 in points) {
+                Vector3d q = map(scale * p0);
+                double fast = tree.FastWindingNumber(q);
+                if (maxError > 0)
+                    Assert.True(Math.Abs(fast - tree.WindingNumber(q)) < maxError, $"{label}, at {p0}: fast {fast} vs exact {tree.WindingNumber(q)}");
+                exact += tree.FastWindingExactTriangleCount(q);
+            }
+            return (double)exact / points.Length;
+        }
+
+        [Theory]
+        [InlineData(1e8)]
+        [InlineData(1e12)]
+        public void FarPart_UnitFrame_FewTrianglesExact(double far)
+        {
+            double scale;
+            DMesh3 m = FastWindingScaleTests.UnitFrameScene(far, out scale);
+            var tree = new DMeshAABBTree3(m, true);
+            double perQuery = ExactPerQuery(tree, FastWindingScaleTests.Points(200), scale, q => q, 0.1, $"far {far}");
+            Assert.True(perQuery < 0.05 * NearTriangles, $"far {far}: {perQuery} of {NearTriangles} triangles summed exactly per query");
+        }
+
+        [Theory]
+        [InlineData(1e3)]
+        [InlineData(1e12)]
+        public void FarPart_Unscaled_FewTrianglesExact(double far)
+        {
+            // the gate alone: in the scene's own coordinates the areas are fine; at 1e12 the padding of the boxes is 1.8
+            var tree = new DMeshAABBTree3(RobustRepairFarPartTests.Scene(far), true);
+            double perQuery = ExactPerQuery(tree, FastWindingScaleTests.Points(200, 5), 1, q => q, 0.1, $"far {far}");
+            Assert.True(perQuery < 0.05 * NearTriangles, $"far {far}: {perQuery} of {NearTriangles} triangles summed exactly per query");
+        }
+
+        [Fact]
+        public void BetaBelowSqrt3_GateByThePaddedBox()
+        {
+            // below sqrt(3) the box test still matters and keeps the padded box of before (a point on a triangle stays in the
+            // boxes above it under rounding): at 1e12 (padding 1.8) the boxes near the spheres contain the queries, so many
+            // triangles are summed exactly, as on the old code; from sqrt(3) on the tight box (FarPart_Unscaled_FewTrianglesExact)
+            DMesh3 m = RobustRepairFarPartTests.Scene(1e12);
+            var low = new DMeshAABBTree3(m, true) { FWNBeta = 1.7 };
+            var high = new DMeshAABBTree3(m, true) { FWNBeta = Math.Sqrt(3) };
+            Vector3d[] points = FastWindingScaleTests.Points(100, 5);
+            double perQueryLow = ExactPerQuery(low, points, 1, q => q, 0.1, "beta 1.7");
+            double perQueryHigh = ExactPerQuery(high, points, 1, q => q, 0.1, "beta sqrt(3)");
+            Assert.True(perQueryLow > 0.2 * NearTriangles, $"beta 1.7: {perQueryLow} of {NearTriangles} triangles summed exactly per query");
+            Assert.True(perQueryHigh < 0.1 * NearTriangles, $"beta sqrt(3): {perQueryHigh} of {NearTriangles} triangles summed exactly per query");
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(1e12)]
+        [InlineData(-1.0)]
+        public void PointOnTriangle_ItsTriangleSummedExactly(double far)
+        {
+            // at the default beta 2 (tight-box gate) a point on a triangle never takes the expansion of a box above that
+            // triangle: |p - c| <= R < beta R (ExactMeshBoolean.front_generalized_winding subtracts the exact terms of the
+            // triangles a point lies on). Points: a vertex, an edge midpoint, the centroid; scenes: the spheres unscaled,
+            // with the part at 1e12 (padding 1.8, now not in the gate), and in the unit frame at 1e8 (far -1)
+            double scale = 1;
+            DMesh3 m = far >= 0 ? RobustRepairFarPartTests.Scene(far) : FastWindingScaleTests.UnitFrameScene(1e8, out scale);
+            var tree = new DMeshAABBTree3(m, true);
+            Assert.Equal(2.0, tree.FWNBeta);
+            tree.FastWindingNumber(Vector3d.Zero);
+            var exact = new System.Collections.Generic.List<int>();
+            int checkedPoints = 0;
+            foreach (int t in m.TriangleIndices().Where(t => t % 5 == 0)) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                foreach (Vector3d p in new[] { a, 0.5 * (a + b), (a + b + c) / 3 }) {
+                    exact.Clear();
+                    tree.FastWindingExactTriangles(p, exact);
+                    Assert.True(exact.Contains(t), $"far {far}, triangle {t}, point {p}: not summed exactly ({exact.Count} are)");
+                    // (the own term of the triangle is +-0.5 on it: an expanded box above it would be off by about that)
+                    double fast = tree.FastWindingNumber(p), reference = tree.WindingNumber(p);
+                    Assert.True(Math.Abs(fast - reference) < 0.1, $"far {far}, triangle {t}, point {p}: fast {fast} vs exact {reference}");
+                    checkedPoints++;
+                }
+            }
+            Assert.True(checkedPoints > 1000);
+            // and the count hook is the size of that list
+            Vector3d q = scale * new Vector3d(0.3, 0.2, 0.1);
+            exact.Clear();
+            tree.FastWindingExactTriangles(q, exact);
+            Assert.Equal(exact.Count, tree.FastWindingExactTriangleCount(q));
+        }
+
+        [Theory]
+        [InlineData(3e-4, 2)]
+        [InlineData(1e-3, 8)]
+        public void CollapsedPartFarFromTheOrigin_PointsOnItsTriangles_AsTheExactSum(double radius, int stride)
+        {
+            // a sphere at 1e12 whose edges are below or near the coordinates' resolution (1.2e-4 there): at r = 3e-4 its
+            // vertices round onto a few grid points (collapsed). Points on its triangles must get the triangles under
+            // them summed exactly, as the old padded gate did: the gate needs a slack of the coordinates' rounding
+            // (2^-48 of |q| + |c|) beside beta R, which the exact-arithmetic argument |q - c| <= R does not see
+            DMesh3 m = new Sphere3Generator_NormalizedCube() { Radius = radius, EdgeVertices = 20 }.Generate().MakeDMesh();
+            MeshTransforms.Translate(m, new Vector3d(1e12, 1e12, 1e12));
+            var tree = new DMeshAABBTree3(m, true);
+            int wrong = 0, points = 0;
+            string first = null;
+            // (every stride-th triangle: the exact sums of the reference are the cost; without the slack 8 of the 6498
+            // points at r = 3e-4 were off, r = 1e-3 is the control where the shape is resolved)
+            foreach (int t in m.TriangleIndices().Where(t => t % stride == 0)) {
+                Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+                m.GetTriVertices(t, ref a, ref b, ref c);
+                foreach (Vector3d p in new[] { a, 0.5 * (a + b), (a + b + c) / 3 }) {
+                    double fast = tree.FastWindingNumber(p), reference = tree.WindingNumber(p);
+                    points++;
+                    if (!(Math.Abs(fast - reference) < 0.1)) {
+                        wrong++;
+                        first = first ?? $"triangle {t}, point {p}: fast {fast} vs exact {reference}";
+                    }
+                }
+            }
+            Assert.True(wrong == 0, $"r {radius}: {wrong} of {points} points on triangles off by 0.1 or more; first: {first}");
+        }
+
+        // the similarities whose coordinates resolve the spheres of the unit-frame scene at 1e8 (size 4e-8): at UTM
+        // coordinates (4e-11 after the millimetre scale) they round to a few units in the last place, degenerate triangles
+        // that are summed exactly by right (FastWindingScaleTests.FastWindingNumber_Invariant covers those)
+        public static System.Collections.Generic.IEnumerable<object[]> Resolved()
+        {
+            double scale;
+            FastWindingScaleTests.UnitFrameScene(1e8, out scale);
+            return Similarity.All().Where(s => s.Resolution(2) < 1e-4 * 2.5 * scale).Select(s => new object[] { s.Name });
+        }
+
+        [Fact]
+        public void Resolved_CoversTheScalesAndRotations()
+        {
+            var names = Resolved().Select(o => (string)o[0]).ToList();
+            foreach (Similarity s in Similarity.All().Where(s => s.Translation == Vector3d.Zero))
+                Assert.Contains(s.Name, names);
+        }
+
+        [Theory]
+        [MemberData(nameof(Resolved))]
+        public void FarPart_UnitFrame_Transformed_FewTrianglesExact(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            double scale;
+            DMesh3 m = FastWindingScaleTests.UnitFrameScene(1e8, out scale);
+            var tree = new DMeshAABBTree3(Invariance.Transformed(m, s), true);
+            double perQuery = ExactPerQuery(tree, FastWindingScaleTests.Points(200, 9), scale, s.Apply, 0, name);
+            Assert.True(perQuery < 0.05 * NearTriangles, $"{name}: {perQuery} of {NearTriangles} triangles summed exactly per query");
+        }
+    }
+}

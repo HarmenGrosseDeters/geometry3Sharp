@@ -47,86 +47,53 @@ Relation to upstream: stay API compatible with 1.0.324, which existing users dep
 selectively.
 
 ## Now
-Status on 2026-11-12 (morning, Berlin).
-- **Exact Boolean 2.0: reached 2026-11-11** (D1 #513 merged as 69f13be3, counted as Exact Boolean 2.1, owner 2026-11-12; sign-off run in [exact-boolean.md](roadmap/exact-boolean.md)). Milestone (owner 2026-11-07): clean results on closed inputs; speed target revised
-  2026-11-08 to max(5 s, 20 µs × arrangement pieces) per operation (7 small, heavily self-intersecting models as
-  documented exceptions). The queue (#397, #398, #406, #409, #412, #419, #420, #424, #425 far parts, #426 edge-key hash and #440's L3 test) merged as
-  one integration PR, #446 (2026-11-09, 21e27a19), on green CI and review; its full mutation run of the touched shards
-  runs on master after the merge (owner decision) and seeds the rounding baselines. L3 dropped (owner 2026-11-08:
-  119829/119830 now run in 0.8-3.7 s and already report RoundingClean false honestly). The ±1e308 throw is fixed in
-  #449 (robustness sweep S38: the volume checks scale by a power of two, MeshRobustRepair fails with ScaleNotFinite
-  above an extent of about 1e154). The final Thingi10K run and the control run are the sign-off run; the thingi-pairs runs (class merged in #418) have
-  no recorded result; still wanted, queued behind Exact Boolean 3.0 (owner 2026-11-12).
-  Lévy classification: phase 1 done (#428, no propagation now); phase 2 done
-  (parallel fast-winding build, bit-identical; classification -23 % on both samples, -40 % on tree-bound open ops). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Exact Boolean 3.0** (in progress, serial, one PR per stage): merged 2026-11-11: T3a cull (#612), T3b
-  `IntersectEach` / `DifferenceEach` (#616), T3 input range of the rounding (#593), T2 memory (#619), T1 scaling levers
-  (#631). The 55928 tail-case stage #633 merged 2026-11-12 (d6f6fe9d): budget, cancellation, L1, L2 and L3 done (L3 steps 1-2:
-  classification filter from local corner coordinates, Orient's zeros from the constructions; Difference total 973 -> 370 s,
-  hash unchanged). Step 3(a), a second InCircle filter, measured and not taken (no gain). An InCircle limb kernel (E: -20 to
-  -30 s) is an open candidate, not part of this stage (coordinator 2026-11-12). Docs, shard resplit and the full local CI
-  are done (allocations 534 -> 200 GB); waiting for the independent exact-code review of the new error bounds (started
-  2026-11-12). Then T5 / T1b per the execution order; T6 (only all-clean method, <= 2x CGAL EPECK on 1k-100k) is checked at the end. [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- **`DMeshAABBTree3` profile: done 2026-11-12** (no library change): no bit-identical tree lever above about 3 %; the
-  memory layout (up to 2x on shuffled inputs) was measured on 52 Thingi10K models and dropped (file order is already at Morton speed, 2026-11-12); the solidify's
-  `DualContouring` allocations bound about 4 % of wall (below the 5 % threshold: dropped, 2026-11-12); lever (3), the fast-winding cache's `List<int>` per box, is done (#674, merged 2026-11-12, e48dd964: cache build 1.13-1.42x serial, 1.15-1.31x parallel, bit-identical).
-  [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-20-milestone)
-- **Alpha Wrap 2.0: done** (owner 2026-11-09). Final 800 run: guarantees 800/800, 0 triangles < 0.5° / > 170°,
-  p01 median 11.3° (min 10.6°), fidelity not worse; speed 611/800 within budget (97 % within 1.25x), documented.
-  [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- **Alpha Wrap 3.0** (in progress, targets set): phase 1 done 2026-11-12 (`runs/alpha-wrap-3`, `aw3/REPORT-phase1.md`:
-  stacked levers about 1.57x on the 189, about 99 % of the 800 within budget). Targets (owner 2026-11-12): >= 95 % of
-  the 800 within budget (stretch 98 %), >= 1.4x on the 189, guarantees and determinism unchanged; lever 6 not now.
-  L3 (batched gate tests) measured at <= 1.085x and dropped (owner 2026-11-12, option A): target (b) lowered to about
-  1.25x; L4, L1, L3b, L2 follow. Future research item (owner 2026-11-12, option B): deterministic round-based parallel
-  carving (not master-identical; guarantee argument and probe first). Levers follow as PRs; PR 0 is #651; L4 (manifold step) merged 2026-11-12 (#670, cab88798: trial + manifold 0.49x,
-  pipeline 0.93x, 269/269 identical). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- **Reducer / Remesher 2.0: done 2026-11-09** (#457, #466, #468, #469, #470; T4 closed with #484, crease-sliver probe
-  #492; [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 11). Remesher rim folds (#621): fixed by #640 (merged 2026-11-12, 36ef5a18; owner accepted the missed time gate,
-  1.16-1.22x on Thingi, opt-in via `MinTriangleQuality`). Follow-ups closed (owner 2026-11-12): the snapshot PR is not
-  built (no bit-identical gain), the crease-general fold check is exhausted (most remaining pairs are non-local;
-  numbers in [REDUCER_REMESHER_20.md](design/REDUCER_REMESHER_20.md) section 13).
-- **QA 2.0** (milestone, owner 2026-11-09): the new test tools (SharpFuzz, FPTaylor, Z3, CsCheck, coverlet,
-  mutation shards, test tiers) applied across the library, not as pilots: an inventory (tool x area) first, then
-  a rollout by ROI. Rollout continuing: status table [QA20_STATUS.md](design/QA20_STATUS.md) (#635); merged 2026-11-12: #639,
-  #641, #642, #643, #646, #648, #657 (#645), #655 (#647), #656 (#644); open PRs #627 (draft) and #682 (`Similarity.All2D()`, 2D tests on the similarities of the plane); open `local` issues #636-#638;
-  #628 fixed by #634.
-  [platform.md](roadmap/platform.md#qa-20-milestone)
-- **Mutation tooling:** #403 (rounding in 7 parts) and #445 (early stop, log artifact, ticker) merged. Rule since
-  2026-11-09: only the incremental run gates a PR; full shard runs go to master after the merge. JOB-1 on the owner's
-  machine: no kill data (Windows runner failure), so kills only in CI. Process since 2026-11-11 (owner): no full shards
-  on PRs, full shard runs nightly on master. Next: smaller test sets per shard from the exclusive kills. Found 2026-11-11: Stryker 5.0 places mutants in the whole library (~138k) and
-  the shard's `mutate` filter only skips them (579 tested in boolean-1), so the coverage capture pays for every placed
-  mutant in the hot loops (boolean capture > 5.7 h for a 22 s suite); the fix (only the shard's files are
-  mutated) is in #615 (CI-speed session, open), with the 3.0 process (no full shards on PRs, scheduled full runs).
-  [platform.md](roadmap/platform.md)
-- **Scheduled runs on GitHub are unreliable:** `coverage.yml` (cron 03:41 UTC) has no scheduled run yet, none on
-  2026-11-12; `nightly.yml` (cron 02:23 UTC) ran once on schedule (2026-11-11, started 09:36 UTC), none on 2026-11-12.
-  [platform.md](roadmap/platform.md#open)
-- **Meshing2D:** bundle merged (fast oracle #411/#427, corner choice #437, rule C #441: −18 % triangles on the corpus,
-  no verdict worse; Z3 pilot 3 #443); rule C on the snap grid done (#462); QA 2.0 T5 findings settled (60° pairs #496,
-  iterated image #526, collapsed stretches #535, #542, near contact #546 with owner decision D). Coarsening closed.
-  Inventory 2026-11-12, both actionable items done: the three single triangles from #542 (fixed in #661) and the
-  provenance delta after d9006aa (stage 6b-4, #677: no (A) finding); also #664 (#666) and the 2.5D helper (#663).
-  [meshing2d.md](roadmap/meshing2d.md#open)
-- **Phase 5:** priority by return on investment in [research.md](roadmap/research.md#open); batch queries stage 2
-  merged (#448), intersection-free dual contouring options A and B merged (#552, #572), point clouds step C1 merged (#580);
-  the CLI / MCP update is still queued.
-- **Terrain:** closed out (owner 2026-11-09): DGM reader / writer, grid TIN (#491, #504), `g3cli` `dgm` / `dgm_tin`
-  (#506), cell volumes (#507), mutation score (#508); the rest is parked until a use case. [terrain.md](roadmap/terrain.md#open)
+Status on 2026-11-15 (morning, Berlin). Each subpage ends with an "Open for the future (2026-11-15)" list, ordered by
+priority; this section names only what is in flight.
+
+- **Exact Boolean 3.0** (in progress): T5 PR 2 (#675), option (A) (#766), candidate B (#772), lever 1 (#813) and the
+  monomial fallback (#769, 2026-11-15) are merged. Open: #883 (fixes the `windingTrees` race #882 near 1e308, which
+  also hangs net48 CI), #881 (lever 4, allocations; owner 2026-11-15: merged without the boolean shards, which are re-run
+  once the shard fix lands: Stryker leaves the files outside the shard's span unmutated, plus a 7-part boolean split, after #615), #893 (candidate D, limb Orient / InCircle, 55928 -12 %), #843 (SafeRounding outside the edits;
+  closes T1b; rounding-shard filters narrowed), draft #837 (rounding-search upper bound). The tail above 20 s is in #888.
+  [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Alpha Wrap 3.0:** (B) round-based parallel carving #774 is merged (2026-11-15; `RoundWindow` 256 by default, 0 as
+  the opt-out); the 800 run follows on master. Part two, the parallel trial passes, is #898 (draft). Adaptive alpha is a
+  spike after 3.0 (#899). Wrap simplification certification #747 is partly done.
+  [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open-for-the-future-2026-11-15)
+- **Determinism proof, option A:** stage 0 (analyzer rules G3D0001-9, #871) merged 2026-11-14. Open: #892 (#803,
+  sign-of-zero Min / Max in `AxisAlignedBox3d`) and #891 (#804, saturating casts in the grid indexers), reviewed
+  drafts taken over by the determinism session; #789 (hash seed). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Bugfixes in flight:** #889 / #890 (`TerrainGreedyTIN` #855 hang at `MaxError = 0`, #854 ear tolerance), #867
+  (`MeshMeshCut` contact, #856; owner 2026-11-15: `RefuseContact` opt-in, default false). Open without a PR: #873
+  (Hausdorff coplanar stall).
+- **Meshing2D:** #864 closed (#876); #870 verdict: the oracle, not the mesher (#880, 10 of 11 dumps). The last dump
+  needs additive `QualityMesh2Candidate` fields, queued after #884. [meshing2d.md](roadmap/meshing2d.md#open-for-the-future-2026-11-15)
+- **Platform:** `g3cli offset --method mesh_offset` #868 (owner 2026-11-14: default cell |d| / 4, `max_cells`
+  unchanged); TPMS CLI #879 merged. Clipper2 vendored (#751, #851, #874); owner: its triangulation is not offered
+  through the adapter. [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **QA and mutation:** process PR #615 open; hausdorff shard #884 (thresholds being set). The master coverage gate is
+  red since #879 (uncovered `TpmsCommand.cs` lines; stale unmeasurable entries that #883 fixes). Runtime watch built
+  (#726); first report #888 (28 outliers, no baseline yet). [platform.md](roadmap/platform.md#open-for-the-future-2026-11-15)
+- **Research:** CCD (#778, #793, #872; #866 still 18-20 s parallel), tet meshing stages 1-2 (#775, #821) and the
+  fTetWild comparison (#885), TPMS (#838), topology certificate stage 1 (#779) are merged. Open: geodesic oracle
+  draft #869, 3D snap rounding draft #721, new item ARAP #886; screened Poisson #887 deferred (owner 2026-11-15).
+  [research.md](roadmap/research.md#open-for-the-future-2026-11-15)
+- **Terrain:** ramps R1 (#841, #865), #861 (#878), #808 (#850), CoreMath in the slope kernel (#836) merged; next sector
+  polygons E1 on demand. [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
 
 ## Open decisions (owner)
 
-Checked line by line against the owner's decisions and git on 2026-11-12; settled items moved to "Later" or the subpages.
+Checked on 2026-11-15.
 
-- **Clipper2 C# sources:** upstream archived 2026-10-28 (C++ only from now on, new maintainer at PolyClipping/Clipper2);
-  integrate the frozen C# 2.0.0 sources into the addon and fix FINDINGS item 5 ourselves, or keep the package? No
-  upstream report (owner 2026-11-11). [platform.md](roadmap/platform.md#open)
-- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10: the
-  library is unpublished, results may still change). [platform.md](roadmap/platform.md#open)
-- **Exact Boolean 2.0 leftovers:** the speed exceptions (519511, 1517923, 519507) and manifold M2 closed as documented
-  exceptions (owner 2026-11-12; the thingi-pairs runs after 3.0 measure them). Open: delete the superseded
-  branches `claude/int256-spike` / `claude/collinear-shortcut` (#633 merged; owner, branch deletion is not available to sessions). [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- **Release:** package ID and publishing (the nuget.org ID belongs to upstream); deliberately last (owner 2026-11-10).
+  [platform.md](roadmap/platform.md#open)
+- **Branch deletion:** superseded branches (eg `claude/int256-spike`, `claude/collinear-shortcut`); sessions cannot
+  delete branches. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
+- **Deprecating the float `MeshMeshCut` / `MeshBoolean`:** not now (coordinator 2026-11-15). `MeshMeshCut` imprints
+  curves into a target in place, which no exact operation offers; first an exact imprint on `ExactMeshArrangement`,
+  then decide. [exact-boolean.md](roadmap/exact-boolean.md#open-for-the-future-2026-11-15)
+- **Terrain:** the slope envelope construction, berms and inter-ramp checks, the GeoTIFF reader, 3D blocks.
+  [terrain.md](roadmap/terrain.md#open-for-the-future-2026-11-15)
 
 Standing rules (not pending): a Phase 5 item that is not small goes to the owner first (owner 2026-11-03); each port
 from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permissive library is a decision with an A/B
@@ -134,32 +101,40 @@ from geogram (BSD-3, may be read and ported, owner 2026-11-03) or another permis
 
 ## Next / queued
 
-The next steps per topic, in order ("in progress" where a session works on them).
+In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
+- Meshing2D: the `QualityMesh2Candidate` provenance fields for #870's last dump.
+- Exact Boolean 3.0: re-measure candidate C after lever 1; the T6 check; then the thingi-pairs baseline and final runs
+  (owner 2026-11-12).
+- Alpha Wrap 3.0: (B) is complete (#774, #898, both merged 2026-11-15); default decisions for lever 6 K (#736) and the raw-size budget
+  (#846) after an 800 run.
+- Determinism: #789 after #891 / #892.
+- Tests above 20 s: #696, #698, #866 and the #888 tail.
+- Fuzzing: #624 groups (c) to (f), #623 reader campaigns, wave-3 draft #686.
 
-- Exact Boolean 3.0 (#633 merged 2026-11-12): T5 (Antipodal PR 2, cost count first), T1b (parallel SafeRounding edits), the T6 check;
-  then the thingi-pairs baseline and final runs (owner 2026-11-12). [exact-boolean.md](roadmap/exact-boolean.md#exact-boolean-30-progress)
-- Meshing2D: the three single triangles from #542 traced and fixed (#661, merged 2026-11-12); the rotated-fan
-  Steiner-limit bugfix #664 (#666, merged 2026-11-12, fec3b2a9); the 2.5D helper `ConstrainedMesh2.ToDMesh3()`
-  (#663, merged 2026-11-12); the provenance delta after `d9006aa` by a separate dirty-side
-  session (owner exception 2026-11-12, as in stage 6b): done 2026-11-12, stage 6b-4 on master `01a7e71`, no (A) finding, no
-  rewrite needed. SplitSegment speed and the oracle leftovers need corpus inputs that are not in the
-  repository. [meshing2d.md](roadmap/meshing2d.md#open)
-- Alpha Wrap 3.0: L1, L3b, L2 (in progress, one PR per lever, fresh session from the hand-over `aw3/HANDOVER-L1.md`; L4 #670 merged). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#alpha-wrap-20-milestone)
-- Phase 5: the CLI / MCP update (in progress, Sonnet session since 2026-11-12; design #660 merged; PRs A #662, B #665, C #667 and D #669
-  merged, E #672 open; F, G next). [research.md](roadmap/research.md#open)
-- Phase 5: batch queries, the internal caller switches: profiled 2026-11-12, no caller pays (all loops already parallel;
-  the batch adds only the sort, 0.9-1.4x on the query part, a loss on coherent input); nothing switched, item closed.
-  [BATCH_QUERIES.md](design/BATCH_QUERIES.md) section 7, [research.md](roadmap/research.md#open)
-- Parameterization: integer coordinates (the AffineLocal follow-up closed in #538, geodesic Bézier curves merged in
-  #540). [parameterization-geodesics.md](roadmap/parameterization-geodesics.md#open)
-- Platform: no issue-tracker follow-up left (the flip-guard default follow-up is closed: the Remesher
-  defaults stay upstream's, owner November 2026; the P1 collapse is a documented limitation, the real fix is research; P2 parked, S2 / S3 upstream defaults kept, ray batches merged in #448). [platform.md](roadmap/platform.md#open)
+## Order after Exact Boolean 3.0 (owner 2026-11-15)
+
+1. **Finish what runs.** Exact Boolean 3.0 (T1b #843, the mutation shards #913, the T6 check against CGAL #922, then the
+   two thingi-pairs runs); Alpha Wrap 3.0 (the adaptive-alpha spike); Clipper2 (#914, then the port of four C++ fixes,
+   approved 2026-11-15, with the differential test relaxed to "differs only where the vendored code stays exact").
+2. **In parallel:** the contouring topology certificate, option A, stages 1-2 (owner 2026-11-13; disjoint files).
+3. **Rounding** (hard problems 1 and 3 in [research.md](roadmap/research.md#hard-open-problems-candidates-for-a-stronger-model)):
+   a time-boxed spike with a go / no-go first, then the build if go. It has the largest leverage and changes outputs, so
+   it comes before the release; a no-go does not hold the release.
+4. **Scale-free robust repair** (hard problem 9): builds on 3, also output-changing; before the release only if the
+   rounding spike is a go.
+5. **Release** (owner decision): once the outputs are stable.
+6. **Tet meshing:** after the release; it builds on the alpha wrap and the rounding. Sharp features (hard problem 4)
+   only if CAD cases need them.
+
+Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
+measurement); a quality-aware manifold step in the alpha wrap (#919). Last, by "depth over breadth" (owner 2026-11-10):
+CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 
 ## Later / research
 
 - Exact booleans, not scheduled: EMBER lever 2 (skip self-pairs of results certified free of self-intersections in chained
   booleans); levers 1 and 5 (quantized inputs, a new architecture): no rewrite (owner 2026-11-07), patent search done
-  2026-11-10 (nothing found); an InCircle limb kernel (candidate from #633); exact output coordinates of the coplanar 2D
+  2026-11-10 (nothing found); exact output coordinates of the coplanar 2D
   clipping. [exact-boolean.md](roadmap/exact-boolean.md#other-open-items)
 - Meshing2D research: Shewchuk's Terminator with a region-based oracle excuse (owner 2026-11-06, option c: not built),
   matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
@@ -206,6 +181,9 @@ The next steps per topic, in order ("in progress" where a session works on them)
 - Phase 5: geodesic paths and loops (#1), foldover-free maps (#7, #374); inside / outside for open inputs stopped
   (#331); the affine heat method stopped at its gate (#371). [research.md](roadmap/research.md#phase-5-candidates-from-recent-research)
 - Test suite on German Windows (#383). [platform.md](roadmap/platform.md#test-suite-on-german-windows)
+- November 2026 (2026-11-12 to 2026-11-15): CLI / MCP update (#707), Clipper2 vendored (#751, #851, #874), FPTaylor T12
+  (#627), runtime watch (#726), determinism stage 0 (#871), monomial fallback (#769), CCD (#778, #793, #872), tet
+  stages 1-2 (#775, #821), TPMS (#838, #879), `MeshOffset` (#799). [history.md](roadmap/history.md)
 
 ## Session limits
 
@@ -218,6 +196,8 @@ The next steps per topic, in order ("in progress" where a session works on them)
   short pipeline topics: fast-winding cache lever 3, DualContouring allocations, the
   issue-tracker follow-ups (flip-guard and P1, both closed), then the parked `.poly` reader / mesh2d area items after the CLI queue) on top of the limit;
   no further starts until the count is back below it.
+- **Suspended (owner 2026-11-12, after the weekly reset):** the limit above is out of force until the owner sets it
+  again; the coordinator still starts one PR-sized topic per session and keeps parallel sessions off the same files.
 - The bottleneck is review, serial merges and the mutation runners (a full shard takes hours), not sessions: a
   session whose PR waits for review does not start the next PR-sized topic in a mutated file.
 - Parallel sessions must not change the same production files. Quadtree (`spatial/`) and meshing (`comp_geom/`) are

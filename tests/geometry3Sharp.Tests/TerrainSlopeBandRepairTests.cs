@@ -13,8 +13,12 @@ namespace geometry3Sharp.Tests
     /// (two triple points closer than MinFeatureSize whose plane sets are not nested), which no collapse may remove and
     /// the merge below 64 e_xy does not take, are merged up to the band radius.
     /// </summary>
-    public class TerrainSlopeBandRepairTests
+    public class TerrainSlopeBandRepairTests : IClassFixture<TerrainSlopeBandRepairTests.ReferenceFixture>
     {
+        // (the shared reference is built by a class fixture, before the first test: its cost, about 5 s, is no test's, whichever row runs first)
+        public sealed class ReferenceFixture { public ReferenceFixture() { var d = TerrainSlopeBandRepairTests.reference.Value; } }
+
+
         // a wavy 48-gon (r 150 m, ± 15 %, toe z ± 4 m) at c, ratio 1.5, on a wave terrain h above the toe (amplitude amp,
         // grid spacing sp), as TerrainBenchmark's 'slope toe=wavy terrain=wave'
         internal static TerrainSlopeDesign WavyOnWaves(Vector3d c, int n = 48, double r = 150, double h = 60, double amp = 20, double sp = 8, double ratio = 1.5)
@@ -113,7 +117,8 @@ namespace geometry3Sharp.Tests
         // band merge, on master too: at scale 1e3 a large facet at the toe (133 m by 5 m) fails the first attempt (on
         // master three attempts); at 1e-3 and UTM the toe (10 cm) is near the frame's MinFeatureSize (1.9 mm), so the
         // band radius is r and there is no band; there the composite fails (CompositeFailed, non-manifold), honestly,
-        // and the local frame succeeds in one attempt (TERRAIN.md 5.8.1)
+        // and the local frame succeeds in one attempt (TERRAIN.md 5.8.1). Slow: 8 s in the rotated, scale 1e-3, utm frame (three builds by
+        // design, #696), 4 s or less in the others
         [Trait("Category", "Slow")]
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
@@ -169,10 +174,27 @@ namespace geometry3Sharp.Tests
 
         // the same status in every frame (near the origin, scaled, rotated, at UTM: band merges in all but UTM), the 2^k
         // frames bit for bit
+        // The frame "rotated, scale 1e-3, utm" (a design of centimetres at UTM coordinates: MinFeatureSize 1.5 cm, three builds by design, TERRAIN.md
+        // 5.8.1, #696) costs 2-3 times the other frames and runs in the Nightly test WavyToe_Similarities_ExtremeFrame: the run is the check
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
-        public void WavyToe_Similarities(string name)
+        [MemberData(nameof(Similarity.NamesExceptExtremeFrame), MemberType = typeof(Similarity))]
+        public void WavyToe_Similarities(string name) => WavyToeSimilarities(name);
+
+        [Fact]
+        public void ExtremeFrame_IsTheOnlyFrameOutOfThePrTier()
+        {
+            var pr = Similarity.NamesExceptExtremeFrame().Select(a => (string)a[0]).ToList();
+            Assert.Equal(7, pr.Count);
+            Assert.DoesNotContain(Similarity.RotatedUtmMillimetre.Name, pr);
+            Assert.Equal(Similarity.Names().Select(a => (string)a[0]).OrderBy(x => x), pr.Concat(new[] { Similarity.RotatedUtmMillimetre.Name }).OrderBy(x => x));
+        }
+
+        [Trait("Category", "Nightly")]
+        [Fact]
+        public void WavyToe_Similarities_ExtremeFrame() => WavyToeSimilarities(Similarity.RotatedUtmMillimetre.Name);
+
+        static void WavyToeSimilarities(string name)
         {
             Similarity s = Similarity.ByName(name);
             if (s.IsRotated) s = new Similarity(s.Name + " (about z)", s.Scale, Matrix3d.AxisAngleD(Vector3d.AxisZ, 31), s.Translation);

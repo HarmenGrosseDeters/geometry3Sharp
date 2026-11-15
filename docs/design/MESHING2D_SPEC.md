@@ -780,6 +780,8 @@ Severity: *C* = critical, *H* = high, *M* = medium, *L* = low.
   whose two edges cross the pixel of a refinement vertex, or a boundary segment less than a pixel beside the
   hull) break the strict decision too; the oracle lists them without failing, a ratchet pins their number,
   and the mesher's fix (refinement does not pinch two chains) comes next (coordinator 2026-11-03).
+  Update 2026-11-12: fixed in #373 (2026-11-04); RefinementPinch is now a failing rule and every pinch count is 0
+  ([MESHING2D_HULL_GRID.md](MESHING2D_HULL_GRID.md), RefinementPinch; [roadmap/meshing2d.md](../roadmap/meshing2d.md)).
 
 ---
 

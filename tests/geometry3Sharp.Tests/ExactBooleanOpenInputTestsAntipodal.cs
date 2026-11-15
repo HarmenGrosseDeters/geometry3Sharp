@@ -16,6 +16,16 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class ExactBooleanOpenInputTestsAntipodal
     {
+        // Edge vertices of the spheres of the three tests with the most terms in antipodal_front_winding (SameResultAsFastWinding,
+        // TwoOpenSpheres_Similarities, DuplicatesAndFans: 42 of the 51 million terms of this class at 20). The terms grow with
+        // the pieces times the boundary segments, about the cube of the resolution, and under Stryker's coverage capture the class
+        // took 94 minutes (tests/mutation/README.md, "Coverage pass"); at 8 these tests have 14 to 17 times fewer terms and the
+        // same assertions, rim differences of the two open spheres included. 8 is a working point, not a monotone parameter: at 10
+        // the three "two open spheres" rows of SameResultAsFastWinding fail "no differing triangle checked", the check that the
+        // comparison is not blind (at that resolution the fast winding numbers happen not to err near the rims, so there is no
+        // differing triangle to compare); AssertDifferencesDecidedAsDirectSum and the other assertions hold there.
+        const int Coarse = 8;
+
         // a unit sphere with the cap above capZ (relative to its centre) removed; capZ above 1 keeps it closed
         static DMesh3 Sphere(Vector3d c, double capZ, int edgeVertices = 20)
         {
@@ -230,6 +240,56 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void ByDefault_OpenMeshesBelowTheCapGoToAntipodal_SoupsToo()
+        {
+            // (option A: no limit on the triangles, 20000 boundary segments; a soup below that, every edge a boundary edge,
+            // takes the Antipodal Method too, and gives the closed sphere's result where its pieces are far from its edges)
+            DMesh3 closed = new Sphere3Generator_NormalizedCube() { Radius = 1, EdgeVertices = 12 }.Generate().MakeDMesh();
+            // (every copy of a vertex t + 1 units in the last place off in x, so that no two triangles weld)
+            var soup = new DMesh3();
+            foreach (int t in closed.TriangleIndices()) {
+                Index3i f = closed.GetTriangle(t);
+                Func<Vector3d, Vector3d> off = (v) => new Vector3d(BitConverter.Int64BitsToDouble(BitConverter.DoubleToInt64Bits(v.x) + t + 1), v.y, v.z);
+                soup.AppendTriangle(soup.AppendVertex(off(closed.GetVertex(f.a))), soup.AppendVertex(off(closed.GetVertex(f.b))),
+                    soup.AppendVertex(off(closed.GetVertex(f.c))));
+            }
+            DMesh3 b = Sphere(CenterB, 0.5);
+            // (the areas are those of the plainly rounded results, SafeRounding off: the test is about the classification, and
+            // the repair of a result that does not round clean, as this soup's with its ulp-wide slivers, moves vertices by up
+            // to its own bound, 1.2e-8 of the area here since #755; the plain rounding moves each vertex by at most half an
+            // ulp, so the same exact solid gives the same area within a few 1e-13, and 1e-9 separates a classification change)
+            var byDefault = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { RecordOpenWinding = true, SafeRounding = false };
+            Assert.True(byDefault.Compute(), byDefault.Error);
+            Assert.True(byDefault.OpenBoundarySegments[0] >= 1000 && byDefault.OpenBoundarySegments[0] < 20000);
+            // (both: the soup and B, open at its cap)
+            Assert.Equal(2, byDefault.Counts["antipodal_meshes"]);
+            // (pieces on or next to the soup's edges are undecided, read as outside; the edges are everywhere within ulps of
+            // another triangle's, so these are the slivers along them)
+            Assert.True(byDefault.Result.TriangleCount > 0);
+            Assert.True(Invariance.AllFinite(byDefault.Result));
+            // (the welded sphere is closed: exact winding numbers; the soup's Antipodal values give the same surface up to the
+            // ulp gaps between its triangles)
+            var welded = new ExactMeshBoolean(new DMesh3(closed), new DMesh3(b), Ops.Intersection) { SafeRounding = false };
+            Assert.True(welded.Compute(), welded.Error);
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(byDefault.Result)) <= 1e-9 * Invariance.Area(welded.Result),
+                $"{Invariance.Area(byDefault.Result)} for {Invariance.Area(welded.Result)}");
+            // (fast winding numbers for both, as for an input above the cap: their far field misreads pieces next to the
+            // surface, 0.4 % more area here)
+            var fwn = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = Fwn, SafeRounding = false };
+            Assert.True(fwn.Compute(), fwn.Error);
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(fwn.Result)) > 1e-3 * Invariance.Area(welded.Result));
+            // (at the cap, here set to the soup's own count instead of 20000 to keep the test small, as the former default of
+            // 1000 did: the soup goes to fast winding numbers, B, below the cap, stays with Antipodal; plainly rounded, that
+            // gives the welded sphere's area as well here, the far field of the soup alone does not misread a piece; the
+            // 6e-8 measured before with SafeRounding was the repair's, not the classification's)
+            var capped = new ExactMeshBoolean(new DMesh3(soup), new DMesh3(b), Ops.Intersection) { AntipodalMaxBoundarySegments = byDefault.OpenBoundarySegments[0], SafeRounding = false };
+            Assert.True(capped.Compute(), capped.Error);
+            Assert.Equal(1, capped.Counts["antipodal_meshes"]);
+            Assert.True(Math.Abs(Invariance.Area(welded.Result) - Invariance.Area(capped.Result)) <= 1e-9 * Invariance.Area(welded.Result),
+                $"{Invariance.Area(capped.Result)} for {Invariance.Area(welded.Result)}");
+        }
+
+        [Fact]
         public void Switch_ThresholdIsStrict()
         {
             // a mesh with exactly as many boundary segments as the limit goes to fast winding numbers, one fewer to Antipodal
@@ -252,7 +312,9 @@ namespace geometry3Sharp.Tests
             // boundary: the same result, bit for bit, as fast winding numbers everywhere; one triangle fewer than the cap
             // goes to Antipodal
             DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 2);
-            Assert.Equal(100000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
+            // (no cap by default, owner 2026-11-12 option A; the switch stays for tests)
+            Assert.Equal(int.MaxValue, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxTriangles);
+            Assert.Equal(20000, new ExactMeshBoolean(a, b, Ops.Union).AntipodalMaxBoundarySegments);
             ExactMeshBoolean fwn = Run(a, b, Ops.Intersection, Fwn);
             var capped = new ExactMeshBoolean(new DMesh3(a), new DMesh3(b), Ops.Intersection) { AntipodalMaxTriangles = a.TriangleCount };
             Assert.True(capped.Compute(), capped.Error);
@@ -325,9 +387,9 @@ namespace geometry3Sharp.Tests
 
         static void Inputs(string name, out DMesh3 a, out DMesh3 b)
         {
-            if (name == "two open spheres") { a = Sphere(Vector3d.Zero, 0.6); b = Sphere(CenterB, 0.5); }
-            else if (name == "open sphere and open box") { a = Sphere(Vector3d.Zero, 0.6); b = OpenBox(new Vector3d(-0.3, -0.4, -0.5), new Vector3d(1.1, 0.7, 0.8)); }
-            else { a = Sphere(Vector3d.Zero, 0.6); b = Sphere(CenterB, 2); }
+            if (name == "two open spheres") { a = Sphere(Vector3d.Zero, 0.6, Coarse); b = Sphere(CenterB, 0.5, Coarse); }
+            else if (name == "open sphere and open box") { a = Sphere(Vector3d.Zero, 0.6, Coarse); b = OpenBox(new Vector3d(-0.3, -0.4, -0.5), new Vector3d(1.1, 0.7, 0.8)); }
+            else { a = Sphere(Vector3d.Zero, 0.6, Coarse); b = Sphere(CenterB, 2, Coarse); }
         }
 
         [Theory]
@@ -354,8 +416,8 @@ namespace geometry3Sharp.Tests
         public void DuplicatesAndFans_SameClassificationOnBothPaths()
         {
             // an open sphere with a same-orientation duplicate of a triangle far from B, and one with a fin on an edge
-            DMesh3 b = Sphere(CenterB, 2);
-            DMesh3 dup = Sphere(Vector3d.Zero, 0.6), fin = Sphere(Vector3d.Zero, 0.6);
+            DMesh3 b = Sphere(CenterB, 2, Coarse);
+            DMesh3 dup = Sphere(Vector3d.Zero, 0.6, Coarse), fin = Sphere(Vector3d.Zero, 0.6, Coarse);
             int far = dup.TriangleIndices().OrderBy(t => -(dup.GetTriCentroid(t) - CenterB).Length).First();
             Index3i d = dup.GetTriangle(far);
             dup.AppendTriangle(dup.AppendVertex(dup.GetVertex(d.a)), dup.AppendVertex(dup.GetVertex(d.b)), dup.AppendVertex(dup.GetVertex(d.c)));
@@ -447,7 +509,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void TwoOpenSpheres_Similarities_Antipodal()
         {
-            DMesh3 a = Sphere(Vector3d.Zero, 0.6), b = Sphere(CenterB, 0.5);
+            DMesh3 a = Sphere(Vector3d.Zero, 0.6, Coarse), b = Sphere(CenterB, 0.5, Coarse);
             ExactMeshBoolean r0 = Run(a, b, Ops.Intersection, Antipodal);
             foreach (Similarity sim in Similarity.All()) {
                 DMesh3 sa = Invariance.Transformed(a, sim), sb = Invariance.Transformed(b, sim);

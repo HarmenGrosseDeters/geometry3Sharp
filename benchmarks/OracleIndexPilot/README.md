@@ -60,7 +60,7 @@ The default binary64 path uses `strtree` for used-point/triangle search and
 `strtree-hulls` for edge crossing search. No environment variables are required.
 Set `G3_ORACLE_POINT_INDEX=sweep` and/or `G3_ORACLE_EDGE_INDEX=sweep` to use the
 previous sweep for diagnosis. The exact-reference path always retains its sweep. NTS is a direct dependency of the test-oracle
-project in this branch, not of geometry3Sharp. All remaining conformity,
+project (`benchmarks/Meshing2Benchmark`), not of geometry3Sharp. All remaining conformity,
 Delaunay, quality, tolerance and budget rules stay in force.
 
 ```sh

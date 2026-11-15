@@ -20,20 +20,35 @@ namespace g3
         // incircle(a, b, c, d): +1 if d is inside the circle through counter-clockwise a, b, c
         readonly Func<int, int, int, int, int> incircle;
 
-        readonly List<int[]> tris = new List<int[]>();
+        readonly List<int[]> tris;
         readonly List<int> free = new List<int>();
         readonly List<int[]> spare = new List<int[]>();
-        readonly Dictionary<long, int> edgeTri = new Dictionary<long, int>(EdgeKeyComparer.Instance);     // directed edge -> triangle
+        readonly Dictionary<long, int> edgeTri;     // directed edge -> triangle
         readonly HashSet<long> constrained = new HashSet<long>(EdgeKeyComparer.Instance);                 // undirected
-        readonly HashSet<int> vertices = new HashSet<int>();
-        readonly Dictionary<int, int> vertexTri = new Dictionary<int, int>();       // vertex -> a triangle that had it (check before use)
+        readonly HashSet<int> vertices;
+        readonly Dictionary<int, int> vertexTri;    // vertex -> a triangle that had it (check before use)
         readonly int[] outer;
 
+        /// <summary>
+        /// the outer triangle c0, c1, c2 (counter-clockwise). points: the number of points that will be inserted, if
+        /// known (0 otherwise): the containers are then sized for the final triangulation, 1 + 2 points triangles
+        /// (each point inserted into the outer triangle adds two; inserting constraints only flips edges). Sizes only:
+        /// the results are the same for any value.
+        /// </summary>
         [MethodImpl(JitHints.Optimize)]
-        public ExactTriangulation2(int c0, int c1, int c2, Func<int, int, int, int> orient, Func<int, int, int, int, int> incircle)
+        public ExactTriangulation2(int c0, int c1, int c2, Func<int, int, int, int> orient, Func<int, int, int, int, int> incircle, int points = 0)
         {
             this.orient = orient;
             this.incircle = incircle;
+            int triangles = 1 + 2 * Math.Max(0, points);
+            tris = new List<int[]>(triangles);
+            edgeTri = new Dictionary<long, int>(3 * triangles, EdgeKeyComparer.Instance);
+#if NETSTANDARD2_0
+            vertices = new HashSet<int>();      // (no capacity constructor in netstandard2.0)
+#else
+            vertices = new HashSet<int>(3 + Math.Max(0, points));
+#endif
+            vertexTri = new Dictionary<int, int>(3 + Math.Max(0, points));
             outer = new[] { c0, c1, c2 };
             add_tri(c0, c1, c2);
             vertices.Add(c0); vertices.Add(c1); vertices.Add(c2);
@@ -395,7 +410,7 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void MakeDelaunay()
         {
-            var stack = new Stack<long>();
+            var stack = new Stack<long>(3 * tris.Count);
             foreach (int[] t in tris) {
                 if (t == null) continue;
                 for (int k = 0; k < 3; ++k)

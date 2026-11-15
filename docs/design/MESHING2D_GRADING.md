@@ -130,6 +130,9 @@ bound, or a bound on the score that prunes candidates early) change the result a
 
 ## 3. Next steps (open)
 
+Update 2026-11-12: the owner stopped the grading work on 2026-11-04; #380 is the grading result (section 4.5). What is
+left stays open as the research item "Grading placement strategy" in [roadmap/meshing2d.md](../roadmap/meshing2d.md).
+
 - **A 2D candidate region.** Erten and Üngör choose the Steiner point in a region, the petal of the shortest edge, not only on a
   line. The conference version (SGP 2007) was read on 2026-11-04; see section 4.3.
 - **The bad-triangle criterion.** At present a triangle is split when its smallest angle is below the bound. A criterion that also

@@ -35,6 +35,20 @@ namespace gs
         /// contact: the line is a convention of the exact rule, not a measurement)
         /// </summary>
         public List<double> Gradient = new List<double>(), Uncertainty = new List<double>();
+        /// <summary>
+        /// per segment, a proven bound of the horizontal uncertainty (TERRAIN.md 5.5, "The proven bound"): every point of the
+        /// true catch line (the boundary of the true region: the components of {S - T &lt; 0} connected to the toe, cut;
+        /// mirrored for fill; level-set pieces not connected to it, eg around a hill the cone passes under, are not part of
+        /// it) within the slope surface's footprint lies within ProvenUncertainty[i] of some
+        /// segment i, given that the realized slope surface is within Tolerance of the exact one and the terrain within
+        /// TerrainVerticalUncertainty of the true one (TerrainSlopeDesign: plus the composite's largest move of a catch point,
+        /// measured: its own snap and merge, the nudge, and with Direction Auto the partner snap). Only that move for a
+        /// segment no band piece is nearest to; the places where the band has no segment nearby are
+        /// TerrainSlopeDesign.CatchLineBandWithoutLine
+        /// </summary>
+        public List<double> ProvenUncertainty = new List<double>();
+        // (the bound of the overlay, before the snap's move)
+        internal List<double> ProvenBand = new List<double>();
         public List<bool> Tangential = new List<bool>();
     }
 

@@ -79,9 +79,11 @@ namespace g3
         }
 
 
+        /// <summary> every component is finite (neither NaN nor infinite). Upstream tested the sum of the components, which overflows
+        /// for finite large values such as (3e38, 3e38) and then reported them as not finite. </summary>
         public bool IsFinite
         {
-            get { float f = x + y + z + w; return float.IsNaN(f) == false && float.IsInfinity(f) == false; }
+            get { return MathUtil.IsFinite(x) && MathUtil.IsFinite(y) && MathUtil.IsFinite(z) && MathUtil.IsFinite(w); }
         }
 
         public void Round(int nDecimals) {

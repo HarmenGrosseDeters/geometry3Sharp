@@ -18,7 +18,9 @@ setup (SDK install): [docs/QA.md#5-local-setup](docs/QA.md#5-local-setup).
   a reuse test (compute twice on one instance) if it has `Compute()`, and a determinism test (parallel equals
   serial, repeated runs) if it has a parallel path. Tests of a success path check the result (closed,
   manifold, finite, eg `MeshRobustRepair.NotCleanReason`), not only the status.
-- Test time (owner 2026-11-09): a test takes at most 5 s (its duration in the full CI run's trx, linux net10.0).
+- Test time (owner 2026-11-09): a test takes at most 5 s (CI re-runs the tests tagged `Slow` and those on `SLOW_BACKLOG.txt` alone and judges them
+  on that time; every other test is judged on its duration in the full CI run's trx, linux net10.0; owner 2026-11-12). A test or a library operation on one input above 20 s in
+  any run, the full run included, is a potential defect and gets an issue with a diagnosis.
   Exceptions up to 10 s carry the `Slow` trait and a one-line reason in the test; nothing above 10 s. A check that
   needs more (a corpus, a soak or long determinism run) is made cheaper with the same power (smaller procedural
   inputs, shared work, split cases; a mutant the old test kills must still be killed) or moves to a benchmark or a
@@ -45,8 +47,9 @@ sessions, combined mutation gates).
 ## Before every push
 
 Docs-only changes (only `*.md` files) need no local CI steps, and GitHub CI skips them (the `paths` filter in
-`ci.yml`): re-read the diff and push. Exception: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
-`GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests. A change to existing library code, including code in `docs/examples`, runs
+`ci.yml`): re-read the diff and push. Exceptions: `docs/design/FIXED_WIDTH_EXACT_POINTS.md`, whose bound table
+`GeneratedPredicatesTests` checks against the generator, runs CI and the generator tests; `docs/design/DETERMINISM_PROOF.md`,
+whose stage 0 ledger `DeterminismScopeAnalyzerTests` checks against `DeterministicApis.txt`, runs CI and those tests. A change to existing library code, including code in `docs/examples`, runs
 the full list. A change to tools, tests or new files only runs the filtered tests of the changed areas, the builds of
 all targets (net10.0, netstandard2.0, the net48 test projects) and `dotnet pack` (API validation); GitHub CI runs the
 rest. One PR per feature, as clean commits, not stacked sub-step PRs; Stryker locally once per shard to set its
@@ -71,12 +74,29 @@ dotnet build benchmarks/<each>/<each>.csproj -c Release
 dotnet build tools/PredicateCompiler -c Release
 ```
 
+A change to a csproj, `tools/` or `docs/design` also runs the fast Python tool tests of the `linux` job (a test-project include that
+is missing from `SHARED` in `tools/ci_scope.py` fails there):
+
+```
+python3 -m unittest discover -s tools -p 'test_ci_scope.py'
+python3 -m unittest discover -s tools -p 'test_trx_durations.py'
+python3 -m unittest discover -s tools -p 'test_changed_line_coverage.py'
+```
+
+A new mutated file, a test class named in a Stryker config, or a new test file in a shard filter also needs its entry in
+the `paths` of `.github/workflows/mutation.yml`; the `changes` job of that workflow checks it (run from `tests/mutation`):
+
+```
+python3 test_select_shards.py && python3 test_baseline.py && python3 test_incremental.py && python3 test_suggest_split.py
+```
+
 Draft PRs and spikes: before a push, build the library for all targets (net10.0, netstandard2.0) and the net48 test
 project, and run the tests of the changed areas (`dotnet test --filter ...`). The full list above runs before the PR
 is marked ready for review; the CI of every push runs it on GitHub anyway.
 
-CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the library tests without the tests tagged
-`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length), a PR that is ready for review and master run
+CI has two tiers ([docs/QA.md](docs/QA.md), "Test tiers"): a draft PR runs the Linux library tests without the tests tagged
+`[Trait("Category", "Slow")]` (5 s and more; tag a new test of that length) and skips the Windows / net48 jobs (so build the net48 test
+project locally before the push), a PR that is ready for review and master run
 all of them; a PR that changes only tools, benchmarks or docs the tests do not read skips the library suites
 (`tools/ci_scope.py`). Locally: `dotnet test ... --filter "Category!=Slow"` for the quick set.
 
@@ -90,9 +110,11 @@ Before a PR is marked ready or merged, review its diff (`/code-review`, or an ag
 the author's reasoning, so it is not anchored on it), with [docs/REVIEW_CHECKLIST.md](docs/REVIEW_CHECKLIST.md)
 (the fault classes earlier reviews found). Fix the findings in the same PR, or say in the PR why not. Changes
 to exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points, error bounds) and to
-`mesh_ops/ExactMesh*` always get this review, including a check of every new error bound; on PRs that touch
-the mutated files, the incremental mutation run (`tests/mutation`: the changed lines against the master baseline) must
-stay above its threshold before the merge. A PR that would need full shard runs (no master baseline for a shard, a
+`mesh_ops/ExactMesh*` always get this review, including a check of every new error bound. Mutation runs gate a merge
+only for PRs that touch exact arithmetic (`math/Exact*`, `math/AdaptivePredicates.cs`, implicit points) or add or
+change an error bound: there the incremental mutation run (`tests/mutation`: the changed lines against the master
+baseline) must stay above its threshold before the merge. All other PRs merge on green CI and review; their shards run
+nightly on master, and survivors become tasks of the area's next PR (owner 2026-11-13). A PR that would need full shard runs (no master baseline for a shard, a
 changed config, an integration PR) merges on green CI and review; the full run of its shards then runs on master
 (workflow_dispatch), seeds the baselines and is the gate: a shard below its threshold gets a follow-up PR with tests,
 a revert only for a real defect (owner 2026-11-09). During Exact Boolean 3.0 (owner 2026-11-11): no full shard runs on

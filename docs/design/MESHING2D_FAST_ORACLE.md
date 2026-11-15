@@ -194,6 +194,8 @@ with quadratic scans rather than constants. For example, earcut/water M2 goes fr
 
 ## 4. Next (pending the owner's decision)
 
+Update 2026-11-12: item (3) was decided by the owner on 2026-11-04 (A+C) and is worked out in section 6.
+
 - **(3) Delaunay with a completion witness.** The global pass cannot simply be replaced by the local test.
   - The Delaunay lemma is about a triangulation of the convex hull, but O2 (conforming, the default with quality) asks for empty
     circumcircles against all vertices, also across holes and concave boundaries, where the output has no triangles.

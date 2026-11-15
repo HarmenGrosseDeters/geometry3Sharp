@@ -1,0 +1,137 @@
+using System;
+using System.Linq;
+using g3;
+using gs;
+using Xunit;
+
+namespace geometry3Sharp.Tests
+{
+    /// <summary>
+    /// #636: a few triangles that fall through to the alpha wrap fallback took seconds, because the wrap size depends on the bounding
+    /// box diagonal over alpha only (about 200 000 wrap triangles). For an input below SmallInputWrapTriangles the wrap takes its alpha
+    /// from the input's own edge length.
+    /// </summary>
+    public class MeshRobustRepairSmallInputWrapTests
+    {
+        [Fact]
+        public void WrapStillEnclosesTheInput_WithinTheReportedOffset()
+        {
+            DMesh3 input = TinyRepairInputs.Input();
+            var r = new MeshRobustRepair(new DMesh3(input));
+            TinyRepairInputs.AssertRepaired(r, r.Apply());
+            double offset = r.AlphaWrap.UsedOffset, alpha = r.AlphaWrap.UsedAlpha;
+            var wrapTree = new DMeshAABBTree3(r.Mesh, true);
+            wrapTree.Build();
+            // the result is within the offset of the input, plus the half offset of the simplification (the documented distance of the wrap and of simplify_wrap) ...
+            var inputTree = new DMeshAABBTree3(input, true);
+            inputTree.Build();
+            foreach (int v in r.Mesh.VertexIndices()) {
+                int tid = inputTree.FindNearestTriangle(r.Mesh.GetVertex(v));
+                double d = Math.Sqrt(MeshQueries.TriDistanceSqr(input, tid, r.Mesh.GetVertex(v)));
+                Assert.True(d <= 1.5 * offset, $"vertex {v} at {d}, offset {offset}");
+            }
+            // ... and encloses it: every input triangle's centroid is inside
+            foreach (int t in input.TriangleIndices())
+                Assert.True(wrapTree.FastWindingNumber(input.GetTriCentroid(t)) > 0.5, "triangle " + t);
+        }
+
+        [Fact]
+        public void AtOrAboveTheThreshold_TheWrapIsTheFormerOne()
+        {
+            // a coarse wrap so that the test is fast: the same input with the threshold equal to its triangle count (not below it) and with the
+            // rule off must give the same mesh bit for bit; one triangle more in the threshold changes the alpha
+            DMesh3 input = TinyRepairInputs.Input();
+            int n = input.TriangleCount;
+            MeshRobustRepair Run(int threshold) {
+                var r = new MeshRobustRepair(new DMesh3(input)) { WrapRelativeAlpha = 20, WrapRelativeOffset = 200, SmallInputWrapTriangles = threshold };
+                Assert.True(r.Apply());
+                Assert.True(r.UsedAlphaWrap);
+                return r;
+            }
+            var off = Run(0);
+            var atThreshold = Run(n);
+            Assert.Equal(off.AlphaWrap.UsedAlpha, atThreshold.AlphaWrap.UsedAlpha);
+            Assert.Equal(off.AlphaWrap.UsedOffset, atThreshold.AlphaWrap.UsedOffset);
+            Assert.Equal(off.Mesh.VertexCount, atThreshold.Mesh.VertexCount);
+            Assert.Equal(off.Mesh.TriangleCount, atThreshold.Mesh.TriangleCount);
+            foreach (int v in off.Mesh.VertexIndices()) {
+                Vector3d a = off.Mesh.GetVertex(v), b = atThreshold.Mesh.GetVertex(v);
+                Assert.True(BitConverter.DoubleToInt64Bits(a.x) == BitConverter.DoubleToInt64Bits(b.x) && BitConverter.DoubleToInt64Bits(a.y) == BitConverter.DoubleToInt64Bits(b.y)
+                    && BitConverter.DoubleToInt64Bits(a.z) == BitConverter.DoubleToInt64Bits(b.z), "vertex " + v);
+            }
+            var below = Run(n + 1);
+            Assert.True(below.AlphaWrap.UsedAlpha > off.AlphaWrap.UsedAlpha);
+            Assert.Equal(below.AlphaWrap.UsedAlpha * (20.0 / 200.0), below.AlphaWrap.UsedOffset, 12);   // the offset keeps its ratio to alpha
+        }
+
+
+        [Fact]
+        public void FarParts_KeepTheFormerWrapJudgement()
+        {
+            // two degenerate parts 1e7 sizes apart (the far part case: lostPartInput is set, the wrap is judged against the largest component).
+            // The rule is off there; it would also change nothing, since the edge length of parts that far apart is below diag / 300 (alpha is
+            // the larger of the two). Either way the result is what it was with the rule off
+            DMesh3 two = TinyRepairInputs.Input();
+            DMesh3 b = TinyRepairInputs.Input(2);
+            foreach (int v in b.VertexIndices().ToArray()) b.SetVertex(v, b.GetVertex(v) + new Vector3d(1e7, 0, 0));
+            new MeshEditor(two).AppendMesh(b);
+            MeshRobustRepair Run(int threshold) {
+                var r = new MeshRobustRepair(new DMesh3(two)) { WrapRelativeAlpha = 20, WrapRelativeOffset = 200, SmallInputWrapTriangles = threshold };
+                r.Apply();
+                return r;
+            }
+            var off = Run(0);
+            var on = Run(64);
+            Assert.Equal(off.ResultReason, on.ResultReason);
+            Assert.Equal(off.UsedAlphaWrap, on.UsedAlphaWrap);
+            Assert.Equal(off.WrapReason, on.WrapReason);
+            Assert.Equal(off.Mesh.VertexCount, on.Mesh.VertexCount);
+            Assert.Equal(off.Mesh.TriangleCount, on.Mesh.TriangleCount);
+            if (on.AlphaWrap != null) Assert.Equal(off.AlphaWrap.UsedAlpha, on.AlphaWrap.UsedAlpha);
+        }
+
+        [Fact]
+        public void Reuse_ApplyTwiceOnOneInstance()
+        {
+            // the second Apply() starts from the repaired mesh of the first: a clean closed mesh stays a clean closed mesh, as a clean
+            // result of any repair does (it is not wrapped again)
+            var r = new MeshRobustRepair(TinyRepairInputs.Input());
+            TinyRepairInputs.AssertRepaired(r, r.Apply());
+            int triangles = r.Mesh.TriangleCount;
+            Assert.True(r.Apply());
+            Assert.Equal("", r.ResultReason);
+            Assert.Equal(triangles, r.Mesh.TriangleCount);
+            Assert.True(r.Mesh.IsClosed());
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(TinyRepairInputs.Normalized(r.Mesh)));
+        }
+
+        [Theory, MemberData(nameof(Similarities))]
+        public void Invariance_AllSimilarities(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 input = TinyRepairInputs.Input();
+            var r0 = new MeshRobustRepair(new DMesh3(input));
+            TinyRepairInputs.AssertRepaired(r0, r0.Apply());
+            var r1 = new MeshRobustRepair(Invariance.Transformed(input, s));
+            TinyRepairInputs.AssertRepaired(r1, r1.Apply());
+            Assert.True(Math.Abs(r1.AlphaWrap.UsedAlpha - s.Scale * r0.AlphaWrap.UsedAlpha) <= (s.IsExact ? 0 : 1e-6) * r1.AlphaWrap.UsedAlpha, "alpha scales with the input");
+            if (s.IsExact)
+                Assert.Equal(s.Scale * r0.AlphaWrap.UsedAlpha, r1.AlphaWrap.UsedAlpha);
+            Assert.True(Math.Abs(r1.AlphaWrap.UsedOffset / r1.AlphaWrap.UsedAlpha - r0.AlphaWrap.UsedOffset / r0.AlphaWrap.UsedAlpha) < 1e-12);
+            if (s.IsExact) {
+                // a power of two: the same wrap bit for bit
+                Assert.Equal(r0.Mesh.VertexCount, r1.Mesh.VertexCount);
+                Assert.Equal(r0.Mesh.TriangleCount, r1.Mesh.TriangleCount);
+                foreach (int v in r0.Mesh.VertexIndices()) {
+                    Vector3d a = r0.Mesh.GetVertex(v) * s.Scale, b = r1.Mesh.GetVertex(v);
+                    Assert.True(a.x == b.x && a.y == b.y && a.z == b.z, "vertex " + v);
+                }
+            } else {
+                // other similarities: a wrap of the same size class (the grid it samples is not the rotated one)
+                Assert.InRange((double)r1.Mesh.TriangleCount / r0.Mesh.TriangleCount, 0.5, 2.0);
+            }
+        }
+
+        public static System.Collections.Generic.IEnumerable<object[]> Similarities() => Similarity.Names();
+    }
+}
