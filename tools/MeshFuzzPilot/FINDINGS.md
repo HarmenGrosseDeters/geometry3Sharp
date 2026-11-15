@@ -164,10 +164,13 @@ Open (quality-mesh2, to be triaged before any fix; the mesher and its oracle are
      right in area (its signed areas sum to the exact area) but the conversion filled a hole: (1) a negative top-level path that
      touches its holder's edge with a vertex rounded to the grid point just outside (`Contains` had no tolerance; the case the
      review of #756 reported); (2) a negative path that the tree nests as an island in a hole although it lies beside the hole,
-     touching it. Fix: `Contains` takes a vertex within one grid unit of the holder's boundary as on it; a negative island that is
-     not inside its hole (`Contains`) is another hole of that hole's outer boundary (inside the hole it stays a filled island of
-     winding -1, `Tree_NegativeIslandInsideAHole_IsAFilledIsland`); and a path of zero grid area (a collinear sliver, which came out
-     as an outer ring that is not counterclockwise) is dropped. After: 0 wrong of 160 000. The Union the review of #756 found
+     touching it. Fix: `Contains` (and its bounds prefilter) takes a vertex within one grid unit of the holder's boundary as on it; a
+     negative island that is not inside its hole (`Contains`) is another hole of that hole's outer boundary if that contains it,
+     and otherwise is treated as a top-level path (inside the hole it stays a filled island of winding -1,
+     `Tree_NegativeIslandInsideAHole_IsAFilledIsland`); and a path of zero grid area whose vertices are collinear (a sliver,
+     which came out as an outer ring that is not counterclockwise) is dropped, its children moving up (the review of the fix
+     found that a dropped top-level path's hole child crashed the conversion; a zero-area figure eight is kept as before).
+     Each rule has a hand-built tree test in `Clipper2ResultOrientationTests`. After: 0 wrong of 160 000. The Union the review of #756 found
      (A = (-2,-2) (1,1) (-4,3) (-2,4) (1,-3) (-2,-1) (-3,0) (4,1) (-3,-3) (4,4) (-2,1) (-2,-2) (-1,-2) (2,-4), B = (0,4) (3,4)
      (1,-2) (4,1) (0,-3) (3,4) (0,-1) (2,3) (-3,-4) (-4,-2) (3,2) (-1,3) (-4,2) (-1,1), NonZero 27.971 for an exact 29.718 on the
      adapter's grid) is exact now (`UnionOfTheReviewOf756_IsExact`).

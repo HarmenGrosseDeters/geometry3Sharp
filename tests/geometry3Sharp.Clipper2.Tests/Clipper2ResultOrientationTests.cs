@@ -188,6 +188,114 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
+        public void Tree_ZeroAreaPathWithAHoleChild_DoesNotThrow()
+        {
+            // a collinear path of zero area at the top level, nesting a hole: the path is dropped and its child comes to the top
+            // level, where a negative path with no holder is a filled lobe (ArgumentOutOfRangeException before: the child's
+            // parent index was -1)
+            var tree = new PolyTree64();
+            PolyPath64 line = (PolyPath64)tree.AddChild(Grid(0, 0, 50, 0, 100, 0));
+            line.AddChild(Sq(10, 40, false));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Equal(900, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_ZeroAreaPathThatIsNotCollinear_IsKept()
+        {
+            // a figure eight of two equal lobes has zero net area but bounds two regions: it is not dropped
+            var tree = new PolyTree64();
+            tree.AddChild(Grid(0, 0, 10, 10, 10, 0, 0, 10));
+            Assert.Single(Convert(tree));
+            // with a hole child (as in the review's hand-built tree): no exception
+            var tree2 = new PolyTree64();
+            ((PolyPath64)tree2.AddChild(Grid(0, 0, 10, 10, 10, 0, 0, 10))).AddChild(Grid(2, 4, 2, 6, 4, 5));
+            Assert.NotEmpty(Convert(tree2));
+        }
+
+        [Fact]
+        public void BooleanPaths_ZeroAreaPathWithAChild_DoesNotThrow()
+        {
+            // the review's repro on a unit grid: an Intersection whose tree has a zero-area top-level path with children
+            Polygon2d a = Ring(-1, -1, 2, -2, 2, -1, 2, -1, 1, 1, 2, -2, 1, 1, -1, 1, 2, 1, 0, 1, 1, -2, 2, 2, -1, 1, 2, 0, 2, -1, -1, 2,
+                               0, -1, 2, 1, 2, 1, -1, -2);
+            Polygon2d b = Ring(0, 0, -2, 0, 1, 2, -2, 2, 2, 0, 0, -2, -1, -2, -2, -1, -2, 2, -1, 0, 0, -1, -1, 0, 2, 1, -1, 2, 0, 1, -2, 0,
+                               0, 1, -1, 1, 2, -1, 1, 2, 2, 1, -2, 2, 1, 1);
+            var r = Clipper2Polygons.BooleanPaths(ClipType.Intersection, new[] { a }, new[] { b },
+                new Clipper2Options { FillRule = FillRule.NonZero, Frame = new ClipperFrame(new Vector2d(0, 0), 1) });
+            // (on this unit grid the result also has a self-touching path of two lobes of opposite sign and zero net area,
+            // which is kept as before: a result of rounding size, not checked here)
+            Assert.True(r.Ok, r.ToString());
+        }
+
+        [Fact]
+        public void Tree_HoleWithinOneGridUnitOutsideItsHolder_IsAHole()
+        {
+            // a clockwise top-level path inside the triangle x + y <= 100 but for its vertex (50,51), 0.71 units beyond the
+            // hypotenuse (a touching hole's vertex rounded to the grid point beside the edge): a hole of the triangle
+            var tree = new PolyTree64();
+            tree.AddChild(Grid(0, 0, 100, 0, 0, 100));
+            tree.AddChild(Grid(10, 10, 10, 60, 50, 51, 40, 10));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Single(polygons[0].Holes);
+        }
+
+        [Fact]
+        public void Tree_PathMoreThanAGridUnitOutsideItsHolder_IsNoHole()
+        {
+            // the same with the vertex (51,51), 1.41 units beyond the hypotenuse: outside the tolerance, a filled lobe
+            var tree = new PolyTree64();
+            tree.AddChild(Grid(0, 0, 100, 0, 0, 100));
+            tree.AddChild(Grid(10, 10, 10, 60, 51, 51, 40, 10));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.All(polygons, g => Assert.Empty(g.Holes));
+        }
+
+        [Fact]
+        public void Tree_HoleOneGridUnitOutsideAnAxisAlignedHolder_IsAHole()
+        {
+            // the bounds prefilter has the same tolerance: a vertex one unit below the holder's bottom edge
+            var tree = new PolyTree64();
+            tree.AddChild(Sq(0, 100, true));
+            tree.AddChild(Grid(10, 10, 10, 60, 50, -1, 40, 10));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Single(polygons[0].Holes);
+        }
+
+        [Fact]
+        public void Tree_NegativeIslandBesideItsHole_IsAnotherHole()
+        {
+            // p counterclockwise, h its clockwise hole, i clockwise nested in h by the tree but beside it (sharing h's edge
+            // x = 30): the region is p minus both squares
+            var tree = new PolyTree64();
+            PolyPath64 p = (PolyPath64)tree.AddChild(Sq(0, 100, true));
+            PolyPath64 h = (PolyPath64)p.AddChild(Grid(10, 10, 10, 30, 30, 30, 30, 10));
+            h.AddChild(Grid(30, 10, 30, 30, 50, 30, 50, 10));
+            var polygons = Convert(tree);
+            Assert.Single(polygons);
+            Assert.Equal(2, polygons[0].Holes.Count);
+            Assert.Equal(10000 - 400 - 400, Net(polygons), 6);
+        }
+
+        [Fact]
+        public void Tree_NegativeIslandBesideItsHoleAndOutsideItsOuterRing_IsAFilledLobe()
+        {
+            // as above, but the island lies outside p: it is no hole of p (a hole outside its outer ring) but a path at the
+            // top level with no holder, a filled lobe
+            var tree = new PolyTree64();
+            PolyPath64 p = (PolyPath64)tree.AddChild(Sq(0, 100, true));
+            PolyPath64 h = (PolyPath64)p.AddChild(Grid(80, 10, 80, 30, 100, 30, 100, 10));
+            h.AddChild(Grid(100, 10, 100, 30, 120, 30, 120, 10));
+            var polygons = Convert(tree);
+            Assert.Equal(2, polygons.Count);
+            Assert.Equal(10000 - 400 + 400, Net(polygons), 6);
+        }
+
+        [Fact]
         public void Tree_NegativeIslandInsideAHole_IsAFilledIsland()
         {
             // p counterclockwise, h its clockwise hole, i clockwise inside h as the tree's island: winding p + h = 0, then i = -1: filled

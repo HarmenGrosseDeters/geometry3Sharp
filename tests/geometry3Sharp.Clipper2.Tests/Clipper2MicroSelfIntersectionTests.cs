@@ -140,6 +140,18 @@ namespace geometry3Sharp.Clipper2.Tests
         }
 
         [Fact]
+        public void CopyBetweenOneAndTwoUnitsFromTheEdge_IsSplit()
+        {
+            // pins the bound of one grid unit (the far copies above are about 2^20 units away): on a lattice of step 2 grid
+            // units the copied vertex of this Union EvenOdd lies between one and 1.5 units from the edge's line; with the
+            // bound at 1.5 units or more the insertion is taken and the area is 57.5 against an exact 50.71, with 1 it is 48.5
+            double[] a = { 4, 8, 2, -8, 6, 8, 0, 2, 4, -2, -2, -4, 4, 8, 0, 6, 8, -8 }, b = { 0, -8, -2, -4, 4, 2, 0, -2 };
+            var (error, slack, area) = RawEngine(ClipType.Union, FillRule.EvenOdd, a, b, 0);
+            Assert.True(error <= slack, "off by " + error + ", more than the rounding " + slack);
+            Assert.Equal(48.5, area);
+        }
+
+        [Fact]
         public void OrientationGuard_OnAGridOfFewUnits()
         {
             // With the distance test the orientation guard no longer acts at the adapter's magnitudes (no case in 1.6 million
