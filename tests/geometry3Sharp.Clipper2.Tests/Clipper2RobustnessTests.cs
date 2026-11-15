@@ -2,6 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Clipper2Lib;
+// the addon's enums (since 2.0 its own types; Clipper2Lib has the same names)
+using ClipType = g3.Clipper2.ClipType;
+using EndType = g3.Clipper2.EndType;
+using FillRule = g3.Clipper2.FillRule;
+using JoinType = g3.Clipper2.JoinType;
 using g3;
 using g3.Clipper2;
 using geometry3Sharp.Tests;

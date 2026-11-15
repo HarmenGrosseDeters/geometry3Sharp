@@ -56,6 +56,19 @@ namespace gs
         /// </summary>
         internal bool PatchBound = false;
 
+        /// <summary>
+        /// certify UpperBound too, rounding included (#742): the distances of the subdivision points and the bounds of the triangles are
+        /// evaluated with outward rounding (ExactInterval), so UpperBound is never below the exact distance. Without it UpperBound is
+        /// certified only up to the floating-point evaluation of the distance queries (see Compute), which can put it below the exact
+        /// distance where a point of one mesh lies very near the other (a distance d much below the size E of the nearest triangle).
+        /// Takes about twice the time (+16 to +115%, typically +90%, benchmarks/HausdorffBenchmark); on those inputs the subdivisions
+        /// and LowerBound were unchanged and UpperBound within a few ulps of the coordinates. The internal patch bound is not used. Every
+        /// certified distance is at least about 2^-537 (the outward rounding), so an absolute Tolerance below that cannot converge for
+        /// meshes that touch.
+        /// Off by default (the results are then as before, bit for bit). docs/design/HAUSDORFF_CERTIFIED_UPPER.md
+        /// </summary>
+        public bool CertifiedUpper = false;
+
         /// <summary> tests only: measure the meshes as given, without the scaled or shifted copies (to test the bounds' own handling of
         /// rounded subdivision points, #738) </summary>
         internal bool AsGivenForTests = false;
@@ -65,11 +78,12 @@ namespace gs
 
         // outputs
         /// <summary> output: interval that contains the exact Hausdorff distance (NaN if Compute() failed on its inputs): LowerBound
-        /// certified, rounding included; UpperBound up to the floating-point evaluation of the distance queries (see Compute) </summary>
+        /// certified, rounding included; UpperBound certified with CertifiedUpper, otherwise up to the floating-point evaluation of the
+        /// distance queries, which can put it below the exact distance near the surface (see Compute) </summary>
         public double LowerBound, UpperBound;
         /// <summary> output: true if UpperBound - LowerBound is within the tolerance (false if stopped by MaxSubdivisions or CancelF, or if
         /// the subdivision points' rounding keeps the gap open); the upper bound, and so the gap, up to the floating-point evaluation of
-        /// the distance queries </summary>
+        /// the distance queries unless CertifiedUpper </summary>
         public bool Converged;
         /// <summary> point where the lower bound is attained (on A, or on B if WorstPointOnB), and its closest point on the other mesh </summary>
         public Vector3d WorstPoint, WorstPointClosest;
@@ -106,8 +120,9 @@ namespace gs
         /// exact shift (subdivision points would round off the triangles). SpatialA / SpatialB are then not used (nor set).
         /// LowerBound is certified, rounding included: never above the exact distance (the worst point's distance is re-evaluated
         /// exactly, less the rounding of the point; docs/design/HAUSDORFF_CERTIFIED_BOUNDS.md). UpperBound is certified up to the
-        /// floating-point evaluation of the distance queries, about 2^-53 E^2 / d for a distance d to a triangle of size E, at most about 2^-26 E (E: the nearest target triangle's size) (the rounding of subdivision points
-        /// is included; #742 would certify it fully).
+        /// floating-point evaluation of the distance queries, about 2^-53 E^2 / d for a distance d to a triangle of size E, at most about
+        /// 2^-26 E (E: the nearest target triangle's size; the rounding of subdivision points is included): near the surface (d much below
+        /// E) it can be below the exact distance. CertifiedUpper certifies it fully (#742).
         /// </summary>
         public bool Compute()
         {
@@ -180,6 +195,10 @@ namespace gs
                 upper = Math.Max(upper, ba.Upper);
             }
             upper = Math.Max(upper, lower);
+            // (CertifiedUpper on copies scaled down: their coordinates below 2^(e - 1022) round into the subnormal range, so the copies'
+            // distance may be below the meshes' (scaled) by less than 2^-1072; every certified triangle bound is at least 2^-537 and
+            // ends with a rounding up, at least about 2^-590 above its exact value, which covers it; HAUSDORFF_CERTIFIED_UPPER.md
+            // section 8)
             // where the certified lower bound is below the computed one (a rounded point off the triangles, #738), the gap to the upper
             // bound may exceed the tolerance
             if (lower < computed && !(upper - lower <= tol))
@@ -292,27 +311,36 @@ namespace gs
             public OneSided(DMesh3 from, DMeshAABBTree3 spatialTo, double tol, double prune, MeshHausdorffDistance owner, int limit)
             {
                 this.from = from; this.to = spatialTo.Mesh; spatial = spatialTo;
-                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound };
+                certified = owner.CertifiedUpper;
+                // (the patch bound's rounding slack is estimated, not derived: not used for a certified bound)
+                bounds = new TriangleDeviationBounds(to) { PatchBound = owner.PatchBound && !certified, Certified = certified };
                 this.tol = tol; this.prune = prune; this.owner = owner; this.limit = limit;
             }
 
-            void query(Vector3d p, out double d, out int t, out Vector3d c)
+            // CertifiedUpper: per point, a certified upper bound of its distance to its nearest triangle (B1; the triangles' bounds use
+            // these instead of dist)
+            readonly bool certified;
+            List<double> up = new List<double>();
+
+            void query(Vector3d p, out double d, out int t, out Vector3d c, out double u)
             {
                 t = spatial.FindNearestTriangle(p);
                 DistPoint3Triangle3 q = MeshQueries.TriangleDistance(to, t, p);
                 d = Math.Sqrt(q.DistanceSquared);
                 c = q.TriangleClosest;
+                u = certified ? CertifiedTriangleBounds.PointTriangleUpper(p, q.Triangle.V0, q.Triangle.V1, q.Triangle.V2,
+                    q.TriangleBaryCoords.y, q.TriangleBaryCoords.z) : d;
             }
 
             int add_point(Vector3d p)
             {
-                double d; int t; Vector3d c;
-                query(p, out d, out t, out c);
-                return add_point(p, d, t, c);
+                double d, u; int t; Vector3d c;
+                query(p, out d, out t, out c, out u);
+                return add_point(p, d, t, c, 0, u);
             }
-            int add_point(Vector3d p, double d, int t, Vector3d c, double o = 0)
+            int add_point(Vector3d p, double d, int t, Vector3d c, double o, double u)
             {
-                pos.Add(p); dist.Add(d); near.Add(t); closest.Add(c); off.Add(o);
+                pos.Add(p); dist.Add(d); up.Add(u); near.Add(t); closest.Add(c); off.Add(o);
                 int i = pos.Count - 1;
                 if (d > Lower) {
                     Lower = d; Worst = p; WorstClosest = c; worstOff = o;
@@ -342,14 +370,15 @@ namespace gs
                 double[] vd = new double[nv];
                 int[] vt = new int[nv];
                 Vector3d[] vc = new Vector3d[nv];
+                double[] vu = new double[nv];
                 foreach (int vid in from.VertexIndices())
                     if (vmap[vid] >= 0) vp[vmap[vid]] = from.GetVertex(vid);
-                gParallel.ForEach(Interval1i.Range(nv), (i) => query(vp[i], out vd[i], out vt[i], out vc[i]));
+                gParallel.ForEach(Interval1i.Range(nv), (i) => query(vp[i], out vd[i], out vt[i], out vc[i], out vu[i]));
                 Lower = 0;
                 Worst = (nv > 0) ? vp[0] : Vector3d.Zero;
                 WorstClosest = (nv > 0) ? vc[0] : Vector3d.Zero;
                 for (int i = 0; i < nv; ++i) {
-                    add_point(vp[i], vd[i], vt[i], vc[i]);
+                    add_point(vp[i], vd[i], vt[i], vc[i], 0, vu[i]);
                     if (vertexWorst < 0 || vd[i] > vd[vertexWorst]) vertexWorst = i;
                 }
 
@@ -384,7 +413,7 @@ namespace gs
 
                     int nb = batch.Count;
                     Vector3d[] mp = new Vector3d[3 * nb], mc = new Vector3d[3 * nb];
-                    double[] md = new double[3 * nb], mo = new double[3 * nb];
+                    double[] md = new double[3 * nb], mo = new double[3 * nb], mu = new double[3 * nb];
                     int[] mt = new int[3 * nb];
                     for (int b = 0; b < nb; ++b) {
                         Index3i t = batch[b];
@@ -397,14 +426,14 @@ namespace gs
                         mo[3 * b + 1] = HausdorffRounding.MidOff(off[t.b], off[t.c], e1);
                         mo[3 * b + 2] = HausdorffRounding.MidOff(off[t.c], off[t.a], e2);
                     }
-                    gParallel.ForEach(Interval1i.Range(3 * nb), (k) => query(mp[k], out md[k], out mt[k], out mc[k]));
+                    gParallel.ForEach(Interval1i.Range(3 * nb), (k) => query(mp[k], out md[k], out mt[k], out mc[k], out mu[k]));
 
                     Index3i[] children = new Index3i[4 * nb];
                     for (int b = 0; b < nb; ++b) {
                         Index3i t = batch[b];
-                        int m01 = add_point(mp[3 * b], md[3 * b], mt[3 * b], mc[3 * b], mo[3 * b]);
-                        int m12 = add_point(mp[3 * b + 1], md[3 * b + 1], mt[3 * b + 1], mc[3 * b + 1], mo[3 * b + 1]);
-                        int m20 = add_point(mp[3 * b + 2], md[3 * b + 2], mt[3 * b + 2], mc[3 * b + 2], mo[3 * b + 2]);
+                        int m01 = add_point(mp[3 * b], md[3 * b], mt[3 * b], mc[3 * b], mo[3 * b], mu[3 * b]);
+                        int m12 = add_point(mp[3 * b + 1], md[3 * b + 1], mt[3 * b + 1], mc[3 * b + 1], mo[3 * b + 1], mu[3 * b + 1]);
+                        int m20 = add_point(mp[3 * b + 2], md[3 * b + 2], mt[3 * b + 2], mc[3 * b + 2], mo[3 * b + 2], mu[3 * b + 2]);
                         children[4 * b] = new Index3i(t.a, m01, m20);
                         children[4 * b + 1] = new Index3i(m01, t.b, m12);
                         children[4 * b + 2] = new Index3i(m20, m12, t.c);
@@ -455,7 +484,7 @@ namespace gs
             // upper bound of the distance to To over the triangle (i, j, k), and over the part of From's triangle it stands for
             double upper_bound(Index3i t)
             {
-                return HausdorffRounding.TriangleUpper(bounds, pos[t.a], pos[t.b], pos[t.c], dist[t.a], dist[t.b], dist[t.c],
+                return HausdorffRounding.TriangleUpper(bounds, pos[t.a], pos[t.b], pos[t.c], up[t.a], up[t.b], up[t.c],
                     near[t.a], near[t.b], near[t.c], off[t.a], off[t.b], off[t.c], threshold());
             }
         }

@@ -23,7 +23,7 @@ namespace geometry3Sharp.Tests
     {
         static readonly string[] Rules = { "RS0030", "G3E0001", "G3E0002", "G3E0003" };
 
-        static string RepoRoot()
+        internal static string RepoRoot()
         {
             for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
                 if (File.Exists(Path.Combine(d.FullName, "BannedSymbols.txt")) && File.Exists(Path.Combine(d.FullName, "CLAUDE.md")))
@@ -32,7 +32,7 @@ namespace geometry3Sharp.Tests
         }
 
         // the framework reference assemblies plus geometry3Sharp (with its internal members)
-        static CSharpCompilation Compile(string source)
+        internal static CSharpCompilation Compile(string source)
         {
             var refs = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator)
                 .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -227,13 +227,13 @@ namespace geometry3Sharp.Tests
             }
         }
 
-        static AnalyzerConfigSet EditorConfig(string root)
+        internal static AnalyzerConfigSet EditorConfig(string root)
         {
             string path = Path.Combine(root, ".editorconfig");
             return AnalyzerConfigSet.Create(ImmutableArray.Create(AnalyzerConfig.Parse(File.ReadAllText(path), path)));
         }
 
-        static ReportDiagnostic Severity(AnalyzerConfigSet set, string root, string relative, string id)
+        internal static ReportDiagnostic Severity(AnalyzerConfigSet set, string root, string relative, string id)
         {
             var options = set.GetOptionsForSourcePath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
             return options.TreeOptions.TryGetValue(id, out ReportDiagnostic r) ? r : ReportDiagnostic.Default;

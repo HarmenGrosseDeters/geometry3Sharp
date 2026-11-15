@@ -66,7 +66,7 @@ namespace geometry3Sharp.Clipper2.Tests
         {
             var result = new V.Paths64(paths.Count);
             foreach (Pkg.Path64 p in paths)
-                result.Add(g3.Clipper2.Bridge.ToVendored(p));
+                result.Add(PackageBridge.ToVendored(p));
             return result;
         }
 
@@ -135,13 +135,13 @@ namespace geometry3Sharp.Clipper2.Tests
                             var pTree = new Pkg.PolyTree64(); var vTree = new V.PolyTree64();
                             var pOpen = new Pkg.Paths64(); var vOpen = new V.Paths64();
                             bool pOk = pc.Execute(op, fill, pTree, pOpen);
-                            bool vOk = vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vTree, vOpen);
+                            bool vOk = vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vTree, vOpen);
                             string where = name + ", " + op + " " + fill + (collinear ? " PreserveCollinear" : "");
                             Assert.True(pOk == vOk, where);
                             // the flat output, from a fresh run (Clipper64 can be reused: run the same once more)
                             var pFlat = new Pkg.Paths64(); var vFlat = new V.Paths64();
                             pc.Execute(op, fill, pFlat);
-                            vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vFlat);
+                            vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vFlat);
                             ++compared;
                             if (Text(pFlat) != Text(vFlat)) {
                                 // the item 5 fix: allowed only where it corrects the package
@@ -159,9 +159,9 @@ namespace geometry3Sharp.Clipper2.Tests
         /// <summary> the vendored result differs from the package's: the package's area must be off the exact area and the vendored one not </summary>
         static void AssertFixes(Pkg.Paths64 a, Pkg.Paths64 b, Pkg.ClipType op, Pkg.FillRule fill, Pkg.Paths64 pOut, V.Paths64 vOut, string where)
         {
-            double exact = ExactRegionArea.Area(new[] { Rings(a), Rings(b) }, Clipper2DegenerateUnionTests.Predicate(op, fill));
+            double exact = ExactRegionArea.Area(new[] { Rings(a), Rings(b) }, Clipper2DegenerateUnionTests.Predicate(PackageBridge.ToAddon(op), PackageBridge.ToAddon(fill)));
             var (pArea, pPerimeter) = Measure(pOut);
-            var (vArea, vPerimeter) = Measure(g3.Clipper2.Bridge.ToPackage(vOut));
+            var (vArea, vPerimeter) = Measure(PackageBridge.ToPackage(vOut));
             where += ": exact " + exact + ", package " + pArea + ", vendored " + vArea;
             Assert.True(Math.Abs(vArea - exact) <= vPerimeter + 1, where + " (vendored off)");
             Assert.True(Math.Abs(pArea - exact) > pPerimeter + 1, where + " (differs where the package is right)");
@@ -199,7 +199,7 @@ namespace geometry3Sharp.Clipper2.Tests
                         var vc = new V.Clipper64(); vc.AddSubject(ToVendored(a)); vc.AddClip(ToVendored(b));
                         var pOut = new Pkg.Paths64(); var vOut = new V.Paths64();
                         pc.Execute(op, fill, pOut);
-                        vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vOut);
+                        vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vOut);
                         if (Text(pOut) == Text(vOut)) continue;
                         ++differ;
                         AssertFixes(a, b, op, fill, pOut, vOut, "pair " + i + ", " + op + " " + fill);
@@ -222,7 +222,7 @@ namespace geometry3Sharp.Clipper2.Tests
                         vc.AddSubject(ToVendored(a)); vc.AddOpenSubject(ToVendored(lines)); vc.AddClip(ToVendored(b));
                         var pTree = new Pkg.PolyTree64(); var vTree = new V.PolyTree64();
                         var pOpen = new Pkg.Paths64(); var vOpen = new V.Paths64();
-                        Assert.Equal(pc.Execute(op, fill, pTree, pOpen), vc.Execute(g3.Clipper2.Bridge.ToVendored(op), g3.Clipper2.Bridge.ToVendored(fill), vTree, vOpen));
+                        Assert.Equal(pc.Execute(op, fill, pTree, pOpen), vc.Execute(PackageBridge.ToVendored(op), PackageBridge.ToVendored(fill), vTree, vOpen));
                         string where = name + ", " + op + " " + fill;
                         Assert.True(Text(pTree) == Text(vTree), where);
                         Assert.True(Text(pOpen) == Text(vOpen), where);
@@ -252,7 +252,7 @@ namespace geometry3Sharp.Clipper2.Tests
                             var po = new Pkg.ClipperOffset(miter, arc);
                             po.AddPaths(a, join, end);
                             var vo = new V.ClipperOffset(miter, arc);
-                            vo.AddPaths(ToVendored(a), g3.Clipper2.Bridge.ToVendored(join), g3.Clipper2.Bridge.ToVendored(end));
+                            vo.AddPaths(ToVendored(a), PackageBridge.ToVendored(join), PackageBridge.ToVendored(end));
                             // degenerate paths can make both throw (an empty open path): the same exception is the same outcome
                             string where = name + ", " + join + " " + end + " " + delta + " miter " + miter + " arc " + arc;
                             Assert.True(Outcome(() => { var o = new Pkg.Paths64(); po.Execute(delta, o); return Text(o); })
@@ -267,7 +267,7 @@ namespace geometry3Sharp.Clipper2.Tests
         {
             foreach (var (a, b, _, name) in Pairs(15, 50)) {
                 Pkg.Path64 pa = a[0], pb = b[0];
-                V.Path64 va = g3.Clipper2.Bridge.ToVendored(pa), vb = g3.Clipper2.Bridge.ToVendored(pb);
+                V.Path64 va = PackageBridge.ToVendored(pa), vb = PackageBridge.ToVendored(pb);
                 foreach (bool closed in new[] { false, true }) {
                     Assert.True(Text(Pkg.Minkowski.Sum(pa, pb, closed)) == Text(V.Minkowski.Sum(va, vb, closed)), name + " sum " + closed);
                     Assert.True(Text(Pkg.Minkowski.Diff(pa, pb, closed)) == Text(V.Minkowski.Diff(va, vb, closed)), name + " diff " + closed);
@@ -279,7 +279,7 @@ namespace geometry3Sharp.Clipper2.Tests
                 V.Rect64 vr = V.Clipper.GetBounds(vb);
                 Assert.Equal((pr.left, pr.top, pr.right, pr.bottom), (vr.left, vr.top, vr.right, vr.bottom));
                 foreach (Pkg.Point64 q in pb)
-                    Assert.Equal((int)Pkg.Clipper.PointInPolygon(q, pa), (int)V.Clipper.PointInPolygon(g3.Clipper2.Bridge.ToVendored(q), va));
+                    Assert.Equal((int)Pkg.Clipper.PointInPolygon(q, pa), (int)V.Clipper.PointInPolygon(PackageBridge.ToVendored(q), va));
             }
             // point in polygon on a triangle and on 1- and 2-point paths (the length guard), at a vertex, on an edge,
             // inside and outside
@@ -293,7 +293,7 @@ namespace geometry3Sharp.Clipper2.Tests
                     new Pkg.Point64(1L << 22, 1L << 22) };
                 foreach (Pkg.Path64 path in new[] { ring, new Pkg.Path64 { ring[0], ring[1] }, new Pkg.Path64 { ring[0] } })
                     foreach (Pkg.Point64 q in probes)
-                        Assert.Equal((int)Pkg.Clipper.PointInPolygon(q, path), (int)V.Clipper.PointInPolygon(g3.Clipper2.Bridge.ToVendored(q), g3.Clipper2.Bridge.ToVendored(path)));
+                        Assert.Equal((int)Pkg.Clipper.PointInPolygon(q, path), (int)V.Clipper.PointInPolygon(PackageBridge.ToVendored(q), PackageBridge.ToVendored(path)));
                 // a 3-vertex path is a polygon (not cut off by the length guard): a vertex is on it
                 Assert.Equal(Pkg.PointInPolygonResult.IsOn, Pkg.Clipper.PointInPolygon(ring[0], ring));
             }
@@ -308,17 +308,32 @@ namespace geometry3Sharp.Clipper2.Tests
                 pc.AddSubject(a); pc.AddClip(b);
                 var tree = new Pkg.PolyTree64();
                 pc.Execute(Pkg.ClipType.Xor, Pkg.FillRule.EvenOdd, tree);
-                Assert.Equal(Text(tree), Text(g3.Clipper2.Bridge.ToVendored(tree)));
-                Assert.Equal(Text(a), Text(g3.Clipper2.Bridge.ToPackage(ToVendored(a))));
+                Assert.Equal(Text(tree), Text(PackageBridge.ToVendored(tree)));
+                Assert.Equal(Text(a), Text(PackageBridge.ToPackage(ToVendored(a))));
             }
             foreach (Pkg.ClipType op in Enum.GetValues(typeof(Pkg.ClipType)))
-                Assert.Equal(op.ToString(), g3.Clipper2.Bridge.ToVendored(op).ToString());
+                Assert.Equal(op.ToString(), PackageBridge.ToVendored(op).ToString());
             foreach (Pkg.FillRule f in Enum.GetValues(typeof(Pkg.FillRule)))
-                Assert.Equal(f.ToString(), g3.Clipper2.Bridge.ToVendored(f).ToString());
+                Assert.Equal(f.ToString(), PackageBridge.ToVendored(f).ToString());
             foreach (Pkg.JoinType j in Enum.GetValues(typeof(Pkg.JoinType)))
-                Assert.Equal(j.ToString(), g3.Clipper2.Bridge.ToVendored(j).ToString());
+                Assert.Equal(j.ToString(), PackageBridge.ToVendored(j).ToString());
             foreach (Pkg.EndType e in Enum.GetValues(typeof(Pkg.EndType)))
-                Assert.Equal(e.ToString(), g3.Clipper2.Bridge.ToVendored(e).ToString());
+                Assert.Equal(e.ToString(), PackageBridge.ToVendored(e).ToString());
+            // the addon's public enums (its own since 2.0): the same names and values as the package's and the vendored ones
+            foreach ((Type addon, Type package, Type vendored) in new[] {
+                    (typeof(g3.Clipper2.ClipType), typeof(Pkg.ClipType), typeof(V.ClipType)),
+                    (typeof(g3.Clipper2.FillRule), typeof(Pkg.FillRule), typeof(V.FillRule)),
+                    (typeof(g3.Clipper2.JoinType), typeof(Pkg.JoinType), typeof(V.JoinType)),
+                    (typeof(g3.Clipper2.EndType), typeof(Pkg.EndType), typeof(V.EndType)) }) {
+                Assert.Equal(Enum.GetNames(package), Enum.GetNames(addon));
+                Assert.Equal(Enum.GetNames(vendored), Enum.GetNames(addon));
+                foreach (string member in Enum.GetNames(addon)) {
+                    Assert.Equal(Convert.ToInt32(Enum.Parse(package, member)), Convert.ToInt32(Enum.Parse(addon, member)));
+                    Assert.Equal(Convert.ToInt32(Enum.Parse(vendored, member)), Convert.ToInt32(Enum.Parse(addon, member)));
+                }
+            }
+            foreach (g3.Clipper2.JoinType j in Enum.GetValues(typeof(g3.Clipper2.JoinType)))
+                Assert.Equal(j.ToString(), g3.Clipper2.Bridge.ToVendored(j).ToString());
             Assert.Equal(Enum.GetValues(typeof(Pkg.ClipType)).Length, Enum.GetValues(typeof(V.ClipType)).Length);
             Assert.Equal(Enum.GetValues(typeof(Pkg.FillRule)).Length, Enum.GetValues(typeof(V.FillRule)).Length);
             Assert.Equal(Enum.GetValues(typeof(Pkg.JoinType)).Length, Enum.GetValues(typeof(V.JoinType)).Length);

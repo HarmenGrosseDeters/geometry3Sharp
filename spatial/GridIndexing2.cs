@@ -74,8 +74,8 @@ namespace g3
 
 		public Vector2i ToGrid(Vector2d point) {
 			return new Vector2i(
-				(int)Math.Floor(point.x / CellSize),
-				(int)Math.Floor(point.y / CellSize));
+				MathUtil.FloorToIntSaturating(point.x / CellSize),
+				MathUtil.FloorToIntSaturating(point.y / CellSize));
 		}
 
 		public Vector2d FromGrid(Vector2i gridpoint) {
@@ -108,8 +108,8 @@ namespace g3
 
 		public Vector2i ToGrid(Vector2d point) {
 			return new Vector2i(
-				(int)Math.Floor((point.x - Origin.x) / CellSize),
-				(int)Math.Floor((point.y - Origin.y) / CellSize) );
+				MathUtil.FloorToIntSaturating((point.x - Origin.x) / CellSize),
+				MathUtil.FloorToIntSaturating((point.y - Origin.y) / CellSize) );
 		}
 
 		public Vector2d FromGrid(Vector2i gridpoint) {

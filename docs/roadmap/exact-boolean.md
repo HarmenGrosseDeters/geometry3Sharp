@@ -385,7 +385,8 @@ Open:
   (#513); reopen only if the degenerate-triangle results of the sign-off turn out to be well-shaped tiny triangles.
 - **EMBER lever 2** (skip self-pairs of results certified free of self-intersections in chained booleans): not scheduled.
 - **InCircle limb kernel** (candidate from #633, E: -20 to -30 s of 370 s on 55928): not part of the 55928 stage
-  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`.
+  (coordinator 2026-11-12); numbers in `EXACT_BOOLEAN_TAIL_55928.md`. Built as candidate D of the exact-number study
+  (below).
 - **Extreme-runtime boolean levers (owner 2026-11-12, study #734, `docs/perf/EXTREME_RUNTIME_BOOLEANS.md`):**
   (1) a hierarchical antipodal boundary sum (Barnes-Hut far field with a certified fallback to the full sum, decisions
   unchanged; 61 % of 117959 under (A), 18 % of 1087141; also the remedy for (A)'s 122796 regression), design note and
@@ -412,6 +413,29 @@ Open:
   bit-identical. On normal operations exact arithmetic is ~5-6 % self time; the owner takes that gain too (2026-11-12,
   the 10 % stop rule of this study is lifted): the study measures what P2 and the remaining levers (expansion paths,
   filters) gain on the normal stratum and builds those with a measurable gain, ranked by gain per effort.
+  P2 is built (2026-11-12, #769): `math/Generated/DoublePredicates.cs` from `tools/PredicateCompiler/doubles.spec`
+  by the monomial pass ([design](../design/EXACT_FALLBACK_MONOMIALS.md)); on master a7693fd the 61 units of the #711
+  class go from 289 to 51 s (none above 5 s, hashes equal), normal operations do not change; the study's report with the single-thread
+  shares per stratum, the prototype tables and the ranked candidates B (classification stages on stack limbs), C
+  (point construction on limbs) and D (InCircle beyond 4 limbs) is on `runs/exact-numbers` (`REPORT.md`).
+  Candidate B is built (2026-11-13, #772): the classification's exact sign stages (plane side, normal dot, the
+  4 x 4 orientation; seven expressions and `orient3d` of `ExactMeshBoolean`) on stack limbs, `math/ExactLimbSigns.cs`
+  ([design](../design/EXACT_LIMB_SIGNS.md)). Measured against master 683fb2c (4 cores, wall time with collections,
+  median of 5): slow tail 42327 -15 to -17 % per operation (three quarters of it the collector's pause, 12.8 GB less
+  allocation), 107554 -3 to -6 %; normal stratum unchanged within noise; hashes equal, also on the 61 units of the
+  #711 class. The CPU gain of the side stage needs the limbs stored with the points. Candidate C measured
+  (2026-11-13, study `REPORT.md` sections 5c and 5d): the centroid on stack limbs with a conversion back gains
+  nothing; the exact point construction is 2.4 % / 4.9 % of the normal stratum's one-thread time (20 pairs / 13
+  models with a rotated copy) and a limb construction would take under half of it, below the run-to-run range, so
+  that part is dropped; the centroid and the planes' coefficients kept as limbs in the classification (bound 9 to
+  15 % of the slow tail's one-thread time, nothing on the normal stratum) are parked until lever 1 (#767) has
+  landed, which changes how often these stages run, and are measured again then. Candidate D is built
+  (2026-11-13): the last stage of the arrangement's `Orient` and `InCircle` for points beyond the fixed width (a
+  BigInteger 3 x 3 determinant, 12.4 million calls in the difference of 55928 with its rotated copy) on stack limbs,
+  `ExactLimbSigns.Orient2` / `InCircle` ([design](../design/EXACT_LIMB_SIGNS.md), section 5). Measured against the
+  branch of B (4 cores, wall time with collections, median of 5): 55928 352.8 -> 310.4 s (-12.0 %, 15 s of it the
+  collector's pause, allocation 180 -> 94 GB); 107554, 42327 and the normal stratum unchanged within the run-to-run
+  range; hashes equal.
 - **Normal-stratum levers 2026-11-12/13 (study #734 section 8, its uncovered levers):** measured on its 36 normal unions and
   its tail (4 cores, median of 5, alternating A/B, hashes equal):
   - **Pair search: the filter underflow term (#753).** The pair search was mostly the self-join's `touch_only` on adjacent
@@ -438,6 +462,11 @@ Open:
     - Tail: -3.2 % with gen0 and -1.6 % with server GC (the four 3 s models -8 to -19 %, 1088051 about -2 %).
     - Allocations of the normal 36 by phase: rounding 23 %, the arrangement about 38 %, classification, assembly and
       simplify about 30 %, setup 4 %.
+    - **Done (classification, L2's tracing):** the closure and delegates per `carried_crossings` call replaced by a
+      struct visitor, `LocalFrame.Corner` without the exact point where the double difference is exact, the remaining
+      BigInteger dot products on stack limbs, no copy for the projection query, one `carry_bound` box per thread.
+      Bit-identical; 117959 union: classification 14.4 -> 7.9 GB, 23.9 -> 20.7 s, run 33.2 -> 30.0 s. What allocates
+      there now: the `Center` per piece (about 5 %), the pierce candidates per step key, the per-frame dictionaries.
     - Next: presizing and reuse of scratch buffers in the arrangement, after the files are cleared.
     - Open (snap-rounding follow-up): reusing the `TriangleBoxTree` that `MeshRoundingRepair.rebuild_tree` builds again
       and again. #768 dropped its `Rebuild` because the method had no caller. The reference is commit 3ec47ffb on
