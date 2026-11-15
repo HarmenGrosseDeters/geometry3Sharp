@@ -1,0 +1,71 @@
+diff --git a/mesh_ops/MeshAlphaWrap.cs b/mesh_ops/MeshAlphaWrap.cs
+index 85a53b5..ecfe351 100644
+--- a/mesh_ops/MeshAlphaWrap.cs
++++ b/mesh_ops/MeshAlphaWrap.cs
+@@ -267,6 +267,21 @@ namespace gs
+         Delaunay3 dt;
+         byte[] label = new byte[0];
+         double alpha, offset, contact;
++        /// <summary> (spike probe, not library code) a local alpha at a point, at least Alpha; null = Alpha everywhere </summary>
++        public Func<Vector3d, double> LocalAlphaF;
++        /// <summary> (spike probe) the largest value of LocalAlphaF (for the box margin) </summary>
++        public double MaxLocalAlpha;
++        double alpha_at(int c, int i)
++        {
++            if (LocalAlphaF == null) return alpha;
++            Index3i f = dt.FacetVertices(c, i);
++            Vector3d a = dt.GetVertex(f.a), b = dt.GetVertex(f.b), d = dt.GetVertex(f.c);
++            Vector3d u = b - a, v = d - a, w = u.Cross(v);
++            Vector3d x = (u.LengthSquared * v.Cross(w) + v.LengthSquared * w.Cross(u)) / (2 * w.LengthSquared);
++            Vector3d p = a + x;
++            if (!(p.x > double.MinValue && p.x < double.MaxValue)) p = (a + b + d) / 3;
++            return Math.Max(alpha, LocalAlphaF(p));
++        }
+         double diag;
+         // distance of each triangulation vertex to the input (NaN = not computed)
+         List<double> vertexDistance = new List<double>();
+@@ -515,7 +530,7 @@ namespace gs
+ 
+             // the box keeps the offset surface strictly inside, with room for alpha balls around it
+             AxisAlignedBox3d box = bounds;
+-            double margin = 2 * (offset + alpha) + 1e-3 * Math.Max(diag, offset);
++            double margin = 2 * (offset + Math.Max(alpha, LocalAlphaF != null ? MaxLocalAlpha : 0)) + 1e-3 * Math.Max(diag, offset);
+             // (the retry of Compute: a slightly different margin on each side, so the box is not symmetric to the input)
+             if (asymmetricBox) {
+                 box.Min -= margin * new Vector3d(1.0137, 1.0291, 1.0413);
+@@ -641,7 +656,7 @@ namespace gs
+                 // traversable is dropped, one whose radius changed goes back into the queue under its new key)
+                 if (TraverseByEmptyBall) {
+                     double r = facet_empty_ball(c, i);
+-                    if (!(r > alpha)) { staleGates++; continue; }
++                    if (!(r > alpha_at(c, i))) { staleGates++; continue; }
+                     if (r != key) { requeuedGates++; gates.Push(r, c, i, stampC); continue; }
+                 }
+                 Vector3d from, to;
+@@ -1047,7 +1062,7 @@ namespace gs
+             int c = g.C, i = g.I;
+             if (TraverseByEmptyBall) {
+                 double r = facet_empty_ball(c, i, g);
+-                if (!(r > alpha)) { g.Kind = GateDrop; return; }
++                if (!(r > alpha_at(c, i))) { g.Kind = GateDrop; return; }
+                 if (r != g.Key) { g.Kind = GateRequeue; g.NewKey = r; return; }
+             }
+             dual_edge(c, i, out Vector3d from, out Vector3d to, g);
+@@ -1101,7 +1116,7 @@ namespace gs
+         void add_push(RoundGate g, int c, int i)
+         {
+             double r = TraverseByEmptyBall ? facet_empty_ball(c, i, g) : facet_radius(c, i);
+-            if (r > alpha)
++            if (r > alpha_at(c, i))
+                 g.Pushes.Add((r, c, i));
+         }
+ 
+@@ -1146,7 +1161,7 @@ namespace gs
+         void push_gate(int c, int i)
+         {
+             double r = TraverseByEmptyBall ? facet_empty_ball(c, i) : facet_radius(c, i);
+-            if (r > alpha)
++            if (r > alpha_at(c, i))
+                 gates.Push(r, c, i, dt.CellStamp(c));
+         }
+ 

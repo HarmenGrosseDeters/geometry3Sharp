@@ -1,0 +1,14 @@
+using System; using System.Linq; using System.Threading.Tasks; using g3; using gs;
+static class P { static void Main(string[] a) {
+  var m = StandardMeshReader.ReadMesh(a[0]); double diag = m.CachedBounds.DiagonalLength, a0 = diag / 300;
+  var tree = new DMeshAABBTree3(m, true); tree.FastWindingNumber(Vector3d.Zero);
+  var rnd = new Random(1); int n = 20000, none = 0, both = 0; var hist = new int[6];
+  var tris = m.TriangleIndices().ToArray(); double tot = 0; foreach (int t in tris) tot += m.GetTriArea(t);
+  Console.WriteLine($"tris {m.TriangleCount} closed {m.CachedIsClosed} components {new MeshConnectedComponents(m).Let(c => { c.FindConnectedT(); return c.Count; })}");
+  for (int k = 0; k < n; ++k) { int t = tris[rnd.Next(tris.Length)]; Vector3d A = Vector3d.Zero, B = Vector3d.Zero, C = Vector3d.Zero; m.GetTriVertices(t, ref A, ref B, ref C);
+    var nn = (B - A).Cross(C - A).Normalized; var p = (A + B + C) / 3; int ext = 0;
+    foreach (var sgn in new[] { 1, -1 }) { double w = tree.FastWindingNumber(p + sgn * 0.5 * a0 * nn); int b = (int)Math.Clamp(Math.Floor(Math.Abs(w) * 2), 0, 5); hist[b]++; if (Math.Abs(w) < 0.5) ext++; }
+    if (ext == 0) none++; if (ext == 2) both++; }
+  Console.WriteLine($"samples {n}: no exterior side {none / (double)n:P1}, both sides exterior {both / (double)n:P1}; |wn| hist (0.5 bins) {string.Join(" ", hist)}");
+} }
+static class X { public static R Let<T, R>(this T t, Func<T, R> f) => f(t); }

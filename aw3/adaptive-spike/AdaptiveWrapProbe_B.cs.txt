@@ -1,0 +1,92 @@
+// Adaptive alpha spike, step B (measurement only): an adaptive wrap with the probe patch of MeshAlphaWrap (LocalAlphaF in the
+// gate test), the local alpha from the cavity predictor of step A, graded in space (Lipschitz g) on a grid.
+// Args: mesh klo khi g. Measures: W0 (uniform alpha0) and Wa (adaptive): triangles, time, clean (NotCleanReason), vertex
+// distance to the input (min, in offsets), vertex separation (min nearest-neighbour distance, in offsets), deviation Wa <-> W0
+// (share of W0 area farther than 1 / 2 offsets from Wa, share of Wa area farther from W0, max both ways).
+using System; using System.Collections.Generic; using System.Diagnostics; using System.Linq; using System.Threading.Tasks;
+using g3; using gs;
+static class P {
+  static double Shrink(DMeshAABBTree3 tree, DMesh3 m, Vector3d p, Vector3d n, double rmax, double eps, out Vector3d center) {
+    double r = rmax; center = p + r * n;
+    for (int it = 0; it < 40; ++it) {
+      int t = tree.FindNearestTriangle(center); if (t < 0) break;
+      var q = MeshQueries.TriangleDistance(m, t, center); double d = Math.Sqrt(q.DistanceSquared);
+      if (d >= r - eps) break; Vector3d v = q.TriangleClosest - p; double den = 2 * v.Dot(n);
+      if (v.Length < eps || den <= 0) break; double rn = v.LengthSquared / den; if (rn >= r) break; r = rn; center = p + r * n; if (r < eps) break;
+    }
+    return r;
+  }
+  static IEnumerable<(Vector3d, double)> Samples(DMesh3 m, int t) {
+    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero; m.GetTriVertices(t, ref a, ref b, ref c); double ar = m.GetTriArea(t) / 4;
+    yield return ((a + b + c) / 3, ar); yield return ((4 * a + b + c) / 6, ar); yield return ((a + 4 * b + c) / 6, ar); yield return ((a + b + 4 * c) / 6, ar); }
+  // share of area of A (sampled) farther than tau from B, and the max distance
+  static (double s1, double s2, double mx) Dev(DMesh3 A, DMesh3 B, double t1, double t2) {
+    var tree = new DMeshAABBTree3(B, true); double tot = 0, f1 = 0, f2 = 0, mx = 0; var lk = new object();
+    Parallel.ForEach(A.TriangleIndices().ToArray(), t => { double lt = 0, l1 = 0, l2 = 0, lm = 0;
+      foreach (var (p, ar) in Samples(A, t)) { int s = tree.FindNearestTriangle(p); double d = Math.Sqrt(MeshQueries.TriangleDistance(B, s, p).DistanceSquared);
+        lt += ar; if (d > t1) l1 += ar; if (d > t2) l2 += ar; lm = Math.Max(lm, d); }
+      lock (lk) { tot += lt; f1 += l1; f2 += l2; mx = Math.Max(mx, lm); } });
+    return (f1 / tot, f2 / tot, mx);
+  }
+  static void Main(string[] args) {
+    string mesh = args[0]; double klo = double.Parse(args[1]), khi = double.Parse(args[2]), g = double.Parse(args[3]); int levels = 3; double spF = args.Length > 4 ? double.Parse(args[4]) : 0.5;
+    DMesh3 input = StandardMeshReader.ReadMesh(mesh); double diag = input.CachedBounds.DiagonalLength;
+    double alpha0 = diag / 300, offset = diag / 3000, amax = alpha0 * (1 << levels);
+    var sw = Stopwatch.StartNew(); var w0 = new MeshAlphaWrap(input) { Alpha = alpha0, Offset = offset }; w0.Compute(); long ms0 = sw.ElapsedMilliseconds; var W0 = w0.Result;
+    // predictor field
+    sw.Restart();
+    var inTree = new DMeshAABBTree3(input, true); inTree.FastWindingNumber(Vector3d.Zero);
+    double sp = alpha0 * spF, eps = 1e-9 * diag; var rnd = new Random(1); var pts = new List<(Vector3d p, Vector3d nn)>();
+    foreach (int t in input.TriangleIndices()) { Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero; input.GetTriVertices(t, ref a, ref b, ref c);
+      Vector3d nn = (b - a).Cross(c - a); double ar2 = nn.Length; if (!(ar2 > 0)) continue; nn /= ar2;
+      int k = Math.Min(20000, Math.Max(1, (int)Math.Ceiling(0.5 * ar2 / (sp * sp))));
+      for (int j = 0; j < k; ++j) { double u = rnd.NextDouble(), v = rnd.NextDouble(); if (u + v > 1) { u = 1 - u; v = 1 - v; } pts.Add((a + u * (b - a) + v * (c - a), nn)); } }
+    long tSample = sw.ElapsedMilliseconds;
+    var seeds = new System.Collections.Concurrent.ConcurrentBag<(Vector3d, double)>();
+    // the empty tangent balls at a sample are nested, so the bracket of the largest radius among the thresholds
+    // T = {klo alpha0, khi alpha_1, .., khi alpha_levels} (minus offset) is found by a binary search of bounded nearest queries
+    var T = new double[levels + 1]; T[0] = klo * alpha0 - offset; for (int L = 1; L <= levels; ++L) T[L] = khi * alpha0 * (1 << L) - offset;
+    Func<Vector3d, Vector3d, double, bool> empty = (p, nn, R) => R <= 0 || inTree.FindNearestTriangle(p + R * nn, R * (1 - 1e-6)) < 0;
+    Parallel.For(0, pts.Count, i => { for (int s = 0; s < 2; ++s) { var nn = s == 0 ? pts[i].nn : -pts[i].nn; var p0 = pts[i].p + 1e-7 * diag * nn;
+      // largest j with ball(T[j]) empty (-1: none)
+      int lo = -1, hi = levels + 1;
+      while (hi - lo > 1) { int mid = (lo + hi) / 2; if (empty(p0, nn, T[mid])) lo = mid; else hi = mid; }
+      if (lo < 0 || lo == levels) continue;   // the fine wrap does not reach it, or every level does
+      int L = lo;                             // ball(khi alpha_L) empty, ball(khi alpha_{L+1}) not: level L (lo = 0: level 0)
+      var cc = p0 + Math.Max(T[lo], 0) * nn;
+      if (inTree.FastWindingNumber(cc) >= 0.5) continue;
+      double al = alpha0 * (1 << L); seeds.Add((pts[i].p, al)); seeds.Add((cc, al)); } });
+    long tShrink = sw.ElapsedMilliseconds;
+    // grid, spacing h, chamfer propagation a(x) = min_s (a_s + g |x - s|), clamped to amax
+    var box = input.CachedBounds; double mg = 2 * (offset + amax) + 1e-3 * diag; box.Expand(mg + 2 * alpha0); double h = 2 * alpha0;
+    int nx = (int)Math.Ceiling(box.Width / h) + 1, ny = (int)Math.Ceiling(box.Height / h) + 1, nz = (int)Math.Ceiling(box.Depth / h) + 1;
+    var A = new float[nx * ny * nz]; for (int i = 0; i < A.Length; ++i) A[i] = (float)amax;
+    int id(int x, int y, int z) => (z * ny + y) * nx + x;
+    foreach (var (p, al) in seeds) { int x = (int)Math.Round((p.x - box.Min.x) / h), y = (int)Math.Round((p.y - box.Min.y) / h), z = (int)Math.Round((p.z - box.Min.z) / h);
+      x = Math.Clamp(x, 0, nx - 1); y = Math.Clamp(y, 0, ny - 1); z = Math.Clamp(z, 0, nz - 1); double v = al + g * h * 0.87; if (v < A[id(x, y, z)]) A[id(x, y, z)] = (float)v; }
+    // two-pass chamfer (26 neighbours, Euclidean weights)
+    for (int pass = 0; pass < 2; ++pass) {
+      int s = pass == 0 ? 1 : -1;
+      for (int zi = 0; zi < nz; ++zi) for (int yi = 0; yi < ny; ++yi) for (int xi = 0; xi < nx; ++xi) {
+        int z = pass == 0 ? zi : nz - 1 - zi, y = pass == 0 ? yi : ny - 1 - yi, x = pass == 0 ? xi : nx - 1 - xi; float best = A[id(x, y, z)];
+        for (int dz = -1; dz <= 0; ++dz) for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+          if (dz == 0 && (dy > 0 || (dy == 0 && dx >= 0))) continue;
+          int X = x + s * dx, Y = y + s * dy, Z = z + s * dz; if (X < 0 || Y < 0 || Z < 0 || X >= nx || Y >= ny || Z >= nz) continue;
+          float c = A[id(X, Y, Z)] + (float)(g * h * Math.Sqrt(dx * dx + dy * dy + dz * dz)); if (c < best) best = c; }
+        A[id(x, y, z)] = best; } }
+    long predMs = sw.ElapsedMilliseconds;
+    Func<Vector3d, double> F = p => { int x = (int)Math.Round((p.x - box.Min.x) / h), y = (int)Math.Round((p.y - box.Min.y) / h), z = (int)Math.Round((p.z - box.Min.z) / h);
+      if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return amax; return Math.Max(alpha0, A[id(x, y, z)] - g * h * 0.87); };
+    sw.Restart(); var wa = new MeshAlphaWrap(input) { Alpha = alpha0, Offset = offset, LocalAlphaF = F, MaxLocalAlpha = amax }; wa.Compute(); long msA = sw.ElapsedMilliseconds; var Wa = wa.Result;
+    string clean = Wa == null ? "null" : MeshRobustRepair.NotCleanReason(Wa, true);
+    double vdist = double.MaxValue, vsep = double.MaxValue;
+    if (Wa != null) { var vs = Wa.VertexIndices().ToArray(); var lk = new object();
+      var pt = new PointHashGrid3d<int>(offset * 2, -1); foreach (int v in vs) pt.InsertPointUnsafe(v, Wa.GetVertex(v));
+      Parallel.ForEach(vs, v => { var p = Wa.GetVertex(v); double d = Math.Sqrt(MeshQueries.TriangleDistance(input, inTree.FindNearestTriangle(p), p).DistanceSquared);
+        var nb = pt.FindNearestInRadius(p, offset * 2, (u) => u == v ? double.MaxValue : Wa.GetVertex(u).Distance(p), (u) => u == v);
+        double s = nb.Key >= 0 ? Wa.GetVertex(nb.Key).Distance(p) : double.MaxValue; lock (lk) { vdist = Math.Min(vdist, d); vsep = Math.Min(vsep, s); } }); }
+    var d0a = Wa != null ? Dev(W0, Wa, offset, 2 * offset) : (1.0, 1.0, double.MaxValue); var da0 = Wa != null ? Dev(Wa, W0, offset, 2 * offset) : (1.0, 1.0, double.MaxValue);
+    Console.WriteLine($"{{\"mesh\":\"{System.IO.Path.GetFileNameWithoutExtension(mesh)}\",\"k\":\"{klo}_{khi}_g{g}\",\"w0_tris\":{W0.TriangleCount},\"w0_ms\":{ms0},\"pred_ms\":{predMs},\"t_sample\":{tSample},\"t_shrink\":{tShrink - tSample},\"samples\":{pts.Count},\"sp\":{spF},\"seeds\":{seeds.Count / 2},\"wa_status\":\"{wa.Status}\",\"wa_tris\":{Wa?.TriangleCount ?? 0},\"wa_ms\":{msA},\"wa_clean\":\"{clean}\",\"wa_vdist_off\":{vdist / offset:F3},\"wa_vsep_off\":{vsep / offset:F3}," +
+      $"\"w0_far1\":{d0a.Item1:F4},\"w0_far2\":{d0a.Item2:F4},\"w0_max_off\":{d0a.Item3 / offset:F2},\"wa_far1\":{da0.Item1:F4},\"wa_far2\":{da0.Item2:F4},\"wa_max_off\":{da0.Item3 / offset:F2}}}");
+  }
+}

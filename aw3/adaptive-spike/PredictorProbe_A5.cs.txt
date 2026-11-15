@@ -1,0 +1,162 @@
+// Adaptive alpha spike, step A (measurement only, not library code): a cavity-aware level predictor computed from the
+// input alone, against the oracle levels of the upper-bound study (aw3/adaptive on runs/adaptive-alpha-study).
+// Oracle: W0 at alpha0 = diag/300, offset = diag/3000, W_L at 2^L alpha0; level(t) of a W0 triangle = largest L with
+// dev_l(t) <= tau for l <= L (both ways, as in the study).
+// Predictor: input samples (spacing alpha0/2); per sample and side the shrinking ball (Ma, Bae, Choi, Kerber, Rousseau 2012:
+// the largest empty ball tangent at the sample on that side, against the input); a side counts if its ball center is outside
+// the input (fast winding number < 0.5). The fine wrap may reach the sample if r + offset >= klo alpha0; then the level is the
+// largest L with r + offset >= khi alpha_L (coarse wraps surely reach it too); otherwise unconstrained. Per W0 triangle the
+// predicted level is the minimum over samples within offset + alpha0 of its centroid. Graded as in the study (g = 0.5).
+using System; using System.Collections.Generic; using System.Diagnostics; using System.Linq; using System.Threading.Tasks;
+using g3; using gs;
+static class P {
+  static DMesh3 Wrap(DMesh3 input, double alpha, double offset, out long ms) {
+    var sw = Stopwatch.StartNew(); var w = new MeshAlphaWrap(input) { Alpha = alpha, Offset = offset }; w.Compute(); ms = sw.ElapsedMilliseconds; return w.Result; }
+  static IEnumerable<Vector3d> Samples(DMesh3 m, int t) {
+    Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero; m.GetTriVertices(t, ref a, ref b, ref c);
+    yield return (a + b + c) / 3; yield return 0.5 * (a + b); yield return 0.5 * (b + c); yield return 0.5 * (c + a); }
+  static double Dist(DMeshAABBTree3 tree, DMesh3 m, Vector3d p) { int t = tree.FindNearestTriangle(p); if (t < 0) return double.MaxValue; return Math.Sqrt(MeshQueries.TriangleDistance(m, t, p).DistanceSquared); }
+  // shrinking ball at p with unit normal n, radius cap rmax; returns radius and center
+  static double Shrink(DMeshAABBTree3 tree, DMesh3 m, Vector3d p, Vector3d n, double rmax, double eps, out Vector3d center) {
+    double r = rmax; center = p + r * n;
+    for (int it = 0; it < 40; ++it) {
+      int t = tree.FindNearestTriangle(center); if (t < 0) break;
+      var q = MeshQueries.TriangleDistance(m, t, center); var qp = q.TriangleClosest;
+      double d = Math.Sqrt(q.DistanceSquared);
+      if (d >= r - eps) break;
+      Vector3d v = qp - p; double den = 2 * v.Dot(n);
+      if (v.Length < eps || den <= 0) break;   // the nearest point is p itself (or behind it): converged
+      double rn = v.LengthSquared / den; if (rn >= r) break; r = rn; center = p + r * n;
+      if (r < eps) break;
+    }
+    return r;
+  }
+  static int[] Grade(DMesh3 W0, int[] lev, double alpha0, int levels, double g, Vector3d[] cen) {
+    int n = W0.MaxTriangleID; var a = new double[n]; var pq = new SortedSet<(double, int)>();
+    foreach (int t in W0.TriangleIndices()) { a[t] = alpha0 * (1 << lev[t]); pq.Add((a[t], t)); }
+    while (pq.Count > 0) { var (av, t) = pq.Min; pq.Remove(pq.Min); if (av > a[t]) continue; Index3i nb = W0.GetTriNeighbourTris(t);
+      for (int j = 0; j < 3; ++j) { int u = nb[j]; if (u < 0) continue; double cand = av + g * cen[t].Distance(cen[u]); if (cand < a[u]) { pq.Remove((a[u], u)); a[u] = cand; pq.Add((cand, u)); } } }
+    var o = new int[n]; foreach (int t in W0.TriangleIndices()) o[t] = Math.Max(0, Math.Min(levels, (int)Math.Floor(Math.Log(a[t] / alpha0, 2) + 1e-9))); return o; }
+  static void Main(string[] args) {
+    string mesh = args[0]; int levels = 3;
+    DMesh3 input = StandardMeshReader.ReadMesh(mesh); double diag = input.CachedBounds.DiagonalLength;
+    double alpha0 = diag / 300, offset = diag / 3000;
+    var W = new List<DMesh3>(); var ms = new List<long>();
+    for (int L = 0; L <= levels; ++L) { W.Add(Wrap(input, alpha0 * (1 << L), offset, out long t)); ms.Add(t); }
+    DMesh3 W0 = W[0]; int n = W0.MaxTriangleID; var tree0 = new DMeshAABBTree3(W0, true); var tris = W0.TriangleIndices().ToArray();
+    var dev = new double[levels + 1][];
+    for (int L = 1; L <= levels; ++L) {
+      var d = new double[n]; var treeL = new DMeshAABBTree3(W[L], true);
+      Parallel.ForEach(tris, t => { double mm = 0; foreach (var p in Samples(W0, t)) mm = Math.Max(mm, Dist(treeL, W[L], p)); d[t] = mm; });
+      var lk = new object();
+      Parallel.ForEach(W[L].TriangleIndices().ToArray(), s => { foreach (var p in Samples(W[L], s)) { int t = tree0.FindNearestTriangle(p); if (t < 0) continue;
+        double dd = Math.Sqrt(MeshQueries.TriangleDistance(W0, t, p).DistanceSquared); lock (lk) { if (dd > d[t]) d[t] = dd; } } });
+      dev[L] = d;
+    }
+    var rho = new double[levels + 1]; for (int L = 0; L <= levels; ++L) { double ar = 0; foreach (int t in W[L].TriangleIndices()) ar += W[L].GetTriArea(t); rho[L] = W[L].TriangleCount / ar; }
+    var cen = new Vector3d[n]; var area = new double[n]; double total = 0;
+    foreach (int t in tris) { cen[t] = W0.GetTriCentroid(t); area[t] = W0.GetTriArea(t); total += area[t]; }
+    // predictor (timed: the part a real implementation would run before the wrap)
+    var swp = Stopwatch.StartNew();
+    var inTree = new DMeshAABBTree3(input, true); inTree.FastWindingNumber(Vector3d.Zero);
+    double sp = alpha0 / 2, eps = 1e-9 * diag; var rnd = new Random(1);
+    var pts = new List<(Vector3d p, Vector3d nn)>();
+    foreach (int t in input.TriangleIndices()) {
+      Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero; input.GetTriVertices(t, ref a, ref b, ref c);
+      Vector3d nn = (b - a).Cross(c - a); double ar2 = nn.Length; if (!(ar2 > 0)) continue; nn /= ar2;
+      int k = Math.Max(1, (int)Math.Ceiling(0.5 * ar2 / (sp * sp))); k = Math.Min(k, 20000);
+      for (int j = 0; j < k; ++j) { double u = rnd.NextDouble(), v = rnd.NextDouble(); if (u + v > 1) { u = 1 - u; v = 1 - v; } pts.Add((a + u * (b - a) + v * (c - a), nn)); }
+    }
+    double rmax = 2 * alpha0 * (1 << levels);
+    var rad = new double[pts.Count, 2]; var ext = new bool[pts.Count, 2]; var wnv = new double[pts.Count, 2];
+    Parallel.For(0, pts.Count, i => { for (int s = 0; s < 2; ++s) { var nn = s == 0 ? pts[i].nn : -pts[i].nn;
+      double r = Shrink(inTree, input, pts[i].p + 1e-7 * diag * nn, nn, rmax, eps, out Vector3d cc);
+      rad[i, s] = r; wnv[i, s] = inTree.FastWindingNumber(cc); ext[i, s] = wnv[i, s] < 0.5; } });
+    var swPlan = Stopwatch.StartNew();
+    double gc = alpha0; var sgrid = new Dictionary<(int, int, int), List<int>>();
+    for (int i = 0; i < pts.Count; ++i) { var p = pts[i].p; var kk = ((int)Math.Floor(p.x / gc), (int)Math.Floor(p.y / gc), (int)Math.Floor(p.z / gc)); if (!sgrid.TryGetValue(kk, out var l)) sgrid[kk] = l = new List<int>(); l.Add(i); }
+    var anchors = Enumerable.Range(0, pts.Count).Where(i => i % 16 == 0).ToArray();
+    var plan = new double[levels + 1][]; for (int L = 0; L <= levels; ++L) plan[L] = new double[anchors.Length];
+    Parallel.For(0, anchors.Length, ai => { int i = anchors[ai]; var p = pts[i].p; var nn = pts[i].nn;
+      for (int L = 0; L <= levels; ++L) { double R = alpha0 * (1 << L); int cr = (int)Math.Ceiling(R / gc); var c0 = ((int)Math.Floor(p.x / gc), (int)Math.Floor(p.y / gc), (int)Math.Floor(p.z / gc));
+        var cand = new List<int>();
+        for (int dx = -cr; dx <= cr; ++dx) for (int dy = -cr; dy <= cr; ++dy) for (int dz = -cr; dz <= cr; ++dz) if (sgrid.TryGetValue((c0.Item1 + dx, c0.Item2 + dy, c0.Item3 + dz), out var l)) cand.AddRange(l);
+        int stride = Math.Max(1, cand.Count / 256); double mx = 0;
+        for (int k = 0; k < cand.Count; k += stride) { var q = pts[cand[k]].p; if (q.DistanceSquared(p) > R * R) continue; mx = Math.Max(mx, Math.Abs(nn.Dot(q - p))); }
+        plan[L][ai] = mx; } });
+    long planMs = swPlan.ElapsedMilliseconds;
+    // per sample: its anchor (the nearest anchor by index block; anchors are every 16th sample of the same triangle order)
+    long predMs = swp.ElapsedMilliseconds;
+    var vis = new double[levels + 1][];
+    for (int L = 1; L <= levels; ++L) { var tl = new DMeshAABBTree3(W[L], true); var dl = new double[pts.Count]; int LL = L;
+      Parallel.For(0, pts.Count, i => { dl[i] = Dist(tl, W[LL], pts[i].p); }); vis[L] = dl; }
+    // spatial hash of samples
+    double cell = offset + alpha0; var grid = new Dictionary<(int, int, int), List<int>>();
+    (int, int, int) key(Vector3d p) => ((int)Math.Floor(p.x / cell), (int)Math.Floor(p.y / cell), (int)Math.Floor(p.z / cell));
+    for (int i = 0; i < pts.Count; ++i) { var kk = key(pts[i].p); if (!grid.TryGetValue(kk, out var l)) grid[kk] = l = new List<int>(); l.Add(i); }
+    var rows = new List<string>();
+    foreach (double tauF in new[] { 1.0, 2.0 }) {
+      double tau = tauF * offset; var lev = new int[n];
+      foreach (int t in tris) { int L = 0; while (L < levels && dev[L + 1][t] <= tau) L++; lev[t] = L; }
+      var gl = Grade(W0, lev, alpha0, levels, 0.5, cen);
+      double estO = 0; foreach (int t in tris) estO += area[t] * rho[gl[t]];
+      rows.Add($"\"tau{tauF}_oracle_g\":{estO:F0}");
+      foreach (var (vname, klo, khi) in new[] { ("ball", 0.7, 1.3), ("plan", 0.7, 1.3), ("plan2", 0.7, 1.3), ("plan_half", 0.7, 1.3) }) {
+        bool useExt = true; double tv = offset + 1.0 * offset;
+        var sl = new int[pts.Count]; int hidden = 0;
+        for (int i = 0; i < pts.Count; ++i) {
+          if (vname.StartsWith("vis")) { int L = 0; int first = vname == "vis123" ? 1 : 2;
+            if (vname == "vis23" && vis[2][i] > tv) { sl[i] = 0; continue; }
+            L = vname == "vis23" ? 2 : 0; if (vname == "vis123") { while (L < levels && vis[L + 1][i] <= tv) L++; } else { if (vis[3][i] <= tv) L = 3; }
+            sl[i] = L; continue; }
+          if ((vname == "hybrid" || vname == "hybridabs") && vis[3][i] <= tv) { sl[i] = levels; continue; }
+          if (vname == "hybrid2" && vis[3][i] <= tv && vis[2][i] <= tv) { sl[i] = levels; continue; }
+          if (vname.StartsWith("plan")) {
+            // reach rule of "ball" on exterior sides, plus planarity: level l only if plan_l - plan_0 <= lim (tau, 2 tau, tau / 2)
+            int ai = Math.Min(anchors.Length - 1, i / 16); double lim = vname == "plan" ? tau : (vname == "plan2" ? 2 * tau : 0.5 * tau);
+            int Lp = 0; while (Lp < levels && plan[Lp + 1][ai] - plan[0][ai] <= lim) Lp++;
+            for (int s = 0; s < 2; ++s) { if (!ext[i, s]) continue; double rr = rad[i, s] + offset; if (rr < klo * alpha0) continue; int L = 0; while (L < levels && rr >= khi * alpha0 * (1 << (L + 1))) L++; Lp = Math.Min(Lp, L); }
+            sl[i] = Lp; continue; }
+          if (vname.StartsWith("curv")) {
+            // exterior sides: the reach rule of "ball"; interior sides (thin parts, convex curvature): R = r_in + offset is the
+            // radius of the offset surface there at most; a wrap with triangles of circumradius min(a, R) sags by
+            // R - sqrt(R^2 - min(a,R)^2); level l is fine if that grows by at most tau / 2 (curv) or tau (curv2) from alpha0
+            int Lc = levels; double lim = vname == "curv" ? 0.5 * tau : tau;
+            for (int s = 0; s < 2; ++s) {
+              if (ext[i, s]) { double rr = rad[i, s] + offset; if (rr < klo * alpha0) continue; int L = 0; while (L < levels && rr >= khi * alpha0 * (1 << (L + 1))) L++; Lc = Math.Min(Lc, L); }
+              else { double R = rad[i, s] + offset; double sg(double a) { double c = Math.Min(a, R); return R - Math.Sqrt(Math.Max(0, R * R - c * c)); }
+                int L = 0; while (L < levels && sg(alpha0 * (1 << (L + 1))) - sg(alpha0) <= lim) L++; Lc = Math.Min(Lc, L); } }
+            sl[i] = Lc; continue; }
+          if (vname.StartsWith("sag")) {
+            // per side: g = half width of the offset surface's gap (r - offset); a ball of radius a enters if g >= khi a, sags by
+            // a - sqrt(a^2 - g^2) if g < klo a, uncertain between; level l is fine if both alpha0 and alpha_l enter, or both
+            // sag and the depths differ by at most tau / 2
+            int Ls = levels;
+            for (int s = 0; s < 2; ++s) { if (vname != "sag_noext" && !ext[i, s]) continue; double gg = rad[i, s] - offset; if (gg <= 0) continue;
+              int st(double a) => gg >= khi * a ? 2 : (gg < klo * a ? 1 : 0);
+              double dep(double a) => a - Math.Sqrt(Math.Max(0, a * a - gg * gg));
+              int s0 = st(alpha0); int L = 0;
+              while (L < levels) { double al = alpha0 * (1 << (L + 1)); int sl2 = st(al);
+                bool ok = (s0 == 2 && sl2 == 2) || (s0 == 1 && sl2 == 1 && Math.Abs(dep(alpha0) - dep(al)) <= 0.5 * tau);
+                if (!ok) break; L++; }
+              Ls = Math.Min(Ls, L); }
+            sl[i] = Ls; continue; }
+          if (vname != "ball") hidden++;
+          int Lmin = levels; for (int s = 0; s < 2; ++s) { if (vname.EndsWith("abs") ? !(Math.Abs(wnv[i, s]) < 0.5) : (useExt && !ext[i, s])) continue; double rr = rad[i, s] + offset;
+          if (rr < klo * alpha0) continue; int L = 0; while (L < levels && rr >= khi * alpha0 * (1 << (L + 1))) L++; Lmin = Math.Min(Lmin, L); } sl[i] = Lmin; }
+        var pl = new int[n];
+        Parallel.ForEach(tris, t => { var kc = key(cen[t]); int m = levels; double r2 = cell * cell;
+          for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) for (int dz = -1; dz <= 1; ++dz)
+            if (grid.TryGetValue((kc.Item1 + dx, kc.Item2 + dy, kc.Item3 + dz), out var l)) foreach (int i in l) if (sl[i] < m && pts[i].p.DistanceSquared(cen[t]) <= r2) m = sl[i];
+          pl[t] = m; });
+        var pg = Grade(W0, pl, alpha0, levels, 0.5, cen);
+        double fa = 0, fag = 0, worst = 0, est = 0;
+        foreach (int t in tris) { if (pl[t] > lev[t]) fa += area[t]; if (pg[t] > lev[t]) { fag += area[t]; worst = Math.Max(worst, dev[pg[t]][t] / offset); } est += area[t] * rho[pg[t]]; }
+        string nm = $"tau{tauF}_{vname}";
+        rows.Add($"\"{nm}_false\":{fa / total:F4},\"{nm}_false_g\":{fag / total:F4},\"{nm}_worst\":{worst:F1},\"{nm}_est\":{est:F0},\"{nm}_hidden\":{hidden}");
+      }
+    }
+    Console.WriteLine("{\"mesh\":\"" + System.IO.Path.GetFileNameWithoutExtension(mesh) + "\",\"raw\":[" + string.Join(",", W.Select(w => w.TriangleCount)) +
+      "],\"ms\":[" + string.Join(",", ms) + "],\"plan_ms\":" + planMs + ",\"pred_ms\":" + predMs + ",\"samples\":" + pts.Count + "," + string.Join(",", rows) + "}");
+  }
+}
