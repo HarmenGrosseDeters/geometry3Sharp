@@ -319,33 +319,62 @@ so that the branch test can call them.
 
 ### 5.3 Measurement: the exact kernel and its allow list on net48 and net10.0 (2026-11-15)
 
-The harness cases `kernel.*`, `ledger.*` and `boolean.rounding.*` (`tools/DeterminismHarness/Kernel.cs`, README "Kernel and allow
-list") run the kernel's operations, the members of its allow list (`DeterministicApis.txt`) and Booleans whose rounding meets coplanar
-and near contacts on procedural inputs (a splitmix64 stream; exponents from subnormal to 2^900; random, nearly degenerate, small-integer
-and repeated point sets), and the `compare` job of `determinism.yml` prints the table below (`measurement_rows.py`). The runs: 43719418661
-(head 41b734a), then three runs whose only change is finer trace sections (the hashes are the same: 43726025267 and 43732107965 are rounds 3 and 4). Columns:
-Linux and Windows net10.0, Windows net48 64-bit and 32-bit (x87, the legacy JIT), Linux arm64 net10.0, all serial; parallel equals serial
-and every processor count on each runtime (the one difference is `probe.hash-seeded`, by design).
+**Cases.** The harness cases `kernel.*`, `ledger.*` and `boolean.rounding.*` (`tools/DeterminismHarness/Kernel.cs`, README "Kernel
+and allow list") run:
+- the kernel's operations: the predicates and their exact stages, `ExactPoint3`, `FixedPoint3`, `ExactLimbSigns`, the triangle, ray
+  and slope predicates, the intervals;
+- the members of its allow list (`DeterministicApis.txt`) on edge inputs;
+- Booleans whose rounding meets coplanar and near contacts.
+
+**Inputs.** All inputs are procedural, from a splitmix64 stream. The point sets of the predicates come in exponent classes from subnormal
+(2^-1060) to 2^900, as random, nearly degenerate (a point moved by a few ulps off a line or plane), small-integer (exact degeneracies, no
+exponent) and repeated sets. The other cases have their own classes:
+- bit lengths for `ExactPoint3`, `FixedPoint3` and `ExactLimbSigns`, with exact zeros and steps of one;
+- exponents -100..100 plus `double.Epsilon` and -0 for the intervals.
+
+**Runs.** The `compare` job of `determinism.yml` prints the hash and value count per case and configuration (`measurement_rows.py`). The
+table below summarizes them with the per-section counts of `compare --brief` and the analysis.
+- Round 1: run 43719418661 (head 41b734a).
+- Round 2 (head 21b83f6): new input classes (every kind in every exponent class), the inputs in the trace, and `kernel.limbsigns.path`
+  split off (compare job 132841141622).
+- Rounds 3 and 4: runs 43726025267 and 43732107965. Only the trace sections changed, so the hashes are those of round 2.
+- Round 5 (head ROUND5_HEAD, run ROUND5_RUN): after the review, `kernel.limbsigns` with true zero sides and degenerate sets,
+  `boolean.rounding.*` and `kernel.slope` with their inputs in the trace, and the filter's agreement with the exact test
+  (`/filter-agrees`).
+
+**Configurations.** The columns are Linux and Windows net10.0, Windows net48 64-bit and 32-bit (x87, the legacy JIT, run serially only),
+and Linux arm64 net10.0. Each comparison is between serial runs. In addition:
+- serial equals parallel on Linux and Windows net10.0 and on net48 64-bit;
+- the processor counts 1, 2, 3 and 8 (Linux x64) and 1 and 3 (arm64) give the same results;
+- the one exception is `probe.hash-seeded`, by design.
 
 | case | net10 linux / windows | net48 x64 | net48 x86 | arm64 | explanation |
 |---|---|---|---|---|---|
-| `kernel.predicates.double`, `.adaptive`, `kernel.exactpoint`, `kernel.fixedpoint`, `kernel.limbsigns`, `kernel.slope`, `kernel.intervals`, `ledger.biginteger`, `probe.bigint-double`, `probe.double-bigint` | = | = | = | = | the same bits everywhere, on every input class, also the subnormal and near-overflow ones |
-| `boolean.*.exact`, `.saferounding`, `boolean.box-sphere`, `boolean.rounding.*` (coplanar contacts at 2^-30, 1, 2^30, with and without `SafeRounding`; a near contact) | = | = | = | = | the Boolean results, rounding included, are bit-identical |
-| `kernel.limbsigns.path` | = | differs | differs | = | which branch ran: the stack limbs are `#if NET` only, .NET Framework takes the BigInteger expression; the signs (`kernel.limbsigns`) agree, as registered (G3D0005) |
-| `kernel.triangles` | = | = | differs (34 values) | = | only `TriangleTriangleFilter.BeyondShared` at 2^900 (section `/filter`): *Undecided* on one, *Separate* on the other, both valid answers of a filter; every final answer of the exact tests agrees, and on x64 equals the answer for the inputs scaled by 2^-900. Cause: the x87 extended exponent range, intermediate values near 2^1800 that overflow on SSE2 do not overflow in an x87 register |
-| `kernel.ray` | = | = | differs (37 values) | = | the second point of the ray (`ExactRayTriangle.SecondPoint`, a double computation, `/secondpoint`) for subnormal inputs only: x87 rounds the subnormal sum differently (no IEEE gradual underflow in the register, a double rounding when stored). A different second point is a different ray, so its exact signs may differ, and do only there: 22 second-point values in 12 subnormal sets differ, and the 15 differing signs are those of 3 of these sets (`repeat` sets #407, #1295, #1391 of run 43732107965, 5 signs each: a ray through a vertex, where any change of direction changes the answer); no sign differs in a set whose second point agrees. The exact predicates themselves agree on x86 for every subnormal input (`kernel.predicates.*`) |
-| `ledger.math` | = | 2 values | 2 values | 979 values | net48: `Math.Min / Max` of opposite zeros (`min-max-zeros`, R4, #803: the kernel's result values use `MathUtil.MinExact / MaxExact`); arm64: only the bits of NaN results (`sqrt-nan` 977, `arith-nan` 2: the default NaN of ARM has no sign bit, that of x64 has), which IEEE 754 leaves open and the kernel never lets reach a result |
+| `kernel.predicates.double`, `.adaptive`, `kernel.exactpoint`, `kernel.fixedpoint`, `kernel.limbsigns`, `kernel.slope`, `kernel.intervals`, `ledger.biginteger`, `probe.bigint-double`, `probe.double-bigint` | = | = | = | = | the same bits in every class of each case (the classes above) |
+| `boolean.*.exact`, `.saferounding`, `boolean.box-sphere`, `boolean.rounding.*` | = | = | = | = | the inputs and the Boolean results agree, including the rounding and the status. The rounding cases are coplanar contacts at 2^-30, 1 and 2^30, with and without `SafeRounding`, and a near contact |
+| `kernel.limbsigns.path` | = | differs | differs | = | which branch ran: the stack limbs are `#if NET` only, and .NET Framework takes the BigInteger expression. The signs (`kernel.limbsigns`) agree, as registered (G3D0005) |
+| `kernel.triangles` | = | = | differs (34 values) | = | only `TriangleTriangleFilter.BeyondShared` at 2^900 (section `/filter`): *Undecided* on one runtime, a certain answer on the other. The filter projects along the dominant axis of A's floating-point normal (`by_projection`). At 2^900 the cross product overflows to infinity or NaN with SSE2; in an x87 register it may stay finite (inferred, not isolated by a probe), so another axis is chosen. Every later decision is an exact `Orient2d`, and a projection that separates along any axis proves the 3D separation, so both answers are valid. `/filter-agrees` shows the filter's certain answers equal those of the exact test on every configuration, and all the exact tests agree |
+| `kernel.ray` | = | = | differs (37 values) | = | the second point of the ray (`ExactRayTriangle.SecondPoint`, a double computation, `/secondpoint`), for subnormal inputs only: 22 values in 12 sets. With SSE2 only `direction * 2^m` rounds there. The difference is consistent with x87 carrying the unrounded product into the sum and rounding twice when it stores the result (not isolated by a probe). A different second point is a different ray, so its exact signs may differ, and they do only there: the 15 differing signs are those of 3 of these 12 sets (`repeat` sets #407, #1295 and #1391 of run 43732107965, 5 signs each: a ray through a vertex, where any change of direction changes the answer). No sign differs in a set whose second point agrees, and the exact predicates agree on x86 for every subnormal input (`kernel.predicates.*`) |
+| `ledger.math` | = | 2 values | 2 values | 979 values | net48: `Math.Min / Max` of opposite zeros (`min-max-zeros`, R4, #803; the kernel's result values use `MathUtil.MinExact / MaxExact`). arm64: only the bits of NaN results (`sqrt-nan` 977, `arith-nan` 2). ARM's default NaN has no sign bit and x64's has one, and IEEE 754 leaves the payload and sign open. NaN results are outside the claim's input domain (section 2, R18) |
 | `probe.cast-range`, `probe.minmax-zero` | = | differ | differ | = | the measured runtime facts of R5 and R4 (#804, #803) |
-| `boolean.union.libm-input` | windows differs from linux | = linux | differs | = linux | the input is made with the platform libm (`Math.Sin`), so the input differs; libm is outside the kernel (R3) |
+| `boolean.union.libm-input` | windows differs from linux | = linux | differs | = linux | the input is made with the platform libm (`Math.Sin`), so the input differs; libm is R1 |
 
 Conclusions:
-1. **The exact kernel gives the same results on every runtime and processor measured**: every sign, every exact value and every Boolean
-   result, on all input classes. The differences are a branch flag (by design), a filter's *Undecided*, a double approximation that
-   defines a ray, NaN bits, and the known Min / Max and cast facts of R4 and R5, which the allow list already restricts.
-2. **32-bit .NET Framework (x87) is a different floating-point machine at the edges of the range**: intermediate overflow and gradual
-   underflow behave differently. Inside the kernel this reaches only values whose role is approximate (a filter's decision to defer, the
-   ray's second point). Results that use a double approximation as their *input* can differ there: the stage 1/2 obligations of such
-   consumers (the winding ray of the Boolean) have to show that the result does not depend on the ray chosen.
+1. **For the same double inputs, the exact kernel gives the same results on every runtime and processor measured.** That covers every
+   sign, every exact value and every Boolean result, in the input classes above. The differences are:
+   - a branch flag, by design;
+   - a filter's *Undecided*;
+   - a double approximation that defines a ray;
+   - NaN bits;
+   - the known `Min` / `Max` and cast facts of R4 and R5, which the allow list already restricts.
+2. **32-bit .NET Framework (x87, R2, T4) is a different floating-point machine at the edges of the range.** Its precision control is 53
+   bits there, so in the normal range it rounds as SSE2 does. Intermediate overflow and gradual underflow behave differently.
+   - Inside the kernel this reaches only values whose role is approximate: a filter's decision to defer, and the ray's second point.
+   - Results that take such a value as their *input* can differ for subnormal or near-overflow coordinates on net48 x86. These are the
+     winding ray of the Boolean, and the public ray queries that define their ray by `SecondPoint` (`DMeshAABBTree3`, `IntrRay3Triangle3`).
+   - The stage 1 and 2 obligations of these consumers have to show that the result does not depend on the ray chosen, or state the input
+     range. Owner decision C4 keeps 32-bit outside the claim for float code; whether it also stays outside for subnormal and
+     near-overflow coordinates is an owner decision.
 3. **No timing**: speed on net48 is the owner's local comparison (#929).
 
 ## 6. Proposal

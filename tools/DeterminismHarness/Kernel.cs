@@ -64,8 +64,9 @@ namespace DeterminismHarness
 
         static double ScaleB(double x, int e) { return ExactPoint3.ScaleB(x, e); }
 
-        // point sets for the predicates: random, nearly collinear / coplanar / cocircular (a point on the exact
-        // object moved by a few ulps), with exponents from subnormal to huge
+        // point sets for the predicates: random, nearly collinear / coplanar (the last point on the line or plane of
+        // the first ones, moved by a few ulps), small integers (exact degeneracies), a repeated point; with exponents
+        // from subnormal to huge
         // (the trace sections name the exponent and the kind of each input set, and its coordinates come first, under
         // "<name>/in/...": a comparison then tells a different input from a different result, per class)
         static readonly string[] Kinds = { "random", "near", "int", "repeat" };
@@ -91,7 +92,8 @@ namespace DeterminismHarness
                         p[n - 1] = p[0];
                         break;
                 }
-                string cls = "e" + e + "/" + Kinds[kind];
+                // (small integers ignore the exponent)
+                string cls = kind == 2 ? "int" : "e" + e + "/" + Kinds[kind];
                 // (the subnormal ray sets one by one: a comparison then shows that a sign differs only where the
                 // second point of the same set does)
                 if (name == "ray" && e == -1060) cls += "/#" + i;
@@ -212,15 +214,22 @@ namespace DeterminismHarness
             foreach (int bits in new[] { 20, 64, 130, 255 }) {
                 t.Section("bits-" + bits);
                 for (int i = 0; i < 150; ++i) {
-                    BigInteger a = r.Big(bits), b = r.Big(bits), c = r.Big(bits), x = r.Big(bits), y = r.Big(bits), z = r.Big(bits), w = BigInteger.Abs(r.Big(bits / 2)) + 1;
-                    // d chosen so that the side is zero, then moved by one
-                    BigInteger d = -(a * x + b * y + c * z) / w + (i % 3 - 1);
+                    BigInteger a = r.Big(bits), b = r.Big(bits), c = r.Big(bits), w = BigInteger.Abs(r.Big(bits / 2)) + 1;
+                    BigInteger x = r.Big(bits) * w, y = r.Big(bits) * w, z = r.Big(bits) * w;
+                    // a x + b y + c z - d w (and - d) exactly 0, then moved by one step: the signs -1, 0, +1
+                    BigInteger S = a * x + b * y + c * z, k = i % 3 - 1;
                     int used, sg;
-                    sg = ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, w, out used); rec(sg, used);
-                    sg = ExactLimbSigns.PlaneSide(a, b, c, d, x, y, z, out used); rec(sg, used);
+                    sg = ExactLimbSigns.PlaneSide(a, b, c, S / w + k, x, y, z, w, out used); rec(sg, used);
+                    sg = ExactLimbSigns.PlaneSide(a, b, c, S + k, x, y, z, out used); rec(sg, used);
                     sg = ExactLimbSigns.Dot(a, b, c, x, y, z, out used); rec(sg, used);
-                    ExactPoint3 p = Point(r, bits, 1), q = Point(r, bits, 9), s = Point(r, bits, 1), u = Point(r, bits, 3);
-                    if (i % 4 == 0) u = ExactPoint3.CreateUnreduced(p.X + q.X - s.X, p.Y + q.Y - s.Y, p.Z + q.Z - s.Z, BigInteger.One);
+                    // (every fourth set degenerate, all integer points: s = 2q - p on the line of p and q, so Orient2
+                    // and Det4 are 0, and u = p + q - s)
+                    bool degenerate = i % 4 == 0;
+                    ExactPoint3 p = Point(r, bits, 1), q = Point(r, bits, degenerate ? 1 : 9), s = Point(r, bits, 1), u = Point(r, bits, 3);
+                    if (degenerate) {
+                        s = ExactPoint3.CreateUnreduced(2 * q.X - p.X, 2 * q.Y - p.Y, 2 * q.Z - p.Z, BigInteger.One);
+                        u = ExactPoint3.CreateUnreduced(p.X + q.X - s.X, p.Y + q.Y - s.Y, p.Z + q.Z - s.Z, BigInteger.One);
+                    }
                     sg = ExactLimbSigns.Det4(p, q, s, u, out used); rec(sg, used); rec(ExactLimbSigns.Det4Big(p, q, s, u), -1);
                     sg = ExactLimbSigns.Orient2(p, q, s, 0, 1, out used); rec(sg, used); rec(ExactLimbSigns.Orient2Big(p, q, s, 2, 0), -1);
                     sg = ExactLimbSigns.InCircle(p, q, s, u, 1, 2, out used); rec(sg, used); rec(ExactLimbSigns.InCircleBig(p, q, s, u, 1, 2), -1);
@@ -249,7 +258,12 @@ namespace DeterminismHarness
                 // (the filter alone: Undecided is a valid answer wherever it is given, so it may differ where the
                 // final answers agree)
                 t.Section(currentSection + "/filter");
-                t.Add(S(() => TriangleTriangleFilter.BeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv)));
+                long f = S(() => TriangleTriangleFilter.BeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv));
+                t.Add(f);
+                // (whether a certain answer of the filter is the exact test's: 1 agrees, 2 Undecided; must not differ)
+                t.Section(currentSection + "/filter-agrees");
+                long exact = S(() => ExactTriangleIntersection.IntersectsBeyondShared(new Index3i(0, 1, 2), ref a, new Index3i(0, 4, 5), ref bv));
+                t.Add(f == TriangleTriangleFilter.Undecided ? 2 : (f == exact ? 1 : 0));
             }
             return t;
         }
@@ -280,7 +294,9 @@ namespace DeterminismHarness
                 double k1a = r.Range(-2, 2), k1b = r.Range(0.1, 2), k2a = (r.Int(3) == 0) ? k1a : r.Range(-2, 2), k2b = (r.Int(3) == 0) ? k1b : r.Range(0.1, 2);
                 bool deg;
                 t.Add(ExactSlopePredicates.SlopeSign(p[0], p[1], p[2], k1a, k1b, k2a, k2b, out deg)); t.Add(deg);
-                t.Add(ExactSlopePredicates.ProductMinus(p[0].x, p[0].y, p[0].x * p[0].y));
+                double xy = p[0].x * p[0].y;    // (a harness double: traced, 0 or infinite at the extreme exponents)
+                t.Add(xy);
+                t.Add(ExactSlopePredicates.ProductMinus(p[0].x, p[0].y, xy));
             }
             return t;
         }
@@ -388,6 +404,9 @@ namespace DeterminismHarness
                     double x = p.x - c.x, y = p.y - c.y;
                     b.SetVertex(v, new Vector3d(c.x + (3 * x - 4 * y) / 5, c.y + (4 * x + 3 * y) / 5, p.z));
                 }
+                // (the inputs too: the rotation is computed in harness doubles)
+                string tag = zc.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                t.Add(a, "input-a@" + tag); t.Add(b, "input-b@" + tag);
                 foreach (Ops op in new[] { Ops.Union, Ops.Intersection, Ops.Difference }) {
                     var boolean = new ExactMeshBoolean(a, b, op) { SafeRounding = safe };
                     string name = op.ToString() + "@" + zc.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -409,6 +428,7 @@ namespace DeterminismHarness
                 if (p.z < 1.05) b.SetVertex(v, new Vector3d(p.x, p.y, Ulps(1.0, r.Int(7) - 3)));
             }
             var t = new Trace();
+            t.Add(a, "input-a"); t.Add(b, "input-b");
             foreach (bool safe in new[] { true, false }) {
                 var boolean = new ExactMeshBoolean(a, b, Ops.Union) { SafeRounding = safe };
                 t.Section("union-" + safe);
