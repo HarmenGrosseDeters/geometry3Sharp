@@ -70,6 +70,13 @@ namespace g3
         /// </summary>
         internal bool Certified = false;
 
+        /// <summary>
+        /// (internal, MeshHausdorffDistance) the float cascade measures a corner's distance to a candidate triangle as the length to
+        /// its closest point, |p - c|, instead of the square root of the squared-distance form, which cancels near the surface to about
+        /// 2^-26 E (#873). Off by default (other uses, eg IsWithin in the Reducer, keep their values bit for bit)
+        /// </summary>
+        internal bool PointDistance = false;
+
         // the certified cascade (B6): the corner bound for a single nearest triangle; otherwise the smallest of u0 (the float cascade picks
         // the pieces and candidates, whose leaves are then bounded with certified distances: any choice is a valid bound, B2/B3), u1 (B4)
         // and u2 (B5). A NaN anywhere counts as +infinity
@@ -615,10 +622,22 @@ namespace g3
                 if (p == k.P0 && k.N0 == tid) d = k.D0;
                 else if (p == k.P1 && k.N1 == tid) d = k.D1;
                 else if (p == k.P2 && k.N2 == tid) d = k.D2;
-                else d = Math.Sqrt(MeshQueries.TriDistanceSqr(Target, tid, p));
+                else d = PointDistance ? point_distance(tid, p) : Math.Sqrt(MeshQueries.TriDistanceSqr(Target, tid, p));
                 m = Math.Max(m, d);
             }
             return m;
+        }
+
+        // the distance from p to its closest point on triangle tid, |p - c|: never below the distance to the triangle by more than the
+        // rounding of c (about 2^-52 of the triangle's coordinates), where the square root of the quadratic form cancels to about
+        // 2^-26 E for points near the triangle (#873)
+        double point_distance(int tid, Vector3d p)
+        {
+            Index3i tv = Target.GetTriangle(tid);
+            Triangle3d tri = new Triangle3d(Target.GetVertex(tv.a), Target.GetVertex(tv.b), Target.GetVertex(tv.c));
+            Vector3d closest, bary;
+            DistPoint3Triangle3.DistanceSqr(ref p, ref tri, out closest, out bary);
+            return p.Distance(closest);
         }
 
         // plane between target triangles ti and tj, normal towards ti. Adjacent: the plane through the shared
