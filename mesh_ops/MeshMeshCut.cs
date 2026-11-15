@@ -20,7 +20,8 @@ namespace g3
     /// VertexSnapTol is an absolute 1e-5: scale it to the model (millimetre models and UTM coordinates fail with the
     /// default, docs/ROBUSTNESS_SWEEP.md R6).
     ///
-    /// Contact is out of scope: a cut that touches is refused. With RefuseContact (the default), Compute() first looks, with exact
+    /// Contact is out of scope, and can be refused (opt in, RefuseContact = true; by default the behaviour is that of upstream, which on touching
+    /// input can cut with gaps, differently at different scales, or throw, eg "update_from_split: unsortable vertex?", issue 856). With RefuseContact, Compute() first looks, with exact
     /// predicates, for a pair of triangles (one of Target, one of CutMesh) whose closed triangles intersect although a vertex of the
     /// CutMesh triangle lies on the plane of the Target triangle (a cut vertex on a face, an edge of the cut on a face, two edges that
     /// touch, coplanar triangles overlapping or touching, a cut vertex on the plane with a proper crossing). That is conservative: a pair
@@ -29,7 +30,8 @@ namespace g3
     /// Status to ContactDetected and returns (RemoveContained() then does nothing). The decision is made by exact predicates, so it is
     /// the same under every scaling by a power of two (and any similarity that is exact). A triangle without an area (collinear corners)
     /// counts as its segment or point. The cut itself is not scale invariant (VertexSnapTol is absolute).
-    /// <see cref="MeshBoolean"/> sets RefuseContact to false and so keeps its behaviour on touching inputs.
+    /// A triangle with a vertex that is not finite is skipped by that look (it is no contact). Without RefuseContact the look is not made and Status is always Ok.
+    /// <see cref="MeshBoolean"/> sets RefuseContact to false explicitly and keeps its behaviour on touching inputs.
     ///
     /// TODO:
     ///    - track descendant triangles of each input face
@@ -50,10 +52,11 @@ namespace g3
         public CutStatus Status { get; private set; } = CutStatus.Ok;
 
         /// <summary>
-        /// If true (the default), Compute() refuses a CutMesh that touches Target (Status ContactDetected, Target unchanged).
-        /// If false, Compute() runs on touching input as before (not robust: the cut can have gaps or throw).
+        /// If true, Compute() refuses a CutMesh that touches Target (Status ContactDetected, Target unchanged); the look costs a pass of
+        /// exact predicates over the pairs of triangles with overlapping boxes. If false (the default), Compute() runs on touching input
+        /// as upstream does (not robust: the cut can have gaps, differ with the scale, or throw), and Status is Ok.
         /// </summary>
-        public bool RefuseContact = true;
+        public bool RefuseContact = false;
 
         /// <summary> mesh that is cut (modified in place) </summary>
         public DMesh3 Target;
@@ -82,12 +85,17 @@ namespace g3
             FailedSegmentInsertions = 0;
             Status = CutStatus.Ok;
             initialize();
-            if (RefuseContact && has_contact()) {
-                Status = CutStatus.ContactDetected;
-                Segments = new IntersectSegment[0];
-                CutVertices = new List<int>();
-                return;
+            DMeshAABBTree3 cutTree = null;
+            if (RefuseContact) {
+                cutTree = new DMeshAABBTree3(CutMesh, true);
+                if (has_contact(cutTree)) {
+                    Status = CutStatus.ContactDetected;
+                    Segments = new IntersectSegment[0];
+                    CutVertices = new List<int>();
+                    return;
+                }
             }
+            CutTree = cutTree;
             double cellSize = Target.CachedBounds.MaxDim / 64;
             PointHash = new PointHashGrid3d<int>(cellSize, -1);
 
@@ -108,6 +116,7 @@ namespace g3
             // need to the segment vertices
             foreach (SegmentVtx sv in SegVertices)
                 SegmentInsertVertices.Add(sv.vtx_id);
+            CutTree = null;
         }
 
 
@@ -201,16 +210,19 @@ namespace g3
 
         HashSet<int> SegmentInsertVertices;
 
+        DMeshAABBTree3 CutTree;
+
         /// <summary> true if a triangle of Target and one of CutMesh touch (see the class remarks), by exact predicates </summary>
-        bool has_contact()
+        bool has_contact(DMeshAABBTree3 cutTree)
         {
             if (Target.TriangleCount == 0 || CutMesh.TriangleCount == 0)
                 return false;
-            DMeshAABBTree3 cutTree = new DMeshAABBTree3(CutMesh, true);
             bool found = false;
             foreach (int tid in Target.TriangleIndices()) {
                 Triangle3d a = new Triangle3d();
                 Target.GetTriVertices(tid, ref a.V0, ref a.V1, ref a.V2);
+                if (!ContactTest.IsFinite(a))
+                    continue;       // not finite: no contact (skipped)
                 AxisAlignedBox3d box = new AxisAlignedBox3d(a.V0); box.Contain(a.V1); box.Contain(a.V2);
                 // (the tree's boxes are padded in proportion to the mesh, so boxes that only touch overlap; the exact test decides)
                 var traversal = new DMeshAABBTree3.TreeTraversal() {
@@ -219,7 +231,8 @@ namespace g3
                         if (found) return;
                         Triangle3d b = new Triangle3d();
                         CutMesh.GetTriVertices(uid, ref b.V0, ref b.V1, ref b.V2);
-                        if (ContactTest.TrianglesTouch(a, b))
+                        if (ContactTest.IsFinite(b))
+                            if (ContactTest.TrianglesTouch(a, b))
                             found = true;
                     }
                 };
@@ -262,7 +275,7 @@ namespace g3
             // TODO: intersection polygons
             // TODO: do we need to care about intersection vertices?
             DMeshAABBTree3 targetSpatial = new DMeshAABBTree3(Target, true);
-            DMeshAABBTree3 cutSpatial = new DMeshAABBTree3(CutMesh, true);
+            DMeshAABBTree3 cutSpatial = CutTree ?? new DMeshAABBTree3(CutMesh, true);       // (the tree of the contact look, if there was one)
             var intersections = targetSpatial.FindAllIntersections(cutSpatial);
 
             // for each segment, for each vtx, determine if it is 
@@ -755,6 +768,14 @@ namespace g3
     /// </summary>
     internal static class ContactTest
     {
+        public static bool IsFinite(Triangle3d t)
+        {
+            for (int i = 0; i < 3; ++i)
+                if (double.IsNaN(t[i].x) || double.IsInfinity(t[i].x) || double.IsNaN(t[i].y) || double.IsInfinity(t[i].y) || double.IsNaN(t[i].z) || double.IsInfinity(t[i].z))
+                    return false;
+            return true;
+        }
+
         public static bool TrianglesTouch(Triangle3d t, Triangle3d u)
         {
             // a triangle without an area (collinear corners, all six orientations against it are zero) is its segment (or point): it touches

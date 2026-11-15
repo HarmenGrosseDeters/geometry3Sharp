@@ -56,7 +56,7 @@ namespace geometry3Sharp.Tests
         static MeshMeshCut.CutStatus Status(DMesh3 target, DMesh3 cut, out DMesh3 before)
         {
             before = new DMesh3(target);
-            var op = new MeshMeshCut() { Target = target, CutMesh = cut };
+            var op = new MeshMeshCut() { Target = target, CutMesh = cut, RefuseContact = true };
             op.Compute();
             return op.Status;
         }
@@ -108,32 +108,12 @@ namespace geometry3Sharp.Tests
 
         // ---- the case of the fuzz campaign (issue 856) at 13 powers of two: no exception, the same refusal at every scale ----
 
-        static DMesh3 Scaled(DMesh3 m, int e)
-        {
-            var c = new DMesh3(m);
-            foreach (int v in c.VertexIndices()) { Vector3d p = c.GetVertex(v); c.SetVertex(v, new Vector3d(p.x * Math.Pow(2, e), p.y * Math.Pow(2, e), p.z * Math.Pow(2, e))); }
-            return c;
-        }
-
-        static (DMesh3 a, DMesh3 b) Issue856()
-        {
-            var a = Mesh(new[] { new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(1, 1, 0), new Vector3d(0, 1, 0), new Vector3d(0, 0, 1),
-                new Vector3d(1, 0, 1), new Vector3d(1, 1, 1), new Vector3d(0.125, 1.4375, 7.625) },
-                new[] { (0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7) });
-            var b = Mesh(new[] { new Vector3d(0.01806640625, 0, 0), new Vector3d(0.01810455322265625, 2.47955322265625E-05, 1.1444091796875E-05),
-                new Vector3d(0.018096923828125, 3.0517578125E-05, 0), new Vector3d(0.01806640625, 3.0517578125E-05, 0),
-                new Vector3d(0.018133163452148438, 1.33514404296875E-05, 0.0001239776611328125), new Vector3d(0.018096923828125, 0, 3.0517578125E-05),
-                new Vector3d(0.018096923828125, 3.0517578125E-05, 3.0517578125E-05), new Vector3d(0.01806640625, 3.0517578125E-05, 3.0517578125E-05) },
-                new[] { (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7) });
-            return (a, b);
-        }
-
         [Fact]
         public void FuzzCase_IsRefusedAtEveryPowerOfTwo_WithoutException()
         {
-            var (a, b) = Issue856();
+            var (a, b) = MeshMeshCutContactBaseTests.Issue856();
             for (int e = -8; e <= 5; ++e) {     // (the artifact's 2^113 .. : the case at 2^108 .. 2^120 of the issue is 2^-7 .. 2^5 here)
-                DMesh3 target = Scaled(a, e), cut = Scaled(b, e);
+                DMesh3 target = MeshMeshCutContactBaseTests.Scaled(a, e), cut = MeshMeshCutContactBaseTests.Scaled(b, e);
                 var status = Status(target, cut, out DMesh3 before);        // before: master threw "update_from_split: unsortable vertex?" at one of these
                 Assert.Equal(MeshMeshCut.CutStatus.ContactDetected, status);
                 Assert.True(SameVertices(before, target), "2^" + e);
@@ -146,7 +126,7 @@ namespace geometry3Sharp.Tests
         public void TransversalCut_StillCuts_AndEqualsTheUnrefusedRun()
         {
             DMesh3 target = Cube(0, 0, 0, 1), cut = Cube(0.3, 0.4, 0.45, 1);
-            var op = new MeshMeshCut() { Target = target, CutMesh = cut };
+            var op = new MeshMeshCut() { Target = target, CutMesh = cut, RefuseContact = true };
             op.Compute();
             Assert.Equal(MeshMeshCut.CutStatus.Ok, op.Status);
             Assert.True(target.TriangleCount > 12, "the cut inserted vertices: " + target.TriangleCount);
@@ -162,17 +142,34 @@ namespace geometry3Sharp.Tests
 
         // ---- the same result at every similarity (the exact ones for the contact cases) ----
 
+        static DMesh3 CutCubes(Similarity s, out MeshMeshCut.CutStatus status)
+        {
+            DMesh3 target = Invariance.Transformed(Cube(0, 0, 0, 1), s), cut = Invariance.Transformed(Cube(0.3, 0.4, 0.45, 1), s);
+            var op = new MeshMeshCut() { Target = target, CutMesh = cut, VertexSnapTol = 1e-5 * s.Scale, RefuseContact = true };
+            op.Compute();
+            status = op.Status;
+            return target;
+        }
+
         [Theory]
         [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
-        public void TransversalCut_IsAcceptedUnderEverySimilarity(string name)
+        public void TransversalCut_IsAcceptedUnderEverySimilarity_AndTheExactOnesGiveTheSameCutBitForBit(string name)
         {
             Similarity s = Similarity.ByName(name);
-            DMesh3 target = Invariance.Transformed(Cube(0, 0, 0, 1), s), cut = Invariance.Transformed(Cube(0.3, 0.4, 0.45, 1), s);
-            var op = new MeshMeshCut() { Target = target, CutMesh = cut, VertexSnapTol = 1e-5 * s.Scale };
-            op.Compute();
-            Assert.Equal(MeshMeshCut.CutStatus.Ok, op.Status);
+            DMesh3 target = CutCubes(s, out var status);
+            Assert.Equal(MeshMeshCut.CutStatus.Ok, status);
             Assert.True(target.TriangleCount > 12);
             Assert.True(target.CheckValidity(true, FailMode.ReturnOnly));
+            if (s.IsExact) {
+                // the 2^k copy cuts to the scaled mesh of the scale-1 cut: the same vertices and triangles, bit for bit
+                DMesh3 reference = CutCubes(Similarity.Identity, out _);
+                Assert.Equal(reference.VertexCount, target.VertexCount);
+                Assert.Equal(reference.TriangleCount, target.TriangleCount);
+                foreach (int v in reference.VertexIndices())
+                    Assert.True(s.Apply(reference.GetVertex(v)) == target.GetVertex(v), "vertex " + v + " at " + name);
+                foreach (int t in reference.TriangleIndices())
+                    Assert.True(reference.GetTriangle(t) == target.GetTriangle(t), "triangle " + t + " at " + name);
+            }
         }
 
         [Theory]
@@ -195,7 +192,7 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Reuse_StatusFollowsTheInputOfEachCompute()
         {
-            var op = new MeshMeshCut() { Target = Cube(0, 0, 0, 1), CutMesh = Cube(1, 0, 0, 1) };
+            var op = new MeshMeshCut() { Target = Cube(0, 0, 0, 1), CutMesh = Cube(1, 0, 0, 1), RefuseContact = true };
             op.Compute();
             Assert.Equal(MeshMeshCut.CutStatus.ContactDetected, op.Status);
             op.Compute();
@@ -296,7 +293,7 @@ namespace geometry3Sharp.Tests
         {
             // the target inside a larger cut cube whose faces lie on three faces of it: contact, and most of the target is inside the cut mesh
             DMesh3 target = Cube(0, 0, 0, 1);
-            var op = new MeshMeshCut() { Target = target, CutMesh = Cube(-1, -1, -1, 2) };
+            var op = new MeshMeshCut() { Target = target, CutMesh = Cube(-1, -1, -1, 2), RefuseContact = true };
             op.Compute();
             Assert.Equal(MeshMeshCut.CutStatus.ContactDetected, op.Status);
             DMesh3 before = new DMesh3(target);
@@ -306,7 +303,7 @@ namespace geometry3Sharp.Tests
             Assert.Empty(op.CutVertices);
             // a cut that happened before: the next, refused Compute() does not keep its segments
             DMesh3 t2 = Cube(0, 0, 0, 1);
-            var op2 = new MeshMeshCut() { Target = t2, CutMesh = Cube(0.3, 0.4, 0.45, 1) };
+            var op2 = new MeshMeshCut() { Target = t2, CutMesh = Cube(0.3, 0.4, 0.45, 1), RefuseContact = true };
             op2.Compute();
             op2.Target = Cube(0, 0, 0, 1);
             op2.CutMesh = Cube(1, 0, 0, 1);
@@ -365,6 +362,59 @@ namespace geometry3Sharp.Tests
                 Assert.True(ContactTest.TrianglesTouch(tt, uu) == expected, $"pair {n}: expected {expected}: t={string.Join(";", t.Select(v => string.Join(",", v)))} u={string.Join(";", u.Select(v => string.Join(",", v)))}");
             }
             Assert.True(touching > 5000 && transversal > 1000 && pairs - touching > 5000, $"the sample covers both outcomes: {touching} touching, {transversal} transversal, {pairs} pairs");
+        }
+
+        [Fact]
+        public void TheDefaultIsUpstreamBehaviour_NoLook_StatusOk()
+        {
+            Assert.False(new MeshMeshCut().RefuseContact);
+            DMesh3 target = Cube(0, 0, 0, 1);
+            var op = new MeshMeshCut() { Target = target, CutMesh = Cube(1, 0, 0, 1) };
+            op.Compute();
+            Assert.Equal(MeshMeshCut.CutStatus.Ok, op.Status);
+            DMesh3 same = Cube(0, 0, 0, 1);
+            new MeshMeshCut() { Target = same, CutMesh = Cube(1, 0, 0, 1), RefuseContact = false }.Compute();
+            Assert.True(SameVertices(same, target));
+        }
+
+        // ---- edges of the definition ----
+
+        [Fact]
+        public void ZeroAreaTargetSliver_CrossedTransversally_IsRefused()
+        {
+            // a target triangle with collinear corners is its segment; the cut triangle crosses it: contact by the conservative rule
+            DMesh3 target = Tri(new Vector3d(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(2, 0, 0));
+            DMesh3 cut = Tri(new Vector3d(1, -1, -1), new Vector3d(1, 1, -1), new Vector3d(1, 0, 1));
+            var status = Status(target, cut, out DMesh3 before);
+            Assert.Equal(MeshMeshCut.CutStatus.ContactDetected, status);
+            Assert.True(SameVertices(before, target));
+        }
+
+        [Fact]
+        public void TargetEdgeInsideACutFace_IsNoContact_AndIsCut()
+        {
+            // the target triangle's edge (0,0,0)-(4,0,0) lies inside the big cut triangle in the plane y = 0; the rest of the target is on one side
+            DMesh3 target = Tri(new Vector3d(0, 0, 0), new Vector3d(4, 0, 0), new Vector3d(2, 2, 2));
+            DMesh3 cut = Tri(new Vector3d(-5, 0, -5), new Vector3d(9, 0, -5), new Vector3d(2, 0, 9));
+            var op = new MeshMeshCut() { Target = target, CutMesh = cut, RefuseContact = true };
+            op.Compute();
+            Assert.Equal(MeshMeshCut.CutStatus.Ok, op.Status);
+            Assert.Equal(0, op.FailedSegmentInsertions);
+            Assert.True(target.CheckValidity(false, FailMode.ReturnOnly));
+        }
+
+        [Fact]
+        public void NonFiniteVertices_AreSkippedByTheLook()
+        {
+            Assert.False(ContactTest.IsFinite(new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(double.NaN, 0, 0), new Vector3d(0, 1, 0))));
+            Assert.False(ContactTest.IsFinite(new Triangle3d(new Vector3d(0, 0, 0), new Vector3d(1, double.PositiveInfinity, 0), new Vector3d(0, 1, 0))));
+            // a touching pair next to a triangle with a NaN corner: the pair is still found, the NaN triangle does not throw in the look
+            var target = Mesh(new[] { new Vector3d(0, 0, 0), new Vector3d(4, 0, 0), new Vector3d(0, 4, 0), new Vector3d(20, 0, 0), new Vector3d(21, 0, 0), new Vector3d(20, double.NaN, 0) },
+                new[] { (0, 1, 2), (3, 4, 5) });
+            var cut = Tri(new Vector3d(1, 1, 0), new Vector3d(5, 5, 1), new Vector3d(6, 0.5, 1));
+            var op = new MeshMeshCut() { Target = target, CutMesh = cut, RefuseContact = true };
+            try { op.Compute(); } catch (Exception) { /* (a NaN corner may stop the later cut: not the look) */ }
+            Assert.Equal(MeshMeshCut.CutStatus.ContactDetected, op.Status);
         }
     }
 }
