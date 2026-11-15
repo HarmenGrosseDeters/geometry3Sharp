@@ -135,11 +135,8 @@ jobs:
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs.py' -v
-<<<<<<< HEAD
           python3 -m unittest discover -s benchmarks/net48-compare -p 'test_report.py' -v
-=======
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_t6.py' -v
->>>>>>> origin/master
           python3 -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/OracleSourcePilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/Meshing2Benchmark/corpus -p 'test_*.py' -v
