@@ -951,12 +951,18 @@ namespace gs
                 double minX = Math.Min(a.x, Math.Min(b.x, c.x)), maxX = Math.Max(a.x, Math.Max(b.x, c.x));
                 double minY = Math.Min(a.y, Math.Min(b.y, c.y)), maxY = Math.Max(a.y, Math.Max(b.y, c.y));
                 double d = Math.Max(Math.Max(box.Min.x - maxX, minX - box.Max.x), Math.Max(box.Min.y - maxY, minY - box.Max.y));
-                int i = d <= 0 ? 0 : (int)Math.Min(bins, Math.Ceiling(d / w));
+                int i = BinOf(d, w, bins);
                 double z = fill ? -Math.Min(a.z, Math.Min(b.z, c.z)) : Math.Max(a.z, Math.Max(b.z, c.z));
                 top[i] = Math.Max(top[i], z);
             }
             for (int i = 1; i <= bins; ++i) top[i] = Math.Max(top[i], top[i - 1]);
-            return (r) => r >= maxReach ? top[bins] : top[(int)Math.Min(bins, Math.Ceiling(Math.Max(r, 0) / w))];
+            return (r) => r >= maxReach ? top[bins] : top[BinOf(r, w, bins)];
+        }
+
+        /// <summary> the bin of a distance d >= 0 in bins of width w, 0..bins: 0 for d <= 0 and for NaN, on every runtime (#804) </summary>
+        internal static int BinOf(double d, double w, int bins)
+        {
+            return !(d > 0) ? 0 : (int)Math.Min(bins, Math.Ceiling(d / w));
         }
 
         bool undercutThroughDesign;
