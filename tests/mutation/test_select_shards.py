@@ -14,7 +14,7 @@ from select_shards import ALWAYS, TESTS, config_edit_moves_only_spans, load_conf
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIGS = load_configs()
-RO = ["rounding-%d" % i for i in range(1, 10)]
+RO = sorted("rounding-%d" % i for i in range(1, 14))  # (in the order of the config file names)
 ALL_MESH = set(RO) | {"boolean-1", "boolean-2", "boolean-3", "boolean-4", "arrangement-1", "arrangement-2", "arrangement-3", "arrangement-4", "planar", "fixed", "generated", "envelope-1", "envelope-2", "envelope-3", "envelope-4",
                                                 "terrain-arith", "terrain-kernel", "terrain-overlay"}
 

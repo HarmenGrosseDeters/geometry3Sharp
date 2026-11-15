@@ -17,7 +17,7 @@ namespace geometry3Sharp.Tests
         static readonly Dictionary<string, string[]> SplitMethod = new Dictionary<string, string[]>() {
             ["mesh_ops/ExactMeshArrangement.cs"] = new[] { "void build_triangles(", "int candidates(", "void triangulate_touched(" },
             ["mesh_ops/ExactMeshBoolean.cs"] = new[] { "PatchOpen open_winding_per_patch(", "List<int>[] trace_clusters(", "int front_winding(" },
-            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "void position_add(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
+            ["mesh_ops/MeshRoundingRepair.cs"] = new[] { "public bool Apply(", "Vector3d pos(", "void position_add(", "void rebuild_tree(", "List<int> degenerate_triangles(", "void ghost_add(", "static double segments_distance(", "bool try_zip(", "List<int> strip_around(", "static double ulp(", "void set_vertex(", "void fix_intersection(" },
             ["mesh_ops/PolyhedralEnvelope.cs"] = new[] { "void add(", "static long bit_length(", "public bool ContainsTriangle(" },
         };
 
@@ -130,9 +130,12 @@ namespace geometry3Sharp.Tests
             // Apply and the range check, the tree's boxes, degenerate_triangles, remove_tiny_components)
             const string serialWork = "FullyQualifiedName~RoundingSerialWorkTests.";
             var extras = new Dictionary<string, string[]>() {
+                // (the range check and for_triangles; Apply's finite check and anchors in rounding-10; the tree's boxes in
+                // rounding-12)
                 ["stryker-mesh-rounding-1"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "OutsideRangeInOneTriangle",
-                    serialWork + "LargestMagnitudeInsideTheRange", serialWork + "Field_SerialEqualsParallel", serialWork + "NoPasses_OneBlock" },
-                ["stryker-mesh-rounding-2"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
+                    serialWork + "LargestMagnitudeInsideTheRange", serialWork + "NoPasses_OneBlock" },
+                ["stryker-mesh-rounding-10"] = new[] { serialWork + "NotFiniteInOneTriangle", serialWork + "Field_SerialEqualsParallel" },
+                ["stryker-mesh-rounding-12"] = new[] { serialWork + "IntersectionsAcrossBlocks", serialWork + "PiercingTriangleAtABlockBorder",
                     serialWork + "Field_Clean" },
                 ["stryker-mesh-rounding-3"] = new[] { serialWork + "NoPasses_OneBlock", serialWork + "NoPasses_TinyDegenerate", serialWork + "Field_Clean" },
                 // (set_vertex to fix_intersection: the exact flag a position write clears, the position search)
@@ -147,7 +150,7 @@ namespace geometry3Sharp.Tests
                     "FullyQualifiedName~ExactBooleanScaleDisparityTests",
                     serialWork + "ConnectedComponents_SameOrder", serialWork + "Field_Clean", serialWork + "NoPasses_TinyDegenerate" },
             };
-            for (int i = 1; i <= 9; ++i) {
+            for (int i = 1; i <= 13; ++i) {
                 string part = "stryker-mesh-rounding-" + i;
                 var want = shared.Concat(extras.TryGetValue(part, out var e) ? e : new string[0]).OrderBy(x => x, StringComparer.Ordinal);
                 Assert.Equal(want, Alternatives(filters[part]).OrderBy(x => x, StringComparer.Ordinal));
