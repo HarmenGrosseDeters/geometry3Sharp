@@ -151,6 +151,17 @@ only lever under 20 s on 4 cores (13 s with (B)). Built 2026-11-13 (#694): `Mesh
 meshes). #692 (185k raw triangles from 144) goes to the AW3 session as a diagnosis (alpha for tiny inputs or the test
 input); #693 (fast winding number with far parts, 97.8 % of its time in the volume checks) has its own session (cause: two absolute thresholds in `DMeshAABBTree3.FastWindingNumber`, the area / normal epsilon and the padded box test, so tiny triangles in the unit frame make every query brute force; owner 2026-11-12: option A, both made scale-relative, 62 s -> 2-2.5 s, FWN bit-identical under 2^k scaling, values on tiny-triangle meshes move to the documented approximation); the
 simplification sometimes not applied (175914, 51909 at diag / 245) is a defect check for the AW3 session.
+**Open, after 3.0: adaptive alpha spike (owner 2026-11-15).** Upper-bound study (measurement only,
+`aw3/adaptive/README.md` on runs/adaptive-alpha-study, 50 meshes, oracle per-triangle alpha levels 2^L diag / 300, L = 0..3):
+graded (Lipschitz 0.5) at 1 offset tolerance the wrap gets 3.9x smaller on the normal stratum (median), 2.9x on the tail;
+estimated wrap time 3.5x on the normal sum, 2.0x on the tail sum, 1.1x on the tail max (40118: 86 % of its area needs the
+full resolution). A distance-only predictor (coarse where the coarse wrap stays near the input) is wrong on 28 % of the
+tail's area (median), up to 616 offsets: coarse wraps close cavities the fine wrap enters. So it is a throughput lever for
+typical meshes, not a worst-case lever (that stays the size budget and more cores). Spike after 3.0 is complete (about
+1-2 days, measurement only): read Dai, Wang, Yan (CAGD 2024, adaptive alpha wrapping; not accessible so far), test a
+cavity-aware level predictor with the probe, estimate the saving on the 800-run sum. Proposed go criterion for the owner:
+predictor false area below about 1 % on the tail too, and at least about 2x on the corpus sum; then a roadmap phase with a
+grading-aware refinement and a weakened angle bound (with proof), otherwise it stays a study.
 **Performance study and watcher (owner 2026-11-12).** A measurement study (as for the Exact Boolean extreme runtimes)
 on the 800-run tail, issues #692 / #693, the robust-repair wrap cases (#636, #712, the slow rows of
 benchmarks/MeshRepairBenchmark) and a normal stratum of about 30 meshes near the median: per-phase upper bounds, a
