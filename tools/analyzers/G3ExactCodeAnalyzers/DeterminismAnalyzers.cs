@@ -575,6 +575,10 @@ namespace G3ExactCodeAnalyzers
             if (!InScope(s, tree))
                 return;
             var byMember = new Dictionary<string, List<Location>>();
+            // the members that can hold an #if: everything but namespaces and types (an #if between members belongs to the next one)
+            List<SyntaxNode> members = tree.GetRoot(c.CancellationToken).DescendantNodes()
+                .Where(m => (m is MemberDeclarationSyntax && !(m is BaseNamespaceDeclarationSyntax) && !(m is BaseTypeDeclarationSyntax) && !(m is DelegateDeclarationSyntax))
+                            || m is AccessorDeclarationSyntax).ToList();
             foreach (SyntaxTrivia tr in tree.GetRoot(c.CancellationToken).DescendantTrivia(descendIntoTrivia: true)) {
                 string bad = Forbidden(tr);
                 if (bad != null) {
@@ -585,15 +589,23 @@ namespace G3ExactCodeAnalyzers
                 }
                 if (!tr.IsKind(SyntaxKind.IfDirectiveTrivia) && !tr.IsKind(SyntaxKind.ElifDirectiveTrivia))
                     continue;
-                SyntaxNode n = tr.Token.Parent;
+                // by position, the same whatever the #if disables (the token that carries the trivia is not: it depends
+                // on the target framework): the innermost member whose span holds the directive; else, for an #if around
+                // an attribute or around whole members, the first member whose span ends after the block's #endif (the
+                // attributed member; or the member after the block, which exists on every target)
+                int pos = tr.SpanStart;
+                int end = pos;
+                if (tr.GetStructure() is DirectiveTriviaSyntax dir) {
+                    DirectiveTriviaSyntax last = dir.GetRelatedDirectives().LastOrDefault();
+                    if (last != null) end = last.SpanStart;
+                }
+                SyntaxNode n = members.Where(m => m.Span.Contains(pos)).OrderBy(m => m.Span.Length).FirstOrDefault()
+                    ?? members.Where(m => m.Span.End > end).OrderBy(m => m.SpanStart).FirstOrDefault();
                 ISymbol holder = null;
-                for (; n != null; n = n.Parent) {
-                    if (n is MemberDeclarationSyntax || n is AccessorDeclarationSyntax) {
-                        SyntaxNode decl = n is FieldDeclarationSyntax fd ? (SyntaxNode)fd.Declaration.Variables.First()
-                            : n is EventFieldDeclarationSyntax ed ? ed.Declaration.Variables.First() : n;
-                        holder = c.SemanticModel.GetDeclaredSymbol(decl, c.CancellationToken);
-                        if (holder != null) break;
-                    }
+                if (n != null) {
+                    SyntaxNode decl = n is FieldDeclarationSyntax fd ? (SyntaxNode)fd.Declaration.Variables.First()
+                        : n is EventFieldDeclarationSyntax ed ? ed.Declaration.Variables.First() : n;
+                    holder = c.SemanticModel.GetDeclaredSymbol(decl, c.CancellationToken);
                 }
                 string id = holder?.GetDocumentationCommentId() ?? ("file:" + System.IO.Path.GetFileName(tree.FilePath));
                 List<Location> l;

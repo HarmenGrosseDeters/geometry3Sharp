@@ -402,6 +402,26 @@ namespace geometry3Sharp.Tests
             Assert.Empty(Analyze(source, "if M:C.A ; 2 ; T.A ; x"));
         }
 
+        // an #if around whole members belongs to the first member after the block, and an #if around an attribute to its
+        // member: the same on every target, although the disabled members do not exist on one of them
+        [Fact]
+        public void ConditionalBlocks_BelongToTheSameMember_OnEveryTarget()
+        {
+            const string source = @"static class C {
+#if NET
+            static int Helper() { return 1; }
+#endif
+            static int A() { return 0; }
+#if NET
+            [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
+            static int B() { return 0; }
+        }";
+            const string list = "M:System.Runtime.CompilerServices.SkipLocalsInitAttribute.#ctor ; [NET] x\nskiplocalsinit M:C.B ; x\n";
+            foreach (bool net in new[] { true, false })
+                Assert.Equal(new[] { "M:C.A", "M:C.B" }, Ids(Analyze(source, list, net), DeterminismScopeAnalyzer.ConditionalId).OrderBy(x => x, StringComparer.Ordinal));
+        }
+
         // ---- G3D0007: directives that switch rules off or change what is compiled ----
 
         [Theory]
@@ -604,7 +624,7 @@ namespace geometry3Sharp.Tests
         /// <summary> the kernel files of stage 0 (issue 859); a file missing from the .editorconfig section falls out of the proof </summary>
         public static readonly string[] Kernel = {
             "math/ExactIntervals.cs", "math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/ExactRayTriangle.cs", "math/ExactSlopeKernel.cs",
-            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/Generated/IndirectPredicates.cs",
+            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/ExactLimbSigns.cs", "math/Generated/IndirectPredicates.cs",
             "math/Generated/DoublePredicates.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
