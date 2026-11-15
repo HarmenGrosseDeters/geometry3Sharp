@@ -3,6 +3,10 @@
 For the session that implements the mesher, or anyone starting without context. Written 2026-10-31 by a session that prepared acceptance and implemented nothing in the library. Read this
 first; it is enough to start.
 
+Update 2026-11-12: built. M1, M2 and M3 were merged on 2026-11-01 (#231, #233, #252), `m2.snap` in #277 (2026-11-02)
+and the pinch fix in #373 (2026-11-04). The branches `meshing2d/m2` and `meshing2d/m3` named below are deleted; their
+commits are on master. Current state: [roadmap/meshing2d.md](../roadmap/meshing2d.md).
+
 ## 1. The situation
 
 The goal is a clean-room 2D mesher in this library: Delaunay of points (M1), constrained Delaunay with rings, holes and regions (M2), quality refinement (M3), per
@@ -11,7 +15,7 @@ The goal is a clean-room 2D mesher in this library: Delaunay of points (M1), con
 | Document | What |
 |---|---|
 | [ACCEPTANCE_STRATEGY.md](ACCEPTANCE_STRATEGY.md) | The method: oracle, differential, golden master. Accepted by the owner |
-| [MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md) | The domain decisions of parked PR #201, questioned, with the defaults to build. **D1, D5, D9 need the owner** |
+| [MESHING2D_DECISIONS.md](MESHING2D_DECISIONS.md) | The domain decisions of parked PR #201, questioned, with the defaults to build. **D1, D5, D9 need the owner** (answered: owner decisions 2026-10-31, D1, D5 and D9 as recommended; D5 changed 2026-11-01) |
 | [MESHING2D_CATALOGUE.md](MESHING2D_CATALOGUE.md) | The F cases, one state per row |
 | [MESHING2D_GOLDEN_FORMAT.md](MESHING2D_GOLDEN_FORMAT.md) | Rows, fingerprints, text formats, standalone oracle: self-contained, for other producers too |
 | [MESHING2D_PROVENANCE.md](MESHING2D_PROVENANCE.md) | The source (paper and section, or spec item) of every non-trivial routine; owner decision of 2026-11-01 |
@@ -176,7 +180,7 @@ item ("the same small angle, not forced") was itself wrong and is replaced. Left
   smallest id. `TryLocate` keeps "the smallest id among the containing triangles".
 - `IsValid` is linear and exact: orientation, adjacency, local Delaunay, a convex hull winding once, Euler. `Compute` runs the same checks on the kernel
   and returns `Failed` with `ProblemCoordinate` on a defect. `NumericalFailure` and `IterationLimit` are gone (D15).
-- `Prototype200Candidate.cs` is deleted, as planned. #200 is still open; closing it needs the owner.
+- `Prototype200Candidate.cs` is deleted, as planned. #200 is still open; closing it needs the owner. (Update 2026-11-12: closed unmerged on 2026-11-01, section 2.)
 
 **M2 (a, b): built** (PR on branch `meshing2d/m2`, stacked on M1). `ConstrainedDelaunayMesh2` with `ConstrainedMesh2Input` (points, segments with marker and
 lock, rings, hole seeds, regions by ring or seed, optional heights) and `ConstrainedMesh2` (vertices, input map, triangles, neighbours, labels, subsegments with

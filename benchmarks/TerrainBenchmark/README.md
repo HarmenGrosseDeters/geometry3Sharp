@@ -209,7 +209,7 @@ a-priori bound e_z (1 + 4 D / h) per triangle) was considered: it needs the alti
 which exist only after the build, and the build depends on λ, so it is no proven bound before the first build; the
 second build (about 2x the time, 4.8 s -> 9.0 s in the UTM case) is kept, and avoiding it is a candidate for 1c.
 
-Before / after in this PR, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
+Before / after in #267, 24-gon r 200 m, h 60 m, UTM, one build each (the toe lowering then fixed at 514 e_z): 9.2 s
 at 7e8d251 (simplify 6.1 s, 1.45M exact of 19.2M predicates); 4.8 s with failed merges not retried and the apex shortcut
 (simplify 2.1 s, 0.49M of 18.1M). An earlier note of "> 30 min" here was wrong: that run was one command with four
 cases in a row, stopped as a whole after 30 min. Open for 1c: the uneven toe (3 builds), the predicate count per
@@ -255,6 +255,27 @@ The upper bound of the plan for the wavy case was 2.8× (one build left); 1.44×
 a margin raise (a slope failure), which still needs a new map. The results are bit for bit those of a new build at
 the final lowering (`TerrainSlopeOneBuildTests`, 19 cases: 20 builds saved, 14 with a raised lowering). The level line
 of the cap now lies at H − λ (the map is lowered as a whole, the cap with it, so its lines stay where they are).
+
+### Ramps (`slope ... ramp=1`, terrain ramps R1)
+
+`ramp=1` adds a ramp from toe vertex 0 around the pit (`docs/design/TERRAIN_RAMPS.md`, R1): `rampsegs` path segments
+(default n / 3), one per toe vertex, counter-clockwise (every bend turns away from the road, a flat kite each), grade
+`rampgrade` % (default 8), width `rampwidth` (default 10 m), leaving the toe at `rampleave` (default 1.5) x the grade
+over the slope. Printed in addition: the road and ramp-wall triangles; the oracle counts a road or wall triangle when
+it is not steeper than its spec (its support is the library's check). 4 cores, 2026-11-13, `Tolerance` 0.01, slope 1:1,
+24-gon r 200 m, h 60 m, UTM, 8 segments (479 m of road, 38 m up), warm medians:
+
+| case | without the ramp | with the ramp | builds | slope triangles (road / wall) | oracle | overlaps |
+|---|---|---|---|---|---|---|
+| no terrain | 1.80 s | 6.7 s | 1 / 1 | 297 → 1148 (297 / 437) | 1148 / 1148 | 0 |
+| `terrain=wave tgrid=5 composite=1` | 3.6 s | 12.1 s | 1 / 1 | 365 → 1400 (360 / 531) | 1400 / 1400, region 2169 / 2169 | 0 |
+
+The ramp adds 15 pieces (8 road polygons and 7 bend kites, each with four corner fans) to the 24 of the toe, and the
+insertion takes most of the time (5.3 of 6.7 s, 10.1 of 12.1 s); the facet angle is the same as without the ramp
+(0.023 / 0.018 rad). During development the terrain case took 59 s: the road triangles' support was first checked at
+the polygon's far corners, whose extrapolation of the rounding raised δ once, and a larger road margin then took the
+facets' share (TERRAIN_RAMPS.md, "Margins"); with the support by the road plane and the margin δ sMin / 2 it takes one
+build.
 
 ### Slope design on the Hambach DGM (`slope ... terrain=dgm`)
 
@@ -389,7 +410,7 @@ order needs a canonical result first (idea D of the 1c plan).
 The pieces in a seeded random order, the labels by (height, plane id), and `Simplify` as the canonical partition (one
 convex face per part of a label component between the rays from its reflex corners). The output is the same for every
 insertion order, and it has far fewer triangles. A/B on the same machine at the same time (2026-11-02), first call of
-a process, median of 3 (the #314 head against this branch):
+a process, median of 3 (the #314 head against #318):
 
 | case | #314 | D | insert | simplify | slope triangles | region triangles |
 |---|---|---|---|---|---|---|
@@ -403,7 +424,7 @@ The octagon is slower: its slope faces are now large (159 triangles instead of 4
 region triangles that the composite clips from them measures a support excess above the first toe lowering, so a
 second realization runs, with a second overlay and composite (λ 3.0e-8 → 5.1e-8 m). The insert and simplify of the
 map are faster there too. A way back is a first lowering that covers the clipped triangles (a change of the lowering's
-estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in this PR.
+estimate, with its bound review), or a check of the clipped triangles before the overlay is built again; not in #318.
 
 
 ### The band merge for needles at near-quadruple points (item 4, `TERRAIN.md` 5.4)
@@ -413,7 +434,7 @@ Needles whose short edge joins two crease vertices with plane sets that are not 
 band radius lives in the facets' slack, so designs without such needles are unchanged.
 
 Setup:
-- A/B on 2026-11-03, 4 cores, median of 2. Before is the master of #339, after is this branch.
+- A/B on 2026-11-03, 4 cores, median of 2. Before is the master of #339, after is #350.
 - The output hashes (`hash_surface`, `hash_region`, `hash_composite`: FNV over the vertices' bits and the triangles)
   compare the slope surface, the region and the composite bit for bit.
 - The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
@@ -439,7 +460,7 @@ On a terrain, `Tolerance` / 4 is reserved for the move of the composite's catch 
 exact certificate then bounds the surface's deviation at the moved points; if it does not fit, δ is raised.
 
 Setup:
-- A/B on 2026-11-03, 4 cores, 2 runs each. Before is master at cd7fb8ab, after is this branch.
+- A/B on 2026-11-03, 4 cores, 2 runs each. Before is master at cd7fb8ab, after is #363.
 - The Hambach rows use the command of "Slope design on the Hambach DGM", with `composite=1`.
 - "certificate" is the phase `certificate` (`SlopeComposite.SnapDeviation`) of the final build.
 

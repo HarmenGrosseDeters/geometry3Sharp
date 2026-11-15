@@ -432,14 +432,14 @@ namespace geometry3Sharp.Tests
                 Assert.True(Math.Abs(geo.Distance[vid] - exact) < 0.02 * exact + 2.0, $"{p}: {geo.Distance[vid]} vs {exact}");
             }
         }
-        [Trait("Category", "Slow")]
         [Fact]
         public void SingleSource_RoughTerrain_NotPinned()
         {
             // one source on rough terrain (waves plus 30 cm noise, as a 1 m DGM): phi is not pinned there.
             // Pinned (Dirichlet at the one vertex) the distance came out 11% short a few metres from the
-            // source here (7% at 1 km^2 of a real open pit); about 6% (the smoothing near the source) now
-            int n = 501, h = (n - 1) / 2;
+            // source here (7% at 1 km^2 of a real open pit); about 6% (the smoothing near the source) now.
+            // 301 x 301 vertices (14 s -> 2 s against 501 x 501): the ratio to the straight distance stays 0.948 (0.940 at 501)
+            int n = 301, h = (n - 1) / 2;
             var rnd = new Random(1);
             DMesh3 mesh = new DMesh3();
             int[,] vid = new int[n, n];

@@ -75,7 +75,14 @@ namespace g3cli
             c.Params.Add(new Param("closed", ParamType.Boolean, "path mode: also back from the last vertex to the first (with 'through' or 'from' / 'to')") { Default = false });
             c.Params.Add(new Param("intrinsic_delaunay", ParamType.Boolean, "distance mode: compute on the intrinsic Delaunay triangulation (library default true; robust for needles and caps)"));
             c.Params.Add(new Param("time_factor", ParamType.Number, "distance mode: heat time as a multiple of the squared mean edge length (library default 1)"));
-            c.Params.Add(new Param("max_results", ParamType.Integer, "path mode: at most this many points / vertices in the lists (the counts are always given)") { Default = 1000 });
+            c.Params.Add(new Param("intrinsic_refine", ParamType.Boolean, "distance mode: also refine the intrinsic triangulation by vertex insertion (more vertices, slower, more accurate on poor meshes; library default false)"));
+            c.Params.Add(new Param("refine_min_angle", ParamType.Number, "distance mode with intrinsic_refine: minimum angle of the refinement in degrees, 0..30 (library default 25)"));
+            c.Params.Add(new Param("refine_max_insertions", ParamType.Integer, "distance mode with intrinsic_refine: insertion limit (0: 10 * vertices + 1000, the library default)"));
+            c.Params.Add(new Param("split_obtuse_boundary_edges", ParamType.Boolean, "distance mode: without intrinsic_refine, still split boundary edges opposite obtuse angles (library default true; needs intrinsic_delaunay)"));
+            c.Params.Add(new Param("trace_from", ParamType.String, "distance mode: also the shortest path from this vertex id, or point 'x,y,z', down to the nearest source (the polyline in 'trace')"));
+            c.Params.Add(new Param("angle_tolerance", ParamType.Number, "path mode: a vertex is straight if its angle is at least pi - this on both sides, in radians, (0, 0.5] (library default 1e-6)"));
+            c.Params.Add(new Param("max_iterations", ParamType.Integer, "path mode: at most this many shortening steps (0: 100 * initial path edges + 1000, the library default)"));
+            c.Params.Add(new Param("max_results", ParamType.Integer, "path mode and trace: at most this many points / vertices in the lists (the counts are always given)") { Default = 1000 });
             c.Run = args => {
                 bool distanceMode = args.Has("sources");
                 bool pathMode = args.Has("from") || args.Has("to") || args.Has("through");
@@ -86,8 +93,34 @@ namespace g3cli
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_results' must be in 0..100000");
                 if (distanceMode && (args.Has("closed") && args.Bool("closed")))
                     throw new CommandException(ResultCodes.InvalidArguments, "'closed' is an option of the path mode");
-                if (pathMode && (args.Has("targets") || args.Has("intrinsic_delaunay") || args.Has("time_factor")))
-                    throw new CommandException(ResultCodes.InvalidArguments, "'targets', 'intrinsic_delaunay' and 'time_factor' are options of the distance mode");
+                if (pathMode && (args.Has("targets") || args.Has("intrinsic_delaunay") || args.Has("time_factor") || args.Has("intrinsic_refine") || args.Has("refine_min_angle")
+                    || args.Has("refine_max_insertions") || args.Has("split_obtuse_boundary_edges") || args.Has("trace_from")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'targets', 'intrinsic_delaunay', 'time_factor', 'intrinsic_refine', 'refine_min_angle', 'refine_max_insertions', 'split_obtuse_boundary_edges' and 'trace_from' are options of the distance mode");
+                if (distanceMode && (args.Has("angle_tolerance") || args.Has("max_iterations")))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'angle_tolerance' and 'max_iterations' are options of the path mode");
+                bool refine = args.Has("intrinsic_refine") && args.Bool("intrinsic_refine");
+                if ((args.Has("refine_min_angle") || args.Has("refine_max_insertions")) && !refine)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'refine_min_angle' and 'refine_max_insertions' need intrinsic_refine");
+                if (args.Has("refine_min_angle") && !(args.Number("refine_min_angle") >= 0 && args.Number("refine_min_angle") <= 30))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'refine_min_angle' must be in 0..30");
+                if (args.Has("refine_max_insertions") && args.Integer("refine_max_insertions") < 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'refine_max_insertions' must be >= 0");
+                if ((refine || (args.Has("split_obtuse_boundary_edges") && args.Bool("split_obtuse_boundary_edges"))) && args.Has("intrinsic_delaunay") && !args.Bool("intrinsic_delaunay"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'intrinsic_refine' and 'split_obtuse_boundary_edges' need intrinsic_delaunay");
+                if (args.Has("angle_tolerance") && !(args.Number("angle_tolerance") > 0 && args.Number("angle_tolerance") <= 0.5))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'angle_tolerance' must be in (0, 0.5] radians");
+                if (args.Has("max_iterations") && args.Integer("max_iterations") < 0)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'max_iterations' must be >= 0");
+                int traceVertex = -1; Vector3d tracePoint = Vector3d.Zero; bool traceIsPoint = false;
+                if (args.Has("trace_from")) {
+                    string t = args.String("trace_from");
+                    if (t.IndexOf(',') >= 0) {
+                        double[] xyz = ParseNumbers(t, "trace_from");
+                        if (xyz.Length != 3) throw new CommandException(ResultCodes.InvalidArguments, "'trace_from' is a vertex id or a point 'x,y,z'");
+                        tracePoint = new Vector3d(xyz[0], xyz[1], xyz[2]); traceIsPoint = true;
+                    } else if (int.TryParse(t, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out traceVertex) == false)
+                        throw new CommandException(ResultCodes.InvalidArguments, "'trace_from' is a vertex id or a point 'x,y,z'");
+                }
                 List<int> sources = null, targets = null, waypoints = null;
                 if (distanceMode) {
                     sources = ParseIds(args.String("sources"), "sources");
@@ -115,6 +148,12 @@ namespace g3cli
                     var geo = new MeshGeodesicDistance(mesh);
                     if (args.Has("intrinsic_delaunay")) geo.IntrinsicDelaunay = args.Bool("intrinsic_delaunay");
                     if (args.Has("time_factor")) geo.TimeFactor = args.Number("time_factor");
+                    if (args.Has("intrinsic_refine")) geo.IntrinsicRefine = args.Bool("intrinsic_refine");
+                    if (args.Has("refine_min_angle")) geo.RefineMinAngle = args.Number("refine_min_angle");
+                    if (args.Has("refine_max_insertions")) geo.RefineMaxInsertions = args.Integer("refine_max_insertions");
+                    if (args.Has("split_obtuse_boundary_edges")) geo.SplitObtuseBoundaryEdges = args.Bool("split_obtuse_boundary_edges");
+                    if (traceVertex >= 0 && !traceIsPoint && !mesh.IsVertex(traceVertex))
+                        throw new CommandException(ResultCodes.InvalidArguments, $"'trace_from': {traceVertex} is not a vertex of the mesh");
                     if (geo.Compute(sources) == false)
                         throw new CommandException(ResultCodes.OperationFailed, "geodesic distance failed (no valid source, or the solver failed)");
                     double[] d = geo.Distance;
@@ -126,10 +165,33 @@ namespace g3cli
                     if (unreached > 0)
                         warnings.Add($"{unreached} vertices have no distance (components without a source, isolated vertices): null");
                     o["intrinsic_flips"] = geo.IntrinsicFlips;
+                    if (geo.Refinement != null) {
+                        var rf = geo.Refinement;
+                        o["refinement"] = new JsonObject() {
+                            ["status"] = ToSnake(rf.Status.ToString()), ["inserted_vertices"] = rf.InsertedVertices, ["circumcenter_insertions"] = rf.CircumcenterInsertions,
+                            ["boundary_splits"] = rf.BoundarySplits, ["flips"] = rf.Flips, ["min_angle"] = Val(rf.MinAngle), ["min_angle_bound"] = Val(rf.MinAngleBound),
+                            ["skipped_triangles"] = rf.SkippedTriangles, ["remaining_bad_triangles"] = rf.RemainingBadTriangles, ["negative_weights"] = rf.NegativeWeights,
+                        };
+                        if (refine && rf.Status != IntrinsicRefinementStatus.Success)
+                            warnings.Add("the refinement status is " + ToSnake(rf.Status.ToString()) + " (see 'refinement')");
+                    }
+                    if (args.Has("trace_from")) {
+                        List<Vector3d> trace = traceIsPoint ? geo.TracePath(tracePoint) : geo.TracePath(traceVertex);
+                        o["trace_point_count"] = trace.Count;
+                        o["trace_length"] = Val(trace.Zip(trace.Skip(1), (a, b) => a.Distance(b)).Sum());
+                        o["trace"] = new JsonArray(trace.Take(maxResults).Select(p => (JsonNode)MeshReport.Vec(p)).ToArray());
+                        o["trace_truncated"] = trace.Count > maxResults;
+                        if (trace.Count == 0)
+                            warnings.Add("trace_from: the library found no triangle near the start, the trace is empty");
+                        else if (trace.Count == 1)
+                            warnings.Add("trace_from: the trace is a single point (the start lies in a component without a source, or at a source)");
+                    }
                     if (targets != null)
                         o["targets"] = new JsonArray(targets.Select(t => (JsonNode)new JsonObject() { ["vertex"] = t, ["distance"] = Val(d[t]) }).ToArray());
                 } else {
                     var gp = new MeshGeodesicPath(mesh);
+                    if (args.Has("angle_tolerance")) gp.AngleTolerance = args.Number("angle_tolerance");
+                    if (args.Has("max_iterations")) gp.MaxIterations = args.Integer("max_iterations");
                     GeodesicPathStatus status = gp.ComputeThrough(waypoints, args.Bool("closed"));
                     string name = ToSnake(status.ToString());
                     bool usable = status == GeodesicPathStatus.Success || status == GeodesicPathStatus.Collapsed;
@@ -157,6 +219,13 @@ namespace g3cli
 
 
         // ---- query3d ----
+
+        /// <summary> the same file: full paths, compared without case on Windows and macOS (whose file systems are case insensitive by default) </summary>
+        internal static bool SamePath(string a, string b) =>
+            string.Equals(Path.GetFullPath(a), Path.GetFullPath(b),
+                System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
+                || System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
+                ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
         /// <summary> numbers 'a,b,c;d,e,f' (';' or a new line between the tuples, ',' or a blank within); '@file' reads the text from a file </summary>
         static List<double[]> ParseTuples(string text, string name, int size)
@@ -268,9 +337,10 @@ namespace g3cli
         }
 
         /// <summary> the entry of a result list with its index in the input list first (the files hold every entry, so they need it) </summary>
-        static JsonObject WithIndex(int index, JsonObject entry)
+        static JsonObject WithIndex(int index, JsonObject entry, int cameraWidth = 0)
         {
             var o = new JsonObject() { ["index"] = index };
+            if (cameraWidth > 0) { o["pixel_x"] = index % cameraWidth; o["pixel_y"] = index / cameraWidth; }
             foreach (var kv in entry.ToList()) { entry.Remove(kv.Key); o[kv.Key] = kv.Value; }
             return o;
         }
@@ -343,11 +413,38 @@ namespace g3cli
             c.Params.Add(new Param("max_results", ParamType.Integer, "at most this many entries in each result list") { Default = 1000 });
             c.Params.Add(new Param("normalize", ParamType.Boolean, "rays: normalize the directions (false: a direction that is not a unit vector gets the status not_normalized and no hit)") { Default = true });
             c.Params.Add(new Param("output", ParamType.String, "write every result (not cut at max_results) to this .csv or .json file; for rays or for points, not both"));
+            c.Params.Add(new Param("camera", ParamType.String, "rays of a pinhole camera instead of 'rays': 'px,py,pz;tx,ty,tz;fov;width;height' (position, target, vertical field of view in degrees in (0, 179), image size in pixels, at most 1 million pixels): one ray per pixel center, row by row from the top left, index = row * width + column"));
+            c.Params.Add(new Param("up", ParamType.String, "camera: the up direction 'x,y,z' (default 0,0,1; if the view direction is parallel to it, 0,1,0 is used)"));
+            c.Params.Add(new Param("depth_output", ParamType.String, "camera: write the distance image of the nearest hits to this .pgm (16-bit ASCII PGM, nearer is brighter, a miss is 0) or .csv (height rows of width distances, empty = miss) file; the value is the distance along the ray from the camera, not the depth along the view axis"));
             c.Run = args => {
-                if (args.Has("rays") == false && args.Has("points") == false)
-                    throw new CommandException(ResultCodes.InvalidArguments, "give rays or points (or both)");
-                if (args.Bool("any_hit") && args.Has("rays") == false)
-                    throw new CommandException(ResultCodes.InvalidArguments, "'any_hit' needs 'rays'");
+                bool hasCamera = args.Has("camera");
+                if (args.Has("rays") == false && args.Has("points") == false && !hasCamera)
+                    throw new CommandException(ResultCodes.InvalidArguments, "give rays, a camera or points (rays and a camera are alternatives)");
+                if (hasCamera && args.Has("rays"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "give rays or a camera, not both");
+                if ((args.Has("up") || args.Has("depth_output")) && !hasCamera)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'up' and 'depth_output' are options of 'camera'");
+                if (hasCamera && args.Has("normalize") && args.Bool("normalize") == false)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'normalize' is an option of explicit 'rays' (the camera rays are unit vectors)");
+                if (args.Has("depth_output") && args.Bool("any_hit"))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'depth_output' needs the nearest hits, not 'any_hit'");
+                string depthFormat = null;
+                if (args.Has("depth_output")) {
+                    string ext = Path.GetExtension(args.String("depth_output")).ToLowerInvariant();
+                    if (ext != ".pgm" && ext != ".csv")
+                        throw new CommandException(ResultCodes.UnknownFormat, $"cannot write '{args.String("depth_output")}': the distance image is written as .pgm or .csv");
+                    depthFormat = ext.Substring(1);
+                    string depthDir = Path.GetDirectoryName(Path.GetFullPath(args.String("depth_output")));
+                    if (Directory.Exists(depthDir) == false)
+                        throw new CommandException(ResultCodes.WriteError, $"cannot write '{args.String("depth_output")}': directory does not exist");
+                    if (args.Has("output") && SamePath(args.String("output"), args.String("depth_output")))
+                        throw new CommandException(ResultCodes.InvalidArguments, "'depth_output' and 'output' are the same file");
+                    foreach (string list in new[] { "rays", "points" })
+                        if (args.Has(list) && args.String(list).StartsWith("@") && SamePath(args.String(list).Substring(1), args.String("depth_output")))
+                            throw new CommandException(ResultCodes.InvalidArguments, $"'depth_output' is the '{list}' file");
+                }
+                if (args.Bool("any_hit") && args.Has("rays") == false && !hasCamera)
+                    throw new CommandException(ResultCodes.InvalidArguments, "'any_hit' needs 'rays' or a camera");
                 if (args.Has("points") && args.Bool("nearest") == false && args.Has("inside") == false)
                     throw new CommandException(ResultCodes.InvalidArguments, "points need 'nearest' or 'inside'");
                 if ((args.Bool("nearest") || args.Has("inside")) && args.Has("points") == false)
@@ -355,16 +452,15 @@ namespace g3cli
                 int maxResults = args.Integer("max_results");
                 if (maxResults < 0 || maxResults > 100000)
                     throw new CommandException(ResultCodes.InvalidArguments, "'max_results' must be in 0..100000");
-                if (args.Has("normalize") && args.Bool("normalize") == false && args.Has("rays") == false)
+                if (args.Has("normalize") && args.Bool("normalize") == false && args.Has("rays") == false && !hasCamera)
                     throw new CommandException(ResultCodes.InvalidArguments, "'normalize' is an option of 'rays'");
                 string outputFormat = null;
                 if (args.Has("output")) {
-                    if (args.Has("rays") && args.Has("points"))
+                    if ((args.Has("rays") || hasCamera) && args.Has("points"))
                         throw new CommandException(ResultCodes.InvalidArguments, "'output' is for rays or for points, not both: run the command twice");
                     outputFormat = QueryOutputFormat(args.String("output"));
-                    string outFull = Path.GetFullPath(args.String("output"));
                     foreach (string list in new[] { "rays", "points" })
-                        if (args.Has(list) && args.String(list).StartsWith("@") && string.Equals(Path.GetFullPath(args.String(list).Substring(1)), outFull, StringComparison.Ordinal))
+                        if (args.Has(list) && args.String(list).StartsWith("@") && SamePath(args.String(list).Substring(1), args.String("output")))
                             throw new CommandException(ResultCodes.InvalidArguments, $"'output' is the '{list}' file");
                 }
                 double maxDistance = double.MaxValue;
@@ -390,9 +486,17 @@ namespace g3cli
                             bIsNormalized: !args.Bool("normalize"));
                     }
                 }
+                int camW = 0, camH = 0;
+                JsonObject cameraInfo = null;
+                var cameraWarnings = new List<string>();
+                if (hasCamera) {
+                    rays = CameraRays(args.String("camera"), args.Has("up") ? args.String("up") : null, out camW, out camH, out cameraInfo);
+                    if (args.Has("up") && cameraInfo["up_replaced"].GetValue<bool>())
+                        cameraWarnings.Add("the view direction is parallel to 'up': the up direction was replaced (see camera.up)");
+                }
                 Vector3d[] points = pointList?.Select(p => new Vector3d(p[0], p[1], p[2])).ToArray();
 
-                var warnings = new List<string>();
+                var warnings = new List<string>(cameraWarnings);
                 DMesh3 mesh = MeshFiles.Read(args.String("input"), warnings);
                 var tree = new DMeshAABBTree3(mesh, true);
                 var options = new BatchOptions() { Parallel = args.Bool("parallel"), MaxDistance = maxDistance };
@@ -426,8 +530,20 @@ namespace g3cli
                     }
                     rr["results"] = new JsonArray(Enumerable.Range(0, rays.Length).Take(maxResults).Select(i => (JsonNode)rayEntry(i)).ToArray());
                     if (!args.Has("points") && outputFormat != null) {
-                        WriteQueryOutput(args.String("output"), outputFormat, Enumerable.Range(0, rays.Length).Select(i => WithIndex(i, rayEntry(i))));
+                        WriteQueryOutput(args.String("output"), outputFormat, Enumerable.Range(0, rays.Length).Select(i => WithIndex(i, rayEntry(i), hasCamera ? camW : 0)));
                         o["output"] = args.String("output"); o["output_format"] = outputFormat; o["output_rows"] = rays.Length;
+                    }
+                    if (hasCamera) {
+                        o["camera"] = cameraInfo;
+                        if (depthFormat != null) {
+                            // (the nearest hit per pixel: the entries of rayEntry carry t)
+                            var dist = new double?[rays.Length];
+                            for (int i = 0; i < dist.Length; i++) {
+                                JsonNode tn = rayEntry(i)["t"];
+                                dist[i] = tn == null ? (double?)null : tn.GetValue<double>();
+                            }
+                            o["depth_image"] = WriteDepthImage(args.String("depth_output"), depthFormat, camW, camH, dist);
+                        }
                     }
                     rr["truncated"] = rays.Length > maxResults;
                     int badRays = status.Count(x => x != RayStatus.Ok);
@@ -489,6 +605,114 @@ namespace g3cli
                 return o;
             };
             return c;
+        }
+
+        /// <summary>
+        /// the rays of a pinhole camera 'px,py,pz;tx,ty,tz;fov;width;height': one unit ray per pixel center, row by row from the top left;
+        /// fov is the vertical angle in degrees, the horizontal one follows from the aspect ratio
+        /// </summary>
+        static Ray3d[] CameraRays(string text, string upText, out int width, out int height, out JsonObject info)
+        {
+            string[] parts = text.Split(';').Select(t => t.Trim()).Where(t => t.Length > 0).ToArray();
+            if (parts.Length != 5)
+                throw new CommandException(ResultCodes.InvalidArguments, "'camera' is 'px,py,pz;tx,ty,tz;fov;width;height'");
+            double[] pos = ParseNumbers(parts[0], "camera"), target = ParseNumbers(parts[1], "camera"), fovv = ParseNumbers(parts[2], "camera");
+            double[] wv = ParseNumbers(parts[3], "camera"), hv = ParseNumbers(parts[4], "camera");
+            if (pos.Length != 3 || target.Length != 3 || fovv.Length != 1 || wv.Length != 1 || hv.Length != 1)
+                throw new CommandException(ResultCodes.InvalidArguments, "'camera' is 'px,py,pz;tx,ty,tz;fov;width;height'");
+            double fov = fovv[0];
+            if (!(fov > 0 && fov < 179))
+                throw new CommandException(ResultCodes.InvalidArguments, "'camera': the field of view must be in (0, 179) degrees");
+            if (wv[0] != Math.Floor(wv[0]) || hv[0] != Math.Floor(hv[0]) || wv[0] < 1 || hv[0] < 1 || wv[0] > 16384 || hv[0] > 16384)
+                throw new CommandException(ResultCodes.InvalidArguments, "'camera': width and height are integers in 1..16384");
+            width = (int)wv[0]; height = (int)hv[0];
+            if ((long)width * height > MaxQueries)
+                throw new CommandException(ResultCodes.InvalidArguments, $"'camera': at most {MaxQueries} pixels");
+            var position = new Vector3d(pos[0], pos[1], pos[2]);
+            Vector3d view = new Vector3d(target[0], target[1], target[2]) - position;
+            double vscale = Math.Max(Math.Abs(view.x), Math.Max(Math.Abs(view.y), Math.Abs(view.z)));
+            if (!(vscale > 0) || double.IsInfinity(vscale))
+                throw new CommandException(ResultCodes.InvalidArguments, "'camera': the target must differ from the position, and the difference must be finite");
+            Vector3d forward = (view / vscale).Normalized;
+            Vector3d up = new Vector3d(0, 0, 1);
+            if (upText != null) {
+                double[] u = ParseNumbers(upText, "up");
+                if (u.Length != 3 || (u[0] == 0 && u[1] == 0 && u[2] == 0))
+                    throw new CommandException(ResultCodes.InvalidArguments, "'up' is a direction 'x,y,z' that is not zero");
+                double uscale = Math.Max(Math.Abs(u[0]), Math.Max(Math.Abs(u[1]), Math.Abs(u[2])));      // (scaled first: 1e-200 normalizes as any other)
+                up = new Vector3d(u[0] / uscale, u[1] / uscale, u[2] / uscale).Normalized;
+            }
+            Vector3d right = forward.Cross(up);
+            bool upChanged = false;
+            if (right.Length < 1e-9) {          // looking along the up direction
+                up = Math.Abs(forward.y) < 0.9 ? new Vector3d(0, 1, 0) : new Vector3d(1, 0, 0);
+                right = forward.Cross(up);
+                upChanged = true;
+            }
+            right = right.Normalized;
+            Vector3d trueUp = right.Cross(forward);
+            double tanHalf = Math.Tan(fov * Math.PI / 360);
+            double aspect = width / (double)height;
+            var rays = new Ray3d[width * height];
+            for (int j = 0; j < height; j++) {
+                double v = (1 - 2 * (j + 0.5) / height) * tanHalf;
+                for (int i = 0; i < width; i++) {
+                    double uu = (2 * (i + 0.5) / width - 1) * tanHalf * aspect;
+                    rays[j * width + i] = new Ray3d(position, (forward + uu * right + v * trueUp).Normalized, true);
+                }
+            }
+            info = new JsonObject() {
+                ["position"] = MeshReport.Vec(NoNegZero(position)), ["target"] = new JsonArray(target[0], target[1], target[2]), ["fov"] = fov,
+                ["width"] = width, ["height"] = height, ["pixels"] = rays.Length, ["forward"] = MeshReport.Vec(NoNegZero(forward)), ["right"] = MeshReport.Vec(NoNegZero(right)),
+                ["up"] = MeshReport.Vec(NoNegZero(trueUp)), ["up_replaced"] = upChanged,
+            };
+            return rays;
+        }
+
+        /// <summary> -0 would print as "-0"; adding +0 turns it into +0 </summary>
+        static Vector3d NoNegZero(Vector3d v) => new Vector3d(v.x + 0.0, v.y + 0.0, v.z + 0.0);
+
+        /// <summary> the distance image as a 16-bit ASCII PGM (nearer is brighter between the nearest and the farthest hit, a miss is 0) or as CSV </summary>
+        static JsonObject WriteDepthImage(string path, string format, int width, int height, double?[] distance)
+        {
+            string dir = Path.GetDirectoryName(Path.GetFullPath(path));
+            if (Directory.Exists(dir) == false)
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': directory does not exist");
+            double tMin = double.MaxValue, tMax = double.MinValue;
+            int hits = 0;
+            foreach (double? d in distance)
+                if (d.HasValue) { hits++; tMin = Math.Min(tMin, d.Value); tMax = Math.Max(tMax, d.Value); }
+            string temp = path + ".g3tmp";
+            try {
+                using (var w = new StreamWriter(temp, false, new System.Text.UTF8Encoding(false))) {
+                    if (format == "pgm") w.Write($"P2\n# distance image: nearer is brighter, 0 is a miss\n{width} {height}\n65535\n");
+                    for (int j = 0; j < height; j++) {
+                        var row = new string[width];
+                        for (int i = 0; i < width; i++) {
+                            double? d = distance[j * width + i];
+                            if (format == "csv") row[i] = d.HasValue ? d.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : "";
+                            else if (!d.HasValue) row[i] = "0";
+                            else row[i] = (tMax > tMin ? 1 + Math.Round(65534 * (tMax - d.Value) / (tMax - tMin)) : 65535).ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+                        }
+                        if (format == "csv") { w.Write(string.Join(",", row) + "\n"); continue; }
+                        // PGM: lines of at most 70 characters
+                        int lineLength = 0;
+                        foreach (string token in row) {
+                            if (lineLength > 0 && lineLength + 1 + token.Length > 70) { w.Write("\n"); lineLength = 0; }
+                            if (lineLength > 0) { w.Write(" "); lineLength++; }
+                            w.Write(token);
+                            lineLength += token.Length;
+                        }
+                        w.Write("\n");
+                    }
+                }
+                File.Move(temp, path, true);
+            } catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) {
+                try { File.Delete(temp); } catch (Exception) { }
+                throw new CommandException(ResultCodes.WriteError, $"cannot write '{path}': {e.Message}");
+            }
+            return new JsonObject() { ["file"] = path, ["format"] = format, ["width"] = width, ["height"] = height, ["hits"] = hits,
+                ["t_min"] = hits > 0 ? Val(tMin) : null, ["t_max"] = hits > 0 ? Val(tMax) : null };
         }
 
         static void BatchOk(BatchStatus status)

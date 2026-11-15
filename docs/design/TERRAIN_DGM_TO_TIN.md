@@ -5,6 +5,10 @@ Status: **implemented as `gs.TerrainGridTin`** (`mesh_ops/TerrainGridTin.cs`, ow
 Owner decision 2026-11-08: the step is built on `QualityMesh2` (its exact predicates, oracle and golden tests), not on a
 new triangulator.
 
+Update 2026-11-12: "Design only; no code" above dates from before the code; the step was built in #491
+(2026-11-09), with the B2 gaps a-c (breakline heights, rounding margin, crease guard) closed in #504 (2026-11-10). The decision text's `AchievedSurfaceError` is the property
+`TerrainGridTin.SurfaceError` in the code (besides `NodeError` and `BreaklineError`).
+
 ## 1. Goal and non-goals
 
 **Goal.** From a `HeightGrid` (dense DGM, NaN gaps) and optional breaklines, build a `DMesh3` TIN that

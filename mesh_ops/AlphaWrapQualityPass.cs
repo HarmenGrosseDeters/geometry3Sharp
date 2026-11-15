@@ -286,6 +286,39 @@ namespace gs
             return normal_deviation(tris) <= normal_deviation(old) + NormalDeviationSlackDegrees;
         }
 
+        /// <summary> with KeepClearOf: also no operation whose swept region meets it (issue 743; false: the end state only) </summary>
+        internal bool KeepClearOfSwept = true;
+
+        // the region between the old triangles (removed) and the new ones (tris; every operation keeps the patch's boundary):
+        // the chain old - new is closed, so it is the boundary of the cones of both from one apex, cone(old) - cone(new); a
+        // point whose winding number the operation changes lies in one of those tetrahedra (Reducer.TetrahedraMeet). The apex
+        // is a corner of every new triangle where there is one (the moved, split or collapsed vertex, the flip's c), so the
+        // new triangles' cones are flat and left out
+        readonly List<Vector3d> sweptCorners = new List<Vector3d>();
+        bool sweeps_obstacle(List<Triangle3d> tris, HashSet<int> removed)
+        {
+            if (tris.Count == 0) return false;
+            Vector3d apex = tris[0].V0;
+            foreach (Vector3d cand in new[] { tris[0].V0, tris[0].V1, tris[0].V2 }) {
+                bool all = true;
+                foreach (Triangle3d t in tris)
+                    if (t.V0 != cand && t.V1 != cand && t.V2 != cand) { all = false; break; }
+                if (all) { apex = cand; break; }
+            }
+            sweptCorners.Clear();
+            Vector3d va = Vector3d.Zero, vb = Vector3d.Zero, vc = Vector3d.Zero;
+            foreach (int t in removed) {
+                Mesh.GetTriVertices(t, ref va, ref vb, ref vc);
+                if (va == apex || vb == apex || vc == apex) continue;
+                sweptCorners.Add(va); sweptCorners.Add(vb); sweptCorners.Add(vc); sweptCorners.Add(apex);
+            }
+            foreach (Triangle3d t in tris) {
+                if (t.V0 == apex || t.V1 == apex || t.V2 == apex) continue;
+                sweptCorners.Add(t.V0); sweptCorners.Add(t.V1); sweptCorners.Add(t.V2); sweptCorners.Add(apex);
+            }
+            return Reducer.TetrahedraMeet(KeepClearOf, sweptCorners);
+        }
+
         internal bool accept(List<Index3i> ids, List<Triangle3d> tris, HashSet<int> removed)
         {
             if (protectedCells != null && protectThisOperation) {
@@ -304,7 +337,7 @@ namespace gs
                     RejectedByDeviation++;
                     return false;
                 }
-            if (KeepClearOf != null && Reducer.TrianglesTouch(KeepClearOf, tris)) {
+            if (KeepClearOf != null && (Reducer.TrianglesTouch(KeepClearOf, tris) || (KeepClearOfSwept && sweeps_obstacle(tris, removed)))) {
                 RejectedByIntersection++;
                 return false;
             }

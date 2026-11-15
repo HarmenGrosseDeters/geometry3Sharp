@@ -30,6 +30,24 @@ namespace g3
         public const float Epsilonf = 1.192092896e-07F;
 
 
+        /// <summary>
+        /// Floor a coordinate and convert it consistently on all runtimes. NaN maps to zero;
+        /// values outside the integer range saturate at the nearest endpoint.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static int FloorToIntSaturating(double value)
+        {
+#if NET9_0_OR_GREATER
+            // .NET 9 and later specify saturating unchecked casts, including NaN -> 0.
+            return unchecked((int)Math.Floor(value));
+#else
+            if (double.IsNaN(value)) return 0;
+            if (value >= int.MaxValue) return int.MaxValue;
+            if (value <= int.MinValue) return int.MinValue;
+            return (int)Math.Floor(value);
+#endif
+        }
+
         public static bool IsFinite(double d) {
             return double.IsInfinity(d) == false && double.IsNaN(d) == false;
         }
@@ -57,6 +75,34 @@ namespace g3
         }
         public static double Clamp(double f, double low, double high) {
             return (f < low) ? low : (f > high) ? high : f;
+        }
+
+        /// <summary>
+        /// The smaller of a and b with one result on every runtime, for values that reach a result (issue 803):
+        /// Math.Min of a +0 and a -0 is -0 on .NET (IEEE 754-2019 minimum) and the second operand on .NET Framework, so a
+        /// result coordinate could differ in the sign of zero between the two. Here: -0 if either is -0 (and both are
+        /// zero), a NaN if either is NaN (double.NaN, on every platform; Math.Min returns a NaN there too, on both
+        /// runtimes), else the smaller; symmetric in a and b
+        /// </summary>
+        internal static double MinExact(double a, double b)
+        {
+            if (a < b) return a;
+            if (b < a) return b;
+            if (double.IsNaN(a) || double.IsNaN(b)) return double.NaN;
+            // equal: the same double, or two zeros: the one with the sign bit, if there is one
+            return (BitConverter.DoubleToInt64Bits(a) < 0) ? a : b;
+        }
+
+        /// <summary>
+        /// The larger of a and b with one result on every runtime (see MinExact): +0 if either is +0 (and both are zero),
+        /// double.NaN if either is NaN, else the larger; symmetric in a and b
+        /// </summary>
+        internal static double MaxExact(double a, double b)
+        {
+            if (a > b) return a;
+            if (b > a) return b;
+            if (double.IsNaN(a) || double.IsNaN(b)) return double.NaN;
+            return (BitConverter.DoubleToInt64Bits(a) < 0) ? b : a;
         }
         public static int Clamp(int f, int low, int high) {
             return (f < low) ? low : (f > high) ? high : f;

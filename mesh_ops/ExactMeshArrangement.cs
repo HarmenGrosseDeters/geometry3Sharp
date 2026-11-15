@@ -820,7 +820,13 @@ namespace g3
             double M = Math.Max(Math.Max(Math.Abs(bx), Math.Abs(by)), Math.Max(Math.Abs(cx), Math.Abs(cy)));
             double eps = 2 * e + U * M;
             err = 1.01 * (2 * eps * (2 * M + eps) + 3 * U * M * M) + Tiny;
-            return bx * cy - by * cx;
+            double det = bx * cy - by * cx;
+            // (a product overflowed: for M above about 1.34e154 a product can be infinite while the bound, evaluated as
+            // 3 U M M, is still finite; the sign of the infinite difference does not stand for the exact points within e.
+            // Undecided, as in incircle_approx; review of #732)
+            if (!(Math.Abs(det) <= double.MaxValue))
+                err = double.PositiveInfinity;
+            return det;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -1013,26 +1019,33 @@ namespace g3
             }
             if (MaxHashedCluster < 0 || (k1 - k0 > MaxHashedCluster && double.IsNegativeInfinity(lo[order[k0]])))
                 return merge_sorted(ids, order, k0, k1, next);
-            var groups = new Dictionary<int, List<int>>(new ExactIdComparer(this));
+            // (groups by number, in the order of their first point; per group its size and the point with the smallest
+            // key, the first of equal ones: no list per group)
+            var groups = new Dictionary<int, int>(new ExactIdComparer(this));
+            int count = k1 - k0;
+            var groupOf = new int[count];
+            var size = new int[count];
+            var bestOf = new int[count];
             for (int k = k0; k < k1; ++k) {
                 int id = ids[order[k]];
-                List<int> g;
-                if (groups.TryGetValue(id, out g) == false)
-                    groups[id] = g = new List<int>(2);
-                g.Add(id);
+                int g;
+                if (groups.TryGetValue(id, out g) == false) {
+                    g = groups.Count;
+                    groups[id] = g;
+                    bestOf[g] = id;
+                } else if (keys[id].CompareTo(keys[bestOf[g]]) < 0)
+                    bestOf[g] = id;
+                size[g]++;
+                groupOf[k - k0] = g;
             }
             int merged = 0;
-            foreach (List<int> g in groups.Values) {
-                if (g.Count == 1)
-                    continue;
-                int best = g[0];
-                foreach (int id in g)
-                    if (keys[id].CompareTo(keys[best]) < 0)
-                        best = id;
-                foreach (int id in g)
-                    next[id] = best;
-                merged += g.Count - 1;
+            for (int k = k0; k < k1; ++k) {
+                int g = groupOf[k - k0];
+                if (size[g] > 1)
+                    next[ids[order[k]]] = bestOf[g];
             }
+            for (int g = 0; g < groups.Count; ++g)
+                merged += size[g] - 1;
             return merged;
         }
 
@@ -1620,9 +1633,7 @@ namespace g3
                 if (fdet > err) { local.Decided++; return t.Sign; }
                 if (-fdet > err) { local.Decided++; return -t.Sign; }
             }
-            ExactPoint3 a = Exact(p), b = Exact(q), c = Exact(r);
-            BigInteger det = ExactPoint3.Det3(a[i], a[j], a.W, b[i], b[j], b.W, c[i], c[j], c.W);
-            return det.Sign * t.Sign;
+            return ExactLimbSigns.Orient2(Exact(p), Exact(q), Exact(r), i, j) * t.Sign;
         }
 
         /// <summary> InCircle decided from the approximations only (also with DisableFilters): 0 if they do not decide it </summary>
@@ -1653,6 +1664,11 @@ namespace g3
             double M = Math.Max(Math.Max(Math.Max(Math.Abs(adx), Math.Abs(ady)), Math.Max(Math.Abs(bdx), Math.Abs(bdy))), Math.Max(Math.Abs(cdx), Math.Abs(cdy)));
             double eps = 2 * e + U * M, eta = 2 * eps * (2 * M + eps), M2 = M * M;
             bound = 1.01 * (3 * eta * (4 * M2 + eta) + 64 * U * M2 * M2) + Tiny;
+            // (a term overflowed: the terms reach 12 M^4 while the bound's M^4 can still be finite, so for M between about
+            // 8e76 and 1.2e77 the sum is +-infinity or NaN with a finite bound, and its sign says nothing; undecided.
+            // #710: a difference of two cubes near 1e-223 with a corner at 1e-284, grid coordinates near 1e77)
+            if (!(Math.Abs(fdet) <= double.MaxValue))
+                bound = double.PositiveInfinity;
             return fdet;
         }
 
@@ -1697,29 +1713,9 @@ namespace g3
                 if (fdet > bound) { local.Decided++; return t.Sign; }
                 if (-fdet > bound) { local.Decided++; return -t.Sign; }
             }
-            ExactPoint3 pd = Exact(s);
-            BigInteger ax, ay, al, bx, by, bl, cx, cy, cl;
-            incircle_row(Exact(p), pd, i, j, out ax, out ay, out al);
-            incircle_row(Exact(q), pd, i, j, out bx, out by, out bl);
-            incircle_row(Exact(r), pd, i, j, out cx, out cy, out cl);
-            BigInteger det = ExactPoint3.Det3(ax, ay, al, bx, by, bl, cx, cy, cl);
             // for counter-clockwise a, b, c this determinant is positive iff d is inside; the projection
             // may mirror the triangle, which flips the orientation of a, b, c and the sign
-            return det.Sign * t.Sign;
-        }
-
-        [MethodImpl(JitHints.Optimize)]
-        static void incircle_row(ExactPoint3 v, ExactPoint3 d, int i, int j, out BigInteger x, out BigInteger y, out BigInteger l)
-        {
-            BigInteger A, B, s;
-            if (v.W.IsOne && d.W.IsOne) {
-                A = v[i] - d[i]; B = v[j] - d[j];
-                x = A; y = B;
-            } else {
-                A = v[i] * d.W - d[i] * v.W; B = v[j] * d.W - d[j] * v.W; s = v.W * d.W;
-                x = A * s; y = B * s;
-            }
-            l = A * A + B * B;
+            return ExactLimbSigns.InCircle(Exact(p), Exact(q), Exact(r), Exact(s), i, j) * t.Sign;
         }
 
         [MethodImpl(JitHints.Optimize)]
@@ -2568,7 +2564,7 @@ namespace g3
 
             var local = LocalFilters ? new LocalPoints(this, t) : null;
             var tri = new ExactTriangulation2(t.Corners[0], t.Corners[1], t.Corners[2],
-                (a, b, c) => Orient(t, a, b, c, local), (a, b, c, d) => InCircle(t, a, b, c, d, local));
+                (a, b, c) => Orient(t, a, b, c, local), (a, b, c, d) => InCircle(t, a, b, c, d, local), pts.Length);
             int[] ordered = pts;
             foreach (int p in ordered)
                 tri.InsertPoint(p);
@@ -2620,11 +2616,23 @@ namespace g3
         {
             readonly ExactMeshArrangement arr;
             readonly int i, j, n0;
-            readonly double[] bounds;
+            readonly Box2 bounds;
             int n;
             double cx, cy;
-            readonly List<double[]> boxes = new List<double[]>();
+            readonly List<Box2> boxes = new List<Box2>();
             List<int>[] cells;
+            // an axis-aligned box in the projection: min x, min y, max x, max y (as the elements 0-3 of the arrays before)
+            struct Box2
+            {
+                public double X0, Y0, X1, Y1;
+                public double this[int k]
+                {
+                    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                    readonly get { return k == 0 ? X0 : k == 1 ? Y0 : k == 2 ? X1 : Y1; }
+                    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                    set { if (k == 0) X0 = value; else if (k == 1) Y0 = value; else if (k == 2) X1 = value; else Y1 = value; }
+                }
+            }
             /// <summary> pairs of items (or of the query and an item) whose boxes were compared </summary>
             public long Examined;
 
@@ -2633,10 +2641,10 @@ namespace g3
             {
                 this.arr = arr;
                 i = (t.Axis + 1) % 3; j = (t.Axis + 2) % 3;
-                double[] b = box(t.Corners[0], t.Corners[0]);
+                Box2 b = box(t.Corners[0], t.Corners[0]);
                 for (int k = 0; k < 3; ++k) {
                     int c = t.Corners[k];
-                    double[] cb = box(c, c);
+                    Box2 cb = box(c, c);
                     b[0] = Math.Min(b[0], cb[0]); b[1] = Math.Min(b[1], cb[1]); b[2] = Math.Max(b[2], cb[2]); b[3] = Math.Max(b[3], cb[3]);
                 }
                 bounds = b;
@@ -2662,7 +2670,7 @@ namespace g3
                 long limit = 8L * boxes.Count + 64;
                 for (set_size(n0); n > 1; set_size(n / 2)) {
                     long entries = 0;
-                    foreach (double[] b in boxes) {
+                    foreach (Box2 b in boxes) {
                         int ix0, iy0, ix1, iy1;
                         range(b, out ix0, out iy0, out ix1, out iy1);
                         entries += (long)(ix1 - ix0 + 1) * (iy1 - iy0 + 1);
@@ -2682,11 +2690,11 @@ namespace g3
 
             // the box of the segment p-q: min x, min y, max x, max y
             [MethodImpl(JitHints.Optimize)]
-            double[] box(int p, int q)
+            Box2 box(int p, int q)
             {
                 Vector3d a = arr.approx[p], c = arr.approx[q];
                 double e = Math.Max(arr.approxErr[p], arr.approxErr[q]);
-                double[] r = { Math.Min(a[i], c[i]), Math.Min(a[j], c[j]), Math.Max(a[i], c[i]), Math.Max(a[j], c[j]) };
+                var r = new Box2 { X0 = Math.Min(a[i], c[i]), Y0 = Math.Min(a[j], c[j]), X1 = Math.Max(a[i], c[i]), Y1 = Math.Max(a[j], c[j]) };
                 for (int k = 0; k < 4; ++k) {
                     // widened by the error bound and the rounding of this sum
                     double w = e + 4 * U * (Math.Abs(r[k]) + e);
@@ -2703,13 +2711,13 @@ namespace g3
             }
 
             [MethodImpl(JitHints.Optimize)]
-            void range(double[] b, out int ix0, out int iy0, out int ix1, out int iy1)
+            void range(in Box2 b, out int ix0, out int iy0, out int ix1, out int iy1)
             {
                 if (n == 1) { ix0 = iy0 = ix1 = iy1 = 0; return; }
                 ix0 = cell(b[0], bounds[0], cx); iy0 = cell(b[1], bounds[1], cy); ix1 = cell(b[2], bounds[0], cx); iy1 = cell(b[3], bounds[1], cy);
             }
 
-            static bool overlap(double[] a, double[] b)
+            static bool overlap(in Box2 a, in Box2 b)
             {
                 return !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]);
             }
@@ -2728,7 +2736,7 @@ namespace g3
             public void Query(int p, int q, Action<int> f)
             {
                 build();
-                double[] b = box(p, q);
+                Box2 b = box(p, q);
                 int ix0, iy0, ix1, iy1;
                 range(b, out ix0, out iy0, out ix1, out iy1);
                 for (int x = ix0; x <= ix1; ++x)
@@ -3166,13 +3174,39 @@ namespace g3
             return visited;
         }
 
+        [ThreadStatic] static Stack<int> segmentStack;
         /// <summary> call f for every box that the segment p-q intersects, with all boxes expanded by pad </summary>
         [MethodImpl(JitHints.Optimize)]
         public void QuerySegment(Vector3d p, Vector3d q, double pad, Action<int> f)
         {
+            var visitor = new ActionVisitor { F = f };
+            QuerySegment(p, q, pad, ref visitor);
+        }
+
+        /// <summary> receives the indices of QuerySegment (a struct: a query allocates no delegate) </summary>
+        internal interface IIndexVisitor
+        {
+            void Visit(int i);
+        }
+
+        struct ActionVisitor : IIndexVisitor
+        {
+            public Action<int> F;
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public void Visit(int i) { F(i); }
+        }
+
+        /// <summary> QuerySegment with a struct visitor, in the same order </summary>
+        [MethodImpl(JitHints.Optimize)]
+        internal void QuerySegment<TV>(Vector3d p, Vector3d q, double pad, ref TV f) where TV : struct, IIndexVisitor
+        {
             if (nodeCount == 0)
                 return;
-            var stack = new Stack<int>();
+            // (one stack per thread, reused: the queries of ExactMeshBoolean's tracing are many and short; a callback that
+            // queries again on the same thread gets its own)
+            Stack<int> stack = segmentStack ?? new Stack<int>();
+            segmentStack = null;
+            stack.Clear();
             stack.Push(0);
             while (stack.Count > 0) {
                 int node = stack.Pop();
@@ -3181,12 +3215,13 @@ namespace g3
                 if (nodeLeft[node] < 0) {
                     for (int i = nodeStart[node]; i < nodeStart[node] + nodeSize[node]; ++i)
                         if (segment_hits(leafBox, i, p, q, pad))
-                            f(order[i]);
+                            f.Visit(order[i]);
                 } else {
                     stack.Push(nodeLeft[node]);
                     stack.Push(nodeRight[node]);
                 }
             }
+            segmentStack = stack;
         }
 
         // slab test of segment p-q against the box b[6 i ..] expanded by pad (conservative: pad covers the rounding)
@@ -3584,11 +3619,27 @@ namespace g3
         [MethodImpl(JitHints.Optimize)]
         public void Query(AxisAlignedBox3d query, Action<int> f)
         {
-            var result = new List<int>();
-            Query(query, result);
-            foreach (int k in result)
-                f(k);
+            // (the boxes are collected first, then f is called: f may query this or another tree; the lists are reused
+            // per thread and nesting depth, so a query allocates nothing once its list has grown)
+            List<int>[] pool = queryLists ?? (queryLists = new List<int>[8]);
+            int depth = queryDepth;
+            List<int> result = depth < pool.Length ? (pool[depth] ?? (pool[depth] = new List<int>())) : new List<int>();
+            result.Clear();
+            queryDepth = depth + 1;
+            try {
+                Query(query, result);
+                foreach (int k in result)
+                    f(k);
+            } finally {
+                queryDepth = depth;
+                // (a list that grew very large is not kept)
+                if (depth < pool.Length && result.Capacity > MaxPooledQueryList)
+                    pool[depth] = null;
+            }
         }
+        [ThreadStatic] static List<int>[] queryLists;
+        [ThreadStatic] static int queryDepth;
+        const int MaxPooledQueryList = 1 << 16;
 
         /// <summary>
         /// the boxes that overlap the closed query box, appended to result (in the same order as Query calls f);

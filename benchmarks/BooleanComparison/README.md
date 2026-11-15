@@ -247,7 +247,7 @@ dotnet build -c Release -p:G3PredicateStats=true     # a build that also counts 
 
 ## Results per data class
 
-Run on 4 cores, `-j 1`, timeout 300 s per boolean (900 s per sequence); ExactMeshBoolean as of this branch
+Run on 4 cores, `-j 1`, timeout 300 s per boolean (900 s per sequence); ExactMeshBoolean as of the branch of #33
 (master with the faster exact booleans). The times of ExactMeshBoolean below are from before the performance work
 of October 2026 (see [Profile and performance work](#profile-and-performance-work-october-2026)), which made a
 boolean measured the same way (one process per boolean, as `compare.py` runs it) 2.4-2.8 times faster on the
@@ -772,7 +772,7 @@ In the LPI formula, the construction part (n, lp, lq, d) depends only on the seg
 about 30 of 65 operations of the filter. It is evaluated anew against every facet of every candidate. A prepare /
 evaluate split saves at most that part, about 45 % of the LPI time, so the query could get up to about 1.7× faster.
 That is far above the noise, so 1b goes ahead. The other lever is the number of calls: the paper's covering set
-(section 3.2.4) cuts it. That comes with the triangle query (PR 3).
+(section 3.2.4) cuts it. That comes with the triangle query (PR 3, #268, merged 2026-11-02: `ContainsTriangle`).
 
 **Built (1b):** `ContainsSegment` now prepares each crossing once (`Orient3dLPIPrepared`). Alternating rounds A
 (88d50d2, before) and B (1b), µs per segment, best of 5 per run, two runs each:

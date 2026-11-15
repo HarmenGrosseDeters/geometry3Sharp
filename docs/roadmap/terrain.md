@@ -26,18 +26,35 @@ Part of the [roadmap](../ROADMAP.md).
   ~270 planes (~100 ms per piece), linear in the number of pieces. The slow terrain tests are handled as test design /
   Nightly. A real gain would need fewer planes per fan, which changes the accuracy budget (owner: not wanted).
 
-Nothing is open. The items below are **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+- **Terrain Slope rows in the rotated / 1e-3 / utm frame (owner 2026-11-12): no library change.** A first-δ shortcut was
+  approved, then withdrawn (the formula gives no fraction, so it would be a constant tuned on one design); TERRAIN.md 5.8.1
+  states the limit, `LocalFrame` is the remedy. The test tiers of those rows are in [platform.md](platform.md) (test time
+  limit, #696).
 
-- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567, 2026-11-10; not fixed while terrain is
-  paused):** (1) slope on the inside of a closed toe needs up to 4 retries of the exact check and ends in
-  `SlopeViolation` in about 1 of 500 such designs (the outside certifies at once); (2) `Direction = Auto` on a terrain
-  that tilts through the toe plane: composite not certified at a toe edge, 1 of 700. Both never return a violating
-  result; both are pinned as example tests and counted in the campaign.
-- **Ramps as design geometry** (path, width, grade; access ramps into pits).
+**Close-out resumed (owner 2026-11-12, own session):** the two safe-failure classes, ramps, sector polygons / exterior
+distance, then the proven tan interval and catch-line bound. Still owner decisions: the slope-envelope construction,
+berms, the GeoTIFF reader, 3D blocks. The items below were **parked until a concrete use case** (owner 2026-11-09), in the order of the earlier plan.
+
+- **Two safe-failure classes of `TerrainSlopeDesign` (QA 2.0 T11 campaign, #567): fixed (2026-11-12, resumed by the owner
+  2026-11-12: "terrain auch abschließen").** (1) Slope on the inside of a closed toe: a realized needle (two triple points of
+  four planes 9e-12 apart) passed the exact check, but its clipped part in the region had catch points 7e-12 apart and failed
+  on every margin; a failing region triangle now names its realized parent, which the band merge collapses on the next
+  realization (TERRAIN.md 5.5). (2) `Direction = Auto` at a toe corner: the certificate's step rule is now per slope triangle
+  (one capsule cannot hold the slivers along two toe segments). Both examples certify; the campaign no longer lets either
+  class pass. The 48-gon clipped-sliver design certifies at the first margin (2 → 1 attempts).
+- **Ramps as design geometry** (path, width, grade; access ramps into pits). Design note [TERRAIN_RAMPS.md](../design/TERRAIN_RAMPS.md) (2026-11-12). Owner 2026-11-13: yes to
+  all three (the path is the inner edge, R1 a pure cut ramp up to the daylight line, constant grade per ramp); R1 is its own
+  PR after #752, #757 and #761, not built yet.
 - **Lofting between contours** under the exact slope oracle: moved to the general `ContourLoft` operation,
   [research.md](research.md#open) priority 9 (owner 2026-11-09); terrain is one application, not a terrain item.
 - **Proven tan interval and catch-line bound** (TERRAIN.md §5.5; today an exact certificate per result and a reported accuracy).
-- **Sector polygons, exterior distance on demand.**
+  Resumed 2026-11-12 (owner; coordinator approved both, as separate PRs). Tan bound (#757, merged 2026-11-13): the proven
+  lower bound for `SlopeSpec.Degrees` (TERRAIN.md section 1; `Slope.IsNotSteeper` for angles is now conservative).
+  Catch-line bound (2026-11-13, #761): `CatchLine.ProvenUncertainty` and `CatchLineBandWithoutLine`; `RequiredCatchLineAccuracy`
+  checks the proven bound (up to about 2x the estimate; +6 % slope time on the 24-gon wave benchmark).
+- **Sector polygons, exterior distance on demand.** Design note [TERRAIN_SECTORS.md](../design/TERRAIN_SECTORS.md) (2026-11-13). Owner 2026-11-13:
+  yes to the proposals (E1, the exterior distance, first; R2 attribution with the smaller slope on a boundary; an
+  ε-approximation within the Tolerance budget). After ramps R1, not built yet.
 - **Berms and inter-ramp checks** (TERRAIN.md §10; the stepped surface is reachable with `TargetHeights` today).
 - **Performance follow-ups, only when a real case is slow** (§11): the octagon 1 m replacement 6.1 → 8.8 s after D (a second
   realization), the combinatorial zeros of C, the band-only overlay, the rest of a failed realization (about 25-30 %), the extra
@@ -74,7 +91,7 @@ Nothing is open. The items below are **parked until a concrete use case** (owner
 
 #### Phase 4 items: showcase domain, slope construction, 2D spatial index
 
-- A showcase domain: terrain / GIS (in progress) and biomedical / orthotics
+- A showcase domain: terrain / GIS (closed out, owner 2026-11-09) and biomedical / orthotics
   - [ ] Slope construction and daylighting on TINs (open-pit mining; design in
     [design/TERRAIN.md](../design/TERRAIN.md)): per-segment slopes, never steeper than specified (verified per
     triangle), catch line with the terrain, cut / fill volumes. Phase 1 in three PRs, each usable and tested on its

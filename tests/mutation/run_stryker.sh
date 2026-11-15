@@ -88,11 +88,33 @@ stryker() {
   return $rc
 }
 
+# the config of a full run: narrowed to the tests that kill the shard's mutants if a current filter file
+# ($G3_TEST_FILTERS/<config name>, default tests/mutation/test-filters; narrow_tests.py, README "Narrowed test sets")
+# exists; else, or with G3_FULL_TESTS=1 or in the scheduled run of a Sunday, the config itself (a stale filter says so and also falls back to it)
+full_config() {
+  local flt="${G3_TEST_FILTERS:-$here/test-filters}/$(basename "$config")"
+  # the check of record: G3_FULL_TESTS=1, and every scheduled run on a Sunday (UTC; G3_WEEKDAY overrides `date -u +%u`, 7 = Sunday)
+  # runs the whole filter, so a kill that the narrowed runs lost shows up within a week
+  local unfiltered="${G3_FULL_TESTS:-0}"
+  if [ "${GITHUB_EVENT_NAME:-}" = schedule ] && [ "${G3_WEEKDAY:-$(date -u +%u)}" = 7 ]; then unfiltered=1; fi
+  if [ "$unfiltered" != 1 ] && [ -f "$flt" ]; then
+    local msg
+    msg="$(python3 "$here/narrow_tests.py" apply --config "$config" --filter "$flt" --repo "$(cd "$here/../.." && pwd)" -o narrowed-run.json)"
+    echo "test set: $msg" >&2
+    echo "test set: $msg" >> "$summary"
+    echo narrowed-run.json
+  else
+    echo "$config"
+  fi
+}
+
 full() {
   mkdir -p StrykerOutput
   touch StrykerOutput/full-run
-  echo "dotnet stryker --config-file $config"
-  stryker --config-file "$config"
+  local run
+  run="$(full_config)"
+  echo "dotnet stryker --config-file $run"
+  stryker --config-file "$run"
 }
 
 latest_report() {

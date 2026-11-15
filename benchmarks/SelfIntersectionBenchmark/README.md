@@ -105,7 +105,7 @@ addressed here.
 
 `remesher runs=3` and `thingi=<dir>/135363.stl thingi_passes=5 thingi_factor=0.05 thingi_runs=3 only=thingi` (target
 edge 0.05 x the mean edge of 135363, so the coarse OpenSCAD input of 2612 triangles is refined to about 90k: the
-regime where the check was slowest), "master" = this branch (master e93258b merged in) with `Remesher.pair_intersects` as on master,
+regime where the check was slowest), "master" = the branch of #261 (master e93258b merged in) with `Remesher.pair_intersects` as on master,
 against `TriangleTriangleFilter` first in `pair_intersects`. Run one after the other, alone on the machine, minimum of 3
 runs; the fingerprints are identical.
 
@@ -221,7 +221,7 @@ projection; a triangle crossing the plane stays with the exact test). Same answe
 `ExactTriangleIntersection.IntersectsBeyondShared` (`TriangleTriangleFilterTests`); it also serves the Reducer and
 `IntrTriangle3Triangle3`, which use the filter.
 
-**Results**, master b7fbc52 against this branch, run alternately, alone on the machine. `reducer remesher runs=3
+**Results**, master b7fbc52 against the branch of #298, run alternately, alone on the machine. `reducer remesher runs=3
 thingi=<dir>/135363.stl thingi_passes=5 thingi_factor=0.05 thingi_runs=3`, three rounds, the minimum; every fingerprint
 identical:
 

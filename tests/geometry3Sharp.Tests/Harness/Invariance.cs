@@ -125,6 +125,13 @@ namespace geometry3Sharp.Tests
         /// <summary>For xunit [MemberData]: the names of All().</summary>
         public static IEnumerable<object[]> Names() => All().Select(s => new object[] { s.Name });
 
+        /// <summary>
+        /// For xunit [MemberData]: the names of All() without RotatedUtmMillimetre, whose design is near the frame's MinFeatureSize
+        /// (UTM coordinates, a design of centimetres): three builds by design (TERRAIN.md 5.8.1, #696), 2-3 times the cost of the other
+        /// frames. Tests of the TerrainSlope family run that frame in a Nightly test of its own.
+        /// </summary>
+        public static IEnumerable<object[]> NamesExceptExtremeFrame() => All().Where(s => s != RotatedUtmMillimetre).Select(s => new object[] { s.Name });
+
         /// <summary>For xunit [MemberData]: the names of All2D().</summary>
         public static IEnumerable<object[]> Names2D() => All2D().Select(s => new object[] { s.Name });
 

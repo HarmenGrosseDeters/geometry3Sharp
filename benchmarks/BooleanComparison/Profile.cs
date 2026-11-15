@@ -8,9 +8,14 @@
 //     --ops union,intersection,difference   operations of the pair cases (default all three)
 //     --repeat <r>                           timed runs per case and operation (default 3); reports all times,
 //                                            the phases of the fastest run
+//     --median                               report the phases, counts and GC of the median run (by time) instead
+//                                            of the fastest
 //     --exact                                also hash the exact result vertices (ComputeExactVertices; slower)
 //     --safe-rounding                        SafeRounding = true (reports rounding_clean and rounding_limit, ie
 //                                            Rounding.EvaluationLimitReached)
+//     --rounding-max-pair-tests <n>          RoundingMaxPairTests (the rounding's pair-test budget; default 5M)
+//     --antipodal-unlimited                  AntipodalMaxBoundarySegments and AntipodalMaxTriangles unlimited (the
+//                                            open-operand classification on the Antipodal path everywhere; T5 option A)
 // Filter failures are counted only by a library built with -p:G3PredicateStats=true (PredicateStats); in a normal
 // build they are absent. The process uses all cores; run it under `taskset -c 0` (and DOTNET_PROCESSOR_COUNT=1)
 // for one core.
@@ -30,13 +35,17 @@ static class Profile
     {
         var ops = new List<string> { "union", "intersection", "difference" };
         int repeat = 3;
-        bool exact = false, safe = false;
+        bool exact = false, safe = false, antipodalUnlimited = false, median = false;
+        long maxPairTests = -1;
         var cases = new List<string>();
         for (int i = 0; i < args.Length; ++i) {
             if (args[i] == "--ops") ops = args[++i].Split(',').ToList();
             else if (args[i] == "--repeat") repeat = int.Parse(args[++i]);
             else if (args[i] == "--exact") exact = true;
             else if (args[i] == "--safe-rounding") safe = true;
+            else if (args[i] == "--antipodal-unlimited") antipodalUnlimited = true;
+            else if (args[i] == "--median") median = true;
+            else if (args[i] == "--rounding-max-pair-tests") maxPairTests = long.Parse(args[++i]);
             else if (File.Exists(args[i]) && Directory.Exists(args[i]) == false)
                 cases.AddRange(File.ReadAllLines(args[i]).Select(l => l.Trim()).Where(l => l.Length > 0 && l.StartsWith("#") == false));
             else cases.Add(args[i]);
@@ -91,6 +100,7 @@ static class Profile
                 Dictionary<string, object> best = null;
                 long bestMs = long.MaxValue;
                 var hashes = new HashSet<string>();
+                var everyRun = new List<KeyValuePair<long, Dictionary<string, object>>>();
                 for (int r = 0; r < repeat; ++r) {
                     GC.Collect();
                     GC.WaitForPendingFinalizers();
@@ -102,6 +112,12 @@ static class Profile
                     var boolean = run.Value();
                     boolean.ComputeExactVertices = exact;
                     boolean.SafeRounding = safe;
+                    if (maxPairTests >= 0)
+                        boolean.RoundingMaxPairTests = maxPairTests;
+                    if (antipodalUnlimited) {
+                        boolean.AntipodalMaxBoundarySegments = int.MaxValue;
+                        boolean.AntipodalMaxTriangles = int.MaxValue;
+                    }
                     var sw = Stopwatch.StartNew();
                     bool ok;
                     string error = null;
@@ -118,9 +134,9 @@ static class Profile
                     if (ok && exact)
                         hash += "/" + HashExact(boolean.ResultExactVertices);
                     hashes.Add(hash);
-                    if (ms >= bestMs)
+                    if (median == false && ms >= bestMs)
                         continue;
-                    bestMs = ms;
+                    bestMs = Math.Min(bestMs, ms);
                     var stats = new Dictionary<string, object>();
                     if (PredicateStats.Enabled)
                         for (int k = 0; k < (int)PredicateStats.Kind.Count; ++k)
@@ -145,7 +161,10 @@ static class Profile
                         best["predicates"] = stats;
                     if (error != null)
                         best["error"] = error;
+                    everyRun.Add(new KeyValuePair<long, Dictionary<string, object>>(ms, best));
                 }
+                if (median)
+                    best = everyRun.OrderBy(kv => kv.Key).ElementAt(everyRun.Count / 2).Value;
                 best["ms"] = times;
                 best["hash"] = string.Join(" ", hashes);
                 best["deterministic"] = hashes.Count == 1;

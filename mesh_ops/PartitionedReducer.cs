@@ -121,6 +121,8 @@ namespace gs
             Configure?.Invoke(probe);
             if (probe.MaxDeviation > 0)
                 throw new ArgumentException("Configure must not set MaxDeviation: the partitioned parts would each take their own mesh as the reference");
+            if (probe.MaxDeviationTwoSided)
+                throw new ArgumentException("Configure must not set MaxDeviationTwoSided (it needs MaxDeviation, see above)");
             if (probe.Constraints != null)
                 throw new ArgumentException("Configure must not set external constraints: the parts and the last pass work on meshes with other vertex ids");
             if (mesh.TriangleCount == 0)

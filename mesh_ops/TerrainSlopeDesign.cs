@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using g3;
+using g3.CoreMathPort;
 
 namespace gs
 {
@@ -129,6 +130,16 @@ namespace gs
         /// <summary> the toe points at the ends of the piece, as specified </summary>
         public Vector3d P0, P1;
         public SlopeSpec Spec;
+        /// <summary> what the piece's triangles are: a toe's slope, a ramp's road, or the wall above a ramp's road </summary>
+        public enum Kinds { Slope, Road, RampWall }
+        /// <summary>
+        /// Slope: a toe segment (Toe, Segment, P0, P1). Road and RampWall (TerrainSlopeDesign.Ramps): Ramp, Segment is
+        /// the path segment (or the path vertex of a bend, Bend), P0, P1 its ends at the road's heights, Toe the ramp's
+        /// toe; Spec the ramp's Grade (Road) or the wall's slope (RampWall)
+        /// </summary>
+        public Kinds Kind = Kinds.Slope;
+        public int Ramp = -1;
+        public bool Bend;
         /// <summary> Cut or Fill: the run of the piece (both in a mixed run, Direction Auto) </summary>
         public TerrainSlopeDesign.Directions Direction = TerrainSlopeDesign.Directions.Cut;
         /// <summary>
@@ -198,7 +209,12 @@ namespace gs
             /// Direction Auto: the fill surface rises above a toe segment by more than Tolerance (the mirror of ToeUndercut;
             /// with it the fill surface would pass above the cut surface, TERRAIN.md appendix A): ToeProblems
             /// </summary>
-            ToeOvertopped
+            ToeOvertopped,
+            /// <summary>
+            /// a ramp is not on the wall (TERRAIN_RAMPS.md): its road needs fill, or the crest {S_lo = Z_R} comes closer
+            /// than Width to its outer edge, so the road is narrower than Width: RampProblems (ramp, path segment)
+            /// </summary>
+            RampNotOnWall
         }
 
         // inputs
@@ -238,13 +254,22 @@ namespace gs
         /// required: the largest vertical deviation below the exact cone envelope (data units). With a Terrain and
         /// BuildComposite, the composite is within Tolerance of the clamp of the terrain and the envelope
         /// (max(S_fill, min(T, S_cut))) except within m of the steps at the toe, the lateral limits and the cap, whose
-        /// position shifts by m: m is the largest move of a catch point, below UsedMinFeatureSize in a single run (with
+        /// position shifts by m: m is the largest move of a catch point, below 2 UsedMinFeatureSize in a single run (a snap,
+        /// then a merge; with
         /// Direction Auto, the snap at a toe crossing adds up to max(UsedMinFeatureSize, 1e-4 x the toes' size)); a
         /// composite that cannot be certified so fails with SlopeViolation (docs/design/TERRAIN.md 5.5)
         /// </summary>
         public double Tolerance = double.NaN;
         /// <summary> the relative slope margin δ: the planes are built with slope s (1 - δ); raised if the check needs it </summary>
         public double SlopeMargin = 1e-6;
+        /// <summary>
+        /// the largest number of cone tangent planes per turn (2 pi / FacetAngle), in [16, 4096]. A Tolerance whose facet share
+        /// needs more is refused with InvalidInput, and the message names a Tolerance from which the facets fit. The planar map's
+        /// insertion grows faster than linearly in the number of facets (#808: a 48-gon toe of 150 m, 130 m high, takes 8 s at
+        /// 256 facets and 27 s at 512; a 7-gon of 11 m takes 39 s at 1089), so the default bounds the run time; a larger
+        /// value allows a smaller Tolerance at that cost (docs/design/TERRAIN.md 5.1)
+        /// </summary>
+        public int MaxFanDirections = 512;
         /// <summary> with a terrain: its vertical uncertainty (data units, default 0), part of the catch line's uncertainty </summary>
         public double TerrainVerticalUncertainty = 0;
         /// <summary>
@@ -253,9 +278,12 @@ namespace gs
         /// </summary>
         public double CatchLineWarningThreshold = double.PositiveInfinity;
         /// <summary>
-        /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none). Reached by a smaller
+        /// with a terrain: the horizontal accuracy every catch-line segment must have (NaN: none), checked against the proven
+        /// bound CatchLine.ProvenUncertainty (since 2026-11-13; before, the local estimate Uncertainty), and no part of the
+        /// band without a segment (CatchLineBandWithoutLine). Reached by a smaller
         /// Tolerance (UsedTolerance; the whole design again, at most three times: Attempts, PhaseSeconds and the
-        /// statistics count all rounds), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
+        /// statistics count all rounds; a smaller Tolerance refused for MaxFanDirections is replaced in its round by the one its
+        /// message names, if that is still smaller), else CatchLineAccuracyNotReached (also when a smaller Tolerance fails)
         /// </summary>
         public double RequiredCatchLineAccuracy = double.NaN;
         /// <summary>
@@ -351,6 +379,13 @@ namespace gs
         /// <summary> the catch-line segments (line, segment) where the slope and the terrain coincide (tangential or planar contact) </summary>
         public List<Index2i> TangentialContact = new List<Index2i>();
         /// <summary>
+        /// the places (boxes in XY) where the slope surface and the terrain come within the band of the proven catch-line
+        /// bound (TERRAIN.md 5.5) without a computed catch-line segment nearby: a possible contact away from the computed
+        /// line, eg a grazing contact. Not part of any segment's ProvenUncertainty; with a RequiredCatchLineAccuracy they
+        /// count as not reached
+        /// </summary>
+        public List<AxisAlignedBox2d> CatchLineBandWithoutLine = new List<AxisAlignedBox2d>();
+        /// <summary>
         /// the level lines of the slope at TargetHeights: of SlopeRegion where it is built (the slope as it is in the
         /// composite), else of SlopeSurface. Per height in the order given, polylines in the plane z = height, closed where
         /// they close, open where the slope ends (at a catch line, a lateral limit or the toe)
@@ -395,25 +430,35 @@ namespace gs
             SlopeSurface = null; SlopeRegion = null; Composite = null; IsComplete = false; CatchLines = new List<CatchLine>();
             Replacement = null; ReplacedTerrainTriangles = new List<int>(); CompositeTerrainVertices = null; TerrainCompositeVertices = null;
             Pieces = new List<SlopePiece>(); ToeProblems = new List<Index2i>(); ProblemTriangles = new List<int>();
-            MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0;
+            RampProblems = new List<Index2i>(); UsedRoadMargin = 0; rampNominal = new List<RampNominal>(); rampsIn = new List<RampIn>();
+            MaxSlopeRatio = 0; UsedSlopeMargin = UsedToeLowering = UsedMinFeatureSize = FacetAngle = 0; FanTolerance = 0;
+            CatchMove = 0; CatchLineBandSlack = 0;
             Volume = PlanArea = SlopeArea = 0; CutVolume = FillVolume = CutArea = FillArea = 0;
             lastOverlay = null; lastPieces = null; TargetHeightLines = new List<TargetHeightLine>(); AutoCut = AutoFill = null;
             PhaseSeconds = new Dictionary<string, double>(); Attempts = 0; Realizations = 0; PredicateCalls = ExactFallbacks = ExactConstructions = 0;
             MergedPositions = 0; MergeLambdaRequired = 0; NeedleFlips = 0; LastRealized = null;
-            MaxMergeDistance = 0; BandMerges = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
+            MaxMergeDistance = 0; BandMerges = 0; RegionNeedles = RegionNeedleHits = 0; SkippedTerrainCopies = 0; CompositeBuilds = 0; UsedMergeRadius = UsedBandMergeRadius = 0; AttemptProblemAltitudes = new List<List<double>>();
             // (a cancelled or failed run can leave them set)
             reachedCap = capMayGrow = false;
             undercutThroughDesign = false;
             RayCount = 0; CanonicalProblem = ""; UndercutCauses = new List<SlopeMap.UndercutCause>();
             CapRounds = 0;
-            IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+            IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>(); CatchLineBandWithoutLine = new List<AxisAlignedBox2d>();
             double givenTolerance = Tolerance;
             UsedTolerance = Tolerance;
             try {
                 // (a smaller Tolerance until RequiredCatchLineAccuracy is met, at most 3 times)
                 List<CatchLine> previous = null;
+                double previousTolerance = Tolerance;
                 for (int round = 0; ; ++round) {
-                    Status = compute();
+                    Status = compute_named();
+                    // (a smaller Tolerance refused for its cone facets (MaxFanDirections): the smallest that fits, if it is
+                    // still smaller than the previous round's, in the same round)
+                    if (round > 0 && Status == Statuses.InvalidInput && FanTolerance > 0 && FanTolerance < previousTolerance) {
+                        Tolerance = FanTolerance; UsedTolerance = FanTolerance; FanTolerance = 0;
+                        IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
+                        Status = compute_named();
+                    }
                     if (Status != Statuses.Success && Status != Statuses.NoDaylight && Status != Statuses.CompositeFailed) {
                         // (a smaller Tolerance that fails, eg below the numerical margins: the accuracy is not reached;
                         // the previous round's catch lines show where)
@@ -432,7 +477,7 @@ namespace gs
                                       (verdict == 2 ? " (the terrain's vertical uncertainty or a tangential contact alone exceeds it)" : ""));
                         break;
                     }
-                    previous = CatchLines;
+                    previous = CatchLines; previousTolerance = Tolerance;
                     Tolerance = next; UsedTolerance = next;
                     IllConditionedCatchLine = new List<Index2i>(); TangentialContact = new List<Index2i>();
                 }
@@ -479,7 +524,7 @@ namespace gs
 
         // ---------------------------------------------------------------- inputs
 
-        sealed class InPiece
+        internal sealed class InPiece
         {
             public int Toe, Segment;
             public Vector3d A, B;          // specified toe points (mirrored for fill)
@@ -491,18 +536,104 @@ namespace gs
             public List<double> AngA = new List<double>(), AngB = new List<double>();
             public double Slb;             // lower bound of the gradient along any direction away from the piece
             public AxisAlignedBox2d Reach;
+            // ramps (TERRAIN_RAMPS.md): 0 a toe piece, 1 a ramp's road part, 2 its wall part (the next piece after its road)
+            public int Kind;
+            public int Ramp = -1;
+            public bool Bend;
+            // the points the check supports a triangle by: null for a toe piece (A and B), the polygon's corners for a ramp's
+            // wall; a ramp's road: the three points of its plane (each vertex of a road triangle on or below the road plane)
+            public Vector3d[] Support;
+            public RampUnit Unit;          // a road piece: its polygon and planes (per build)
+        }
+
+        // the exact check of one triangle of a piece (TERRAIN.md 5.4): not steeper than its spec, counter-clockwise, and
+        // its plane on or below the piece's support points (its toe ends; a ramp part's polygon corners)
+        internal static void check_piece(InPiece pc, Vector3d a, Vector3d b, Vector3d c, out bool slopeOk, out bool supportOk)
+        {
+            slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0 && Slope.IsNotSteeper(a, b, c, pc.Spec);
+            if (pc.Support == null) {
+                supportOk = Slope.IsPlaneOnOrBelow(a, b, c, pc.A) && Slope.IsPlaneOnOrBelow(a, b, c, pc.B);
+                return;
+            }
+            supportOk = true;
+            if (pc.Kind == 1) {
+                // (a road triangle lies on or below the road plane if its vertices do: both are planes)
+                Vector3d p = pc.Support[0], q = pc.Support[1], r = pc.Support[2];
+                int o2 = ExactPredicates.Orient2d(p.xy, q.xy, r.xy);
+                foreach (Vector3d v in new[] { a, b, c })
+                    if (ExactPredicates.Orient3d(p, q, r, v) * o2 > 0) { supportOk = false; return; }
+                return;
+            }
+            foreach (Vector3d p in pc.Support)
+                if (Slope.IsPlaneOnOrBelow(a, b, c, p) == false) { supportOk = false; return; }
+        }
+
+        static double piece_excess(InPiece pc, Vector3d a, Vector3d b, Vector3d c)
+        {
+            if (pc.Support == null) return Math.Max(plane_excess(a, b, c, pc.A), plane_excess(a, b, c, pc.B));
+            double m = 0;
+            if (pc.Kind == 1) {
+                Vector3d p = pc.Support[0], q = pc.Support[1], r = pc.Support[2];
+                foreach (Vector3d v in new[] { a, b, c }) m = Math.Max(m, vertex_excess(p, q, r, v));
+                return m;
+            }
+            foreach (Vector3d p in pc.Support) m = Math.Max(m, plane_excess(a, b, c, p));
+            return m;
         }
 
         // the last successful build's overlay and pieces (a mixed run builds its composite from those of its two runs)
         internal SlopeTerrainOverlay lastOverlay;
         List<InPiece> lastPieces;
 
+        /// <summary>
+        /// compute, and for a refusal of the facets (#808) the named Tolerance as a fixed point of the whole run up to the facet
+        /// check: with a cap from the terrain the cap's estimate (CapEstimateRounds) grows with the Tolerance by more than the
+        /// shift that build's search counts, so the run is repeated at the named Tolerance, only up to the check, until its
+        /// facets fit (Direction Auto: in compute_auto, over both runs)
+        /// </summary>
+        Statuses compute_named()
+        {
+            Statuses st = compute();
+            if (st != Statuses.InvalidInput || !(FanTolerance > 0) || fanCheckOnly || Direction == Directions.Auto)
+                return st;
+            string head = Message.Substring(0, Message.IndexOf(FacetsFitFrom));
+            double given = Tolerance, t = FanTolerance;
+            int attempts0 = Attempts, capRounds0 = CapRounds;
+            // (the runs of the search build again: the refused build's diagnostics are kept, the ramps' share among them)
+            double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY, used = UsedRampShare;
+            double margin = UsedSlopeMargin, feature = UsedMinFeatureSize, lowering = UsedToeLowering, ez0 = lastEz, ratio = MaxSlopeRatio;
+            int tooSmall = RampGradeTooSmall, realizations = Realizations;
+            long predicates = PredicateCalls, fallbacks = ExactFallbacks, constructions = ExactConstructions;
+            var phases = new Dictionary<string, double>(PhaseSeconds);
+            bool fits = false;
+            fanCheckOnly = true;
+            try {
+                for (int k = 0; k < 16; ++k) {
+                    Tolerance = t; FanTolerance = 0;
+                    Statuses s = compute();
+                    if (s == Statuses.InvalidInput && Message == FacetsChecked) { fits = true; break; }
+                    if (!(s == Statuses.InvalidInput && FanTolerance > t)) break;
+                    t = FanTolerance;
+                }
+            } finally {
+                fanCheckOnly = false; Tolerance = given; Attempts = attempts0; CapRounds = capRounds0;
+                RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; UsedRampShare = used;
+                RampGradeTooSmall = tooSmall;
+                UsedSlopeMargin = margin; UsedMinFeatureSize = feature; UsedToeLowering = lowering; lastEz = ez0; MaxSlopeRatio = ratio;
+                Realizations = realizations; PredicateCalls = predicates; ExactFallbacks = fallbacks; ExactConstructions = constructions;
+                PhaseSeconds = phases;
+            }
+            FanTolerance = fits ? t : 0;
+            ToeProblems = new List<Index2i>();
+            return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+        }
+
         // a run of one direction with this one's inputs (Direction Auto)
         TerrainSlopeDesign run_of(Directions dir)
         {
             return new TerrainSlopeDesign() {
                 Toes = Toes, Terrain = Terrain, Direction = dir, HeightLimit = HeightLimit, Tolerance = Tolerance,
-                SlopeMargin = SlopeMargin, TerrainVerticalUncertainty = TerrainVerticalUncertainty,
+                SlopeMargin = SlopeMargin, MaxFanDirections = MaxFanDirections, TerrainVerticalUncertainty = TerrainVerticalUncertainty,
                 CatchLineWarningThreshold = CatchLineWarningThreshold, CancelF = CancelF,
                 // (each run checks its own clipped region; the mixed composite is built and checked here)
                 BuildComposite = BuildComposite, CompositeKind = CompositeKinds.Replacement,
@@ -540,8 +671,34 @@ namespace gs
                 if (r.Status != Statuses.Success && r.Status != Statuses.NoDaylight && !(r.Status == Statuses.CompositeFailed && r.lastOverlay != null)) {
                     ToeProblems = r.ToeProblems; ProblemTriangles = r.ProblemTriangles;
                     undercutThroughDesign = r.undercutThroughDesign; UndercutCauses = r.UndercutCauses;
+                    FanTolerance = r.FanTolerance;
                     if (r == f && r.Status == Statuses.ToeUndercut)
                         return fail(Statuses.ToeOvertopped, $"fill: {r.ToeProblems.Count} toe segments are overtopped by the fill cones of other parts of the toe");
+                    // (the cut's facets refused: the fill's at the cut's named Tolerance too, without building it, so the
+                    // Tolerance named fits both runs; a refusal of the fill comes after a cut that fits, and a larger
+                    // Tolerance has fewer facets)
+                    if (r == c && r.Status == Statuses.InvalidInput && r.FanTolerance > 0) {
+                        // (the cut's facets refused: the Tolerance named fits both runs, each checked only up to its facets,
+                        // the larger need taken until both fit; a refusal of the fill comes after a cut that fits)
+                        double t = r.FanTolerance;
+                        bool fits = false;
+                        for (int k = 0; k < 16 && !fits; ++k) {
+                            fits = true;
+                            foreach (Directions dir in new[] { Directions.Cut, Directions.Fill }) {
+                                var probe = run_of(dir);
+                                probe.Tolerance = t; probe.fanCheckOnly = true;
+                                probe.Compute();
+                                if (probe.Status == Statuses.InvalidInput && probe.Message == FacetsChecked) continue;
+                                fits = false;
+                                t = (probe.Status == Statuses.InvalidInput && probe.FanTolerance > t) ? probe.FanTolerance : double.NaN;
+                                break;
+                            }
+                            if (double.IsNaN(t)) break;
+                        }
+                        FanTolerance = fits ? t : 0;
+                        string head = r.Message.Substring(0, r.Message.IndexOf(FacetsFitFrom));
+                        return fail(r.Status, "cut: " + head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+                    }
                     return fail(r.Status, (r == c ? "cut: " : "fill: ") + r.Message);
                 }
             }
@@ -561,15 +718,17 @@ namespace gs
             int lc = c.CatchLines.Count;
             IllConditionedCatchLine = c.IllConditionedCatchLine.Concat(f.IllConditionedCatchLine.Select(x => new Index2i(x.a + lc, x.b))).ToList();
             TangentialContact = c.TangentialContact.Concat(f.TangentialContact.Select(x => new Index2i(x.a + lc, x.b))).ToList();
+            CatchLineBandWithoutLine = c.CatchLineBandWithoutLine.Concat(f.CatchLineBandWithoutLine).ToList();
             CutVolume = c.Volume; CutArea = c.PlanArea; FillVolume = f.Volume; FillArea = f.PlanArea;
             Volume = c.Volume + f.Volume; PlanArea = c.PlanArea + f.PlanArea; SlopeArea = c.SlopeArea + f.SlopeArea;
-            MaxSlopeRatio = Math.Max(c.MaxSlopeRatio, f.MaxSlopeRatio);
-            UsedSlopeMargin = Math.Max(c.UsedSlopeMargin, f.UsedSlopeMargin);
-            UsedToeLowering = Math.Max(c.UsedToeLowering, f.UsedToeLowering);
-            UsedMinFeatureSize = Math.Max(c.UsedMinFeatureSize, f.UsedMinFeatureSize);
-            FacetAngle = Math.Max(c.FacetAngle, f.FacetAngle);
-            MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips;
-            MergeLambdaRequired = Math.Max(c.MergeLambdaRequired, f.MergeLambdaRequired);
+            MaxSlopeRatio = MathUtil.MaxExact(c.MaxSlopeRatio, f.MaxSlopeRatio);
+            UsedSlopeMargin = MathUtil.MaxExact(c.UsedSlopeMargin, f.UsedSlopeMargin);
+            UsedToeLowering = MathUtil.MaxExact(c.UsedToeLowering, f.UsedToeLowering);
+            UsedMinFeatureSize = MathUtil.MaxExact(c.UsedMinFeatureSize, f.UsedMinFeatureSize);
+            CatchLineBandSlack = MathUtil.MaxExact(c.CatchLineBandSlack, f.CatchLineBandSlack);
+            FacetAngle = MathUtil.MaxExact(c.FacetAngle, f.FacetAngle);
+            MergedPositions = c.MergedPositions + f.MergedPositions; NeedleFlips = c.NeedleFlips + f.NeedleFlips; RegionNeedles = c.RegionNeedles + f.RegionNeedles; RegionNeedleHits = c.RegionNeedleHits + f.RegionNeedleHits;
+            MergeLambdaRequired = MathUtil.MaxExact(c.MergeLambdaRequired, f.MergeLambdaRequired);
             RayCount = Math.Max(c.RayCount, f.RayCount);
             if (CheckCanonical) CanonicalProblem = c.CanonicalProblem != "" ? c.CanonicalProblem : f.CanonicalProblem;
             Statuses result = (c.Status == Statuses.NoDaylight || f.Status == Statuses.NoDaylight) ? Statuses.NoDaylight : Statuses.Success;
@@ -599,8 +758,8 @@ namespace gs
                 bool fillPiece = g >= nc;
                 InPiece pc = fillPiece ? f.lastPieces[g - nc] : c.lastPieces[g];
                 if (fillPiece) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
-                bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
-                bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                bool slopeOk, supportOk;
+                check_piece(pc, a, b, cc, out slopeOk, out supportOk);
                 if (slopeOk == false || supportOk == false) bad.Add(tid);
             }
             // (final: each run raised its margin and lowering for its own region; the mixed one does not build again)
@@ -611,8 +770,9 @@ namespace gs
             // the snap certificate of the mixed composite (TERRAIN.md 5.5): the larger of the two runs' budgets, which each
             // reserved Tolerance / 4 for it
             {
-                double budget = Math.Max(c.SnapBudget, f.SnapBudget);
+                double budget = MathUtil.MaxExact(c.SnapBudget, f.SnapBudget);
                 double dev = comp.SnapDeviation();
+                CatchMove = CatchLineMove(comp);
                 SnapBudget = budget; SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 if (!(ExactInterval.Up(budget + dev) <= Tolerance))
                     return fail(Statuses.SlopeViolation, cert_message(comp, dev, budget));
@@ -628,6 +788,8 @@ namespace gs
 
         Statuses compute()
         {
+            if (Ramps != null && Ramps.Count > 0 && Direction != Directions.Cut)
+                return fail(Statuses.NotImplemented, "ramps are cut only in R1 (TERRAIN_RAMPS.md): Direction must be Cut");
             if (Direction == Directions.Auto)
                 return compute_auto();
             bool fill = Direction == Directions.Fill;
@@ -637,6 +799,8 @@ namespace gs
                 return fail(Statuses.InvalidInput, "Tolerance must be positive and finite (no default)");
             if (!(SlopeMargin > 0) || !(SlopeMargin <= 0.01))
                 return fail(Statuses.InvalidInput, "SlopeMargin must be in (0, 0.01]");
+            if (MaxFanDirections < 16 || MaxFanDirections > 4096)
+                return fail(Statuses.InvalidInput, "MaxFanDirections must be in [16, 4096]");
             if (!(TerrainVerticalUncertainty >= 0) || double.IsInfinity(TerrainVerticalUncertainty))
                 return fail(Statuses.InvalidInput, "TerrainVerticalUncertainty must be >= 0 and finite");
             if (double.IsNaN(RequiredCatchLineAccuracy) == false && !(RequiredCatchLineAccuracy > 0 && RequiredCatchLineAccuracy < double.PositiveInfinity))
@@ -645,6 +809,7 @@ namespace gs
                 return fail(Statuses.InvalidInput, "CatchLineWarningThreshold must be positive (+infinity: none)");
             double heightLimit = HeightLimit;
             bool localLimit = Terrain != null && double.IsNaN(HeightLimit);
+            capShiftsWithTolerance = localLimit;
             if (Terrain != null) {
                 var swt = System.Diagnostics.Stopwatch.StartNew();
                 Statuses ts = check_terrain();
@@ -702,6 +867,17 @@ namespace gs
                     pieces.Add(new InPiece() { Toe = t, Segment = i, A = a, B = b, Spec = start[i], S = start[i].S });
                 }
             }
+            if (Ramps != null && Ramps.Count > 0) {
+                // (the ramps' pieces; with a terrain's local limit the slope is built above the roads' tops too)
+                Statuses rs = prepare_ramps(pieces, toePts);
+                if (rs != Statuses.Success)
+                    return rs;
+                if (localLimit)
+                    heightLimit = Math.Max(heightLimit, pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance);
+                else if (!(pieces.All(p => p.Kind == 0 || (p.A.z < heightLimit && p.B.z < heightLimit))))
+                    return ramp_problem(Statuses.InvalidInput, pieces.First(p => p.Kind != 0 && !(p.A.z < heightLimit && p.B.z < heightLimit)).Ramp, -1,
+                                        "HeightLimit must be above the ramp");
+            }
             double H = fill ? -heightLimit : heightLimit;
             foreach (var pc in pieces)
                 if (!(pc.A.z < H && pc.B.z < H))
@@ -722,7 +898,10 @@ namespace gs
             double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z)), sMin = pieces.Min(p => p.S);
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
-            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself)
+            ramp_box(ref toeBox);
+            // (with the estimate, one pass over the terrain gives both: the class of reach 0 is the box itself; the reach
+            // from the specified toe, not from the ramps' built heights as the budget's D0 (#861): an estimate, the raise
+            // below decides)
             Func<double, double> upTo = CapEstimateRounds > 0 ? terrain_max_by_reach(toeBox, (H - zMin) / sMin, fill) : null;
             double hLocal = (upTo != null ? upTo(0) : local_terrain_max(toeBox, 0, fill)) + Tolerance;
             double toeMax = pieces.Max(p => Math.Max(p.A.z, p.B.z)) + Tolerance;
@@ -784,8 +963,9 @@ namespace gs
 
         // TERRAIN.md 5.5: each catch-line segment's horizontal uncertainty, (Tolerance + TerrainVerticalUncertainty) over the
         // gradient of S - T on its face plus the move of the composite's snapping (MinFeatureSize); a local linearized
-        // estimate. Fills the reports; 0: fine, 1: RequiredCatchLineAccuracy needs a smaller Tolerance (next), 2: not
-        // reachable (the vertical uncertainty or a tangential contact alone exceeds it)
+        // estimate, for the warning threshold. RequiredCatchLineAccuracy is checked against the proven bound plus that move.
+        // Fills the reports; 0: fine, 1: RequiredCatchLineAccuracy needs a smaller Tolerance (next), 2: not reachable (the
+        // vertical uncertainty or a tangential contact alone exceeds it)
         int catch_line_accuracy(out double next)
         {
             next = Tolerance;
@@ -794,20 +974,34 @@ namespace gs
             double eps = Tolerance + Math.Max(0, TerrainVerticalUncertainty);
             for (int li = 0; li < CatchLines.Count; ++li) {
                 CatchLine l = CatchLines[li];
-                l.Uncertainty.Clear();
+                l.Uncertainty.Clear(); l.ProvenUncertainty.Clear();
                 for (int i = 0; i < l.Gradient.Count; ++i) {
                     double g = l.Gradient[i];
                     double u = g > 0 ? eps / g + UsedMinFeatureSize : double.PositiveInfinity;
                     l.Uncertainty.Add(u);
                     if (u > CatchLineWarningThreshold) IllConditionedCatchLine.Add(new Index2i(li, i));
                     if (l.Tangential[i]) TangentialContact.Add(new Index2i(li, i));
-                    if (required && !(u <= RequiredCatchLineAccuracy)) {
-                        // the Tolerance that meets it here (with 10 % to spare), if any
-                        double t = g > 0 ? 0.9 * ((RequiredCatchLineAccuracy - UsedMinFeatureSize) * g - Math.Max(0, TerrainVerticalUncertainty)) : 0;
+                    // (the proven bound plus the snap's move, rounded up)
+                    // (the composite's largest move of a catch point, measured: its own snap and merge, which can add up to almost
+                    // 2 MinFeatureSize, the nudge, and in a mixed run the partner snap; 0 without a composite, which moves none)
+                    double move = CatchMove;
+                    // (rounded up; 0 stays 0, which scales with 2^k)
+                    double pu = i < l.ProvenBand.Count ? (l.ProvenBand[i] + move == 0 ? 0 : ExactInterval.Up(l.ProvenBand[i] + move)) : double.PositiveInfinity;
+                    l.ProvenUncertainty.Add(pu);
+                    if (required && !(pu <= RequiredCatchLineAccuracy)) {
+                        // the Tolerance that meets it here (with 10 % to spare), if any: the band, and so the bound, shrinks with
+                        // Tolerance + TerrainVerticalUncertainty (the estimate's 1 / gradient)
+                        double room = RequiredCatchLineAccuracy - UsedMinFeatureSize;
+                        double t = (g > 0 && room > 0 && pu > UsedMinFeatureSize) ? 0.9 * (room * eps / (pu - UsedMinFeatureSize) - Math.Max(0, TerrainVerticalUncertainty)) : 0;
                         if (!(t > 0)) verdict = 2;
                         else { next = Math.Min(next, t); if (verdict == 0) verdict = 1; }
                     }
                 }
+            }
+            // (the band without a segment nearby: a possible contact the bound does not cover; a smaller Tolerance narrows it)
+            if (required && CatchLineBandWithoutLine.Count > 0) {
+                next = Math.Min(next, 0.5 * Tolerance);
+                if (verdict == 0) verdict = 1;
             }
             return verdict;
         }
@@ -818,7 +1012,7 @@ namespace gs
                 case Statuses.Success: case Statuses.NoDaylight: return StatusKinds.None;
                 case Statuses.InvalidInput: case Statuses.NotHeightField: return StatusKinds.InvalidInput;
                 case Statuses.NotImplemented: return StatusKinds.UnsupportedByMethod;
-                case Statuses.ToeSteeperThanSlope: return StatusKinds.GeometricallyInfeasible;
+                case Statuses.ToeSteeperThanSlope: case Statuses.RampNotOnWall: return StatusKinds.GeometricallyInfeasible;
                 case Statuses.ToeUndercut: case Statuses.ToeOvertopped:
                     return undercutThroughDesign ? StatusKinds.UnsupportedByMethod : StatusKinds.GeometricallyInfeasible;
                 case Statuses.SlopeViolation: case Statuses.CatchLineAccuracyNotReached: return StatusKinds.NotCertified;
@@ -835,6 +1029,8 @@ namespace gs
         bool through_design_area(List<InPiece> pieces, SlopeMap.UndercutCause c)
         {
             InPiece po = pieces[c.Cause], pk = pieces[c.Piece];
+            // (a ramp's road below a toe: the road is designed below the toe, which no surface within the slope fixes)
+            if (po.Kind != 0) return false;
             Vector2d q = c.At;
             Vector2d a = po.A.xy, b = po.B.xy, d = b - a;
             double t = MathUtil.Clamp((q - a).Dot(d) / d.LengthSquared, 0, 1);
@@ -910,17 +1106,23 @@ namespace gs
             // needs, measured; a slope or orientation failure raises the margin δ
             double delta = SlopeMargin, lambdaReq = -1;
             string certFail = null;
+            // (the region needles of this margin: a rebuild at the same margin, RebuildForEachLowering, keeps them)
+            var regionNeedles = new HashSet<XYEdge>();
             for (int attempt = 0; ; ++attempt) {
                 checkCancel();
                 BuildResult br;
-                Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br);
-                if (attempt > 0 && st == Statuses.InvalidInput)
-                    return fail(Statuses.SlopeViolation, certFail != null ? certFail + "; a larger margin does not fit into Tolerance"
-                                                       : $"{ProblemTriangles.Count} triangles failed the exact check; a larger margin does not fit into Tolerance");
+                Statuses st = build(pieces, toePts, H, delta, lambdaReq, fill, out br, regionNeedles);
+                if (attempt > 0 && st == Statuses.InvalidInput) {
+                    // (a larger margin whose facets need more than MaxFanDirections: said so, with the Tolerance they fit from)
+                    string why = FanTolerance > 0 ? $"; a larger margin needs more than {MaxFanDirections} cone facets per turn (they fit from Tolerance {FanTolerance:R})"
+                                                  : "; a larger margin does not fit into Tolerance";
+                    return fail(Statuses.SlopeViolation, (certFail ?? $"{ProblemTriangles.Count} triangles failed the exact check") + why);
+                }
                 if (st != Statuses.SlopeViolation) {
                     if (st == Statuses.Success || st == Statuses.NoDaylight || st == Statuses.CompositeFailed) {
                         SlopeSurface = br.Mesh;
                         CatchLines = br.CatchLines;
+                        CatchLineBandWithoutLine = br.BandWithoutLine;
                         lastOverlay = br.Overlay; lastPieces = pieces;
                         SlopeRegion = br.Region;
                         Composite = CompositeKind == CompositeKinds.Full ? br.Composite : null;
@@ -930,6 +1132,8 @@ namespace gs
                         TerrainCompositeVertices = br.CompositeVertexOf;
                         Pieces = pieces.Select(p => new SlopePiece() {
                             Toe = p.Toe, Segment = p.Segment, Spec = p.Spec, Direction = fill ? Directions.Fill : Directions.Cut,
+                            Kind = p.Kind == 0 ? SlopePiece.Kinds.Slope : (p.Kind == 1 ? SlopePiece.Kinds.Road : SlopePiece.Kinds.RampWall),
+                            Ramp = p.Ramp, Bend = p.Bend,
                             P0 = fill ? new Vector3d(p.A.x, p.A.y, -p.A.z) : p.A, P1 = fill ? new Vector3d(p.B.x, p.B.y, -p.B.z) : p.B
                         }).ToList();
                         // (assigned per build: a raised cap or another accuracy round builds again)
@@ -955,6 +1159,7 @@ namespace gs
                 if (attempt >= 7 || delta * 8 > 1e-3)
                     return fail(Statuses.SlopeViolation, br.CertFail ?? $"{br.Bad.Count} triangles failed the exact check");
                 delta *= 8;
+                regionNeedles = new HashSet<XYEdge>();
                 // (the measured lowering is kept; the next build caps it at its own bound)
                 lambdaReq = Math.Max(br.Lambda, (br.MaxExcess > 0 && 4 * br.MaxExcess <= br.LambdaBound) ? Math.Max(2 * br.Lambda, 4 * br.MaxExcess) : -1);
             }
@@ -964,6 +1169,25 @@ namespace gs
         sealed class CollapseRecord
         {
             public List<Vector2d[]> Made;
+            // the short edges (their ends in XY, XYEdge) of the realized triangles whose clipped parts in the composite's region
+            // failed the exact check: the band merge takes a triangle with such an edge as failing on the later realizations
+            // at this margin (TERRAIN.md 5.5). Owned by the margin's attempts, so a rebuild at the same margin keeps them
+            public HashSet<XYEdge> RegionNeedles = new HashSet<XYEdge>();
+        }
+
+        // an edge in XY, independent of the order of its ends (-0 is +0)
+        internal struct XYEdge : IEquatable<XYEdge>
+        {
+            readonly Vector2d a, b;
+            public XYEdge(Vector2d p, Vector2d q)
+            {
+                p.x += 0.0; p.y += 0.0; q.x += 0.0; q.y += 0.0;
+                if (q.CompareTo(p) < 0) { Vector2d t = p; p = q; q = t; }
+                a = p; b = q;
+            }
+            public bool Equals(XYEdge o) { return a == o.a && b == o.b; }
+            public override bool Equals(object obj) { return obj is XYEdge k && Equals(k); }
+            public override int GetHashCode() { unchecked { return a.GetHashCode() * 31 + b.GetHashCode(); } }
         }
 
         sealed class BuildResult
@@ -976,8 +1200,10 @@ namespace gs
             public double MaxExcess;           // largest height of a failing triangle's plane above its toe ends (ii)
             public double Lambda, LambdaBound;
             public double MergeLambda;
+            public int NewRegionNeedles;       // short edges of realized triangles newly taken as failing by the band merge (their region parts failed)
             public double RebuildLambda;       // RebuildForEachLowering: build again with this lowering         // > 0: build again with at least this lowering (the realization merged)
             public List<CatchLine> CatchLines = new List<CatchLine>();
+            public List<AxisAlignedBox2d> BandWithoutLine = new List<AxisAlignedBox2d>();
             public DMesh3 Region, Composite;
             public SlopeTerrainOverlay Overlay;
             public List<int> Replaced;
@@ -1023,7 +1249,7 @@ namespace gs
         // ---------------------------------------------------------------- one build
 
         Statuses build(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, double lambdaReq, bool fill,
-                       out BuildResult br)
+                       out BuildResult br, HashSet<XYEdge> regionNeedles)
         {
             br = new BuildResult();
             ToeProblems.Clear();
@@ -1041,14 +1267,17 @@ namespace gs
             double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
             var toeBox = AxisAlignedBox2d.Empty;
             foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
-            double D0 = (H - zMin) / (sMin * (1 - delta));
-            double maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
-            double maxZ = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
+            ramp_box(ref toeBox);
             // (the output coordinates and heights are rounded to nearest from the exact values, ExactSlopeKernel.Rounded /
             // Height: half an ulp; one ulp is counted. Heights near the lowered toe can exceed maxZ a little: ulp(2 maxZ))
-            double exy = ulp(maxXY), eeval = ulp(2 * maxZ);
+            double D0, maxXY, exy, eeval, rampShare, reachLowered;
+            if (reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered) == false)
+                return MathUtil.IsFinite(rampShare) ? fail(Statuses.Failed, "the reach of the lowered ramps does not converge")
+                                                    : fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
             double ez = 2 * sMax * exy + eeval;
+            // (the realization error of a stored height, TERRAIN.md 5.4: the slack of the catch-line bound's band, 5.5)
+            lastEz = ExactInterval.Up(ExactInterval.Up(2 * sMax * exy) + eeval);
             if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false)
                 return fail(Statuses.InvalidInput, "the slopes are too gentle for the height: the reach is not finite");
             // the bound of the toe lowering for triangles with altitudes of at least MinFeatureSize (plan, departure 1);
@@ -1073,40 +1302,77 @@ namespace gs
             // (on a terrain, Tolerance / 4 is reserved for the move of the composite's catch points, which its certificate
             // checks (TERRAIN.md 5.4); also without a composite, so the slope surface does not depend on BuildComposite)
             double snapShare = Terrain != null ? Tolerance / 4 : 0;
-            double facetShare = Tolerance - lambdaBound - delta * sMax * 1.1 * D0 - mergeShare - snapShare;
-            if (!(facetShare > 0))
-                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare:G3})");
+            // (a ramp's road is built flatter than its grade and its outer edge wider than Width: the road and the wall above
+            // it lie below the specified ones by at most the ramp's share, TERRAIN_RAMPS.md, "Margins"; reach_and_resolution
+            // computed it, and D0 from the lowest built height, #861)
+            if (RampGradeTooSmall >= 0)
+                return ramp_problem(Statuses.InvalidInput, RampGradeTooSmall, -1, $"the grade is too small for the slope margin (below {2 * RoadMargin(delta, sMin):G3})");
+            UsedRampShare = rampShare;
+            double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
+            double facetShare = Tolerance - withoutRamps - rampShare;
+            if (!(facetShare > 0)) {
+                if (rampShare > 0 && Tolerance - withoutRamps > 0)
+                    return fail(Statuses.InvalidInput, $"the ramp is too long or too wide for Tolerance {Tolerance}: its share is {rampShare:G3} (the road's grade margin {RampShareRoad:G3}, the outer edge's widening {RampShareWidth:G3}; TERRAIN_RAMPS.md, \"Margins\"), the numerical margins without it {withoutRamps:G3}");
+                return fail(Statuses.InvalidInput, $"Tolerance {Tolerance} is below the numerical margins ({withoutRamps + rampShare:G3})");
+            }
             // toe segments below the feature size at the largest margin (1e-3) cannot be realized
             double minFeatureMax = 2 * (8 * exy + 4 * eeval / sMin) / 1e-3;
             foreach (var pc in pieces)
-                if (pc.A.xy.Distance(pc.B.xy) < minFeatureMax) {
+                if (pc.Kind == 0 && pc.A.xy.Distance(pc.B.xy) < minFeatureMax) {
                     ToeProblems.Add(new Index2i(pc.Toe, pc.Segment));
                     return fail(Statuses.InvalidInput, $"toe {pc.Toe} segment {pc.Segment} is shorter than the smallest feature that can be realized ({minFeatureMax:G3})");
                 }
             // a direction is at most 3/4 theta from its nearest tangent plane (the grid is theta, and a grid direction
             // within theta / 2 of a strip direction is dropped), so the facet error is s D (1 - cos(3/4 theta))
-            double c = 1 - facetShare / (sMax * 1.1 * D0);
-            double theta = (c > Math.Cos(3 * Math.PI / 32)) ? Math.Acos(c) / 0.75 : Math.PI / 8;
-            int nTheta = (int)Math.Ceiling(2 * Math.PI / theta);
-            theta = 2 * Math.PI / nTheta;
+            int nTheta = FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
+            // (the budget again, as the naming below computes it: the same expressions, so the same count)
+            if (fan_directions_at(pieces, toePts, H, delta, Tolerance) != nTheta)
+                throw new InvalidOperationException("the facet budget of the naming differs from the build's");
+            if (nTheta < 0) {
+                // (the facets need more than MaxFanDirections directions per cone: the insertion's time grows faster than
+                // linearly in their number (#808), so the design is refused, naming a Tolerance t whose facets fit at this
+                // margin. With a cap from the terrain (no HeightLimit) the cap is the terrain's height plus Tolerance, so
+                // D0 and the margins grow with t: the budget is evaluated at the cap shifted by t - Tolerance, a fixed point
+                // that the search reaches from the estimate at this build's D0. A later raise of the cap, where the region
+                // reaches it, may need more: that build names its own)
+                double margins = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + rampShare;
+                double t = (margins + sMax * 1.1 * D0 * (1 - CoreMath.Cos(0.75 * 2 * Math.PI / MaxFanDirections))) / (Terrain != null ? 0.75 : 1);
+                bool fits = false;
+                for (int i = 0; i < 400 && MathUtil.IsFinite(t); ++i) {
+                    if (fan_directions_at(pieces, toePts, capShiftsWithTolerance ? H - Tolerance + t : H, delta, t) >= 0) { fits = true; break; }
+                    // (the step 2^(i / 8 - 30), exact: a growth from about 1e-9 to 2^20)
+                    int e = i / 8 - 30;
+                    t *= 1 + (e >= 0 ? (double)(1L << e) : 1.0 / (1L << -e));
+                }
+                // (none: with a cap from the terrain the facet share over the facets' scale tends to about
+                // 0.75 sMin (1 - δ) / (1.1 sMax) - δ as t grows, which slopes far apart keep below what the bound needs)
+                FanTolerance = fits ? t : 0;
+                string head = $"Tolerance {Tolerance} needs more than {MaxFanDirections} cone facets per turn (the numerical margins are {margins + snapShare:G3})";
+                return fail(Statuses.InvalidInput, head + (fits ? FacetsFitFrom + t.ToString("R") : NoFit));
+            }
+            if (fanCheckOnly)
+                return fail(Statuses.InvalidInput, FacetsChecked);
+            double theta = 2 * Math.PI / nTheta;
             FacetAngle = theta;
             // the band merge (TERRAIN.md 5.4, "Repair of the band") within the facet share's slack: the facets need
             // s D (1 - cos(3/4 theta)) at the rounded angle, at most their share; the rest takes the band merge's part
             // below S̃, 4 sMax (r + l + e_xy). A lower bound of the slack: 1 - cos is exact (Sterbenz, cos >= cos(3 pi / 32)
-            // > 1/2); Math.Cos is counted as off by up to 2^-49 (8 ulps of 1); each product and the difference are
+            // > 1/2); the cosine is counted as off by up to 2^-49 (8 ulps of 1; CoreMath.Cos is correctly rounded, within
+            // 2^-54 here, the rest is margin, kept from the time of Math.Cos); each product and the difference are
             // rounded outwards. It scales with 2^k bit for bit (scale-free factor, exact power-of-two scaling of the rest)
-            double oneMinusCos = ExactInterval.Up((1 - Math.Cos(0.75 * theta)) + Math.Pow(2, -49));
+            double oneMinusCos = ExactInterval.Up((1 - CoreMath.Cos(0.75 * theta)) + CoreMath.Ldexp(1, -49));
             double facetNeed = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(sMax * 1.1) * D0) * oneMinusCos);
             double facetSlack = ExactInterval.Down(facetShare - facetNeed);
             {
                 double deltaTerm = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(delta * sMax) * 1.1) * D0);
-                snapBase = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lambdaBound + deltaTerm) + mergeShare) + facetNeed);
+                snapBaseWithoutRamps = ExactInterval.Up(ExactInterval.Up(ExactInterval.Up(lambdaBound + deltaTerm) + mergeShare) + facetNeed);
+                snapBase = ExactInterval.Up(snapBaseWithoutRamps + rampShare);
                 snapSMax = sMax; snapExy = exy; snapMergeRadius = mergeRadius;
             }
             double bandRadius = BandMergeRadius(exy, ez, sMax, minFeature, facetSlack, lambdaBound);
             UsedMergeRadius = mergeRadius; UsedBandMergeRadius = bandRadius;
             // (the reach does not depend on λ: the map is built once per margin δ)
-            double dMax = (H - zMin + lambdaBound) / (sMin * (1 - delta) * Math.Cos(theta)) * 1.01;
+            double dMax = (H - zMin + reachLowered + lambdaBound) / (sMin * (1 - delta) * CoreMath.Cos(theta)) * 1.01;
 
             // The toe lowering λ (TERRAIN_1C_PLAN.md, idea A). Lowering every plane by λ leaves the line of any two
             // planes unchanged (Nz_a D_b - Nz_b D_a does not change when both D grow by λ Nz), so the map is built once
@@ -1122,6 +1388,7 @@ namespace gs
             var stripsAt = new Dictionary<Vector3d, List<StripRef>>();
             foreach (var pc in pieces) {
                 checkCancel();
+                if (pc.Kind != 0) continue;
                 // (a new build: no planes of an earlier attempt, whose kernel is gone)
                 pc.Strip.Clear(); pc.FanA.Clear(); pc.FanB.Clear(); pc.AngA.Clear(); pc.AngB.Clear();
                 pc.A1 = pc.A; pc.B1 = pc.B;
@@ -1130,7 +1397,14 @@ namespace gs
                 if (ps != Statuses.Success)
                     return ps;
             }
+            if (rampNominal != null) rampNominal.Clear();
+            if (pieces.Any(p => p.Kind != 0)) {
+                Statuses rs = build_ramps(kernel, pieces, delta, sMin, theta, nTheta, rFan, H, dMax, minFeatureMax);
+                if (rs != Statuses.Success)
+                    return rs;
+            }
             foreach (var pc in pieces) {
+                if (pc.Kind != 0) continue;
                 make_fans(kernel, pc, theta, nTheta, rFan, stripsAt);
                 double r = (H - Math.Min(pc.A1.z, pc.B1.z)) / pc.Slb * 1.01 + 1e-9 * dMax;
                 var box = new AxisAlignedBox2d(pc.A.xy, pc.A.xy);
@@ -1159,6 +1433,12 @@ namespace gs
             int[] order = InsertionOrder != null ? InsertionOrder(pieces.Count) : shuffled(pieces.Count, InsertionSeed);
             foreach (int k in order) {
                 checkCancel();
+                if (pieces[k].Kind == 2) continue;
+                if (pieces[k].Kind == 1) {
+                    RampUnit u = pieces[k].Unit;
+                    map.InsertPolygonPiece(k, k + 1, u.RoadPlane, u.Walls, u.Apexes, u.Fans, u.Angles, u.Box, u.ZMin, u.Slb, u.Reach, theta, u.Apexes);
+                    continue;
+                }
                 map.InsertPiece(k, pieces[k].Strip, pieces[k].FanA, pieces[k].AngA, pieces[k].FanB, pieces[k].AngB,
                     pieces[k].A1, pieces[k].B1, Math.Min(pieces[k].A1.z, pieces[k].B1.z), pieces[k].Slb, pieces[k].Reach, theta);
             }
@@ -1184,7 +1464,7 @@ namespace gs
             Attempts++;
             // (the kernel's work of the build itself; each realization counts its own below)
             PredicateCalls += kernel.PredicateCalls; ExactFallbacks += kernel.ExactPredicates; ExactConstructions += kernel.ExactConstructions;
-            var collapsesMade = new CollapseRecord();
+            var collapsesMade = new CollapseRecord() { RegionNeedles = regionNeedles };
             for (int realization = 0; ; ++realization) {
                 br = new BuildResult() { Lambda = lambda, LambdaBound = lambdaBound };
                 UsedToeLowering = lambda;
@@ -1194,9 +1474,12 @@ namespace gs
                 if (st != Statuses.SlopeViolation)
                     return st;
                 double next = -1;
+                // (realized needles whose clipped parts failed: realized again, where the band merge takes them)
+                if (br.NewRegionNeedles > 0 && realization < 7)
+                    next = lambda;
                 // (a band merge's need stays under λ's bound by the band radius's caps; checked, so λ never passes it: a
                 // need above it goes back to the caller, which raises δ)
-                if (br.MergeLambda > 0 && lambda < br.MergeLambda && (BandMerges == 0 || br.MergeLambda <= lambdaBound))
+                else if (br.MergeLambda > 0 && lambda < br.MergeLambda && (BandMerges == 0 || br.MergeLambda <= lambdaBound))
                     next = br.MergeLambda;
                 // a support failure (ii) only: a larger lowering, measured on the output, while it fits under the bound;
                 // anything else goes back to the caller, which raises the margin δ and builds again
@@ -1298,8 +1581,15 @@ namespace gs
                     mesh.GetTriVertices(t, ref a, ref b, ref c);
                     InPiece pc = pieces[mesh.GetTriangleGroup(t)];
                     if (fill) { a.z = -a.z; b.z = -b.z; c.z = -c.z; }
-                    return !(ExactPredicates.Orient2d(a.xy, b.xy, c.xy) > 0 && Slope.IsNotSteeper(a, b, c, pc.Spec) &&
-                             Slope.IsPlaneOnOrBelow(a, b, c, pc.A) && Slope.IsPlaneOnOrBelow(a, b, c, pc.B));
+                    if (collapsesMade.RegionNeedles.Count > 0) {
+                        Index3i tv = mesh.GetTriangle(t);
+                        Vector2d p0 = mesh.GetVertex(tv.a).xy, p1 = mesh.GetVertex(tv.b).xy, p2 = mesh.GetVertex(tv.c).xy;
+                        if (collapsesMade.RegionNeedles.Contains(new XYEdge(p0, p1)) || collapsesMade.RegionNeedles.Contains(new XYEdge(p1, p2)) ||
+                            collapsesMade.RegionNeedles.Contains(new XYEdge(p2, p0))) { RegionNeedleHits++; return true; }
+                    }
+                    bool slopeOk, supportOk;
+                    check_piece(pc, a, b, c, out slopeOk, out supportOk);
+                    return !(slopeOk && supportOk);
                 };
                 BandMerges = map.BandMerge(mesh, bandRadius, lambda, fill, fails, out bandLength);
                 // (the length rounded up: a bound of the move)
@@ -1333,11 +1623,11 @@ namespace gs
                 mesh.GetTriVertices(tid, ref a, ref b, ref cc);
                 InPiece pc = pieces[mesh.GetTriangleGroup(tid)];
                 if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
-                bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
-                bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                bool slopeOk, supportOk;
+                check_piece(pc, a, b, cc, out slopeOk, out supportOk);
                 if (slopeOk == false) br.SlopeFailures++;
                 if (supportOk == false)
-                    br.MaxExcess = Math.Max(br.MaxExcess, Math.Max(plane_excess(a, b, cc, pc.A), plane_excess(a, b, cc, pc.B)));
+                    br.MaxExcess = Math.Max(br.MaxExcess, piece_excess(pc, a, b, cc));
                 if (slopeOk == false || supportOk == false) {
                     bad.Add(tid);
                     continue;
@@ -1355,12 +1645,20 @@ namespace gs
             }
             br.Mesh = mesh;
             LastRealized = mesh;
+            LastPieceKinds = pieces.Select(p => p.Kind).ToArray();
             br.BadMesh = mesh;
             phase("check");
             count();
             if (bad.Count > 0)
                 return Statuses.SlopeViolation;
             MaxSlopeRatio = maxRatio;
+            // the ramps' width oracle (TERRAIN_RAMPS.md): each road's nominal strip is road, of at least Width
+            if (rampNominal != null && rampNominal.Count > 0) {
+                Statuses cs = ramp_coverage(mesh, pieces);
+                phase("ramps");
+                if (cs != Statuses.Success)
+                    return cs;
+            }
             if (Terrain == null)
                 return Statuses.Success;
 
@@ -1387,12 +1685,17 @@ namespace gs
             // the gradient and the contact of each catch-line segment (its uncertainty when Compute ends)
             for (int li = 0; li < overlay.CatchLines.Count; ++li) {
                 CatchLine l = overlay.CatchLines[li];
-                l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear();
+                l.Gradient.Clear(); l.Tangential.Clear(); l.Uncertainty.Clear(); l.ProvenUncertainty.Clear(); l.ProvenBand.Clear();
                 foreach (int fi in overlay.CatchFaces[li]) {
                     double g; bool coplanar;
                     overlay.SegmentContact(fi, out g, out coplanar);
                     l.Gradient.Add(g); l.Tangential.Add(coplanar);
                 }
+            }
+            // the proven bound of each segment (without the snap's move, added with the estimate's), TERRAIN.md 5.5
+            {
+                var proven = SlopeCatchLineBound.Compute(overlay, Tolerance, Math.Max(0, TerrainVerticalUncertainty), lastEz, br.BandWithoutLine, out CatchLineBandSlack);
+                for (int li = 0; li < overlay.CatchLines.Count; ++li) overlay.CatchLines[li].ProvenBand.AddRange(proven[li]);
             }
             overlay.Integrate(pieces.Count, out br.Volumes, out br.PlanAreas, out br.SlopeAreas);
             phase("overlay");
@@ -1420,11 +1723,11 @@ namespace gs
                         region.GetTriVertices(tid, ref a, ref b, ref cc);
                         InPiece pc = pieces[region.GetTriangleGroup(tid)];
                         if (fill) { a.z = -a.z; b.z = -b.z; cc.z = -cc.z; }
-                        bool slopeOk = ExactPredicates.Orient2d(a.xy, b.xy, cc.xy) > 0 && Slope.IsNotSteeper(a, b, cc, pc.Spec);
-                        bool supportOk = Slope.IsPlaneOnOrBelow(a, b, cc, pc.A) && Slope.IsPlaneOnOrBelow(a, b, cc, pc.B);
+                        bool slopeOk, supportOk;
+                        check_piece(pc, a, b, cc, out slopeOk, out supportOk);
                         if (slopeOk == false) regionSlopeFailures++;
                         if (supportOk == false)
-                            regionExcess = Math.Max(regionExcess, Math.Max(plane_excess(a, b, cc, pc.A), plane_excess(a, b, cc, pc.B)));
+                            regionExcess = Math.Max(regionExcess, piece_excess(pc, a, b, cc));
                         if (slopeOk == false || supportOk == false)
                             regionBad.Add(tid);
                     }
@@ -1452,6 +1755,20 @@ namespace gs
                 if (comp.RegionFailed && comp.CopyTerrain) SkippedTerrainCopies++;
                 CompositeBuilds += comp.Builds;
                 if (regionFailed) {
+                    // (the realized triangles the failing ones were cut from, with an edge the band merge may take: on the
+                    // next realization of this build it takes them as failing, TERRAIN.md 5.5. A realized needle passes
+                    // the check with its own corners, but its clipped part has new corners on its long edges, whose z are
+                    // rounded again, and over its short width that tilts the plane by e_z / width)
+                    if (mergedWithin && bandRadius > mergeRadius)
+                        foreach (int rt in regionBad) {
+                            Vector2d[] par;
+                            if (comp.RegionParent.TryGetValue(rt, out par) == false) continue;
+                            for (int j = 0; j < 3; ++j) {
+                                Vector2d e0 = par[j], e1 = par[(j + 1) % 3];
+                                if (e0.Distance(e1) > bandRadius) continue;
+                                if (collapsesMade.RegionNeedles.Add(new XYEdge(e0, e1))) { br.NewRegionNeedles++; RegionNeedles++; }
+                            }
+                        }
                     br.SlopeFailures += regionSlopeFailures;
                     br.MaxExcess = Math.Max(br.MaxExcess, regionExcess);
                     bad.AddRange(regionBad);
@@ -1462,6 +1779,7 @@ namespace gs
                 // of the deviation that the catch points' moves made, within Tolerance; else a larger margin δ, whose
                 // smaller MinFeatureSize moves them less
                 double dev = comp.SnapDeviation();
+                CatchMove = CatchLineMove(comp);
                 SnapCertificate = dev; SnapTriangles = comp.SnapTriangles; SnapTriangleBounds = comp.SnapTriangleBounds; SnapStep = comp.SnapStep; SnapMoves = comp.SnapMoves;
                 phase("certificate");
                 if (!(ExactInterval.Up(SnapBudget + dev) <= Tolerance)) {
@@ -1490,6 +1808,9 @@ namespace gs
         // computes it, the sum rounded up
         // (set by build: the terms that do not depend on the realization)
         double snapBase, snapSMax, snapExy, snapMergeRadius;
+        /// <summary> tests: the snap budget's base without the ramps' share, and the share of the last build </summary>
+        internal double snapBaseWithoutRamps, UsedRampShare;
+        internal double SnapRampPart { get { return snapBase - snapBaseWithoutRamps; } }
         double budget_without_snap()
         {
             double band = BandMerges > 0 ? ExactInterval.Up(4 * snapSMax * ExactInterval.Up(ExactInterval.Up(snapMergeRadius + MaxMergeDistance) + snapExy)) : 0;
@@ -1524,6 +1845,19 @@ namespace gs
 
         // the plane of (a, b, c) at p's XY minus p.z, its positive part (for the measured toe lowering): exact, rounded
         // to nearest, so a triangle that fails the support check has an excess > 0 even where doubles cannot see it
+        // how far the point p lies above the plane of (a, b, c) (0 if on or below)
+        static double vertex_excess(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
+        {
+            ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);
+            ExactDyadic ux = ExactDyadic.Of(b.x) - ax, uy = ExactDyadic.Of(b.y) - ay, uz = ExactDyadic.Of(b.z) - az;
+            ExactDyadic wx = ExactDyadic.Of(c.x) - ax, wy = ExactDyadic.Of(c.y) - ay, wz = ExactDyadic.Of(c.z) - az;
+            ExactDyadic nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+            if (nz.Sign == 0) return 0;
+            ExactDyadic num = (ExactDyadic.Of(p.z) - az) * nz + nx * (ExactDyadic.Of(p.x) - ax) + ny * (ExactDyadic.Of(p.y) - ay);
+            double e = ExactDyadic.Quotient(num, nz);
+            return (MathUtil.IsFinite(e) && e > 0) ? e : 0;
+        }
+
         static double plane_excess(Vector3d a, Vector3d b, Vector3d c, Vector3d p)
         {
             ExactDyadic ax = ExactDyadic.Of(a.x), ay = ExactDyadic.Of(a.y), az = ExactDyadic.Of(a.z);
@@ -1602,6 +1936,120 @@ namespace gs
         /// copy of the rest of the terrain; false: after the whole composite (the reference: the same results)
         /// </summary>
         internal bool EarlyRegionCheck = true;
+        /// <summary>
+        /// diagnostics: the short edges of realized triangles of this Compute that the band merge takes as failing because
+        /// their clipped parts in the composite's region failed the exact check (TERRAIN.md 5.5), and how often the band
+        /// merge found a triangle with such an edge. (Only for the single runs: the mixed composite of Direction Auto has its
+        /// own region check without this feedback, as each run certified its own region)
+        /// </summary>
+        internal int RegionNeedles, RegionNeedleHits;
+        /// <summary>
+        /// diagnostics of an InvalidInput for too many cone facets: the tolerance its message names, from which the facets fit
+        /// (at the margin of that build; a SlopeViolation after a raised margin names one too); 0 otherwise, also when no
+        /// Tolerance fits within MaxFanDirections
+        /// </summary>
+        internal double FanTolerance;
+        // (a run that only checks its facets, FanTolerance, and stops before the planes: the search of the named Tolerance)
+        bool fanCheckOnly;
+        const string FacetsChecked = "only the facets were checked";
+        const string FacetsFitFrom = "; the facets fit from Tolerance ";
+        const string NoFit = "; no Tolerance fits within MaxFanDirections (slopes far apart need more facets): raise it";
+        // (the cap of the builds is the terrain's height plus Tolerance: no HeightLimit)
+        bool capShiftsWithTolerance;
+
+        /// <summary>
+        /// the facets per turn of a build at the cap H (internal frame: fill mirrored), margin delta and Tolerance t, by the
+        /// budget of build (TERRAIN.md 5.1; -1: more than MaxFanDirections, or no facet share). The same expressions as build,
+        /// which checks that both agree
+        /// </summary>
+        int fan_directions_at(List<InPiece> pieces, List<List<Vector3d>> toePts, double H, double delta, double t)
+        {
+            double sMin = pieces.Min(p => p.S), sMax = pieces.Max(p => p.S);
+            var toeBox = AxisAlignedBox2d.Empty;
+            foreach (var pts in toePts) foreach (var p in pts) toeBox.Contain(p.xy);
+            ramp_box(ref toeBox);
+            // (the ramps' share writes the build's diagnostics, RampShare* and RampGradeTooSmall: kept as the build's own)
+            double road = RampShareRoad, width = RampShareWidth, rounding = RampShareRounding, xyPart = RampShareXY;
+            int tooSmall = RampGradeTooSmall;
+            double D0, maxXY, exy, eeval, rampShare, reachLowered;
+            bool converged;
+            try {
+                converged = reach_and_resolution(pieces, toeBox, H, delta, out D0, out maxXY, out exy, out eeval, out rampShare, out reachLowered);
+            } finally {
+                RampShareRoad = road; RampShareWidth = width; RampShareRounding = rounding; RampShareXY = xyPart; RampGradeTooSmall = tooSmall;
+            }
+            if (converged == false) return -1;
+            double minFeature = 2 * (8 * exy + 4 * eeval / sMin) / delta;
+            double ez = 2 * sMax * exy + eeval;
+            if (MathUtil.IsFinite(D0) == false || MathUtil.IsFinite(maxXY + 4 * D0) == false) return -1;
+            double lambdaBound = 2 * ez * (1 + 4 * 1.1 * D0 / minFeature);
+            double mergeShare = MergeShare(exy, sMax);
+            double snapShare = Terrain != null ? t / 4 : 0;
+            double withoutRamps = lambdaBound + delta * sMax * 1.1 * D0 + mergeShare + snapShare;
+            double facetShare = t - withoutRamps - rampShare;
+            return FanDirections(facetShare, sMax * 1.1 * D0, MaxFanDirections);
+        }
+
+        /// <summary>
+        /// the reach D0 of the cones (TERRAIN.md 5.1) and the numerical resolution of a build at the cap H and margin delta:
+        /// the reach from the lowest built height. A ramp's road and the wall above it are built up to the ramp's share
+        /// below the specified heights (TERRAIN_RAMPS.md, "Margins"), so their cones reach up to share / (sMin (1 - delta))
+        /// further than from the specified toe; before #861 only the 1.1 of the budget's terms covered that (L up to about
+        /// 0.2 D0 / delta). The share depends on e_xy, which depends on D0: a fixed point, D0 counted with a share at least
+        /// the one computed at its e_xy (e_xy changes only at a power of 2 of maxXY, so it ends after one or two rounds).
+        /// Without ramps the share is 0 and all is as before, bit for bit. reachLowered: the share D0 counts; rampShare:
+        /// the share at the final e_xy (at most reachLowered; NaN with RampGradeTooSmall). Writes the RampShare*
+        /// diagnostics (ramp_share). False if it does not settle (not seen)
+        /// </summary>
+        bool reach_and_resolution(List<InPiece> pieces, AxisAlignedBox2d toeBox, double H, double delta, out double D0,
+                                  out double maxXY, out double exy, out double eeval, out double rampShare, out double reachLowered)
+        {
+            double sMin = pieces.Min(p => p.S);
+            double zMin = pieces.Min(p => Math.Min(p.A.z, p.B.z));
+            double maxZ0 = Math.Max(Math.Abs(H), pieces.Max(p => Math.Max(Math.Abs(p.A.z), Math.Abs(p.B.z))));
+            reachLowered = 0;
+            for (int k = 0; ; ++k) {
+                D0 = (H - zMin + reachLowered) / (sMin * (1 - delta));
+                maxXY = Math.Max(Math.Max(Math.Abs(toeBox.Min.x), Math.Abs(toeBox.Max.x)), Math.Max(Math.Abs(toeBox.Min.y), Math.Abs(toeBox.Max.y))) + 2 * D0;
+                // (the lowest built height, which the heights' resolution counts too)
+                double maxZ = reachLowered > 0 ? Math.Max(maxZ0, Math.Abs(zMin - reachLowered)) : maxZ0;
+                exy = ulp(maxXY); eeval = ulp(2 * maxZ);
+                rampShare = ramp_share(delta, sMin, exy);
+                if (!(rampShare > reachLowered)) return true;     // (NaN: a grade too small, reported by the caller)
+                if (k == 8 || MathUtil.IsFinite(rampShare) == false) return false;
+                reachLowered = rampShare;
+            }
+        }
+
+        /// <summary>
+        /// the number of cone facets per turn for a facet share and the facets' scale sMax 1.1 D0 (TERRAIN.md 5.1): a direction is
+        /// at most 3/4 theta from its nearest tangent plane, so the facet error is s D (1 - cos(3/4 theta)); -1 if more than
+        /// max are needed (also when theta rounds to 0, where 2 pi / theta is infinite: #808)
+        /// </summary>
+        internal static int FanDirections(double facetShare, double scale, int max)
+        {
+            if (!(facetShare > 0)) return -1;
+            double c = 1 - facetShare / scale;
+            double theta = (c > CoreMath.Cos(3 * Math.PI / 32)) ? CoreMath.AcosByAtan2(c) / 0.75 : Math.PI / 8;
+            double n = Math.Ceiling(2 * Math.PI / theta);
+            return n <= max ? (int)n : -1;
+        }
+        // the last build's realization error of a stored height, 2 sMax e_xy + e_eval rounded up (TERRAIN.md 5.4)
+        double lastEz;
+        /// <summary> diagnostics of the last overlay: the slack of the catch-line bound's band on each side (TERRAIN.md 5.5) </summary>
+        internal double CatchLineBandSlack;
+        /// <summary>
+        /// diagnostics of the last composite: the largest XY move of a catch point from the overlay's catch line to the composite
+        /// (SlopeComposite.MaxCatchMove; 0 without a composite), added to the proven catch-line bound
+        /// </summary>
+        internal double CatchMove;
+
+        /// <summary>
+        /// the move of the catch points the proven catch-line bound adds (TERRAIN.md 5.5): measured on the composite, as the own
+        /// snap and the merge can add up to almost 2 MinFeatureSize (not bounded by MinFeatureSize, the bound before the
+        /// numerics review)
+        /// </summary>
+        internal static double CatchLineMove(SlopeComposite comp) { return comp.MaxCatchMove(); }
         /// <summary> diagnostics: realizations of this Compute whose final composite build failed the region check and skipped the terrain copy </summary>
         internal int SkippedTerrainCopies;
         /// <summary> diagnostics: composite builds of this Compute, rebuilds included (after a successful Build) </summary>
@@ -1614,6 +2062,8 @@ namespace gs
         internal int MergedPositions;
         /// <summary> tests and diagnostics: the slope surface of the last realization (also a failing one) </summary>
         internal DMesh3 LastRealized;
+        /// <summary> tests: the kinds of the pieces of LastRealized's groups (0 toe, 1 road, 2 ramp wall) </summary>
+        internal int[] LastPieceKinds;
         internal double MergeLambdaRequired;
 
         /// <summary> an upper bound of limit / s: rounded to nearest, one ulp up (s &gt; 0) </summary>
@@ -1654,7 +2104,7 @@ namespace gs
                     if (Slope.IsNotSteeper(A, B, Q, sb)) {
                         pc.Strip.Add(kernel.AddPlane(A, B, Q));
                         Vector2d G = g * u + sign * gn * n;
-                        var sr = new StripRef() { Piece = pc, P = A, Q = B, R = Q, Angle = Math.Atan2(G.y, G.x) };
+                        var sr = new StripRef() { Piece = pc, P = A, Q = B, R = Q, Angle = CoreMath.Atan2(G.y, G.x) };
                         foreach (Vector3d apex in new[] { A, B }) {
                             List<StripRef> l;
                             if (stripsAt.TryGetValue(apex, out l) == false) { l = new List<StripRef>(); stripsAt[apex] = l; }
@@ -1662,7 +2112,7 @@ namespace gs
                         }
                         break;
                     }
-                    rise *= 1 - 1e-12 * Math.Pow(2, tries);     // (doubling steps: any rounding of Q is covered)
+                    rise *= 1 - 1e-12 * CoreMath.Ldexp(1, tries);     // (doubling steps: any rounding of Q is covered)
                     if (tries > 60) throw new InvalidOperationException("TerrainSlopeDesign: strip plane");
                 }
             }
@@ -1683,12 +2133,12 @@ namespace gs
             Vector3d A = pc.A1, B = pc.B1;
             double dx = B.x - A.x, dy = B.y - A.y, L = Math.Sqrt(dx * dx + dy * dy);
             double g = (B.z - A.z) / L;
-            double phiU = Math.Atan2(dy, dx);
-            double betaB = Math.Acos(Math.Max(-1, Math.Min(1, g / pc.Sb)));
+            double phiU = CoreMath.Atan2(dy, dx);
+            double betaB = CoreMath.AcosByAtan2(Math.Max(-1, Math.Min(1, g / pc.Sb)));
             var sb = SlopeSpec.Rise(pc.Sb);
             fans(kernel, pc, B, A, phiU, betaB, theta, nTheta, rFan, sb, stripsAt[B], pc.FanB, pc.AngB);
             fans(kernel, pc, A, B, phiU + Math.PI, Math.PI - betaB, theta, nTheta, rFan, sb, stripsAt[A], pc.FanA, pc.AngA);
-            pc.Slb *= Math.Cos(2 * theta) * (1 - 1e-6);
+            pc.Slb *= CoreMath.Cos(2 * theta) * (1 - 1e-6);
         }
 
         static void fans(ExactSlopeKernel kernel, InPiece pc, Vector3d apex, Vector3d other, double center, double half,
@@ -1713,7 +2163,7 @@ namespace gs
                     }
                     continue;
                 }
-                Vector2d d = new Vector2d(Math.Cos(a), Math.Sin(a));
+                Vector2d d = new Vector2d(CoreMath.Cos(a), CoreMath.Sin(a));
                 double rise = pc.Sb * R;
                 Vector3d p1 = new Vector3d(apex.x - d.y * R, apex.y + d.x * R, apex.z);
                 for (int tries = 0; tries < 60; ++tries) {
@@ -1725,7 +2175,7 @@ namespace gs
                         }
                         break;
                     }
-                    rise *= 1 - 1e-12 * Math.Pow(2, tries);     // (doubling steps: any rounding of Q is covered)
+                    rise *= 1 - 1e-12 * CoreMath.Ldexp(1, tries);     // (doubling steps: any rounding of Q is covered)
                 }
             }
         }

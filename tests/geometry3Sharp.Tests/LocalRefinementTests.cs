@@ -149,7 +149,7 @@ namespace geometry3Sharp.Tests
 
         // sparse dual contouring of the SDF f (negative inside) with the coarse cells for which refine() is
         // true refined by factor
-        internal static DualContouring ContourMixed(Func<Vector3d, double> f, double cell, double extent, int factor, Func<Vector3i, bool> refine)
+        internal static DualContouring ContourMixed(Func<Vector3d, double> f, double cell, double extent, int factor, Func<Vector3i, bool> refine, bool recordCertificate = false)
         {
             var bounds = new AxisAlignedBox3d(-extent * Vector3d.One, extent * Vector3d.One);
             int n = (int)Math.Ceiling(2 * extent / cell);
@@ -180,7 +180,7 @@ namespace geometry3Sharp.Tests
             var dc = new DualContouring() {
                 Implicit = new LambdaImplicit() { F = f }, IsoValue = 0, InsideIsLess = true, CellSize = cell, Bounds = bounds,
                 CandidateCells = candidates,
-                NodeValueF = (v) => f(bounds.Min + cell * new Vector3d(v.x, v.y, v.z))
+                NodeValueF = (v) => f(bounds.Min + cell * new Vector3d(v.x, v.y, v.z)), RecordCertificateData = recordCertificate
             };
             dc.SetRefinement(factor, refined, fineCandidates, (v) => f(bounds.Min + hf * new Vector3d(v.x, v.y, v.z)));
             dc.Generate();

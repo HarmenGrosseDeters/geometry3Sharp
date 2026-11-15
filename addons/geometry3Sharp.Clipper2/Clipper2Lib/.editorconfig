@@ -1,0 +1,5 @@
+# Vendored Clipper2 2.0.0 sources (see README.md): kept as upstream wrote them. Upstream builds them with
+# <Nullable>enable</Nullable>; this package does not, so the nullable annotations of the files without a
+# #nullable directive only warn (CS8632). Annotations do not change the compiled code.
+[*.cs]
+dotnet_diagnostic.CS8632.severity = none

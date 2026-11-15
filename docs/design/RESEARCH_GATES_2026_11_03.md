@@ -9,6 +9,11 @@ Research inspected local revision `cd7fb8abba0af09d5725b60c700dfec95234e7ad`; th
 unchanged at the report branch's master base `8364ac74499bb1fadca580c68ec38b0d99bb0803`.
 No library code, mesh assets, dependency manifests or existing defaults are changed.
 
+Update 2026-11-12: brief 1 was built after all, under an owner budget exception ([FOLDOVER_FREE_MAPS.md](FOLDOVER_FREE_MAPS.md),
+merged in #374). Brief 2 stopped at its accuracy gate (#371, closed; [AFFINE_LOGMAP_GATE.md](AFFINE_LOGMAP_GATE.md)); its
+AffineLocal follow-up measurement closed in #538. Brief 3 is not started; roadmap `research.md` keeps it as the reduced
+method only, to be picked up later (owner 2026-11-04).
+
 ## Summary
 
 All line counts and session counts below are **engineering estimates, not measurements**. Lines include tests

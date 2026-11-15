@@ -7,7 +7,8 @@ Part of the [roadmap](../ROADMAP.md).
 - **Status (2026-11-12):** Phase 5 #1 (paths, loops) and #7 (#374) done, #5 stopped (#331), the affine heat method
   stopped at its gate (#371). Since then: batch queries stage 2 (#448), intersection-free dual contouring options A and
   B (#552, #572), geodesic Bézier curves (#540), point clouds step C1 (#580) merged; the D1 drift rule (hard problem 2)
-  built in #513. Not started: collision detection, tet meshing, TPMS, the rest of the Later list.
+  built in #513; the batch-query caller switches profiled and closed (#678). Not started: collision detection, tet meshing
+  beyond stage 0 (#487), TPMS, the rest of the Later list.
 - **Related:** [research/CROSS_FIELD_GEOMETRY.md](../research/CROSS_FIELD_GEOMETRY.md),
   [design/RESEARCH_GATES_2026_11_03.md](../design/RESEARCH_GATES_2026_11_03.md),
   [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md),
@@ -19,7 +20,7 @@ Part of the [roadmap](../ROADMAP.md).
   builds on it or makes it robust, faster or complete); rounding off the existing features comes first. Applied to the
   list below: item 4 (intersection-free DC: option A, then B, owner 2026-11-10) and item 1's caller switches go on;
   item 8 (geodesic Bezier, #540) is finished since it extends the geodesic paths; item 5 (TPMS) waits until DC is done;
-  item 9 (`ContourLoft`) waits for a concrete terrain, medical or CAD case; items 2 (collision detection) and 7
+  item 9 (`ContourLoft`) stage 1 started (owner 2026-11-12, own session); items 2 (collision detection) and 7
   (deformation) move to Later; item 6 (point clouds) is back in front (owner 2026-11-10: the most requested upstream
   feature, issues #65, #141, #96, #164 of gradientspace/geometry3Sharp; it builds on the alpha wrap), stage 1 (prior art,
   upper bound, design note) started, then built up to step C1 (#580, see item 6); item 3 (tet meshing) waits until the alpha wrap has sharp features.
@@ -40,7 +41,7 @@ Part of the [roadmap](../ROADMAP.md).
      benchmark README: sorted + parallel 3-5.7x on 4 cores, serial sorted 0.9-1.6x). Hand-over for the caller switches
      (a new session after Lévy phase 2; owner 2026-11-12: queued as a Sonnet session after the dirty-side provenance
      session):
-     - Profile run 2026-11-12 (docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
+     - Profile run 2026-11-12 (#678, merged 2026-11-12, 7b128048; docs/design/BATCH_QUERIES.md section 7): every listed caller already runs its queries in
        parallel (`gParallel`), so a switch adds only the sort (0.9-1.4x on the query part for random input, a loss on the
        callers' coherent order: MeshDeviation 3-12 % slower); no caller reaches the 10 % rule, nothing is switched. The
        only serial query loop is `TerrainSafety`'s source mapping (below 10 % of a terrain case; not switched).
@@ -65,6 +66,8 @@ Part of the [roadmap](../ROADMAP.md).
      Owner 2026-11-08: after the 2.0 milestones; no internal caller (our pipelines check end states exactly), value
      is for users; stage 1 (licence, prior art, API, plan for the floating-point bounds, which need a bound review)
      first, then 2-3 days with an Opus-level review of the bounds.
+     Stage 1 note (2026-11-13, for the owner's decision): [design/CCD.md](../design/CCD.md) (Tight-Inclusion MIT,
+     implemented from the paper; one hand-derived filter bound for review; probe 3-8 µs per random candidate pair).
   3. Tetrahedral meshing as an Alpha Wrap follow-up (owner 2026-11-08; after Alpha Wrap 2.0), L: "any input ->
      alpha wrap -> FEM-quality tet mesh". `MeshAlphaWrap` already refines and carves a `Delaunay3` with exact
      predicates; the wrap is a closed, manifold, self-intersection-free surface, which makes a constrained Delaunay
@@ -94,19 +97,43 @@ Part of the [roadmap](../ROADMAP.md).
      study of lever 6's variant B builds on it), TPMS / implicit inputs (item 5) and `WindingContouring` as a repair
      path. Starts with the prior-art check and a self-intersection count of today's `DualContouring` /
      `WindingContouring` on the lever 6 set (#498) as the upper bound.
+     Status: options A and B merged (#552, 781729f5, and #572, 2909f3f8, both 2026-11-10); hard problem 13 is done.
      Candidate follow-up (owner 2026-11-10, not scheduled): a topology guarantee for the contouring (the result has the
      topology of the level set, not only no self-intersections), from certified isosurfacing papers such as Plantinga &
      Vegter 2004 (interval arithmetic) and Boissonnat & Oudot (Delaunay refinement; CGAL as paper only); it would make
      `WindingContouring` a certified repair path.
+     Study done 2026-11-12 ([design/CONTOURING_TOPOLOGY.md](../design/CONTOURING_TOPOLOGY.md), measurement
+     `benchmarks/ContouringTopology`, #749): today's topology is wrong for every feature below about 1.5 cells
+     (implicit shapes, 1920 runs) and on 4 of 14 clean lever-6 meshes at one cell size at least (7 of 42 runs; 0 of
+     18 on the procedural solids), without a signal; no published method covers winding-number fields.
+     Decision (owner 2026-11-13): option A, implement now: stages 1-2, an exact topology certificate for clean closed
+     meshes and refinement driven by it (its own session, tier L). Options B (interval implicits / TPMS) and C (broken
+     inputs): attempt the proof first (docs only, in the #749 note); build them only once the proof is complete and
+     independently reviewed. B and C run alongside and do not delay A.
+     Proofs (2026-11-13, section 7 of the note, each independently reviewed): the isotopy proof for clean closed
+     meshes (Theorems 1-3); B: Theorem 5 covers level sets that are not piecewise linear under interval tests (its
+     citations of Brown 1960 / 1962 and Clarke 1983 are from memory, to be checked before SOURCES.md); C: only a
+     partial statement is provable (inside the certified cells the result differs from the level set by a
+     deformation that keeps every cell in place), given rigorous enclosures of the winding number that do not exist
+     yet; no cell at a defect edge can be certified.
+     Stage 1 (draft #779, 2026-11-13): `MeshWindingNumberSolidify.ComputeTopologyCertificate` (adaptive DC, clean
+     inputs; report only): the spike refused 0.88 % of the surface cells of the clean T1 meshes at / 128, none for
+     general position, and every wrong contour of the lever-6 set (none certified wrong in 78 runs); cost at / 128 on
+     4 cores 16-19 % of the contouring on clean T1, 12 % on the CAD solids (parallel path, equal to serial bit for bit;
+     serial 33-34 %).
   5. TPMS / lattice structures from implicit functions, S: builds on `MarchingCubes` `LinearEdges` and its enclosure
      guarantee; additive manufacturing showcase.
+     Status 2026-11-12: owner approved; design note [TPMS_LATTICE.md](../design/TPMS_LATTICE.md) approved by the coordinator
+     (marching cubes, `Enclosure` mode in PR 1, `WallThickness` as an approximation; Lidinoid and graded cell size later).
+     Draft PR with `TpmsLattice` (gyroid, P, D, Neovius, I-WP; sheet / skeletal; box and closed-mesh domain), tests and
+     `benchmarks/TpmsLattice`. A CLI / MCP command is a separate PR.
+     Merged 2026-11-13 (#750). Follow-ups: #817 (conservative-MC worst-case test, #833, merged), #815 (Lidinoid, #835, merged), #838 (sliver guard, bugfix), #816 (graded cell size, `PhaseMap` / `Grade`, #860, merged), #814 (CLI / MCP, `tpms` command, PR #879).
   6. Point clouds as "alpha wrap + Poisson" (owner 2026-11-08), M-L: first check whether `MeshAlphaWrap` takes point
      sets as input; the wrap gives a guaranteed watertight reconstruction and settles the hardest part, normal
      orientation (inside / outside from the wrap); then screened Poisson recovers the detail. Fast winding numbers
      and the batch queries (priority 1) are the building blocks. Built 2026-11-10 (design note POINT_CLOUD_RECONSTRUCTION.md): alpha wrap on
      points pinned, `PointCloudNormals`, XYZ reader / writer, `PointCloudSurface` (winding number + wrap); screened Poisson (C2) only on request.
-     Open platform item found on the way: `MeshIOUtil.FormatDouble` / `FormatFloat` choose the digits with the platform parser (net48: not always
-     correctly rounded; a subnormal could lose digits).
+     Platform item found on the way, done 2026-11-12: `MeshIOUtil.FormatDouble` / `FormatFloat` write the shortest round-trip text with `ShortestDecimal` (Ryu) on every target; net10 bytes unchanged.
   7. Deformation (ARAP, biharmonic; paper only, libigl is MPL), M; check existing Laplacian building blocks first.
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche.
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
@@ -121,8 +148,11 @@ Part of the [roadmap](../ROADMAP.md).
      ([design/TERRAIN.md](../design/TERRAIN.md) §9.2: plain lofting has no slope guarantee), medical / orthotics
      (segmented CT / MRI slices), CAD lofts between sections, GIS contour lines. Building blocks: exact predicates,
      the polygon types, `QualityMesh2`, Clipper2, possibly the exact 3D LP feasibility solver
-     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Priority medium
-     until a concrete case (a medical or CAD one would raise it).
+     ([exact-boolean.md](exact-boolean.md), mesh-kernel notes) for the admissibility test. Papers only. Stage 1 started
+     (owner 2026-11-12: own session; library and short prior-art check, design note, then build). Stage 1 built in #741
+     (2026-11-12, design note [CONTOUR_LOFT.md](../design/CONTOUR_LOFT.md) approved by the coordinator): optimal band, exact
+     `NoAdmissibleBand`, the non-manifold fan tilings of the FKU graph excluded, 2048 x 2048 in 2.8 s (6.9 s with the slope
+     oracle).
   Then: quad remeshing (L, licences to check), feature-preserving offsets
   (L, patent check, deferred 2026-11-05), intrinsic simplification (#9), Reach for the Spheres (#10), sparse SDF grids.
   Not to do: Monte Carlo PDEs (#6; no caller, conflicts with bit-for-bit determinism).
@@ -146,7 +176,7 @@ Part of the [roadmap](../ROADMAP.md).
 - **Phase 5 next research items** (owner 2026-11-03, only if the effort is really small): item 1 merged (#374),
   item 2 stopped at its gate (#371), item 3 only as the reduced method; probe `PlanarComplex.FindSolidRegions` first
   when it is picked up (later, owner 2026-11-04). One that is not small goes back to the owner.
-- **Phase 5 table:** #1 Bézier curves open; #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
+- **Phase 5 table:** #1 Bézier curves done (#540, 2026-11-10); #2 the paper's envelope algorithm open; #4, #6, #8, #9, #10 not started;
   #3 not planned (use Clipper2); #6 stays later (no caller yet).
 - **SMT checks with Z3** (owner 2026-11-04): pilot 1 merged in #400 (2026-11-08); pilot 2 for the exact booleans: step (2), the predicate generator's filter-bound rules, merged in #407 (2026-11-08); step (1), the D1 drift lemma: the apex rule merged (#415, #416); step (1b), the reference rule for the rest of D1, checked in `tools/Z3Pilot/drift_reference.py` before it is built (2026-11-09, [design note](../design/SAFE_ROUNDING_D1_DRIFT.md)).
 - **Later:** point clouds, feature-preserving offsets, quad remeshing, deformation,
@@ -224,12 +254,32 @@ in the tool project.
   closed manifold for any input but rounds off features. Its bottleneck, the exact union of many convex bodies, is our
   exact Boolean kernel; the EMBER early-out ideas would apply. Before building: a patent check (authors partly at
   Tencent LightSpeed Studios) and a comparison with Zint 2023. Not scheduled (budget; owner 2026-11-05)
+  Study 2026-11-13 ([design/MESH_OFFSET.md](../design/MESH_OFFSET.md)): Euclidean offset / inset with guarantees;
+  recommends certified contouring of the distance field (class S of the #749 certificate plus a Lipschitz band
+  certificate), the alpha wrap as the fallback for broken inputs, the exact polytope Minkowski sum as a test oracle
+  only (measured superlinear); mitered offsets stay this separate item. Decided 2026-11-13 (coordinator): option A,
+  A1 next (closed, manifold, no self-intersections, proven band, 2^k invariant); A2 (topology) after a reviewed proof of
+  the distance-field enclosure; the Minkowski oracle in the Nightly tier; `g3cli offset` opt-in after A1's benchmark.
+  A1 done 2026-11-13 (#799, `gs.MeshOffset`, design note section 10); degenerate triangles fixed in DualContouring's
+  quad split (#800). A2 (topology certificate) shelved 2026-11-13 after the probe (design note section 11: certified
+  share and cost short of the stop rule); it resumes only with refinement (finer cells where cells are listed, with
+  #749 stage 2), starting from `wip/mesh-offset-a2-probe`.
 - Quad remeshing (Instant Meshes 2015, QuadWild 2021)
 - Deformation: ARAP, biharmonic, cage coordinates
 - Tetrahedral meshing: see Phase 5 (constrained Delaunay tetrahedrization). fTetWild is MPL-2.0 (file-level
   copyleft), not MIT: implement from the paper (Hu et al. 2020) rather than port
 - TPMS / lattice structures from the implicit functions
-- Sparse SDF grids (OpenVDB-like), SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
+- Sparse SDF grids (OpenVDB-like): a CPU structure for large distance-field and contouring grids (callers: MeshOffset,
+  alpha wrap, TPMS, contouring; the gain is memory first). Layout from the papers, not from code: Museth 2013 *VDB:
+  High-Resolution Sparse Volumes with Dynamic Topology* (shallow fixed-depth tree, bit-masked nodes) and Museth 2021
+  *NanoVDB: A GPU-Friendly and Portable VDB Data Structure* (pointer-free, one contiguous block, index offsets instead of
+  pointers). Licence of OpenVDB / NanoVDB code to check before anyone reads it. Existing building blocks: `DSparseGrid3`,
+  `BiGrid3`, the sparse mode of `DualContouring`, the exact Boolean's octree. When: once a caller needs it, after an
+  upper-bound measurement (memory and time of the dense grid in that caller). Not for us (owner question 2026-11-13):
+  GPU kernels (netstandard2.0 without a GPU dependency; bit-for-bit determinism), the jump flooding algorithm
+  (approximate distances, no certified bound), neural SDFs (Instant-NGP, Neuralangelo, NeuS: training-dependent, no
+  guarantee).
+- SIMD via `System.Numerics`. For the `Orient3d` filter this was tried: about 2 % in total, not worth a second code path (branch `claude/boolean-simd-spike`, kept as a record)
 - Batch ray / point queries against a mesh or BVH (owner idea 2026-11-02): a separate batch API (eg `IntersectBatch(ReadOnlySpan<Ray3d>, ...)`, `IsInsideBatch(points)`), existing API unchanged. Only the floating-point filter of the exact ray-triangle test (Q2/Q3) runs SIMD (`Vector256` / `Vector512`) over the triangles of a BVH leaf or a ray packet; the rare cases inside the bound stay scalar on `Orient3d` + SoS, so results stay exact. No FMA and no cross-lane reduction, so SIMD equals the scalar path bit for bit (tested); netstandard2.0 keeps the scalar path. Prior art: Embree (Apache 2.0; Woop et al. 2013 watertight test over SIMD packets). When: after the Q2/Q3 prefilter, once a real caller needs throughput; upper bound first (the filter's share of the query time). Note the `Orient3d` SIMD spike above gave about 2 %; the difference here is a batch of independent tests per call. Also here: a coarser per-triangle bound (max-norms instead of permanents; new derivation and review) and per-ray reuse of the ray's second point, the two levers left after Q2/Q3 (single-triangle `Intersects` 2.5-4× base with the shared `Orient3d` filter; tree queries +5-30 %, repair total +0.9 %)
 - AI bridges as a separate package (ONNX Runtime): project 2D segmentation masks (SAM, DINO) from several views onto face selections, texture reprojection via ExpMap
 
@@ -258,7 +308,7 @@ bit-for-bit determinism and invariance tests.
 | 4 | Constrained Delaunay tetrahedrization, then tetrahedral meshing | Diazzi, Panozzo, Vaxman, Attene 2023 *Constrained Delaunay Tetrahedrization: A Robust and Practical Approach*; Hu et al. 2020 *Fast Tetrahedral Meshing in the Wild* | CDT: GPL / LGPL, paper only; fTetWild: MPL-2.0, paper only | On `Delaunay3` and the implicit points of `ExactMeshArrangement` |
 | 5 | **Next large item (owner 2026-11-02).** Upper bound and literature in [design/INSIDE_OUTSIDE_OPEN_INPUTS.md](../design/INSIDE_OUTSIDE_OPEN_INPUTS.md) (#325): about 100 of 111 fallbacks on 798 meshes hinge on inside / outside, the fallbacks take 54 % of the repair time; **spike result (#331): stop.** Resolving open inputs by GWN labels makes 3 of 111 fallbacks exact (0 regressions); 62 stay open at the structural crack / `ConflictEdges` limit (no labelling closes them), 32 differ from the pointwise GWN reference of the volume check; 12.7 % of 112440 patches are within 0.05 of a half-integer. A certified boundary term would not change this. The wrap fallback stays the answer for these inputs; literature (FEWN, Antipodal, Feng & Crane 2024, Feng's thesis) recorded in the note. Generalized signed distance and winding numbers for open / broken inputs | Feng & Crane 2024 *A Heat Method for Generalized Signed Distance*; Feng, Gillespie, Crane 2023 *Winding Numbers on Discrete Surfaces* | paper | Complements `MeshGeodesicDistance`, `VectorHeatMethod` and the repair stages |
 | 6 | Grid-free PDE solving (Monte Carlo geometry processing) | Sawhney & Crane 2020 *Monte Carlo Geometry Processing* (walk on spheres); Sawhney et al. 2023 *Walk on Stars*; Zombie | MIT | Needs only closest-point and ray queries (`DMeshAABBTree`, winding numbers); works on dirty geometry |
-| 7 | Foldover-free maps: fixed-boundary local untangling | Garanzha et al. 2021 *Foldover-free maps in 50 lines of code* | paper | **Merged in #374 (2026-11-04):** `FoldoverFreeParameterization`, no default atlas hook; independent review fix: the final flip-free iterate is returned (Converged true on all fixtures, annulus symmetric Dirichlet 686.97 -> 7.46), the epsilon schedule checked against equation 6. Open: the paper's energy-decrease stop instead of epsilon <= 1e-6 (about 131 iterations even from a valid start). [Measured acceptance](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md): folded-disc gate passed; SLIM quality target not universally met; torus global-overlap fallback remains. Local flip freedom does not close the global-injectivity gap in Phase 3 |
+| 7 | Foldover-free maps: fixed-boundary local untangling | Garanzha et al. 2021 *Foldover-free maps in 50 lines of code* | paper | **Merged in #374 (2026-11-04):** `FoldoverFreeParameterization`, no default atlas hook; independent review fix: the final flip-free iterate is returned (Converged true on all fixtures, annulus symmetric Dirichlet 686.97 -> 7.46), the epsilon schedule checked against equation 6. Round-off 2026-11-12: the paper's energy-decrease stop replaces epsilon <= 1e-6 (115-169 -> 16-54 iterations, same quality); the SLIM gap is the fixed boundary, the torus overlap a self-crossing fixed boundary (both documented). [Measured acceptance](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md): folded-disc gate passed; SLIM quality target not universally met; torus global-overlap fallback remains. Local flip freedom does not close the global-injectivity gap in Phase 3 |
 | 8 | Continuous collision detection | Wang et al. 2021 *A Large Scale Benchmark and an Inclusion-Based Algorithm for Continuous Collision Detection* (Tight-Inclusion); Li et al. 2020 *IPC* | Tight-Inclusion: MIT | Conservative, provably correct CCD; Unity, robotics |
 | 9 | Simplification with intrinsic error metrics | Liu et al. 2023 *Surface Simplification using Intrinsic Error Metrics* | paper | On the intrinsic triangulation infrastructure |
 | 10 | Mesh from coarse / sparse SDFs | Sellán et al. 2023 *Reach for the Spheres*; 2024 *Reach for the Arcs* | paper | With the sparse SDF grids and TPMS items under Later |
@@ -305,6 +355,9 @@ Problems where the library already has a head start and that could be researched
   no gain in accuracy that matters to geometry tolerances). It is extended to further code only when the determinism harness
   shows a real difference that the result depends on, with a harness case and benchmark numbers. Files using `DMath` may not
   call the `System.Math` transcendentals (analyzer check).
+  Later item (coordinator 2026-11-13, #802): complete `CoreMath` with correctly rounded `Acos` and `Tan` ported from CORE-MATH
+  (MIT); today `CoreMath.AcosByAtan2` is composed from `Atan2` and `Sqrt` (platform-independent, measured within 1 ulp of glibc's `Math.Acos`,
+  about 1.6 ulps of the true value at worst; `CoreMathComposedTests` bound what a swap would change).
 - **Exact or certified intrinsic triangulations.** Integer coordinates (Gillespie, Sharp, Crane 2021, Phase 3) combined
   with exact predicates, so that signposts never fail silently.
 - **Monte Carlo PDEs directly on polygon soups.** Walk on stars with generalized winding numbers instead of a clean
@@ -317,9 +370,10 @@ Problems where the library already has a head start and that could be researched
 #### Hard open problems (candidates for a stronger model)
 
 Must-win for a stronger-model investigation (owner 2026-11-10, corrected): 9 (scale-free repair; Fable design note, started
-2026-11-10), 3 together with the leads of 1 (after D1 has merged), 11 (the proof part, after the net48 / net10 measurement).
-Useful, not must-win: 10, 12. Running or decided: 2 (D1 build), 13 (DC build, option A then B), 8 (fixed; Antipodal),
-6 (option D, B reopenable). Not now: 1 alone, 4, 5 (tet), 7, 14.
+2026-11-10), 3 together with the leads of 1 (D1 has merged; Fable research session started 2026-11-12), 11 (the proof
+part, after the net48 / net10 measurement). Useful, not must-win: 10, 12. Done: 2 (D1, #513, merged 2026-11-11 as
+Boolean 2.1), 13 (DC options A and B, #552 and #572), 8 (fixed; Antipodal). Decided: 6 (option D, B reopenable).
+Not now: 1 alone, 4, 5 (tet), 7, 14.
 
 Owner 2026-11-09: a new, stronger Fable model is available. The problems below are the ones the known levers did not
 solve or that stopped at a stop rule, a fundamental limit or a design question. A Fable session may take one of them
@@ -342,6 +396,9 @@ Ordered by expected value for the library.
      - Z3 as the rule checker (see "Open research questions" above).
    - Why a stronger model: proof-level reasoning over cascades of moves and termination.
    - Payoff: exact booleans, repair and tet meshing at once.
+   - Status (2026-11-12, owner): taken up together with item 3 by a Fable research session
+     (session_01AaGT59a53nRKYCZvxKB6Vt): falsification run on real rounding traces first, candidate rules as lemmas
+     checked with Z3, ends with docs/design/SNAP_ROUNDING_3D.md and a recommendation; no library code.
 2. **D1: SafeRounding's additive drift budget runs out in clusters.**
    - Cases: 20 of the Boolean 2.0 unclean ops, and the 23 / 5 triangles left on 119829 / 119830, where the smallest
      rejected edit needs 1.01 times the bound.
@@ -358,6 +415,8 @@ Ordered by expected value for the library.
      2026-11-10, to save budget: a new Opus session builds from the hand-over in the design note, tier L; the Boolean
      session reviews; a short fresh Fable review of the diff against the lemma only if review or cohort run flag something), gate: the 16 239-op cohort run on the runner after
      the Boolean 2.0 confirmation run; ships as Boolean 2.1 (2.0 is signed off on the 79a2c1ab confirmation run).
+   - **Done:** merged 2026-11-11 as 69f13be3 (#513, counted as Boolean 2.1), after its 8 rounding mutation shards passed
+     ([exact-boolean.md](exact-boolean.md)).
 3. **Rounding cost on large or rotated results.**
    - Measured:
      - SafeRounding is 72-86 % of a resolve on rotated inputs ([hotspots.md](hotspots.md));
@@ -371,7 +430,7 @@ Ordered by expected value for the library.
    - Closed without gain:
      - feature quadrics in the Reducer;
      - crease-aware Steiner points.
-   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measurement running) can change it.
+   - Only a locally smaller α (option 4) or a dual-contouring post-pass (lever 6, measured 2026-11-09, result below) can change it.
    - Open, if lever 6 does not reach it: a provably valid feature recovery (manifold, no self-intersection, angle
      bounds) on top of the wrap.
    - Tet meshing stage 1 waits for it ([alpha-wrap-and-repair.md](alpha-wrap-and-repair.md), Alpha Wrap 3.0 lever 6).
@@ -387,6 +446,20 @@ Ordered by expected value for the library.
      (ideal crease-aligned flips and splits, without the exact checks). Below 70 % of B's Chamfer gain the flip path is
      dropped in favour of the B hybrid / intersection-free DC; above it the 1-2 week build is justified. #498 (probe
      harness and results) merges as measurement and docs.
+     Sharp-feature study (owner 2026-11-12, branch runs/sharp-features, master 30099f6): the 70 % rule above is
+     replaced. Chamfer against the input is the wrong reference for an enclosing result: with an offset, the miter line
+     of a 90° crease lies 1.41 offsets from the input edge, so no offset result can reach B's 0.70 (B has no offset).
+     The flip / split path is now judged on references an enclosing result can reach: concave crease length within
+     1 offset of the miter line, edge F at 0.1 %, crease normal error (as mitered-offset work compares against the
+     offset surface, not the input). K (a Kobbelt / EdgeSharpener-style pass on the wrap: plane snap, crease snap, edge
+     splits and flips, every move exactly checked) passes: T1 KR edge F 0.61 -> 0.88, crease normal 14.7° -> 4.6°,
+     concave within 1 offset 0.02 -> 0.75, 20/20 clean, 0 input crossings, 0.72x triangles, +1.1 s; on the procedural
+     CAD solids 0.995 / 0.03° / 0.98. Why B fails: self-intersection fixed on master (#552/#572), angles fixable with
+     SimplifyWithin's guard, no offset (inherent to the winding-number field), time (inherent to the uniform grid).
+     Offset DC and a local alpha are dominated by K. Owner 2026-11-12: build K as an opt-in pass between the wrap and
+     SimplifyAlphaWrap (AW3 work, tier M, one PR, exact KeepClearOf input test; prototype patch on runs/sharp-features);
+     default on or off after the 800 run; corners and split retries in a follow-up. Separate small PR:
+     WindingContouring.PostProcess with the pipeline's quality guard instead of 0.05 (> 170° triangles 17934 -> 52).
 5. **Tet meshing quality: sliver removal and a dihedral floor.**
    - Target: minimum dihedral >= 10° on 100 % of the inputs; stage 0 wrap surfaces go down to 12°.
    - Needed:
@@ -411,7 +484,7 @@ Ordered by expected value for the library.
    - The open cohort also has 736 ops > 5 s.
    - Open: Lévy 2024-style propagation across intersection curves (phase 1 #428: no propagation now; phase 2, the
      parallel fast-winding build, merged in #501) and a robust, scale-invariant inside threshold for open operands
-     (exact Antipodal Method merged in #539; per-patch evaluation L1 in draft #633).
+     (exact Antipodal Method merged in #539; per-patch evaluation L1 merged in #633, 2026-11-12; T5 PR 2 in draft #675).
    - A stronger-model review of the classification design pays here.
 9. **Robust repair at extreme scale disparity (F1b / F1c).**
    - Problem: cleanups relative to all triangles erode or drop far parts. Design note

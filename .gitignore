@@ -56,4 +56,5 @@ StrykerOutput/
 # incremental mutation runs (tests/mutation/run_stryker.sh)
 tests/mutation/baseline/
 tests/mutation/incremental-run.json
+tests/mutation/narrowed-run.json
 TestResults/

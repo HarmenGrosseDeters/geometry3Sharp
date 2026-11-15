@@ -160,6 +160,26 @@ namespace gs
         /// <summary> alpha wrap fallback: offset = bounding box diagonal / WrapRelativeOffset </summary>
         public double WrapRelativeOffset = 3000;
         /// <summary>
+        /// alpha wrap fallback for a small input: below this many triangles the wrap does not go finer than the input's own feature size,
+        /// alpha = max(bounding box diagonal / WrapRelativeAlpha, median edge length / SmallInputWrapEdgeDivisor), with the offset in the
+        /// same ratio to alpha as without it (WrapRelativeAlpha / WrapRelativeOffset). The wrap size depends on diagonal / alpha only, so
+        /// a few triangles with the default alpha took seconds for about 200 000 wrap triangles (#636). The wrap still encloses the
+        /// input at the offset it reports (UsedOffset). 0 turns it off; an input of this many triangles or more is wrapped as before, and so is one with far parts (the wrap is judged against the largest component then: WrapTooCoarse).
+        /// A coarser wrap than before for such an input: alpha up to a quarter of its edge length, a small feature next to larger ones can be wrapped over.
+        /// </summary>
+        public int SmallInputWrapTriangles = 64;
+        /// <summary> the divisor of the median edge length for the alpha of a small input (see <see cref="SmallInputWrapTriangles"/>) </summary>
+        public double SmallInputWrapEdgeDivisor = 4;
+        /// <summary>
+        /// alpha wrap fallback: the raw-size budget of the wrap (MeshAlphaWrap.MaxEstimatedTriangles; 0 = off, the default): above this
+        /// estimated size the wrap's alpha and offset are coarsened before the refinement, and AlphaWrapCoarsening reports the factor.
+        /// The wrap's size, and the time of the wrap and its simplification, go with the input's surface area / alpha^2, not with its
+        /// triangle count (issue #694: 260 triangles of a flattened sphere wrapped to 211,614 triangles, about 6 s per Apply).
+        /// </summary>
+        public int WrapMaxEstimatedTriangles = 0;
+        /// <summary> threads of the alpha wrap's carving (MeshAlphaWrap.MaxThreads: 0 = all cores, 1 = one thread); the result is the same for every value </summary>
+        public int WrapMaxThreads = 0;
+        /// <summary>
         /// alpha wrap fallback: simplify the wrap (it has many small triangles, about alpha in size, also on flat
         /// regions). Collapses create no self-intersections (Reducer.PreventSelfIntersections, exact, also if
         /// CheckSelfIntersections is false); the result is kept only if it is clean and certified within half the
@@ -189,6 +209,20 @@ namespace gs
         /// (benchmarks/MeshRepairBenchmark README, "Alpha wrap quality pass"). true runs it as before.
         /// </summary>
         public bool AlphaWrapQualityPass = false;
+        /// <summary>
+        /// alpha wrap fallback: before the simplification, recover the input's sharp edges on the raw wrap (AlphaWrapFeaturePass:
+        /// vertices onto the offset surface's planes, vertices and split points onto its creases near the input's sharp edges,
+        /// edges flipped along them). Every operation is checked exactly: no self-intersection, no contact with the input, no
+        /// input triangle in the region it sweeps, vertices at least 0.9 offset from the input, angle floors; so the wrap's
+        /// guarantees are kept. Off by default (opt-in, Alpha Wrap 3.0 lever 6; the default is decided on the 800 mesh run).
+        /// On the 20 T1 meshes of the sharp-feature study: edge F 0.61 -> 0.88, crease normal error 14.7 -> 4.6 degrees,
+        /// 0.72x the triangles, the pipeline 3.8 -> 5.1 s (median; the pass itself 0.8 s; benchmarks/SharpFeatureProbe, variant KR).
+        /// </summary>
+        public bool AlphaWrapSharpFeatures = false;
+        /// <summary> alpha wrap fallback: true if AlphaWrapSharpFeatures ran and changed the raw wrap </summary>
+        public bool AlphaWrapSharpFeaturesApplied;
+        /// <summary> (benchmarks, tests) sets the switches of the sharp-feature pass (AlphaWrapSharpFeatures) </summary>
+        internal Action<AlphaWrapFeaturePass> ConfigureWrapFeatures;
         /// <summary> (benchmarks, tests) sets the variant switches of the quality pass (AlphaWrapQualityPass) </summary>
         internal Action<AlphaWrapQualityPass> ConfigureWrapQuality;
 
@@ -253,6 +287,11 @@ namespace gs
         public MeshAlphaWrap AlphaWrap;
         /// <summary> alpha wrap fallback: triangles of the wrap before simplification (0 if not run) </summary>
         public int AlphaWrapTriangles;
+        /// <summary>
+        /// alpha wrap fallback: the factor by which WrapMaxEstimatedTriangles coarsened the wrap's alpha and offset (1: not coarsened, or
+        /// the wrap did not run); AlphaWrap.EstimatedTriangles is the estimate it was judged on
+        /// </summary>
+        public double AlphaWrapCoarsening = 1;
         /// <summary> alpha wrap fallback: true if the result is the simplified wrap (SimplifyAlphaWrap) </summary>
         public bool AlphaWrapSimplified;
         /// <summary> alpha wrap fallback: true if the result is the improved wrap (AlphaWrapQualityPass) </summary>
@@ -533,7 +572,9 @@ namespace gs
             UsedInput = false;
             UsedAlphaWrap = false;
             AlphaWrapTriangles = 0;
+            AlphaWrapCoarsening = 1;
             AlphaWrapSimplified = false;
+            AlphaWrapSharpFeaturesApplied = false;
             AlphaWrapQualityImproved = false;
             AlphaWrapMinAngleDegrees = AlphaWrapMaxAngleDegrees = AlphaWrapShareAbove170 = double.NaN;
             SolidifyReason = "";
@@ -748,8 +789,13 @@ namespace gs
                 SolidifyReason = NotCleanReason(Solidify.Result, CheckSelfIntersections);
             end_phase("solidify.check");
             if (SolidifyReason != "" && AlphaWrapFallback) {
-                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, CancelF = CancelF };
+                double smallAlpha = 0, smallOffset = 0;
+                if (SmallInputWrapTriangles > 0 && input.TriangleCount < SmallInputWrapTriangles && solidifyFrom.TriangleCount < SmallInputWrapTriangles && lostPartInput == null)
+                    small_input_wrap(solidifyFrom, out smallAlpha, out smallOffset);
+                AlphaWrap = new MeshAlphaWrap(solidifyFrom) { RelativeAlpha = WrapRelativeAlpha, RelativeOffset = WrapRelativeOffset, Alpha = smallAlpha, Offset = smallOffset, CancelF = CancelF,
+                    MaxEstimatedTriangles = WrapMaxEstimatedTriangles, MaxThreads = WrapMaxThreads };
                 AlphaWrap.Compute();
+                AlphaWrapCoarsening = AlphaWrap.AlphaCoarsening;
                 end_phase("wrap");
                 // (PointLimitReached: less detail, same guarantees)
                 if ((AlphaWrap.Status == MeshAlphaWrap.WrapStatus.Success || AlphaWrap.Status == MeshAlphaWrap.WrapStatus.PointLimitReached)
@@ -761,15 +807,28 @@ namespace gs
                         WrapReason = WrapTooCoarse;
                     else {
                     AlphaWrapTriangles = AlphaWrap.Result.TriangleCount;
-                    DMesh3 wrapped = AlphaWrap.Result;
+                    DMesh3 raw = AlphaWrap.Result;
+                    if (AlphaWrapSharpFeatures) {
+                        var features = new AlphaWrapFeaturePass(new DMesh3(raw, true), solidifyFrom, AlphaWrap.UsedAlpha, AlphaWrap.UsedOffset) { CancelF = CancelF };
+                        ConfigureWrapFeatures?.Invoke(features);
+                        bool computed = features.Compute();
+                        end_phase("wrap.features");
+                        if (!computed || CancelF())
+                            return false;
+                        if (features.PlaneMoves + features.CreaseSnaps + features.Splits + features.Flips > 0) {
+                            raw = new DMesh3(features.Mesh, true);
+                            AlphaWrapSharpFeaturesApplied = true;
+                        }
+                    }
+                    DMesh3 wrapped = raw;
                     if (SimplifyAlphaWrap) {
-                        wrapped = simplify_wrap(AlphaWrap.Result, AlphaWrap.UsedOffset, solidifyFrom) ?? AlphaWrap.Result;
+                        wrapped = simplify_wrap(raw, AlphaWrap.UsedOffset, solidifyFrom) ?? raw;
                         end_phase("wrap.simplify");
                         if (CancelF())
                             return false;
                     }
-                    if (AlphaWrapQualityPass && wrapped != AlphaWrap.Result) {
-                        DMesh3 improved = ImproveWrapQuality(wrapped, AlphaWrap.Result, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
+                    if (AlphaWrapQualityPass && wrapped != raw) {
+                        DMesh3 improved = ImproveWrapQuality(wrapped, raw, 0.5 * AlphaWrap.UsedOffset, CheckSelfIntersections, CancelF,
                             (p) => { DefaultWrapQuality(p); p.KeepClearOf = new DMeshAABBTree3(solidifyFrom, true); ConfigureWrapQuality?.Invoke(p); });
                         end_phase("wrap.quality");
                         if (CancelF())
@@ -779,7 +838,7 @@ namespace gs
                             AlphaWrapQualityImproved = true;
                         }
                     }
-                    AlphaWrapSimplified = wrapped != AlphaWrap.Result;
+                    AlphaWrapSimplified = wrapped != raw;
                     Mesh = wrapped;
                     UsedAlphaWrap = true;
                     angle_stats(wrapped, out AlphaWrapMinAngleDegrees, out AlphaWrapMaxAngleDegrees, out AlphaWrapShareAbove170);
@@ -956,7 +1015,8 @@ namespace gs
         /// mesh reduced (quadric error up to quadricDistance^2, no collapse that creates a self-intersection), or null
         /// if the result is not clean or not certified within maxDistance of the mesh (one-sided Hausdorff upper
         /// bound, from the result to the mesh). The distance is checked afterwards rather than per collapse
-        /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing.
+        /// (Reducer.MaxDeviation): on alpha wraps that check took 10 to 30 times longer and changed nothing on most. A
+        /// reduction that is not certified is done once more with MaxDeviation (issue #747; 5 of the 800 sample wraps).
         /// </summary>
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF)
         {
@@ -998,13 +1058,18 @@ namespace gs
                 WrapSimplifyMinQuality, true, slabs, maxThreads);
         }
 
+        /// <summary> the retry of SimplifyWithin bounds every collapse to this fraction of maxDistance (Reducer.MaxDeviation) </summary>
+        internal const double RetryDeviationFraction = 0.8;
+        /// <summary> the first retry of SimplifyWithin keeps sample points of every new triangle within this fraction of maxDistance (Reducer.SampleDeviation) </summary>
+        internal const double RetrySampleFraction = 0.5;
+
         internal static DMesh3 SimplifyWithin(DMesh3 mesh, double quadricDistance, double maxDistance, bool checkSelfIntersections, Func<bool> cancelF,
             out int hausdorffSubdivisions, double minQuality, bool qualityAgainstWorst, int slabs, int maxThreads,
-            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null)
+            Dictionary<string, long> phases = null, DMesh3 keepClearOf = null, bool retryWithDeviation = true,
+            bool retrySampled = true)
         {
             hausdorffSubdivisions = 0;
             Stopwatch timer = Stopwatch.StartNew();
-            DMesh3 m = new DMesh3(mesh);
             // (the wrap's input, read only: no collapse creates a triangle that touches it)
             DMeshAABBTree3 clearTree = keepClearOf != null ? new DMeshAABBTree3(keepClearOf, true) : null;
             Action<Reducer> configure = (r) => {
@@ -1013,14 +1078,61 @@ namespace gs
                 r.AreaWeightedQuadrics = false; r.MinCollapseTriangleQuality = minQuality; r.CollapseQualityAgainstWorst = qualityAgainstWorst;
                 r.EdgeFlipTolerance = Math.Cos(60 * MathUtil.Deg2Rad);
             };
+            DMesh3 m = reduce(mesh, quadricDistance, slabs, maxThreads, configure, cancelF, phases, "");
+            lap(phases, "reduce", timer);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            lap(phases, "check", timer);
+            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "certify", timer);
+            if (within || !retryWithDeviation || cancelF())
+                return within ? m : null;
+            // Not certified: the quadric error bounds the distance of each vertex to the planes it absorbed, not of the
+            // triangles to the mesh (on the Thingi10K 800 sample 5 of 800 wraps, 1.2 to 10.7 times maxDistance, at a fold of
+            // the wrap and elsewhere; issue 747). First once more with Reducer.SampleDeviation (the new triangles' centroids
+            // and edge midpoints within RetrySampleFraction of maxDistance of the mesh: a few nearest-point queries per
+            // collapse, about 1.3 times the plain reduction; it certified all 5), then certified again as a whole
+            if (retrySampled) {
+                var sampleRef = new DMeshAABBTree3(new DMesh3(mesh), true);
+                Action<Reducer> sampled = (r) => { configure(r); r.SampleDeviation = RetrySampleFraction * maxDistance; r.SampleReference = sampleRef; };
+                m = reduce(mesh, quadricDistance, slabs, maxThreads, sampled, cancelF, phases, "retry/");
+                lap(phases, "retry", timer);
+                if (cancelF())
+                    return null;
+                if (NotCleanReason(m, checkSelfIntersections) == "") {
+                    within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+                    lap(phases, "retry/certify", timer);
+                    if (within || cancelF())
+                        return within ? m : null;
+                }
+            }
+            // Still not: with Reducer.MaxDeviation, which certifies every collapse against the mesh (10 to 30 times slower,
+            // so only here), then certified again as a whole (the bound with a margin: the certification's own bound cannot
+            // prove a distance right at maxDistance)
+            // (PartitionedReduction measures every slab and its last pass from the mesh given)
+            Action<Reducer> bounded = (r) => { configure(r); r.MaxDeviation = RetryDeviationFraction * maxDistance; };
+            m = reduce(mesh, quadricDistance, slabs, maxThreads, bounded, cancelF, phases, "retry2/");
+            lap(phases, "retry2", timer);
+            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
+                return null;
+            within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
+            lap(phases, "retry2/certify", timer);
+            return within ? m : null;
+        }
+
+        // a copy of mesh reduced to the quadric error quadricDistance^2 (PartitionedReduction on slabs, or one Reducer)
+        static DMesh3 reduce(DMesh3 mesh, double quadricDistance, int slabs, int maxThreads, Action<Reducer> configure, Func<bool> cancelF,
+            Dictionary<string, long> phases, string prefix)
+        {
+            DMesh3 m = new DMesh3(mesh);
             if (slabs > 0) {
                 var partitioned = new PartitionedReduction() { Slabs = slabs, MaxThreads = maxThreads, Configure = configure, CancelF = cancelF };
                 m = partitioned.Reduce(m, quadricDistance * quadricDistance);
                 // (benchmarks: the parts of the reduction; the rounds run the slabs in parallel, setup and the last pass are serial)
                 if (phases != null) {
-                    phases["reduce/setup"] = partitioned.SetupMs;
-                    phases["reduce/rounds"] = partitioned.RegionMs;
-                    phases["reduce/last"] = partitioned.LastMs;
+                    phases[prefix + "reduce/setup"] = partitioned.SetupMs;
+                    phases[prefix + "reduce/rounds"] = partitioned.RegionMs;
+                    phases[prefix + "reduce/last"] = partitioned.LastMs;
                 }
             } else {
                 Reducer reducer = new Reducer(m);
@@ -1028,13 +1140,7 @@ namespace gs
                 reducer.ReduceToMaxQuadricError(quadricDistance * quadricDistance);
                 m = new DMesh3(m, true);
             }
-            lap(phases, "reduce", timer);
-            if (cancelF() || NotCleanReason(m, checkSelfIntersections) != "")
-                return null;
-            lap(phases, "check", timer);
-            bool within = certified_within(m, mesh, maxDistance, cancelF, ref hausdorffSubdivisions);
-            lap(phases, "certify", timer);
-            return within ? m : null;
+            return m;
         }
 
         // the smallest and largest triangle angle (degrees) and the share of triangles with an angle above 170 degrees
@@ -1332,6 +1438,33 @@ namespace gs
             // overlapping parts, parts merged or split): judged only where the components are kept
             TopologyChanged = before.Components == after.Components && GenusBefore != GenusAfter;
             return TopologyChanged;
+        }
+
+        // the alpha and offset of the wrap of a small input: alpha from the median length of its edges (those that are not tiny against the
+        // diagonal), if that is above the default diag / WrapRelativeAlpha; 0 and 0 (the default alpha) otherwise
+        void small_input_wrap(DMesh3 mesh, out double alpha, out double offset)
+        {
+            alpha = offset = 0;
+            if (!(WrapRelativeAlpha > 0) || !(WrapRelativeOffset > 0) || !(SmallInputWrapEdgeDivisor > 0))
+                return;
+            double diag = mesh.GetBounds().DiagonalLength;
+            if (!(diag > 0) || double.IsInfinity(diag))
+                return;
+            var lengths = new List<double>();
+            foreach (int e in mesh.EdgeIndices()) {
+                Index2i ev = mesh.GetEdgeV(e);
+                double len = mesh.GetVertex(ev.a).Distance(mesh.GetVertex(ev.b));
+                if (len > 1e-6 * diag)
+                    lengths.Add(len);
+            }
+            if (lengths.Count == 0)
+                return;
+            lengths.Sort();
+            double wanted = lengths[lengths.Count / 2] / SmallInputWrapEdgeDivisor;
+            if (!(wanted > diag / WrapRelativeAlpha) || double.IsInfinity(wanted))
+                return;
+            alpha = wanted;
+            offset = wanted * (WrapRelativeAlpha / WrapRelativeOffset);
         }
 
         /// <summary>

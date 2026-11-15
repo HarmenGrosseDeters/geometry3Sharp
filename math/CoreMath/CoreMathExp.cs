@@ -197,7 +197,7 @@ internal static partial class CoreMath
                     (fl, e) = fastTwoSum(e, fl);
                     ix = Polyfill.DoubleToUInt64Bits(fl);
 
-                    if (((ix & ~0ul) >> 12) == 0)
+                    if ((ix << 12) == 0)
                     {
                         ulong v = Polyfill.DoubleToUInt64Bits(e);
                         ulong d1 = ((ulong)(((long)ix >> 63) ^ ((long)v >> 63)) << 1) + 1;

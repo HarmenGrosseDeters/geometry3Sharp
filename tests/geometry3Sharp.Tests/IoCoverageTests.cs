@@ -79,23 +79,20 @@ namespace geometry3Sharp.Tests
             Assert.Equal("0 0 0\n1 0.5 0\n0 2 -3.25\n", text);
         }
 
-        // MeshIOUtil.FormatDoubleByDigits / FormatFloatByDigits at the top of the range: G15 and G16 of the maximum
-        // are above it ("1.79769313486232E+308" is OverflowException on .NET Framework, infinity on .NET Core:
-        // not equal either way), so G17 is the result
+        // MeshIOUtil.FormatDouble / FormatFloat at the top of the range: the shortest text of the maximum has 17 and 8 digits
         [Fact]
-        public void FormatByDigits_OfTheMaximum_FallsThroughToSeventeenDigits()
+        public void Format_OfTheMaximum_IsTheShortestExactText()
         {
-            string d = MeshIOUtil.FormatDoubleByDigits(double.MaxValue);
+            string d = MeshIOUtil.FormatDouble(double.MaxValue);
             Assert.Equal("1.7976931348623157E+308", d);
-            Assert.Equal(double.MaxValue, double.Parse(d, System.Globalization.CultureInfo.InvariantCulture));
-            string dn = MeshIOUtil.FormatDoubleByDigits(-double.MaxValue);
+            Assert.Equal(double.MaxValue, MeshIOUtil.ParseDouble(d));
+            string dn = MeshIOUtil.FormatDouble(-double.MaxValue);
             Assert.Equal("-1.7976931348623157E+308", dn);
 
-            string f = MeshIOUtil.FormatFloatByDigits(float.MaxValue);
-            Assert.Equal(float.MaxValue, float.Parse(f, System.Globalization.CultureInfo.InvariantCulture));
-            // (G8 "3.4028235E+38" reads back on .NET Core, is out of range on .NET Framework: G9 "3.40282347E+38" there)
-            Assert.True(f == "3.4028235E+38" || f == "3.40282347E+38", f);
-            Assert.Equal("-" + f, MeshIOUtil.FormatFloatByDigits(-float.MaxValue));
+            string f = MeshIOUtil.FormatFloat(float.MaxValue);
+            Assert.Equal(float.MaxValue, MeshIOUtil.ParseFloat(f));
+            Assert.Equal("3.4028235E+38", f);
+            Assert.Equal("-" + f, MeshIOUtil.FormatFloat(-float.MaxValue));
         }
     }
 }

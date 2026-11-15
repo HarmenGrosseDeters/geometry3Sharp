@@ -191,6 +191,7 @@ namespace Meshing2Acceptance
             yield return "subsegments_fp " + r.Row.SubsegmentsFp;
             yield return "vertices_fp " + r.Row.VerticesFp;
             if (r.Row.IdentityFp != null) yield return "identity_fp " + r.Row.IdentityFp;
+            if (r.Output != null && r.Output.SteinerLimitReached) yield return "steiner_limit_reached true";
             yield return "area2 " + r.Row.Area2;
             yield return "min_angle_sin2 " + (r.Row.MinAngleSin2 ?? "-");
             yield return "time: mesh " + r.MeshMs.ToString("F0", CultureInfo.InvariantCulture) + " ms, oracle " + (r.Judged ? r.OracleMs.ToString("F0", CultureInfo.InvariantCulture) + " ms" : "not run");

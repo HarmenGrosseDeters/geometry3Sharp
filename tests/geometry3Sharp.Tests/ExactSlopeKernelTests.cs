@@ -48,6 +48,84 @@ namespace geometry3Sharp.Tests
 
         static Vector3d R(Random rnd, double s = 10) => new Vector3d(s * (rnd.NextDouble() - 0.5), s * (rnd.NextDouble() - 0.5), s * (rnd.NextDouble() - 0.5));
 
+        // the gradient bound of a plane (SlopeMap's prefilter): at least the exact gradient sqrt(Nx^2 + Ny^2) / Nz (rationals),
+        // within 1e-8 of it; 0 for a horizontal plane; infinity for a plane whose Nz enclosure reaches 0
+        [Fact]
+        public void GradientBound_IsATightUpperBound()
+        {
+            var k = new ExactSlopeKernel();
+            var rnd = new Random(11);
+            int n = 0;
+            for (int i = 0; i < 300; ++i) {
+                Vector3d p = R(rnd), q = R(rnd), r = R(rnd);
+                double cr = (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+                if (Math.Abs(cr) < 1) continue;
+                int pl = k.AddPlane(p, q, r);
+                Q ux = Q.Of(q.x) - Q.Of(p.x), uy = Q.Of(q.y) - Q.Of(p.y), uz = Q.Of(q.z) - Q.Of(p.z);
+                Q vx = Q.Of(r.x) - Q.Of(p.x), vy = Q.Of(r.y) - Q.Of(p.y), vz = Q.Of(r.z) - Q.Of(p.z);
+                Q nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+                Q g2 = (nx * nx + ny * ny) / (nz * nz);
+                double g = k.GradientBound(pl);
+                Assert.True(MathUtil.IsFinite(g) && g >= 0, $"{g}");
+                Q d = Q.Of(g) * Q.Of(g) - g2;
+                Assert.True(d.N.Sign >= 0, $"plane {i}: {g} below the gradient");
+                double exact = Math.Sqrt((double)(g2.N * BigInteger.Pow(10, 30) / g2.D)) * 1e-15;
+                Assert.True(g <= exact * (1 + 1e-8), $"plane {i}: {g} vs {exact}");
+                n++;
+            }
+            Assert.True(n > 100);
+            // nearly horizontal planes at UTM: the normal's x and y enclosures are wide relative to the components (the
+            // heights differ by 1e-9, their differences are enclosed to ulps of 100): the bound takes the larger end
+            for (int i = 0; i < 50; ++i) {
+                Vector3d p = new Vector3d(5e5 + rnd.NextDouble(), 5.7e6 + rnd.NextDouble(), 100);
+                Vector3d q = p + new Vector3d(0.1 + rnd.NextDouble(), 0.1 * rnd.NextDouble(), 1e-9 * rnd.NextDouble());
+                Vector3d r = p + new Vector3d(0.1 * rnd.NextDouble(), 0.1 + rnd.NextDouble(), 1e-9 * rnd.NextDouble());
+                int pl = k.AddPlane(p, q, r);
+                Q ux = Q.Of(q.x) - Q.Of(p.x), uy = Q.Of(q.y) - Q.Of(p.y), uz = Q.Of(q.z) - Q.Of(p.z);
+                Q vx = Q.Of(r.x) - Q.Of(p.x), vy = Q.Of(r.y) - Q.Of(p.y), vz = Q.Of(r.z) - Q.Of(p.z);
+                Q nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+                Q g2 = (nx * nx + ny * ny) / (nz * nz);
+                double g = k.GradientBound(pl);
+                Q d = Q.Of(g) * Q.Of(g) - g2;
+                Assert.True(d.N.Sign >= 0, $"UTM plane {i}: {g} below the gradient");
+            }
+            // slivers in XY (found by a search): the normal's enclosures straddle or nearly reach 0 by cancellation while Nz's
+            // stays positive, so the bound must take the larger end of each (the smaller one is below the exact gradient)
+            var slivers = new[] {
+                new[] { 0.03301328235911824, 0.770361295794305, 2.22222112909472, 0.3408049802951538, 0.8842581924443403, 3.2647281790091522, 0.3740181371128807, 0.8965485677691919, 3.3772229290775484 },
+                new[] { 0.6352935864754456, 0.8821615948724382, 0.4785712720661194, 1.6262636993202677, 1.8543906984172718, 1.178717191442621, 2.156966111252757, 2.3750565828010703, 1.5536721202558887 },
+                new[] { 0.48360804677177593, 0.4354052932166519, 0.6288147844885474, 1.2048707046568723, 1.1309356433949134, 1.6031483798467847, 1.527629411667835, 1.442179368626259, 2.0391541095171357 },
+                new[] { 0.47813873154955855, 0.10094020846343608, 0.9718443639801111, 1.4610971992188586, 0.18331243571979572, 2.7112730611802918, 1.808173251711338, 0.21239751755337552, 3.3254536859709702 },
+                new[] { 0.8533406280229523, 0.13293667609474466, 0.919280261746054, 1.7546715744559986, 0.9482398810555412, 2.1633266712541745, 1.828805630975572, 1.0152981953368179, 2.265648917262153 } };
+            foreach (double[] c in slivers) {
+                Vector3d p = new Vector3d(c[0], c[1], c[2]), q = new Vector3d(c[3], c[4], c[5]), r = new Vector3d(c[6], c[7], c[8]);
+                int pl = k.AddPlane(p, q, r);
+                Q ux = Q.Of(q.x) - Q.Of(p.x), uy = Q.Of(q.y) - Q.Of(p.y), uz = Q.Of(q.z) - Q.Of(p.z);
+                Q vx = Q.Of(r.x) - Q.Of(p.x), vy = Q.Of(r.y) - Q.Of(p.y), vz = Q.Of(r.z) - Q.Of(p.z);
+                Q nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+                Q g2 = (nx * nx + ny * ny) / (nz * nz);
+                double g = k.GradientBound(pl);
+                Assert.True(MathUtil.IsFinite(g), $"sliver {c[0]}: {g}");
+                Q d = Q.Of(g) * Q.Of(g) - g2;
+                Assert.True(d.N.Sign >= 0, $"sliver {c[0]}: {g} below the gradient");
+            }
+            // horizontal planes whose Nz enclosure reaches 0: +infinity, never 0 / 0 (NaN). u = (1, t, 0), v = (3, 1, 0) with
+            // t = fl(1/3): Nz = 1 - 3 t > 0 exactly, but 3 t rounds up to 1, so the enclosure's lower end is 0 (or below)
+            double t3 = 1.0 / 3;
+            int thin = k.AddPlane(new Vector3d(0, 0, 1), new Vector3d(1, t3, 1), new Vector3d(3, 1, 1));
+            Assert.Equal(double.PositiveInfinity, k.GradientBound(thin));
+            int thin2 = k.AddPlane(new Vector3d(0, 0, 1), new Vector3d(double.Epsilon, 0, 1), new Vector3d(0, 1, 1));
+            Assert.Equal(double.PositiveInfinity, k.GradientBound(thin2));
+            // (a triangle at 2^-540: its normal's products underflow, Nz's enclosure ends exactly at 0 and the x and y parts
+            // are 0, so the division would be 0 / 0: found by a search)
+            int tiny = k.AddPlane(new Vector3d(0, 0, 1), new Vector3d(5 * Math.Pow(2, -540), 0, 1), new Vector3d(0, 33 * Math.Pow(2, -540), 1));
+            Assert.Equal(double.PositiveInfinity, k.GradientBound(tiny));
+            Assert.Equal(0, k.GradientBound(k.AddHorizontalPlane(2.5)));
+            // a steep plane (gradient 1e100): finite
+            int steep = k.AddPlane(new Vector3d(0, 0, 0), new Vector3d(1, 0, 1e100), new Vector3d(0, 1, 0));
+            Assert.InRange(k.GradientBound(steep), 1e100, 1.000001e100);
+        }
+
         [Fact]
         public void PlaneLines_Crossings_Side_Orient_AgainstRationals()
         {

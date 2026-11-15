@@ -125,7 +125,10 @@ namespace geometry3Sharp.Tests
         }
 
         // every thin-walled tube of benchmarks/RemeshQualityBenchmark: without the guard some end inside out, with
-        // it none, and every case that inverted without it reports rolled-back passes
+        // it none, and every case that inverted without it reports rolled-back passes. The sweep runs serial: its 96 remeshes
+        // of 20 passes each start thousands of tiny parallel loops, which starve for pool threads while the rest of the
+        // suite runs (75 s instead of 2 s in the full run); the parallel path is checked against the serial one in
+        // ParallelEqualsSerial_RepeatedRuns and RemesherDeterminismTests; serial and parallel gave the same outcome on every case of this sweep when it was made
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
@@ -140,8 +143,8 @@ namespace geometry3Sharp.Tests
                         foreach (double q in new[] { 0, 0.2 }) {
                             string name = $"tube{slices}_w{w}_t{target}_q{q}";
                             DMesh3 without = new DMesh3(input), with = new DMesh3(input);
-                            Remesh(without, input, target, q, false, pro);
-                            Remesher r = Remesh(with, input, target, q, true, pro);
+                            Remesh(without, input, target, q, false, pro, parallel: false);
+                            Remesher r = Remesh(with, input, target, q, true, pro, parallel: false);
                             Assert.False(InsideOut(with), name);
                             Assert.True(with.IsClosed(), name);
                             if (InsideOut(without)) {

@@ -2,7 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Clipper2Lib;
+using g3.Clipper2.Vendored;
+// ClipType, FillRule, JoinType, EndType: this package's public enums (Enums.cs, found before the vendored ones);
+// the work is done by the vendored sources (Bridge maps the enums)
+using V = g3.Clipper2.Vendored;
 
 namespace g3.Clipper2
 {
@@ -166,7 +169,7 @@ namespace g3.Clipper2
             if (!CheckBoolean(op, options, result) || !Prepare(s.Concat(c).SelectMany(p => p.Vertices), 0, options, result))
                 return result;
             ClipperFrame frame = result.Frame;
-            return Run(result, () => Execute(op, options, Paths(s.Select(frame.ToPath64)), Paths(c.Select(frame.ToPath64)), null, result));
+            return Run(result, () => Execute(op, options, Paths(s.Select(frame.ToPath)), Paths(c.Select(frame.ToPath)), null, result));
         }
 
         /// <summary>
@@ -183,7 +186,7 @@ namespace g3.Clipper2
             if (!CheckBoolean(op, options, result) || !Prepare(l.SelectMany(p => p.Vertices).Concat(Points(c)), 0, options, result))
                 return result;
             ClipperFrame frame = result.Frame;
-            return Run(result, () => Execute(op, options, new Paths64(), Regions(frame, c), Paths(l.Select(frame.ToPath64)), result));
+            return Run(result, () => Execute(op, options, new Paths64(), Regions(frame, c), Paths(l.Select(frame.ToPath)), result));
         }
 
         /// <summary>
@@ -230,7 +233,7 @@ namespace g3.Clipper2
                 var squares = new Paths64();
                 long d = (long)Math.Round(delta * frame.Scale);
                 foreach (PolyLine2d line in l) {
-                    Path64 path = WithoutDuplicates(frame.ToPath64(line));
+                    Path64 path = WithoutDuplicates(frame.ToPath(line));
                     if (path.Count > 1 || options.EndType == EndType.Round)
                         lines.Add(path);
                     else if (options.EndType == EndType.Square && d > 0) {
@@ -276,22 +279,22 @@ namespace g3.Clipper2
             return Run(result, () => {
                 var pat = new Path64(pattern.VertexCount);
                 foreach (Vector2d v in pattern.Vertices)
-                    pat.Add(frame.ToPoint64Displacement(difference ? -v : v));
-                Path64 p = frame.ToPath64(path);
+                    pat.Add(frame.ToDisplacement(difference ? -v : v));
+                Path64 p = frame.ToPath(path);
                 if (pat.Count == 0 || p.Count == 0)
                     return;
                 // Clipper2 sweeps the pattern's boundary along the path's edges (boundary ⊕ boundary). The interiors
                 // are added as one copy of the pattern at a path vertex and, for a closed path, one copy of the path at
                 // a pattern vertex: for connected A and B, A ⊕ B = (∂A ⊕ ∂B) ∪ (a + B) ∪ (A + b) for any a in A, b in B
                 // (Minkowski.Sum returns a union: outer rings positive, holes negative; the copies are made positive)
-                Paths64 all = Clipper2Lib.Minkowski.Sum(pat, p, closed);
+                Paths64 all = V.Minkowski.Sum(pat, p, closed);
                 all.Add(Positive(Translated(pat, p[0])));
                 if (closed)
                     all.Add(Positive(Translated(p, pat[0])));
                 var clipper = new Clipper64();
                 clipper.AddSubject(all);
                 var tree = new PolyTree64();
-                if (!clipper.Execute(ClipType.Union, FillRule.NonZero, tree))
+                if (!clipper.Execute(V.ClipType.Union, V.FillRule.NonZero, tree))
                     throw new ClipperLibException("Minkowski union failed");
                 result.Polygons = frame.ToGeneralPolygons(tree);
             });
@@ -329,7 +332,7 @@ namespace g3.Clipper2
                 var merged = new Paths64();
                 var clipper = new Clipper64 { PreserveCollinear = options.PreserveCollinear };
                 clipper.AddSubject(Regions(frame, p));
-                if (!clipper.Execute(ClipType.Union, options.FillRule, merged))
+                if (!clipper.Execute(V.ClipType.Union, Bridge.ToVendored(options.FillRule), merged))
                     throw new ClipperLibException("Clipper64.Execute failed");
                 Paths64 simplified = Clipper.SimplifyPaths(merged, epsilon * frame.Scale, true);
                 Execute(ClipType.Union, new Clipper2Options { FillRule = FillRule.Positive }, simplified, new Paths64(), null, result);
@@ -346,7 +349,7 @@ namespace g3.Clipper2
                 return result;
             ClipperFrame frame = result.Frame;
             return Run(result, () => {
-                Paths64 simplified = Clipper.SimplifyPaths(Paths(l.Select(frame.ToPath64)), epsilon * frame.Scale, false);
+                Paths64 simplified = Clipper.SimplifyPaths(Paths(l.Select(frame.ToPath)), epsilon * frame.Scale, false);
                 foreach (Path64 path in simplified)
                     result.PolyLines.Add(frame.ToPolyLine2d(path));
             });
@@ -362,7 +365,7 @@ namespace g3.Clipper2
             clipper.AddClip(clip);
             var tree = new PolyTree64();
             var open = new Paths64();
-            if (!clipper.Execute(op, options.FillRule, tree, open))
+            if (!clipper.Execute(Bridge.ToVendored(op), Bridge.ToVendored(options.FillRule), tree, open))
                 throw new ClipperLibException("Clipper64.Execute failed");
             result.Polygons = result.Frame.ToGeneralPolygons(tree);
             foreach (Path64 path in open)
@@ -382,7 +385,7 @@ namespace g3.Clipper2
                     offset.AddRange(paths);
             } else if (paths.Count > 0) {
                 var clipperOffset = new ClipperOffset(Math.Min(options.MiterLimit, Clipper2Options.MaxMiterLimit), arcTolerance * scale);
-                clipperOffset.AddPaths(paths, options.JoinType, endType);
+                clipperOffset.AddPaths(paths, Bridge.ToVendored(options.JoinType), Bridge.ToVendored(endType));
                 clipperOffset.Execute(delta * scale, offset);
             }
             if (extra != null)
@@ -391,7 +394,7 @@ namespace g3.Clipper2
             var clipper = new Clipper64();
             clipper.AddSubject(offset);
             var tree = new PolyTree64();
-            if (!clipper.Execute(ClipType.Union, FillRule.Positive, tree))
+            if (!clipper.Execute(V.ClipType.Union, V.FillRule.Positive, tree))
                 throw new ClipperLibException("Clipper64.Execute failed");
             result.Polygons = result.Frame.ToGeneralPolygons(tree);
         }
@@ -408,11 +411,11 @@ namespace g3.Clipper2
                 if (g.Outer == null)
                     continue;
                 var clipper = new Clipper64();
-                clipper.AddSubject(frame.ToPath64(g.Outer));
+                clipper.AddSubject(frame.ToPath(g.Outer));
                 foreach (Polygon2d hole in g.Holes)
-                    clipper.AddClip(frame.ToPath64(hole));
+                    clipper.AddClip(frame.ToPath(hole));
                 var region = new Paths64();
-                if (!clipper.Execute(ClipType.Difference, FillRule.NonZero, region))
+                if (!clipper.Execute(V.ClipType.Difference, V.FillRule.NonZero, region))
                     throw new ClipperLibException("Clipper64.Execute failed");
                 result.AddRange(region);
             }

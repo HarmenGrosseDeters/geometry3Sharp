@@ -59,70 +59,26 @@ namespace g3
             }
         }
 
-        // .NET Core 3.0 and later: "R" is the shortest string that reads back to the same value; .NET Framework: 15 digits, then 17
-        // (and not always exact, see HeightGridWriter's note)
-        static readonly bool DoubleRIsShortest = (1.0 / 3.0).ToString("R", Inv) == "0.3333333333333333";
-        static readonly bool FloatRIsShortest = (1.0f / 3.0f).ToString("R", Inv) == "0.33333334";
-
         /// <summary>
-        /// The text of a double that reads back to the same value, in invariant culture, on every framework: the shortest
-        /// round-trip string where "R" is that (.NET Core 3.0 and later), else the first of 15, 16 and 17 significant digits
-        /// that reads back exactly (.NET Framework, where "R" and the default format keep 15 digits and lose bits). Not a
-        /// number is written as the platform does ("NaN", "Infinity").
+        /// The text of a double that reads back to the same value under a correctly rounded parser, in invariant culture: the
+        /// shortest such digit string (<see cref="ShortestDecimal"/>), the same on every framework and in the layout of .NET Core
+        /// 3.0 and later "R" ("0.1", "1E-05", "1.5E+20", "-0" for a negative zero). Not a number is "NaN", "Infinity",
+        /// "-Infinity".
         /// </summary>
         public static string FormatDouble(double v)
         {
-            if (double.IsNaN(v) || double.IsInfinity(v)) return v.ToString(Inv);
-            if (DoubleRIsShortest) return v.ToString("R", Inv);
-            return FormatDoubleByDigits(v);
+            return ShortestDecimal.Format(v);
         }
 
-        // the first of 15, 16 and 17 significant digits that reads back exactly (the .NET Framework path; internal for the tests, which run it on every framework)
-        internal static string FormatDoubleByDigits(double v)
-        {
-            if (v == 0) return (1 / v < 0) ? "-0" : "0";        // (G15 of -0 is "0" on .NET Framework: the sign is kept)
-            string s = v.ToString("G15", Inv);
-            if (ReadsBack(s, v)) return s;
-            s = v.ToString("G16", Inv);
-            if (ReadsBack(s, v)) return s;
-            return v.ToString("G17", Inv);
-        }
+        // The name of the former .NET Framework path (first of G15, G16, G17 that the platform parser reads back), kept so that the
+        // tests of that path run on every framework: it is the shortest text now, as FormatDouble.
+        internal static string FormatDoubleByDigits(double v) { return FormatDouble(v); }
+        internal static string FormatFloatByDigits(float v) { return FormatFloat(v); }
 
-        // (.NET Framework throws OverflowException for a string above double.MaxValue, eg G15 of double.MaxValue: not equal)
-        static bool ReadsBack(string s, double v)
-        {
-            try {
-                return double.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;
-            } catch (OverflowException) {
-                return false;
-            }
-        }
-
-        /// <summary> as <see cref="FormatDouble"/>, for float (7, 8 or 9 significant digits) </summary>
+        /// <summary> as <see cref="FormatDouble"/>, for float (at most 9 significant digits) </summary>
         public static string FormatFloat(float v)
         {
-            if (float.IsNaN(v) || float.IsInfinity(v)) return v.ToString(Inv);
-            if (FloatRIsShortest) return v.ToString("R", Inv);
-            return FormatFloatByDigits(v);
-        }
-
-        internal static string FormatFloatByDigits(float v)
-        {
-            if (v == 0) return (1 / v < 0) ? "-0" : "0";
-            string s = v.ToString("G7", Inv);
-            if (ReadsBack(s, v)) return s;
-            s = v.ToString("G8", Inv);
-            if (ReadsBack(s, v)) return s;
-            return v.ToString("G9", Inv);
-        }
-
-        static bool ReadsBack(string s, float v)
-        {
-            try {
-                return float.Parse(s, System.Globalization.NumberStyles.Float, Inv) == v;
-            } catch (OverflowException) {
-                return false;
-            }
+            return ShortestDecimal.Format(v);
         }
 
         /// <summary> as <see cref="ParseDouble"/>, for float </summary>

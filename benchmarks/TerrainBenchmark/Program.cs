@@ -458,6 +458,25 @@ class Program
         var toe = kind == "edge" ? SlopeToe.Constant(pts, false, SlopeToe.Sides.Left, SlopeSpec.Ratio(ratio))
                                  : SlopeToe.Constant(pts, true, SlopeToe.Sides.Outside, SlopeSpec.Ratio(ratio));
         var d = new TerrainSlopeDesign() { Toes = new List<SlopeToe> { toe }, HeightLimit = c.z + h, Tolerance = tol, SlopeMargin = double.Parse(Arg("margin", "1e-6"), CultureInfo.InvariantCulture) };
+        // ramp=1 (TERRAIN_RAMPS.md, R1; ngon or wavy toe): a ramp from toe vertex 0 around the pit (rampsegs path segments, one
+        // per toe vertex, counter-clockwise: each bend turns away from the road), grade % rampgrade, width rampwidth, leaving
+        // the toe at rampleave x the grade over the slope; the road on the right, outside the pit
+        if (ArgD("ramp", 0) != 0 && kind != "edge" && kind != "lshape") {
+            double g = ArgD("rampgrade", 8) / 100, leave = ArgD("rampleave", 1.5), s = 1 / ratio;
+            int segs = (int)ArgD("rampsegs", n / 3);
+            var path = new List<Vector2d>() { pts[0].xy };
+            double arc = 0;
+            for (int k = 1; k <= segs; ++k) {
+                Vector2d prev = path[path.Count - 1], dir = (pts[k % n].xy - c.xy).Normalized;
+                // (the radius grows so that the path stays leave x the grade's reach outside the toe)
+                Vector2d toeK = pts[k % n].xy;
+                Vector2d q = toeK + dir * (leave * g * (arc + toeK.Distance(prev)) / s);
+                arc += q.Distance(prev);
+                path.Add(q);
+            }
+            d.Ramps.Add(new SlopeRamp() { Toe = 0, Path = path, Grade = SlopeSpec.Percent(100 * g), Width = ArgD("rampwidth", 10), Side = SlopeToe.Sides.Right });
+            R["ramp_segments"] = segs; R["ramp_length"] = arc;
+        }
         // terrain=wave (phase 1b): a grid terrain around the pit, h above the toe with a wave of amp, spacing tgrid;
         // the catch lines and (composite=1) the composite terrain
         if (Arg("terrain", "none") == "dgm") {
@@ -532,11 +551,15 @@ class Program
             R["slope_s"] = times[times.Count / 2]; R["slope_warm_min_s"] = times[0];
         }
         R["ok"] = ok; R["slope_status"] = d.Status.ToString(); R["message"] = d.Message;
+        if (d.Ramps.Count > 0 && ok) {
+            R["road_tris"] = d.SlopeSurface.TriangleIndices().Count(t => d.Pieces[d.SlopeSurface.GetTriangleGroup(t)].Kind == SlopePiece.Kinds.Road);
+            R["ramp_wall_tris"] = d.SlopeSurface.TriangleIndices().Count(t => d.Pieces[d.SlopeSurface.GetTriangleGroup(t)].Kind == SlopePiece.Kinds.RampWall);
+        }
         R["toe_points"] = pts.Count; R["attempts"] = d.Attempts; R["realizations"] = d.Realizations;
         foreach (var kv in d.PhaseSeconds) R["phase_" + kv.Key + "_s"] = kv.Value;
         R["predicates"] = d.PredicateCalls; R["exact_predicates"] = d.ExactFallbacks; R["exact_constructions"] = d.ExactConstructions;
         // (diagnostics of the band repair, TERRAIN.md 5.4: internal fields, read by reflection)
-        foreach (string f in new[] { "BandMerges", "MaxMergeDistance", "MergedPositions", "NeedleFlips" }) {
+        foreach (string f in new[] { "BandMerges", "MaxMergeDistance", "MergedPositions", "NeedleFlips", "CapRounds" }) {
             var fi = typeof(TerrainSlopeDesign).GetField(f, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
             if (fi != null) R[f] = fi.GetValue(d);
         }
@@ -586,7 +609,7 @@ class Program
                     Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
                     d.SlopeRegion.GetTriVertices(t, ref a, ref b, ref q);
                     SlopePiece p = d.Pieces[d.SlopeRegion.GetTriangleGroup(t)];
-                    if (Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec)) rp++;
+                    if (p.Kind == SlopePiece.Kinds.Slope ? Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec) : Slope.IsNotSteeper(a, b, q, p.Spec)) rp++;
                 }
                 R["region_oracle_pass"] = rp; R["composite_check_s"] = Secs(swc);
                 // RoundToGrid's upper bound (ROADMAP): the slope region's and the slope surface's coordinates rounded to
@@ -620,14 +643,15 @@ class Program
         if (!ok) return;
         DMesh3 m = d.SlopeSurface;
         R["triangles"] = m.TriangleCount; R["vertices"] = m.VertexCount;
-        // the oracle on every triangle, timed separately (O1 of TERRAIN.md 7)
+        // the oracle on every triangle, timed separately (O1 of TERRAIN.md 7; a ramp's road and wall triangles: not steeper
+        // than their spec, their support is the library's check against the road polygon)
         sw.Restart();
         int pass = 0;
         foreach (int t in m.TriangleIndices()) {
             Vector3d a = Vector3d.Zero, b = Vector3d.Zero, q = Vector3d.Zero;
             m.GetTriVertices(t, ref a, ref b, ref q);
             SlopePiece p = d.Pieces[m.GetTriangleGroup(t)];
-            if (Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec)) pass++;
+            if (p.Kind == SlopePiece.Kinds.Slope ? Slope.IsSupportedBy(a, b, q, p.P0, p.P1, p.Spec) : Slope.IsNotSteeper(a, b, q, p.Spec)) pass++;
         }
         double os = Secs(sw);
         R["oracle_s"] = os; R["oracle_us_per_triangle"] = 1e6 * os / Math.Max(1, m.TriangleCount); R["oracle_pass"] = pass;

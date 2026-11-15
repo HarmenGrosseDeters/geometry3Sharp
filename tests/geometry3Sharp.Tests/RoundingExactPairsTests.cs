@@ -37,6 +37,8 @@ namespace geometry3Sharp.Tests
                 yield return new object[] { name };
         }
 
+        public static IEnumerable<object[]> CasesExceptFoldedCluster() => Cases().Where(c => (string)c[0] != "FoldedCluster");
+
         static (DMesh3, DMesh3, Ops) Inputs(string name)
         {
             switch (name) {
@@ -194,12 +196,29 @@ namespace geometry3Sharp.Tests
 
         [Trait("Category", "Slow")]
         [Theory]
-        [MemberData(nameof(Cases))]
-        public void Similarities_SameResult_Pow2BitIdentical(string name)
+        [MemberData(nameof(CasesExceptFoldedCluster))]
+        public void Similarities_SameResult_Pow2BitIdentical(string name) => SameUnderSimilarities(name, Similarity.All());
+
+        // FoldedCluster (36, seed 1) is the case that stays unclean (the documented path): 1.5-2.7 s a run with the check, 13.5 s for the
+        // base and the 8 frames. All 8 frames are Nightly (the run is the check); the PR tier keeps the base and one 2^k scale frame, so
+        // that the unclean path stays covered by the invariance in PR runs (~5 s)
+        [Trait("Category", "Nightly")]
+        [Fact]
+        public void Similarities_SameResult_Pow2BitIdentical_FoldedCluster() => SameUnderSimilarities("FoldedCluster", Similarity.All());
+
+        [Trait("Category", "Slow")]
+        [Fact]
+        public void Similarities_SameResult_Pow2BitIdentical_FoldedCluster_OneScaleFrame()
+        {
+            ExactMeshBoolean b0 = SameUnderSimilarities("FoldedCluster", new[] { Similarity.Pow2Large });
+            Assert.False(b0.RoundingClean, "the case is the one that stays unclean: the path this test is for");
+        }
+
+        static ExactMeshBoolean SameUnderSimilarities(string name, IEnumerable<Similarity> frames)
         {
             (DMesh3 a, DMesh3 b, Ops op) = Inputs(name);
             ExactMeshBoolean b0 = Run(a, b, op, check: true);
-            foreach (Similarity sim in Similarity.All()) {
+            foreach (Similarity sim in frames) {
                 ExactMeshBoolean bs = Run(Invariance.Transformed(a, sim), Invariance.Transformed(b, sim), op, check: true);
                 Assert.True(bs.Result.IsClosed() && Invariance.AllFinite(bs.Result), $"{name} {sim}");
                 if (sim.IsExact) {
@@ -207,6 +226,7 @@ namespace geometry3Sharp.Tests
                     Assert.Equal(b0.Rounding.SkippedExactQueries, bs.Rounding.SkippedExactQueries);
                 }
             }
+            return b0;
         }
 
         [Trait("Category", "Slow")]

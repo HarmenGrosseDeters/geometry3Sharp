@@ -11,6 +11,8 @@ dotnet run --project benchmarks/ParameterizationBenchmark -c Release [-- maxRing
 # SLIM: default options; SLIMt: from the Tutte embedding; SLIMnr: from Tutte, one factorization per iteration
 ```
 
+`-- foldover` runs the foldover-free comparison instead ([FOLDOVER_FREE.md](FOLDOVER_FREE.md)).
+
 Columns: vertices, wall time, iterations, converged, flipped UV triangles, mean / max conformal distortion
 (s1/s2), mean area distortion (|log| of the area ratio relative to the global scale), symmetric Dirichlet
 energy (4 = isometry).
@@ -67,7 +69,7 @@ the gain there is per iteration only. Anderson acceleration was not added for th
 
 ARAP and Tutte now factorize their Laplacian once for u and v (before: twice); ARAP's local step also
 changed (Procrustes over the edges, the same rotations). Minimum of three alternating runs
-(`dotnet run -c Release -- 120 ARAP,Tutte`, master e9e1599 against this branch); the results (distortion,
+(`dotnet run -c Release -- 120 ARAP,Tutte`, master e9e1599 against #109); the results (distortion,
 iterations) are identical.
 
 | mesh | V | ARAP before | ARAP after | Tutte before | Tutte after |

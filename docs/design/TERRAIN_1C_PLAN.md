@@ -5,6 +5,9 @@ each idea, before any of it is built (coordinator, 2026-11-02, "look before you 
 Section numbers refer to [TERRAIN.md](TERRAIN.md). Scope of 1c (section 11): volumes (5.7), failure kinds (5.6),
 catch-line accuracy (5.5), km-scale benchmarks (8), and the speed case of 1a (the wavy 64-gon).
 
+Update 2026-11-12: 1c was built in #297, #307, #314, #318 and #320 (all merged 2026-11-02); terrain phase 1 was
+completed with #357 (2026-11-03). Current state: [roadmap/terrain.md](../roadmap/terrain.md).
+
 ## 1. Where the time goes (measured)
 
 The speed case of 1a, `TerrainBenchmark slope toe=wavy n=64 r=100 h=30 coords=utm` (closed wavy 64-gon, toe heights

@@ -245,6 +245,9 @@ namespace Meshing2Acceptance
         /// the bound for a domain with no triangles at all): the mesher may drop a sub-tolerance sliver beside real parts
         /// </summary>
         public int VanishedPoints, VanishedSegments;
+        /// <summary> the input points (indices) and the sources (segment indices first, then ring edges, as the oracle numbers them) that
+        /// VanishedPoints and VanishedSegments counted </summary>
+        public readonly HashSet<int> VanishedPointIds = new HashSet<int>(), VanishedSourceIds = new HashSet<int>();
         public string ExcusedSummary()
         {
             var parts = new List<string>();

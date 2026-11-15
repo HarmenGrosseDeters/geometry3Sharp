@@ -619,17 +619,16 @@ namespace gs
             return true;
         }
 
-        // per coordinate (Vector3d.IsFinite tests their sum, which overflows). Segments: an infinite length
+        // Segments: an infinite length
         // would need about 2^31 densification steps, and their positions would be NaN.
         bool sources_finite()
         {
-            Func<Vector3d, bool> finite = (p) => MathUtil.IsFinite(p.x) && MathUtil.IsFinite(p.y) && MathUtil.IsFinite(p.z);
             foreach (Vector3d p in SourcePoints)
-                if (finite(p) == false) return false;
+                if (p.IsFinite == false) return false;
             if (polyLines != null)
                 foreach (var line in polyLines)
                     for (int i = 0; i < line.Count; ++i) {
-                        if (finite(line[i]) == false) return false;
+                        if (line[i].IsFinite == false) return false;
                         if (i > 0 && MathUtil.IsFinite(line[i - 1].Distance(line[i])) == false) return false;
                     }
             return true;
