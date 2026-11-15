@@ -55,6 +55,77 @@ namespace geometry3Sharp.Tests
             }
         }
 
+        // invariance over Similarity.All() with every trial pass in parallel (4 threads, threshold 0): the 2^k scales give the
+        // serial-trial wrap of the untransformed input, scaled, bit for bit; every transform a clean wrap with the separation bound
+        [Theory]
+        [MemberData(nameof(Similarity.Names), MemberType = typeof(Similarity))]
+        public void ParallelTrials_Invariance(string name)
+        {
+            Similarity s = Similarity.ByName(name);
+            DMesh3 input = AlphaWrapTests.RandomSoup(42);
+            var w0 = new MeshAlphaWrap(input) { RelativeAlpha = 60, RelativeOffset = 600, MaxThreads = 1 };
+            Assert.True(w0.Compute(), w0.Error);
+            Assert.True(w0.Counts["pinch_rounds"] >= 1 && w0.Counts["manifold_flips"] > 0);
+            var w = new MeshAlphaWrap(Invariance.Transformed(input, s)) { RelativeAlpha = 60, RelativeOffset = 600, MaxThreads = 4,
+                MinParallelTrialCells = 0 };
+            if (s.IsRotated) {
+                w.Alpha = s.ApplyLength(w0.UsedAlpha);
+                w.Offset = s.ApplyLength(w0.UsedOffset);
+            }
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+            AlphaWrapTests.AssertSeparationBound(w, s.Name);
+            if (s.IsExact)
+                Assert.Equal("", Invariance.GeometricDifference(w0.Result, Invariance.MappedBack(w.Result, s)));
+        }
+
+        // reuse with the parallel passes on: Compute twice on one instance gives the same result, and a second Compute at a
+        // finer alpha (larger triangulation: the star, pocket and check buffers grow) gives a fresh instance's result, and a
+        // coarser one after it too (buffers larger than the triangulation, marks of the earlier calls left in them)
+        [Fact]
+        public void ParallelTrials_Reuse_SameResult()
+        {
+            DMesh3 input = AlphaWrapTests.RandomSoup(42);
+            Func<double, string> fresh = a => {
+                var f = new MeshAlphaWrap(input) { RelativeAlpha = a, RelativeOffset = 10 * a, MaxThreads = 4, MinParallelTrialCells = 0 };
+                Assert.True(f.Compute(), f.Error);
+                Assert.Equal("", MeshRobustRepair.NotCleanReason(f.Result));
+                Assert.True(f.Counts["pinch_rounds"] >= 1);
+                return Fingerprint(f);
+            };
+            var w = new MeshAlphaWrap(input) { RelativeAlpha = 40, RelativeOffset = 400, MaxThreads = 4, MinParallelTrialCells = 0 };
+            Assert.True(w.Compute(), w.Error);
+            string first = Fingerprint(w);
+            Assert.True(w.Compute(), w.Error);
+            Assert.Equal(first, Fingerprint(w));
+            foreach (double a in new[] { 80.0, 20.0 }) {
+                w.RelativeAlpha = a;
+                w.RelativeOffset = 10 * a;
+                Assert.True(w.Compute(), w.Error);
+                Assert.Equal(fresh(a), Fingerprint(w));
+            }
+        }
+
+        // determinism of the parallel passes: repeated runs for 1, 2, 4 and 8 threads give one result, on a second seed and alpha
+        // (threshold 0: every pass in parallel)
+        [Fact]
+        public void ParallelTrials_Deterministic_RepeatedRuns()
+        {
+            DMesh3 input = AlphaWrapTests.RandomSoup(173);
+            string reference = null;
+            foreach (int threads in new[] { 1, 2, 4, 8 })
+                for (int run = 0; run < 5; ++run) {
+                    var w = new MeshAlphaWrap(input) { RelativeAlpha = 30, RelativeOffset = 300, MaxThreads = threads, MinParallelTrialCells = 0 };
+                    Assert.True(w.Compute(), w.Error);
+                    if (reference == null) {
+                        Assert.Equal("", MeshRobustRepair.NotCleanReason(w.Result));
+                        Assert.True(w.Counts["pinch_rounds"] >= 1 && w.Counts["manifold_flips"] > 0, Fingerprint(w));
+                        reference = Fingerprint(w);
+                    }
+                    Assert.Equal(reference, Fingerprint(w));
+                }
+        }
+
         // the pocket search on random labellings of a wrap's triangulation (many enclosed outside regions): the parallel
         // search moves the same cells inside, in the same order, as the serial one, for every thread count
         [Fact]

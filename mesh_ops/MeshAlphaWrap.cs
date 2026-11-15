@@ -1728,6 +1728,7 @@ namespace gs
             int savedMin = MinParallelTrialCells;
             ParallelTrials = parallel;
             MinParallelTrialCells = 0;
+            if (team != null) throw new InvalidOperationException("a test hook inside Compute");
             team = threads > 1 ? new WorkerTeam(threads) : null;
             try {
                 starsOf = null;
@@ -1755,6 +1756,7 @@ namespace gs
             foreach (int c in dt.CellIndices()) label[c] = outside(c) ? Outside : Inside;
             int savedMin = MinParallelTrialCells;
             MinParallelTrialCells = 0;
+            if (team != null) throw new InvalidOperationException("a test hook inside Compute");
             team = new WorkerTeam(Math.Max(2, threads));
             try {
                 starsOf = null;
@@ -1785,6 +1787,7 @@ namespace gs
             int savedMin = MinParallelTrialCells;
             ParallelTrials = parallel;
             MinParallelTrialCells = 0;
+            if (team != null) throw new InvalidOperationException("a test hook inside Compute");
             team = threads > 1 ? new WorkerTeam(threads) : null;
             try {
                 remove_pockets(flipped);
@@ -1841,7 +1844,8 @@ namespace gs
                 for (int k = 0; k < chunks; ++k) next.AddRange(blockLists[k]);
                 var t = frontier; frontier = next; next = t;
             }
-            // the outside cells not reached become inside
+            // the outside cells not reached become inside (if a worker throws here, some blocks are flipped and others not;
+            // the exception ends Compute, nothing reads these labels again before the next setup)
             for_cell_blocks(nc, (b, c0, c1) => {
                 var list = blockLists[b];
                 list.Clear();
@@ -1910,8 +1914,12 @@ namespace gs
             team.For(blocks, b => body(b, b * TrialBlock, Math.Min(n, (b + 1) * TrialBlock)));
         }
 
-        // the stars as build_stars makes them, by vertex ranges: each part scans every cell (sequential reads) and counts and
-        // fills only the stars of its vertices, in increasing cell id as the serial fill; no atomics, no shared writes
+        // the stars as build_stars makes them, in two partitions: the cells are split into T blocks, and each block sorts its
+        // cells into T buckets by the vertex ranges they touch (a cell once per range); then part r counts and fills the stars
+        // of range r from the buckets (r, block 0..T-1), in increasing cell id as the serial fill. Every part reads 1/T of the
+        // cells and its own buckets; no atomics, no shared writes
+        readonly List<List<int>> starBuckets = new List<List<int>>();
+
         void build_stars_parallel()
         {
             int nv = dt.VertexCount, nc = dt.MaxCellID;
@@ -1919,31 +1927,43 @@ namespace gs
             else Array.Clear(starStart, 0, nv + 1);
             int[] start = starStart;
             int parts = team.Threads;
-            Func<int, int> lo = k => (int)((long)nv * k / parts);
+            int range = Math.Max(1, (nv + parts - 1) / parts);      // vertex range r: [r * range, (r + 1) * range)
+            while (starBuckets.Count < parts * parts) starBuckets.Add(new List<int>());
             team.For(parts, k => {
-                int v0 = lo(k), v1 = lo(k + 1);
-                for (int c = 0; c < nc; ++c) {
+                int c0 = (int)((long)nc * k / parts), c1 = (int)((long)nc * (k + 1) / parts);
+                for (int r = 0; r < parts; ++r) starBuckets[k * parts + r].Clear();
+                for (int c = c0; c < c1; ++c) {
                     if (!dt.IsCell(c)) continue;
-                    for (int j = 0; j < 4; ++j) {
-                        int v = dt.CellVertex(c, j);
-                        if (v >= v0 && v < v1) start[v + 1]++;
-                    }
+                    int r0 = dt.CellVertex(c, 0) / range, r1 = dt.CellVertex(c, 1) / range,
+                        r2 = dt.CellVertex(c, 2) / range, r3 = dt.CellVertex(c, 3) / range;
+                    starBuckets[k * parts + r0].Add(c);
+                    if (r1 != r0) starBuckets[k * parts + r1].Add(c);
+                    if (r2 != r0 && r2 != r1) starBuckets[k * parts + r2].Add(c);
+                    if (r3 != r0 && r3 != r1 && r3 != r2) starBuckets[k * parts + r3].Add(c);
                 }
+            });
+            team.For(parts, r => {
+                int v0 = r * range, v1 = v0 + range;
+                for (int k = 0; k < parts; ++k)
+                    foreach (int c in starBuckets[k * parts + r])
+                        for (int j = 0; j < 4; ++j) {
+                            int v = dt.CellVertex(c, j);
+                            if (v >= v0 && v < v1) start[v + 1]++;
+                        }
             });
             for (int v = 0; v < nv; ++v) start[v + 1] += start[v];
             if (starCells.Length < start[nv]) starCells = new int[Math.Max(start[nv], 2 * starCells.Length)];
             if (starFill.Length < nv) starFill = new int[Math.Max(nv, 2 * starFill.Length)];
             else Array.Clear(starFill, 0, nv);
             int[] fill = starFill, cells = starCells;
-            team.For(parts, k => {
-                int v0 = lo(k), v1 = lo(k + 1);
-                for (int c = 0; c < nc; ++c) {
-                    if (!dt.IsCell(c)) continue;
-                    for (int j = 0; j < 4; ++j) {
-                        int v = dt.CellVertex(c, j);
-                        if (v >= v0 && v < v1) cells[start[v] + fill[v]++] = c;
-                    }
-                }
+            team.For(parts, r => {
+                int v0 = r * range, v1 = v0 + range;
+                for (int k = 0; k < parts; ++k)
+                    foreach (int c in starBuckets[k * parts + r])
+                        for (int j = 0; j < 4; ++j) {
+                            int v = dt.CellVertex(c, j);
+                            if (v >= v0 && v < v1) cells[start[v] + fill[v]++] = c;
+                        }
             });
         }
 
