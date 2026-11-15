@@ -1,0 +1,155 @@
+// Upper bound probe for an adaptive alpha in MeshAlphaWrap (measurement only, not library code).
+// For each mesh: the reference wrap W0 at alpha0 = diag / 300, offset = diag / 3000, and coarse wraps W_L at alpha0 * 2^L
+// (same offset). Per triangle t of W0: dev_L(t) = max(distance of t's samples to W_L, distance of W_L samples whose nearest
+// W0 triangle is t to W0). alpha_local(t) = alpha0 * 2^L for the largest L with dev_l(t) <= tau for all l <= L.
+// Estimated adaptive size: sum over t of area(t) * rho(L(t)), rho(L) = triangles / area of W_L; graded: alpha_local smoothed to
+// a Lipschitz function (constant g) over the triangle adjacency (multi-source Dijkstra on centroid distances), then the level
+// floor(log2(alpha_g / alpha0)).
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using g3;
+using gs;
+
+static class P
+{
+    static DMesh3 Wrap(DMesh3 input, double alpha, double offset, out long ms)
+    {
+        var sw = Stopwatch.StartNew();
+        var w = new MeshAlphaWrap(input) { Alpha = alpha, Offset = offset };
+        w.Compute();
+        ms = sw.ElapsedMilliseconds;
+        return w.Result;
+    }
+
+    static double Area(DMesh3 m) { double a = 0; foreach (int t in m.TriangleIndices()) a += m.GetTriArea(t); return a; }
+
+    static IEnumerable<Vector3d> Samples(DMesh3 m, int t)
+    {
+        Vector3d a = Vector3d.Zero, b = Vector3d.Zero, c = Vector3d.Zero;
+        m.GetTriVertices(t, ref a, ref b, ref c);
+        yield return (a + b + c) / 3;
+        yield return 0.5 * (a + b); yield return 0.5 * (b + c); yield return 0.5 * (c + a);
+    }
+
+    static double Dist(DMeshAABBTree3 tree, DMesh3 m, Vector3d p)
+    {
+        int t = tree.FindNearestTriangle(p);
+        if (t < 0) return double.MaxValue;
+        var q = MeshQueries.TriangleDistance(m, t, p);
+        return Math.Sqrt(q.DistanceSquared);
+    }
+
+    static void Main(string[] args)
+    {
+        string mesh = args[0];
+        int levels = args.Length > 1 ? int.Parse(args[1]) : 3;
+        DMesh3 input = StandardMeshReader.ReadMesh(mesh);
+        double diag = input.CachedBounds.DiagonalLength;
+        double alpha0 = diag / 300, offset = diag / 3000;
+        var W = new List<DMesh3>(); var ms = new List<long>();
+        for (int L = 0; L <= levels; ++L) { W.Add(Wrap(input, alpha0 * (1 << L), offset, out long t)); ms.Add(t); }
+        DMesh3 W0 = W[0];
+        int n = W0.MaxTriangleID;
+        var tree0 = new DMeshAABBTree3(W0, true);
+        var dev = new double[levels + 1][];
+        // predictor: per W0 triangle and level, the largest distance to the input of the nearest W_L triangle's samples
+        var inTree = new DMeshAABBTree3(input, true);
+        var pred = new double[levels + 1][];
+        for (int L = 1; L <= levels; ++L) {
+            var d = new double[n];
+            var treeL = new DMeshAABBTree3(W[L], true);
+            var tris = W0.TriangleIndices().ToArray();
+            System.Threading.Tasks.Parallel.ForEach(tris, t => {
+                double m = 0;
+                foreach (var p in Samples(W0, t)) m = Math.Max(m, Dist(treeL, W[L], p));
+                d[t] = m;
+            });
+            // W_L samples back to W0, attributed to the nearest W0 triangle
+            var back = W[L].TriangleIndices().ToArray();
+            var lockObj = new object();
+            System.Threading.Tasks.Parallel.ForEach(back, s => {
+                foreach (var p in Samples(W[L], s)) {
+                    int t = tree0.FindNearestTriangle(p);
+                    if (t < 0) continue;
+                    double dd = Math.Sqrt(MeshQueries.TriangleDistance(W0, t, p).DistanceSquared);
+                    lock (lockObj) { if (dd > d[t]) d[t] = dd; }
+                }
+            });
+            dev[L] = d;
+            var pmax = new double[W[L].MaxTriangleID];
+            System.Threading.Tasks.Parallel.ForEach(back, s => {
+                double m = 0;
+                foreach (var p in Samples(W[L], s)) m = Math.Max(m, Dist(inTree, input, p));
+                pmax[s] = m;
+            });
+            var pr = new double[n];
+            System.Threading.Tasks.Parallel.ForEach(tris, t => {
+                int s = treeL.FindNearestTriangle(W0.GetTriCentroid(t));
+                pr[t] = s >= 0 ? pmax[s] : double.MaxValue;
+            });
+            pred[L] = pr;
+        }
+        var rho = new double[levels + 1];
+        var areaW = new double[levels + 1];
+        for (int L = 0; L <= levels; ++L) { areaW[L] = Area(W[L]); rho[L] = W[L].TriangleCount / areaW[L]; }
+        // adjacency graph over W0 triangles for the graded estimate
+        var cen = new Vector3d[n]; var area = new double[n];
+        foreach (int t in W0.TriangleIndices()) { cen[t] = W0.GetTriCentroid(t); area[t] = W0.GetTriArea(t); }
+        var outRows = new List<string>();
+        foreach (double tauF in new[] { 1.0, 2.0, 10.0 }) {      // tau in offsets (10 offsets = alpha0)
+            double tau = tauF * offset;
+            var lev = new int[n];
+            foreach (int t in W0.TriangleIndices()) {
+                int L = 0;
+                while (L < levels && dev[L + 1][t] <= tau) L++;
+                lev[t] = L;
+            }
+            // the predictor's levels: coarse where the coarse wrap stays within offset + tau of the input
+            var plev = new int[n];
+            double falseArea = 0, worst = 0, totalArea = 0;
+            foreach (int t in W0.TriangleIndices()) {
+                int L = 0;
+                while (L < levels && pred[L + 1][t] <= offset + tau) L++;
+                plev[t] = L;
+                totalArea += area[t];
+                if (L > lev[t]) { falseArea += area[t]; worst = Math.Max(worst, dev[L][t] / offset); }
+            }
+            double estP = 0;
+            foreach (int t in W0.TriangleIndices()) estP += area[t] * rho[plev[t]];
+            outRows.Add($"\"tau{tauF}_pred\":{estP:F0}");
+            outRows.Add($"\"tau{tauF}_pred_false_area\":{falseArea / totalArea:F4}");
+            outRows.Add($"\"tau{tauF}_pred_worst_dev_offsets\":{worst:F2}");
+            double est = 0; var areaByL = new double[levels + 1];
+            foreach (int t in W0.TriangleIndices()) { est += area[t] * rho[lev[t]]; areaByL[lev[t]] += area[t]; }
+            foreach (double g in new[] { 0.5, 0.25 }) {
+                // graded: a(t) = min over s (alpha0 2^lev(s) + g * path length(s, t)), multi-source Dijkstra
+                var a = new double[n];
+                var pq = new SortedSet<(double, int)>();
+                foreach (int t in W0.TriangleIndices()) { a[t] = alpha0 * (1 << lev[t]); pq.Add((a[t], t)); }
+                while (pq.Count > 0) {
+                    var (av, t) = pq.Min; pq.Remove(pq.Min);
+                    if (av > a[t]) continue;
+                    Index3i nb = W0.GetTriNeighbourTris(t);
+                    for (int j = 0; j < 3; ++j) {
+                        int u = nb[j]; if (u < 0) continue;
+                        double cand = av + g * cen[t].Distance(cen[u]);
+                        if (cand < a[u]) { pq.Remove((a[u], u)); a[u] = cand; pq.Add((cand, u)); }
+                    }
+                }
+                double estG = 0;
+                foreach (int t in W0.TriangleIndices()) {
+                    int L = (int)Math.Floor(Math.Log(a[t] / alpha0, 2) + 1e-9);
+                    L = Math.Max(0, Math.Min(levels, L));
+                    estG += area[t] * rho[L];
+                }
+                outRows.Add($"\"tau{tauF}_g{g}\":{estG:F0}");
+            }
+            outRows.Add($"\"tau{tauF}\":{est:F0}");
+            outRows.Add($"\"tau{tauF}_area\":[{string.Join(",", areaByL.Select(x => (x / areaW[0]).ToString("F4")))}]");
+        }
+        Console.WriteLine("{\"mesh\":\"" + System.IO.Path.GetFileNameWithoutExtension(mesh) + "\",\"raw\":[" + string.Join(",", W.Select(w => w.TriangleCount)) +
+            "],\"ms\":[" + string.Join(",", ms) + "]," + string.Join(",", outRows) + "}");
+    }
+}
