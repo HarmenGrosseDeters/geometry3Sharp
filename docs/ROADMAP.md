@@ -131,7 +131,8 @@ In order, after the merges in flight (#883, #881, #893, #868, #843, #884):
    only if CAD cases need them.
 
 Alongside, without dependencies: the determinism proof (hard problem 11: the analyzer #906, then the net48 / net10
-measurement); a quality-aware manifold step in the alpha wrap (#919). Last, by "depth over breadth" (owner 2026-11-10):
+measurement); a quality-aware manifold step in the alpha wrap (diagnosis in #919, closed as valid
+output). Last, by "depth over breadth" (owner 2026-11-10):
 CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 
 ## Later / research
