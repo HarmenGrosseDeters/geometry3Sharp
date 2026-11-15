@@ -23,7 +23,7 @@ for a,b,c in faces:
  for v in (a,b,c):mass[v]+=area/6
 L=sp.coo_matrix((vv,(rr,cc)),shape=(N,N)).tocsr();Q=L.T@sp.diags(1/mass)@L
 if len(sys.argv)>3 and sys.argv[3]=="eigen":
- start=time.perf_counter(); estimate=sla.eigsh(Q[free][:,free], k=1, sigma=0.0, which="LM", return_eigenvectors=False)[0]
+ start=time.perf_counter(); estimate=sla.eigsh(Q[free][:,free], k=1, sigma=0.0, which="LM", return_eigenvectors=False, v0=np.ones(len(free)))[0]
  print(f"numerical_eigenvalue_estimate={estimate:.12g} elapsed_seconds={time.perf_counter()-start:.3f} (not a verified lower bound)")
  start=time.perf_counter(); fac=sla.splu(Q[free][:,free].tocsc(),permc_spec="MMD_AT_PLUS_A",diag_pivot_thresh=0)
  lower=fac.L.tocsr(); diagonal=fac.U.diagonal(); symmetric_permutation=np.array_equal(fac.perm_r,fac.perm_c)

@@ -31,3 +31,31 @@ OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certifi
 | 100×100 | 1.07e-10 | 0.08954 | 2.37e-2 | 1.19e-9 |
 
 The final column is an indicator using a numerical eigenvalue estimate, not an error certificate. The comparison-matrix inverse-norm estimates are approximately 1.16e-15 and 5.32e-210, far weaker than the path estimates. Numerically factoring the shifted systems gave positive pivots and 10,044 / 852,087 lower-factor entries respectively. The raw output records timing, permutation checks, and factor mismatch. The promising numerical shifts do not prove that the interval sparse factorization will succeed or be affordable; that is the next experiment.
+
+## Decimal interval LDL pilot
+
+`interval_ldl_pilot.py` constructs `Q` from exact binary64 mesh coordinates with decimal intervals, then performs a right-looking sparse LDLᵀ elimination of `Q - mu I`. Basic operations use explicitly directed decimal rounding; square-root endpoints use the correctly rounded decimal square root widened by one representable decimal. SciPy's estimate only proposes a positive binary64 `mu` and a permutation: interval pivots decide the result. The exact binary64 shift is recorded in hexadecimal. An independent review checked the interval operations, assembly, permutation and Schur updates; this is a standalone pilot, not the library implementation; the combined fixture-specific position check is described below.
+
+```
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 10 40
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 30 40
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 30 80
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40 1.5
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 30 80 1.5
+```
+
+The 10×10 and 20×20 examples produced positive pivot intervals at 40 digits with `mu` at half the numerical eigenvalue estimate. The 30×30 example had an uncertain pivot at 40 digits but positive pivot intervals at 80 digits; the 80-digit factorization took roughly 4 seconds on this machine. As negative controls, shifting by 1.5 times the numerical eigenvalue estimate was rejected for both 20×20 and 30×30. See `interval-ldl*.txt` for exact shifts and raw output. The prototype scans the current entry dictionary for every pivot; its timing is not representative of a scalable sparse implementation. Precision growth and the cost at 10k/100k vertices remain open.
+
+## Combined interval position check
+
+After positive pivots, the pilot also forms an untrusted SciPy candidate, rounds its free positions to binary64 world coordinates, and computes an outward-rounded residual from the original binary64 geometry and targets. The certified positive shift bounds the smallest eigenvalue from below; dividing the upper residual 2-norm by that exact shift bounds the normalized position error. The fixture modifies z only: x/y targets and free candidates remain exactly at their input positions, so their exact displacement solution is zero. The script asserts this fixture condition; arbitrary target axes need their own residuals. An independent review checked the interval residual and norm bound.
+
+```
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 30 80
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 40 120
+OPENBLAS_NUM_THREADS=1 python3 benchmarks/BiharmonicDeformationBenchmark/certificate_probe/interval_ldl_pilot.py 20 40 0.5 0.0001
+```
+
+For the measured rotated 20×20, 30×30 and 40×40 fixtures, the normalized error upper bounds are about 2.25e-12, 2.39e-11 and 1.04e-10, respectively, below the requested 1e-8. The 40×40 run required 120 decimal digits and around 19 seconds for assembly and factorization in this Python pilot; it does not establish scaling to 10k/100k. The final command perturbs one candidate by 1e-4 in normalized z and is rejected by the error bound. These checks apply to the exact recorded binary64 fixtures and trial shifts, not to the existing library solver or other meshes. Raw outputs are alongside the script.

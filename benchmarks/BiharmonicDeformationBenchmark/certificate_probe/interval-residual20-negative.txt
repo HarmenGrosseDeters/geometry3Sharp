@@ -1,0 +1,5 @@
+grid=20 vertices=400 free=360 precision=40 numeric_eigen_estimate=2.28218728567 mu=1.14109364284 mu_binary64=0x1.241eb685a719fp+0
+status=positive_interval_pivots min_pivot_lower=1378.956923247568179264206395869665637205 updates=141537 elapsed_factor_seconds=0.712 elapsed_total_seconds=0.920 peak_rss_kib=53296
+interval_residual_norm_upper=1.623760129808992425323201661553716546588 normalized_error_upper=1.422985869743225827474527577434409154893 requested_tolerance=1e-8 perturb=0.0001
+position_certificate=not_established
+exit=2
