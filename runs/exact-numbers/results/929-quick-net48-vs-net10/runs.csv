@@ -1,0 +1,5 @@
+stratum,runtime,round,threads,mask,time_ms,hash,cases,status
+scaling-b30,net10.0,1,1,0x1,701485,B9BA0DA547DDF43E,141,error: case thingi/102815: load failed
+scaling-b30,net48,1,1,0x1,1015737,B9BA0DA547DDF43E,141,error: case thingi/102815: load failed
+scaling-b30,net10.0,1,12,0xFFF,236532,B9BA0DA547DDF43E,141,error: case thingi/102815: load failed
+scaling-b30,net48,1,12,0xFFF,384211,B9BA0DA547DDF43E,141,error: case thingi/102815: load failed
