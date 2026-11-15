@@ -92,6 +92,9 @@ namespace DeterminismHarness
                         break;
                 }
                 string cls = "e" + e + "/" + Kinds[kind];
+                // (the subnormal ray sets one by one: a comparison then shows that a sign differs only where the
+                // second point of the same set does)
+                if (name == "ray" && e == -1060) cls += "/#" + i;
                 t.Section(name + "/in/" + cls);
                 foreach (Vector3d v in p) t.Add(v);
                 t.Section(name + "/" + cls);
