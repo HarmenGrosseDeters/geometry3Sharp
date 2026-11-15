@@ -290,9 +290,14 @@ gradient bound of section 5 (gyroid `2 sqrt 3`, I-WP `6 sqrt 3`):
 
 with `J` the Jacobian bound of the grade (1 without) and `Wmax` the bound of `|grad w|`. Gyroid / I-WP at `L = 1`, `k = 1` gives about
 `65.3 + 3 = 68` (weight term: `(3 + 9 + |c_A| + |c_B|) * 0.25`, the levels small) versus `65.3` for pure I-WP: the weight term is small unless `k` is large against `2 pi / L`; for a steep weight the bound grows with it (`Lh` is then dominated by the weight term, and the sliver
-guard is scaled by the phase part over `Lh`, see 9.7). The rounding error of an evaluation gets one more term,
-`(|g_A - c_A| + |g_B - c_B|) * eps_w` with `eps_w` a few ulps of `w` (the stable form above); it enters `EnclosureError` next to the
-existing terms. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
+guard is scaled by the phase part over `Lh`, see 9.7). The rounding error of an evaluation (`EnclosureErrorBlend`, with `u = 2^-53` and `msum >= |g_A - c_A| + |g_B - c_B|`, divided by `Lh s` like the single type term) is
+`64 u max(TermSum_A, TermSum_B)` for the two type evaluations (the weights sum to 1), plus `6 u msum` for the six rounding steps of the combination (`g_A - c_A`,
+`g_B - c_B`, `w (.)`, `1 - w`, `(1 - w)(.)` and the sum, each at most `u` times a value of at most `msum`), plus `eps_w msum` for the error `dw` of the weight times
+`|g_A - c_A - g_B + c_B| <= msum`, plus the phase term of `EnclosureError`. For `SigmoidBlend`, `eps_w` is a relative-error argument: `z = 2 eta / width` with `eta = p - offset` has a relative
+error of at most `2 u` (one rounding in the subtraction, one in the division; this also holds for `|offset| > s`, where an absolute argument fails); the propagated error of
+`tanh` is `sech^2(z) |z| 2 u <= 0.45 * 2 u = 0.9 u` (`max z sech^2 z = 0.4506`); a `tanh` within 2 ulp adds `2 u`, and `1 + tanh` and the product by 0.5 (exact) add `2 u`,
+so `dw <= 0.5 (0.9 u + 2 u + 2 u) = 2.5 u`. The code uses `eps_w = 8 u + 2 u s Wmax`: the `8 u` absorbs a `tanh` with an error of up to about 6 ulp (the platform libm is not specified), and the second term covers a delegate
+weight whose coordinate rounding is at most `2 u s`. The recipe needs only the sampled values and the Lipschitz constant of `h / Lh`, not an exactly representable `h`, as for the constant lattice. Enclosure then means: the
 solid contains the exact blend `{h <= 0}` of the stated `w`.
 
 ### 9.3 Fit into `g3cli tpms`

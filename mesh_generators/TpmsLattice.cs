@@ -166,7 +166,11 @@ namespace g3
         internal Vector3d LastGridMin;
         /// <summary> With a PhaseMap: the smallest local period seen on the sample points (1 / the largest sampled phase gradient), else 0. </summary>
         public double MinLocalCellSize;
-        /// <summary> The Lipschitz bound of the lattice field in length units that normalises it (Lf 2 pi J); a report for tests and proofs. </summary>
+        /// <summary>
+        /// The Lipschitz bound of the lattice field in length units that normalises it (Lf 2 pi J); a report for tests and proofs. For a hybrid it is the bound of
+        /// h: the larger phase part plus the weight term (TermSum and level of both types) times the gradient bound of the Blend; for a Blend whose bound is NaN
+        /// (unknown, not with Enclosure) the weight term is left out and this is not a full Lipschitz bound.
+        /// </summary>
         public double LipschitzBoundUsed;
         /// <summary> NotCleanReason of a rejected result. </summary>
         public string NotCleanReason = "";
@@ -533,7 +537,7 @@ namespace g3
                 wmax = Blend.GradientBound;
                 lw = Math.Max(GradientBound(Type), GradientBound(SecondType.Value)) * phaseScale + (double.IsNaN(wmax) ? 0 : blendTermSum * wmax);
             }
-            if (!(lw > 0 && lw < double.MaxValue / 4)) { Fail(TpmsStatus.InvalidOptions, "the Lipschitz bound of the field is not finite (a gradient bound of the Blend that large cannot be normalised)"); return; }
+            if (!(lw > 0 && lw < double.MaxValue / 4)) { Fail(TpmsStatus.InvalidOptions, "the Lipschitz bound of the field is not finite and positive (with a hybrid: the gradient bound of the Blend is too large to normalise the field)"); return; }
             LipschitzBoundUsed = lw;
             Func<Vector3d, double> levelAt = null;
             if (VolumeFractionAt != null) {
@@ -768,15 +772,22 @@ namespace g3
             return 64 * u * TermSum(type) / (lw * s) + phase;
         }
 
-        // The evaluation error of the hybrid h = w (g_A - c_A) + (1 - w) (g_B - c_B) in normalised units (divided by Lw s): the type terms as for one
-        // type (64 u per unit of the larger term sum; the weights sum to 1), the phase as in EnclosureError, and the weight: w = 0.5 (1 + tanh z)
-        // has an error of at most 8 u plus 2 u s |grad w| from the rounding of the coordinate in z (|p| <= s), multiplied by |g_A - c_A| + |g_B - c_B| <= msum.
+        // The evaluation error of the hybrid h = w (g_A - c_A) + (1 - w) (g_B - c_B) in normalised units (divided by Lw s), with msum >= |g_A - c_A| + |g_B - c_B|
+        // and u = 2^-53:
+        //  - the type terms: the weights sum to 1, so the evaluation errors of f_A and f_B enter with at most the larger of 64 u TermSum (as for one type);
+        //  - the rounding steps of the combination, each at most u times a value of at most msum: g_A - c_A, g_B - c_B, w * (.), 1 - w (an error of at most u in
+        //    the weight, times |g_B - c_B|), (1 - w) * (.), and the sum: 6 u msum;
+        //  - the error of the weight dw times |g_A - c_A - g_B + c_B| <= msum: dw <= 8 u + 2 u s Wmax. For SigmoidBlend, w = 0.5 (1 + tanh z) with z = 2 eta / width: eta = p - offset has a
+        //    relative error u, the division another, so z has a relative error of at most 2 u (also for |offset| > s); with sech^2(z) |z| <= 0.45 the error of tanh
+        //    propagated from z is at most 0.9 u, a tanh within 2 ulp adds 2 u, the sum 1 + tanh and the product by 0.5 (exact) add u: dw <= 0.5 (0.9 u + 2 u + 2 u) = 2.5 u < 8 u. A
+        //    delegate weight is covered if its coordinate rounding is at most 2 u s (the second term) and its own evaluation error at most 8 u;
+        //  - the phase as in EnclosureError.
         internal static double EnclosureErrorBlend(TpmsType a, TpmsType b, double lw, double s, bool graded, double phaseMax, double jac, double h, double msum, double wmax)
         {
             double u = Math.Pow(2, -53);
             double phase = graded ? 8 * u * (2 * phaseMax + 4 * jac * h) / (jac * s) : 4 * u;
             double epsW = 8 * u + 2 * u * s * wmax;
-            return (64 * u * Math.Max(TermSum(a), TermSum(b)) + epsW * msum) / (lw * s) + phase;
+            return (64 * u * Math.Max(TermSum(a), TermSum(b)) + (6 * u + epsW) * msum) / (lw * s) + phase;
         }
 
         /// <summary>

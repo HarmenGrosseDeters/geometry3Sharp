@@ -65,7 +65,9 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void Weight_OfOneIsThePureFirstType_AndOfZeroThePureSecondType()
         {
-            // w = 1 everywhere with a zero gradient bound: the bound and the field of the larger type are the pure ones, so the mesh is the pure mesh bit for bit
+            // w = 1 everywhere with a zero gradient bound: the bound and the field of the larger type are the pure ones, so the mesh is the pure mesh bit for bit.
+            // Also the sliver guard must be the pure one: it uses the larger of the two GradientRatios, which is the I-WP's (pinned here, so a change of the ratios fails loudly)
+            Assert.True(TpmsLattice.GradientRatio(TpmsType.IWP) >= TpmsLattice.GradientRatio(TpmsType.Gyroid));
             foreach (TpmsStyle style in new[] { TpmsStyle.Sheet, TpmsStyle.SkeletalLow, TpmsStyle.SkeletalHigh }) {
                 var pure = new TpmsLattice { Type = TpmsType.IWP, Style = style, CellSize = L, Divisions = 14, VolumeFraction = 0.35, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
                 pure.Compute();
@@ -221,16 +223,44 @@ namespace geometry3Sharp.Tests
         }
 
         [Fact]
+        public void Enclosure_LevelIsTheHybridFormula_NotTheSingleTypeOne()
+        {
+            // IsoValueUsed = sqrt(3) h / 2 + 2 Snap + s (2^-26 + 4 eNorm) recomputed from the derivation for a steep weight (width 1/128: Wmax 128), where the hybrid error term
+            // differs from the single type one (a mutant that calls EnclosureError(Type, ...) instead moves the level by more than 1e-15)
+            const double h = 1.0 / 16, width = 1.0 / 128, s = 4;   // box 2 x 2 x 2 with 16 cubes per period: the grid reaches 37 h < 4
+            var lattice = Make(TpmsType.Gyroid, TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3, 1.0, width, 16, 2, 2);
+            lattice.Enclosure = true;
+            lattice.Compute();
+            AssertOk(lattice);
+            double ca = LevelOf(TpmsType.Gyroid, TpmsStyle.SkeletalLow, 0.3), cb = LevelOf(TpmsType.IWP, TpmsStyle.SkeletalLow, 0.3);
+            double msum = TpmsLattice.TermSum(TpmsType.Gyroid) + Math.Abs(ca) + TpmsLattice.TermSum(TpmsType.IWP) + Math.Abs(cb), wmax = 1 / width;
+            double lw = 2 * Math.PI * 6 * Math.Sqrt(3) + msum * wmax;
+            Assert.Equal(lw, lattice.LipschitzBoundUsed, 9);
+            double ratio = Math.Max(TpmsLattice.GradientRatio(TpmsType.Gyroid), TpmsLattice.GradientRatio(TpmsType.IWP));
+            double snap = h / 256 * Math.Max(ratio, 1.0 / 16) * (2 * Math.PI * 6 * Math.Sqrt(3) / lw);
+            double eNorm = TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, h, msum, wmax);
+            double expected = Math.Sqrt(3) * h / 2 + 2 * snap + s * (Math.Pow(2, -26) + 4 * eNorm);
+            Assert.Equal(expected, lattice.IsoValueUsed, 15);
+            double single = Math.Sqrt(3) * h / 2 + 2 * snap + s * (Math.Pow(2, -26) + 4 * TpmsLattice.EnclosureError(TpmsType.Gyroid, lw, s, false, 0, 1, h));
+            Assert.True(Math.Abs(expected - single) > 2e-15, "the test must tell the two error terms apart: " + (expected - single));
+        }
+
+        [Fact]
         public void EnclosureError_OfTheHybridFollowsTheDerivation()
         {
-            // the hybrid terms: 64 u max(TermSum) + (8 u + 2 u s Wmax) msum, over (Lw s), plus the phase part of the single type
+            // the hybrid terms: 64 u max(TermSum) + (6 u combination + 8 u + 2 u s Wmax weight) msum, over (Lw s), plus the phase part of the single type; the values are
+            // of the order 1e-17, so the comparison is relative
             double u = Math.Pow(2, -53), lw = 80, s = 4, msum = 25, wmax = 8;
-            double expected = (64 * u * 9 + (8 * u + 2 * u * s * wmax) * msum) / (lw * s) + 4 * u;
-            Assert.Equal(expected, TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, wmax), 15);
-            // without a weight term it is the single type error of the larger term sum
-            Assert.Equal(TpmsLattice.EnclosureError(TpmsType.IWP, lw, s, false, 0, 1, 0.1), TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, 0, 0), 15);
-            // it grows with the weight gradient
+            double expected = (64 * u * 9 + (6 * u + 8 * u + 2 * u * s * wmax) * msum) / (lw * s) + 4 * u;
+            double actual = TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, wmax);
+            Assert.InRange(actual / expected, 1 - 1e-13, 1 + 1e-13);
+            // without a weight term and without the combination (msum 0) it is the single type error of the larger term sum
+            double single = TpmsLattice.EnclosureError(TpmsType.IWP, lw, s, false, 0, 1, 0.1);
+            Assert.InRange(TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, 0, 0) / single, 1 - 1e-13, 1 + 1e-13);
+            // each term counts: the combination (msum), the weight value (8 u) and the coordinate rounding (Wmax)
+            double e0 = TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, 0);
             Assert.True(TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, 16) > TpmsLattice.EnclosureErrorBlend(TpmsType.Gyroid, TpmsType.IWP, lw, s, false, 0, 1, 0.1, msum, 8));
+            Assert.InRange((e0 - single) / (14 * u * msum / (lw * s)), 1 - 1e-6, 1 + 1e-6);
         }
 
         [Theory]
@@ -265,6 +295,28 @@ namespace geometry3Sharp.Tests
                     foreach (int vid in back.VertexIndices())
                         Assert.True((back.GetVertex(vid) - reference.Mesh.GetVertex(vid)).Length < 1e-6 * L, s.Name);
                 }
+            }
+            Assert.NotNull(reference);
+        }
+
+        [Fact]
+        public void Compute_IsInvariantUnderPowerOfTwoScales_WithAGradeAndAnAxisTwoBlend()
+        {
+            // the grade (a library-derived Jacobian bound) and a blend across z: every length parameter scales with the lattice, the mesh is the same bit for bit
+            TpmsLattice reference = null;
+            foreach (Similarity s in Similarity.All().Where(x => x.IsExact)) {
+                var lattice = new TpmsLattice {
+                    Type = TpmsType.IWP, SecondType = TpmsType.Gyroid, Blend = TpmsLattice.SigmoidBlend(2, 1.0 * s.Scale, 0.25 * s.Scale), Style = TpmsStyle.SkeletalLow,
+                    CellSize = s.Scale * L, Divisions = 14, VolumeFraction = 0.35,
+                    Box = new AxisAlignedBox3d(new Vector3d(-1, -1, 0) * s.Scale, new Vector3d(1, 1, 2) * s.Scale),
+                    Grade = TpmsLattice.LinearGrade(2, 0, 1 * s.Scale, 2 * s.Scale, 1.25 * s.Scale, 1.5 * s.Scale),
+                    Origin = s.Apply(Vector3d.Zero), Rotation = s.Rotation
+                };
+                lattice.Compute();
+                AssertOk(lattice);
+                if (reference == null) { reference = lattice; continue; }
+                Assert.Equal(reference.Mesh.TriangleCount, lattice.Mesh.TriangleCount);
+                Assert.Equal("", Invariance.Difference(reference.Mesh, Invariance.MappedBack(lattice.Mesh, s)));
             }
             Assert.NotNull(reference);
         }
