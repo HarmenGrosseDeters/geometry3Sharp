@@ -41,7 +41,9 @@ namespace geometry3Sharp.Tests
                         Vector3d fast = frame.corner_point(id), plain = frame.Point(arr.Exact(id));
                         for (int k = 0; k < 3; ++k)
                             Assert.Equal(Bits(plain[k]), Bits(fast[k]));
-                        Assert.Equal(Bits(plain.x), Bits(frame.Corner(id).x));
+                        Vector3d cached = frame.Corner(id);
+                        for (int k = 0; k < 3; ++k)
+                            Assert.Equal(Bits(plain[k]), Bits(cached[k]));
                         // (the fast path's conditions: an integer point with double coordinates, exact differences)
                         Vector3d d, o = frame.Origin;
                         if (arr.TryExactDouble(id, out d)) {
@@ -87,6 +89,59 @@ namespace geometry3Sharp.Tests
             Assert.Equal("", Invariance.Difference(plain.Result, flat.Result));
         }
 
+        // the open winding per piece, as a fingerprint (piece, then its sparse pairs mesh, winding)
+        static string OpenWindingHash(ExactMeshBoolean s)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < s.OpenWindingPerPiece.Length; ++i) {
+                sb.Append(i).Append(':');
+                foreach (int w in s.OpenWindingPerPiece[i] ?? new int[0])
+                    sb.Append(w).Append(',');
+                sb.Append(';');
+            }
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+                return BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))).Replace("-", "").Substring(0, 16);
+        }
+
+        [Theory]
+        [InlineData("plain", Ops.Union, "3ACCEF314E7B37EE", "B15C5B1D3A82FD58", 7788, 4254, 11660, 248)]
+        [InlineData("plain", Ops.Intersection, "DEF83A091B0E355B", "B15C5B1D3A82FD58", 7788, 4254, 11660, 248)]
+        [InlineData("plain", Ops.Difference, "A6431C5972DF6C39", "B15C5B1D3A82FD58", 7788, 4254, 11660, 248)]
+        [InlineData("swapped", Ops.Union, "D93E1C8151B571C1", "65651C8F80DAF807", 7788, 4254, 11660, 248)]
+        [InlineData("swapped", Ops.Difference, "22CBFA52D9D2368A", "65651C8F80DAF807", 7788, 4254, 11660, 248)]
+        [InlineData("steep", Ops.Union, "C47BDFF228A9C6EA", "30ABD144DF9D23F2", 7782, 4389, 11793, 254)]
+        [InlineData("steep", Ops.Intersection, "32793D932CFA0D49", "30ABD144DF9D23F2", 7782, 4389, 11793, 254)]
+        [InlineData("nearcopy", Ops.Union, "479C92EC5FCA259E", "0594718EA48645C0", 44, 11950, 462, 942)]
+        [InlineData("nearcopy", Ops.Difference, "F5F85B5846522981", "0594718EA48645C0", 44, 11950, 462, 942)]
+        [InlineData("fold", Ops.Union, "9233963E112CD0FE", "73DC4763F1C8347C", 48, 0, 80, 19)]
+        [InlineData("fold", Ops.Difference, "9233963E112CD0FE", "73DC4763F1C8347C", 48, 0, 80, 19)]
+        public void CrossSteps_SameResultAsBeforeLever4_Pinned(string variant, Ops op, string result, string winding, long steps, long carried,
+            long candidates, long direct)
+        {
+            // lever 4 is bit-identical by design: procedural open inputs on the path that queries the box tree from steps
+            // across input-triangle edges (CrossVisit with Tris), the result mesh, the open winding of every piece and the
+            // counts as the code before lever 4 gave them (master 079e8258, computed there). "plain" is the sheet and cap of
+            // the cross-carry tests, "swapped" makes the sheet the second mesh, "steep" folds it more, "nearcopy" (two open copies a hair apart) steps through a piece's
+            // own input triangles, and in "fold" (FoldAndPlate) the steps across the crease cross the plate, the second mesh,
+            // whose box tree indices differ from the input triangles'. A visitor that lost a crossing (Crossings), a candidate
+            // (Found) or the map of the tree's indices (Tris) changes them. (Dropping the own-triangle crossings survives: on a
+            // step across a consistently oriented input edge, the only steps traced, those of the two ends cancel)
+            (DMesh3 a, DMesh3 b) = variant == "fold" ? FoldAndPlate(6, 1.0)
+                : variant == "nearcopy" ? ExactMeshBooleanTestsLocalFilter.NearCopy(16, 1e-12)
+                : ExactMeshBooleanTestsCrossCarry.SheetAndCap(40, variant == "steep" ? 0.6 : 0.15);
+            if (variant == "swapped")
+                (a, b) = (b, a);
+            var s = new ExactMeshBoolean(a, b, op) { AllowOpenMeshes = true, TracedAcrossEdges = true, PerPatchOpenWinding = false, RecordOpenWinding = true };
+            Assert.True(s.Compute(), s.Error);
+            Assert.Equal(result, AlphaWrapManifoldStepTests.Hash(s.Result));
+            Assert.Equal(winding, OpenWindingHash(s));
+            Assert.Equal(steps, s.Counts["l2_cross_steps"]);
+            Assert.Equal(carried, s.Counts["l2_carried"]);
+            Assert.Equal(candidates, s.Counts["l2_cross_candidates"]);
+            Assert.Equal(direct, s.Counts["l2_direct"]);
+            Assert.True(Invariance.AllFinite(s.Result) && s.Result.TriangleCount > 0);
+        }
+
         [Fact]
         public void ExactDifference_TrueOnlyWhereTheDoubleIsTheExactDifference()
         {
@@ -117,13 +172,41 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void GridCoordOf_IsGridCoordOfTheInteger()
         {
-            foreach (double v in new[] { 0, 1, -1, 3, 4503599627370497, -9007199254740992, 1e300, ExactMeshBoolean.TinyCoordinate, ExactMeshBoolean.TinyCoordinate / 2 }) {
-                double plain = v == 0 || Math.Abs(v) >= 1 ? ExactMeshBoolean.grid_coord(new BigInteger(v), BigInteger.One) : double.NaN;
-                if (Math.Abs(v) < 1 && v != 0)
-                    // (not an integer: the rule alone, NaN below TinyCoordinate)
-                    plain = Math.Abs(v) >= ExactMeshBoolean.TinyCoordinate ? v : double.NaN;
-                Assert.Equal(Bits(plain), Bits(ExactMeshBoolean.LocalFrame.grid_coord_of(v)));
+            // the integers the fast path gives, against grid_coord of the same integer (its own path), and the rule at
+            // TinyCoordinate (2^-300) with written-out values: +0 stays +0, at or above it the value, below it NaN
+            foreach (double v in new[] { 0, 1, -1, 3, 4503599627370497, -9007199254740992, 1e300 }) {
+                Assert.Equal(Bits(ExactMeshBoolean.grid_coord(new BigInteger(v), BigInteger.One)), Bits(ExactMeshBoolean.LocalFrame.grid_coord_of(v)));
+                Assert.Equal(Bits(v), Bits(ExactMeshBoolean.LocalFrame.grid_coord_of(v)));
             }
+            double tiny = Math.Pow(2, -300);
+            Assert.Equal(tiny, ExactMeshBoolean.TinyCoordinate);
+            Assert.Equal(0L, Bits(ExactMeshBoolean.LocalFrame.grid_coord_of(0.0)));
+            Assert.Equal(tiny, ExactMeshBoolean.LocalFrame.grid_coord_of(tiny));
+            Assert.Equal(-tiny, ExactMeshBoolean.LocalFrame.grid_coord_of(-tiny));
+            Assert.Equal(2 * tiny, ExactMeshBoolean.LocalFrame.grid_coord_of(2 * tiny));
+            Assert.True(double.IsNaN(ExactMeshBoolean.LocalFrame.grid_coord_of(tiny / 2)));
+            Assert.True(double.IsNaN(ExactMeshBoolean.LocalFrame.grid_coord_of(-tiny * 0.75)));
+            Assert.True(double.IsNaN(ExactMeshBoolean.LocalFrame.grid_coord_of(double.Epsilon)));
+        }
+
+        // the padded segment p-q meets the closed box [lo - pad, hi + pad] (Liang-Barsky clipping, in doubles: the callers
+        // allow for its rounding with a margin)
+        static bool SegmentMeetsBox(Vector3d p, Vector3d q, Vector3d lo, Vector3d hi, double pad)
+        {
+            double t0 = 0, t1 = 1;
+            for (int k = 0; k < 3; ++k) {
+                double d = q[k] - p[k], a = lo[k] - pad, b = hi[k] + pad;
+                if (d == 0) {
+                    if (p[k] < a || p[k] > b) return false;
+                    continue;
+                }
+                double ta = (a - p[k]) / d, tb = (b - p[k]) / d;
+                if (ta > tb) { double x = ta; ta = tb; tb = x; }
+                t0 = Math.Max(t0, ta);
+                t1 = Math.Min(t1, tb);
+                if (t0 > t1) return false;
+            }
+            return true;
         }
 
         struct Collect : TriangleBoxTree.IIndexVisitor
@@ -151,9 +234,17 @@ namespace geometry3Sharp.Tests
                 var v = new Collect { Found = new List<int>() };
                 tree.QuerySegment(p0, p1, pad, ref v);
                 Assert.Equal(viaAction, v.Found);
-                // (against the boxes themselves: every box that meets the padded segment is found)
-                foreach (int k in v.Found)
-                    Assert.InRange(k, 0, boxes.Count - 1);
+                // (against the boxes themselves, brute force: every box that the segment meets with the pad less a margin
+                // is found, and every box found meets it with the pad plus a margin: the query is conservative only by its
+                // widening against rounding)
+                var found = new HashSet<int>(v.Found);
+                Assert.Equal(v.Found.Count, found.Count);
+                for (int k = 0; k < boxes.Count; ++k) {
+                    if (SegmentMeetsBox(p0, p1, boxes[k].Min, boxes[k].Max, pad - 1e-9))
+                        Assert.Contains(k, found);
+                    if (found.Contains(k))
+                        Assert.True(SegmentMeetsBox(p0, p1, boxes[k].Min, boxes[k].Max, pad + 1e-9), $"box {k} found but not met");
+                }
                 if (v.Found.Count > 0) nonEmpty++;
             }
             Assert.True(nonEmpty > 200);
@@ -245,5 +336,35 @@ namespace geometry3Sharp.Tests
             public void Visit(int i) { N++; }
         }
 #endif
+        /// <summary> an open sheet folded into a V along the y axis (half-angle 15 degrees, faces of width w, n strips along
+        /// the crease, each triangle reaching from the crease to the outer edge) and an open plate in the V's bisector plane
+        /// x = 0 that touches neither face: a step between the centroids of two triangles across the crease passes through
+        /// the plate </summary>
+        internal static (DMesh3 fold, DMesh3 plate) FoldAndPlate(int n, double w)
+        {
+            var fold = new DMesh3();
+            double s = Math.Sin(Math.PI / 12), c = Math.Cos(Math.PI / 12);
+            var crease = new int[n + 1];
+            var left = new int[n + 1];
+            var right = new int[n + 1];
+            for (int i = 0; i <= n; ++i) {
+                double y = (double)i / n;
+                crease[i] = fold.AppendVertex(new Vector3d(0, y, 0));
+                left[i] = fold.AppendVertex(new Vector3d(-s * w, y, c * w));
+                right[i] = fold.AppendVertex(new Vector3d(s * w, y, c * w));
+            }
+            for (int i = 0; i < n; ++i) {
+                fold.AppendTriangle(crease[i], left[i], left[i + 1]);
+                fold.AppendTriangle(crease[i], left[i + 1], crease[i + 1]);
+                fold.AppendTriangle(crease[i], crease[i + 1], right[i + 1]);
+                fold.AppendTriangle(crease[i], right[i + 1], right[i]);
+            }
+            var plate = new DMesh3();
+            int p0 = plate.AppendVertex(new Vector3d(0, 0.1, 0.1 * w)), p1 = plate.AppendVertex(new Vector3d(0, 0.9, 0.1 * w));
+            int p2 = plate.AppendVertex(new Vector3d(0, 0.9, 0.5 * w)), p3 = plate.AppendVertex(new Vector3d(0, 0.1, 0.5 * w));
+            plate.AppendTriangle(p0, p1, p2);
+            plate.AppendTriangle(p0, p2, p3);
+            return (fold, plate);
+        }
     }
 }
