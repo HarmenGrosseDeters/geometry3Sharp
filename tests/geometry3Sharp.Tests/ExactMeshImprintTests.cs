@@ -635,5 +635,54 @@ namespace geometry3Sharp.Tests
             Assert.Equal(imprint.CurveEdges.Count, imprint.CurveId.Count);
             Assert.Equal(new[] { 0, 1, 2, 3 }, imprint.CurveId.Values.Distinct().OrderBy(x => x));
         }
+
+        [Fact]
+        public void StrictRounding_FailsWithTheDefectsInTheMessage_WhenTheRepairMayNotEdit()
+        {
+            // the needle case with no effort left for the repair: the defects stay, StrictRounding refuses the result
+            var target = Grid(4, 4);
+            var cutter = new DMesh3();
+            cutter.AppendVertex(new Vector3d(-0.5, 0.5, -1)); cutter.AppendVertex(new Vector3d(0.5 + 1e-12, 0.5, 1)); cutter.AppendVertex(new Vector3d(0.5, -1.5, 0.3));
+            cutter.AppendTriangle(0, 1, 2);
+            var imprint = new ExactMeshImprint() { Target = target, Cutter = cutter, StrictRounding = true, RoundingMaxDisplacement = 1e-30 };
+            Assert.False(imprint.Compute());
+            Assert.Equal(ExactMeshImprint.ImprintStatus.RoundingNotClean, imprint.Status);
+            Assert.Contains("rounding not clean", imprint.Error);
+            Assert.Contains("degenerate", imprint.Error);
+            Assert.Null(imprint.Result);
+            Assert.Null(imprint.SourceTriangle);
+            Assert.Empty(imprint.CurveEdges);
+        }
+
+        [Fact]
+        public void ErrorMessagesAndCounts_AreSet()
+        {
+            DMesh3 target, cutter;
+            Pair(Similarity.Identity, out target, out cutter);
+            var budget = new ExactMeshImprint() { Target = target, Cutter = cutter, MaxPieces = 5 };
+            Assert.False(budget.Compute());
+            Assert.Contains("MaxPieces = 5", budget.Error);
+            Assert.False(new ExactMeshImprint().Compute());
+            var none = new ExactMeshImprint();
+            none.Compute();
+            Assert.Equal("no target", none.Error);
+            Assert.Equal("a cutter is null", new ExactMeshImprint() { Target = target, Cutters = new List<DMesh3> { null } }.Run().Error);
+            var bad = new DMesh3(cutter);
+            bad.SetVertex(0, new Vector3d(double.PositiveInfinity, 0, 0));
+            Assert.Equal("a vertex is not finite", new ExactMeshImprint() { Target = target, Cutter = bad }.Run().Error);
+            var ok = Run(target, cutter);
+            Assert.Equal(ok.Counts["rounding_edits"], ok.Rounding.Collapses + ok.Rounding.Flips + ok.Rounding.Moves + ok.Rounding.Zips + ok.Rounding.VertexRemovals);
+            Assert.Equal(ok.Rounding.InitialIntersections, ok.Counts["rounding_intersections"]);
+            Assert.Equal(ok.Rounding.InitialDegenerate, ok.Counts["rounding_degenerate"]);
+            Assert.Equal(ok.Rounding.InitialFalseContacts, ok.Counts["rounding_false_contacts"]);
+            Assert.True(ok.Counts["intersecting_pairs"] > 0 && ok.Counts["points"] > 0 && ok.Counts["new_vertices"] > 0);
+            Assert.Equal(ok.Rounding.LockedContractions, ok.Counts["curve_edges_contracted"]);
+        }
+    }
+}namespace geometry3Sharp.Tests
+{
+    static class ExactMeshImprintTestExtensions
+    {
+        public static g3.ExactMeshImprint Run(this g3.ExactMeshImprint imprint) { imprint.Compute(); return imprint; }
     }
 }
