@@ -940,6 +940,15 @@ Threads are limited by the affinity mask of the process (and `DOTNET_PROCESSOR_C
 which are SMT pairs on a CPU with hyper-threading, so 2 threads there are one physical core. Times are warm (one process per thread count and round
 runs all cases after a warm-up, `profile`); one-process-per-boolean cold times are those of `compare.py`.
 
+### Probes of the pair stage and the rounding (`perf/pair_probe.patch`, `perf/rounding_probe.patch`)
+
+Two patches against the head of #962 (3b52946), applied to the library only at measurement time, never merged: `pair_probe.patch` counts and times the candidate pairs of
+`intersections.pairs` (switches `G3_PAIR_PROBE=1|2|3`, `G3_PROBE_SERIAL=1`, and the experiment `G3_PAIR_FILTER=1`), `rounding_probe.patch` adds the sub-phase timers of
+`MeshRoundingRepair.Apply` (`rounding.<Step>_us` in `phases_ms`, always on). Both only add counters and `Stopwatch` reads; the `profile` hash must equal that of the unpatched build
+(`perf/scaling_report.py --hashes`). Reports `perf/pair_probe_report.py` and `perf/rounding_probe_report.py`, results in
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md#7-two-probes-on-the-head-of-962-the-discarded-pairs-of-the-pair-stage-and-the-rounding-sub-phases-2026-11-16),
+raw rows in `perf/probe_2026-11-16/`.
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,
