@@ -306,10 +306,14 @@ namespace geometry3Sharp.Tests
         [Fact]
         public void BuildChain_SingleVariantsOfTheSecondPlacementAreOffsetsOfA()
         {
+            // the model C has another vertex count than A: the second placement must be built from a copy of A, bit for bit
+            DMesh3 sphereC = new Sphere3Generator_NormalizedCube { Radius = 0.375, EdgeVertices = 6 }.Generate().MakeDMesh();
+            Assert.NotEqual(A().VertexCount, sphereC.VertexCount);
             foreach (ContactVariant v in new[] { ContactVariant.UlpShift, ContactVariant.UlpShiftFew, ContactVariant.Mirror }) {
-                ChainResultT r = ContactTransforms.BuildChain(A(), B(), C(), ContactVariant.FaceContact, 0, 1, 0, v, 1, 1, 1);
+                ChainResultT r = ContactTransforms.BuildChain(A(), B(), sphereC, ContactVariant.FaceContact, 0, 1, 0, v, 1, 1, 1);
                 Assert.Null(r.Error);
-                Assert.Equal(r.A.VertexCount, r.C.VertexCount);                                 // the copy of A, not of the model C
+                Assert.True(BitEqual(r.C, ContactTransforms.Build(A(), A(), v, 1, 1, 1).B), v.ToString());
+                Assert.Equal(A().VertexCount, r.C.VertexCount);
             }
         }
 

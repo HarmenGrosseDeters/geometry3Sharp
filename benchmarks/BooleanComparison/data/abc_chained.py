@@ -7,11 +7,12 @@
 #   python3 data/abc_chained.py filter <dir> <out.csv>      NotCleanReason of every <dir>/meshes/*.obj -> id,triangles,reason
 #   python3 data/abc_chained.py generate <clean.csv> <out.csv> [--chains N]   the chain list from the clean models (no meshes)
 #   python3 data/abc_chained.py manifest <dir> <chains.csv> <out.jsonl> [--limit N] [--variants v1,v2]
-#   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S]   the chains
+#   python3 data/abc_chained.py run <manifest.jsonl> <out.jsonl> [--methods m1,m2] [--timeout S] [--budget S]   the chains
+#                                                           (--budget: no new chain is started after S seconds; finished chains are kept)
 #   python3 data/abc_chained.py summary results.jsonl...    per variant and method
 #
 # Everything but `run` and `filter` is a pure function of its input files and the seeds (SplitMix64 of thingi_pairs.py).
-import csv, json, os, re, shutil, subprocess, sys, tempfile
+import csv, json, os, re, shutil, subprocess, sys, tempfile, time
 import statistics as st
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -74,7 +75,7 @@ def cmd_filter(d, out):
         os.remove(out)
     for i in range(0, len(meshes), 100):
         subprocess.run(tp.tool() + ["thingi-filter", out] + meshes[i:i + 100], check=True)
-    rows = [l.rstrip("\n").split(",") for l in open(out)]
+    rows = [l.rstrip("\n").split(",", 2) for l in open(out)]
     clean = sorted(((k, int(n)) for k, n, r in rows if r == ""))
     with open(out + ".clean", "w") as f:
         f.write("id,tris\n" + "".join(f"{k},{n}\n" for k, n in clean))
@@ -160,47 +161,64 @@ def last_json(text):
             return json.loads(line)
     return {"error": "no output"}
 
+def run_method(m, case, d0, plan, files, timeout, rows, info):
+    """the steps of one method on its own results; rows are appended as they are produced (an exception keeps the earlier ones)"""
+    import compare
+    prev = None
+    for k, (op, left, right) in enumerate(plan):
+        dk = os.path.join(d0, f"{m}_{k}")
+        lf, rf = (prev if left == "R" else files[left]), (prev if right == "R" else files[right])
+        s = subprocess.run(compare.tool + ["chain-step", lf, rf, dk, f"{case['name']}_s{k}"], capture_output=True, text=True, timeout=3600)
+        sinfo = last_json(s.stdout)
+        if "error" in sinfo:
+            rows.append({"class": CLASS, "file": case["name"], "method": m, "step": k, "op": op, "error": sinfo["error"]})
+            return
+        # the chosen operation first: if it fails, the other two (only needed for the identities of the step) are not run
+        runs = {m: {op: compare.run_one(m, op, dk, timeout)}}
+        ops = [op]
+        if runs[m][op].get("status") == "ok":
+            for o in OPS:
+                if o != op:
+                    runs[m][o] = compare.run_one(m, o, dk, timeout)
+            ops = OPS
+        row = compare.evaluate(dk, [m], {"class": CLASS, "name": case["name"]}, sinfo, runs, ops)[0]
+        row.update({"step": k, "op": op, "variant": case["variant"], "chain_inputs": info})
+        out = os.path.join(dk, f"{m}_{op}.off")
+        row["result_tris"] = off_triangles(out)
+        rows.append(row)
+        if row["result_tris"] <= 0:       # no result (failed, rejected) or an empty one: nothing to chain on
+            return
+        prev = out
+
 def run_chain(case, methods, timeout):
     """one chain: B and C placed against A (abc-chain-inputs), then the steps of the variant's plan for each method on its own
-    results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's three
-    operations as in compare.py (identities of the step on the method's own inputs), `step`, `op` and `input.inputs_clean`."""
+    results (the result of a step is the input of the next one, rounded as it is). Rows per step and method: the step's operations
+    as in compare.py (identities of the step on the method's own inputs), `step`, `op` and `input.inputs_clean`. A runner failure
+    of one method (an exception, a hung tool) is a row `runner_error` of that method; the rows of the other methods are kept."""
     import compare
     d0 = tempfile.mkdtemp(prefix="abcchain_")
     try:
-        e = subprocess.run(compare.tool + ["abc-chain-inputs"] + case["chain"][:3] + [d0] + [str(x) for x in case["chain"][3:]],
-                           capture_output=True, text=True, timeout=3600)
-        info = last_json(e.stdout)
-        if "error" in info:
-            raise RuntimeError(info["error"])
+        try:
+            e = subprocess.run(compare.tool + ["abc-chain-inputs"] + case["chain"][:3] + [d0] + [str(x) for x in case["chain"][3:]],
+                               capture_output=True, text=True, timeout=3600)
+            info = last_json(e.stdout)
+            if "error" in info:
+                raise RuntimeError(info["error"])
+        except Exception as ex:
+            return [{"class": CLASS, "file": case["name"], "method": "export", "error": repr(ex)}]
         plan = PLANS[case["variant"]]
         rows = []
         for m in methods:
             files = {k: os.path.join(d0, k + ".off") for k in "ABC"}
-            prev = None
-            for k, (op, left, right) in enumerate(plan):
-                dk = os.path.join(d0, f"{m}_{k}")
-                lf, rf = (prev if left == "R" else files[left]), (prev if right == "R" else files[right])
-                s = subprocess.run(compare.tool + ["chain-step", lf, rf, dk, f"{case['name']}_s{k}"], capture_output=True, text=True, timeout=3600)
-                sinfo = last_json(s.stdout)
-                if "error" in sinfo:
-                    rows.append({"class": CLASS, "file": case["name"], "method": m, "step": k, "op": op, "error": sinfo["error"]})
-                    break
-                runs = {m: {o: compare.run_one(m, o, dk, timeout) for o in OPS}}
-                row = compare.evaluate(dk, [m], {"class": CLASS, "name": case["name"]}, sinfo, runs, OPS)[0]
-                row.update({"step": k, "op": op, "variant": case["variant"], "chain_inputs": info})
-                out = os.path.join(dk, f"{m}_{op}.off")
-                row["result_tris"] = off_triangles(out)
-                rows.append(row)
-                if row["result_tris"] <= 0:       # no result (failed, rejected) or an empty one: nothing to chain on
-                    break
-                prev = out
+            try:
+                run_method(m, case, d0, plan, files, timeout, rows, info)
+            except Exception as ex:
+                rows.append({"class": CLASS, "file": case["name"], "method": m, "runner_error": repr(ex)})
         return rows
-    except Exception as ex:
-        return [{"class": CLASS, "file": case["name"], "method": "export", "error": repr(ex)}]
     finally:
         shutil.rmtree(d0, ignore_errors=True)
 
-def cmd_run(manifest, out, methods, timeout):
+def cmd_run(manifest, out, methods, timeout, budget_s=None):
     cases = [json.loads(l) for l in open(manifest) if l.strip()]
     done = set()
     if os.path.exists(out):
@@ -216,8 +234,12 @@ def cmd_run(manifest, out, methods, timeout):
                 pass
     todo = [c for c in cases if c["name"] not in done]
     print(f"{len(cases) - len(todo)} chains finished, {len(todo)} to run", flush=True)
+    t0 = time.monotonic()
     with open(out, "a") as f:
-        for c in todo:
+        for n, c in enumerate(todo):
+            if budget_s is not None and time.monotonic() - t0 > budget_s:      # the job's time limit would end the run without a report
+                print(f"time budget of {budget_s} s used: {len(todo) - n} chains not run", flush=True)
+                break
             for r in run_chain(c, methods, timeout):
                 f.write(json.dumps(r) + "\n")
             f.flush()
@@ -245,21 +267,25 @@ def cmd_summary(files):
     for f in files:
         with open(f) as fh:
             rows += [json.loads(l) for l in fh if l.strip()]
-    steps, refused = {}, {}
+    steps, refused, runner = {}, {}, {}
     for r in rows:
         if r.get("method") == "export":
             refused[r["file"]] = r.get("error", "")
+        elif "runner_error" in r:
+            runner[(r["file"], r["method"])] = r["runner_error"]
         elif "step" in r:
             steps[(r["file"], r["method"], r["step"])] = r       # the last row of a step wins
     chains = {}
     for (name, m, k), r in steps.items():
         chains.setdefault((r.get("variant") or name.split("_p")[0], m), {}).setdefault(name, {})[k] = r
+    for (name, m) in runner:                                    # a chain that only has a runner error still counts
+        chains.setdefault((name.split("_p")[0], m), {}).setdefault(name, {})
     n_steps = max((len(p) for p in PLANS.values()), default=3)
-    print("| variant | method | chains | steps run (step 1/2/3) | chosen result clean or empty (step 1/2/3) | all steps clean | stopped early | unclean reasons of the chosen results | max identity error (step 1/2/3) | removed components | median ms of the chosen op (step 1/2/3) |")
+    print("| variant | method | chains | steps run (step 1/2/3) | chosen result clean or empty (step 1/2/3) | all steps clean | ended early: empty result / failed | unclean reasons of the chosen results | max identity error (step 1/2/3) | removed components (chosen results) | median ms of the chosen op, ok results (step 1/2/3) |")
     print("|" + "---|" * 11)
     for (variant, m), by_chain in sorted(chains.items(), key=lambda kv: (VARIANTS.index(kv[0][0]) if kv[0][0] in VARIANTS else 99, kv[0][1])):
         ran = [0] * n_steps; clean = [0] * n_steps; err = [0.0] * n_steps; ms = [[] for _ in range(n_steps)]
-        reasons, removed_total, all_clean, early = {}, 0, 0, 0
+        reasons, removed_total, all_clean, early_empty, early_failed = {}, 0, 0, 0, 0
         for name, ks in by_chain.items():
             for k, r in ks.items():
                 if k >= n_steps or "op" not in r:
@@ -269,26 +295,39 @@ def cmd_summary(files):
                     reasons[r["error"][:30]] = reasons.get(r["error"][:30], 0) + 1
                     continue
                 op = r["op"]
-                if r.get(f"{op}_status") != "ok":
-                    reasons[r.get(f"{op}_status") or "failed"] = reasons.get(r.get(f"{op}_status") or "failed", 0) + 1
+                ok = r.get(f"{op}_status") == "ok"
+                if not ok:
+                    key = r.get(f"{op}_status") or "failed"
+                    reasons[key] = reasons.get(key, 0) + 1
                 elif step_clean(r):
                     clean[k] += 1
+                    ms[k].append(r.get(f"{op}_ms") or 0)           # only results of a finished operation: a timeout is not a fast run
                 else:
                     reasons[r.get(f"{op}_clean_reason")] = reasons.get(r.get(f"{op}_clean_reason"), 0) + 1
+                    ms[k].append(r.get(f"{op}_ms") or 0)
                 err[k] = max([err[k]] + [r[e] for e in ("ie_error", "diff_error") if r.get(e) is not None])
-                ms[k].append(r.get(f"{op}_ms") or 0)
-                removed_total += sum(removed(r, o) or 0 for o in OPS)
-            if len(ks) == n_steps and all("op" in r and "error" not in r and r.get(f"{r['op']}_status") == "ok" and step_clean(r) for r in ks.values()):
+                removed_total += removed(r, op) or 0
+            last = ks[max(ks)] if ks else None
+            done = len(ks) == n_steps and all("op" in r and "error" not in r and r.get(f"{r['op']}_status") == "ok" and step_clean(r) for r in ks.values())
+            if done:
                 all_clean += 1
-            if len(ks) < n_steps:
-                early += 1
-        print(f"| {variant} | {m} | {len(by_chain)} | {slash(ran)} | {slash(clean)} | {all_clean} | {early} | "
+            if len(ks) < n_steps or (name, m) in runner:
+                # the chain stopped before its last step: an empty result of a finished operation is expected, anything else is a failure
+                if last is not None and (name, m) not in runner and last.get(f"{last['op']}_status") == "ok" and last.get("result_tris") == 0:
+                    early_empty += 1
+                else:
+                    early_failed += 1
+        print(f"| {variant} | {m} | {len(by_chain)} | {slash(ran)} | {slash(clean)} | {all_clean} | {early_empty} / {early_failed} | "
               f"{', '.join(f'{k} {v}' for k, v in sorted(reasons.items(), key=lambda kv: str(kv[0]))) or '–'} | {slash(f'{e:.1e}' for e in err)} | "
               f"{removed_total if m == 'ours' else '–'} | {slash(f'{st.median(x):.0f}' if x else '–' for x in ms)} |")
     if refused:
-        print(f"\nChains refused (inexact placement) or failed to load: {len(refused)}:")
+        print(f"\nChains refused (inexact placement) or failed to load their inputs: {len(refused)}:")
         for k, v in sorted(refused.items()):
             print(f"- {k}: {v}")
+    if runner:
+        print(f"\nRunner errors (an exception or a hung tool of the driver, not a result of the method): {len(runner)}:")
+        for (k, m), v in sorted(runner.items()):
+            print(f"- {k} {m}: {v}")
 
 if __name__ == "__main__":
     a = sys.argv[1:]
@@ -302,6 +341,6 @@ if __name__ == "__main__":
     elif a[:1] == ["filter"]: cmd_filter(a[1], a[2])
     elif a[:1] == ["generate"]: generate(read_clean(a[1]), a[2], opt("--chains", CHAINS_PER_VARIANT, int))
     elif a[:1] == ["manifest"]: cmd_manifest(a[1], a[2], a[3], opt("--limit", None, int), opt("--variants", None, lambda s: s.split(",")))
-    elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int))
+    elif a[:1] == ["run"]: cmd_run(a[1], a[2], opt("--methods", "ours,manifold,cgal_epeck", lambda s: s.split(",")), opt("--timeout", 300, int), opt("--budget", None, int))
     elif a[:1] == ["summary"]: cmd_summary(a[1:])
     else: sys.exit(__doc__)

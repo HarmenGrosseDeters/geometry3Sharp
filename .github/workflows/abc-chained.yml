@@ -27,6 +27,9 @@ on:
       timeout_s:
         description: 'Timeout per boolean in seconds'
         default: '300'
+      budget_min:
+        description: 'Minutes after which no new chain is started (the job limit is 345 minutes; finished chains are kept and reported)'
+        default: '240'
       listing_only:
         description: 'Download the chunk and print the listing of its files, then stop (to check the layout of an archive)'
         type: boolean
@@ -81,7 +84,7 @@ jobs:
         run: |
           [[ "$CHUNK" =~ ^[0-9]{4}$ ]] || { echo "chunk must be 4 digits"; exit 1; }
           curl -fsSL https://deep-geometry.github.io/abc-dataset/data/obj_v00.txt -o obj_list.txt
-          URL=$(awk -v f="abc_${CHUNK}_obj_v00.7z" '$2==f {print $1}' obj_list.txt)
+          URL=$(tr -d '\r' < obj_list.txt | awk -v f="abc_${CHUNK}_obj_v00.7z" '$2==f {print $1}')
           [ -n "$URL" ] || { echo "chunk $CHUNK not in the list of the dataset page"; exit 1; }
           echo "chunk URL host: $(echo "$URL" | cut -d/ -f3)"
           sudo mkdir -p /mnt/abc && sudo chown "$USER" /mnt/abc
@@ -121,11 +124,12 @@ jobs:
           CGAL_BOOL: ${{ github.workspace }}/cgal_bool
           BOOLCMP_TOOL: ${{ github.workspace }}/frozen/BooleanComparison.dll
           TIMEOUT: ${{ inputs.timeout_s }}
+          BUDGET_MIN: ${{ inputs.budget_min }}
         run: |
           S=scripts/benchmarks/BooleanComparison
-          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods ours,manifold,cgal_epeck --timeout "$TIMEOUT"
+          python3 $S/data/abc_chained.py run cases.jsonl results.jsonl --methods ours,manifold,cgal_epeck --timeout "$TIMEOUT" --budget "$((BUDGET_MIN * 60))"
       - name: Report
-        if: ${{ always() && !inputs.listing_only }}
+        if: ${{ always() && !inputs.listing_only && hashFiles('results.jsonl') != '' }}
         run: |
           set -o pipefail
           python3 scripts/benchmarks/BooleanComparison/data/abc_chained.py summary results.jsonl | tee report.md >> "$GITHUB_STEP_SUMMARY"
@@ -144,13 +148,14 @@ jobs:
 
   publish:
     needs: measure
-    if: ${{ !cancelled() && github.repository == 'harmengrossedeters/geometry3Sharp' }}
+    if: ${{ !cancelled() && needs.measure.result != 'skipped' && github.repository == 'harmengrossedeters/geometry3Sharp' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write   # the data branch runs/abc-chained
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
+        continue-on-error: true      # the measure job may have failed before it uploaded anything
         with:
           path: art
       - name: Result rows to runs/abc-chained

@@ -64,6 +64,10 @@ static class AbcChained
             ["reasonA"] = ra, ["reasonB"] = rb, ["inputs_clean"] = ra == "" && rb == "",
         };
         Program.WriteCase(a, b, args[2], args[3], extra, inputsClean: ra == "" && rb == "");
+        // the tools get the files as the previous step wrote them: the reader drops triangles that do not fit a manifold mesh (duplicates,
+        // an edge of three triangles), so the OFF files are not rewritten from the mesh as read (the properties of the step are those of the mesh as read)
+        File.Copy(args[0], Path.Combine(args[2], "A.off"), true);
+        File.Copy(args[1], Path.Combine(args[2], "B.off"), true);
         return 0;
     }
 }

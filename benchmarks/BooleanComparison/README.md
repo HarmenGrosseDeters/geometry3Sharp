@@ -290,7 +290,7 @@ cylinders, coordinates that are nearly exact), which is where exact contact and 
 input of the next: **results that were rounded to doubles re-enter the exact pipeline**, which a single boolean on clean inputs never exercises.
 
 **Dataset terms (owner decisions 2026-11-16).** ABC is approved for tests and benchmarks with **run-time fetching only**: the chunk is downloaded on a
-GitHub-hosted runner by the workflow, never committed, never redistributed, never uploaded as an artifact (only result rows, model ids and the chain list leave the
+GitHub-hosted runner by the workflow, never committed, never redistributed, never uploaded as an artifact (only result rows, the sampled model ids, the chain list and the file listing of the chunk, names and sizes, leave the
 job), never fetched by a PR-tier test. The dataset page gives the models' copyright to their creators (Onshape Terms of Use 1.g.ii) and no warranties; cite the
 paper. The Fusion 360 Gallery is excluded and GrabCAD is not pursued. The tests of this class write procedural meshes.
 
@@ -317,13 +317,13 @@ reflections; every coordinate sum checked, an inexact placement refuses the chai
 `ulp-shift` and `mirror` (then the third model is not used: c = a). Placement, axis, sign and parameter are drawn per chain.
 
 **Running a chain** (`abc_chained.py run`, `BooleanComparison abc-chain-inputs` and `chain-step`): each method runs the steps **on its own results**: the output of
-step k of ours is the input of step k+1 of ours, exactly as written (the doubles of the OFF file), likewise for manifold and CGAL EPECK. At each step all three operations are run on the
-step's inputs, so that the volume identities of the step hold on the inputs the method actually got; the operation of the plan is the chosen result that goes on. A chain ends early if the
-chosen result is missing or empty.
+step k of ours is the input of step k+1 of ours, as the file the method wrote (`chain-step` copies the OFF file; its volumes and `NotCleanReason` are those of the mesh as the reader builds it, which drops triangles that do not fit a manifold mesh), likewise for manifold and CGAL EPECK. At each step all three operations are run on the
+step's inputs, so that the volume identities of the step hold on the inputs the method actually got; the operation of the plan is the chosen result that goes on. The chosen operation runs first: if it
+fails, the other two are not run. A chain ends early if the chosen result is missing or empty; the summary counts the empty ends (expected) apart from the failures. An exception of the driver or a hung tool for one method is a `runner_error` row of that method (the rows of the others stay, and it is listed apart from refused placements). The run has a time budget (`--budget`, the workflow's `budget_min`): no new chain starts after it, finished chains are kept.
 
 **Oracle** (per step and method, as in `thingi-pairs`): `NotCleanReason` of the results, `V(X∪Y) + V(X∩Y) = V(X) + V(Y)` and `V(X−Y) = V(X) − V(X∩Y)` with the class tolerance 1e-7 **per step** (the error
 budget of a chain is the sum over its steps, 3e-7; the summary reports the largest identity error per step), no self-intersections; `input.inputs_clean` says whether the step's inputs were clean when
-they arrived (a rounded result is not always). For `ours` the rows record `removed_components` per operation (what `SafeRounding` dropped), and the time of each step.
+they arrived (a rounded result is not always). For `ours` the rows record `removed_components` per operation (what `SafeRounding` dropped; the summary adds up the chosen results of the chains only) and the time of each step (the summary's median counts finished operations only, a timeout is not a fast run).
 
 **Running** (from `benchmarks/BooleanComparison`, with the models already extracted to `$D/meshes/<id>.obj`, eg for a local trial with procedural or licensed files you hold):
 
@@ -338,7 +338,7 @@ python3 data/abc_chained.py summary results-abc.jsonl
 On GitHub: `abc-chained.yml` (`workflow_dispatch` only, no schedule, one job on a GitHub-hosted runner: downloads the chunk to the runner's second disk, lists, extracts, filters, runs, writes the table to the step
 summary; the result rows go to the data branch `runs/abc-chained`). `listing_only` stops after the listing, to check the layout of an archive.
 
-**First run:** (RESULTS_PLACEHOLDER)
+**First run:** pending (the workflow is dispatched after this section is on master; the results table follows in a results PR).
 
 ## Open Boolean Benchmark runner
 

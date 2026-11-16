@@ -129,10 +129,37 @@ class ChainListTests(unittest.TestCase):
             self.assertTrue(any("R" in step[1:] for step in plan[1:]))
             self.assertTrue(all(op in ac.OPS for op, _, _ in plan))
 
+class RunTests(unittest.TestCase):
+    def manifest(self, d, names):
+        path = os.path.join(d, "m.jsonl")
+        with open(path, "w") as f:
+            for n in names:
+                f.write(json.dumps({"class": ac.CLASS, "name": n, "variant": "ucd", "chain": ["a", "b", "c", "face-contact", "2", "1", "0", "face-contact", "2", "-1", "0"]}) + "\n")
+        return path
+
+    def test_finished_chains_are_skipped_and_a_cut_off_last_line_is_ended(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "r.jsonl")
+            with open(out, "w") as f:
+                f.write(json.dumps({"file": "ucd_p0000_a+b+c", "method": "ours", "step": 0}) + '\n{"file": "ucd_p0001')   # cut off by an interrupted run
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                ac.cmd_run(self.manifest(d, ["ucd_p0000_a+b+c"]), out, ["ours"], 10, budget_s=0)
+            self.assertIn("1 chains finished, 0 to run", buf.getvalue())
+            self.assertTrue(open(out).read().endswith("\n"))
+
+    def test_budget_stops_before_the_next_chain_and_keeps_finished_ones(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "r.jsonl")
+            with contextlib.redirect_stdout(io.StringIO()) as buf:
+                ac.cmd_run(self.manifest(d, ["ucd_p0000_a+b+c", "ucd_p0001_d+e+f"]), out, ["ours"], 10, budget_s=-1)
+            self.assertIn("2 chains not run", buf.getvalue())
+            self.assertFalse(os.path.exists(out) and open(out).read())
+
 class SummaryTests(unittest.TestCase):
-    def step(self, name, k, op, reason="", method="ours", status="ok", removed=None, ie=1e-15):
+    def step(self, name, k, op, reason="", method="ours", status="ok", removed=None, ie=1e-15, ms=None, tris=10):
         r = {"class": ac.CLASS, "file": name, "method": method, "step": k, "op": op, "variant": "ucd", "ie_error": ie, "diff_error": 0.0,
-             f"{op}_status": status, f"{op}_clean_reason": reason, f"{op}_ms": 10 + k, "input": {"inputs_clean": True}}
+             f"{op}_status": status, f"{op}_clean_reason": reason, f"{op}_ms": 10 + k if ms is None else ms, "input": {"inputs_clean": True},
+             "result_tris": tris}
         if removed is not None:
             r[f"{op}_removed_components"] = removed
         return r
@@ -149,19 +176,44 @@ class SummaryTests(unittest.TestCase):
 
     def test_counts_steps_clean_results_and_early_stops(self):
         rows = [self.step("ucd_p0000_a+b+c", 0, "union"), self.step("ucd_p0000_a+b+c", 1, "difference", removed=3), self.step("ucd_p0000_a+b+c", 2, "intersection"),
-                self.step("ucd_p0001_d+e+f", 0, "union"), self.step("ucd_p0001_d+e+f", 1, "difference", reason="not closed", ie=2e-6),   # chain stops here
+                self.step("ucd_p0001_d+e+f", 0, "union"), self.step("ucd_p0001_d+e+f", 1, "difference", reason="not closed", ie=2e-6),   # chain stops here (the result of this step is not empty: a failure)
+                self.step("ucd_p0003_j+k+l", 0, "union", tris=0, reason="empty"),                                                           # an empty result ends a chain: expected
                 {"class": ac.CLASS, "file": "ucd_p0002_g+h+i", "method": "export", "error": "RuntimeError('inexact transform: B: x')"}]
         out = self.summary(rows)
         cells = [l.split("|") for l in out.splitlines() if l.startswith("| ucd")][0]
-        self.assertEqual(cells[3].strip(), "2")                      # chains
-        self.assertEqual(cells[4].strip(), "2/2/1")                  # steps run
-        self.assertEqual(cells[5].strip(), "2/1/1")                  # chosen result clean
+        self.assertEqual(cells[3].strip(), "3")                      # chains
+        self.assertEqual(cells[4].strip(), "3/2/1")                  # steps run
+        self.assertEqual(cells[5].strip(), "3/1/1")                  # chosen result clean (or empty)
         self.assertEqual(cells[6].strip(), "1")                      # all steps clean
-        self.assertEqual(cells[7].strip(), "1")                      # stopped early
+        self.assertEqual(cells[7].strip(), "1 / 1")                  # ended early: empty result (p0003) / failed (p0001)
         self.assertIn("not closed 1", cells[8])
         self.assertEqual(cells[9].strip().split("/")[1], "2.0e-06")  # identity error of step 2
-        self.assertEqual(cells[10].strip(), "3")                     # removed components
+        self.assertEqual(cells[10].strip(), "3")                     # removed components of the chosen results
         self.assertIn("ucd_p0002_g+h+i", out)                        # refused chain listed
+
+    def test_removed_components_count_only_the_chosen_result(self):
+        r = self.step("ucd_p0000_a+b+c", 0, "union", removed=2)
+        r["intersection_removed_components"] = 40                    # an operation of the step's identities that nobody chains on
+        cells = [l.split("|") for l in self.summary([r]).splitlines() if l.startswith("| ucd")][0]
+        self.assertEqual(cells[10].strip(), "2")
+
+    def test_a_timeout_is_not_a_fast_run(self):
+        rows = [self.step("ucd_p0000_a+b+c", 0, "union", ms=100, tris=0), self.step("ucd_p0001_d+e+f", 0, "union", ms=300, tris=0),
+                self.step("ucd_p0002_g+h+i", 0, "union", ms=0, status="timeout", tris=-1)]
+        cells = [l.split("|") for l in self.summary(rows).splitlines() if l.startswith("| ucd")][0]
+        self.assertEqual(cells[11].strip().split("/")[0], "200")      # the median of 100 and 300, the timeout is not a 0
+        self.assertIn("timeout 1", cells[8])
+        self.assertEqual(cells[7].strip(), "2 / 1")                   # two empty results (expected), a timeout (a failure)
+
+    def test_runner_errors_are_listed_and_count_as_failed_chains(self):
+        rows = [self.step("ucd_p0000_a+b+c", 0, "union"),
+                {"class": ac.CLASS, "file": "ucd_p0000_a+b+c", "method": "cgal_epeck", "runner_error": "TimeoutExpired('chain-step', 3600)"}]
+        out = self.summary(rows)
+        self.assertIn("Runner errors", out)
+        self.assertIn("ucd_p0000_a+b+c cgal_epeck: TimeoutExpired", out)
+        cells = [l.split("|") for l in out.splitlines() if l.startswith("| ucd") and "cgal_epeck" in l][0]
+        self.assertEqual(cells[7].strip(), "0 / 1")
+        self.assertNotIn("Chains refused", out)                        # it is not an inexact placement
 
     def test_other_methods_have_no_removed_column_and_failed_ops_are_counted(self):
         out = self.summary([self.step("ucd_p0000_a+b+c", 0, "union", method="manifold", status="failed")])
@@ -214,13 +266,36 @@ class ChainEndToEndTests(unittest.TestCase):
         self.assertEqual(steps[2]["input"]["trisA"], steps[1]["difference_tris"])
         self.assertEqual(steps[2]["input"]["trisB"], 12)             # ... and its B is the original A
 
-    def test_the_second_step_gets_the_result_of_the_first_not_the_original(self):
-        rows = ac.run_chain(self.case("dui", "partial-overlap", 0, "face-contact", 0), ["ours"], 300)
-        steps = {r["step"]: r for r in rows}
-        # dui: (A - B) ∪ C ∩ A; B flush inside A (A and B the same size, so A - B is empty when B covers A): the chain ends after an empty step
-        self.assertIn(0, steps)
-        if steps[0]["result_tris"] <= 0:
-            self.assertEqual(sorted(steps), [0])
+    def test_each_method_runs_on_its_own_results_and_a_failing_method_keeps_the_others(self):
+        # dui: A - B with B touching A only is A (not empty), then ∪ C (touching only), then ∩ A: every step has a result
+        rows = ac.run_chain(self.case("dui", "face-contact", 0, "face-contact", 0), ["ours", "boom", "ours"], 300)
+        ours = {r["step"]: r for r in rows if r["method"] == "ours" and "step" in r}
+        self.assertEqual(sorted(ours), [0, 1, 2], rows)
+        # step 2's input A is step 1's chosen result (the difference), step 3's input A is step 2's (the union)
+        self.assertEqual(ours[1]["input"]["trisA"], ours[0]["difference_tris"])
+        self.assertEqual(ours[2]["input"]["trisA"], ours[1]["union_tris"])
+        self.assertEqual(ours[1]["input"]["trisB"], 12)                            # C is a cube
+        self.assertEqual(ours[2]["input"]["trisB"], 12)                            # ... and the third step's B is the original A
+        # an exception of one method (an unknown one: no command) is a runner error of that method, the rows of ours stay
+        boom = [r for r in rows if r["method"] == "boom"]
+        self.assertTrue(boom and all("runner_error" in r for r in boom), rows)
+        self.assertNotIn("export", {r["method"] for r in rows})
+
+    def test_the_chosen_operation_runs_first_and_the_others_only_if_it_worked(self):
+        import compare
+        calls, real = [], compare.run_one
+        def fake(m, op, d, timeout):
+            calls.append(op)
+            return {"ok": False, "error": "boom", "status": "failed", "ms": 1} if op == "difference" else real(m, op, d, timeout)
+        compare.run_one = fake
+        try:
+            rows = ac.run_chain(self.case("ucd", "face-contact", 0, "face-contact", 0), ["ours"], 300)
+        finally:
+            compare.run_one = real
+        self.assertEqual(calls[:3], ["union", "intersection", "difference"])        # step 1: union chosen and ok, the others follow
+        self.assertEqual(calls[3:], ["difference"])                                  # step 2: the chosen difference failed: nothing else, no step 3
+        self.assertEqual(sorted(r["step"] for r in rows), [0, 1])
+        self.assertEqual(rows[1]["difference_status"], "failed")
 
     def test_inexact_placement_is_an_error_row_for_the_chain(self):
         v, f = cube(0, 0.5)
