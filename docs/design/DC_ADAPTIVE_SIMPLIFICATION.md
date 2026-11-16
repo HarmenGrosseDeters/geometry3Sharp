@@ -62,11 +62,11 @@ others connect cluster vertices.
   `DualContouring`, truncated eigenvalues).
 - **Merge test (bottom up).** A component merges if (1) all its child components merged (octree: parent only over leaves),
   (2) the vertex lies inside the block, (3) every Hermite plane of the component is within `Tolerance` finest cells of
-  the vertex (max, not sum: it bounds the distance to the Hermite planes and does not grow with the number of crossings),
-  and (4) no surviving triangle around it flips its normal (dot with the old normal above 0.25 of the lengths; the
-  geometric part of the topology test).
-- **Topology test.** After the local tests the quotient mesh is built and checked combinatorially: every edge in exactly
-  two triangles, every vertex link one cycle, no two triangles on the same vertices. Components of offending vertices
+  the vertex (max, not sum: it bounds the distance to the Hermite planes and does not grow with the number of crossings).
+- **Topology test.** After the local test the quotient mesh is built and checked combinatorially around the clusters:
+  every edge in exactly two triangles (a triangle that would give an edge a third one is left out and shows as a hole),
+  every vertex link one cycle, no triangle below the degenerate area of `NotCleanReason` (three cluster vertices on one
+  crease would give a zero-area triangle). Components of offending vertices
   lose a level (their cap), and the pass repeats. This is the global form of Ju 2002's corner-sign test and Schaefer's
   manifold criterion; it is exact, not conservative, so it keeps more merges than a local rule.
 - **Self-intersections.** The quotient is checked exactly (`ExactTriangleIntersection`, AABB tree, as the base). Merged

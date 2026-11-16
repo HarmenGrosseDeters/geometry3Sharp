@@ -293,6 +293,7 @@ namespace g3
             Vector3d[][] cellGroupMass = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupPlane = new Vector3d[cellList.Length][];
             Vector3d[][] cellGroupCentroid = new Vector3d[cellList.Length][];
+            int[][][] cellGroupCrossings = RecordVertexCrossings ? new int[cellList.Length][][] : null;
             bool[][] cellGroupFeature = new bool[cellList.Length][];
             int transitionErrors = 0;
             Action<int> place_vertices = (idx) => {
@@ -335,6 +336,19 @@ namespace g3
                         centroid[g] += hpoints[ci];
                     centroid[g] /= Math.Max(edges.Count, 1);
                 }
+                if (cellGroupCrossings != null) {
+                    var lists = new int[nGroups][];
+                    for (int g = 0; g < nGroups; ++g) {
+                        var l = new List<int>();
+                        for (int le = 0; le < 12; ++le)
+                            if (cc.Edges[le] >= 0 && groups[le] == g) l.Add(cc.Edges[le]);
+                        if (faceGroups != null)
+                            for (int i = 0; i < faceGroups.Length; ++i)
+                                if (faceGroups[i] == g) l.Add(cc.FaceCrossings[i]);
+                        lists[g] = l.ToArray();
+                    }
+                    cellGroupCrossings[idx] = lists;
+                }
                 cellEdgeGroup[idx] = groups;
                 cellFaceGroup[idx] = faceGroups;
                 cellGroupPos[idx] = pos;
@@ -357,6 +371,7 @@ namespace g3
             var vertexCell = new List<Cell>();
             var vertexLast = new List<Vector3d>();
             var vertexPatches = new List<int>();
+            VertexCrossings = RecordVertexCrossings ? new List<int[]>() : null;
             Dictionary<long, int[]> cellEdgeVertex = new Dictionary<long, int[]>(cellList.Length, EdgeKeyComparer.Instance);
             Dictionary<long, Dictionary<int, int>> cellFaceVertex = new Dictionary<long, Dictionary<int, int>>(EdgeKeyComparer.Instance);
             for (int idx = 0; idx < cellList.Length; ++idx) {
@@ -364,6 +379,7 @@ namespace g3
                 for (int g = 0; g < groupVertex.Length; ++g) {
                     groupVertex[g] = Mesh.AppendVertex(cellGroupPos[idx][g]);
                     vertexMass.Add(cellGroupMass[idx][g]);
+                    if (VertexCrossings != null) VertexCrossings.Add(cellGroupCrossings[idx][g]);
                     vertexPlane.Add(cellGroupPlane[idx][g]);
                     vertexCell.Add(cellCrossings[cellList[idx]].Cell);
                     vertexPatches.Add(groupVertex.Length);
@@ -1460,7 +1476,14 @@ namespace g3
             return diagnosticMs;
         }
 
-        Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
+        /// <summary> recording for AdaptiveDualContouring: the crossing indices (into the Hermite arrays) of each cell vertex, by vertex id (face and edge vertices have no entry) </summary>
+        internal bool RecordVertexCrossings;
+        internal List<int[]> VertexCrossings;
+        internal Vector3d[] HermitePoints { get { return genPoints; } }
+        internal Vector3d[] HermiteNormals { get { return genNormals; } }
+        internal Vector3i VertexCellMin(int vid) { return genCell[vid].Min; }
+
+        internal Vector3d solve_qef(Vector3d cellMin, double cellSize, List<int> edges, Vector3d[] points, Vector3d[] normals, out Vector3d massPoint, out Vector3d planeNormal, out bool isFeature)
         {
             Vector3d mass = Vector3d.Zero;
             foreach (int ci in edges)
