@@ -395,6 +395,18 @@ the `SplitTriangle` breakdown (measured; the mesher speed item is dropped, #909)
 1. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; not scheduled).
 2. Blocked on inputs: judging the fork's huge Herne q20 outputs, the 72 run-A oracle timeouts, stmlf (no issue).
 3. `Dirty` deduplication in `Collect` (measured in #688; needs re-recorded golden rows and the grading bound).
-4. Fuzz group (f) slow units: 14 quality-mesh2 / clipper2 inputs take 6.3-16.8 s (#947).
+4. Fuzz group (f) slow units (#947, measured 2026-11-16): the time is in the **oracle** (`benchmarks/Meshing2Benchmark/Oracle`), not in
+   `QualityMesh2` or Clipper2. The 14 units' bytes are not on `runs/mesh-fuzz` (only `timing-master.txt`), so they could not be split
+   by operation; the `random` smoke run of the pilot (the same targets) finds the same class: 69 `quality-mesh2` inputs above 0.3 s in
+   about 14 000 and none of `clipper2` in 20 000. On those 69 the mesher takes 0.15-0.5 s (1000-1500 output vertices from 6-16 points)
+   and the oracle 89 % of the time, up to 11 s. Cause: inputs with coordinates at very different binary exponents (a vertex at 1e-212
+   beside an extent of 1) make the tube squared a quotient of two numbers beyond a double; `Q.Bounds` said "does not fit", every double
+   filter that needs the tube was off, and the tests "within the tube" ran in BigInteger; and the angle excuse `SpansSmallInputAngle`
+   recomputed per triangle what depends on a vertex or a pair of sources only (a mesh with 1650 of 1800 triangles below the angle at
+   many small input angles). Fixed in the oracle (`Q.Bounds` of such a quotient, memoized per vertex and per source pair; the
+   verdicts are the same on all 69, `perf/oracle-wide-range-net10.txt`): 133 s -> 83 s over the 69, slowest 11.2 s -> 4.4 s. Left, as
+   a documented limit: 2-4.4 s per such input, in `segments` (the exact selection and the chain checks, about 3 s on the slowest),
+   `coverage` and `marks`; they are a cost of the exact oracle on these inputs (1000 and more bits per coordinate difference), a
+   profile (dotnet-trace was not available in the session) would be the next step. The mesher's output is unchanged.
 5. Research: Shewchuk's Terminator with a region-based oracle excuse; matched shells; grading placement strategy;
    <= 2x the fork's mesher time; Chew-2 (no issues).

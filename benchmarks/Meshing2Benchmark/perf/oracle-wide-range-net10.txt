@@ -1,0 +1,26 @@
+Oracle cost on wide-exponent quality-mesh2 inputs (#947), net10.0, Linux container, one run per cell, times in ms.
+
+Inputs: the 69 inputs above 300 ms that `random` finds (not committed: bytes are not kept; the command regenerates them):
+  MESH_FUZZ_SLOW_MS=300 MESH_FUZZ_OPS=quality-mesh2 dotnet MeshFuzzPilot.dll random 20000 7   (the first 250 s; clipper2: 0 inputs above 300 ms in 20 000)
+Each input replayed with  MESH_FUZZ_TRACE=1 MESH_FUZZ_OPS=quality-mesh2 dotnet MeshFuzzPilot.dll replay <input>
+before = master (oracle as of 164f1431), after = this PR. Verdicts: identical (no finding in either, 69 of 69).
+
+rank  points segments out-vertices  mesher  oracle-before  oracle-after
+   1      16       10         1516     198          11242          4374
+   2       8       15         1364     440           9309          3904
+   3       8       18         1154     230           6607          3096
+   4       8       16         1031     469           4862          2960
+   5       6       12         1506     322           4649          2036
+   6       8       16          713     147           4540          3371
+   7       8       10         1508     230           3945          2092
+   8       8       16          718     187           3902          1266
+   9       8       16         1508     254           3725          2095
+  10       6       12         1506     348           3589          1209
+  11      16       35         1516     271           2653          1624
+  12      16       34          822     198           2602           830
+  13      16       34          636     203           2507           855
+  14      16       35          679     213           2385          1063
+  15      16       34          936     210           2380          1047
+
+all 69 inputs: oracle 133013 ms -> 83065 ms; mesher 15848 ms; slowest oracle 11242 ms -> 4374 ms
+Oracle share of mesher + oracle before: 89.4 %

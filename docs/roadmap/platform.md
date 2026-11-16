@@ -458,7 +458,7 @@ Done and removed from this list: #883 and #891 / #892 / #942 / #951 (determinism
    regression rule only, once a baseline exists: same session.
 4. Mutation: merge #913, then the rest of #615 (see exact-boolean.md).
 5. Tests and CI: #824 (net48 hang; close if it does not come back after #883), #698 (full-run starvation), #866 / #940
-   (`MeshSweepCollision` above the 20 s rule), #947 (slow fuzz units). A third net48 shard only if the queue wait is
+   (`MeshSweepCollision` above the 20 s rule), #947 (slow fuzz units: the oracle, not the library; measured and partly fixed 2026-11-16, [meshing2d.md](meshing2d.md)). A third net48 shard only if the queue wait is
    short and shard b stays the critical path (check 2026-11-16).
 6. Determinism: #804, the casts that remain after #942 / #951.
 7. net48 vs net10 comparison #929 and thread scaling #858: the owner's local run (2026-11-15/16).

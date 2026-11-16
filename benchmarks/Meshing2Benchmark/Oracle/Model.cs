@@ -203,6 +203,9 @@ namespace Meshing2Acceptance
         public Q Area2 = Q.Zero;
         public Q? MinSin2;
         public int ConstructedVertices;
+        /// <summary> how many tests "within the tube of a segment" ran, and how many of them in exact arithmetic (the double filter decided
+        /// the others): a measure of the cost, not part of the verdict (#947) </summary>
+        public int TubeTests, TubeTestsExact;
         public bool GlobalDelaunayChecked;
         public int BelowAngle;
         /// <summary>
