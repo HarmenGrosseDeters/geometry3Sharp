@@ -12,7 +12,13 @@
 # does not mutate (Stryker compiles but does not mutate such a file), and the line is taken off again when the script ends,
 # also when Stryker fails or the job is cancelled, with a check that the tracked files are as they were (README, "Coverage
 # pass"; from #615). G3_NO_EXCLUDE=1 switches this off (measurements).
-# Usage (in tests/mutation): MODE=... BASE=<base sha> [BASELINE_DIR=<dir>] bash run_stryker.sh <config file>
+# Pull requests (NO_FULL=1, set by the workflow for pull_request events; Exact Boolean 3.0, README "3.0 process"): no full
+# run, because a full shard is a 3-6 hour runner slot. A shard that would run in full (its config or the tools changed, or
+# no baseline in the cache fits) runs nothing, says "full run on master" and why in the job summary, and succeeds; the
+# scheduled run on master measures it and seeds its baseline. Incremental (source) and --since (tests) runs are not
+# affected. One exception, the gate of CLAUDE.md ("Review before every merge"): a shard that mutates an exact-code
+# file that the PR changes (select_shards.py gate) keeps its full run, so such a PR is never merged without a threshold check.
+# Usage (in tests/mutation): MODE=... BASE=<base sha> [NO_FULL=1] [BASELINE_DIR=<dir>] bash run_stryker.sh <config file>
 set -euo pipefail
 config="$1"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -148,7 +154,42 @@ full_config() {
   fi
 }
 
+# a full run that a pull request does not make: the reason goes to the log and the job summary, the job succeeds
+skip_full() {
+  mkdir -p StrykerOutput
+  echo "::notice::$config: full run on master ($1)"
+  {
+    echo "### $config: full run on master"
+    echo
+    echo "No full run on a pull request during 3.0: $1. The scheduled run on master measures this shard in full and seeds its baseline (tests/mutation/README.md)."
+  } >> "$summary"
+  touch StrykerOutput/skipped-full
+}
+
+# does the PR change an exact-code file that this shard mutates, or a script of the runs while this is their
+# representative shard (then its full run stays)? Fails closed: the full run is skipped only when select_shards.py answers
+# exactly `no`; a git or script error counts as gated. G3_CHANGED_PATHS_FILE (a list of paths) replaces the git diff, for the tests
+gated() {
+  local changed answer
+  if [ -n "${G3_CHANGED_PATHS_FILE:-}" ]; then
+    changed="$(cat "$G3_CHANGED_PATHS_FILE")" || return 0
+  else
+    changed="$(git -C "$root" diff --name-only "${BASE:-HEAD}...HEAD" 2>/dev/null)" || return 0
+  fi
+  answer="$(python3 "$here/select_shards.py" gate "$config" <<< "$changed" 2>/dev/null)" || return 0
+  [ "$answer" != no ]
+}
+
+# usage: full <why a full run is needed>
 full() {
+  if [ "${NO_FULL:-}" = 1 ]; then
+    if gated; then
+      echo "::notice::$config: full run on this PR although NO_FULL is set: the PR changes an exact-code file of this shard (gate)"
+    else
+      skip_full "${1:-a full run is needed}"
+      return 0
+    fi
+  fi
   mkdir -p StrykerOutput
   touch StrykerOutput/full-run
   local run
@@ -168,7 +209,7 @@ case "${MODE:-full}" in
   source)
     if [ ! -f "$baseline" ]; then
       echo "::notice::no baseline in the cache for $config: running it in full"
-      full
+      full "no baseline in the cache fits this config"
       exit $?
     fi
     echo "baseline: $(cat "$(dirname "$baseline")/source.txt" 2>/dev/null || echo unknown)"
@@ -188,10 +229,10 @@ case "${MODE:-full}" in
       none)
         python3 "$here/incremental.py" merge "$config" "$baseline" - "$summary" ;;
       *)
-        full ;;
+        full "the baseline does not fit the changed lines (plan: $plan)" ;;
     esac ;;
   full)
-    full ;;
+    full "the config or the tools changed" ;;
   *)
     echo "unknown mode $MODE" >&2
     exit 2 ;;

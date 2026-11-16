@@ -21,8 +21,10 @@ A config whose edit only moves the spans of its `mutate` entries (a source edit 
 resplit moves a boundary) runs in `source` mode instead of in full: incremental.py carries the baseline's spans over
 the line diff and runs what the moved boundary adds (config_edit_moves_only_spans; checked on $BASE / $HEAD as well).
 With --all every config runs in full (schedule, workflow_dispatch); --all --only arithmetic,rounding-1 runs only those
-(workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards).
+(workflow_dispatch input "shards"; "arithmetic" is stryker-config.json, the others are the mesh shards). --only also takes
+prefixes (`boolean-*`) and the groups `nightly` (boolean-*, arrangement-*, rounding-*) and `weekly` (everything else).
 """
+import fnmatch
 import glob
 import json
 import os
@@ -308,6 +310,30 @@ def mode_of(config, changed):
     return "tests" if changed & tests else "none"
 
 
+# The scheduled runs of master (3.0 process, README): the big shards of the exact boolean pipeline Monday to Saturday, the rest
+# on Sunday. `--only nightly` / `--only weekly` name these groups (the other names of --only are shards, or prefixes ending in `*`).
+NIGHTLY = ("boolean-*", "arrangement-*", "rounding-*")
+
+
+def expand_only(value, names):
+    """the set of shard names that a --only value selects: shard names, prefixes ending in `*`, and the groups `nightly` and
+    `weekly` (every shard that is not nightly); a name that matches nothing is an error"""
+    out = set()
+    for item in (x.strip() for x in value.split(",") if x.strip()):
+        if item == "nightly":
+            out |= expand_only(",".join(NIGHTLY), names)
+        elif item == "weekly":
+            out |= set(names) - expand_only("nightly", names)
+        elif item.endswith("*"):
+            hits = {n for n in names if n.startswith(item[:-1])}
+            if not hits:
+                raise ValueError("no shard matches " + item)
+            out |= hits
+        else:
+            out.add(item)
+    return out
+
+
 def shard_name(config_name):
     """config name -> the name used in --only and in the cache keys: config -> arithmetic, mesh-x -> x"""
     return "arithmetic" if config_name == "config" else config_name[len("mesh-"):]
@@ -317,6 +343,39 @@ def shard_name(config_name):
 # the tests with a fake dotnet cannot see Stryker itself. A change to one of them runs the cheapest mesh shard in full
 # (about 30 minutes), as a representative; the others follow their own rules. select_shards.py and the test files run in
 # the `changes` job of every workflow run (their paths are in the workflow's trigger).
+# Exact code for the merge gate (CLAUDE.md "Review before every merge"): a PR that changes one of these files gets the threshold
+# check of the shards that mutate them even where no full run is made on a PR (run_stryker.sh NO_FULL). The list is the section
+# of .editorconfig that holds the exact code (the source of truth: predicates, generated predicates, exact and fixed-width
+# points, mesh_ops/ExactMesh*, ...), found by the glob of the exact mesh pipeline; it is not a second list kept by hand.
+EDITORCONFIG = os.path.join(os.path.dirname(os.path.dirname(HERE)), ".editorconfig")
+EXACT_MARKER = "mesh_ops/ExactMesh*.cs"
+
+
+def exact_globs(text=None):
+    """the globs of the exact-code section of .editorconfig; ValueError when there is none (the gate must not go silent)"""
+    if text is None:
+        with open(EDITORCONFIG, encoding="utf-8") as f:
+            text = f.read()
+    for line in text.splitlines():
+        m = re.match(r"^\[\{(.*)\}\]\s*$", line.strip())
+        if m and EXACT_MARKER in m.group(1).split(","):
+            return m.group(1).split(",")
+    raise ValueError("no exact-code section with %s in .editorconfig" % EXACT_MARKER)
+
+
+def exact_gated(path):
+    return any(fnmatch.fnmatchcase(path, g) for g in exact_globs())
+
+
+def gate_shard(config, changed, name=None):
+    """True if a changed path is an exact-code file (exact_gated: the exact section of .editorconfig) that this config mutates, or if a script of the runs
+    changed and this is the representative shard that smoke-tests them (SCRIPTS, SCRIPT_SHARD: the PR's only real Stryker run
+    of the tools, which NO_FULL must not drop)"""
+    if name == SCRIPT_SHARD and set(changed) & SCRIPTS:
+        return True
+    return any(exact_gated(p) for p in set(changed) & config[1])
+
+
 SCRIPTS = {"tests/mutation/run_stryker.sh", "tests/mutation/incremental.py", "tests/mutation/baseline.py", "tests/mutation/exclude_other_sources.py"}
 SCRIPT_SHARD = "mesh-fixed"
 
@@ -343,11 +402,21 @@ def select(changed, configs, run_all=False, only=None, moved=()):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if args[:1] == ["gate"]:
+        # gate <config path>: changed paths on stdin; prints `gate` if the PR changes an exact-arithmetic file of that config
+        name = os.path.basename(args[1])[len("stryker-"):-len(".json")]
+        configs = load_configs()
+        # (fails closed: run_stryker.sh skips the full run only on exactly `no`)
+        if name not in configs:
+            print("unknown config " + name)
+        else:
+            print("gate" if gate_shard(configs[name], [l.strip() for l in sys.stdin if l.strip()], name) else "no")
+        sys.exit(0)
     run_all = "--all" in args
     only = None
     if "--only" in args:
         value = args[args.index("--only") + 1].strip()
-        only = None if value in ("", "all") else {x.strip() for x in value.split(",") if x.strip()}
+        only = None if value in ("", "all") else expand_only(value, {shard_name(n) for n in load_configs()})
     paths = [] if run_all else [line.strip() for line in sys.stdin if line.strip()]
     base, head = os.environ.get("BASE"), os.environ.get("HEAD")
     if WORKFLOW in paths and base and head:
