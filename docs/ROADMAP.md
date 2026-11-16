@@ -121,7 +121,8 @@ CCD (no caller in the library), point clouds, deformation, `ContourLoft`.
 - Exact booleans after 3.0 (owner 2026-11-16): maintenance mode; the exact imprint is the only new
   feature; everything else is parked or dropped, see the triage in [exact-boolean.md](roadmap/exact-boolean.md#after-30-owner-2026-11-16).
 - Meshing2D research: Shewchuk's Terminator with a region-based oracle excuse (owner 2026-11-06, option c: not built),
-  matched shells, the grading placement strategy, <= 2x the fork's mesher time. [meshing2d.md](roadmap/meshing2d.md#open)
+  matched shells, the grading placement strategy, parked until a use case; the <= 2x fork speed target is closed (owner
+  2026-11-16). [meshing2d.md](roadmap/meshing2d.md#open)
 - Remeshers: thin walls and opt-in self-intersection cost; Reducer / Remesher 2.0 and its follow-ups are closed (owner
   2026-11-12). [alpha-wrap-and-repair.md](roadmap/alpha-wrap-and-repair.md#open)
 - Later list (point clouds, offsets, quad remeshing, deformation, tetrahedral meshing,
