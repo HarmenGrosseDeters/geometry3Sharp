@@ -239,7 +239,7 @@ fix is a narrower filter, applied in #883 and to the rounding shards of #843.
   operation newly unclean, 16 232 rounding-clean results identical, 4 newly clean, MaxDrift within the bound;
   (3) research.md problem 3 restated; (4) the plateau variant of (2), 2026-11-15 (the note's section 10: design,
   Z3 lemma, probe on what the rounding leaves today): it can gain 1 of the 16 239 cohort operations and no clean result
-  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; owner 2026-11-15: no-go before the release, no
+  on the Thingi10K 400 self-unions, 3-9 of the 19 generated leftovers it reaches; owner 2026-11-15: no-go, no
   spike, the rule stays a design. A separate session studies every known extreme-runtime boolean case and ranks
   further levers (measured on master plus reviewed, unmerged Boolean 3.0 PRs merged locally).
 
@@ -734,18 +734,18 @@ discards; an older probe found about a third of the 1-thread time there.
 
 | idea | relevance | decision |
 |---|---|---|
-| Exact imprint on `ExactMeshArrangement` (a robust replacement for the float `MeshMeshCut`, whose failures are in ROBUSTNESS_SWEEP R6), then the deprecation decision for `MeshMeshCut` / `MeshBoolean` | high | build after the release, the only new boolean feature |
+| Exact imprint on `ExactMeshArrangement` (a robust replacement for the float `MeshMeshCut`, whose failures are in ROBUSTNESS_SWEEP R6), then the deprecation decision for `MeshMeshCut` / `MeshBoolean` | high | the only new boolean feature: a design note first, then the code (not scheduled yet) |
 | The tail above 20 s (55928 and others) | medium ("always finishes" matters more than the mean) | only on a runtime-watch regression or an issue |
 | EMBER lever 2 (skip self-pairs of certified results in chained booleans) | low | parked until a caller chains booleans |
 | Exact Boolean 4.0 (exact output with provenance) | low to medium, a large architecture step | parked until a concrete use case |
-| Plateau variant of 3D snap rounding | low | parked (no-go before the release) |
+| Plateau variant of 3D snap rounding | low | parked (no-go, owner 2026-11-15) |
 | Exact output coordinates of the coplanar 2D clipping | low | parked |
 | S3 (share A's setup across the Bi) | low (T3b met its targets) | dropped |
 | Reuse of the `TriangleBoxTree` in `rebuild_tree` | small speed lever | dropped unless probe B shows otherwise |
 | EMBER levers 1 / 5, mesh-kernel ideas (a new architecture) | no rewrite (owner 2026-11-07) | dropped |
 
 **After 3.0 the boolean is in maintenance mode.** That means bugs from fuzzing and the runtime watch, regressions and API
-stability, plus the exact imprint after the release.
+stability, plus the exact imprint.
 
 ### Open for the future (2026-11-15)
 
@@ -769,8 +769,8 @@ lever 1 (#902) and closed as a no-go (#915), #789 closed by #934, #825 closed as
    #913; #615 itself is then closed.
 7. Exact imprint: cut the curves of a cut mesh into a target in place on `ExactMeshArrangement`, as a robust
    replacement for the float `MeshMeshCut`; only then decide on deprecating `MeshMeshCut` / `MeshBoolean` (coordinator
-   2026-11-15). After the release.
-8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go before the release, owner
+   2026-11-15).
+8. Research: 3D snap rounding #721 is closed; the plateau variant stays a design (no-go, owner
    2026-11-15). Draft: Thingi10K full-corpus harness #385.
 9. Not scheduled: S3 (sharing A's setup across the Bi), EMBER lever 2, Exact Boolean 4.0 (exact output with
    provenance), mesh-kernel ideas.
