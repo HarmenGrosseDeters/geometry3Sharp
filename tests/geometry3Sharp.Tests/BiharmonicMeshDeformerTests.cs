@@ -35,6 +35,30 @@ namespace geometry3Sharp.Tests
 
         [Theory]
         [InlineData(1.0)]
+        [InlineData(7.888609052210118E-31)]
+        [InlineData(1.2676506002282294E30)]
+        public void ScalarCertificate_IndexedRowsRejectStaleCoefficients(double scale)
+        {
+            if (!BiharmonicScalarCertificate.IsSupported) return;
+            var columns=new Dictionary<int,BiharmonicFixedInterval>[5];
+            for(int i=0;i<5;i++)columns[i]=new Dictionary<int,BiharmonicFixedInterval> {
+                {i,BiharmonicFixedInterval.FromDouble(scale)} };
+            foreach(var edge in new[]{new Index2i(0,2),new Index2i(0,4),new Index2i(2,3)})
+                columns[edge.a][edge.b]=BiharmonicFixedInterval.FromDouble(scale*.25);
+            // For rational 19/20 the last LDL pivot is -19/280. Binary64
+            // rounding is far below this margin. A stale key 0 from row 2
+            // incorrectly added to the row 3 intersection can make it positive.
+            columns[3][4]=BiharmonicFixedInterval.FromDouble(scale*.95);
+            Assert.False(BiharmonicScalarCertificate.Verify(columns,useIndex:false));
+            Assert.False(BiharmonicScalarCertificate.Verify(columns));
+            // Rational 9/10 gives the safely positive pivot 37/1120.
+            columns[3][4]=BiharmonicFixedInterval.FromDouble(scale*.9);
+            Assert.True(BiharmonicScalarCertificate.Verify(columns,useIndex:false));
+            Assert.True(BiharmonicScalarCertificate.Verify(columns));
+        }
+
+        [Theory]
+        [InlineData(1.0)]
         [InlineData(7.888609052210118E-31)] // 2^-100
         [InlineData(1.2676506002282294E30)] // 2^100
         public void ScalarCertificate_EnvelopeBoundCertifiesSeparatedBlocks(double scale)

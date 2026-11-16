@@ -94,7 +94,22 @@ internal static class BiharmonicScalarCertificate
         Sum(1,-5.5511151231257827E-17) == 1 &&
         Sum(1.0000000000000002,1.1102230246251565E-16) == 1.0000000000000004;
 
-    internal static bool Verify(Dictionary<int,Interval>[] input, long remainingUpdates = 1000000, int maxLiveEntries = 50000, bool useEnvelope = true)
+    // Separate keys/values avoid KeyValuePair's padding and let the indexed
+    // path inspect unmatched keys without loading their values.
+    sealed class Row
+    {
+        internal int Count;
+        internal int[] Keys=Array.Empty<int>();
+        internal double[] Values=Array.Empty<double>();
+        internal void Add(int key,double value) {
+            if (Count==Keys.Length) {
+                int capacity=Count==0 ? 4 : checked(2*Count);
+                Array.Resize(ref Keys,capacity);Array.Resize(ref Values,capacity);
+            }
+            Keys[Count]=key;Values[Count]=value;Count++;
+        }
+    }
+    internal static bool Verify(Dictionary<int,Interval>[] input, long remainingUpdates = 1000000, int maxLiveEntries = 50000, bool useEnvelope = true, bool useIndex = true)
     {
         if (!IsSupported) return false;
         int n = input.Length;
@@ -140,7 +155,9 @@ internal static class BiharmonicScalarCertificate
             for (int i = 0; i < n; i++) {
                 matrix[i][i] = Checked(Directed(Units(matrix[i][i])-correction-radiusMax,false));
             }
-            var rows = new List<KeyValuePair<int,double>>[n]; for (int i = 0; i < n; i++) rows[i] = new List<KeyValuePair<int,double>>();
+            var rows = new Row[n]; for (int i = 0; i < n; i++) rows[i] = new Row();
+            var rowIndex = useIndex ? new int[n] : null;
+            var rowValue = useIndex ? new double[n] : null;
             long symbolic = 0, stored = 0, liveEntries = n;
             foreach (var column in columns) { stored += column.Count; liveEntries += column.Count; }
             if (liveEntries > maxLiveEntries || remainingUpdates < 0) return false;
@@ -155,19 +172,30 @@ internal static class BiharmonicScalarCertificate
                 }
                 stored -= columns[j].Count; liveEntries -= columns[j].Count+1; columns[j].Clear();
                 double diagonal = matrix[j][j];
-                foreach (var entry in rows[j]) diagonal = arithmetic.Difference(diagonal,arithmetic.Product(entry.Value,entry.Value));
+                for (int k=0;k<rows[j].Count;k++) { double entry=rows[j].Values[k]; diagonal = arithmetic.Difference(diagonal,arithmetic.Product(entry,entry)); }
                 if (!(diagonal > 0)) throw new ArithmeticException("nonpositive scalar pivot at "+j);
                 double pivot = arithmetic.Root(diagonal);
+                int lastKey = rows[j].Count == 0 ? -1 : rows[j].Keys[rows[j].Count-1];
+                if (useIndex) for(int k=0;k<rows[j].Count;k++) { int key=rows[j].Keys[k]; rowIndex[key]=j+1; rowValue[key]=rows[j].Values[k]; }
                 foreach (int i in neighbors) {
                     double value; if (!matrix[j].TryGetValue(i,out value)) value = 0;
-                    int a = 0, b = 0;
-                    while (a < rows[i].Count && b < rows[j].Count) {
-                        var x = rows[i][a]; var y = rows[j][b];
-                        if (x.Key < y.Key) a++; else if (x.Key > y.Key) b++;
-                        else { value = arithmetic.Difference(value,arithmetic.Product(x.Value,y.Value)); a++; b++; }
+                    if (useIndex) {
+                        for(int k=0;k<rows[i].Count;k++) {
+                            int key=rows[i].Keys[k];
+                            if (key>lastKey) break;
+                            if (rowIndex[key]==j+1)
+                                value=arithmetic.Difference(value,arithmetic.Product(rows[i].Values[k],rowValue[key]));
+                        }
+                    } else {
+                        int a = 0, b = 0;
+                        while (a < rows[i].Count && b < rows[j].Count) {
+                            int x = rows[i].Keys[a], y = rows[j].Keys[b];
+                            if (x < y) a++; else if (x > y) b++;
+                            else { value = arithmetic.Difference(value,arithmetic.Product(rows[i].Values[a],rows[j].Values[b])); a++; b++; }
+                        }
                     }
                     if (++stored > 2000000) return false;
-                    rows[i].Add(new KeyValuePair<int,double>(j,arithmetic.Quotient(value,pivot)));
+                    rows[i].Add(j,arithmetic.Quotient(value,pivot));
                 }
                 matrix[j].Clear();
             }

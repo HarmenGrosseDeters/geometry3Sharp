@@ -233,3 +233,30 @@ Independent bounds review found no incorrect certificate under these stated prem
 ## Residual correction bound for larger rounded outputs
 
 Let g=A u_hat-b be the original-data gradient and choose any finite binary64 vector z (zero on handles), for example a numerical solve of A z approximately equal to g. Independently enclose d=g-Az with the original interval L/M operator. Since lambda_min(A)>mu, the exact error e=A^-1 g satisfies e=z+A^-1 d. Thus on each coordinate axis every vertex error is at most max_i |z_i| + ||d||_2/mu. Take the smaller of this outward upper bound and the existing ||g||_2/mu. Combine the three coordinate bounds in exactly the existing squared Euclidean acceptance inequalities. The numerical z is untrusted and no precision assumption about its solve is needed; z, the defect and the final candidate must all be enclosed from their actual binary64 values. This proof tightens verification without changing returned positions or requested tolerances.
+
+## Scalar row indexing and compact storage (2026-11-16)
+
+The scalar recurrence may index the completed row j into a per-column stamp/value
+workspace. Rows are appended in increasing elimination-column order. Traversing
+target row i in that order, and selecting exactly keys stamped for j, produces
+the same ordered intersection and the same product/subtraction operands as the
+previous two-pointer scan. No arithmetic occurs on unmatched keys. The last-key
+cutoff handles empty rows and avoids scanning a suffix with no possible matches.
+Every stamp is j+1; values from earlier rows cannot contribute. The diagonal,
+neighbor and quotient operation order remains unchanged.
+
+Factor keys and values occupy separate int/double arrays, growing together before
+an entry is appended. Array copies preserve all double bits, including signed
+zero. Each row starts empty, first grows to four entries and thereafter doubles.
+For n rows and m stored coefficients, total key capacity and total value capacity
+are each bounded by 4*n+2*m. The existing combined symbolic/factor-entry guard
+bounds m by 2000000; supported n remains at most 10000. The index adds one int and
+one double per unknown. These are representation bounds, not total heap-byte or
+wall-clock guarantees; all previous symbolic/product/live-entry caps remain.
+
+Full pilot operation traces must match the scan control bit for bit and pass
+independent exact replay. A separate 5x5 indefinite matrix checks stale stamps:
+for ideal rational edge values its last LDL pivot is -19/280, while incorrectly
+using an earlier row's coefficient can make it positive. The represented binary64
+fixture is tested only for the robust sign, at three power-of-two scales. This
+layout/index change adds no new numerical error bound or supported runtime.

@@ -34,13 +34,21 @@ performing a product/subtraction only when its stamp matches the current j. Keep
 ascending common-key order, diagonal operations, neighbor order and direct
 quotients exactly as before. An empty row performs no products; stamps prevent
 stale coefficients from earlier columns. Extra scratch is one int and one double
-per unknown, bounded by the existing vertex cap.
+per unknown, bounded by the existing vertex cap. The second measured variant uses
+separate key/value arrays, with joint growth preserving value alignment and
+ascending keys. Its capacity bound is documented in the certificate proof.
 
 Acceptance: complete small trace replay and bitwise trace equality with the scan
 control; original corruption/budget/underflow controls; power-of-two and production
 output checks; A/B scalar and whole-matrix timings. Stop after two measured variants
-if the benefit is not stable. Production integration follows positive measurements
-and independent review; the broader 100k storage/fill problem remains separate.
+if the benefit is not stable. Production integration is now implemented after positive paired measurements
+and independent review: stamped row matching and compact key/value arrays retain
+all numerical operations and guards. All 36 focused tests pass; stale-stamp source
+mutation is killed. Full pilot traces match for both layouts/lookup modes.
+At 2500 vertices, numeric median is 279 -> 170 ms and numeric allocations
+6.806 -> 5.377 MB; complete production cold medians change 915 -> 803 ms aligned
+and 1834 -> 1828 ms rotated. Raw results and limits are in the benchmark README.
+The broader 100k storage/fill and stronger-bound problem remains separate.
 
 ## 100k structural and bound diagnosis (2026-11-16)
 

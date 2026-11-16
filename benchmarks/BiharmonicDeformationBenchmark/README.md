@@ -1,5 +1,61 @@
 # Biharmonic displacement benchmark (#886)
 
+## Indexed scalar rows and compact factor storage (2026-11-16)
+
+The production scalar verifier now indexes each completed factor row into a
+stamp/value workspace and uses separate key/value arrays for stored rows. It
+performs the same floating-point operations, in the same order, as the former
+scan. Stamps exclude stale entries; sorted-key bounds handle empty rows. Size,
+precision, live/work/entry caps and the arithmetic contract remain unchanged.
+Extra scratch is one int and one double per unknown. The proof documents array
+capacity bounds; this is not a total heap-byte guarantee.
+
+The independent pilot retains scan controls. On 3/5/7 grids, all four combinations
+(list/compact storage and scan/index) have identical complete operation traces,
+verified by separate exact replay. The production 5x5 indefinite fixture catches
+stale workspace use at three power-of-two scales; a targeted mutation confirms it.
+All 36 focused tests pass. Independent review found no concrete result or bound
+issue. Raw commands and checks are in `scalar-row-validation.txt`.
+
+Five alternating fresh-process 2500-vertex comparisons (including each phase's
+allocation/GC) give the following medians. Phase allocation excludes setup and
+original-data reconstruction. Values are fixture measurements, not general limits.
+
+| Scalar pilot | Former list/scan | Compact/index |
+|---|---:|---:|
+| Numeric phase, ms | 279.154 | 170.456 |
+| Full scalar verifier, ms | 446.930 | 337.662 |
+| Whole matrix run, ms | 1737.753 | 1635.189 |
+| Numeric-phase allocated bytes | 6806056 | 5377392 |
+
+`scalar-row-packed-results.txt` has all four controls, ranges/raw samples, binary
+hashes and exact trace checks. Baseline pilot source is `ca4c6823`. The initial
+index-only comparison is retained in `scalar-row-index-first-profile.txt`; its
+prior upper-bound phase probe is in `scalar-row-phase-baseline.txt`. Library and
+paper building-block checks are recorded in the implementation plan and sources.
+
+The separate complete production comparison uses the preceding PR library
+`73a0456d` and the current library, with five warmed fresh-deformer calls:
+
+| Strict 2500-vertex production fixture | Previous median ms | Indexed median ms | Allocated bytes previous -> indexed |
+|---|---:|---:|---:|
+| aligned | 915.171 | 802.919 | 384313520 -> 382932232 |
+| rotated | 1833.736 | 1828.215 | 723812000 -> 722431480 |
+
+Output export bytes match exactly. The rotated timing is effectively unchanged;
+no universal speedup or lower peak working set is claimed (the observed process
+peaks vary and can increase). `scalar-row-production-results.txt` contains the
+raw paired context. All four existing 2500/10000-vertex candidate hashes also
+match the preceding accepted outputs. This step reduces row traversal and storage
+cost; the 100k fill/work and stronger-bound tasks remain open.
+
+Reproduce with separately built preceding/current producers and checkers:
+
+```sh
+python3 benchmarks/BiharmonicDeformationBenchmark/scalar_row_index_profile.py <dotnet> <producer> <checker> --baseline-checker <list-checker> --sizes 50
+python3 benchmarks/BiharmonicDeformationBenchmark/production_row_profile.py <dotnet> <previous-producer> <producer>
+```
+
 ## Envelope-aware production bound (2026-11-16)
 
 The scalar production verifier now takes the smaller of the former global trace

@@ -1,0 +1,28 @@
+Command: python3 benchmarks/BiharmonicDeformationBenchmark/production_row_profile.py /workspace/dotnet/dotnet /tmp/bih-row-production-baseline/BiharmonicDeformationBenchmark.dll /workspace/arap-886-artifacts/bin/BiharmonicDeformationBenchmark/release/BiharmonicDeformationBenchmark.dll
+Baseline library: preceding PR head 73a0456d (local equivalent source 07146e20); current library has indexed separate-array rows. Timers include complete Compute with its allocation/GC. Five warmed fresh-deformer calls per fixture/process; not a universal latency or peak-memory guarantee.
+baseline_producer_sha256=f712f861a5802f2e06f8649ee925c93933282193bafb48af2475cc6f092d37fb
+baseline_producer_library_sha256=6e687448743fb67566da1c1ed0b156c8dde9921dd5bb3f893d275f8000f03b8d
+producer_sha256=0970c4527dfe5b139e385b6e19681234ba37775fb13beb1c4cdb5e5cf79ec6d4
+producer_library_sha256=65534093cfc38bc8554c1f6c204de91044134459d30753fde506613aea5a7466
+orientation=aligned library=baseline exit=0
+first_compute_including_jit_ms=1989.307 iterations=1
+cold_compute_runs=5 median_ms=915.171 min_ms=841.716 max_ms=1096.468 median_allocated_bytes=384313520 status=Success peak_working_set_bytes=231145472
+vertices=2500 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=cf32e8063b741d3997196eea7cb12a31b5d011a8cf89e474bcdcd2e84ce36d87
+orientation=aligned library=indexed exit=0
+first_compute_including_jit_ms=1867.514 iterations=1
+cold_compute_runs=5 median_ms=802.919 min_ms=750.197 max_ms=1049.364 median_allocated_bytes=382932232 status=Success peak_working_set_bytes=261701632
+vertices=2500 mode=strict orientation=aligned status=Success accuracy=Certified fallback=False
+candidate_sha256=cf32e8063b741d3997196eea7cb12a31b5d011a8cf89e474bcdcd2e84ce36d87
+orientation=aligned production_export_bits_identical=True
+orientation=rotated library=indexed exit=0
+first_compute_including_jit_ms=2687.674 iterations=1
+cold_compute_runs=5 median_ms=1828.215 min_ms=1739.016 max_ms=1899.390 median_allocated_bytes=722431480 status=Success peak_working_set_bytes=255193088
+vertices=2500 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=6256d04e9a271ca05588b1607c48a5abf328dd948d906dfda5058fdfae20e78c
+orientation=rotated library=baseline exit=0
+first_compute_including_jit_ms=2797.070 iterations=1
+cold_compute_runs=5 median_ms=1833.736 min_ms=1666.307 max_ms=2376.482 median_allocated_bytes=723812000 status=Success peak_working_set_bytes=250880000
+vertices=2500 mode=strict orientation=rotated status=Success accuracy=Certified fallback=False
+candidate_sha256=6256d04e9a271ca05588b1607c48a5abf328dd948d906dfda5058fdfae20e78c
+orientation=rotated production_export_bits_identical=True
