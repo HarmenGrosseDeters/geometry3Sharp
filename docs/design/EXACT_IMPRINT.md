@@ -251,6 +251,12 @@ with these changes:
 4. Statuses: `Success` with `RoundingClean` false means defects remain (as the boolean, Counts say which). `StrictRounding`
    gives `RoundingNotClean` and `Result = null`.
 
+As built, after the review: the pieces' edges that lie on an edge of their source triangle (the parts of a split target edge) are also locked (`LockedEdgeF`),
+so that a flip cannot mix the sheets on both sides of a target edge; `SourceTriangle` is re-derived after the repair (a triangle the repair did not edit
+keeps its source, an edited one takes the nearest of the sources at its vertices, ids not in use are -1); a point equal to a target vertex (a vertex on the
+edge of a split triangle) reuses that vertex (`Counts["target_vertex_points"]`); `HasCracks` is true where new vertices met a degenerate triangle that is not split;
+a curve along an edge of an unsplit triangle is in `CurveEdges`.
+
 **Guarantees** (stated, each tested in section 5):
 - G1 Combinatorial: closed and manifold target gives a closed, manifold result (exact, independent of rounding); boundary loops of an
   open target are the same loops, split by vertices; orientation of every piece equals its source triangle's; target vertex ids

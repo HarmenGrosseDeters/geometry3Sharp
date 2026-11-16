@@ -67,8 +67,18 @@ namespace geometry3Sharp.Tests
                     Assert.True(r.GetTriNormal(pid).Dot(n) > 0.99, "a piece is turned over");
                 }
             }
-            foreach (int pid in r.TriangleIndices())
-                Assert.True(imprint.SourceTriangle[pid] >= 0 && target.IsTriangle(imprint.SourceTriangle[pid]));
+            Assert.Equal(r.MaxTriangleID, imprint.SourceTriangle.Length);
+            for (int pid = 0; pid < r.MaxTriangleID; ++pid)
+                if (r.IsTriangle(pid) == false) Assert.Equal(-1, imprint.SourceTriangle[pid]);
+            foreach (int pid in r.TriangleIndices()) {
+                int src = imprint.SourceTriangle[pid];
+                Assert.True(src >= 0 && target.IsTriangle(src));
+                // the piece lies on its source (up to the rounding)
+                Index3i st = target.GetTriangle(src), pt = r.GetTriangle(pid);
+                Vector3d c = (r.GetVertex(pt.a) + r.GetVertex(pt.b) + r.GetVertex(pt.c)) / 3;
+                double d = new DistPoint3Triangle3(c, new Triangle3d(target.GetVertex(st.a), target.GetVertex(st.b), target.GetVertex(st.c))).Get();
+                Assert.True(d < 1e-6 * target.CachedBounds.DiagonalLength, "the source of a piece is not where it is: " + d);
+            }
         }
 
         [Fact]
@@ -496,6 +506,66 @@ namespace geometry3Sharp.Tests
                 Assert.Equal("", MeshRobustRepair.NotCleanReason(imprint.Result, true));
                 Assert.Equal(target.VertexCount + 1, imprint.Result.VertexCount);
             }
+        }
+
+        [Fact]
+        public void SourceTriangle_AfterRoundingEdits_StaysRight()
+        {
+            // a cutter edge that passes 1e-12 from a vertex of the target: needles that the repair contracts (edits reuse and free triangle ids)
+            var target = Grid(4, 4);
+            var cutter = new DMesh3();
+            cutter.AppendVertex(new Vector3d(-0.5, 0.5, -1)); cutter.AppendVertex(new Vector3d(0.5 + 1e-12, 0.5, 1)); cutter.AppendVertex(new Vector3d(0.5, -1.5, 0.3));
+            cutter.AppendTriangle(0, 1, 2);
+            var imprint = Run(target, cutter);
+            AssertKeepsTarget(target, imprint);
+            Assert.True(imprint.Counts["rounding_edits"] > 0, "the case must make the repair edit");
+        }
+
+        [Fact]
+        public void CurveAlongATargetEdge_IsACurveEdgeWithoutASplit()
+        {
+            // a cutter triangle that meets the grid along one of its edges (the edge from (-1, 0, 0) to (0, 0, 0)), nothing else
+            var target = Grid(4, 4);
+            var cutter = new DMesh3();
+            cutter.AppendVertex(new Vector3d(-1, 0, 0)); cutter.AppendVertex(new Vector3d(0, 0, 0)); cutter.AppendVertex(new Vector3d(-0.5, 0, 1));
+            cutter.AppendTriangle(0, 1, 2);
+            var imprint = Run(target, cutter, i => i.LabelCurves = true);
+            int a = target.VertexIndices().First(v => target.GetVertex(v) == new Vector3d(-1, 0, 0)), b = target.VertexIndices().First(v => target.GetVertex(v) == new Vector3d(0, 0, 0));
+            Assert.Contains(ExactMeshArrangement.EdgeKey(a, b), imprint.CurveEdges);
+            Assert.Equal(imprint.CurveEdges.Count, imprint.CurveId.Count);
+            Assert.Equal(target.TriangleCount, imprint.Result.TriangleCount);
+        }
+
+        [Fact]
+        public void TargetVertexOnTheEdgeOfASplitTriangle_IsReused_NoDuplicateVertex()
+        {
+            // vertex m of one triangle lies on the long edge a-b of another; the cutter crosses the long triangle: the piece corner at m is m itself
+            var target = new DMesh3();
+            int a = target.AppendVertex(new Vector3d(0, 0, 0)), b = target.AppendVertex(new Vector3d(4, 0, 0)), c = target.AppendVertex(new Vector3d(0, 4, 0));
+            int m = target.AppendVertex(new Vector3d(2, 0, 0)), d = target.AppendVertex(new Vector3d(2, -3, 0));
+            target.AppendTriangle(a, b, c);
+            target.AppendTriangle(m, d, b);
+            // a cutter that passes exactly through m and across the first triangle
+            var cutter = new DMesh3();
+            cutter.AppendVertex(new Vector3d(2, 0, -1)); cutter.AppendVertex(new Vector3d(2, 0, 1)); cutter.AppendVertex(new Vector3d(1, 3, 0));
+            cutter.AppendTriangle(0, 1, 2);
+            var imprint = Run(target, cutter);
+            Assert.True(imprint.Counts["target_vertex_points"] > 0);
+            var positions = imprint.Result.VertexIndices().Select(v => imprint.Result.GetVertex(v)).ToList();
+            Assert.Equal(positions.Count, positions.Distinct().Count());
+        }
+
+        [Fact]
+        public void TargetWithHolesInItsIds_KeepsIdsAndSources()
+        {
+            var target = Grid(5, 4);
+            // remove a few triangles and their isolated vertices so that ids have holes, then cut
+            foreach (int t in new[] { 3, 17, 22 }) target.RemoveTriangle(t, true);
+            Assert.True(target.MaxTriangleID > target.TriangleCount);
+            var cutter = Box(new Vector3d(0.1, 0.2, 0), new Vector3d(1.1, 0.9, 1), Rot());
+            var imprint = Run(target, cutter);
+            AssertKeepsTarget(target, imprint);
+            Assert.Equal(BoundaryPositions(target).Count <= BoundaryPositions(imprint.Result).Count, true);
         }
     }
 }

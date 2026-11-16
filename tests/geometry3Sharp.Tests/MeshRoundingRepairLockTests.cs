@@ -138,5 +138,51 @@ namespace geometry3Sharp.Tests
                 Assert.True(m.FindEdge((int)(k >> 32), (int)(k & 0xFFFFFFFF)) >= 0, "a locked edge is gone");
             Assert.Equal(0, repair.LockedContractions);
         }
+
+        [Fact]
+        public void LockTransfer_ContractedEdgeWithTwoLockedNeighbours_KeepsTheLockOfBoth()
+        {
+            // a triangle fan: contracting (a, b) where both a-x and b-x are locked leaves b-x locked; a-x is gone
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(1e-13, 0, 0)), x = m.AppendVertex(new Vector3d(0, 1, 0)), y = m.AppendVertex(new Vector3d(0, -1, 0));
+            m.AppendTriangle(a, b, x); m.AppendTriangle(b, a, y);
+            var locks = new HashSet<long>() { MeshRoundingRepair.LockedKey(a, x), MeshRoundingRepair.LockedKey(b, x), MeshRoundingRepair.LockedKey(a, b) };
+            var repair = new MeshRoundingRepair(m) { LockedEdges = locks, AllowLockedContraction = true, RemoveTinyComponents = false };
+            repair.Apply();
+            foreach (long k in locks)
+                Assert.True(m.FindEdge((int)(k >> 32), (int)(k & 0xFFFFFFFF)) >= 0, "a lock outlived its edge");
+        }
+
+        [Fact]
+        public void FixedHard_ValenceThreeFixedVertex_IsNotRemoved()
+        {
+            // a vertex of valence 3 inside a triangle (a tiny cap fan): fixed hard, it stays
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(4, 0, 0)), c = m.AppendVertex(new Vector3d(0, 4, 0));
+            int u = m.AppendVertex(new Vector3d(1, 1, 1e-14));
+            m.AppendTriangle(a, b, u); m.AppendTriangle(b, c, u); m.AppendTriangle(c, a, u);
+            var repair = new MeshRoundingRepair(m) { FixedVertexF = (v) => true, FixedHard = true, RemoveTinyComponents = false };
+            repair.Apply();
+            Assert.True(m.IsVertex(u));
+            Assert.Equal(3, m.TriangleCount);
+            Assert.Equal(0, repair.VertexRemovals);
+        }
+
+        [Fact]
+        public void LockedEdges_TheTriangleOfAZip_IsLeftAlone()
+        {
+            // two caps on both sides of an edge whose apexes lie on it (the zip case): with the edge locked nothing changes
+            var m = new DMesh3();
+            int a = m.AppendVertex(new Vector3d(0, 0, 0)), b = m.AppendVertex(new Vector3d(4, 0, 0));
+            int c = m.AppendVertex(new Vector3d(1, 1e-13, 0)), d = m.AppendVertex(new Vector3d(3, -1e-13, 0));
+            int x = m.AppendVertex(new Vector3d(2, 2, 0)), y = m.AppendVertex(new Vector3d(2, -2, 0));
+            m.AppendTriangle(a, b, c); m.AppendTriangle(b, a, d);
+            m.AppendTriangle(b, x, c); m.AppendTriangle(c, x, a); m.AppendTriangle(a, y, d); m.AppendTriangle(d, y, b);
+            var before = AllEdges(m);
+            var repair = new MeshRoundingRepair(m) { LockedEdges = AllEdges(m), RemoveTinyComponents = false };
+            repair.Apply();
+            Assert.Equal(0, repair.Zips + repair.StripZips + repair.Flips + repair.Collapses);
+            Assert.Equal(before, AllEdges(m));
+        }
     }
 }

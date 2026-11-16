@@ -94,6 +94,8 @@ namespace g3
         public HashSet<long> CurveEdges = new HashSet<long>(EdgeKeyComparer.Instance);
         /// <summary> with LabelCurves: per curve edge (key of CurveEdges) the number of its curve, from 0 </summary>
         public Dictionary<long, int> CurveId = new Dictionary<long, int>(EdgeKeyComparer.Instance);
+        /// <summary> the result has a crack the target did not have: new vertices on an edge shared with a degenerate target triangle (which is not split, Counts["unsplit_degenerate_points"]) or on the edge of a triangle that has a target vertex on it (Counts["target_vertex_points"] reuses the vertex): the result is then not closed although the target was </summary>
+        public bool HasCracks { get { return Counts.TryGetValue("unsplit_degenerate_points", out long n) && n > 0; } }
         /// <summary> the repair run by SafeRounding, or null </summary>
         public MeshRoundingRepair Rounding;
         /// <summary> SafeRounding ran and its result has no new self-intersection or degenerate triangle (and no contact made by the rounding) </summary>
@@ -228,6 +230,14 @@ namespace g3
             }
             Counts["split_triangles"] = touched.Count;
 
+            // a point that is the position of a target vertex is that vertex (a target vertex on the edge of a split triangle, or a curve through it)
+            var pointVertex = new Dictionary<int, int>();
+            foreach (int vid in Target.VertexIndices())
+{
+                    int pp = arr.Canonical(arr.VertexPoints[0][vid]);
+                    if (pointVertex.ContainsKey(pp) == false) pointVertex[pp] = vid;
+                }
+            long reused = 0;
             // slots: (source, canonical point) of every piece corner that is not a corner of the source triangle
             var slotOf = new Dictionary<long, int>(EdgeKeyComparer.Instance);
             var slotPoint = new List<int>();
@@ -240,6 +250,7 @@ namespace g3
                     foreach (int p0 in new[] { o.A, o.B, o.C }) {
                         int p = arr.Canonical(p0);
                         if (p == cp[0] || p == cp[1] || p == cp[2]) continue;
+                        if (pointVertex.ContainsKey(p)) continue;
                         long key = ((long)ti << 32) | (uint)p;
                         if (slotOf.ContainsKey(key)) continue;
                         slotOf[key] = slotPoint.Count;
@@ -319,6 +330,7 @@ namespace g3
             var add = new List<(int src, Index3i tri)>();
             var toRemove = new List<int>();
             var curve = new HashSet<long>(EdgeKeyComparer.Instance);
+            targetSubEdges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (int ti in touched) {
                 var t = arr.Triangles[ti];
                 int tid = t.Tid;
@@ -330,14 +342,31 @@ namespace g3
                     var v = new int[3];
                     for (int c = 0; c < 3; ++c) {
                         int k = Array.IndexOf(cp, pts[c]);
-                        v[c] = k >= 0 ? tv[k] : vertexOfRoot[slot_find(slotOf[((long)ti << 32) | (uint)pts[c]])];
+                        v[c] = k >= 0 ? tv[k] : pointVertex.TryGetValue(pts[c], out int tvid) ? tvid : vertexOfRoot[slot_find(slotOf[((long)ti << 32) | (uint)pts[c]])];
+                        if (k < 0 && pointVertex.ContainsKey(pts[c])) reused++;
                     }
                     add.Add((tid, new Index3i(v[0], v[1], v[2])));
-                    for (int c = 0; c < 3; ++c)
+                    for (int c = 0; c < 3; ++c) {
                         if (constraint.Contains(ExactMeshArrangement.EdgeKey(pts[c], pts[(c + 1) % 3])))
                             curve.Add(ExactMeshArrangement.EdgeKey(v[c], v[(c + 1) % 3]));
+                        // (a piece edge on an edge of the source triangle: a part of a target edge, kept as an edge)
+                        for (int k = 0; k < 3; ++k)
+                            if (on_edge(arr, t, cp, k, pts[c]) && on_edge(arr, t, cp, k, pts[(c + 1) % 3]))
+                                targetSubEdges.Add(ExactMeshArrangement.EdgeKey(v[c], v[(c + 1) % 3]));
+                    }
                 }
             }
+            // a curve that runs along an edge of an unsplit triangle (a cutter that meets the target along its edge): no piece of its own
+            foreach (int ti in arr.MeshTriangles[0]) {
+                var t = arr.Triangles[ti];
+                if (pieces[ti] == null || pieces[ti].Count != 1 || t.Segments.Count == 0 || touched.BinarySearch(ti) >= 0) continue;
+                Index3i tv = Target.GetTriangle(t.Tid);
+                var cp = corner_points(arr, t);
+                for (int k = 0; k < 3; ++k)
+                    if (constraint.Contains(ExactMeshArrangement.EdgeKey(cp[k], cp[(k + 1) % 3])))
+                        curve.Add(ExactMeshArrangement.EdgeKey(tv[k], tv[(k + 1) % 3]));
+            }
+            Counts["target_vertex_points"] = reused;
             var groupOf = new Dictionary<int, int>();
             foreach (int tid in toRemove)
                 groupOf[tid] = Target.HasTriangleGroups ? Target.GetTriangleGroup(tid) : -1;
@@ -357,6 +386,14 @@ namespace g3
             Counts["curve_edges"] = curve.Count;
             Result = result;
             return true;
+        }
+
+        // the exact points of the target edges' parts: piece edges on an edge of their source triangle (vertex pairs of the result)
+        HashSet<long> targetSubEdges;
+
+        static bool on_edge(ExactMeshArrangement arr, ExactMeshArrangement.InputTriangle t, int[] cp, int k, int p)
+        {
+            return p == cp[k] || p == cp[(k + 1) % 3] || arr.Orient(t, cp[k], cp[(k + 1) % 3], p) == 0;
         }
 
         static int[] corner_points(ExactMeshArrangement arr, ExactMeshArrangement.InputTriangle t)
@@ -388,13 +425,19 @@ namespace g3
             var locks = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in CurveEdges) locks.Add(MeshRoundingRepair.LockedKey((int)(k >> 32), (int)(k & 0xFFFFFFFF)));
             int[] point = vertexPoint;
+            var subEdges = targetSubEdges;
+            // (the triangles before the repair, for SourceTriangle of the ones it edits)
+            var before = new Index3i[Result.MaxTriangleID];
+            foreach (int tid in Result.TriangleIndices()) before[tid] = Result.GetTriangle(tid);
+            var beforeSource = (int[])SourceTriangle.Clone();
             Rounding = new MeshRoundingRepair(Result) {
                 SharedPositionsTouch = true,
                 FixedVertexF = (v) => v < original && target.IsVertex(v), FixedHard = true, FixedWhereCoarse = true,
                 PointIdF = (v) => v < point.Length ? point[v] : -1,
                 // (the target's vertices are input doubles: a piece with three of them is an exact triangle of the arrangement)
                 ExactVertexF = (v) => v < original && target.IsVertex(v),
-                LockedEdges = locks, LockedEdgeF = (a, b) => a < original && b < original && target.FindEdge(a, b) >= 0,
+                LockedEdges = locks,
+                LockedEdgeF = (a, b) => (a < original && b < original && target.FindEdge(a, b) >= 0) || subEdges.Contains(MeshRoundingRepair.LockedKey(a, b)),
                 AllowLockedContraction = AllowCurveContraction,
                 RemoveTinyComponents = false,
                 UlpFactor = StrictRounding ? 0 : RoundingUlpFactor, AbsoluteTolerance = StrictRounding ? 0 : RoundingAbsoluteTolerance,
@@ -408,6 +451,7 @@ namespace g3
             Counts["rounding_edits"] = Rounding.Collapses + Rounding.Flips + Rounding.Moves + Rounding.Zips + Rounding.VertexRemovals;
             Counts["rounding_false_contacts"] = Rounding.InitialFalseContacts;
             Counts["curve_edges_contracted"] = Rounding.LockedContractions;
+            Counts["locked_edges_contracted"] = Rounding.LockedContractions;
             // (the contracted edges are gone from the lock set; the curve is what is left of them)
             var edges = new HashSet<long>(EdgeKeyComparer.Instance);
             foreach (long k in locks)
@@ -418,9 +462,44 @@ namespace g3
                 return fail(ImprintStatus.RoundingNotClean, string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "rounding not clean within the bound {0:G3}: {1} intersecting pairs, {2} degenerate triangles, {3} contacts made by the rounding left",
                     Rounding.MaxLength, Rounding.RemainingIntersections, Rounding.RemainingDegenerate, Rounding.RemainingFalseContacts));
-            if (SourceTriangle.Length < Result.MaxTriangleID)
-                Array.Resize(ref SourceTriangle, Result.MaxTriangleID);
+            rederive_sources(before, beforeSource);
             return true;
+        }
+
+        // SourceTriangle after the repair: a triangle the repair left as it was keeps its source; an edited one (a flip, a contraction,
+        // a zip, ids reused) takes the source, among those of the triangles that were at its vertices, whose target triangle is nearest
+        // to its centroid (an edit can span two sources); ids not in use are -1
+        void rederive_sources(Index3i[] before, int[] beforeSource)
+        {
+            var sources = new int[Result.MaxTriangleID];
+            for (int i = 0; i < sources.Length; ++i) sources[i] = -1;
+            Dictionary<int, List<int>> atVertex = null;
+            foreach (int tid in Result.TriangleIndices()) {
+                Index3i tv = Result.GetTriangle(tid);
+                if (tid < before.Length && before[tid] == tv && tid < beforeSource.Length) { sources[tid] = beforeSource[tid]; continue; }
+                if (atVertex == null) {
+                    atVertex = new Dictionary<int, List<int>>();
+                    for (int b = 0; b < before.Length; ++b) {
+                        if (b >= beforeSource.Length || beforeSource[b] < 0) continue;
+                        foreach (int v in new[] { before[b].a, before[b].b, before[b].c }) {
+                            if (atVertex.TryGetValue(v, out var l) == false) atVertex[v] = l = new List<int>();
+                            if (l.Contains(beforeSource[b]) == false) l.Add(beforeSource[b]);
+                        }
+                    }
+                }
+                Vector3d centroid = (Result.GetVertex(tv.a) + Result.GetVertex(tv.b) + Result.GetVertex(tv.c)) / 3;
+                int best = -1; double bestD = double.MaxValue;
+                foreach (int v in new[] { tv.a, tv.b, tv.c }) {
+                    if (atVertex.TryGetValue(v, out var cands) == false) continue;
+                    foreach (int src in cands) {
+                        Index3i st = Target.GetTriangle(src);
+                        double d = new DistPoint3Triangle3(centroid, new Triangle3d(Target.GetVertex(st.a), Target.GetVertex(st.b), Target.GetVertex(st.c))).GetSquared();
+                        if (d < bestD || (d == bestD && src < best)) { bestD = d; best = src; }
+                    }
+                }
+                sources[tid] = best;
+            }
+            SourceTriangle = sources;
         }
 
         // ---- curves ----
