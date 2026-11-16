@@ -1,6 +1,6 @@
 # Metamorphic testing and fuzzing of geometry kernels: method, falsification run, recommendation
 
-Status: research note with a falsification run (tier S: docs and one benchmark harness, no library change), 2026-11-16.
+Status: research note with a falsification run (tier S: docs and one benchmark harness, no library change), 2026-11-16. A1 and P1 built 2026-11-16 (PR `claude/metamorphic-a1-p1`): `MetamorphicRelationTests`, validated on the fix parents (A1 fires on cbf8b78, P1 on c677da7, both quiet on master, `benchmarks/MetamorphicFalsification/results/relations.txt`). The first sweeps found two defects on master, #985 (SafeRounding, ExactMeshBoolean) and #986 (QualityMesh2 Empty); the mesher's cost follows the aspect ratio (min-angle size law), so its bound is scaled by 2^|e| (section 10).
 Builds on the catalogue [design/METAMORPHIC_RELATIONS.md](../design/METAMORPHIC_RELATIONS.md) (2026-11-13; its R1 symmetry and R2
 cost relations are in the tree as `SymmetryInvarianceTests` and `CostInvarianceTests`, R3-R5 are not). That note ranked relations
 from the fault classes of the findings documents. This note tests the ranking against the repository's bug issues.
@@ -222,3 +222,22 @@ Verified by a search on 2026-11-16 (title, authors, venue, DOI where given); no 
 - Cherchi, Livesu, Scateni, Attene, "Fast and Robust Mesh Arrangements using Floating-point Arithmetic", ACM TOG 39(6), 2020,
   doi:10.1145/3414685.3417818.
 - Chen, Cheung, Yiu, HKUST-CS98-01, 1998: from memory, not verified; cited only as the origin.
+
+## 10. Status of the A1 and P1 build (2026-11-16)
+
+- Built: `tests/geometry3Sharp.Tests/MetamorphicRelationTests.cs` (A1 for `MeshRobustRepair`, `ExactMeshBoolean`, `MeshAlphaWrap`,
+  `QualityMesh2`; P1 for the winding number, `DMeshAABBTree3.IsInside` and the open-mesh Antipodal union), helpers in
+  `Harness/MetamorphicRelations.cs`. The PR tier runs a few exponents per relation; the nightly tier runs the full sweep.
+- Validation (`benchmarks/MetamorphicFalsification/results/relations.txt`): A1 fires on the parent of #712 (cbf8b78: 136 018 wrap
+  triangles against 0), P1 fires on the parent of #719 (c677da7: 402 vs 408 triangles, the open-mesh Antipodal union only); both
+  quiet on master. The P1 winding-number and `IsInside` checks did not fire on either parent: their samples are far from the perturbed
+  vertex, so they are a regression net for span independence, not validated detectors. A1 for `QualityMesh2` is not a row of that
+  file: its bound (reference x 2^|e|) was checked by the probe of the sweep (vertex counts 270 at 2^-8, 4274 at 2^-12, 8546 at 2^-13,
+  both signs), not by a parent run.
+- Sweeps on master found two defects, not fixed here, pinned with their issues: **#985** (`ExactMeshBoolean` with SafeRounding,
+  the union of flattened inputs at 2^±18 and beyond: an empty, open result with status Success; 689 of the 1656 rows) and
+  **#986** (`QualityMesh2` returns Empty for a valid pentagon at 2^±41 and beyond).
+- Caveat on the 2D mesher: its output size follows the aspect ratio (a sliver needs points along its length), so A1 bounds
+  it by the reference times 2^|e|, not by the reference. Where the input's Steiner limit is reached the output says so.
+- Not done: Stryker runs on the new file (not in the mutation config); the sensitivity check is the parent runs above.
+- Review (independent agent, the diff and REVIEW_CHECKLIST.md): the Steiner-cap skip, the validity check and the pin message were fixed in the same PR; the census is a count (its gap is stated in the test).
