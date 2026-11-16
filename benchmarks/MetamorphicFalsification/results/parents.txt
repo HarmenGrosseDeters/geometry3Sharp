@@ -1,0 +1,42 @@
+######## PARENT p856
+== #856 MeshMeshCut, cut mesh touching the target (parent of #867)
+  identity 0 ms
+  scale 2^k    CAUGHT  differs 5, throws 1, cost-spread 0 of 12; time 0..1 ms; 2^-7 differs
+  symmetry     CAUGHT  differs 17, throws 0, cost-spread 0 of 18; time 0..1 ms; sym1 differs
+  permutation  not caught  differs 0, throws 0, cost-spread 0 of 1; time 0..1 ms; 
+######## PARENT p745
+== #745 PointAABBTree3.FastWindingNumber under 2^k
+  identity 185 ms
+  scale 2^k    CAUGHT  differs 3, throws 0, cost-spread 1 of 3; time 185..3442 ms; 2^-40 differs
+  symmetry     n/a
+  permutation  n/a
+######## PARENT p644
+== #644 ConvexHull2 dimension / ring at tiny extent
+  identity 0 ms
+  scale 2^k    CAUGHT  differs 4, throws 0, cost-spread 0 of 5; time 0..0 ms; 2^-60 differs
+  symmetry     n/a
+  permutation  n/a
+######## PARENT p712
+== #712 MeshRobustRepair on a flattened tetrahedron (cost and result)
+  identity 4248 ms
+  scale 2^k    not caught  differs 0, throws 0, cost-spread 0 of 6; time 3565..4248 ms; 
+  symmetry     CAUGHT  differs 4, throws 0, cost-spread 0 of 4; time 3871..4483 ms; sym1 differs
+  permutation  CAUGHT  differs 1, throws 0, cost-spread 0 of 1; time 3656..4248 ms; perm differs
+  info aniso times ms (flattened, unflattened): 3518, 4
+  anisotropic  CAUGHT flattened 3697 ms vs unflattened 3 ms
+######## PARENT p719
+== #719 ExactMeshBoolean Antipodal union vs coordinate span
+  identity 24 ms
+  scale 2^k    not caught  differs 0, throws 0, cost-spread 0 of 3; time 20..43 ms; 
+  symmetry     not caught  differs 0, throws 0, cost-spread 0 of 5; time 20..26 ms; 
+  permutation  not caught  differs 0, throws 0, cost-spread 0 of 1; time 22..24 ms; 
+  info syms (count:area): id=402:3208.7229880566224 sym1=402:3208.7229880566224 sym3=402:3208.7229880566224 sym6=402:3208.7229880566224 sym7=402:3208.7229880566224 sym12=402:3208.7229880566224
+  tiny coordinate CAUGHT unit 402:3208.7229880566224 vs 2^-1000 408:3220.6092345991296
+######## PARENT p710
+== #710 ExactMeshBoolean Difference of two cubes at 3.7e-223
+  identity run THROWS InvalidOperationException: ExactTriangulation2: constraint was not inserted (0 crossing edges, 8 collinear   (crash oracle, no relation needed)
+  identity 16 ms
+  scale 2^k    CAUGHT  differs 0, throws 4, cost-spread 0 of 4; time 10..16 ms; 2^700 throws InvalidOperationException: ExactTriangulation2: constraint was not inserted (0 crossing edges, 8 collinear 
+  symmetry     CAUGHT  differs 0, throws 6, cost-spread 0 of 6; time 11..16 ms; sym1 throws InvalidOperationException: ExactTriangulation2: constraint was not inserted (0 crossing edges, 8 collinear 
+  permutation  CAUGHT  differs 0, throws 1, cost-spread 0 of 1; time 11..16 ms; perm throws InvalidOperationException: ExactTriangulation2: constraint was not inserted (0 crossing edges, 8 collinear 
+  info triangles per scale: 2^0=throws 2^700=throws 2^740=throws 2^760=throws
