@@ -45,3 +45,36 @@ Removing the nonnegative clamp (`Math.Max(0, pair.Value)` -> `pair.Value`) makes
 ## Iteration probe
 
 A 4-vertex square with three fixed handles, one moved by 0.2 out of plane, needed 6562 plain iterations to reach the default tolerance (maximum step 6.14e-5 after 500 and 9.06e-8 after 5000), and 18 with the default acceleration; the same square with an in-plane 0.2 move needed 18 plain iterations. Command: `dotnet run --project benchmarks/ArapDeformationProbe -c Release`; raw output: `benchmarks/ArapDeformationProbe/results.txt`. The energy of the plain iteration decreased monotonically throughout (5.63e-4 to 5.16e-4 in the unnormalized probe), so the slowness is the linear rate of the local/global map, not an error.
+
+## Scaling, warm start and large twists (measured 2026-11-16)
+
+Measured with `benchmarks/ArapDeformationBenchmark` (`<nx> <ny> <iterations> [depth]`; flat grid, left column fixed, right column moved by (0.1, 0, 0.05 sin)), default tolerance 1e-8, depth 5, net10.0, one run each. The warm-start runs used a local, unpublished hook that started the iteration from the `BiharmonicMeshDeformer` result (#897) of the same handles instead of the harmonic interpolation; no such setting exists and none is proposed.
+
+| Grid | Start | Iterations to 1e-8 | ARAP time | Biharmonic time |
+|---|---|---|---|---|
+| 100x100 (10k) | rest | 89 | 2.07 s | - |
+| 100x100 (10k) | biharmonic | 87 | 1.92 s | 0.48 s |
+| 400x250 (100k) | rest | 143 | 33.3 s | - |
+| 400x250 (100k) | biharmonic | 116 | 26.8 s | 3.7 s |
+
+- The default limit of 50 stops at a residual of 4.2e-6 on the 100k grid (1.9e-6 on the 10k grid); its energy is within 1.8e-5 (10k: 8e-7) relative of the converged one, so the stop is cosmetic for grids. A limit of 200 or 500 reaches the tolerance (143 iterations).
+- The plain iteration (depth 0) on the 10k grid is still at a residual of 5.5e-6 after 500 iterations.
+- The warm start saves 1.2x iterations at 100k and nothing at 10k; with the biharmonic solve it is 30.5 s against 33.3 s. It is not worth a setting. Iterations grow slowly with size (89 to 143 for 10x the vertices); the time per iteration grows about 16x, which is the sparse Cholesky. The grid numbers do not call for a multigrid or hierarchical solver.
+
+Large rotations (closed bar, length 4, radius 0.35, 24 x 49 rings and two cap centres, 1178 vertices; the bottom 4 rings and cap centre fixed, the top 4 rings and cap centre rotated about the bar axis; probe not in the repository). Iterations to the tolerance, accelerated (depth 5) / plain / accelerated from the biharmonic start:
+
+| Twist | depth 5 | plain | biharmonic start | Energy at the stop (depth 5 / plain) | Mid radius (depth 5 / plain) |
+|---|---|---|---|---|---|
+| 45 deg | 27 | 267 | 24 | 0.001238 / 0.001238 | 0.349 / 0.349 |
+| 90 deg | 35 | 301 | 31 | 0.004893 / 0.004893 | 0.345 / 0.345 |
+| 135 deg | 39 | 1321 | 36 | 0.01079 / 0.00960 | 0.338 / 0.116 |
+| 180 deg | 3854 | 5000 not reached (residual 1.2e-5) | 1000 not reached | 0.00792 / 0.00793 | 0.150 / 0.129 |
+
+At 180 deg the accelerated run is at a residual of 7.9e-4 after 50 iterations (energy 0.0154, mid radius 0.347), 3.4e-4 after 200 (0.00829, 0.282) and 2.4e-5 after 1000 (0.00794, 0.104).
+
+Findings:
+1. The necked state is real, not an artefact of the iteration: the plain and the accelerated iteration both slide to it and the energy falls (180 deg: 0.0154 at the start of the slide to 0.0079). It is a lower ARAP energy than the straight twisted bar.
+2. At 135 deg the motion criterion stops on a plateau: depth 5 reports `Success` after 39 iterations at energy 0.01079 (mid radius 0.338), while the plain iteration continues to the necked state with energy 0.00960 (mid radius 0.116). `Success` is the fixed-point residual criterion, not a minimum, for large twists.
+3. The default of 50 iterations is tight from about a 180 deg twist (the bar is still sliding); for grids it is cosmetic (above). The biharmonic start does not help here (a linear interpolation of the displacements shears the bar): 180 deg is still at the limit after 1000 iterations, and 36 against 39 iterations at 135 deg.
+
+No default changes are proposed; they would be an owner decision.

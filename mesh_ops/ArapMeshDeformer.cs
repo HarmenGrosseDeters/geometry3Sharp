@@ -22,7 +22,10 @@ namespace g3
         }
         /// <summary>
         /// Success and MaxIterations carry a finite output mesh with exact handle positions;
-        /// MaxIterations is not convergence. All failure statuses carry no output mesh.
+        /// MaxIterations is not convergence.
+        /// Success means that the motion tolerance was met, not that a (local) minimum of the energy was reached:
+        /// a large twist can stop on a plateau where the iteration would still lower the energy (docs/design/ARAP_DEFORMATION.md).
+        /// All failure statuses carry no output mesh.
         /// </summary>
         public class ResultInfo
         {
