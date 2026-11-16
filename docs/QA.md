@@ -443,7 +443,7 @@ every daily workflow has two starters and runs once a day:
 |---|---|---|---|
 | `nightly.yml` | 02:30 | none | `23 2 * * *` |
 | `coverage.yml` | 03:45 (after the nightly) | none (a `ref` makes it a custom run) | `41 3 * * *` |
-| `mutation.yml` | 01:20 daily full run; Monday 03:25 weekly run | `shards=all` | `23 3 * * 1` |
+| `mutation.yml` | 01:20 daily full run | `shards=all` | `17 19 * * 1-6` (nightly group: `boolean-*`, `arrangement-*`, `rounding-*`) and `17 19 * * 0` (weekly group: the other shards), see tests/mutation/README.md "3.0 process" |
 
 The dispatch is a `workflow_dispatch` on `master` (`actions_run_trigger run_workflow` with `ref: master` and the inputs above, or
 `gh workflow run <file> --ref master -f shards=all`). The first job of `nightly.yml` and `coverage.yml`, `guard` (in `mutation.yml` a step of the `changes` job; `tools/schedule_guard.py`, tests
@@ -473,8 +473,9 @@ is queued or running today (UTC date), or already succeeded. Rules:
 - Known gap, retry by hand: when the only running starter is cancelled or fails after the other one was skipped, nothing
   retries by itself. Dispatch the workflow again (`force` is not needed: the failed or cancelled run does not count).
 - In `mutation.yml` the guard is a step of the `changes` job, not a job of its own (`select_shards.py` takes a new job or top key
-  of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs: a late cron
-  waits for the dispatched full run and is then skipped by the guard instead of cancelling hours of work.
+  of that workflow as a reason to run every shard in full), and the concurrency group cancels only pull-request runs and is per kind
+  of run on master (`mutation-schedule`, `mutation-workflow_dispatch`): a late cron starts next to the dispatched full run and is
+  skipped by the guard (it never cancels hours of work, and never replaces a pending dispatch).
 - `coverage.yml` looks for the previous `gate-result` in the last 60 master runs (a guard-skipped run has none).
 - Master CI runs: `ci.yml` has one concurrency group per ref without cancel-in-progress (2026-11-15: master runs queue; GitHub keeps the
   run under way and the newest pending one, so a burst of merges skips the middle commits' runs, cancelled as pending). A regression of

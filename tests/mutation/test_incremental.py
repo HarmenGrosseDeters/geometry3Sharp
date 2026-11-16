@@ -391,8 +391,9 @@ class RunStryker(unittest.TestCase):
                 os.makedirs(os.path.join(work, "baseline"))
                 with open(os.path.join(work, "baseline", "stryker-report.json"), "w") as f:
                     json.dump(report(OLD, [mutant(2, "Killed"), mutant(3, "Killed")], config=config), f)
+            # (G3_NO_EXCLUDE: the marking of the other sources has its own tests, test_run_stryker_restore.py)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE=mode, BASE="abc123",
-                       REPO_ROOT=root, GITHUB_STEP_SUMMARY=os.path.join(d, "summary"))
+                       REPO_ROOT=root, GITHUB_STEP_SUMMARY=os.path.join(d, "summary"), G3_NO_EXCLUDE="1")
             env.pop("GITHUB_OUTPUT", None)
             if progress is not None:
                 env["PROGRESS_SECONDS"] = str(progress)
@@ -480,7 +481,7 @@ class RunStryker(unittest.TestCase):
                 f.write("#!/usr/bin/env bash\n" + body)
             os.chmod(os.path.join(bindir, "dotnet"), 0o755)
             env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], MODE="full",
-                       GITHUB_STEP_SUMMARY=os.path.join(d, "summary"), PROGRESS_SECONDS="1", **env_extra)
+                       GITHUB_STEP_SUMMARY=os.path.join(d, "summary"), PROGRESS_SECONDS="1", G3_NO_EXCLUDE="1", **env_extra)
             env.pop("GITHUB_OUTPUT", None)
             t0 = __import__("time").time()
             p = subprocess.run(["bash", os.path.join(HERE, "run_stryker.sh"), "stryker-x.json"], cwd=work, env=env,
