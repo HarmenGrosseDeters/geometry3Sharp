@@ -45,7 +45,7 @@ namespace g3
         public Settings Options = new Settings();
         public ArapMeshDeformer(DMesh3 mesh) { Mesh = mesh; }
 
-        struct Edge
+        internal struct Edge
         {
             public int A, B;
             public double Weight;
@@ -120,10 +120,88 @@ namespace g3
         /// <summary>Compute a deformation without mutating the input; handle positions are hard constraints.</summary>
         public ResultInfo Compute(IReadOnlyDictionary<int, Vector3d> handles)
         {
+            return Compute(handles, null);
+        }
+
+        /// <summary>
+        /// Compute a deformation that starts the local/global iteration from <paramref name="initialPositions"/> instead of the
+        /// harmonic interpolation of the handle displacements (null: the default start, bit for bit the result of
+        /// <see cref="Compute(IReadOnlyDictionary{int, Vector3d})"/>). See <see cref="Solve"/> for the contract of the initial positions.
+        /// </summary>
+        public ResultInfo Compute(IReadOnlyDictionary<int, Vector3d> handles, IReadOnlyDictionary<int, Vector3d> initialPositions)
+        {
             var result = new ResultInfo { Status = Status.InvalidInput };
-            if (Mesh == null || handles == null || Options == null || Mesh.VertexCount == 0 ||
-                Options.MaxIterations <= 0 || Options.AccelerationDepth < 0 || Options.AccelerationDepth > 32 || !(Options.RelativeTolerance > 0) || !MathUtil.IsFinite(Options.RelativeTolerance))
-                return result;
+            if (!OptionsAreValid() || handles == null) return result;
+            Preparation preparation = PrepareCore(handles.Keys, handles);
+            if (preparation.Status != Status.Success) { result.Status = preparation.Status; return result; }
+            return SolveCore(preparation, handles, initialPositions);
+        }
+
+        /// <summary>
+        /// The part of a deformation that depends only on the mesh and on which vertices are handles: validation, the
+        /// per-component normalization, the cotangent weights, the anchoring check and the sparse Cholesky factorization of
+        /// the Laplacian of the free vertices. <see cref="Solve"/> then moves the handles any number of times without
+        /// repeating it. <c>Status</c> is <c>Success</c> or the failure that <c>Compute</c> reports for finite handle positions
+        /// of these ids (a failure that depends on the handle positions is reported by <c>Solve</c>; <c>Solve</c> with a failed
+        /// preparation is <c>InvalidInput</c>). A preparation belongs to
+        /// the mesh and the mesh state it was made from; <c>Solve</c> reports <c>InvalidInput</c> after the mesh was
+        /// edited or replaced. It is read only after <c>Prepare</c> returns, so several threads may call <c>Solve</c> with it.
+        /// </summary>
+        public sealed class Preparation
+        {
+            public Status Status { get; internal set; } = Status.InvalidInput;
+            /// <summary>Number of handles the preparation was made for.</summary>
+            public int HandleCount { get { return HandleIds == null ? 0 : HandleIds.Count; } }
+            internal HashSet<int> HandleIds;
+            internal DMesh3 Mesh; internal int ShapeTimestamp;
+            internal List<int> Ids; internal Dictionary<int, int> ToIndex;
+            internal Vector3d[] Rest, Origins; internal double[] Scales;
+            internal bool[] FixedVertex, ActiveComponent;
+            internal List<Edge> Edges; internal List<int>[] Neighbors;
+            internal int[] Free; internal int Count;
+            internal SparseCholesky Chol;
+            internal double RestEnergy;
+            internal bool AllHandles;
+        }
+
+        /// <summary>Do the handle-position independent setup for the vertices <paramref name="handleIds"/> (see <see cref="Preparation"/>).</summary>
+        public Preparation Prepare(IEnumerable<int> handleIds)
+        {
+            if (handleIds == null) return new Preparation();
+            return PrepareCore(handleIds, null);
+        }
+
+        bool OptionsAreValid()
+        {
+            return Mesh != null && Options != null && Mesh.VertexCount > 0 &&
+                   Options.MaxIterations > 0 && Options.AccelerationDepth >= 0 && Options.AccelerationDepth <= 32 &&
+                   Options.RelativeTolerance > 0 && MathUtil.IsFinite(Options.RelativeTolerance);
+        }
+
+        /// <summary>
+        /// Move the handles of <paramref name="preparation"/> to <paramref name="handlePositions"/> (the same vertex ids it was made
+        /// for) and solve. For a successful preparation the result is bit for bit that of <c>Compute(handlePositions)</c> on a fresh instance with the same
+        /// mesh and options. <paramref name="initialPositions"/> (optional, null: the harmonic interpolation of the handle
+        /// displacements) is a start for the iteration, keyed by vertex id in the coordinates of the input mesh: it
+        /// must have a finite position for every free vertex and no id that is not a vertex of the mesh; finite entries for
+        /// handle vertices are accepted and ignored (handles stay exact), so the vertices of a previous result can be passed whole.
+        /// Anything else is <c>InvalidInput</c>. The energy never increases from the energy of the start.
+        /// </summary>
+        public ResultInfo Solve(Preparation preparation, IReadOnlyDictionary<int, Vector3d> handlePositions,
+                                IReadOnlyDictionary<int, Vector3d> initialPositions = null)
+        {
+            var result = new ResultInfo { Status = Status.InvalidInput };
+            if (preparation == null || preparation.Status != Status.Success || preparation.HandleIds == null || handlePositions == null || !OptionsAreValid()) return result;
+            if (preparation.Mesh != Mesh || preparation.ShapeTimestamp != Mesh.ShapeTimestamp) return result;
+            return SolveCore(preparation, handlePositions, initialPositions);
+        }
+
+        // The setup of a deformation. With handlePositions (the Compute path) the handles are validated first and
+        // normalized before the factorization, so the order of the failure statuses is that of a single pass.
+        Preparation PrepareCore(IEnumerable<int> handleIds, IReadOnlyDictionary<int, Vector3d> handlePositions)
+        {
+            var result = new Preparation();
+            if (Mesh == null || Mesh.VertexCount == 0) return result;
             var ids = new List<int>(Mesh.VertexIndices());
             int n = ids.Count;
             var toIndex = new Dictionary<int, int>(n);
@@ -136,21 +214,23 @@ namespace g3
                 worldRest[i] = rest[i] = positions[i] = Mesh.GetVertex(ids[i]);
                 if (!rest[i].IsFinite) return result;
             }
-            foreach (var h in handles) {
+            var handleSet = new HashSet<int>();
+            foreach (int id in handleIds) {
                 int i;
-                if (!toIndex.TryGetValue(h.Key, out i) || !h.Value.IsFinite) return result;
-                fixedVertex[i] = true;
+                if (!toIndex.TryGetValue(id, out i)) return result;
+                fixedVertex[i] = true; handleSet.Add(id);
             }
-            if (handles.Count == n) {
+            if (handlePositions != null)
+                foreach (var h in handlePositions) if (!h.Value.IsFinite) return result;
+            result.Mesh = Mesh; result.ShapeTimestamp = Mesh.ShapeTimestamp; result.HandleIds = handleSet;
+            result.Ids = ids; result.ToIndex = toIndex;
+            if (handleSet.Count == n) {
                 foreach (int tid in Mesh.TriangleIndices()) {
                     Index3i tri = Mesh.GetTriangle(tid);
                     Vector3d a = worldRest[toIndex[tri.a]], b = worldRest[toIndex[tri.b]], c = worldRest[toIndex[tri.c]];
                     if (!HasRepresentableArea(a, b, c)) { result.Status = Status.DegenerateTriangle; return result; }
                 }
-                var fullyConstrained = new DMesh3(Mesh);
-                foreach (var h in handles) fullyConstrained.SetVertex(h.Key, h.Value);
-                if (fullyConstrained.HasVertexNormals) MeshNormals.QuickCompute(fullyConstrained);
-                result.Mesh = fullyConstrained; result.Status = Status.Success;
+                result.AllHandles = true; result.Status = Status.Success;
                 return result;
             }
             // Normalize each connected component separately: an unrelated distant or large
@@ -237,12 +317,14 @@ namespace g3
             var free = new int[n]; int count = 0;
             for (int i = 0; i < n; ++i) free[i] = fixedVertex[i] ? -1 : count++;
             // count > 0 here: all vertices being handles returned above.
-            foreach (var h in handles) {
-                int i = toIndex[h.Key];
-                if (!activeComponent[i]) continue;
-                positions[i] = (h.Value - origins[i]) / scales[i];
-                if (!positions[i].IsFinite) { result.Status = Status.NumericalRange; return result; }
-            }
+            // With handle positions (the Compute path) this keeps the order of the failure statuses of a single pass: the
+            // overflow of a normalized handle is reported before the factorization can fail. Solve checks it again.
+            if (handlePositions != null)
+                foreach (var h in handlePositions) {
+                    int i = toIndex[h.Key];
+                    if (!activeComponent[i]) continue;
+                    if (!((h.Value - origins[i]) / scales[i]).IsFinite) { result.Status = Status.NumericalRange; return result; }
+                }
             var chol = new SparseCholesky(count);
             var diagonal = new double[count];
             foreach (var edge in edges) {
@@ -253,6 +335,52 @@ namespace g3
             }
             for (int i = 0; i < count; ++i) chol.Add(i, i, diagonal[i]);
             if (!chol.Factorize()) { result.Status = Status.LinearSolveFailed; return result; }
+            // Energy normalizer: twice the sum of w |q|^2 over the rest edges, so the reported energy is dimensionless
+            // and the same for every similarity of the input.
+            double restEnergy = 0;
+            foreach (var edge in edges) restEnergy += 2 * edge.Weight * (rest[edge.A] - rest[edge.B]).LengthSquared;
+            result.Rest = rest; result.Origins = origins; result.Scales = scales; result.FixedVertex = fixedVertex;
+            result.ActiveComponent = activeComponent; result.Edges = edges; result.Neighbors = neighbors;
+            result.Free = free; result.Count = count; result.Chol = chol; result.RestEnergy = restEnergy;
+            result.Status = Status.Success;
+            return result;
+        }
+
+        ResultInfo SolveCore(Preparation prep, IReadOnlyDictionary<int, Vector3d> handles, IReadOnlyDictionary<int, Vector3d> initialPositions)
+        {
+            var result = new ResultInfo { Status = Status.InvalidInput };
+            var ids = prep.Ids; int n = ids.Count; var toIndex = prep.ToIndex;
+            if (handles.Count != prep.HandleIds.Count) return result;
+            foreach (var h in handles) if (!prep.HandleIds.Contains(h.Key) || !h.Value.IsFinite) return result;
+            if (initialPositions != null) {
+                foreach (var q in initialPositions) if (!toIndex.ContainsKey(q.Key) || !q.Value.IsFinite) return result;
+                if (!prep.AllHandles)
+                    for (int i = 0; i < n; ++i) if (prep.Free[i] >= 0 && !initialPositions.ContainsKey(ids[i])) return result;
+            }
+            if (prep.AllHandles) {
+                var fullyConstrained = new DMesh3(Mesh);
+                foreach (var h in handles) fullyConstrained.SetVertex(h.Key, h.Value);
+                if (fullyConstrained.HasVertexNormals) MeshNormals.QuickCompute(fullyConstrained);
+                result.Mesh = fullyConstrained; result.Status = Status.Success;
+                return result;
+            }
+            var rest = prep.Rest; var origins = prep.Origins; var scales = prep.Scales; var fixedVertex = prep.FixedVertex;
+            var activeComponent = prep.ActiveComponent; var edges = prep.Edges; var neighbors = prep.Neighbors;
+            var free = prep.Free; int count = prep.Count; var chol = prep.Chol; double restEnergy = prep.RestEnergy;
+            var positions = new Vector3d[n];
+            for (int i = 0; i < n; ++i) positions[i] = activeComponent[i] ? rest[i] : Vector3d.Zero;
+            foreach (var h in handles) {
+                int i = toIndex[h.Key];
+                if (!activeComponent[i]) continue;
+                positions[i] = (h.Value - origins[i]) / scales[i];
+                if (!positions[i].IsFinite) { result.Status = Status.NumericalRange; return result; }
+            }
+            if (initialPositions != null) {
+                for (int i = 0; i < n; ++i) if (free[i] >= 0) {
+                    positions[i] = (initialPositions[ids[i]] - origins[i]) / scales[i];
+                    if (!positions[i].IsFinite) { result.Status = Status.NumericalRange; return result; }
+                }
+            } else {
             // Start from the harmonic interpolation of handle displacements. In particular, a
             // common translation is reproduced before estimating local rotations.
             var ix = new double[count]; var iy = new double[count]; var iz = new double[count];
@@ -273,15 +401,12 @@ namespace g3
                 int k = free[i]; positions[i] = rest[i] + new Vector3d(dx[k], dy[k], dz[k]);
                 if (!positions[i].IsFinite) { result.Status = Status.NonFiniteResult; return result; }
             }
+            }
             var rotations = new Matrix3d[n]; var trialRotations = new Matrix3d[n];
             for (int i = 0; i < n; ++i) rotations[i] = Matrix3d.Identity;
             var svd = new FastQuaternionSVD();
             var bx = new double[count]; var by = new double[count]; var bz = new double[count];
             var sx = new double[count]; var sy = new double[count]; var sz = new double[count];
-            // Energy normalizer: twice the sum of w |q|^2 over the rest edges, so the reported energy is dimensionless
-            // and the same for every similarity of the input.
-            double restEnergy = 0;
-            foreach (var edge in edges) restEnergy += 2 * edge.Weight * (rest[edge.A] - rest[edge.B]).LengthSquared;
             Status failure = Status.Success;
 
             // Local step: optimal proper rotation of every active vertex for the given positions, and the energy

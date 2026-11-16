@@ -5,7 +5,7 @@ using Xunit;
 
 namespace geometry3Sharp.Tests
 {
-    public class ArapMeshDeformerTests
+    public partial class ArapMeshDeformerTests
     {
         static DMesh3 Patch(double scale = 1)
         {

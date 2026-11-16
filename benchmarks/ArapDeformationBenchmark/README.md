@@ -43,3 +43,21 @@ At a fixed small budget the cost per iteration is the same (the accepted candida
 | default, 50 iterations | MaxIterations | 4.2e-6 | 0.0050887 | 17625 ms |
 
 The 100k grid still does not reach the default tolerance within the default budget of 50 iterations (residual 4.2e-6, status `MaxIterations`, finite mesh with exact handles); it was not run to convergence at this size. Each measurement is a single run on a shared 4-core container; the iteration counts are exact, the times are indicative. The first-version rows above (packed-long versus `Index2i` key) are unchanged history.
+
+## Drag: `Prepare` / `Solve` and `InitialPositions`
+
+`... -- <nx> <ny> <iterations> <depth> drag [steps]` moves the right boundary to its final place in `steps` equal steps (default 30) with the same handle ids and compares three ways: a fresh `Compute` per step, one `Prepare` and a cold `Solve` per step, and one `Prepare` and a `Solve` per step started from the previous result (`initialPositions`). Linux x64, .NET SDK 10.0.115, 2026-11-16, one run per row on a shared container (times are indicative, iteration counts are exact), iteration budget 400, depth 5; every step ended in `Success`.
+
+| Grid | Steps | Variant | Total time | Total iterations | `Prepare` |
+| --- | ---: | --- | ---: | ---: | ---: |
+| 100 x 100 (10k) | 30 | fresh `Compute` (before) | 57167 ms | 3183 | - |
+| 100 x 100 (10k) | 30 | `Prepare` once + `Solve` | 54958 ms | 3183 | 22 ms |
+| 100 x 100 (10k) | 30 | `Prepare` once + `Solve` from the previous result | 48634 ms | 2792 | 52 ms |
+| 400 x 250 (100k) | 6 | fresh `Compute` (before) | 243894 ms | 900 | - |
+| 400 x 250 (100k) | 6 | `Prepare` once + `Solve` | 244435 ms | 900 | 481 ms |
+| 400 x 250 (100k) | 6 | `Prepare` once + `Solve` from the previous result | 211571 ms | 761 | 550 ms |
+
+The setup that `Prepare` saves (weights, normalization, factorization) is about 1 % of a solve at 100k and 1 % at 10k, so reusing it is within the noise of the timings; the local/global iterations dominate. Starting each step from the previous result needs 12 % (10k) and 15 % (100k) fewer iterations and about the same share less time: the iteration converges linearly, so a start that is closer by the step factor (30 at 10k, 6 at 100k) saves a constant number of iterations, not a factor. The final results of the three variants agree to 1e-11 relative in energy. `Compute` without initial positions is bit for bit the code before the change: the mesh hashes of `40 40 400 5`, `40 40 400 0`, `100 100 60 5` and `100 100 400 5` are identical to those of master (`b6c8ebd27fa22679`, `a951d558a054fce2`, `8d55cf7a497cacb1`, `c21d4abd360d5525`).
+
+`benchmarks/ArapIncrementalTwist` twists a closed bar (1178 vertices) in steps from the previous result; see [design/ARAP_DEFORMATION.md](../../docs/design/ARAP_DEFORMATION.md), "Prepare, Solve and initial positions".
+
