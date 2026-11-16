@@ -834,9 +834,14 @@ the median counts; the machine (CPU, cores, memory, dotnet) is recorded. Procedu
 are fetched at run time by the nightly job only (never committed, never fetched by a PR-tier test).
 
 Outlier rule (`rules` in the case list): a median more than 1.3x the median of the last 10 runs of the case and more than 1 s
-above it (a regression); a median over 20 s (a potential defect, platform.md time rules); a failed or timed-out case. The
+above it (a regression), applied once the case has a baseline; a failed or timed-out case. There is no absolute time limit:
+the 20 s limit is for tests, not for the tail cases (owner 2026-11-15, #888; before, a median over 20 s was flagged `hard`
+and made 28 of 35 cases outliers on the first run). A case is judged from 3 earlier successful runs on (`min_runs`; the
+median of one or two runs flags any noisy first night, from three one outlier cannot set it, owner 2026-11-16, against the median of
+the runs that exist up to 10); before that the report marks it "baseline building (n of 10)" (n successful runs so far,
+until the window of 10 is full) and it gets no flag. The
 job summary lists all cases; one tracking issue, "Runtime watch: outliers", gets a comment only when something is new (none of the last 3 nights had the flag: a
-regression, a failure, a case newly over 20 s), so a known slow case is not repeated every night. Results are a workflow
+regression or a failure), so a known slow case is not repeated every night. Results are a workflow
 artifact; the history (`history.json`, last 60 entries per case, plus one result file per commit) is on the data branch
 `runs/runtime-watch` (never merged). A run with a case subset (`only`) does not update the history. GitHub-hosted runners
 vary, so the absolute 1 s and the 1.3x are a floor; a persistent step change enters the rolling median after about five nights.
