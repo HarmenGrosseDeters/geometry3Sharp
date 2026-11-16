@@ -3,7 +3,6 @@
   "rules": {
     "ratio": 1.3,
     "abs_s": 1.0,
-    "hard_s": 20.0,
     "window": 10,
     "repeats": 3,
     "repeat_budget_s": 60,

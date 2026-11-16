@@ -32,11 +32,21 @@ class OutlierRule(unittest.TestCase):
     def test_boundaries_are_strict(self):
         hist = [entry(10.0)] * 3
         self.assertEqual(rw.judge(res(13.0), hist, RULES)["flags"], [])                # exactly 1.3x
-        self.assertEqual(rw.judge(res(20.0), hist, RULES)["flags"], ["regression"])    # 20 s is not over the hard limit
-        self.assertEqual(rw.judge(res(20.01), hist, RULES)["flags"], ["hard", "regression"])
+        self.assertEqual(rw.judge(res(13.01), hist, RULES)["flags"], ["regression"])   # just over 1.3x
 
-    def test_hard_limit_without_history(self):
-        self.assertEqual(rw.judge(res(25.0), [], RULES)["flags"], ["hard"])
+    def test_no_absolute_limit_for_tail_cases(self):
+        # owner 2026-11-15 (#888): the 20 s limit is for tests; a slow tail case with no baseline, or one that stays slow, is no outlier
+        self.assertEqual(rw.judge(res(25.0), [], RULES)["flags"], [])
+        self.assertEqual(rw.judge(res(480.0), [], RULES)["flags"], [])
+        self.assertEqual(rw.judge(res(480.0), [entry(470.0)] * 10, RULES)["flags"], [])
+        self.assertNotIn("hard_s", rw.DEFAULT_RULES)
+        # a slow case still regresses against its own baseline
+        self.assertEqual(rw.judge(res(700.0), [entry(470.0)] * 10, RULES)["flags"], ["regression"])
+
+    def test_baseline_count_for_the_report(self):
+        self.assertEqual(rw.judge(res(5.0), [], RULES)["baseline_n"], 0)
+        self.assertEqual(rw.judge(res(5.0), [entry(5.0)] * 3 + [entry(None, ok=False)], RULES)["baseline_n"], 3)
+        self.assertEqual(rw.judge(res(5.0), [entry(5.0)] * 12, RULES)["baseline_n"], 10)
 
     def test_baseline_is_median_of_window_and_ignores_failures(self):
         hist = [entry(100.0)] * 3 + [entry(None, ok=False)] + [entry(t) for t in (1, 2, 3)]
@@ -52,11 +62,11 @@ class OutlierRule(unittest.TestCase):
         self.assertEqual(rw.judge(res(None, ok=False), [entry(1.0)], RULES)["flags"], ["failed"])
 
     def test_new_flags_only(self):
-        hist = [entry(30.0, flags=["hard"])]
-        j = rw.judge(res(31.0), hist, RULES)
-        self.assertEqual(j["flags"], ["hard"])
+        hist = [entry(10.0, flags=["regression"])] * 3
+        j = rw.judge(res(20.0), hist, RULES)
+        self.assertEqual(j["flags"], ["regression"])
         self.assertEqual(j["new"], [])
-        self.assertEqual(rw.judge(res(31.0), [entry(5.0)], RULES)["new"], ["hard", "regression"])
+        self.assertEqual(rw.judge(res(20.0), [entry(10.0)] * 3, RULES)["new"], ["regression"])
 
 
 class EvaluateAndNotify(unittest.TestCase):
@@ -70,12 +80,10 @@ class EvaluateAndNotify(unittest.TestCase):
         self.assertEqual(h["entries"]["c"][-1]["sha"], "abc")
         self.assertFalse(rw.notify(judged))
 
-    def test_notify_regression_and_new_hard_but_not_repeated_hard(self):
+    def test_notify_regression_but_not_a_slow_case_without_baseline(self):
         self.assertTrue(rw.notify(self.run_eval([entry(10.0)] * 3, 20.0)[0]))
-        self.assertTrue(rw.notify(self.run_eval([entry(5.0)], 21.0)[0]))
-        again = self.run_eval([entry(21.0, flags=["hard"])] * 3, 21.5)[0]
-        self.assertEqual(again[0]["flags"], ["hard"])
-        self.assertFalse(rw.notify(again))
+        self.assertFalse(rw.notify(self.run_eval([], 480.0)[0]))
+        self.assertFalse(rw.notify(self.run_eval([entry(21.0)] * 3, 21.5)[0]))
 
     def test_persistent_regression_and_failure_notify_once(self):
         # night 1 regresses; night 2 is still slow: the flag is not new, no second comment
@@ -91,10 +99,10 @@ class EvaluateAndNotify(unittest.TestCase):
         self.assertFalse(rw.notify(f2))
 
     def test_flaky_failure_between_slow_runs_does_not_renotify(self):
-        hist = [entry(30.0, flags=["hard"]), entry(None, ok=False, flags=["failed"])]
+        hist = [entry(10.0), entry(20.0, flags=["regression"]), entry(None, ok=False, flags=["failed"])]
         self.assertFalse(rw.notify(self.run_eval(hist, 30.0)[0]))
         # but after NOTIFY_MEMORY quiet nights the same flag is new again
-        quiet = [entry(30.0, flags=["hard"])] + [entry(5.0)] * rw.NOTIFY_MEMORY
+        quiet = [entry(10.0, flags=["regression"])] + [entry(5.0)] * rw.NOTIFY_MEMORY
         self.assertTrue(rw.notify(self.run_eval(quiet, 30.0)[0]))
 
     def test_timeout_result_stays_out_of_the_baseline(self):
@@ -116,8 +124,21 @@ class EvaluateAndNotify(unittest.TestCase):
         results = {"sha": "abcdef0123456789", "machine": {"cpu": "x"}, "cases": [res(30.0)]}
         judged, _ = rw.evaluate(results, {}, RULES)
         text = rw.render_report(results, judged, RULES)
+        # a case with no baseline is no outlier, whatever its time (owner 2026-11-15, #888), and says that its baseline is building
+        self.assertIn("No outliers in 1 cases", text)
+        self.assertIn("baseline building (0 of 10)", text)
+        self.assertNotIn("hard", text)
+        self.assertNotIn("outlier(s)", text)
+        # with a baseline: the count of the window, and a regression is the outlier
+        hist = {"entries": {"c": [entry(10.0)] * 3}}
+        results = {"sha": "abcdef0123456789", "machine": {"cpu": "x"}, "cases": [res(30.0)]}
+        judged, _ = rw.evaluate(results, hist, RULES)
+        text = rw.render_report(results, judged, RULES)
         self.assertIn("1 outlier(s) of 1", text)
-        self.assertIn("hard", text)
+        self.assertIn("regression; baseline building (3 of 10)", text)
+        full = {"entries": {"c": [entry(10.0)] * 10}}
+        judged, _ = rw.evaluate(results, full, RULES)
+        self.assertNotIn("baseline building", rw.render_report(results, judged, RULES))
 
 
 class CaseList(unittest.TestCase):
@@ -136,7 +157,7 @@ class CaseList(unittest.TestCase):
     def test_shipped_case_list_is_valid(self):
         rules, cases = rw.load_cases(os.path.join(HERE, "runtime-watch", "cases.json"))
         self.assertGreaterEqual(len(cases), 1)
-        self.assertEqual(rules["hard_s"], 20.0)
+        self.assertNotIn("hard_s", rules)
         self.assertEqual(len({c["id"] for c in cases}), len(cases))
 
     def test_minimal_valid(self):
@@ -284,7 +305,13 @@ class Cli(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 rw.main(["evaluate", p("r.json"), "--history", p("none.json"), "--out-history", p("h.json"), "--report", p("rep.md")])
-            self.assertEqual(out.getvalue().split(), ["outliers=1", "notify=1"])
+            self.assertEqual(out.getvalue().split(), ["outliers=0", "notify=0"])      # 30 s with no baseline: not judged
+            with open(p("h0.json"), "w") as f:
+                json.dump({"version": 1, "entries": {"boolean-knot-default-union": [entry(10.0)] * 3}}, f)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rw.main(["evaluate", p("r.json"), "--history", p("h0.json"), "--out-history", p("h.json"), "--report", p("rep.md")])
+            self.assertEqual(out.getvalue().split(), ["outliers=1", "notify=1"])      # 3x a baseline of 10 s: a regression
 
     def test_corrupt_history_fails_loudly(self):
         with tempfile.TemporaryDirectory() as d:
