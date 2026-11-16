@@ -29,6 +29,8 @@ namespace geometry3Sharp.Tests
             BothWays(false, s, Seg(V(0.5, 1, -1), V(0.5, 1, 1)));        // skew: not coplanar
             BothWays(true, s, Seg(V(0.5, -1, 0), V(0.5, 1, 0)));         // crossing in one point
             BothWays(false, s, Seg(V(2, -1, 0), V(2, 1, 0)));            // coplanar, disjoint
+            // skew, yet the boxes overlap in all three coordinate projections: only the coplanarity test tells them apart
+            BothWays(false, Seg(V(0, 0, 0), V(2, 2, 0)), Seg(V(1, 0, -1), V(1, 2, 3)));
         }
 
         [Fact]
@@ -46,6 +48,9 @@ namespace geometry3Sharp.Tests
             BothWays(true, Pt(V(2, 0, 0)), s);       // at its end
             BothWays(false, Pt(V(3, 0, 0)), s);      // on the line, beyond the end
             BothWays(false, Pt(V(1, 1, 0)), s);      // off the line
+            // inside the segment's bounding box, off the line: only the collinearity test tells it apart
+            BothWays(false, Pt(V(1, 0.5, 0)), Seg(V(0, 0, 0), V(2, 2, 0)));
+            BothWays(true, Pt(V(1, 1, 0)), Seg(V(0, 0, 0), V(2, 2, 0)));
         }
     }
 }

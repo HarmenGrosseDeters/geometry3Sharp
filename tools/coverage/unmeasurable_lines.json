@@ -278,36 +278,6 @@
   },
   {
     "file": "mesh_ops/MeshAlphaWrap.cs",
-    "text": "Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);",
-    "after": [
-      "if (++roundMarkValue == int.MaxValue) {",
-      "}"
-    ],
-    "reason": "the wrap-around of the round mark counter at int.MaxValue: no run has 2^31 rounds",
-    "approved_in": "#959"
-  },
-  {
-    "file": "mesh_ops/MeshAlphaWrap.cs",
-    "text": "Array.Clear(roundInner, 0, roundInner.Length);",
-    "after": [
-      "Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);",
-      "if (++roundMarkValue == int.MaxValue) {"
-    ],
-    "reason": "the wrap-around of the round mark counter at int.MaxValue: no run has 2^31 rounds",
-    "approved_in": "#959"
-  },
-  {
-    "file": "mesh_ops/MeshAlphaWrap.cs",
-    "text": "roundMarkValue = 1;",
-    "after": [
-      "Array.Clear(roundInner, 0, roundInner.Length);",
-      "Array.Clear(roundMark, 0, roundMark.Length); Array.Clear(roundOutside, 0, roundOutside.Length);"
-    ],
-    "reason": "the wrap-around of the round mark counter at int.MaxValue: no run has 2^31 rounds",
-    "approved_in": "#959"
-  },
-  {
-    "file": "mesh_ops/MeshAlphaWrap.cs",
     "text": "gates.Push(g.NewKey, g.C, g.I, g.Stamp);",
     "after": [
       "if (g.Kind == GateRequeue) {",
