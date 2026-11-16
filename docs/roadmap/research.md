@@ -184,7 +184,7 @@ Part of the [roadmap](../ROADMAP.md).
      stationarity residual, 100k vertices in about 7 s cold (design note BIHARMONIC_DEFORMATION.md, benchmark
      `BiharmonicDeformationBenchmark`). The opt-in certified-accuracy mode (interval arithmetic position bounds) is parked
      (owner 2026-11-16, "ship core, cert later") on the branch `claude/biharmonic-certificate-parked`; its open gates are #980
-     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP is tracked separately in #896.
+     (aligned 100k does not certify, cold runs 25-60 s) and #976 (a 20 s tail). ARAP: `ArapMeshDeformer` in #896 (design note [design/ARAP_DEFORMATION.md](../design/ARAP_DEFORMATION.md)).
   8. Geodesic Bézier curves (rest of Phase 5 #1), S; niche. Done (#540).
   9. General contour lofting `ContourLoft` (owner 2026-11-09; moved out of the terrain topic), S-M for stage 1:
      surface reconstruction between planar contours as a general operation, with the terrain slope constraint as one

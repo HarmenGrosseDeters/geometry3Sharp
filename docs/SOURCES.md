@@ -4,6 +4,13 @@ geometry3Sharp is under the Boost Software License. New code in this fork is wri
 no code is taken over from other libraries unless it is under a compatible permissive license and named here.
 Code under the GPL or LGPL (eg CGAL) is never used as a source.
 
+## Surface deformation (`ArapMeshDeformer`)
+
+| Item | Source |
+|---|---|
+| ARAP surface energy and local/global iterations | O. Sorkine, M. Alexa, *As-Rigid-As-Possible Surface Modeling*, SGP 2007, [DOI](https://doi.org/10.2312/SGP/SGP07/109-116); implemented from the paper. The existing library `SparseCholesky`, `FastQuaternionSVD` and exact orientation predicates are reused. Negative cotangent sums are clamped to zero as an explicit weighting variant; [CGAL's surface deformation manual](https://doc.cgal.org/latest/Surface_mesh_deformation/index.html) describes this remedy (documentation only; no CGAL code read). No libigl source was read or ported. |
+| Anderson acceleration of the local/global fixed-point iteration, energy safeguard | H. F. Walker, P. Ni, *Anderson Acceleration for Fixed-Point Iterations*, SIAM J. Numer. Anal. 49(5), 2011, [doi:10.1137/10078356X](https://doi.org/10.1137/10078356X); Y. Peng, B. Deng, J. Zhang, F. Geng, W. Qin, L. Liu, *Anderson Acceleration for Geometry Optimization and Physics Simulation*, ACM TOG 37(4), 2018, [doi:10.1145/3197517.3201290](https://doi.org/10.1145/3197517.3201290); implemented from the papers (no code read). |
+
 ## Biharmonic displacement deformation (`BiharmonicMeshDeformer`)
 
 Implemented from the papers; no libigl source (MPL) or other solver code was read or ported. The solve uses the existing `SparseCholesky`.
