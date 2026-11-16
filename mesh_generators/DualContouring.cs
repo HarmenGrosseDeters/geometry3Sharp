@@ -11,8 +11,12 @@ namespace g3
     /// ("Hermite data") on the cell's sign-changing edges, which reproduces sharp edges and corners.
     /// Produces far fewer triangles than MarchingCubes at the same feature quality.
     ///
-    /// Hermite data comes from HermiteF if it is set (eg project the edge crossing onto an input mesh),
-    /// otherwise from linear interpolation of the field and its central-difference gradient.
+    /// Hermite data comes from HermiteF if it is set (eg project the edge crossing onto an input mesh).
+    /// Otherwise, if Implicit is set and ExactHermite is true (the default), each sign-changing edge is bisected on
+    /// Implicit to the true crossing and the normal is the central-difference gradient of Implicit at that point,
+    /// so the normals of the two faces of a crease do not blend (the QEF then finds the crease, QEFEigenTolerance
+    /// can be low). With ExactHermite = false, or in sparse mode with NodeValueF and no Implicit, the crossing is
+    /// the linear interpolation of the grid values and the normal the gradient at it (as before 2026-11).
     ///
     /// Each cell gets one vertex per surface patch (the patches marching cubes would create in it), as in
     /// manifold dual contouring (Schaefer et al. 2007), so thin walls and gaps do not create non-manifold edges.
@@ -59,8 +63,23 @@ namespace g3
         public delegate bool HermiteFunc(Vector3d edgeA, Vector3d edgeB, Vector3d crossing, out Vector3d point, out Vector3d normal);
         public HermiteFunc HermiteF = null;
 
-        /// <summary> QEF eigenvalues below this fraction of the largest are ignored (feature sensitivity) </summary>
-        public double QEFEigenTolerance = 0.1;
+        /// <summary>
+        /// With HermiteF null and Implicit set: take the edge crossing by bisection of Implicit (a fixed number of
+        /// halvings, so the result is scale invariant) and the normal from the central-difference gradient of Implicit
+        /// there, instead of the interpolated crossing and the gradient at it. Same triangle count and a similar time,
+        /// sharper creases (see benchmarks/DualContouringHermite). false gives the former behaviour (interpolation).
+        /// No effect when HermiteF is set (also where it returns false: the fallback stays the interpolation) and in
+        /// sparse mode without Implicit, where only NodeValueF is available.
+        /// </summary>
+        public bool ExactHermite = true;
+
+        /// <summary>
+        /// QEF eigenvalues below this fraction of the largest are ignored (feature sensitivity). The default 0.02
+        /// (0.1 before 2026-11) suits ExactHermite; with interpolated Hermite data, whose normals blend at a crease,
+        /// 0.1 was the better value, so set it when ExactHermite is false and the old output is wanted.
+        /// </summary>
+        public double QEFEigenTolerance = 0.02;
+        internal const double LegacyQEFEigenTolerance = 0.1;
         /// <summary> vertices stay this far (relative to the cell size) inside their cell </summary>
         public double QEFCellMargin = 0.01;
 
@@ -237,6 +256,16 @@ namespace g3
                 bool aInside = is_inside(fa);
                 if (HermiteF != null && HermiteF(aInside ? pa : pb, aInside ? pb : pa, p, out hp, out hn)) {
                     hpoints[ci] = hp; hnormals[ci] = hn.Normalized;
+                } else if (ExactHermite && HermiteF == null && Implicit != null) {
+                    // bisection in the parameter t of the edge (scale free: only powers of two and sign tests)
+                    double lo = 0, hi = 1;
+                    for (int it = 0; it < ExactBisectionSteps; ++it) {
+                        double mid = 0.5 * (lo + hi);
+                        Vector3d pm = Vector3d.Lerp(pa, pb, mid);
+                        if (is_inside(Implicit.Value(ref pm)) == aInside) lo = mid; else hi = mid;
+                    }
+                    Vector3d pe = Vector3d.Lerp(pa, pb, 0.5 * (lo + hi));
+                    hpoints[ci] = pe; hnormals[ci] = exact_gradient(pe).Normalized;
                 } else {
                     hpoints[ci] = p; hnormals[ci] = gradient(p).Normalized;
                 }
@@ -1309,6 +1338,23 @@ namespace g3
                 for (int k = 0; k < NK; ++k) sample_slab(k);
         }
 
+
+        // halvings of an edge: 2^-60 of its length, below double precision of any point on it
+        const int ExactBisectionSteps = 60;
+        // central-difference step of the exact normal: a power of two (1/32) of the grid edge, so it scales exactly
+        const double ExactGradientStep = 1.0 / 32;
+
+        Vector3d exact_gradient(Vector3d p)
+        {
+            double s = h * ExactGradientStep;
+            Vector3d g = Vector3d.Zero;
+            for (int c = 0; c < 3; ++c) {
+                Vector3d d = Vector3d.Zero; d[c] = s;
+                Vector3d p0 = p + d, p1 = p - d;
+                g[c] = Implicit.Value(ref p0) - Implicit.Value(ref p1);
+            }
+            return g;
+        }
 
         Vector3d gradient(Vector3d p)
         {
