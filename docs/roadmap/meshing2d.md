@@ -161,13 +161,45 @@ Moved from Open; checked against git history and GitHub on 2026-11-12.
   stale, exceeded the cap `64 (limit + slots) + 100000`, which counted dequeues. Fix (coordinator 2026-11-12): the cap counts split
   attempts; every other mesh stays the same bit for bit, the channel gives `Success` with `SteinerLimitReached` (split attempts at most
   13 (limit + slots) over w = 2^-20 .. 2^-39). A test hook (`StallForTests`) shows the cap still stops a livelock.
-  **Measured, not taken: deduplicating `Dirty` in `Collect`** (re-measurement on Herne and the corpus under way, 2026-11-16, see Open) (each rewritten triangle queued once). On the #638 input 611k -> 34k
+  **Measured, not taken: deduplicating `Dirty` in `Collect`** (each rewritten triangle queued once). On the #638 input 611k -> 34k
   dequeues (1.4 s -> 1.0 s; limit 3000 / 6000: 0.95 / 0.90 s -> 0.64 / 0.62 s), at most 8.2 dequeues per (limit + slots) over that
   family. Not taken because it changes the refinement order: the golden rows f-4/a, f-4/b, f-5, f-23/angle-20, f-23/angle-30 and f-34
   change (f-5 1047 -> 1058 vertices, f-4/b 2889 -> 2883; constrained f-4/a 1266 -> 1269, f-4/b 4649 -> 4648), four pinned counts change
   (`RuleC_PinnedCounts` 27 -> 25, `HoleTriangleAcrossTheExemptSubsegment` 285 -> 308, 68 -> 70, 137 -> 141), and the quality bound of
   `Cluster_GradesWithFewerTriangles` is missed (241 triangles, at most 235). Taking it needs a re-recording of the golden rows with a
   reason and a look at the grading bound.
+  **Measured on normal inputs (2026-11-16, master 898bdf7 against the same plus 3c7464c's change in `Collect`, scratch branch, nothing
+  committed; net10.0 Release, 4 cores, three interleaved runs per variant, `mesh --no-oracle` per Herne file, `corpus` and `rows`
+  per process; the Herne tiles and the corpus fetched at run time).** Closed as measured, not taken (owner's rule: at least 10 %
+  faster in total on normal inputs, all verdicts VALID, triangles at most about 1 % more):
+  - Verdicts: all 12 Herne runs (base and cq, q20 and q30, all three tiles) VALID with both variants; every judged corpus and catalogue
+    row `ok` with both (two corpus runs, poly2tri/debug2 M3@20 and M3@30, 309 998 triangles, are above the judge limit with both).
+  - Triangles: Herne 552 128 -> 552 095 (-0.01 %); corpus 1 110 725 -> 1 110 223 (-0.05 %); catalogue rows 679 287 -> 679 423 and
+    constrained rows 598 350 -> 598 498 (+0.02 %). Within +-1 %, but the counts differ on 12 of 12 Herne files, 57 of 252 corpus runs
+    and 27 of 55 catalogue rows: the order changes everywhere, not only on the channel.
+  - Mesher time, sum over the inputs (minimum of three runs; the sum of the three runs in brackets):
+
+    | Set | Master, ms | Dedup, ms | Change |
+    |---|---|---|---|
+    | Herne, 12 runs (q20, q30; base and cq) | 15 843 | 15 461 | -2.4 % (-1.6 %) |
+    | Corpus, 250 runs (84 inputs x M2, M3@20, M3@30, less the two debug2 runs) | 10 099 | 8 343 | -17 % (-4.7 %; sub-100 ms runs, ms rounding and noise: the min-of-three total is not stable) |
+    | Catalogue rows, M3 | 5 350 | 5 168 | -3.4 % |
+    | Catalogue rows, constrained mode | 5 081 | 4 600 | -9.5 % |
+    | All of the above | 36 373 | 33 572 | -7.7 % (-2.9 %) |
+    | Corpus poly2tri/debug2 M3@20 and M3@30 (Steiner limit reached, 309 998 triangles) | 13 222 | 9 004 | -32 % |
+
+    The run-to-run spread of one set is 3-8 % (Herne totals 16.2 / 17.4 / 16.4 s on master), so the totals over the normal inputs are
+    inside the noise; only the stress input debug2 (and the narrow channel of #638) gains clearly. Largest Herne gains are
+    inside the noise too (cq 373600 q30 3321 -> 3042 ms, base 373600 q20 2257 -> 2091 ms), and two Herne runs are slower
+    (base 373600 q30 2908 -> 3096 ms).
+  - Cost: on the dedup branch 66 of 138 selected tests fail: 30 `M3_RecordedRow_IsReproduced` and 31 `M3Constrained_RecordedRow_IsReproduced`
+    golden rows (many more than the six of #688, the golden file has grown since), `RuleC_PinnedCounts` (27 -> 25),
+    `HoleTriangleAcrossTheExemptSubsegment_RevokesIt` (three cases: 285 -> 308, 68 -> 70, 137 -> 141) and `Cluster_GradesWithFewerTriangles` (the
+    bound of 235 is missed again).
+  - Recommendation: **close** (not taken). The gain on normal inputs is -2.9 % to -7.7 % in total (sum of runs, minimum of runs), below the 10 % rule, and not distinguishable from noise on the Herne
+    tiles, against re-recording 61 golden rows and a missed grading bound. A cheaper route for #638-like inputs, if ever needed, is the
+    cap on split attempts that is already in (#688); the dedup could be revisited only together with a change that re-records the
+    golden rows anyway.
 
 - **Drift promise on the snap grid (owner 2026-11-10, option A): done.** The QA 2.0 T5 campaign found chains at sub-pixel
   wedges up to 1.6 px from the input (p99.9 0.707 px over ~85 000 sources), caused by Q17, against the promise of half a pixel.
@@ -402,10 +434,7 @@ else waits for a concrete use case or is closed with its measurement.
 1. Fast-oracle leftovers: 373600 q30 Delaunay remainder, corpus segments and conformity (no issue; parked while they do
    not run in PR CI; if they make PR CI noticeably slower, they become a CI item).
 2. Blocked on inputs: stmlf (no issue).
-3. `Dirty` deduplication in `Collect` (measured in #688 on one input): a measurement on Herne and the corpus is under way
-   (owner 2026-11-16). Taken only if the mesher gets >= 10 % faster in total, all verdicts stay VALID and triangle counts
-   grow by at most about 1 % (then the golden rows are re-recorded and the grading bound changes as an intended output
-   change); otherwise closed as measured and not taken.
+3. ~~`Dirty` deduplication in `Collect`~~ closed as measured and not taken (2026-11-16, the item under #638 above: -2.9 % to -7.7 % in total on normal inputs, below the 10 % rule; 61 golden rows and the grading bound change).
 4. Fuzz group (f) slow units: 14 quality-mesh2 / clipper2 inputs take 6.3-16.8 s (#947, session under way).
 5. Research, parked until a concrete use case: Shewchuk's Terminator with a region-based oracle excuse (until a real
    input fails the current small-angle rule); matched shells (the constrained quality mode is the answer); grading
