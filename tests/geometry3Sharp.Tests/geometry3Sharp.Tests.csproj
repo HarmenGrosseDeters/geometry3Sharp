@@ -97,6 +97,8 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0' And '$(UseNuGetG3)' != 'true'">
     <Compile Include="..\..\benchmarks\TerrainBenchmark\ClosestFields.cs" Link="TerrainMetrics\ClosestFields.cs" />
+    <!-- the evaluation of a UV atlas (UVAtlasBenchmark evaluate mode, the same code for every atlas tool) -->
+    <Compile Include="..\..\benchmarks\Shared\UvEvaluation.cs" Link="UvEvaluation\UvEvaluation.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net10.0' Or '$(UseNuGetG3)' == 'true'">
     <Compile Remove="TerrainDistanceMetricTests.cs" />

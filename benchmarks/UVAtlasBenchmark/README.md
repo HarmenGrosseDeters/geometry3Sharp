@@ -40,6 +40,29 @@ its UV triangles. They also carry `atlas_topo`, the topology of the atlas mesh (
 chart should be a disc (genus 0, one boundary loop). `analyze.py` shows the 1 %-worst min angle in 3D and in UV and
 counts meshes with charts that are not discs. The tables below are from before these columns.
 
+## Comparison with xatlas
+
+`compare.py` runs `UVAtlasGenerator` (`atlas` mode: Method = Auto, defaults) and [xatlas](https://github.com/jpcy/xatlas)
+(MIT, default options) on the same 250 meshes. Both atlases are evaluated by the same code, the `evaluate` mode
+(`benchmarks/Shared/UvEvaluation.cs`): exact overlaps and flipped UV triangles, charts and discs, mean and max conformal
+and area distortion, seam length / sqrt(area), coverage of the unit square, the gap between charts on a 1024 px raster
+(capped at 8 px; 0 = shared pixel, 1 = touching), the spread of the texel density across charts, and the time.
+`analyze.py` gives the table per category and the Pareto view: a mesh where one tool is at least as good on seam length,
+mean conformal, mean area distortion and coverage, and better on one of them, is dominated by that tool.
+
+```
+python3 compare.py --dll <UVAtlasBenchmark.dll> --xatlas <xatlas_driver> --selection data/selection.csv \
+    --meshes data/meshes --work <scratch dir> --out results    # results/ours.jsonl, results/xatlas.jsonl
+python3 analyze.py --compare --ours results/ours.jsonl --xatlas results/xatlas.jsonl --selection data/selection.csv
+```
+
+xatlas is a black box: `.github/workflows/uvatlas-compare.yml` (workflow_dispatch only) clones it at a pinned commit and
+builds `xatlas/xatlas_driver.cpp` on the runner, which calls the public API with default options and writes the atlas in
+the layout of `UvEvaluation`. The xatlas source is not in this repository. Its UVs are divided by the atlas width and
+height (per axis, as a texture is addressed). The job publishes the analysis in its summary and as an artifact with the
+metrics only; the meshes and atlases stay on the runner. The evaluation has tests on procedural meshes
+(`tests/geometry3Sharp.Tests/UVAtlasEvaluationTests.cs`).
+
 ## Results
 
 Main set: master fcf8da7 plus the exact check of the packed charts (`UVPacker`, commit 5fe85a5, see below); large set: master

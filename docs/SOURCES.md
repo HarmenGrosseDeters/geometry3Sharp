@@ -315,6 +315,12 @@ source. CGAL's `Surface_mesh_parameterization` / seam code (GPL) was not used.
 | Charts for an atlas, flattened conformally; splitting charts while the distortion is too high | B. Lévy, S. Petitjean, N. Ray, J. Maillot, *Least Squares Conformal Maps for Automatic Texture Atlas Generation*, ACM TOG (SIGGRAPH) 2002; K. Zhou, J. Snyder, B. Guo, H.-Y. Shum, *Iso-charts: Stretch-driven Mesh Parameterization using Spectral Analysis*, SGP 2004 |
 | Exact overlap test of UV triangles: separating axis among the six edge lines, exact orientation predicate | separating axis theorem for convex polygons (eg C. Ericson, *Real-Time Collision Detection*, 2005); J. R. Shewchuk 1997 (predicates, see above) |
 
+Comparison tool only (not in the library, no code taken over): xatlas (github.com/jpcy/xatlas, MIT) is run as a black box
+on the GitHub-hosted runner by `benchmarks/UVAtlasBenchmark` (workflow `uvatlas-compare`, pinned commit
+`f700c7790aaa030e794b52ba7791a05c085faf0c`). Only its public API is called, from `benchmarks/UVAtlasBenchmark/xatlas/xatlas_driver.cpp`
+(our code). Its source is neither read into this repository nor ported; the atlases it writes are evaluated by our code
+(`benchmarks/Shared/UvEvaluation.cs`) like our own.
+
 ## Sparse Cholesky (`SparseCholesky`)
 
 Implemented from the papers and textbooks, no code taken over (not from CHOLMOD or CSparse, which are LGPL/GPL, nor from the BSD-licensed SuiteSparse AMD).
