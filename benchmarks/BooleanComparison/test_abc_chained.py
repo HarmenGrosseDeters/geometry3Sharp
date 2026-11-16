@@ -265,6 +265,36 @@ class WeldTests(unittest.TestCase):
         self.assertEqual(v[1], (1.0, 0.0, 0.0))                          # the first vertex of the cell
         self.assertEqual(t, [(0, 1, 2), (0, 1, 2)])
 
+    def test_tolerance_weld_meets_across_a_cell_boundary(self):
+        # 0.0 and -1e-17 are on both sides of a grid line at 0: a grid hash alone would keep them apart
+        v, t = ac.weld([(0.0, 0.0, 0.0), (-1e-17, 0.0, 0.0), (1.0, 1.0, 1.0)], [(0, 1, 2)], 1e-9)
+        self.assertEqual(len(v), 2)
+        self.assertEqual(t, [(0, 0, 1)])
+
+    def test_tolerance_weld_is_not_transitive_and_moves_by_at_most_the_tolerance(self):
+        diag = (1.0 + 1.0 + 1.0) ** 0.5
+        tol = 1e-3
+        step = 0.8 * tol * diag
+        verts = [(0.0, 0.0, 0.0), (step, 0.0, 0.0), (2 * step, 0.0, 0.0), (1.0, 1.0, 1.0)]
+        v, t = ac.weld(verts, [(0, 1, 2), (1, 2, 3)], tol)
+        self.assertEqual(len(v), 3)                                  # the first two meet, the third is 1.6 steps from the first: its own vertex
+        self.assertEqual(t[0], (0, 0, 1))
+        for orig, new in zip(verts, [v[0], v[0], v[1], v[2]]):
+            self.assertLessEqual(sum((a - b) ** 2 for a, b in zip(orig, new)) ** 0.5, tol * diag * (1 + 1e-12))
+
+    def test_read_obj_reads_comments_tabs_colours_and_crlf_and_rejects_bad_indices(self):
+        with tempfile.TemporaryDirectory() as d:
+            ok = os.path.join(d, "ok.obj")
+            open(ok, "w", newline="").write("v\t0 0 0 1 0 0 # colour\r\nv 1 0 0\r\nv 1 1 0\r\ng part\r\nusemtl m\r\nl 1 2\r\nf\t1 2 3 # c\r\n")
+            v, t = ac.read_obj(ok)
+            self.assertEqual((len(v), t), (3, [(0, 1, 2)]))
+            for name, text in {"zero": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 0 1 2\n", "range": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 99\n",
+                               "negative": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf -9 1 2\n", "short": "v 1 2\n", "text": "v 0 0 0\nv 1 0 0\nv 1 1 0\nf 1 2 x\n"}.items():
+                path = os.path.join(d, name + ".obj")
+                open(path, "w").write(text)
+                with self.assertRaises(ValueError, msg=name):
+                    ac.read_obj(path)
+
     def test_collapsed_triangles_are_kept_for_the_filter_to_report(self):
         v, t = ac.weld([(0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [(0, 1, 2)], 0.0)
         self.assertEqual(t, [(0, 0, 1)])
@@ -310,6 +340,77 @@ class PrepareEndToEndTests(unittest.TestCase):
         try:
             self.assertEqual((tol, n), (1e-9, 1))                     # exact: not closed (the duplicates stay apart); 1e-9 of the diagonal: closed
             self.assertIn("cube,12", open(os.path.join(d, "clean.csv.clean")).read())
+        finally:
+            shutil.rmtree(d)
+
+    def test_the_first_tolerance_with_enough_models_stops_the_search_and_leaves_no_temporary_files(self):
+        d, (tol, n) = self.prepare(0.0, tolerances=[0.0, 1e-9, 1e-7])
+        try:
+            self.assertEqual(tol, 0.0)
+            self.assertEqual(sorted(os.listdir(d)), ["clean.csv", "clean.csv.clean", "meshes", "unreadable.txt", "weld_tol.txt"])   # no clean.csv.1e-09, no welded_*
+        finally:
+            shutil.rmtree(d)
+        d, (tol, n) = self.prepare(1e-12, tolerances=[0.0, 1e-9, 1e-7])
+        try:
+            self.assertEqual(tol, 1e-9)
+            self.assertEqual(sorted(os.listdir(d)), ["clean.csv", "clean.csv.clean", "meshes", "unreadable.txt", "weld_tol.txt"])   # out.0 and welded_0 are gone too
+        finally:
+            shutil.rmtree(d)
+
+    def test_without_enough_clean_models_the_tolerance_with_the_most_is_used(self):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-12)       # closes at 1e-9 and above
+            unwelded_cube_obj(os.path.join(d, "meshes", "b.obj"), jitter=0.0)         # closes at every tolerance
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [0.0, 1e-9], min_clean=3)     # 3 never reached
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual((tol, n), (1e-9, 2))                       # 1 at the exact weld, 2 at 1e-9
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "meshes"))), ["a.off", "b.off"])
+        finally:
+            shutil.rmtree(d)
+
+    def test_the_best_tolerance_is_kept_even_if_a_later_one_is_worse(self):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            unwelded_cube_obj(os.path.join(d, "meshes", "a.obj"), jitter=1e-12)
+            unwelded_cube_obj(os.path.join(d, "meshes", "b.obj"), jitter=0.0)
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), [1e-9, 0.0], min_clean=3)    # 2 clean at 1e-9, then only 1 at the exact weld
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual((tol, n), (1e-9, 2))
+            self.assertEqual(sorted(os.listdir(os.path.join(d, "meshes"))), ["a.off", "b.off"])
+        finally:
+            shutil.rmtree(d)
+
+    def test_an_unreadable_file_is_skipped_and_listed_and_no_obj_is_an_error(self):
+        d = tempfile.mkdtemp(prefix="abc_prepare_test_")
+        try:
+            os.makedirs(os.path.join(d, "meshes"))
+            unwelded_cube_obj(os.path.join(d, "meshes", "good.obj"))
+            open(os.path.join(d, "meshes", "bad.obj"), "w").write("v 0 0 0\nf 1 2 3\n")
+            old = ac.CLEAN_TRIS
+            ac.CLEAN_TRIS = (1, 100)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tol, n = ac.cmd_prepare(d, os.path.join(d, "clean.csv"), min_clean=1)
+            finally:
+                ac.CLEAN_TRIS = old
+            self.assertEqual(n, 1)
+            self.assertIn("bad:", open(os.path.join(d, "unreadable.txt")).read())
+            self.assertEqual(os.listdir(os.path.join(d, "meshes")), ["good.off"])
+            with self.assertRaises(SystemExit):                          # a second run: the obj files are gone
+                ac.cmd_prepare(d, os.path.join(d, "clean2.csv"), min_clean=1)
         finally:
             shutil.rmtree(d)
 

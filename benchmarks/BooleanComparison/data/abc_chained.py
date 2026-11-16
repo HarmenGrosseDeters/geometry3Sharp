@@ -89,45 +89,68 @@ def cmd_filter(meshes_dir, out):
 
 # --- prepare: the obj files of the ABC dataset are tessellated per face of the CAD model, so adjacent faces have their own copies of the
 # vertices on a shared edge: read as they are, no mesh is closed. The vertices are welded by position (exactly equal doubles first; a tolerance
-# only if that leaves too few clean models) before the filter; a tolerance weld moves a vertex by less than tol x the bounding box diagonal.
+# only if that leaves too few clean models) before the filter; a tolerance weld moves a vertex by at most tol x the bounding box diagonal.
 
 WELD_TOLERANCES = [0.0, 1e-9, 1e-7, 1e-5]       # relative to the bounding box diagonal; the first one with enough clean models is used
 MIN_CLEAN = 40
 
 def read_obj(path):
-    """(vertices, triangles) of an obj file: 'v' and 'f' lines only (normals, texture coordinates and groups are ignored); polygons are fans"""
+    """(vertices, triangles) of an obj file: 'v' and 'f' lines only (normals, texture coordinates, groups, colours after the coordinates and
+    trailing comments are ignored); polygons are fans. ValueError on a line that cannot be read or an index outside the vertices that exist so far."""
     verts, tris = [], []
-    with open(path) as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            if line.startswith("v "):
-                x, y, z = line.split()[1:4]
-                verts.append((float(x), float(y), float(z)))
-            elif line.startswith("f "):
+            tok = line.split("#")[0].split()
+            if not tok:
+                continue
+            if tok[0] == "v":
+                if len(tok) < 4:
+                    raise ValueError(f"vertex line with {len(tok) - 1} coordinates")
+                verts.append((float(tok[1]), float(tok[2]), float(tok[3])))
+            elif tok[0] == "f":
                 idx = []
-                for tok in line.split()[1:]:
-                    i = int(tok.split("/")[0])
+                for t in tok[1:]:
+                    i = int(t.split("/")[0])
+                    if i == 0 or not -len(verts) <= i <= len(verts):
+                        raise ValueError(f"face index {i} with {len(verts)} vertices")
                     idx.append(i - 1 if i > 0 else len(verts) + i)
                 for k in range(1, len(idx) - 1):
                     tris.append((idx[0], idx[k], idx[k + 1]))
     return verts, tris
 
 def weld(verts, tris, tol):
-    """vertices with the same position (tol 0: bit-equal doubles; else the same cell of a grid of tol x bounding box diagonal) become one;
-    the representative is the first one seen, triangles are kept (also the ones that collapse: the filter reports them)"""
+    """vertices at the same position become one. tol 0: bit-equal doubles. tol > 0: a vertex joins the first earlier representative within
+    distance h = tol x bounding box diagonal (looked up in the 27 cells of a grid of h around it, so that vertices on both sides of a cell
+    boundary meet); otherwise it is a representative itself. A vertex moves by at most h (to the first vertex seen, order dependent; a chain of
+    close vertices is not merged transitively). Triangles are kept, also the ones that collapse: the filter reports them."""
+    out, remap = [], []
     if tol > 0 and verts:
         lo = [min(v[k] for v in verts) for k in range(3)]
         hi = [max(v[k] for v in verts) for k in range(3)]
         h = tol * max(sum((hi[k] - lo[k]) ** 2 for k in range(3)) ** 0.5, 1e-300)
-        key = lambda v: (math.floor(v[0] / h), math.floor(v[1] / h), math.floor(v[2] / h))
+        cells = {}
+        for v in verts:
+            c = (math.floor(v[0] / h), math.floor(v[1] / h), math.floor(v[2] / h))
+            found = None
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        for r in cells.get((c[0] + dx, c[1] + dy, c[2] + dz), ()):
+                            w = out[r]
+                            if (v[0] - w[0]) ** 2 + (v[1] - w[1]) ** 2 + (v[2] - w[2]) ** 2 <= h * h and (found is None or r < found):
+                                found = r
+            if found is None:
+                found = len(out)
+                out.append(v)
+                cells.setdefault(c, []).append(found)
+            remap.append(found)
     else:
-        key = lambda v: v
-    ids, out, remap = {}, [], []
-    for v in verts:
-        k = key(v)
-        if k not in ids:
-            ids[k] = len(out)
-            out.append(v)
-        remap.append(ids[k])
+        ids = {}
+        for v in verts:
+            if v not in ids:
+                ids[v] = len(out)
+                out.append(v)
+            remap.append(ids[v])
     return out, [(remap[a], remap[b], remap[c]) for a, b, c in tris]
 
 def write_off(path, verts, tris):
@@ -138,17 +161,28 @@ def write_off(path, verts, tris):
 
 def cmd_prepare(d, out, tolerances=None, min_clean=MIN_CLEAN):
     """welds and filters <d>/meshes/*.obj with the first tolerance that gives at least min_clean clean models in the triangle range (else the
-    one with the most); leaves the welded meshes as <d>/meshes/<id>.off (the obj files are removed), <out>(.clean) and <d>/weld_tol.txt"""
+    one with the most, the earlier on a tie); leaves the welded meshes as <d>/meshes/<id>.off (the obj files are removed), <out>(.clean) and
+    <d>/weld_tol.txt. An obj file that cannot be read is skipped and listed in <d>/unreadable.txt (the rest goes on). The files are read
+    again for every tolerance (a mesh of 3 MB takes about 10 MB as Python tuples, 400 of them would be 4 GB)."""
     tolerances = WELD_TOLERANCES if tolerances is None else tolerances
     mdir = os.path.join(d, "meshes")
-    parsed = {os.path.basename(f).split(".")[0]: read_obj(os.path.join(mdir, f)) for f in sorted(os.listdir(mdir)) if f.endswith(".obj")}
+    objs = sorted(f for f in os.listdir(mdir) if f.endswith(".obj"))
+    if not objs:
+        raise SystemExit(f"no obj files in {mdir}")
+    unreadable = {}
     best = None
     for tol in tolerances:
         tdir = os.path.join(d, f"welded_{tol:g}")
         os.makedirs(tdir, exist_ok=True)
-        for k, (v, t) in parsed.items():
-            write_off(os.path.join(tdir, k + ".off"), *weld(v, t, tol))
-        print(f"weld tolerance {tol:g} (x bounding box diagonal):", flush=True)
+        for f in objs:
+            k = f[:-4]
+            if k in unreadable:
+                continue
+            try:
+                write_off(os.path.join(tdir, k + ".off"), *weld(*read_obj(os.path.join(mdir, f)), tol))
+            except (ValueError, IndexError) as ex:
+                unreadable[k] = str(ex)
+        print(f"weld tolerance {tol:g} (x bounding box diagonal), {len(unreadable)} unreadable files:", flush=True)
         reasons, clean = cmd_filter(tdir, f"{out}.{tol:g}")
         n = sum(1 for _, t in clean if CLEAN_TRIS[0] <= t <= CLEAN_TRIS[1])
         print(f"  {n} clean models with {CLEAN_TRIS[0]}-{CLEAN_TRIS[1]} triangles", flush=True)
@@ -157,6 +191,9 @@ def cmd_prepare(d, out, tolerances=None, min_clean=MIN_CLEAN):
         if n >= min_clean:
             best = (tol, n)
             break
+        for t in tolerances:                                  # the disk: keep only the welded meshes of the best tolerance so far
+            if t != best[0]:
+                shutil.rmtree(os.path.join(d, f"welded_{t:g}"), ignore_errors=True)
     tol, n = best
     for f in os.listdir(mdir):
         os.remove(os.path.join(mdir, f))
@@ -164,15 +201,17 @@ def cmd_prepare(d, out, tolerances=None, min_clean=MIN_CLEAN):
         shutil.move(os.path.join(d, f"welded_{tol:g}", f), os.path.join(mdir, f))
     for t in tolerances:
         shutil.rmtree(os.path.join(d, f"welded_{t:g}"), ignore_errors=True)
-        if t != tol and os.path.exists(f"{out}.{t:g}"):
-            os.remove(f"{out}.{t:g}")
-            if os.path.exists(f"{out}.{t:g}.clean"):
-                os.remove(f"{out}.{t:g}.clean")
+        if t != tol:
+            for suffix in ("", ".clean"):
+                if os.path.exists(f"{out}.{t:g}{suffix}"):
+                    os.remove(f"{out}.{t:g}{suffix}")
     shutil.move(f"{out}.{tol:g}", out)
     shutil.move(f"{out}.{tol:g}.clean", out + ".clean")
     with open(os.path.join(d, "weld_tol.txt"), "w") as f:
         f.write(f"{tol:g}\n")
-    print(f"weld tolerance used: {tol:g}, {n} clean models in range", flush=True)
+    with open(os.path.join(d, "unreadable.txt"), "w") as f:
+        f.write("".join(f"{k}: {v}\n" for k, v in sorted(unreadable.items())))
+    print(f"weld tolerance used: {tol:g}, {n} clean models in range, {len(unreadable)} unreadable files", flush=True)
     return tol, n
 
 def read_clean(path):
