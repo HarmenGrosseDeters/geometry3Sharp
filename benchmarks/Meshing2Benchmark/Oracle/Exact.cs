@@ -28,16 +28,42 @@ namespace Meshing2Acceptance
 
         /// <summary>The exact value of a finite double, from its bits. Throws on NaN and infinities.</summary>
         /// <summary> an interval of doubles around n / d (d > 0): the conversions and the division round by at most a few units in
-        /// the last place, the interval is wider by far; false if a part overflows a double </summary>
+        /// the last place, the interval is wider by far; false if the quotient overflows a double. A quotient whose parts overflow a
+        /// double (a tube squared of 1000 bits and more) can still be a double: it is taken from the leading bits of both and the
+        /// exponent difference (#947; before, the filters were off there and every test ran in BigInteger) </summary>
         public static bool Bounds(BigInteger n, BigInteger d, out double lo, out double hi)
         {
             double dn = (double)n, dd = (double)d;
             lo = hi = 0;
-            if (double.IsInfinity(dn) || double.IsInfinity(dd) || !(dd > 0)) return false;
-            double v = dn / dd, pad = Math.Abs(v) * 1e-13 + 1e-300;
+            if (d.Sign <= 0) return false;
+            double v = double.IsInfinity(dn) || double.IsInfinity(dd) ? Quotient(n, d) : dn / dd, pad;
             if (double.IsInfinity(v) || double.IsNaN(v)) return false;
+            pad = Math.Abs(v) * 1e-13 + 1e-300;
             lo = v - pad; hi = v + pad;
             return true;
+        }
+
+        /// <summary> n / d (d > 0) as a double to a few units in the last place (the leading 62 bits of both, scaled by the difference of
+        /// the shifts, in steps that cannot overflow); infinity when the quotient is too large for a double, 0 when it is too small </summary>
+        static double Quotient(BigInteger n, BigInteger d)
+        {
+            int sn = Math.Max(0, BitLength(n) - 62), sd = Math.Max(0, BitLength(d) - 62);
+            double r = (double)(n >> sn) / (double)(d >> sd);   // (an arithmetic shift of a negative n rounds toward minus infinity: within the error)
+            int k = sn - sd;
+            while (k > 0 && !double.IsInfinity(r) && r != 0) { int step = Math.Min(k, 1000); r *= Math.Pow(2, step); k -= step; }
+            while (k < 0 && r != 0) { int step = Math.Min(-k, 1000); r *= Math.Pow(2, -step); k += step; }
+            return r;
+        }
+
+        /// <summary> the number of bits of |x| </summary>
+        static int BitLength(BigInteger x)
+        {
+            byte[] bytes = BigInteger.Abs(x).ToByteArray();
+            int last = bytes.Length - 1;
+            while (last > 0 && bytes[last] == 0) --last;
+            int top = bytes[last], bits = 0;
+            while (top != 0) { ++bits; top >>= 1; }
+            return last * 8 + bits;
         }
 
         public bool Bounds(out double lo, out double hi) => Bounds(N, D, out lo, out hi);
