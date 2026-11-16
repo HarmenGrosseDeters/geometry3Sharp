@@ -58,32 +58,37 @@ jobs:
 
       - name: Build xatlas (black box, pinned commit) and the driver
         id: xatlas
+        env:
+          XATLAS_REF: ${{ inputs.xatlas_ref }}
         run: |
           git clone -q https://github.com/jpcy/xatlas.git "$RUNNER_TEMP/xatlas"
-          git -C "$RUNNER_TEMP/xatlas" checkout -q "${{ inputs.xatlas_ref }}"
+          git -C "$RUNNER_TEMP/xatlas" checkout -q "$XATLAS_REF"
           echo "commit=$(git -C "$RUNNER_TEMP/xatlas" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           SRC=$(find "$RUNNER_TEMP/xatlas" -name xatlas.cpp -not -path '*/example*' | head -n 1)
           test -n "$SRC"
           g++ -std=c++17 -O2 -pthread -I "$(dirname "$SRC")" \
             benchmarks/UVAtlasBenchmark/xatlas/xatlas_driver.cpp "$SRC" -o "$RUNNER_TEMP/xatlas_driver"
-          "$RUNNER_TEMP/xatlas_driver" 2>&1 | head -n 1 || true
 
       - name: Run both tools on every mesh and evaluate both outputs
         working-directory: benchmarks/UVAtlasBenchmark
+        env:
+          JOBS: ${{ inputs.jobs }}
         run: |
           python3 compare.py \
             --dll "$GITHUB_WORKSPACE/benchmarks/UVAtlasBenchmark/bin/Release/net10.0/UVAtlasBenchmark.dll" \
             --xatlas "$RUNNER_TEMP/xatlas_driver" \
             --selection data/selection.csv --meshes data/meshes \
             --work "$RUNNER_TEMP/uvcompare" --out results \
-            --jobs "${{ inputs.jobs }}" --timeout 300
+            --jobs "$JOBS" --timeout 300
 
       - name: Analyse
         working-directory: benchmarks/UVAtlasBenchmark
+        env:
+          XATLAS_COMMIT: ${{ steps.xatlas.outputs.commit }}
         run: |
           python3 analyze.py --compare --ours results/ours.jsonl --xatlas results/xatlas.jsonl \
             --selection data/selection.csv | tee results/analysis.md
-          { echo "xatlas commit: ${{ steps.xatlas.outputs.commit }}"; echo; cat results/analysis.md; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "xatlas commit: $XATLAS_COMMIT"; echo; cat results/analysis.md; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the metrics (JSON lines and analysis, no meshes)
         uses: actions/upload-artifact@v4

@@ -18,9 +18,11 @@ using gs;
 /// boundary is a seam in the atlas, whatever the tool.
 ///
 /// Metrics: exact overlaps and flipped triangles (UVOverlap), distortion (ParameterizationDistortion, area weighted
-/// means), charts and discs (MeshTopologySummary), seam length (input edges between two charts, relative to
-/// sqrt(area)), coverage of the unit square and the gap between charts on a RasterSize raster (pixel centres), and
-/// the spread of the texel density across charts.
+/// means), charts and discs (MeshTopologySummary), seam length / sqrt(area), coverage of the unit square and the gap
+/// between charts on a RasterSize raster (pixel centres), and the spread of the texel density across charts.
+/// Seam: an input edge along which the atlas is cut (its two faces meet at different atlas vertices), so a cut inside
+/// one chart counts. Gap: Chebyshev distance in pixels between the nearest pixels of two charts: 1 = touching, 0 = a
+/// pixel inside two charts, GapCap + 1 = no two charts closer than GapCap pixels.
 /// </summary>
 public static class UvEvaluation
 {
@@ -56,7 +58,7 @@ public static class UvEvaluation
         var uv = new List<Vector2d>();
         foreach (int v in am.VertexIndices()) {
             index[v] = mesh.AppendVertex(am.GetVertex(v));
-            uv.Add(gen.UV[v]);
+            uv.Add(new Vector2d((float)gen.UV[v].x, (float)gen.UV[v].y));   // stored precision: float
         }
         foreach (int t in input.TriangleIndices()) {
             if (!atlasOf.TryGetValue(t, out int at)) continue;
@@ -103,7 +105,7 @@ public static class UvEvaluation
             foreach (Vector3d p in positions)
                 w.WriteLine("v " + p.x.ToString("R", ci) + " " + p.y.ToString("R", ci) + " " + p.z.ToString("R", ci));
             foreach (Vector2d q in uv)
-                w.WriteLine("vt " + q.x.ToString("R", ci) + " " + q.y.ToString("R", ci));
+                w.WriteLine("vt " + ((float)q.x).ToString("R", ci) + " " + ((float)q.y).ToString("R", ci));
             foreach (int t in m.TriangleIndices()) {
                 Index3i f = m.GetTriangle(t);
                 int a = index[f.a] + 1, b = index[f.b] + 1, c = index[f.c] + 1;
@@ -131,7 +133,7 @@ public static class UvEvaluation
             } else if (line.StartsWith("vt ", StringComparison.Ordinal)) {
                 string[] s = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (s.Length < 3) throw new FormatException("texture coordinate with fewer than 2 values");
-                vt.Add(new Vector2d(Num(s[1], ci), Num(s[2], ci)));
+                vt.Add(new Vector2d((float)Num(s[1], ci), (float)Num(s[2], ci)));   // float, as stored
             } else if (line.StartsWith("f ", StringComparison.Ordinal)) {
                 string[] s = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (s.Length < 4) throw new FormatException("face with fewer than 3 corners");
@@ -187,12 +189,18 @@ public static class UvEvaluation
 
         // face i of the atlas must be input triangle i (same corners in 3D)
         Vector3d lo = new Vector3d(double.MaxValue, double.MaxValue, double.MaxValue), hi = -lo;
-        foreach (int v in input.VertexIndices()) {
-            Vector3d p = input.GetVertex(v);
-            lo = new Vector3d(Math.Min(lo.x, p.x), Math.Min(lo.y, p.y), Math.Min(lo.z, p.z));
-            hi = new Vector3d(Math.Max(hi.x, p.x), Math.Max(hi.y, p.y), Math.Max(hi.z, p.z));
+        double maxAbs = 0;
+        foreach (int t in inTids) {
+            Index3i f = input.GetTriangle(t);
+            foreach (int v in new[] { f.a, f.b, f.c }) {
+                Vector3d p = input.GetVertex(v);
+                lo = new Vector3d(Math.Min(lo.x, p.x), Math.Min(lo.y, p.y), Math.Min(lo.z, p.z));
+                hi = new Vector3d(Math.Max(hi.x, p.x), Math.Max(hi.y, p.y), Math.Max(hi.z, p.z));
+                maxAbs = Math.Max(maxAbs, Math.Max(Math.Abs(p.x), Math.Max(Math.Abs(p.y), Math.Abs(p.z))));
+            }
         }
-        double tol = input.VertexCount > 0 ? CorrespondenceTolerance * lo.Distance(hi) : 0;
+        // the positions of an atlas are stored in float by xatlas: a rounding of about 6e-8 times the magnitude
+        double tol = inTids.Length > 0 ? CorrespondenceTolerance * lo.Distance(hi) + 1e-6 * maxAbs : 0;
         int mismatched = 0;
         for (int i = 0; i < inTids.Length; ++i) {
             Index3i ti = input.GetTriangle(inTids[i]);
@@ -205,6 +213,15 @@ public static class UvEvaluation
             r["status"] = "correspondence_mismatch";
             r["mismatched_faces"] = mismatched;
             return r;
+        }
+
+        // the UVs are in the unit square; a chart outside it would be invisible to the raster, coverage and gap
+        foreach (int v in m.VertexIndices()) {
+            Vector2d q = atlas.UV[v];
+            if (!(q.x >= -1e-9 && q.x <= 1 + 1e-9 && q.y >= -1e-9 && q.y <= 1 + 1e-9)) {
+                r["status"] = "uv_out_of_range";
+                return r;
+            }
         }
 
         // exact overlaps and flipped triangles, and the distortion of the atlas
@@ -240,15 +257,29 @@ public static class UvEvaluation
         r["components"] = topo.ComponentList.Count;
         r["discs"] = topo.ComponentList.Count(c => c.BoundaryLoops == 1 && c.EulerCharacteristic == 1);
 
-        // seam length: input edges whose two faces are in different charts, relative to sqrt(area)
-        int[] chartOfInput = new int[input.MaxTriangleID];
-        for (int i = 0; i < inTids.Length; ++i) chartOfInput[inTids[i]] = chart[i];
+        // the atlas vertex of each input corner: (face i, input vertex) -> atlas vertex, by the corner matching above
+        var atlasVertexOf = new Dictionary<long, int>();
+        int[] faceOfInput = new int[input.MaxTriangleID];
+        for (int i = 0; i < inTids.Length; ++i) {
+            faceOfInput[inTids[i]] = i;
+            Index3i ti = input.GetTriangle(inTids[i]);
+            Index3i to = m.GetTriangle(i);
+            foreach (int iv in new[] { ti.a, ti.b, ti.c }) {
+                Vector3d p = input.GetVertex(iv);
+                foreach (int av in new[] { to.a, to.b, to.c })
+                    if (m.GetVertex(av).Distance(p) <= tol) { atlasVertexOf[(long)i * input.MaxVertexID + iv] = av; break; }
+            }
+        }
+        // a seam: an input edge along which the atlas is cut, ie its two faces meet at different atlas vertices
         double area = 0, seam = 0;
         foreach (int t in inTids) area += input.GetTriArea(t);
         foreach (int e in input.EdgeIndices()) {
             Index2i et = input.GetEdgeT(e);
-            if (et.a < 0 || et.b < 0 || chartOfInput[et.a] == chartOfInput[et.b]) continue;
+            if (et.a < 0 || et.b < 0) continue;
             Index2i ev = input.GetEdgeV(e);
+            long fa = (long)faceOfInput[et.a] * input.MaxVertexID, fb = (long)faceOfInput[et.b] * input.MaxVertexID;
+            bool cut = atlasVertexOf[fa + ev.a] != atlasVertexOf[fb + ev.a] || atlasVertexOf[fa + ev.b] != atlasVertexOf[fb + ev.b];
+            if (!cut) continue;
             seam += input.GetVertex(ev.a).Distance(input.GetVertex(ev.b));
         }
         r["area"] = area;

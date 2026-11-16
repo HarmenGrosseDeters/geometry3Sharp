@@ -47,6 +47,10 @@ counts meshes with charts that are not discs. The tables below are from before t
 (`benchmarks/Shared/UvEvaluation.cs`): exact overlaps and flipped UV triangles, charts and discs, mean and max conformal
 and area distortion, seam length / sqrt(area), coverage of the unit square, the gap between charts on a 1024 px raster
 (capped at 8 px; 0 = shared pixel, 1 = touching), the spread of the texel density across charts, and the time.
+Definitions: the seam is an input edge along which the atlas is cut (its two faces meet at different atlas vertices, so a
+cut inside one chart counts); the gap is the Chebyshev distance in pixels between the nearest pixels of two charts (1 =
+touching, 0 = a pixel inside two charts, 9 = no two charts closer than 8 pixels); UVs are stored in float by both tools,
+and an atlas with a UV outside the unit square is reported as `uv_out_of_range`.
 `analyze.py` gives the table per category and the Pareto view: a mesh where one tool is at least as good on seam length,
 mean conformal, mean area distortion and coverage, and better on one of them, is dominated by that tool.
 

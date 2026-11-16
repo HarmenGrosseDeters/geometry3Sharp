@@ -51,7 +51,8 @@ namespace geometry3Sharp.Tests
                 if (k == overlapWith) o = origin(0);
                 for (int i = 0; i < 4; ++i) {
                     atlas.AppendVertex(input.GetVertex(q[i]));
-                    uv.Add(o + s * pattern[i]);
+                    Vector2d uvc = o + s * pattern[i];
+                    uv.Add(new Vector2d((float)uvc.x, (float)uvc.y));   // stored precision: float, as in the files
                 }
                 if (dropLastFace && k == 5) continue;
                 atlas.AppendTriangle(b, b + 1, b + 2);
@@ -88,9 +89,9 @@ namespace geometry3Sharp.Tests
             Assert.Equal(12 / Math.Sqrt(6), Num(r, "seam_rel"), 12);
             Assert.Equal(12.0, Num(r, "seam_length"), 12);
             // a square of side 0.25 is a similarity of the face: conformal 1, area distortion 0, equal density
-            Assert.Equal(1.0, Num(r, "mean_conformal"), 9);
-            Assert.Equal(0.0, Num(r, "mean_area"), 9);
-            Assert.Equal(0.0, Num(r, "density_logstd"), 9);
+            Assert.Equal(1.0, Num(r, "mean_conformal"), 6);
+            Assert.Equal(0.0, Num(r, "mean_area"), 6);
+            Assert.Equal(0.0, Num(r, "density_logstd"), 6);
             // six squares of area 0.0625 on the raster (pixel centres): about 0.375
             Assert.InRange(Num(r, "coverage"), 0.36, 0.39);
             // the squares are 51 pixels apart, more than the gap cap: reported as the cap + 1
@@ -231,12 +232,78 @@ namespace geometry3Sharp.Tests
                     continue;
                 }
                 double x = Convert.ToDouble(reference[key]), y = Convert.ToDouble(r[key]);
-                // a power of two scale and no rotation or translation keeps every value bit for bit; the others
-                // only up to the rounding of the 3D positions: the UTM-like offsets of the similarities lose about
-                // 1e-7 relative in ParameterizationDistortion's frames (mean conformal at a scale of 1e-3)
-                if (s.IsExact) Assert.Equal(x, y);
-                else Assert.True(Math.Abs(x - y) <= 1e-6 * Math.Max(1.0, Math.Abs(x)), key + ": " + x + " vs " + y);
+                // a power of two scale keeps the values to float64 rounding (1e-12 absolute: the mean area distortion of
+                // a float-rounded atlas is a log of values near 1, about 1e-17 noise); the other similarities (rotations,
+                // UTM-like offsets) lose about 1e-7 relative in ParameterizationDistortion's frames at a scale of 1e-3
+                double tol = s.IsExact ? 1e-12 : 1e-6;
+                Assert.True(Math.Abs(x - y) <= tol * Math.Max(1.0, Math.Abs(x)), key + ": " + x + " vs " + y);
             }
+        }
+
+        [Fact]
+        public void Seam_is_where_the_atlas_is_cut_even_inside_one_chart()
+        {
+            // an open tube of 4 segments (vertices a_i = i, b_i = 4 + i, height 1) unwrapped to one rectangle: segment 3
+            // uses copies of a_0 and b_0 at u = 1, so the cut is the edge a_0 b_0 inside a single chart
+            const int n = 4;
+            var input = new DMesh3(MeshComponents.None);
+            for (int i = 0; i < n; ++i) {
+                double th = 2 * Math.PI * i / n;
+                input.AppendVertex(new Vector3d(Math.Cos(th), Math.Sin(th), 0));
+            }
+            for (int i = 0; i < n; ++i) {
+                double th = 2 * Math.PI * i / n;
+                input.AppendVertex(new Vector3d(Math.Cos(th), Math.Sin(th), 1));
+            }
+            var atlas = new DMesh3(MeshComponents.None);
+            var uv = new List<Vector2d>();
+            var atlasOf = new Dictionary<(int, int), int>();
+            int Vert(int v, int copy) {
+                if (atlasOf.TryGetValue((v, copy), out int id)) return id;
+                int idx = v % n;
+                double u = copy == 1 ? 1.0 : idx / (double)n;
+                id = atlas.AppendVertex(input.GetVertex(v));
+                uv.Add(new Vector2d(u, v < n ? 0 : 1));
+                atlasOf[(v, copy)] = id;
+                return id;
+            }
+            for (int i = 0; i < n; ++i) {
+                int j = (i + 1) % n;
+                int[][] tris = { new[] { i, j, n + j }, new[] { i, n + j, n + i } };
+                foreach (int[] t in tris) {
+                    input.AppendTriangle(t[0], t[1], t[2]);
+                    // segment n-1 uses the copies of the vertices of segment 0 (the wrap-around)
+                    int Copy(int v) => i == n - 1 && (v == 0 || v == n) ? 1 : 0;
+                    atlas.AppendTriangle(Vert(t[0], Copy(t[0])), Vert(t[1], Copy(t[1])), Vert(t[2], Copy(t[2])));
+                }
+            }
+            var a = new UvEvaluation.Atlas { Mesh = atlas, UV = uv.ToArray() };
+            Dictionary<string, object> r = UvEvaluation.Evaluate(input, a);
+            Assert.Equal("ok", r["status"]);
+            Assert.Equal(1, (int)r["charts"]);
+            Assert.Equal(0, (int)r["overlap_pairs"]);
+            // the only cut is the edge a_0 b_0 (length 1); the other vertical edges are not cut
+            Assert.Equal(1.0, Num(r, "seam_length"), 9);
+        }
+
+        [Fact]
+        public void Atlas_with_uvs_outside_the_unit_square_is_reported()
+        {
+            UvEvaluation.Atlas a = CubeAtlas(out DMesh3 input, k => k == 0 ? new Vector2d(1.5, 0.1) : GridOrigin(k), GridSide);
+            Dictionary<string, object> r = UvEvaluation.Evaluate(input, a);
+            Assert.Equal("uv_out_of_range", r["status"]);
+        }
+
+        [Fact]
+        public void Gap_is_exact_up_to_the_cap_and_capped_beyond()
+        {
+            // face 1 moved right by s pixels from touching face 0: the nearest pixel centres are s + 1 apart
+            Func<int, Func<int, Vector2d>> at = s => k => k == 0 ? new Vector2d(0.1, 0.1) : k == 1
+                ? new Vector2d(0.3 + s / (double)UvEvaluation.RasterSize, 0.1)
+                : new Vector2d(0.6 + 0.1 * (k % 2), 0.1 + 0.1 * (k / 2));
+            Func<int, double> side = k => k <= 1 ? 0.2 : 0.05;
+            Assert.Equal(8, (int)UvEvaluation.Evaluate(CubeInput(), CubeAtlas(out DMesh3 _, at(7), side))["min_gap_px"]);
+            Assert.Equal(UvEvaluation.GapCap + 1, (int)UvEvaluation.Evaluate(CubeInput(), CubeAtlas(out DMesh3 _, at(12), side))["min_gap_px"]);
         }
 
         static DMesh3 CubeInput()

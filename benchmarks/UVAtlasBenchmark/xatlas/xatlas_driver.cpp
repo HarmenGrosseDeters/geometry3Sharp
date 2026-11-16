@@ -7,10 +7,9 @@
 // read for its algorithms and nothing of it is copied here.
 //
 // Usage: xatlas_driver in.obj out.obj   (in.obj from UVAtlasBenchmark to-obj: v and triangle f lines only)
-// Prints one JSON line: status (ok, invalid_input, failed, multi_atlas, unmapped), ms (ComputeCharts + PackCharts), charts.
+// Prints one JSON line: status (ok, invalid_input, failed, multi_atlas, unmapped, incomplete), ms (ComputeCharts + PackCharts), charts.
 // Output triangles are mapped back to input faces by their input vertex ids (sorted triples, multiset), not by the order
-// xatlas emits them. An input face that xatlas does not emit (eg a degenerate one) gets no face: the evaluation reports
-// the atlas as incomplete.
+// xatlas emits them. An input face that xatlas does not emit (eg a degenerate one) gives status incomplete and no atlas.
 #include "xatlas.h"
 
 #include <algorithm>
@@ -143,6 +142,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    size_t mapped = 0;
+    for (long o : out_of_face)
+        if (o >= 0) mapped++;
+    if (mapped != nf) {
+        Json(file, "incomplete", ms, atlas->chartCount, std::to_string(nf - mapped) + " input faces are not in the atlas");
+        xatlas::Destroy(atlas);
+        return 0;
+    }
     std::ofstream out(argv[2]);
     out.precision(9);
     for (uint32_t v = 0; v < m.vertexCount; ++v) {
@@ -151,15 +158,13 @@ int main(int argc, char** argv) {
     }
     for (uint32_t v = 0; v < m.vertexCount; ++v)
         out << "vt " << m.vertexArray[v].uv[0] / w << ' ' << m.vertexArray[v].uv[1] / h << '\n';
-    size_t written = 0;
     for (size_t f = 0; f < nf; ++f) {
         if (out_of_face[f] < 0) continue;   // not emitted by xatlas: the evaluation reports the atlas as incomplete
         const uint32_t* t = &m.indexArray[3 * (size_t)out_of_face[f]];
         out << "f " << t[0] + 1 << '/' << t[0] + 1 << ' ' << t[1] + 1 << '/' << t[1] + 1 << ' ' << t[2] + 1 << '/' << t[2] + 1 << '\n';
-        written++;
     }
     out.close();
-    Json(file, "ok", ms, atlas->chartCount, written == nf ? "" : "some input faces are not in the atlas");
+    Json(file, "ok", ms, atlas->chartCount, "");
     xatlas::Destroy(atlas);
     return 0;
 }

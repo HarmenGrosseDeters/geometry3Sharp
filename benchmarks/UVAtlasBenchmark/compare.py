@@ -50,21 +50,25 @@ def process(args, item):
     file = os.path.basename(mesh_path)
     stem = os.path.splitext(file)[0]
     inp = os.path.join(args.work, "in", stem + ".obj")
+    ours = os.path.join(args.work, "ours", stem + ".obj")
+    xa = os.path.join(args.work, "xatlas", stem + ".obj")
+    for stale in (inp, ours, xa):   # an output of an earlier run must not be evaluated as this run's
+        if os.path.exists(stale):
+            os.remove(stale)
     rc, _, err = run(["dotnet", args.dll, "to-obj", mesh_path, inp], args.timeout)
     if rc != 0 or not os.path.exists(inp):
         bad = {"status": "load_failed", "ms": None}
         return [dict(evaluate_fail(file, t, bad, cat, "to-obj failed")) for t in ("UVAtlasGenerator", "xatlas")]
 
     # UVAtlasGenerator
-    ours = os.path.join(args.work, "ours", stem + ".obj")
     rc, out, _ = run(["dotnet", args.dll, "atlas", mesh_path, ours], args.timeout)
     prod = last_json(out) if rc == 0 else None
     if prod is None:
         prod = {"status": "timeout" if rc is None else "crash", "ms": None}
-    row_ours = evaluate(args, mesh_path, ours if os.path.exists(ours) else "-", "UVAtlasGenerator", prod, cat, file)
+    ours_ok = prod.get("status") in ("Success", "DistortionLimitExceeded") and os.path.exists(ours)
+    row_ours = evaluate(args, mesh_path, ours if ours_ok else "-", "UVAtlasGenerator", prod, cat, file)
 
     # xatlas (driver: same input, default options)
-    xa = os.path.join(args.work, "xatlas", stem + ".obj")
     rc, out, _ = run([args.xatlas, inp, xa], args.timeout)
     prod = last_json(out) if rc == 0 else None
     if prod is None:
