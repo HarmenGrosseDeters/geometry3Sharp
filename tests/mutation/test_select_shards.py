@@ -34,6 +34,9 @@ class SelectShards(unittest.TestCase):
         self.assertFalse(gate_shard(configs["mesh-fixed"], ["math/ExactPredicates.cs"]))        # (not mutated by this shard)
         self.assertFalse(gate_shard(configs["mesh-boolean-1"], ["mesh_ops/ExactMeshBoolean.cs"]))   # (reviewed, not gated)
         self.assertFalse(gate_shard(configs["mesh-rounding-1"], ["mesh_ops/MeshRoundingRepair.cs"]))
+        # a script of the runs keeps the full run of its representative shard only (its real Stryker run on the PR)
+        self.assertTrue(gate_shard(configs["mesh-fixed"], ["tests/mutation/run_stryker.sh"], "mesh-fixed"))
+        self.assertFalse(gate_shard(configs["mesh-planar"], ["tests/mutation/run_stryker.sh"], "mesh-planar"))
 
     def test_every_path_in_the_configs_exists(self):
         # a renamed file or test class would otherwise silently stop selecting its shard
@@ -486,6 +489,8 @@ class SelectShards(unittest.TestCase):
         self.assertEqual(2, wf.count("always() && github.event_name != 'pull_request' && ("))
         self.assertEqual(2, wf.count("|| github.event_name == 'pull_request') && 'warn' || 'error'"))
         self.assertIn("python3 test_run_stryker.py", wf)
+        # the weekly run is unfiltered by its cron line, not by the weekday at the start of a late shard
+        self.assertEqual(2, wf.count("G3_FULL_TESTS: ${{ github.event.schedule == '17 19 * * 0' && '1' || '' }}"))
 
     def test_the_concurrency_groups_of_the_events(self):
         # the expression of the group, evaluated here for the events: PRs by ref, every other event by its name

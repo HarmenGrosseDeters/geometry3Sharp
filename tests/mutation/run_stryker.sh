@@ -166,16 +166,18 @@ skip_full() {
   touch StrykerOutput/skipped-full
 }
 
-# does the PR change an exact-arithmetic file that this shard mutates (then its full run stays)? G3_CHANGED_PATHS_FILE
-# (a list of paths) replaces the git diff, for the tests
+# does the PR change an exact-arithmetic file that this shard mutates, or a script of the runs while this is their
+# representative shard (then its full run stays)? Fails closed: the full run is skipped only when select_shards.py answers
+# exactly `no`; a git or script error counts as gated. G3_CHANGED_PATHS_FILE (a list of paths) replaces the git diff, for the tests
 gated() {
-  local changed
+  local changed answer
   if [ -n "${G3_CHANGED_PATHS_FILE:-}" ]; then
-    changed="$(cat "$G3_CHANGED_PATHS_FILE")"
+    changed="$(cat "$G3_CHANGED_PATHS_FILE")" || return 0
   else
-    changed="$(git -C "$root" diff --name-only "${BASE:-HEAD}...HEAD" 2>/dev/null || true)"
+    changed="$(git -C "$root" diff --name-only "${BASE:-HEAD}...HEAD" 2>/dev/null)" || return 0
   fi
-  [ "$(python3 "$here/select_shards.py" gate "$config" <<< "$changed")" = gate ]
+  answer="$(python3 "$here/select_shards.py" gate "$config" <<< "$changed" 2>/dev/null)" || return 0
+  [ "$answer" != no ]
 }
 
 # usage: full <why a full run is needed>

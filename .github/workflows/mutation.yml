@@ -238,6 +238,7 @@ jobs:
           MODE: ${{ needs.changes.outputs.arithmetic }}
           BASE: ${{ github.event.pull_request.base.sha }}
           NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}   # (3.0: no full run on a PR, except the exact-arithmetic gate; run_stryker.sh)
+          G3_FULL_TESTS: ${{ github.event.schedule == '17 19 * * 0' && '1' || '' }}   # (the weekly run is unfiltered, decided by its cron line, not by the clock when a late shard starts)
           G3_LIMIT_SECONDS: '9000'                # the job's timeout-minutes (150) in seconds, for the early stop
         run: bash run_stryker.sh stryker-config.json
       - name: Summary
@@ -287,9 +288,10 @@ jobs:
       fail-fast: false
       # at most 6 shards at a time (owner 2026-11-13: short PR jobs must not wait for slots; it was 12, and 4 before: the 15 mesh
       # shards of a full run then took 4 waves, about 12 hours of wall time). The account runs at most 20 jobs at once; a full
-      # run is 6 mesh shards + the arithmetic job + the selection job = 8, which leaves 12 for the CI of the PRs. The 25 mesh
-      # shards of about 4 hours each need about 17 hours wall time then, so the daily full run just fits one day (the schedule
-      # guard skips a starter while the run is under way). Not a concurrency group: it keeps one pending job and cancels the
+      # run is 6 mesh shards + the arithmetic job + the selection job = 8, which leaves 12 for the CI of the PRs. The 37 mesh
+      # configs of 1 to 6 hours each need more than a day when all run (`shards=all`), which is why the scheduled runs are
+      # split into the nightly (24) and the weekly (14) group (README "3.0 process"; the schedule guard skips a starter while a
+      # plain run of the day is under way). Not a concurrency group: it keeps one pending job and cancels the
       # others. Scheduling only: it changes no shard's result (select_shards.py: not a reason for full runs)
       max-parallel: 6
       matrix:
@@ -320,6 +322,7 @@ jobs:
           MODE: ${{ matrix.mode }}
           BASE: ${{ github.event.pull_request.base.sha }}
           NO_FULL: ${{ github.event_name == 'pull_request' && '1' || '' }}   # (3.0: no full run on a PR, except the exact-arithmetic gate; run_stryker.sh)
+          G3_FULL_TESTS: ${{ github.event.schedule == '17 19 * * 0' && '1' || '' }}   # (the weekly run is unfiltered, decided by its cron line, not by the clock when a late shard starts)
         run: bash run_stryker.sh stryker-mesh-${{ matrix.shard }}.json
       - name: Summary
         if: always()

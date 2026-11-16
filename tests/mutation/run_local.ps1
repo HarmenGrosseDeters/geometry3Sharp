@@ -25,8 +25,8 @@ $shards = @($Shard | Where-Object { $_ })
 if ($Touched) {
     $out = (git diff --name-only "$Touched...HEAD") | Invoke-Py tests/mutation/select_shards.py
     foreach ($line in $out) {
-        if ($line -match '^arithmetic=(.*)$' -and $Matches[1] -ne "none") { $shards += "arithmetic" }
-        if ($line -match '^mesh=(.*)$') { foreach ($m in ($Matches[1] | ConvertFrom-Json)) { $shards += $m.shard } }
+        if ($line -match '^arithmetic=(.*)$' -and $Matches[1] -ne "none" -and $Matches[1] -ne "tests") { $shards += "arithmetic" }
+        if ($line -match '^mesh=(.*)$') { foreach ($m in ($Matches[1] | ConvertFrom-Json)) { if ($m.mode -ne "tests") { $shards += $m.shard } } }
     }
 }
 if ($shards.Count -eq 0) { Write-Error "no shard to run (name shards, or -Touched <base ref>)"; exit 2 }

@@ -23,8 +23,8 @@ while [ $# -gt 0 ]; do
       # (the mesh shards that need a run; "arithmetic" is the other config)
       out="$(git diff --name-only "$2...HEAD" | python3 tests/mutation/select_shards.py)" || exit 2
       arith="$(sed -n 's/^arithmetic=//p' <<< "$out")"
-      [ -n "$arith" ] && [ "$arith" != none ] && shards+=(arithmetic)
-      while read -r s; do [ -n "$s" ] && shards+=("$s"); done < <(sed -n 's/^mesh=//p' <<< "$out" | python3 -c 'import json,sys; [print(x["shard"]) for x in json.load(sys.stdin)]')
+      [ -n "$arith" ] && [ "$arith" != none ] && [ "$arith" != tests ] && shards+=(arithmetic)    # (a `tests` run only reports)
+      while read -r s; do [ -n "$s" ] && shards+=("$s"); done < <(sed -n 's/^mesh=//p' <<< "$out" | python3 -c 'import json,sys; [print(x["shard"]) for x in json.load(sys.stdin) if x["mode"] != "tests"]')
       shift 2 ;;
     -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) shards+=("$1"); shift ;;

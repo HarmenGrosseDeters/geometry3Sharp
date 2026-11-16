@@ -115,6 +115,10 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   `AdaptivePredicates.cs`, `FixedPoint3.cs`, `Generated/*.cs`) **and** whose file the PR changes keeps its full run on the
   PR, also when its config changed in the same PR (`select_shards.py gate <config>`, called by `run_stryker.sh`). These are
   the shards `arithmetic`, `fixed`, `generated`, `terrain-arith` and `terrain-kernel`, 50 minutes to a few hours. The
+  gate fails closed (a git or script error counts as gated). A change to one of the scripts of the runs (`SCRIPTS`) also keeps the
+  full run of its representative shard `fixed`, so these tools get one real Stryker run on the PR. The weekly group refreshes the
+  baselines only once a week, equal to the cache's eviction window: a baseline can be missing late in the week (a gated shard then
+  runs in full on the PR, any other skips with "full run on master"). The
   `mesh_ops/ExactMesh*` shards are not in it: CLAUDE.md gives them the review, and their mutation check is the incremental run
   or the scheduled one on master.
 
@@ -125,11 +129,13 @@ shards cost a 6 hour runner slot each and were cancelled at the limit (#539) wit
   (`test_select_shards.py`). Timing is an **estimate, not a measurement**: a shard takes 1 to 6 hours and 6 run at a time
   (`max-parallel`), so the 24 nightly shards need about 12 to 16 hours, from 19:17 UTC to between 07:00 and 11:00 UTC, partly
   into the Berlin working day; the first measured nights replace this. The narrowed test sets (below) belong to shards of the
-  weekly group only (the Sunday run is their unfiltered check; `test_select_shards.py` checks that no nightly shard gets a
+  weekly group only (the weekly run is their unfiltered check, set by its cron line: `G3_FULL_TESTS` in the workflow, not by the weekday when a late shard starts; `test_select_shards.py` checks that no nightly shard gets a
   filter file).
 - **The schedule and the daily dispatch** (docs/QA.md 2.12): the two cron lines are the fallback of an external dispatcher.
-  A plain `workflow_dispatch` (`shards=all`) that ran on a day is a full run of all 38 shards and makes the schedule guard skip
-  that evening's cron run; without the dispatcher the cron lines are the only starter (GitHub has started them up to 8 hours
+  A plain `workflow_dispatch` (`shards=all`) that ran on a day is a full run of all 38 shards (more than a day of runner time,
+  so a daily `shards=all` dispatcher queues the next day's run behind it: change the dispatcher to `nightly` / `weekly`, or retire
+  it) and makes the schedule guard skip that evening's cron run (a plain dispatch after the cron run of the same UTC day is
+  skipped too, as the day's run: use `force`); without the dispatcher the cron lines are the only starter (GitHub has started them up to 8 hours
   late). A dispatch with `shards=nightly` or `weekly` is a custom run: never skipped, and not counted as the day's run, so the
   cron run of the evening would run as well.
 - **The runs on master do not cancel each other.** The concurrency group is `mutation-<ref>` for a PR, with `cancel-in-progress`

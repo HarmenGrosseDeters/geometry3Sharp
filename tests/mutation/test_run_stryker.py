@@ -31,15 +31,19 @@ class RunStryker(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
 
-    def run_script(self, mode, no_full, baseline=None):
-        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], MODE=mode, BASE="HEAD",
+    def run_script(self, mode, no_full, baseline=None, base="HEAD"):
+        env = dict(os.environ, PATH=self.bin + os.pathsep + os.environ["PATH"], MODE=mode, BASE=base,
                    GITHUB_STEP_SUMMARY=self.summary, PROGRESS_SECONDS="1000000", G3_NO_EXCLUDE="1")   # (the exclusion has its own tests in test_run_local.py)
         env.pop("NO_FULL", None)
         if no_full:
             env["NO_FULL"] = "1"
+        if "G3_CHANGED_PATHS_FILE" not in env and base == "HEAD":
+            empty = os.path.join(self.dir, "empty.txt")
+            open(empty, "w").close()
+            env["G3_CHANGED_PATHS_FILE"] = empty
         if baseline is not None:
             env["BASELINE_DIR"] = baseline
-        r = subprocess.run(["bash", SCRIPT, "stryker-x.json"], cwd=self.work, env=env, capture_output=True, text=True)
+        r = subprocess.run(["bash", SCRIPT, "stryker-mesh-boolean-1.json"], cwd=self.work, env=env, capture_output=True, text=True)
         return r, self.read(self.calls), self.read(self.summary)
 
     @staticmethod
@@ -71,7 +75,7 @@ class RunStryker(unittest.TestCase):
         os.mkdir(base)
         with open(os.path.join(base, "stryker-report.json"), "w") as f:
             json.dump({"files": {}}, f)
-        with open(os.path.join(self.work, "stryker-x.json"), "w") as f:
+        with open(os.path.join(self.work, "stryker-mesh-boolean-1.json"), "w") as f:
             json.dump({"stryker-config": {"mutate": ["**/mesh_ops/ExactMeshBoolean.cs"]}}, f)
         r, calls, summary = self.run_script("source", True, baseline=base)
         self.assertEqual(0, r.returncode, r.stderr)
@@ -128,10 +132,37 @@ class RunStryker(unittest.TestCase):
         self.assertNotIn("stryker", calls)
         self.assertIn("full run on master", summary)
 
+    def test_a_git_error_in_the_gate_fails_closed(self):
+        # (the diff against an unknown base fails: the gate must not read that as "nothing changed")
+        env_old = os.environ.pop("G3_CHANGED_PATHS_FILE", None)
+        r, calls, summary = self.run_script("full", True, base="no-such-ref-xyz")
+        self.assertEqual(0, r.returncode, r.stderr)
+        self.assertIn("stryker --log-to-file --config-file", calls)
+        self.assertNotIn("full run on master", summary)
+
+    def test_an_unknown_config_fails_closed(self):
+        self.assertIn("unknown config", subprocess.run(["python3", os.path.join(HERE, "select_shards.py"), "gate", "stryker-x.json"],
+                                                       input="", capture_output=True, text=True).stdout)
+
+    def test_a_script_change_keeps_the_full_run_of_the_representative_shard(self):
+        with open(os.path.join(self.work, "changed.txt"), "w") as f:
+            f.write("tests/mutation/run_stryker.sh\n")
+        old = os.environ.get("G3_CHANGED_PATHS_FILE")
+        os.environ["G3_CHANGED_PATHS_FILE"] = os.path.join(self.work, "changed.txt")
+        try:
+            r, calls, summary = self.run_script_config("full", True, "stryker-mesh-fixed.json")
+            self.assertIn("stryker --log-to-file --config-file", calls)
+            self.assertNotIn("full run on master", summary)
+        finally:
+            if old is None:
+                del os.environ["G3_CHANGED_PATHS_FILE"]
+            else:
+                os.environ["G3_CHANGED_PATHS_FILE"] = old
+
     def test_outside_a_pull_request_full_mode_runs_stryker(self):
         r, calls, summary = self.run_script("full", False)
         self.assertEqual(0, r.returncode, r.stderr)
-        self.assertIn("stryker --log-to-file --config-file stryker-x.json", calls)
+        self.assertIn("stryker --log-to-file --config-file stryker-mesh-boolean-1.json", calls)
         self.assertNotIn("full run on master", summary)
         self.assertTrue(os.path.exists(os.path.join(self.work, "StrykerOutput", "full-run")))
 

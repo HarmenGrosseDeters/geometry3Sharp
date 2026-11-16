@@ -348,8 +348,12 @@ def shard_name(config_name):
 EXACT_GATED = re.compile(r"math/(Exact[^/]*|AdaptivePredicates|FixedPoint3|Generated/[^/]*)\.cs$")
 
 
-def gate_shard(config, changed):
-    """True if a changed path is an exact-arithmetic file (EXACT_GATED) that this config mutates"""
+def gate_shard(config, changed, name=None):
+    """True if a changed path is an exact-arithmetic file (EXACT_GATED) that this config mutates, or if a script of the runs
+    changed and this is the representative shard that smoke-tests them (SCRIPTS, SCRIPT_SHARD: the PR's only real Stryker run
+    of the tools, which NO_FULL must not drop)"""
+    if name == SCRIPT_SHARD and set(changed) & SCRIPTS:
+        return True
     return any(EXACT_GATED.search(p) for p in set(changed) & config[1])
 
 
@@ -383,7 +387,11 @@ if __name__ == "__main__":
         # gate <config path>: changed paths on stdin; prints `gate` if the PR changes an exact-arithmetic file of that config
         name = os.path.basename(args[1])[len("stryker-"):-len(".json")]
         configs = load_configs()
-        print("gate" if name in configs and gate_shard(configs[name], [l.strip() for l in sys.stdin if l.strip()]) else "no")
+        # (fails closed: run_stryker.sh skips the full run only on exactly `no`)
+        if name not in configs:
+            print("unknown config " + name)
+        else:
+            print("gate" if gate_shard(configs[name], [l.strip() for l in sys.stdin if l.strip()], name) else "no")
         sys.exit(0)
     run_all = "--all" in args
     only = None
