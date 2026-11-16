@@ -1,0 +1,13 @@
+﻿2026-11-16 00:05:40 standby timeout on AC set to 0 (was 30 min)
+2026-11-16 00:05:40 step 0: tool check, base 22370752 with the reduced tool, net10.0, 1 thread
+2026-11-16 00:05:42 step 0: the row of an earlier run (same reduced tool, hash matches) is reused
+2026-11-16 00:05:42 step 0: run.ps1 exit reused, hash D39147B535C3519E (expected D39147B535C3519E)
+2026-11-16 00:05:42 tool check passed
+2026-11-16 01:40:41 c2 without done, exit 0
+2026-11-16 03:15:15 c2 with done, exit 0
+2026-11-16 03:15:15 c3: NOT BUILDABLE (missing API in measured path: Profile.cs uses RoundingMaxPairTests, AntipodalMaxBoundarySegments, AntipodalMaxTriangles)
+2026-11-16 03:15:15 c4: NOT BUILDABLE (missing API in measured path: Profile.cs uses RoundingMaxPairTests, AntipodalMaxBoundarySegments, AntipodalMaxTriangles)
+2026-11-16 03:15:15 step 6: thread scaling of the base, net10.0, 1 2 4 6 12 threads
+2026-11-16 04:08:44 step 6 done, run.ps1 exit 0
+2026-11-16 04:08:44 standby timeout on AC restored to 30 min
+2026-11-16 04:08:44 AFTER-REBOOT DONE

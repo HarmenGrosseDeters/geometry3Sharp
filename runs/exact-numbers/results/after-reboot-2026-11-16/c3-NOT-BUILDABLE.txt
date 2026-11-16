@@ -1,0 +1,1 @@
+﻿NOT BUILDABLE (missing API in measured path: Profile.cs uses RoundingMaxPairTests, AntipodalMaxBoundarySegments, AntipodalMaxTriangles)

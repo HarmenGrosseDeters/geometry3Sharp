@@ -1,0 +1,5 @@
+﻿reduced tool, 2026-11-15 23:31: files removed from benchmarks\BooleanComparison per pair (tool 22370752)
+c2 (ce7b57ec / 2c9c6340): BUILDS; removed: EnvelopeBench
+c3 (be8815d5 / b4380c1c): NOT BUILDABLE (missing API in measured path: Profile.cs); removed: EnvelopeBench
+c4 (e2c23d41 / 9f00591d): NOT BUILDABLE (missing API in measured path: Profile.cs); removed: EnvelopeBench
+elapsed: 0 min
