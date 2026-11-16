@@ -108,8 +108,9 @@ jobs:
           mkdir -p data/meshes
           while read -r p; do cp "/mnt/abc/x/$p" "data/meshes/$(basename "$p" .obj).obj"; done < selected.txt
           ls data/meshes | wc -l
-          BOOLCMP_TOOL="$GITHUB_WORKSPACE/frozen/BooleanComparison.dll" python3 $S/data/abc_chained.py filter data clean_raw.csv
+          BOOLCMP_TOOL="$GITHUB_WORKSPACE/frozen/BooleanComparison.dll" python3 $S/data/abc_chained.py prepare data clean_raw.csv
           wc -l clean_raw.csv.clean
+          cp data/weld_tol.txt weld_tol.txt
       - name: Chains
         if: ${{ !inputs.listing_only }}
         env:
@@ -143,6 +144,7 @@ jobs:
             report.md
             lib_sha.txt
             clean_raw.csv
+            weld_tol.txt
             chains.csv
             listing.txt
 

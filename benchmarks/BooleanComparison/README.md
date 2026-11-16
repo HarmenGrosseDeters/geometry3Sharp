@@ -298,10 +298,14 @@ paper. The Fusion 360 Gallery is excluded and GrabCAD is not pursued. The tests 
 7.94 GB in the `obj` format (triangle meshes, one file per model part, with vertex normals), 9.37 GB as binary STL (`stl2`), 2.5 GB as Parasolid, 1.6 GB as
 STEP (CAD, not meshes). `obj` is the smallest mesh format, so the workflow takes `obj` (`obj_v00.txt` of the page maps a chunk's file name to its link; the workflow
 reads it at run time instead of hard-coding the link). The archive is a solid 7z: `7z l -slt` lists its files from the header, one `7z x` of a list of paths extracts
-the sample (the whole chunk is never unpacked, which would not fit the runner's disk). Whether the files are closed enough is what the filter measures (first run below).
+the sample (the whole chunk is never unpacked, which would not fit the runner's disk). The obj files are tessellated **per face of the CAD model**, so adjacent faces carry their own copies of the vertices on a shared edge: read as they are,
+none of the 400 files of the first sample was closed (`not closed` for all 400, run 43973737886). `abc_chained.py prepare` therefore welds the vertices by position before the filter:
+first exactly (bit-equal doubles), and only if that gives fewer than 40 clean models in the triangle range, with a tolerance (1e-9, 1e-7, 1e-5 of the bounding box diagonal; the first that
+reaches 40; a tolerance weld moves a vertex by less than that, to the first vertex of its grid cell). The tolerance used is recorded (`weld_tol.txt`) and reported with the results.
+The welded meshes are written as OFF with round-trip precision; they are the models of the chains (the exact placements start from them) and, like the downloaded files, are never uploaded.
 
 **Models.** `data/abc_chained.py select`: of the `.obj` files of the listing with 60 kB to 3 MB (about 500 to 30 000 triangles), 400 are drawn with SplitMix64 (seed 20261116,
-partial Fisher-Yates over the sorted paths). `filter` runs the tool's `thingi-filter` on them: `MeshRobustRepair.NotCleanReason(mesh) == ""` and a positive volume, then
+partial Fisher-Yates over the sorted paths). `prepare` welds them (below) and runs the tool's `thingi-filter` on the result: `MeshRobustRepair.NotCleanReason(mesh) == ""` and a positive volume, then
 500-30 000 triangles. The ids of the clean ones are an output of the run (`clean_raw.csv`), not a committed list: the sample depends on the chunk.
 
 **Chains** (`generate`, seed 20261117 plus 7919 per variant index; `chains.csv`, 100 per variant, a run takes a prefix): three different models A, B, C per chain and a variant:
@@ -328,7 +332,7 @@ they arrived (a rounded result is not always). For `ours` the rows record `remov
 **Running** (from `benchmarks/BooleanComparison`, with the models already extracted to `$D/meshes/<id>.obj`, eg for a local trial with procedural or licensed files you hold):
 
 ```
-python3 data/abc_chained.py filter $D $D/clean_raw.csv
+python3 data/abc_chained.py prepare $D $D/clean_raw.csv
 python3 data/abc_chained.py generate $D/clean_raw.csv.clean $D/chains.csv
 python3 data/abc_chained.py manifest $D $D/chains.csv $D/cases.jsonl --limit 30
 python3 data/abc_chained.py run $D/cases.jsonl results-abc.jsonl --methods ours,manifold,cgal_epeck --timeout 300
