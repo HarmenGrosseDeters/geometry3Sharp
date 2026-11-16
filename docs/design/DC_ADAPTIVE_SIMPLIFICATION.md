@@ -123,3 +123,8 @@ whose normal turns against the uniform contour's.
 Triangle quality is measured in the benchmark README (smallest angle: 1st percentile, mean, share below 5 and 10 degrees). The
 simplified contour has a lower mean smallest angle (about 35 against 41 degrees) and more slivers at creases (CSG part: 4.5 % of
 the triangles below 10 degrees at tolerance 0.25 against 0.4 %); smooth shapes are close to the uniform contour.
+
+Memory. The simplifier keeps about 60 bytes per uniform-contour vertex and level (7 levels by default), so about 400 bytes per vertex
+on top of the contour itself (CSG part at N = 256, 230 thousand vertices: about 90 MB); `SimplifyMaxLevel` lowers it, `Simplify = false`
+removes it. Outputs of `DualContouring` that describe the uniform contour (`FaceVertices`, `EdgeVertices`, `SelfIntersectionsFound`)
+are copied from it: the uniform contour is not repaired first, so `SelfIntersectionsFound` is 0 unless it had to be.

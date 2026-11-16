@@ -64,8 +64,12 @@ namespace g3
         public int CheckRounds, RejectedClusters;
         /// <summary> 1 if the uniform contour had intersections that no merged vertex was part of, so it was repaired and the merge ran again </summary>
         public int BaseRepairs;
-        /// <summary> the uniform contour's own report: polygons left out (holes) and whether it is free of self-intersections </summary>
+        /// <summary> the uniform contour's polygons left out (holes) </summary>
         public int NonManifoldTriangles;
+        /// <summary>
+        /// whether the uniform contour had no self-intersections left: if it was repaired (BaseRepairs 1, or Tolerance 0), its own report; otherwise
+        /// (it is not repaired first) the exact check of the merged mesh, so the same as SelfIntersectionFree
+        /// </summary>
         public bool BaseSelfIntersectionFree;
         /// <summary> true if the last Generate found no intersecting pair (the base contour was free of them and no merged vertex is in one) </summary>
         public bool SelfIntersectionFree;
@@ -97,7 +101,8 @@ namespace g3
                 };
                 BaseContour = dc;
                 dc.Generate();
-                PhaseMilliseconds["contour"] = timer.ElapsedMilliseconds; timer.Restart();
+                long prev;
+                PhaseMilliseconds["contour"] = (PhaseMilliseconds.TryGetValue("contour", out prev) ? prev : 0) + timer.ElapsedMilliseconds; timer.Restart();
                 BasePhaseMilliseconds = new Dictionary<string, long>(dc.PhaseMilliseconds);
                 if (CancelF() || dc.Mesh == null) return;
                 UniformTriangles = dc.Mesh.TriangleCount;
@@ -371,7 +376,7 @@ namespace g3
 
             DMesh3 assemble(out List<Key> clusterOfOut, out Dictionary<Key, int> clusterIds, out List<Key> culprits)
             {
-                var outMesh = new DMesh3(false, false, false, false);
+                var outMesh = new DMesh3();
                 var map = new int[NV];
                 clusterIds = new Dictionary<Key, int>();
                 clusterOfOut = new List<Key>();

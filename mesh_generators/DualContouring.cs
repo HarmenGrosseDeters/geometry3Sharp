@@ -276,6 +276,8 @@ namespace g3
                 FaceVertices = b.FaceVertices; ClampedFaceVertices = b.ClampedFaceVertices; EdgeVertices = b.EdgeVertices;
                 ForcedDiagonals = b.ForcedDiagonals; DegenerateSplitsAvoided = b.DegenerateSplitsAvoided;
                 SelfIntersectionsFound = b.SelfIntersectionsFound; SelfIntersectionsLeft = b.SelfIntersectionsLeft;
+                CoveredTriangles = b.CoveredTriangles; CheckedTriangles = b.CheckedTriangles; TransitionErrors = b.TransitionErrors;
+                NonManifoldCells = b.NonManifoldCells; ResolveMilliseconds = b.ResolveMilliseconds;
             }
         }
 
