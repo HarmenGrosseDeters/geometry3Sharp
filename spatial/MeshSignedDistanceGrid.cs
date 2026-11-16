@@ -312,12 +312,12 @@ namespace g3
                 double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // clamped integer bounding box of triangle plus exact-band
-                int i0 = MathUtil.Clamp(((int)MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
-                int i1 = MathUtil.Clamp(((int)MathUtil.Max(fip, fiq, fir)) + exact_band + 1, 0, ni - 1);
-                int j0 = MathUtil.Clamp(((int)MathUtil.Min(fjp, fjq, fjr)) - exact_band, 0, nj - 1);
-                int j1 = MathUtil.Clamp(((int)MathUtil.Max(fjp, fjq, fjr)) + exact_band + 1, 0, nj - 1);
-                int k0 = MathUtil.Clamp(((int)MathUtil.Min(fkp, fkq, fkr)) - exact_band, 0, nk - 1);
-                int k1 = MathUtil.Clamp(((int)MathUtil.Max(fkp, fkq, fkr)) + exact_band + 1, 0, nk - 1);
+                int i0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
+                int i1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fip, fiq, fir)) + exact_band + 1, 0, ni - 1);
+                int j0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fjp, fjq, fjr)) - exact_band, 0, nj - 1);
+                int j1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fjp, fjq, fjr)) + exact_band + 1, 0, nj - 1);
+                int k0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fkp, fkq, fkr)) - exact_band, 0, nk - 1);
+                int k1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fkp, fkq, fkr)) + exact_band + 1, 0, nk - 1);
 
                 // compute distance for each tri inside this bounding box
                 // note: this can be very conservative if the triangle is large and on diagonal to grid axes
@@ -428,12 +428,12 @@ namespace g3
                 double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // clamped integer bounding box of triangle plus exact-band
-                int i0 = MathUtil.Clamp(((int)MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
-                int i1 = MathUtil.Clamp(((int)MathUtil.Max(fip, fiq, fir)) + exact_band + 1, 0, ni - 1);
-                int j0 = MathUtil.Clamp(((int)MathUtil.Min(fjp, fjq, fjr)) - exact_band, 0, nj - 1);
-                int j1 = MathUtil.Clamp(((int)MathUtil.Max(fjp, fjq, fjr)) + exact_band + 1, 0, nj - 1);
-                int k0 = MathUtil.Clamp(((int)MathUtil.Min(fkp, fkq, fkr)) - exact_band, 0, nk - 1);
-                int k1 = MathUtil.Clamp(((int)MathUtil.Max(fkp, fkq, fkr)) + exact_band + 1, 0, nk - 1);
+                int i0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
+                int i1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fip, fiq, fir)) + exact_band + 1, 0, ni - 1);
+                int j0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fjp, fjq, fjr)) - exact_band, 0, nj - 1);
+                int j1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fjp, fjq, fjr)) + exact_band + 1, 0, nj - 1);
+                int k0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fkp, fkq, fkr)) - exact_band, 0, nk - 1);
+                int k1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fkp, fkq, fkr)) + exact_band + 1, 0, nk - 1);
 
                 // compute distance for each tri inside this bounding box
                 // note: this can be very conservative if the triangle is large and on diagonal to grid axes
@@ -553,12 +553,12 @@ namespace g3
                 double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // clamped integer bounding box of triangle plus exact-band
-                int i0 = MathUtil.Clamp(((int)MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
-                int i1 = MathUtil.Clamp(((int)MathUtil.Max(fip, fiq, fir)) + exact_band + 1, 0, ni - 1);
-                int j0 = MathUtil.Clamp(((int)MathUtil.Min(fjp, fjq, fjr)) - exact_band, 0, nj - 1);
-                int j1 = MathUtil.Clamp(((int)MathUtil.Max(fjp, fjq, fjr)) + exact_band + 1, 0, nj - 1);
-                int k0 = MathUtil.Clamp(((int)MathUtil.Min(fkp, fkq, fkr)) - exact_band, 0, nk - 1);
-                int k1 = MathUtil.Clamp(((int)MathUtil.Max(fkp, fkq, fkr)) + exact_band + 1, 0, nk - 1);
+                int i0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fip, fiq, fir)) - exact_band, 0, ni - 1);
+                int i1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fip, fiq, fir)) + exact_band + 1, 0, ni - 1);
+                int j0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fjp, fjq, fjr)) - exact_band, 0, nj - 1);
+                int j1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fjp, fjq, fjr)) + exact_band + 1, 0, nj - 1);
+                int k0 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Min(fkp, fkq, fkr)) - exact_band, 0, nk - 1);
+                int k1 = MathUtil.Clamp(MathUtil.ToIntSaturating(MathUtil.Max(fkp, fkq, fkr)) + exact_band + 1, 0, nk - 1);
 
                 // compute distance for each tri inside this bounding box
                 // note: this can be very conservative if the triangle is large and on diagonal to grid axes
@@ -688,9 +688,9 @@ namespace g3
                 // real ijk coordinates of v
                 double fi = (v.x-ox)*invdx, fj = (v.y-oy)*invdx, fk = (v.z-oz)*invdx;
                 Vector3i idx = new Vector3i(
-                    MathUtil.Clamp((int)fi, 0, ni - 1),
-                    MathUtil.Clamp((int)fj, 0, nj - 1),
-                    MathUtil.Clamp((int)fk, 0, nk - 1));
+                    MathUtil.Clamp(MathUtil.ToIntSaturating(fi), 0, ni - 1),
+                    MathUtil.Clamp(MathUtil.ToIntSaturating(fj), 0, nj - 1),
+                    MathUtil.Clamp(MathUtil.ToIntSaturating(fk), 0, nk - 1));
 
                 if (distances[idx] < upper_bound)
                     return;
@@ -921,10 +921,10 @@ namespace g3
                 double fir = (xr[0] - ox) * invdx, fjr = (xr[1] - oy) * invdx, fkr = (xr[2] - oz) * invdx;
 
                 // recompute j/k integer bounds of triangle w/o exact band
-                int j0 = MathUtil.Clamp((int)Math.Ceiling(MathUtil.Min(fjp, fjq, fjr)), 0, nj - 1);
-                int j1 = MathUtil.Clamp((int)Math.Floor(MathUtil.Max(fjp, fjq, fjr)), 0, nj - 1);
-                int k0 = MathUtil.Clamp((int)Math.Ceiling(MathUtil.Min(fkp, fkq, fkr)), 0, nk - 1);
-                int k1 = MathUtil.Clamp((int)Math.Floor(MathUtil.Max(fkp, fkq, fkr)), 0, nk - 1);
+                int j0 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Ceiling(MathUtil.Min(fjp, fjq, fjr))), 0, nj - 1);
+                int j1 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Floor(MathUtil.Max(fjp, fjq, fjr))), 0, nj - 1);
+                int k0 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Ceiling(MathUtil.Min(fkp, fkq, fkr))), 0, nk - 1);
+                int k1 = MathUtil.Clamp(MathUtil.ToIntSaturating(Math.Floor(MathUtil.Max(fkp, fkq, fkr))), 0, nk - 1);
 
                 // and do intersection counts
                 for (int k = k0; k <= k1; ++k) {
@@ -932,7 +932,7 @@ namespace g3
                         double a, b, c;
                         if (point_in_triangle_2d(j, k, fjp, fkp, fjq, fkq, fjr, fkr, out a, out b, out c)) {
                             double fi = a * fip + b * fiq + c * fir; // intersection i coordinate
-                            int i_interval = (int)(Math.Ceiling(fi)); // intersection is in (i_interval-1,i_interval]
+                            int i_interval = MathUtil.ToIntSaturating(Math.Ceiling(fi)); // intersection is in (i_interval-1,i_interval] (saturating, #804)
                             if (i_interval < 0) {
                                 intersection_count.atomic_incdec(0, j, k, neg_x);
                             } else if (i_interval < ni) {

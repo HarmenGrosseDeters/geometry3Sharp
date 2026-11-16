@@ -346,7 +346,7 @@ class RunStryker(unittest.TestCase):
 
     def run_script(self, **env):
         out = os.path.join(self.tmp.name, "seen.json")
-        e = dict(os.environ, PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + os.environ["PATH"], MODE="full",
+        e = dict(os.environ, PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + os.environ["PATH"], MODE="full", G3_NO_EXCLUDE="1",
                  G3_STUB_OUT=out, G3_TEST_FILTERS=os.path.join(self.tmp.name, "filters"),
                  GITHUB_STEP_SUMMARY=os.path.join(self.tmp.name, "summary.md"), **env)
         subprocess.run(["bash", os.path.join(HERE, "run_stryker.sh"), self.cfg_path], cwd=self.tmp.name, env=e,
@@ -375,6 +375,39 @@ class RunStryker(unittest.TestCase):
         self.assertIn("full: the config changed", open(os.path.join(self.tmp.name, "summary.md")).read())
         json.dump(self.flt, open(self.flt_path, "w"))
         self.assertEqual(self.run_script(G3_FULL_TESTS="1"), self.full_filter())
+
+
+class CheckedInFilters(unittest.TestCase):
+    """test-filters/*.json: one per config, made by `make` (format, kept tests, hashes of the files it was made from)"""
+    files = sorted(f for f in os.listdir(os.path.join(HERE, "test-filters")) if f.endswith(".json")) \
+        if os.path.isdir(os.path.join(HERE, "test-filters")) else []
+
+    def test_every_filter_names_an_existing_config_and_is_well_formed(self):
+        for f in self.files:
+            with self.subTest(f):
+                self.assertTrue(os.path.exists(os.path.join(HERE, f)), "no config " + f)
+                flt = json.load(open(os.path.join(HERE, "test-filters", f)))
+                self.assertEqual(flt["format"], nt.FORMAT)
+                self.assertTrue(flt["kept"] and all(isinstance(k, str) and "(" not in k for k in flt["kept"]))
+                self.assertEqual(flt["kept"], sorted(set(flt["kept"])))
+                self.assertGreaterEqual(flt["estimated_saving"], 0.2)
+                self.assertIn(flt["timeouts"], ("one", "all"))
+                self.assertTrue(flt["mutated_files"] and flt["test_files"])
+
+    def test_apply_never_fails_on_a_checked_in_filter(self):
+        # current or stale, the result is a runnable config: narrowed, or the config unchanged with the reason
+        for f in self.files:
+            with self.subTest(f), tempfile.TemporaryDirectory() as t:
+                out = os.path.join(t, "o.json")
+                msg = nt.apply(os.path.join(HERE, f), os.path.join(HERE, "test-filters", f), REPO, out)
+                self.assertRegex(msg, r"^(narrowed: \d+ of \d+ tests|full: .+)$")
+                run = json.load(open(out))["stryker-config"]
+                orig = json.load(open(os.path.join(HERE, f)))["stryker-config"]
+                if msg.startswith("full"):
+                    self.assertEqual(run, orig)
+                else:
+                    self.assertEqual({k: v for k, v in run.items() if k != "test-case-filter"},
+                                     {k: v for k, v in orig.items() if k != "test-case-filter"})
 
 
 if __name__ == "__main__":

@@ -15,18 +15,18 @@ namespace geometry3Sharp.Tests
     public class ExactLimbSignsTests
     {
 #if NET
-        static readonly bool StackLimbs = true;
+        internal static readonly bool StackLimbs = true;
 #else
-        static readonly bool StackLimbs = false;        // netstandard2.0: every call is the BigInteger expression
+        internal static readonly bool StackLimbs = false;        // netstandard2.0: every call is the BigInteger expression
 #endif
         // eight operands of this many limbs are the widest plane side on the stack
-        const int Wide = ExactLimbSigns.MaxOperandLimbs / 8;
+        internal const int Wide = ExactLimbSigns.MaxOperandLimbs / 8;
 
         // the limbs ExactLimbSigns counts for v: the bytes of its two's complement, rounded up
-        static int Limbs(BigInteger v) { return (v.ToByteArray().Length + 7) / 8; }
+        internal static int Limbs(BigInteger v) { return (v.ToByteArray().Length + 7) / 8; }
 
         // n limbs with every bit below the sign bit set
-        static BigInteger Full(int n) { return (BigInteger.One << (64 * n - 1)) - 1; }
+        internal static BigInteger Full(int n) { return (BigInteger.One << (64 * n - 1)) - 1; }
 
         // the path of a side or a dot: the stack while the operands take at most MaxOperandLimbs limbs in all, and then
         // inside the derived need
@@ -57,7 +57,7 @@ namespace geometry3Sharp.Tests
         }
 
         // a value of exactly `bits` bits (0: zero) with a random sign; every eighth one at a limb boundary pattern
-        static BigInteger Rand(Random r, int bits)
+        internal static BigInteger Rand(Random r, int bits)
         {
             if (bits <= 0) return BigInteger.Zero;
             BigInteger v;
@@ -75,7 +75,7 @@ namespace geometry3Sharp.Tests
         }
 
         // widths in bits: small, around the limb boundaries, the classification's sizes, up to `limbs` limbs and beyond
-        static int Width(Random r, int limbs = Wide)
+        internal static int Width(Random r, int limbs = Wide)
         {
             switch (r.Next(8)) {
                 case 0: return r.Next(0, 4);
@@ -362,8 +362,14 @@ namespace geometry3Sharp.Tests
             var pts = new List<ExactPoint3[]>();
             foreach (var v in cases)
                 pts.Add(new[] { ExactPoint3.CreateUnreduced(v[0], v[1], v[2], v[3]), ExactPoint3.CreateUnreduced(v[4], v[5], v[6], v[7]), ExactPoint3.CreateUnreduced(v[8], v[9], v[10], v[11]), ExactPoint3.CreateUnreduced(v[12], v[13], v[14], v[15]) });
-            long sum = 0, allocated = 0;
-            for (int pass = 0; pass < 3; ++pass) {
+            // The first passes may allocate once (JIT tiering / OSR, lazy per-thread state, issue #939): run until three
+            // consecutive passes allocate nothing, at most 12 passes. The same inputs are replayed, so an allocation that
+            // depends on the inputs or on every call shows in every pass; a warm-up allocation only restarts the run.
+            const int MaxPasses = 12, RequiredCleanPasses = 3;
+            long sum = 0;
+            var perPass = new List<long>();
+            int zeroRun = 0;
+            for (int pass = 0; pass < MaxPasses && zeroRun < RequiredCleanPasses; ++pass) {
                 long before = GC.GetAllocatedBytesForCurrentThread();
                 for (int i = 0; i < cases.Count; ++i) {
                     var v = cases[i];
@@ -372,9 +378,11 @@ namespace geometry3Sharp.Tests
                     sum += ExactLimbSigns.PlaneSide(v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
                     sum += ExactLimbSigns.Det4(pts[i][0], pts[i][1], pts[i][2], pts[i][3]);
                 }
-                allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+                perPass.Add(allocated);
+                zeroRun = allocated == 0 ? zeroRun + 1 : 0;
             }
-            Assert.True(allocated == 0, $"{allocated} bytes allocated in {3 * cases.Count} calls (sum {sum})");
+            Assert.True(zeroRun >= RequiredCleanPasses, $"expected {RequiredCleanPasses} consecutive passes without allocation; bytes allocated per pass of {cases.Count} cases: {string.Join(", ", perPass)} (sum {sum})");
         }
 #endif
     }

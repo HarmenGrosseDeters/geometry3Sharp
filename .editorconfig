@@ -37,14 +37,14 @@ dotnet_diagnostic.G3E0003.severity = error
 # g3.CoreMathPort.CoreMath, not the platform's Math.Sin, Cos, Atan2, Exp, Log, ... (G3E0004). First the geodesic family;
 # extended only where the determinism harness shows a difference that the result depends on: the terrain slope design
 # (issue 802: the fan directions differed between the Windows CRT of .NET and the others).
-[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,solvers/SparseCholesky.cs,math/CoreMath/*.cs}]
+[{mesh_ops/TerrainSlope*.cs,mesh_ops/IntrinsicTriangulation.cs,mesh_ops/IntrinsicTriangulationRefinement.cs,mesh_ops/IntrinsicCommonSubdivision.cs,mesh_ops/VectorHeatMethod.cs,mesh_ops/MeshGeodesicDistance.cs,mesh_ops/MeshGeodesicPath.cs,mesh_ops/MeshGeodesicBezier.cs,mesh_ops/ExactMeshGeodesicDistance.cs,solvers/SparseCholesky.cs,math/CoreMath/*.cs}]
 dotnet_diagnostic.G3E0004.severity = error
 
 # The determinism proof, stage 0 (docs/design/DETERMINISM_PROOF.md section 6.1): the exact kernel is a closed world. Every
 # member of another assembly that it uses is on the allow list DeterministicApis.txt with the reason why its result is
 # specified on every runtime, and the environment-dependent constructs (#if, double -> integer casts, [SkipLocalsInit],
 # restricted members) are registered there (G3D0001-9, tools/analyzers/G3ExactCodeAnalyzers/DeterminismAnalyzers.cs)
-[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/Generated/IndirectPredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs}]
+[{math/ExactIntervals.cs,math/ExactPoint3.cs,math/ExactPredicates.cs,math/ExactRayTriangle.cs,math/ExactSlopeKernel.cs,math/ExactSlopePredicates.cs,math/AdaptivePredicates.cs,math/FixedPoint3.cs,math/ExactLimbSigns.cs,math/Generated/IndirectPredicates.cs,math/Generated/DoublePredicates.cs,intersection/ExactTriangleIntersection.cs,intersection/TriangleTriangleFilter.cs}]
 dotnet_diagnostic.G3D0001.severity = error
 dotnet_diagnostic.G3D0002.severity = error
 dotnet_diagnostic.G3D0005.severity = error

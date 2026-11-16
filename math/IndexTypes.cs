@@ -44,7 +44,7 @@ namespace g3
         }
         public int Length
         {
-            get { return (int)Math.Sqrt(LengthSquared); }
+            get { return MathUtil.ToIntSaturating(Math.Sqrt(LengthSquared)); }
         }
 
 
@@ -196,7 +196,7 @@ namespace g3
         }
         public int Length
         {
-            get { return (int)Math.Sqrt(LengthSquared); }
+            get { return MathUtil.ToIntSaturating(Math.Sqrt(LengthSquared)); }
         }
 
 
@@ -343,7 +343,7 @@ namespace g3
         }
         public int Length
         {
-            get { return (int)Math.Sqrt(LengthSquared); }
+            get { return MathUtil.ToIntSaturating(Math.Sqrt(LengthSquared)); }
         }
 
 

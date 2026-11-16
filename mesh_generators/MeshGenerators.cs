@@ -275,13 +275,13 @@ namespace g3
             Vector3d a = Vector3d.Lerp((Vector3d)v00, (Vector3d)v01, ty);
             Vector3d b = Vector3d.Lerp((Vector3d)v10, (Vector3d)v11, ty);
             Vector3d c = Vector3d.Lerp(a, b, tx);
-            return new Vector3i((int)Math.Round(c.x), (int)Math.Round(c.y), (int)Math.Round(c.z));
+            return new Vector3i(MathUtil.ToIntSaturating(Math.Round(c.x)), MathUtil.ToIntSaturating(Math.Round(c.y)), MathUtil.ToIntSaturating(Math.Round(c.z)));
         }
 
         protected Vector3i lerp(ref Vector3i a, ref Vector3i b, double t)
         {
             Vector3d c = Vector3d.Lerp((Vector3d)a, (Vector3d)b, t);
-            return new Vector3i((int)Math.Round(c.x), (int)Math.Round(c.y), (int)Math.Round(c.z));
+            return new Vector3i(MathUtil.ToIntSaturating(Math.Round(c.x)), MathUtil.ToIntSaturating(Math.Round(c.y)), MathUtil.ToIntSaturating(Math.Round(c.z)));
         }
 
 

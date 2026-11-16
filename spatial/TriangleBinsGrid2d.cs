@@ -41,8 +41,9 @@ namespace g3
             Vector2d origin = bounds.Min - cellsize * 0.5 * Vector2d.One;
             indexer = new ShiftGridIndexer2(origin, cellsize);
 
-            bins_x = (int)(bounds.Width / cellsize) + 2;
-            bins_y = (int)(bounds.Height / cellsize) + 2;
+            // (saturating: infinite bounds give inf / inf = NaN, 0 bins + 2 on every runtime, #804, ROBUSTNESS_SWEEP R36)
+            bins_x = MathUtil.ToIntSaturating(bounds.Width / cellsize) + 2;
+            bins_y = MathUtil.ToIntSaturating(bounds.Height / cellsize) + 2;
             grid_bounds = new AxisAlignedBox2i(0, 0, bins_x-1, bins_y-1);
             bins_list = new SmallListSet();
             bins_list.Resize(bins_x * bins_y);

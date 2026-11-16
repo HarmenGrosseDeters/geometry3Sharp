@@ -237,7 +237,7 @@ namespace gs
                 row_range(bx, by, cx, cy, y, ref xlo, ref xhi);
                 row_range(cx, cy, ax, ay, y, ref xlo, ref xhi);
                 if (xlo > xhi) continue;
-                long x0 = (long)Math.Floor(xlo) - 1, x1 = (long)Math.Ceiling(xhi) + 1;
+                long x0 = MathUtil.FloorToLongSaturating(xlo) - 1, x1 = MathUtil.ToLongSaturating(Math.Ceiling(xhi)) + 1;
                 for (long x = Math.Max(0, x0); x <= Math.Min(NX - 1, x1); ++x) {
                     // barycentric coordinates (exact integer numerators)
                     long w0 = (bx - x) * (cy - y) - (by - y) * (cx - x);
@@ -246,7 +246,8 @@ namespace gs
                     if (w0 < 0 || w1 < 0 || w2 < 0) continue;
                     int node = (int)(x + NX * y);
                     double plane = (w0 * za + w1 * zb + w2 * zc) / det;
-                    double e = Math.Abs(Z[node] - plane);
+                    // A triangle interpolates its own vertices exactly; avoid roundoff selecting one again.
+                    double e = (node == a || node == b || node == c) ? 0 : Math.Abs(Z[node] - plane);
                     sumsq += e * e;
                     if (e > best) { best = e; bestNode = node; }
                 }
@@ -288,7 +289,7 @@ namespace gs
 
         int node_of(Vector3d p)
         {
-            long i = (long)Math.Round((p.x - X0) / CellSize), j = (long)Math.Round((p.y - Y0) / CellSize);
+            long i = MathUtil.ToLongSaturating(Math.Round((p.x - X0) / CellSize)), j = MathUtil.ToLongSaturating(Math.Round((p.y - Y0) / CellSize));
             return (int)(i + NX * j);
         }
 
@@ -362,7 +363,7 @@ namespace gs
                     double mx, sq;
                     scan(a, b, c, out mx, out sq);
                     if (mx > MaxError) continue;
-                    if (mx < bestMax - 1e-12 || (mx <= bestMax + 1e-12 && sq < bestSq)) { bestMax = mx; bestSq = sq; bestK = k; }
+                    if (mx < bestMax || (mx == bestMax && sq < bestSq)) { bestMax = mx; bestSq = sq; bestK = k; }
                 }
                 if (bestK < 0) return false;
                 bestEarError = Math.Max(bestEarError, bestMax);

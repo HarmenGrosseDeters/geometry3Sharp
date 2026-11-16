@@ -17,6 +17,11 @@ namespace geometry3Sharp.Tests
         /// <summary> one predicate call; zero or less runs the predicate on the calling thread without a timeout </summary>
         public TimeSpan PredicateTimeout = TimeSpan.FromSeconds(10);
         /// <summary>
+        /// The wall-clock ceiling of one predicate call for a call that uses no CPU (a blocked one), see Timed.Finishes; null is its
+        /// default (at least 2 minutes). A test that blocks a call on purpose sets a short one, so it does not wait out the default.
+        /// </summary>
+        public TimeSpan? PredicateWallCeiling;
+        /// <summary>
         /// Replaces the wall-clock PredicateTimeout (tests that must not depend on the speed of the machine): runs the
         /// action and returns false if the call counts as timed out. A call that returns false keeps running if the action
         /// does not end.
@@ -81,7 +86,7 @@ namespace geometry3Sharp.Tests
             }
             else if (options.PredicateTimeout <= TimeSpan.Zero)
                 run();
-            else if (Timed.Finishes(run, options.PredicateTimeout) == false) {
+            else if (Timed.Finishes(run, options.PredicateTimeout, options.PredicateWallCeiling) == false) {
                 ++Timeouts;
                 return options.TimeoutMeansFailure;
             }

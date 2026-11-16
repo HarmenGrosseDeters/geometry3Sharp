@@ -128,6 +128,103 @@ namespace g3cli.Tests
         }
 
         [Fact]
+        public void Hybrid_MatchesTheLibraryCalledDirectly()
+        {
+            var (exit, r) = Run("tpms", m.Path_("tpms_hybrid.obj"), "--type", "gyroid", "--second-type", "iwp", "--blend", "0,1,0.5", "--style", "skeletal_low", "--volume-fraction", "0.35",
+                "--divisions", "12", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal("ok", S(r["tpms_status"]));
+            Assert.Equal("iwp", S(r["second_type"]));
+            Assert.True(B(r["mesh"]["clean"]));
+            var direct = new TpmsLattice { Type = TpmsType.Gyroid, SecondType = TpmsType.IWP, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), Style = TpmsStyle.SkeletalLow, CellSize = 1, Divisions = 12,
+                VolumeFraction = 0.35, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+            Assert.Equal(direct.RealizedVolumeFraction, D(r["realized_volume_fraction"]), 9);
+            Assert.Equal(direct.SecondLevel, D(r["second_level"]), 9);
+            Assert.Equal(direct.Level, D(r["level"]), 9);
+            Assert.NotEqual(direct.Level, D(r["second_level"]));
+            Assert.Equal(2.0, D(r["blend_gradient_bound"]), 12);
+            // the pure gyroid is a different mesh: the second type and the blend are not ignored
+            (exit, r) = Run("tpms", m.Path_("tpms_pure.obj"), "--style", "skeletal_low", "--volume-fraction", "0.35", "--divisions", "12", "--compact");
+            Assert.Equal(0, exit);
+            Assert.NotEqual(I(r["mesh"]["triangles"]), direct.Mesh.TriangleCount);
+            Assert.Null(r["second_type"]);
+            // the axis selects the plane: on a longer box the blend across y is the library's axis 1, and not its axis 0
+            (exit, r) = Run("tpms", m.Path_("tpms_hybrid_y.obj"), "--type", "gyroid", "--second-type", "iwp", "--blend", "1,1.5,0.5", "--style", "skeletal_low", "--volume-fraction", "0.35",
+                "--divisions", "12", "--box-max", "2,3,2", "--compact");
+            Assert.Equal(0, exit);
+            Func<int, int> count = axis => {
+                var l = new TpmsLattice { Type = TpmsType.Gyroid, SecondType = TpmsType.IWP, Blend = TpmsLattice.SigmoidBlend(axis, 1.5, 0.5), Style = TpmsStyle.SkeletalLow, CellSize = 1, Divisions = 12,
+                    VolumeFraction = 0.35, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 3, 2)) };
+                l.Compute();
+                Assert.Equal(TpmsStatus.Ok, l.Status);
+                return l.Mesh.TriangleCount;
+            };
+            Assert.Equal(count(1), I(r["mesh"]["triangles"]));
+            Assert.NotEqual(count(0), I(r["mesh"]["triangles"]));
+        }
+
+        [Theory]
+        [InlineData("schwarz_p", TpmsType.SchwarzP)]
+        [InlineData("schwarz_d", TpmsType.SchwarzD)]
+        [InlineData("neovius", TpmsType.Neovius)]
+        [InlineData("lidinoid", TpmsType.Lidinoid)]
+        [InlineData("gyroid", TpmsType.Gyroid)]
+        public void Hybrid_EverySecondTypeNameSelectsItsType(string name, TpmsType expected)
+        {
+            // (a different first type, so that second type gyroid is not the pure lattice either)
+            var (exit, r) = Run("tpms", m.Path_("tpms_second_" + name + ".obj"), "--type", "schwarz_p", "--second-type", name, "--blend", "0,1,0.5", "--divisions", "8", "--compact");
+            Assert.Equal(0, exit);
+            Assert.Equal(name, S(r["second_type"]));
+            var direct = new TpmsLattice { Type = TpmsType.SchwarzP, SecondType = expected, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), CellSize = 1, Divisions = 8,
+                Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+        }
+
+        [Fact]
+        public void Hybrid_WorksWithEnclosureOnADyadicGrid()
+        {
+            var (exit, r) = Run("tpms", m.Path_("tpms_hybrid_enc.obj"), "--second-type", "iwp", "--blend", "0,1,0.5", "--enclosure", "true", "--divisions", "16", "--compact");
+            Assert.Equal(0, exit);
+            Assert.True(B(r["enclosure"]));
+            Assert.True(B(r["mesh"]["clean"]));
+            var direct = new TpmsLattice { Type = TpmsType.Gyroid, SecondType = TpmsType.IWP, Blend = TpmsLattice.SigmoidBlend(0, 1, 0.5), CellSize = 1, Divisions = 16,
+                Enclosure = true, Box = new AxisAlignedBox3d(Vector3d.Zero, new Vector3d(2, 2, 2)) };
+            direct.Compute();
+            Assert.Equal(TpmsStatus.Ok, direct.Status);
+            Assert.Equal(direct.Mesh.TriangleCount, I(r["mesh"]["triangles"]));
+            Assert.Equal(direct.IsoValueUsed, D(r["iso_value_used"]), 12);
+            Assert.Equal("iwp", S(r["second_type"]));
+        }
+
+        [Fact]
+        public void Hybrid_BadArguments_AreReportedAndWriteNothing()
+        {
+            string output = m.Path_("tpms_hybrid_bad.obj");
+            File.Delete(output);
+            var (exit, r) = Run("tpms", output, "--second-type", "iwp", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("together", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--blend", "0,1,0.5", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            (exit, r) = Run("tpms", output, "--second-type", "iwp", "--blend", "3,1,0.5", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("axis", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--second-type", "iwp", "--blend", "0,1,0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("width", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--second-type", "iwp", "--blend", "0,1", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            (exit, r) = Run("tpms", output, "--second-type", "pyramid", "--blend", "0,1,0.5", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.False(File.Exists(output));
+        }
+
+        [Fact]
         public void VerifySelfIntersectionsOff_IsReportedNotSilent()
         {
             var (exit, r) = Run("tpms", m.Path_("tpms_noverify.obj"), "--divisions", "12", "--verify-self-intersections", "false", "--compact");
@@ -216,6 +313,16 @@ namespace g3cli.Tests
             AssertError(exit, r, "invalid_arguments");
             (exit, r) = Run("tpms", output, "--max-cells", "100", "--compact");
             AssertError(exit, r, "invalid_arguments", "too_large");
+            (exit, r) = Run("tpms", output, "--origin", "0,nan,0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("finite", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--origin", "0,x,0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            (exit, r) = Run("tpms", output, "--max-cells", "400000001", "--compact");
+            AssertError(exit, r, "invalid_arguments");
+            Assert.Contains("max_cells", S(r["message"]));
+            (exit, r) = Run("tpms", output, "--max-cells", "0", "--compact");
+            AssertError(exit, r, "invalid_arguments");
             (exit, r) = Run("tpms", m.Path_("tpms_bad.xyz"), "--compact");
             AssertError(exit, r, "unknown_format");
             Assert.False(File.Exists(output));

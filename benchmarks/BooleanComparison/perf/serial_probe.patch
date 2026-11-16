@@ -1,0 +1,774 @@
+diff --git a/core/gParallel.cs b/core/gParallel.cs
+index a8b92c7..45fda00 100644
+--- a/core/gParallel.cs
++++ b/core/gParallel.cs
+@@ -101,7 +101,15 @@ namespace g3
+         /// per worker task, and is never used by two threads at the same time (buffers that a body reuses). An
+         /// exception of a single body is rethrown as it is, not wrapped
+         /// </summary>
+-        internal static void ForRange<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body)
++        internal static void ForRange<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body,
++            [System.Runtime.CompilerServices.CallerFilePath] string probeFile = null, [System.Runtime.CompilerServices.CallerLineNumber] int probeLine = 0)
++        {
++            int probeId = SerialProbe.On ? SerialProbe.RegionId(probeFile, probeLine) : 0;
++            long probeT0 = SerialProbe.T();
++            try { ForRangeImpl(count, localInit, body); } finally { SerialProbe.E(probeId, probeT0); }
++        }
++
++        static void ForRangeImpl<TLocal>(int count, Func<TLocal> localInit, Action<int, TLocal> body)
+         {
+             if (SerialOnThisThread) {
+                 TLocal local = localInit();
+@@ -123,7 +131,15 @@ namespace g3
+         }
+ 
+         /// <summary> body(i) for every i in [0, count), in parallel over index ranges (an exception of a single body is rethrown as it is) </summary>
+-        internal static void ForRange(int count, Action<int> body)
++        internal static void ForRange(int count, Action<int> body,
++            [System.Runtime.CompilerServices.CallerFilePath] string probeFile = null, [System.Runtime.CompilerServices.CallerLineNumber] int probeLine = 0)
++        {
++            int probeId = SerialProbe.On ? SerialProbe.RegionId(probeFile, probeLine) : 0;
++            long probeT0 = SerialProbe.T();
++            try { ForRangeImpl(count, body); } finally { SerialProbe.E(probeId, probeT0); }
++        }
++
++        static void ForRangeImpl(int count, Action<int> body)
+         {
+             if (SerialOnThisThread) {
+                 int[] order = serial_order(count);
+diff --git a/g3probe/core/SerialProbe.cs b/core/SerialProbe.cs
+new file mode 100644
+index 0000000..bc6a288
+--- /dev/null
++++ b/core/SerialProbe.cs
+@@ -0,0 +1,116 @@
++// PROBE (unmerged branch, never part of the library): inclusive wall-clock scopes of the serial sub-steps of the boolean and
++// of SafeRounding, switched on by the environment variable G3_SERIAL_PROBE=1, read by BooleanComparison profile (field
++// "probe"). Changes no result: only Stopwatch reads and counters. A scope is inclusive of the scopes nested in it; "par"
++// scopes record the wall time of a parallel loop and the sum of the CPU time of its bodies.
++using System;
++using System.Collections.Generic;
++using System.Diagnostics;
++using System.Threading;
++
++namespace g3
++{
++    internal static class SerialProbe
++    {
++        public static readonly bool On = Environment.GetEnvironmentVariable("G3_SERIAL_PROBE") == "1";
++        static readonly Dictionary<string, int> index = new Dictionary<string, int>();
++        static readonly List<string> names = new List<string>();
++        const int Max = 256;
++        static readonly long[] ticks = new long[Max];
++        static readonly long[] calls = new long[Max];
++        static readonly long[] cpu = new long[Max];
++
++        // registered once per name (static fields of the callers)
++        public static int Id(string name)
++        {
++            lock (index) {
++                int id;
++                if (index.TryGetValue(name, out id))
++                    return id;
++                id = names.Count;
++                index[name] = id;
++                names.Add(name);
++                return id;
++            }
++        }
++
++
++        // a parallel region by call site, labelled by the first phase lap that follows it
++        public static int RegionId(string file, int line)
++        {
++            string f = file == null ? "?" : file.Substring(file.LastIndexOfAny(new[] { '/', '\\' }) + 1);
++            int id = Id("par:" + f + ":" + line);
++            lock (index) {
++                if (openRegions.Contains(id) == false)
++                    openRegions.Add(id);
++            }
++            return id;
++        }
++        static readonly List<int> openRegions = new List<int>();
++        static readonly Dictionary<string, string> phaseOf = new Dictionary<string, string>();
++
++        // PhaseClock.Lap: the regions run since the last lap belong to this phase
++        public static void Lap(string phase)
++        {
++            if (On == false) return;
++            lock (index) {
++                foreach (int id in openRegions)
++                    phaseOf[names[id]] = phase;
++                openRegions.Clear();
++            }
++        }
++
++        public static string PhaseOf(string name) { lock (index) { string p; return phaseOf.TryGetValue(name, out p) ? p : null; } }
++
++        // sequential stages: Mark(name) adds the time since the previous Mark (or MarkStart) of this process to name
++        static long lastMark;
++        public static void MarkStart() { if (On) lastMark = Stopwatch.GetTimestamp(); }
++        public static void Mark(string name)
++        {
++            if (On == false) return;
++            long now = Stopwatch.GetTimestamp();
++            int id = Id(name);
++            Interlocked.Add(ref ticks[id], now - lastMark);
++            Interlocked.Increment(ref calls[id]);
++            lastMark = now;
++        }
++
++        public static long T() { return On ? Stopwatch.GetTimestamp() : 0; }
++
++        public static void E(int id, long t0)
++        {
++            if (On == false) return;
++            Interlocked.Add(ref ticks[id], Stopwatch.GetTimestamp() - t0);
++            Interlocked.Increment(ref calls[id]);
++        }
++
++        // CPU time of one body of a parallel loop
++        public static void Body(int id, long t0)
++        {
++            if (On == false) return;
++            Interlocked.Add(ref cpu[id], Stopwatch.GetTimestamp() - t0);
++        }
++
++        public static void Count(int id, long n = 1)
++        {
++            if (On == false) return;
++            Interlocked.Add(ref calls[id], n);
++        }
++
++        public static void Reset()
++        {
++            Array.Clear(ticks, 0, Max); Array.Clear(calls, 0, Max); Array.Clear(cpu, 0, Max);
++        }
++
++        // name -> [wall ms, calls, cpu ms]
++        public static Dictionary<string, double[]> Snapshot()
++        {
++            var d = new Dictionary<string, double[]>();
++            double ms = 1000.0 / Stopwatch.Frequency;
++            lock (index)
++                for (int i = 0; i < names.Count; ++i)
++                    if (calls[i] != 0 || ticks[i] != 0)
++                        d[names[i]] = new double[] { ticks[i] * ms, calls[i], cpu[i] * ms };
++            return d;
++        }
++    }
++}
+diff --git a/math/PredicateStats.cs b/math/PredicateStats.cs
+index 51c1103..6862375 100644
+--- a/math/PredicateStats.cs
++++ b/math/PredicateStats.cs
+@@ -90,6 +90,7 @@ namespace g3
+         {
+             long a = Allocated();
+             ms[name] = sw.ElapsedMilliseconds;
++            SerialProbe.Lap(name);
+             bytes[name] = a - allocated;
+             sw.Restart();
+             allocated = a;
+diff --git a/mesh_ops/MeshRoundingRepair.cs b/mesh_ops/MeshRoundingRepair.cs
+index 2acdd9a..74f11ce 100644
+--- a/mesh_ops/MeshRoundingRepair.cs
++++ b/mesh_ops/MeshRoundingRepair.cs
+@@ -311,6 +311,38 @@ namespace g3
+         // a triangle that a contraction collapsed: its anchors and carried bound, and per corner the vertex it collapsed
+         // onto (two or three of them the same); its points lie on that vertex or edge of the mesh. Listed at each of
+         // these vertices; lost: a later edit removed that vertex or edge and took the ghost's bound over
++        static readonly int SP_repair_passes = SerialProbe.Id("R.repair_passes");
++        static readonly int SP_intersecting_pairs = SerialProbe.Id("R.intersecting_pairs");
++        static readonly int SP_degenerate_triangles = SerialProbe.Id("R.degenerate_triangles");
++        static readonly int SP_rebuild_tree = SerialProbe.Id("R.rebuild_tree");
++        static readonly int SP_near = SerialProbe.Id("R.near");
++        static readonly int SP_improves = SerialProbe.Id("R.improves");
++        static readonly int SP_proposed_drift = SerialProbe.Id("R.proposed_drift");
++        static readonly int SP_commit_drift = SerialProbe.Id("R.commit_drift");
++        static readonly int SP_fix_degenerate = SerialProbe.Id("R.fix_degenerate");
++        static readonly int SP_fix_intersection = SerialProbe.Id("R.fix_intersection");
++        static readonly int SP_position_search = SerialProbe.Id("R.position_search");
++        static readonly int SP_try_collapse = SerialProbe.Id("R.try_collapse");
++        static readonly int SP_try_flip = SerialProbe.Id("R.try_flip");
++        static readonly int SP_try_zip = SerialProbe.Id("R.try_zip");
++        static readonly int SP_try_strip = SerialProbe.Id("R.try_strip");
++        static readonly int SP_try_move = SerialProbe.Id("R.try_move");
++        static readonly int SP_try_slide = SerialProbe.Id("R.try_slide");
++        static readonly int SP_separate_false_contacts = SerialProbe.Id("R.separate_false_contacts");
++        static readonly int SP_remove_contact_vertices = SerialProbe.Id("R.remove_contact_vertices");
++        static readonly int SP_false_contacts = SerialProbe.Id("R.false_contacts");
++        static readonly int SP_search_corners = SerialProbe.Id("R.search_corners");
++        static readonly int SP_intersecting_pairs_all = SerialProbe.Id("R.intersecting_pairs_all");
++        static readonly int SP_intersecting_pairs_of_changed = SerialProbe.Id("R.intersecting_pairs_of_changed");
++        static readonly int SP_component_scales = SerialProbe.Id("R.component_scales");
++        static readonly int SP_remove_tiny_components = SerialProbe.Id("R.remove_tiny_components");
++        static readonly int SP_check_all_bounds = SerialProbe.Id("R.check_all_bounds");
++        static readonly int SP_Apply = SerialProbe.Id("R.Apply");
++        static readonly int SP_try_separate = SerialProbe.Id("R.try_separate");
++        static readonly int SP_try_remove_vertex = SerialProbe.Id("R.try_remove_vertex");
++        static readonly int SP_zip_strip = SerialProbe.Id("R.zip_strip");
++        static readonly int SP_collapse_any = SerialProbe.Id("R.collapse_any");
++        static readonly int SP_ghosts = SerialProbe.Id("R.ghosts_proposed");
+         sealed class Ghost
+         {
+             public Index3i at;
+@@ -494,8 +526,9 @@ namespace g3
+         }
+ 
+         /// <summary> repair (see class comment); returns IsClean </summary>
++        public bool Apply() { long _sp0 = SerialProbe.T(); try { return Apply_p(); } finally { SerialProbe.E(SP_Apply, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        public bool Apply()
++        public bool Apply_p()
+         {
+             Collapses = Flips = Moves = Zips = StripZips = VertexRemovals = RemovedComponents = RemovedTriangles = 0;
+             PositionSearchMoves = 0;
+@@ -653,8 +686,9 @@ namespace g3
+ 
+ 
+         // the passes over the defects (see Apply), until one changes nothing
++        void repair_passes(ref List<Index2i> pairs, ref List<int> bad) { long _sp0 = SerialProbe.T(); try { repair_passes_p(ref pairs, ref bad); } finally { SerialProbe.E(SP_repair_passes, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        void repair_passes(ref List<Index2i> pairs, ref List<int> bad)
++        void repair_passes_p(ref List<Index2i> pairs, ref List<int> bad)
+         {
+             for (int pass = 0; pass < MaxPasses && SearchWithoutPasses == false && (pairs.Count > 0 || bad.Count > 0); ++pass) {
+                 int edits = Collapses + Flips + Moves + Zips;
+@@ -735,7 +769,8 @@ namespace g3
+         // largest component's diagonal, the same for all; only the ulp term is per component. Edits stay
+         // within one component (see the class comment), so the drift bound, and the proof of the Hausdorff bound, are per
+         // component
+-        void component_scales()
++        void component_scales() { long _sp0 = SerialProbe.T(); try { component_scales_p(); } finally { SerialProbe.E(SP_component_scales, _sp0); } }
++        void component_scales_p()
+         {
+             List<AxisAlignedBox3d> boxes = gs.MeshRepairMetrics.ComponentBoxes(Mesh, out componentOf);
+             int n = Math.Max(boxes.Count, 1);
+@@ -919,8 +954,9 @@ namespace g3
+ 
+         // ---- spatial queries ----
+ 
++        void rebuild_tree() { long _sp0 = SerialProbe.T(); try { rebuild_tree_p(); } finally { SerialProbe.E(SP_rebuild_tree, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        void rebuild_tree()
++        void rebuild_tree_p()
+         {
+             treeTids = new List<int>(Mesh.TriangleCount);
+             foreach (int tid in Mesh.TriangleIndices())
+@@ -959,8 +995,9 @@ namespace g3
+         }
+ 
+         // the current triangles whose box overlaps query (each once)
++        void near(AxisAlignedBox3d query, List<int> result) { long _sp0 = SerialProbe.T(); try { near_p(query, result); } finally { SerialProbe.E(SP_near, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        void near(AxisAlignedBox3d query, List<int> result)
++        void near_p(AxisAlignedBox3d query, List<int> result)
+         {
+             result.Clear();
+             // (the list overload: no list and no closure per query)
+@@ -1047,8 +1084,9 @@ namespace g3
+         // triangles are unchanged, and the pairs of the changed triangles (the same set as a full search: the
+         // intersection test of two unchanged triangles sees the same positions, and their shared vertices are the
+         // same, as canonical ids are equal exactly at equal positions)
++        List<Index2i> intersecting_pairs() { long _sp0 = SerialProbe.T(); try { return intersecting_pairs_p(); } finally { SerialProbe.E(SP_intersecting_pairs, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        List<Index2i> intersecting_pairs()
++        List<Index2i> intersecting_pairs_p()
+         {
+             if (dirty.Count > 0)
+                 rebuild_tree();
+@@ -1089,8 +1127,9 @@ namespace g3
+         // the intersecting pairs of the whole mesh (ta < tb, sorted); with skipExact, the pairs of two exact triangles of
+         // the start are not tested: they do not intersect beyond what they share (docs/design/ROUNDING_EXACT_PAIRS.md),
+         // so the result is the same
++        List<Index2i> intersecting_pairs_all(bool skipExact = true) { long _sp0 = SerialProbe.T(); try { return intersecting_pairs_all_p(skipExact); } finally { SerialProbe.E(SP_intersecting_pairs_all, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        List<Index2i> intersecting_pairs_all(bool skipExact = true)
++        List<Index2i> intersecting_pairs_all_p(bool skipExact = true)
+         {
+             int[] tris = treeTids.ToArray();
+             bool skip = skipExact && exactAtStart != null;
+@@ -1135,8 +1174,9 @@ namespace g3
+             return pairs;
+         }
+ 
++        List<Index2i> intersecting_pairs_of_changed() { long _sp0 = SerialProbe.T(); try { return intersecting_pairs_of_changed_p(); } finally { SerialProbe.E(SP_intersecting_pairs_of_changed, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        List<Index2i> intersecting_pairs_of_changed()
++        List<Index2i> intersecting_pairs_of_changed_p()
+         {
+             var pairs = new List<Index2i>();
+             foreach (Index2i p in lastPairs)
+@@ -1179,8 +1219,9 @@ namespace g3
+             return pairs;
+         }
+ 
++        List<int> degenerate_triangles() { long _sp0 = SerialProbe.T(); try { return degenerate_triangles_p(); } finally { SerialProbe.E(SP_degenerate_triangles, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        List<int> degenerate_triangles()
++        List<int> degenerate_triangles_p()
+         {
+             // (one block: a serial scan, without the marks)
+             if (triangle_blocks(Mesh) <= 1) {
+@@ -1270,7 +1311,8 @@ namespace g3
+         // that collapse (they become ghosts) and of the ghosts at the moved and the vanishing vertex, all at the new
+         // position. Any other edit: the largest bound of the removed triangles and of the ghosts it loses (those on a
+         // vertex or an edge that is none of the mesh afterwards), plus the edit's own bound, step
+-        double proposed_drift(double step)
++        double proposed_drift(double step) { long _sp0 = SerialProbe.T(); try { double r = proposed_drift_p(step); SerialProbe.Count(SP_ghosts, editGhosts.Count); return r; } finally { SerialProbe.E(SP_proposed_drift, _sp0); } }
++        double proposed_drift_p(double step)
+         {
+             editGhosts.Clear(); editLost.Clear();
+             editMoves = movedV >= 0;
+@@ -1352,8 +1394,9 @@ namespace g3
+ 
+         // (displacement: how far a vertex moves; surface, if hasSurface: a bound on how far the surface moves, for flips
+         // and zips)
++        bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, bool removesContact = false) { long _sp0 = SerialProbe.T(); try { return improves_p(displacement, surface, hasSurface, removesContact); } finally { SerialProbe.E(SP_improves, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool improves(double displacement = 0, double surface = 0, bool hasSurface = false, bool removesContact = false)
++        bool improves_p(double displacement = 0, double surface = 0, bool hasSurface = false, bool removesContact = false)
+         {
+             // the drift bound first (it does not count as an evaluation)
+             // (a bound that is NaN, eg from distances that overflow, rejects the edit)
+@@ -1554,7 +1597,8 @@ namespace g3
+         // ghosts of the vanishing vertex are now at the kept one. Any other edit: the added triangles (their ids in
+         // addedIds, set by the edit) get their corners now as anchors and the edit's drift as carried bound, and the
+         // lost ghosts are dropped (their bound is part of that drift)
+-        void commit_drift()
++        void commit_drift() { long _sp0 = SerialProbe.T(); try { commit_drift_p(); } finally { SerialProbe.E(SP_commit_drift, _sp0); } }
++        void commit_drift_p()
+         {
+             if (editMoves) {
+                 if (check) {
+@@ -1663,7 +1707,8 @@ namespace g3
+ 
+         // (check mode, after the edits) every bound of a triangle and of a ghost, recomputed from the mesh, is at most
+         // MaxDrift, and every ghost lies on a vertex or an edge of the mesh
+-        void check_all_bounds()
++        void check_all_bounds() { long _sp0 = SerialProbe.T(); try { check_all_bounds_p(); } finally { SerialProbe.E(SP_check_all_bounds, _sp0); } }
++        void check_all_bounds_p()
+         {
+             foreach (int t in Mesh.TriangleIndices()) {
+                 Index3i tv = Mesh.GetTriangle(t);
+@@ -1769,8 +1814,9 @@ namespace g3
+         }
+ 
+         // contract edge (a, b): b is kept, at position p
++        bool try_collapse(int a, int b, Vector3d p) { long _sp0 = SerialProbe.T(); try { return try_collapse_p(a, b, p); } finally { SerialProbe.E(SP_try_collapse, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool try_collapse(int a, int b, Vector3d p)
++        bool try_collapse_p(int a, int b, Vector3d p)
+         {
+             int eid = Mesh.FindEdge(a, b);
+             if (stopped || eid < 0 || collapse_keeps_boundary(a, b, eid, p) == false)
+@@ -1817,7 +1863,8 @@ namespace g3
+             return true;
+         }
+ 
+-        bool try_flip(int eid)
++        bool try_flip(int eid) { long _sp0 = SerialProbe.T(); try { return try_flip_p(eid); } finally { SerialProbe.E(SP_try_flip, _sp0); } }
++        bool try_flip_p(int eid)
+         {
+             if (stopped || Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+                 return false;
+@@ -1875,8 +1922,9 @@ namespace g3
+         // the segment split at the other apex, so that the two sides are zipped together. With the order a, c,
+         // d, b along the edge: N1 = (c, b, x) across (b, c) becomes (c, d, x), (d, b, x); N2 = (d, a, y) across
+         // (a, d) becomes (d, c, y), (c, a, y).
++        bool try_zip(int eid) { long _sp0 = SerialProbe.T(); try { return try_zip_p(eid); } finally { SerialProbe.E(SP_try_zip, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool try_zip(int eid)
++        bool try_zip_p(int eid)
+         {
+             if (stopped || Mesh.IsEdge(eid) == false || Mesh.IsBoundaryEdge(eid))
+                 return false;
+@@ -1965,8 +2013,9 @@ namespace g3
+         // share one chain, the vertices of both in their order along the segment; the strip's inner vertices are
+         // removed. Each outer triangle (r, p, x) across the loop edge (p, r) becomes (s1, p, x), (s2, s1, x), ...,
+         // (r, sm, x), with s1..sm the merged chain's vertices between p and r.
++        bool try_strip(int t0) { long _sp0 = SerialProbe.T(); try { return try_strip_p(t0); } finally { SerialProbe.E(SP_try_strip, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool try_strip(int t0)
++        bool try_strip_p(int t0)
+         {
+             // first along the line of t0's longest edge (its vertices within maxLength / 2 of it: a strip that branches
+             // is no disk with a monotone boundary, its branches are), then in all directions
+@@ -2037,8 +2086,9 @@ namespace g3
+         }
+ 
+         // zip the strip (see try_strip) if it is a disk with a monotone boundary and the edit improves
++        bool zip_strip(List<int> strip, out bool undone) { long _sp0 = SerialProbe.T(); try { return zip_strip_p(strip, out undone); } finally { SerialProbe.E(SP_zip_strip, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool zip_strip(List<int> strip, out bool undone)
++        bool zip_strip_p(List<int> strip, out bool undone)
+         {
+             undone = false;
+             var inStrip = new HashSet<int>(strip);
+@@ -2267,7 +2317,8 @@ namespace g3
+ 
+         // the positions with vertices of different exact points (PointIdF), each as its vertices in id order; in order
+         // of their smallest vertex id (deterministic)
+-        List<List<int>> false_contacts()
++        List<List<int>> false_contacts() { long _sp0 = SerialProbe.T(); try { return false_contacts_p(); } finally { SerialProbe.E(SP_false_contacts, _sp0); } }
++        List<List<int>> false_contacts_p()
+         {
+             var groups = new List<List<int>>();
+             foreach (List<int> list in atPosition.Values) {
+@@ -2298,7 +2349,8 @@ namespace g3
+         // eg an input point) is moved only as a fallback, where no vertex of the contact that is not fixed could be
+         // moved (its double is then no longer its exact point, by a few units in the last place: a contact counts as a
+         // defect, a moved input point does not). Returns the moves applied
+-        int separate_false_contacts()
++        int separate_false_contacts() { long _sp0 = SerialProbe.T(); try { return separate_false_contacts_p(); } finally { SerialProbe.E(SP_separate_false_contacts, _sp0); } }
++        int separate_false_contacts_p()
+         {
+             int moved = 0;
+             // a vertex whose moves all failed is not tried again (a later move elsewhere rarely frees it, and each try
+@@ -2341,7 +2393,8 @@ namespace g3
+             return moved;
+         }
+ 
+-        bool try_separate(int v)
++        bool try_separate(int v) { long _sp0 = SerialProbe.T(); try { return try_separate_p(v); } finally { SerialProbe.E(SP_try_separate, _sp0); } }
++        bool try_separate_p(int v)
+         {
+             Vector3d c = Mesh.GetVertex(v), ctr = Vector3d.Zero, n = Vector3d.Zero;
+             int k = 0;
+@@ -2376,8 +2429,9 @@ namespace g3
+ 
+         // the contact pass (see Apply): per group of vertices at one position (in the order of their smallest id), the
+         // first vertex of valence 3 whose removal improves; repeated while it removes some (at most once per vertex)
++        int remove_contact_vertices() { long _sp0 = SerialProbe.T(); try { return remove_contact_vertices_p(); } finally { SerialProbe.E(SP_remove_contact_vertices, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        int remove_contact_vertices()
++        int remove_contact_vertices_p()
+         {
+             int removedNow = 0;
+             for (bool again = true; again; ) {
+@@ -2404,8 +2458,9 @@ namespace g3
+         // remove u, a vertex of valence 3 with the triangles (u, a, b), (u, b, c), (u, c, a), by the triangle (a, b, c).
+         // How far the surface moves: with u moved to its nearest point q in (a, b, c), the three triangles tile (a, b, c)
+         // (q in the closed triangle), so the old and the new triangles are within dist(u, (a, b, c)) of each other
++        bool try_remove_vertex(int u) { long _sp0 = SerialProbe.T(); try { return try_remove_vertex_p(u); } finally { SerialProbe.E(SP_try_remove_vertex, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool try_remove_vertex(int u)
++        bool try_remove_vertex_p(int u)
+         {
+             if (Mesh.GetVtxEdgeCount(u) != 3 || Mesh.IsBoundaryVertex(u) || EvaluationLimitReached)
+                 return false;
+@@ -2492,8 +2547,9 @@ namespace g3
+         // move the boundary vertex v to s from its input position along one of its two boundary edges (not to or
+         // past their other ends). So that it stays on the input curve over several edits: only along an edge of the
+         // input boundary whose other end u is where it was, and towards the same u as before if v was slid already
++        bool try_slide(int v, double s) { long _sp0 = SerialProbe.T(); try { return try_slide_p(v, s); } finally { SerialProbe.E(SP_try_slide, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool try_slide(int v, double s)
++        bool try_slide_p(int v, double s)
+         {
+             Vector3d p;
+             if (stopped || Mesh.IsBowtieVertex(v) || inputBoundary.TryGetValue(v, out p) == false)
+@@ -2520,8 +2576,9 @@ namespace g3
+         }
+ 
+         // move v to p (a boundary vertex only by try_slide)
++        bool try_move(int v, Vector3d p, bool removesContact = false) { long _sp0 = SerialProbe.T(); try { return try_move_p(v, p, removesContact); } finally { SerialProbe.E(SP_try_move, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool try_move(int v, Vector3d p, bool removesContact = false)
++        bool try_move_p(int v, Vector3d p, bool removesContact = false)
+         {
+             if (p == Mesh.GetVertex(v) || double.IsNaN(p.x + p.y + p.z))
+                 return false;
+@@ -2563,8 +2620,9 @@ namespace g3
+ 
+         // contract one of the edges of the triangles (shortest first, at most maxLength), the kept vertex at
+         // a fixed end, else at either end or the midpoint
++        bool collapse_any(params int[] tids) { long _sp0 = SerialProbe.T(); try { return collapse_any_p(tids); } finally { SerialProbe.E(SP_collapse_any, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool collapse_any(params int[] tids)
++        bool collapse_any_p(params int[] tids)
+         {
+             var edges = new List<KeyValuePair<double, int>>();
+             foreach (int t in tids) {
+@@ -2597,8 +2655,9 @@ namespace g3
+             return false;
+         }
+ 
++        void fix_degenerate(int t) { long _sp0 = SerialProbe.T(); try { fix_degenerate_p(t); } finally { SerialProbe.E(SP_fix_degenerate, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        void fix_degenerate(int t)
++        void fix_degenerate_p(int t)
+         {
+             if (collapse_any(t))
+                 return;
+@@ -2704,8 +2763,9 @@ namespace g3
+         // after the passes: for each defect that is left (the degenerate triangles by id, then the intersecting pairs in
+         // their order, each at its first triangle), the search at its corners; returns the moves made. A move is
+         // accepted by improves like every edit, so it removes a defect and adds none
++        int position_search(List<int> bad, List<Index2i> pairs) { long _sp0 = SerialProbe.T(); try { return position_search_p(bad, pairs); } finally { SerialProbe.E(SP_position_search, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        int position_search(List<int> bad, List<Index2i> pairs)
++        int position_search_p(List<int> bad, List<Index2i> pairs)
+         {
+             int before = PositionSearchMoves;
+             searchFailed.Clear();
+@@ -2729,8 +2789,9 @@ namespace g3
+         // and no bowtie) by its room over 2^j, the smallest first, along one of the 26 directions: the first move that
+         // improves. At most 26 SearchSizes proposals per corner (at the effort limit try_move returns at once, and
+         // position_search goes to no further defect)
++        bool search_corners(int t) { long _sp0 = SerialProbe.T(); try { return search_corners_p(t); } finally { SerialProbe.E(SP_search_corners, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        bool search_corners(int t)
++        bool search_corners_p(int t)
+         {
+             Index3i tv = Mesh.GetTriangle(t);
+             for (int pass = 0; pass < 2; ++pass)
+@@ -2762,8 +2823,9 @@ namespace g3
+             return false;
+         }
+ 
++        void fix_intersection(int ta, int tb) { long _sp0 = SerialProbe.T(); try { fix_intersection_p(ta, tb); } finally { SerialProbe.E(SP_fix_intersection, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        void fix_intersection(int ta, int tb)
++        void fix_intersection_p(int ta, int tb)
+         {
+             if (collapse_any(ta, tb))
+                 return;
+@@ -2850,8 +2912,9 @@ namespace g3
+         }
+ 
+         // components with a degenerate triangle or an edited vertex that are tiny or thin
++        int remove_tiny_components(List<int> bad) { long _sp0 = SerialProbe.T(); try { return remove_tiny_components_p(bad); } finally { SerialProbe.E(SP_remove_tiny_components, _sp0); } }
+         [MethodImpl(JitHints.Optimize)]
+-        int remove_tiny_components(List<int> bad)
++        int remove_tiny_components_p(List<int> bad)
+         {
+             // (marks instead of hash sets; the components in the order of MeshConnectedComponents.FindConnectedT, each
+             // in its order, so the sums below are the same, bit for bit)
+diff --git a/mesh_ops/ExactMeshBoolean.cs b/mesh_ops/ExactMeshBoolean.cs
+index fd1d727..c39baa7 100644
+--- a/mesh_ops/ExactMeshBoolean.cs
++++ b/mesh_ops/ExactMeshBoolean.cs
+@@ -537,6 +537,7 @@ namespace g3
+             PhaseAllocatedBytes = new Dictionary<string, long>();
+             Counts = new Dictionary<string, long>();
+             var inputClock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
++            SerialProbe.MarkStart();
+             arr = null;
+             bounds.Clear();
+             windingTrees.Clear();
+@@ -582,6 +583,7 @@ namespace g3
+                 return fail(BooleanStatus.OpenInput, "input meshes must be closed (every edge used equally often in both directions)");
+ 
+             inputClock.Lap("input");
++            SerialProbe.Mark("X.input_lap");
+             if (Cancellation.IsCancellationRequested)
+                 return cancelled();
+             arr = new ExactMeshArrangement(inputs) { SelfIntersections = true, DisableFilters = DisableFilters, CandidateBatchSize = CandidateBatchSize,
+@@ -602,7 +604,9 @@ namespace g3
+                     arr.CullTest = cull_outside;
+                 }
+             }
++            long spA = SerialProbe.T();
+             arr.Compute();
++            SerialProbe.E(SerialProbe.Id("X.arr.Compute"), spA);
+             IntersectingPairs = arr.IntersectingPairs - arr.SelfIntersectingPairs;
+             SelfIntersectingPairs = arr.SelfIntersectingPairs;
+             foreach (var kv in arr.PhaseMilliseconds)
+@@ -677,6 +681,7 @@ namespace g3
+                 };
+                 Rounding.Apply();
+                 clock.Lap("rounding");
++                SerialProbe.MarkStart();
+                 if (Cancellation.IsCancellationRequested)
+                     return cancelled();
+                 Counts["rounding_intersections"] = Rounding.InitialIntersections;
+@@ -702,8 +707,11 @@ namespace g3
+                     return false;
+                 }
+             }
++            long spC = SerialProbe.T();
+             Contacts = count_contacts(Result);
++            SerialProbe.E(SerialProbe.Id("X.count_contacts"), spC);
+             Counts["contacts"] = Contacts;
++            SerialProbe.Mark("X.post_rounding (counts, contacts)");
+             Status = BooleanStatus.Success;
+             return true;
+         }
+@@ -1044,6 +1052,7 @@ namespace g3
+         {
+             List<ExactMeshArrangement.OutputTriangle> output = arr.Output;
+             int n = output.Count;
++            SerialProbe.MarkStart();
+             keep = new bool[n];
+             flip = new bool[n];
+ 
+@@ -1052,6 +1061,7 @@ namespace g3
+             var stack = new List<int>[n];
+             bool[] representative = new bool[n];
+             gParallel.ForRange(n, (i) => representative[i] = coplanar_stack(output[i], out stack[i]));
++            SerialProbe.Mark("C.1 stacks (par)");
+ 
+             // patches: pieces of one mesh connected across edges that are not on an intersection curve, with
+             // exactly two pieces of that mesh (then they are oriented consistently, the meshes are winding
+@@ -1062,6 +1072,7 @@ namespace g3
+             // the exact ray at one piece, is right for all of it
+             long[] edgeKeys; int[] edgeTri;
+             group_edges(n, (i) => new Index3i(output[i].A, output[i].B, output[i].C), out edgeKeys, out edgeTri);
++            SerialProbe.Mark("C.2 group_edges");
+             int[] parent = new int[n];
+             for (int i = 0; i < n; ++i)
+                 parent[i] = i;
+@@ -1101,6 +1112,7 @@ namespace g3
+                 }
+             }
+ 
++            SerialProbe.Mark("C.3 patch joins (serial union-find)");
+             // winding numbers in front of each patch, sparse (the nonzero ones, as pairs mesh, winding number):
+             // a closed mesh has winding number 0 outside its box, so only the meshes whose box contains the
+             // piece are evaluated. Computed in parallel from the first representative piece of each patch (in the
+@@ -1150,6 +1162,7 @@ namespace g3
+             for (int k = 0; k < openMeshes.Count; ++k)
+                 if (built[k] != null)
+                     windingTrees[openMeshes[k]] = built[k];
++            SerialProbe.Mark("C.4 open prep (serial)");
+             var closedTree = new TriangleBoxTree(closedBoxes);
+             var patchWinding = new int[n][];
+             var firsts = new List<int>();
+@@ -1174,6 +1187,7 @@ namespace g3
+                 int i = firsts[k];
+                 patchWinding[find_const(parent, i)] = patch_winding(i, stack[i], closedTree, noOpen, candidates);
+             });
++            SerialProbe.Mark("C.5 patch winding (par)");
+             if (Cancellation.IsCancellationRequested)
+                 return;
+             // the open meshes per piece: their generalized winding numbers vary continuously, also within a patch (a
+@@ -1243,6 +1257,7 @@ namespace g3
+                 }
+                 touched.Clear();
+             }
++            SerialProbe.Mark("C.6 open winding + decisions (serial)");
+         }
+ 
+         // the stack of piece ot (null if its source has no coplanar triangles that contain it), and whether the
+@@ -4660,6 +4675,7 @@ namespace g3
+         [MethodImpl(JitHints.Optimize)]
+         DMesh3 assemble(bool[] keep, bool[] flip)
+         {
++            SerialProbe.MarkStart();
+             var tris = new List<Index3i>(arr.Output.Count);
+             var source = new List<int>(arr.Output.Count);
+             var flipped = new List<bool>(arr.Output.Count);
+@@ -4676,6 +4692,7 @@ namespace g3
+             for (int m = 0; m < arr.VertexPoints.Length; ++m)
+                 foreach (int vid in arr.Meshes[m].VertexIndices())
+                     inputPoints[arr.Canonical(arr.VertexPoints[m][vid])] = true;
++            SerialProbe.Mark("A.1 gather kept pieces");
+             if (SimplifyFlatRegions) {
+                 // new points inside flat regions and on straight edges between them are not needed
+                 var clock = new PhaseClock(PhaseMilliseconds, PhaseAllocatedBytes);
+@@ -4685,6 +4702,7 @@ namespace g3
+                 RemovedVertices = simplify.Removed;
+                 clock.Lap("simplify");
+             }
++            SerialProbe.MarkStart();
+ 
+             // corner slots (3 per triangle) joined across the edges where the triangles are neighbours
+             int[] parent = new int[3 * tris.Count];
+@@ -4698,8 +4716,10 @@ namespace g3
+             // slot of point p in triangle t
+             Func<int, int, int> slot = (t, p) => slot_of(tris, t, p);
+ 
++            SerialProbe.Mark("A.2 corner slots");
+             long[] edgeKeys; int[] edgeTri;
+             group_edges(tris.Count, (t) => tris[t], out edgeKeys, out edgeTri);
++            SerialProbe.Mark("A.3 group_edges");
+             var list = new List<int>();
+             // the pairs at the edges with more than two pieces
+             var nonManifold = new List<KeyValuePair<long, List<KeyValuePair<int, int>>>>();
+@@ -4735,6 +4755,7 @@ namespace g3
+                 }
+             }
+ 
++            SerialProbe.Mark("A.4 edge pairing (serial union-find)");
+             // coordinates of the points used (rounded from the exact points, in parallel)
+             var used = new List<int>();
+             var usedIndex = new int[inputPoints.Length];
+@@ -4746,7 +4767,9 @@ namespace g3
+                         usedIndex[t[k]] = used.Count;
+                         used.Add(t[k]);
+                     }
++            SerialProbe.Mark("A.5 used points");
+             Vector3d[] coords = arr.PointsToVectors(used);
++            SerialProbe.Mark("A.6 PointsToVectors (par)");
+ 
+             // vertices: one per class of corner slots
+             DMesh3 result = new DMesh3();
+@@ -4770,6 +4793,7 @@ namespace g3
+                 }
+             }
+ 
++            SerialProbe.Mark("A.7 vertices");
+             // where the solid touches itself along an edge and its surface is connected around both ends, the pairs
+             // at the edge get the same two vertices (the ends cannot be duplicated), which would give an edge with
+             // more than two triangles: then the edge is split for each pair at a new vertex of its own (at the
+@@ -4826,6 +4850,7 @@ namespace g3
+             // Without edges of more than two pieces and without two pieces running an edge the same way, no triangle runs
+             // an edge of the mesh the same way as the triangle already there (the vertices of an edge are those of
+             // one pair of pieces), so append_triangle's checks before AppendTriangle cannot fail: skipped
++            SerialProbe.Mark("A.8 non-manifold splits");
+             bool simple = NonManifoldEdges == 0 && ConflictEdges == 0;
+             var poly = new List<int>();
+             for (int t = 0; t < tris.Count; ++t) {
+@@ -4850,6 +4875,7 @@ namespace g3
+                     append_triangle(result, poly[first], poly[(first + j) % n], poly[(first + j + 1) % n], vertexPoint);
+             }
+ 
++            SerialProbe.Mark("A.9 append triangles");
+             // with an open input, the per-piece classification (front_generalized_winding) can keep pieces whose fans
+             // around a vertex meet only at the vertex (the kept region's boundary, {w = 1/2}, does not run along mesh
+             // edges): each such vertex gets one copy per fan, so that the result is a valid mesh without bowties
+@@ -4877,6 +4903,7 @@ namespace g3
+                     resultPointId[vid] = id;
+                 }
+             }
++            SerialProbe.Mark("A.10 fixed / point ids");
+             ResultExactVertices = null;
+             if (ComputeExactVertices) {
+                 var exact = new ExactPoint3[vertexPoint.Count];
+diff --git a/mesh_ops/ExactMeshArrangement.cs b/mesh_ops/ExactMeshArrangement.cs
+index db784dd..17d738c 100644
+--- a/mesh_ops/ExactMeshArrangement.cs
++++ b/mesh_ops/ExactMeshArrangement.cs
+@@ -2234,7 +2234,7 @@ namespace g3
+         internal bool KeepCandidatePairs = false;
+         internal List<long> CandidatePairList;
+         /// <summary> for tests: the number of work items the self-join is split into (at least) </summary>
+-        internal int SelfJoinTasks = 256;
++        internal int SelfJoinTasks = int.Parse(Environment.GetEnvironmentVariable("G3_SELF_TASKS") ?? "256");
+ 
+         // all corners of one triangle strictly on one side of the other's plane (exact double predicates)
+         [MethodImpl(JitHints.Optimize)]
+diff --git a/benchmarks/BooleanComparison/Profile.cs b/benchmarks/BooleanComparison/Profile.cs
+index 68b4109..e2560f8 100644
+--- a/benchmarks/BooleanComparison/Profile.cs
++++ b/benchmarks/BooleanComparison/Profile.cs
+@@ -112,6 +112,7 @@ static class Profile
+                     GC.WaitForPendingFinalizers();
+                     GC.Collect();
+                     PredicateStats.Reset();
++                    SerialProbe.Reset();
+                     int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
+                     TimeSpan pause0 = NetCompat.GcPause();
+                     long alloc0 = NetCompat.AllocatedBytes();
+@@ -163,6 +164,9 @@ static class Profile
+                         best["rounding_clean"] = boolean.RoundingClean;
+                         best["rounding_limit"] = boolean.Rounding.EvaluationLimitReached;
+                     }
++                    if (SerialProbe.On)
++                        best["probe"] = SerialProbe.Snapshot().ToDictionary(kv => kv.Key, kv => (object)new Dictionary<string, object> {
++                            ["ms"] = Math.Round(kv.Value[0], 2), ["n"] = kv.Value[1], ["cpu_ms"] = Math.Round(kv.Value[2], 2), ["phase"] = SerialProbe.PhaseOf(kv.Key) });
+                     if (stats.Count > 0)
+                         best["predicates"] = stats;
+                     if (error != null)

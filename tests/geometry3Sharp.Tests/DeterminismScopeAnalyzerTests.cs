@@ -178,6 +178,143 @@ namespace geometry3Sharp.Tests
             Assert.All(d, x => Assert.Equal("Kernel.cs", x.Location.SourceTree.FilePath));
         }
 
+        // a member of this assembly outside the scope is pinned to the declaration that was reviewed: [body:h]
+        [Fact]
+        public void OwnMembersOutsideTheScope_ArePinnedToTheirReviewedDeclaration()
+        {
+            const string library = "public struct V { public double X; public static V operator +(V a, V b) { a.X += b.X; return a; } }";
+            const string source = "static class C { static V M(V a) { return a + a; } }";
+            ISymbol op = DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, library));
+            string h = DeterminismScopeAnalyzer.BodyHash(op);
+            Assert.Matches("^[0-9a-f]{16}$", h);
+            // (the operator reads X: by the closure rule X is listed and pinned too)
+            string x = "\nF:V.X ; [body:" + DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("F:V.X", Compile(source, true, library))) + "] storage";
+            Func<string, List<Diagnostic>> unused = list => Analyze(source, list + x, library: library).Where(d => d.Id == DeterminismScopeAnalyzer.UnusedId).ToList();
+            // without a tag, and with a wrong one: reported, with the hash to pin
+            Assert.Contains(unused("M:V.op_Addition(V,V) ; componentwise +"), x => x.GetMessage().Contains("[body:" + h + "]"));
+            Assert.Contains(unused("M:V.op_Addition(V,V) ; [body:0000000000000000] componentwise +"), x => x.GetMessage().Contains("changed since its review"));
+            Assert.Empty(unused("M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +"));
+            // a re-indent keeps the hash, a changed body does not (and a BCL entry needs no tag)
+            // (white space within a line; a changed line structure is a change, BodyHash_CanonicalText_AndAKnownAnswer)
+            string reindented = library.Replace("{ a.X += b.X; return a; }", "{   a.X +=\tb.X;  return a; }");
+            Assert.Equal(h, DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, reindented))));
+            string changed = library.Replace("a.X += b.X", "a.X -= b.X");
+            Assert.NotEqual(h, DeterminismScopeAnalyzer.BodyHash(DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.op_Addition(V,V)", Compile(source, true, changed))));
+            Assert.Contains(Analyze(source, "M:V.op_Addition(V,V) ; [body:" + h + "] componentwise +" + x, library: changed),
+                x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("changed since its review"));
+            Assert.Empty(Analyze(Usings + "static class C { static double M(double x) { return Math.Sqrt(x); } }", "M:System.Math.Sqrt(System.Double) ; IEEE"));
+        }
+
+        static ISymbol Lib(string library, string id)
+        {
+            return DocumentationCommentId.GetFirstSymbolForDeclarationId(id, Compile("static class C { }", true, library));
+        }
+
+        // the canonical text: tokens verbatim, a line break as one line break, indentation and spacing as one space
+        [Fact]
+        public void BodyHash_CanonicalText_AndAKnownAnswer()
+        {
+            const string op = "public struct V { public double X; public static V operator +(V a, V b) {\r\n        a.X  +=  b.X; // sum\r\n        return a;\r\n    } }";
+            SyntaxNode decl = Lib(op, "M:V.op_Addition(V,V)").DeclaringSyntaxReferences[0].GetSyntax();
+            Assert.Equal("public static V operator +(V a, V b) {\na.X += b.X; // sum\nreturn a;\n}", DeterminismScopeAnalyzer.Canonical(decl));
+            // (FNV-1a 64 of that text, computed independently in Python: the hash is the same on every runtime and its algorithm is pinned)
+            Assert.Equal("c5e9b5f906a3d688", DeterminismScopeAnalyzer.BodyHash(Lib(op, "M:V.op_Addition(V,V)")));
+            // LF checkout and another indentation: the same; a joined line (the comment now swallows the statement): not
+            Assert.Equal(DeterminismScopeAnalyzer.BodyHash(Lib(op, "M:V.op_Addition(V,V)")),
+                DeterminismScopeAnalyzer.BodyHash(Lib(op.Replace("\r\n", "\n").Replace("        ", "\t"), "M:V.op_Addition(V,V)")));
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(op, "M:V.op_Addition(V,V)")),
+                DeterminismScopeAnalyzer.BodyHash(Lib(op.Replace("// sum\r\n        return a;", "// sum return a;\r\n return a;"), "M:V.op_Addition(V,V)")));
+            // spaces inside a string literal count; spaces between tokens do not, but a missing one between two tokens does
+            const string str = "public struct S { public override string ToString() { return string.Format(\"{0} {1}\", 1, 2); } }";
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(str, "M:S.ToString")), DeterminismScopeAnalyzer.BodyHash(Lib(str.Replace("{0} {1}", "{0}  {1}"), "M:S.ToString")));
+            const string neg = "public static class N { public static int F(int x, int y) { return x - -y; } }";
+            Assert.Contains("return x - -y;", DeterminismScopeAnalyzer.Canonical(Lib(neg, "M:N.F(System.Int32,System.Int32)").DeclaringSyntaxReferences[0].GetSyntax()));
+        }
+
+        // a field is pinned with its whole field declaration (all its declarators, its type and initializer)
+        [Fact]
+        public void BodyHash_FieldsTakeTheirWholeDeclaration()
+        {
+            const string f = "public struct P { public double X, Y; }";
+            Assert.Equal(DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.X")), DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.Y")));
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.X")), DeterminismScopeAnalyzer.BodyHash(Lib(f.Replace("X, Y", "X, Y2"), "F:P.X")));
+            Assert.NotEqual(DeterminismScopeAnalyzer.BodyHash(Lib(f, "F:P.X")), DeterminismScopeAnalyzer.BodyHash(Lib(f.Replace("double", "float"), "F:P.X")));
+        }
+
+        // closure: a pinned declaration may use members of this assembly outside the scope only if they are listed too
+        [Fact]
+        public void PinnedDeclarations_UseOnlyListedMembers()
+        {
+            const string library = "public struct V { public double X; public static double Twice(double a) { return a * 2; } public double T() { return Twice(X); } }";
+            const string source = "static class C { static double M(V a) { return a.T(); } }";
+            Func<string, string> pin = id => "[body:" + DeterminismScopeAnalyzer.BodyHash(Lib(library, id)) + "]";
+            string list = "M:V.T ; " + pin("M:V.T") + " calls Twice";
+            var d = Analyze(source, list, library: library).Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId).ToList();
+            Assert.Contains(d, x => x.GetMessage().Contains("'M:V.Twice(System.Double)', which is not on the list"));
+            Assert.Contains(d, x => x.GetMessage().Contains("'F:V.X', which is not on the list"));
+            // listed and pinned: clean, and counted as used (the scope does not call Twice itself)
+            list += "\nM:V.Twice(System.Double) ; " + pin("M:V.Twice(System.Double)") + " a * 2\nF:V.X ; " + pin("F:V.X") + " storage";
+            Assert.Empty(Analyze(source, list, library: library));
+        }
+
+        // the closure sees what the operations use beyond the symbols of the expressions: a user-defined implicit
+        // conversion, the Deconstruct of a positional pattern; and reports each member once
+        [Fact]
+        public void PinnedDeclarations_Closure_CoversImplicitConversionsAndPatterns()
+        {
+            const string library = @"public struct W { public double Y;
+                public static implicit operator V(W w) { V v; v.X = w.Y; return v; }
+                public void Deconstruct(out double a, out double b) { a = Y; b = Y; } }
+            public struct V { public double X;
+                public double T(W w) { V v = w; if (w is (var p, var q)) return v.X + X + p + q; return w.Y + w.Y; } }";
+            const string source = "static class C { static double M(V a, W w) { return a.T(w); } }";
+            string list = "M:V.T(W) ; [body:" + DeterminismScopeAnalyzer.BodyHash(Lib(library, "M:V.T(W)")) + "] x\nF:V.X ; [body:"
+                + DeterminismScopeAnalyzer.BodyHash(Lib(library, "F:V.X")) + "] storage";
+            var d = Analyze(source, list, library: library).Where(x => x.Id == DeterminismScopeAnalyzer.UnusedId).Select(x => x.GetMessage()).ToList();
+            Assert.Single(d, x => x.Contains("'M:W.op_Implicit(W)~V', which is not on the list"));
+            Assert.Single(d, x => x.Contains("'M:W.Deconstruct(System.Double@,System.Double@)', which is not on the list"));
+            Assert.Single(d, x => x.Contains("'F:W.Y', which is not on the list"));
+            Assert.Equal(3, d.Count);
+        }
+
+        // an #if in a pinned declaration (around a leading attribute, and in the body): the same text and hash whichever
+        // branch the target compiles; a change in either branch changes it on both targets
+        [Fact]
+        public void BodyHash_TheSameWhicheverBranchTheTargetCompiles()
+        {
+            const string library = @"public struct V { public double X;
+#if NET
+            [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+#endif
+            public double T() {
+#if NET
+                return X  *  2; /* net
+                     branch */
+#else
+                return X + X; // portable
+#endif
+            } }";
+            Func<string, bool, ISymbol> t = (lib, net) => DocumentationCommentId.GetFirstSymbolForDeclarationId("M:V.T", Compile("static class C { }", net, lib));
+            string canonical = DeterminismScopeAnalyzer.Canonical(t(library, true).DeclaringSyntaxReferences[0].GetSyntax());
+            Assert.Equal(canonical, DeterminismScopeAnalyzer.Canonical(t(library, false).DeclaringSyntaxReferences[0].GetSyntax()));
+            Assert.StartsWith("#if NET\n[System.Runtime", canonical);
+            Assert.Contains("return X * 2; /* net\n                     branch */\n#else\nreturn X + X; // portable\n#endif", canonical);
+            string h = DeterminismScopeAnalyzer.BodyHash(t(library, true));
+            Assert.Equal(h, DeterminismScopeAnalyzer.BodyHash(t(library, false)));
+            foreach (string changed in new[] { library.Replace("X + X", "X - X"), library.Replace("X  *  2", "X * 3"), library.Replace("AggressiveInlining", "NoInlining") })
+                foreach (bool net in new[] { true, false })
+                    Assert.NotEqual(h, DeterminismScopeAnalyzer.BodyHash(t(changed, net)));
+        }
+
+        [Fact]
+        public void BodyTags_OnlyOnTheLibrarysMembers_AndOnce()
+        {
+            string source = Usings + "static class C { static double M(double x) { return Math.Sqrt(x); } }";
+            Assert.Contains(Analyze(source, "M:System.Math.Sqrt(System.Double) ; [body:0123456789abcdef] IEEE"), x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("pins declarations of this assembly only"));
+            Assert.Contains(Analyze(source, "M:System.Math.Sqrt(System.Double) ; [body:0123456789abcdef][body:0123456789abcdee] IEEE"), x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("two [body:] tags"));
+            Assert.Contains(Analyze(source, "M:System.Math.Sqrt(System.Double) ; [body:0123456789ABCDEF] IEEE"), x => x.Id == DeterminismScopeAnalyzer.UnusedId && x.GetMessage().Contains("unknown tag"));
+        }
+
         // arrays are lowered to an index loop: no enumerator member is used
         [Fact]
         public void ForEachOverAnArray_UsesNoMember()
@@ -263,6 +400,64 @@ namespace geometry3Sharp.Tests
             string source = "static class C { static int A() {\n#if NET\n return 1;\n#elif DEBUG\n return 2;\n#else\n return 3;\n#endif\n} }";
             Assert.Equal("2", Analyze(source, "").First(x => x.Id == DeterminismScopeAnalyzer.ConditionalId).Properties[DeterminismScopeAnalyzer.CountProperty]);
             Assert.Empty(Analyze(source, "if M:C.A ; 2 ; T.A ; x"));
+        }
+
+        // an #if around whole members belongs to the first member after the block, and an #if around an attribute to its
+        // member: the same on every target, although the disabled members do not exist on one of them
+        [Fact]
+        public void ConditionalBlocks_BelongToTheSameMember_OnEveryTarget()
+        {
+            const string source = @"static class C {
+#if NET
+            static int Helper() { return 1; }
+#endif
+            static int A() { return 0; }
+#if NET
+            [System.Runtime.CompilerServices.SkipLocalsInit]
+#endif
+            static int B() { return 0; }
+        }";
+            const string list = "M:System.Runtime.CompilerServices.SkipLocalsInitAttribute.#ctor ; [NET] x\nskiplocalsinit M:C.B ; x\n";
+            foreach (bool net in new[] { true, false })
+                Assert.Equal(new[] { "M:C.A", "M:C.B" }, Ids(Analyze(source, list, net), DeterminismScopeAnalyzer.ConditionalId).OrderBy(x => x, StringComparer.Ordinal));
+        }
+
+        // whole members under an #if hold no block (they do not exist on every target): two such blocks in a row, and an
+        // #if inside a conditional member, belong to the member after them; an #if in a body stays with its member
+        [Fact]
+        public void ConditionalBlocks_InsideConditionalMembers_BelongToTheMemberAfterThem()
+        {
+            const string source = @"static class C {
+#if NET
+            static int A() { return 1; }
+#endif
+#if NET
+            static int B() { return 2; }
+#endif
+            static int D() { return 0; }
+#if NET
+            static int H() {
+#if DEBUG
+                return 3;
+#else
+                return 4;
+#endif
+            }
+#endif
+            static int M() {
+#if NET
+                return 5;
+#endif
+                return 6;
+            }
+            static int Z() { return 0; }
+        }";
+            foreach (bool net in new[] { true, false }) {
+                var d = Analyze(source, "", net).Where(x => x.Id == DeterminismScopeAnalyzer.ConditionalId).ToList();
+                Assert.Equal(2, d.Count(x => x.GetMessage().Contains("'M:C.D'")));
+                Assert.Equal(3, d.Count(x => x.GetMessage().Contains("'M:C.M'")));
+                Assert.Equal(5, d.Count);
+            }
         }
 
         // ---- G3D0007: directives that switch rules off or change what is compiled ----
@@ -434,6 +629,8 @@ namespace geometry3Sharp.Tests
             foreach (DeterministicApiList.Entry e in list.Entries.Values) {
                 ISymbol s = DocumentationCommentId.GetSymbolsForDeclarationId(e.Id, c).FirstOrDefault();
                 Assert.True(s != null, "no symbol for " + e.Id);
+                // (the library's own members carry the hash of their reviewed declaration; the build checks it)
+                Assert.True((e.Id.Substring(2).StartsWith("g3.", StringComparison.Ordinal)) == (e.Body != null), e.Id);
                 Assert.True(e.Reason.Length >= 5, e.Id);
             }
             var tests = typeof(DeterminismScopeAnalyzerTests).Assembly.GetTypes()
@@ -465,7 +662,8 @@ namespace geometry3Sharp.Tests
         /// <summary> the kernel files of stage 0 (issue 859); a file missing from the .editorconfig section falls out of the proof </summary>
         public static readonly string[] Kernel = {
             "math/ExactIntervals.cs", "math/ExactPoint3.cs", "math/ExactPredicates.cs", "math/ExactRayTriangle.cs", "math/ExactSlopeKernel.cs",
-            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/Generated/IndirectPredicates.cs",
+            "math/ExactSlopePredicates.cs", "math/AdaptivePredicates.cs", "math/FixedPoint3.cs", "math/ExactLimbSigns.cs", "math/Generated/IndirectPredicates.cs",
+            "math/Generated/DoublePredicates.cs",
             "intersection/ExactTriangleIntersection.cs", "intersection/TriangleTriangleFilter.cs" };
 
         static readonly string[] ScopeRules = { DeterminismScopeAnalyzer.ApiId, DeterminismScopeAnalyzer.RestrictedId, DeterminismScopeAnalyzer.ConditionalId,

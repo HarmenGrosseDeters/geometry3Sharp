@@ -399,7 +399,7 @@ namespace g3
         public Vector2d SampleT(double t)
         {
             int N = Polyline.VertexCount;
-            int i = (int)Math.Floor(t);
+            int i = MathUtil.FloorToIntSaturating(t);
             if (i < 0)
                 return Polyline[0];
             if (i >= N - 1)
@@ -412,7 +412,7 @@ namespace g3
         public Vector2d TangentT(double t)
         {
             int N = Polyline.VertexCount;
-            int i = MathUtil.Clamp((int)Math.Floor(t), 0, N - 2);
+            int i = MathUtil.Clamp(MathUtil.FloorToIntSaturating(t), 0, N - 2);
             return (Polyline[i + 1] - Polyline[i]).Normalized;
         }
 

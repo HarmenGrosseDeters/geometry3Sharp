@@ -432,6 +432,7 @@ namespace g3
                 var collapsedBySnapping = grid != null ? SegmentsWithoutArea() : null;
                 CarveOutside();
                 firstSteiner = k.VertexCount;
+                b.RefinementStart = firstSteiner;
                 k.Dirty = new List<int>();
                 QueueAll();
                 // steps: dequeues, for the cancellation check; work: the dequeues that split or try to (the defect cap counts these)
@@ -534,7 +535,7 @@ namespace g3
                         // each hull edge its own source with its coordinates, so that splits are computed on the original edge
                         // e runs along the ghost, the domain on its right: stored reversed, the domain is on the left of A -> B
                         int a0 = k.V[Next(e)], b0 = k.V[e];
-                        b.sources.Add(new ConstrainedDelaunayMesh2.Source { Ring = -1, Hull = true, AX = k.X[a0], AY = k.Y[a0], BX = k.X[b0], BY = k.Y[b0], VA = a0, VB = b0 });
+                        b.sources.Add(new ConstrainedDelaunayMesh2.Source { Ring = -1, Hull = true, AX = k.X[a0], AY = k.Y[a0], BX = k.X[b0], BY = k.Y[b0], VA = a0, VB = b0, Input = -1 });
                         pieces.Add(new ConstrainedDelaunayMesh2.Builder.Piece { U = a0, W = b0, Sources = new List<int> { b.sources.Count - 1 } });
                     }
                 }
@@ -1171,7 +1172,7 @@ namespace g3
                 for (long dx = -1; dx <= 1; ++dx) for (long dy = -1; dy <= 1; ++dy) seenPixels.Add((kx + dx, ky + dy));
                 var wider = new List<(double d, Vector2d c)>();
                 double span = Math.Abs(tw - tu) * Math.Sqrt(dir.LengthSquared);
-                int samples = (int)Math.Min(256, Math.Max(2, Math.Ceiling(2 * span / grid.W)));
+                int samples = MathUtil.ToIntSaturating(Math.Min(256, Math.Max(2, Math.Ceiling(2 * span / grid.W))));
                 for (int i = 1; i < samples; ++i) {
                     var sp = A + dir * (tu + (tw - tu) * i / samples);
                     long sx = grid.Pixel(sp.x), sy = grid.Pixel(sp.y);

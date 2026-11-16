@@ -690,5 +690,47 @@ namespace geometry3Sharp.Tests
             // and truly parallel ones do not cross
             Assert.Equal(-1, K.Crossing(l1, K.PointLine(new Vector2d(0, 1), new Vector2d(1, 2))));
         }
+
+        // survivors of the terrain-kernel shard (mutation run 535, 2026-11-14)
+
+        // the crossing of two lines is one vertex, in either order of the lines (the cache key orders the pair)
+        [Fact]
+        public void Crossing_IsTheSameVertexInEitherOrder()
+        {
+            var k = new ExactSlopeKernel();
+            int a = k.PointLine(new Vector2d(0, 0), new Vector2d(1, 0)), b = k.PointLine(new Vector2d(0, -1), new Vector2d(1, 2));
+            int v = k.Crossing(a, b);
+            Assert.Equal(v, k.Crossing(b, a));
+            Assert.Equal(v, k.Crossing(a, b));
+            Assert.True(k.IsAt(v, new Vector2d(1.0 / 3, 0)) == false);    // (1/3 is not a double: the exact crossing is not at it)
+        }
+
+        // two crossings with the same rounded x but different exact x: CompareXY orders them by the exact values
+        [Fact]
+        public void CompareXY_SameRoundedX_UsesTheExactValues()
+        {
+            var k = new ExactSlopeKernel();
+            int h = k.PointLine(new Vector2d(0, 0), new Vector2d(1, 0));
+            double a1 = Math.Pow(2, 40), b1 = Math.Pow(2, 41) - 1, a2 = Math.Pow(2, 41) + 1, b2 = Math.Pow(2, 42);
+            // x = a / (a + b) on y = 0: 2^40 / (3 2^40 - 1) > (2^41 + 1) / (3 2^41 + 1), both rounding to the same double
+            int p = k.Crossing(h, k.PointLine(new Vector2d(0, -a1), new Vector2d(1, b1)));
+            int q = k.Crossing(h, k.PointLine(new Vector2d(0, -a2), new Vector2d(1, b2)));
+            Assert.Equal(1, k.CompareXY(p, q));
+            Assert.Equal(-1, k.CompareXY(q, p));
+            Assert.Equal(k.Rounded(p).x, k.Rounded(q).x);
+        }
+
+        // IsAt of a crossing of lines that are not the kernel's first line (L1 > 0): decided by the exact position
+        [Fact]
+        public void IsAt_CrossingOfLaterLines()
+        {
+            var k = new ExactSlopeKernel();
+            k.PointLine(new Vector2d(5, 5), new Vector2d(6, 7));
+            int a = k.PointLine(new Vector2d(0, 0), new Vector2d(4, 0)), b = k.PointLine(new Vector2d(1, -1), new Vector2d(1, 1));
+            int v = k.Crossing(a, b);
+            Assert.True(k.IsAt(v, new Vector2d(1, 0)));
+            Assert.False(k.IsAt(v, new Vector2d(1, 1e-300)));
+            Assert.False(k.IsAt(v, new Vector2d(0, 0)));
+        }
     }
 }

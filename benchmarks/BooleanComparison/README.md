@@ -743,6 +743,71 @@ Thingi10K cohort models × 3 operations, 4 cores, best of 2 rounds, all result h
 | 668056 / 668057 union | 6.5 / 6.0 s | 4.9 / 5.1 s |
 | 519511 union | 36.4 s | 28.4 s |
 
+## Thread scaling: the tree build threshold (November 2026)
+
+`TriangleBoxTree` builds its tree (Morton codes, the sort, the nodes) in parallel from `ParallelBuildFrom` boxes on, to the same tree as the serial build
+(node for node, `BoxTreeParallelBuildTests`). The threshold was 262 144, so the trees of every operand of 1k-100k triangles (the input trees of the
+arrangement and SafeRounding's tree of the result) were built serially: 17 % of the 4-thread time of the T6 set
+([docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md)). It is now 8192 (above the median split's 4096 boxes, which stays serial).
+Callers of the constant: the constructor (the build and the copy of the leaf boxes), `morton_order` and `sort_codes` (only reached for trees above the median split);
+the trees of fewer than 8192 boxes, among them every small dirty tree of SafeRounding, are unchanged.
+
+A/B on the T6 set (98 pairs, 294 booleans, SafeRounding on, warm, `profile --repeat 2`, the faster run per boolean, sums), the thresholds interleaved in
+3 rounds (order reversed in round 2), 4-vCPU container; `--tree-parallel-from <n>` sets the threshold; raw rows
+[perf/tree_threshold_2026-11-15/](perf/tree_threshold_2026-11-15/):
+
+| threads | threshold | totals of the 3 rounds (ms) | mean | against 262144 | trees phase | rounding phase |
+|---|---|---|---|---|---|---|
+| 1 | 262144 (before) | 35715 / 36711 / 34792 | 35739 | – | 2135 | 7535 |
+| 1 | 8192 | 34928 / 34992 / 35160 | 35027 | −2.0 % | 2078 | 7383 |
+| 1 | 4096 (effective 4097) | 36690 / 34574 / 35639 | 35634 | −0.3 % | 2047 | 7525 |
+| 4 | 262144 (before) | 20073 / 18570 / 18983 | 19209 | – | 1684 | 4121 |
+| 4 | **8192** | 18619 / 18370 / 18066 | 18352 | **−4.5 %** | 998 | 3726 |
+| 4 | 4096 (effective 4097) | 18841 / 18518 / 17795 | 18385 | −4.3 % | 988 | 3797 |
+
+At 1 thread the difference is noise (±3 %); at 4 threads the trees phase falls by 41 % and the rounding by 10 %, the whole by 4.5 %. 8192 and 4097 do not differ; 8192
+is kept (smaller trees gain little from the parallel build). All 18 files give the same result hash for every one of the 294 booleans (1 and 4 threads, three thresholds).
+
+The re-check against #837's case set (37 unions of the extreme-runtime study, thresholds 262144 / 16384 / 8192, 4 and 1 threads, 3 interleaved rounds): rows `perf/tree_threshold_2026-11-15/rerun_837_variants_2026-11-15.jsonl.gz`, tables by `python3 perf/rerun_837_report.py <rows>` (classification does not slow down: −0.1 % at 8192, 4 threads; the details are in the PR body of #956).
+
+## Thread scaling on the T6 set (`perf/thread_scaling.ps1`)
+
+The question: what limits the speedup of `ExactMeshBoolean` with the number of threads (the analysis and the lever list:
+[docs/perf/BOOLEAN_THREAD_SCALING.md](../../docs/perf/BOOLEAN_THREAD_SCALING.md)). `perf/thread_scaling.ps1` runs the T6 case set (the 98 pairs of
+`perf/t6.py`, 294 booleans, SafeRounding on) or the three cases with the largest rounding time in the earlier cold measurement (`-Set three`: p0466_203344+80414, p0861_80557+285607,
+p0974_97674+472023) at 1, 2, 4, 8 and 12 threads on net10.0 (and net48, Windows only), the combinations alternated round by round, and writes
+the phase times and the result hashes to CSV. Thingi10K is fetched at run time (about 300 MB, outside the repository); the script needs `python3`
+(or `python`) and the .NET 10 SDK, in Windows PowerShell 5.1 or PowerShell 7.
+
+```powershell
+# the plan and the exact commands, nothing runs
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -DryRun
+# a short check of the setup: 3 cases, 1 round (fetches the models, builds, exports the cases)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set three -Rounds 1 -Limit 3 -ThreadCounts 1,2
+# the run: T6 and the three cases, 1/2/4/8/12 threads, 3 rounds (a long run, the first 4-core container run of one round took 15 minutes; not resumable)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set t6,three -Rounds 3 -OutDir D:\scaling
+# net48 as well (builds with -p:BenchNet48=true)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -Set t6 -Runtimes net10.0,net48 -Rounds 3 -OutDir D:\scaling48
+# one physical core per thread on a machine with SMT (up to 6 threads on a 6-core / 12-thread CPU)
+.\benchmarks\BooleanComparison\perf\thread_scaling.ps1 -ThreadCounts 1,2,4,6 -Stride 2
+```
+
+Output in `-OutDir`: `runs.csv` (one row per process), `cases.csv` (best time and hash of each boolean), `phases.csv` (phase times of the fastest run of
+each boolean), `summary.csv` (sum of the best times per thread count, speedup, efficiency), `raw\*.jsonl`, `settings.json`. The exit code is 1 if
+a run failed or one boolean has two different hashes over all threads, runtimes and rounds (the drift check; the hash covers vertex ids, coordinates
+and triangles). Phase tables and the Amdahl bounds from the raw rows:
+
+```powershell
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --bound 1=D:\scaling\raw\t6_net10.0_t1_r1.jsonl,D:\scaling\raw\t6_net10.0_t1_r2.jsonl 4=D:\scaling\raw\t6_net10.0_t4_r1.jsonl 12=D:\scaling\raw\t6_net10.0_t12_r1.jsonl
+python3 benchmarks/BooleanComparison/perf/scaling_report.py --hashes 1=...\t6_net10.0_t1_r1.jsonl 12=...\t6_net10.0_t12_r1.jsonl
+```
+
+On net48 the mask is set right after the process start and there is no `DOTNET_PROCESSOR_COUNT`: check the `cores` column of `raw\\*.jsonl` (the processor count the process saw) before trusting a net48 thread count; on net10.0 the script fails a run whose `cores` differs from the requested count.
+
+Threads are limited by the affinity mask of the process (and `DOTNET_PROCESSOR_COUNT` on net10.0): `-Stride 1` takes logical processors 0..n-1,
+which are SMT pairs on a CPU with hyper-threading, so 2 threads there are one physical core. Times are warm (one process per thread count and round
+runs all cases after a warm-up, `profile`); one-process-per-boolean cold times are those of `compare.py`.
+
 ## Indirect predicates (`indirect`)
 
 `BooleanComparison indirect [rounds]` times the generated indirect predicates (`math/Generated/IndirectPredicates.cs`,

@@ -13,6 +13,48 @@ namespace geometry3Sharp.Tests
     /// </summary>
     public class MathUtilMinMaxExactTests
     {
+        [Fact]
+        public void Box3d_SignedZeroBounds_AreIndependentOfOrder()
+        {
+            double neg = BitConverter.Int64BitsToDouble(long.MinValue);
+            var plus = new Vector3d(0, 0, 0);
+            var minus = new Vector3d(neg, neg, neg);
+            void Check(AxisAlignedBox3d box) {
+                foreach (double value in new[] { box.Min.x, box.Min.y, box.Min.z })
+                    Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(value));
+                foreach (double value in new[] { box.Max.x, box.Max.y, box.Max.z })
+                    Assert.Equal(0L, BitConverter.DoubleToInt64Bits(value));
+            }
+            Check(new AxisAlignedBox3d(plus, minus));
+            Check(new AxisAlignedBox3d(minus, plus));
+            Check(new AxisAlignedBox3d(ref plus, ref minus));
+            Check(new AxisAlignedBox3d(ref minus, ref plus));
+            var a = new AxisAlignedBox3d(plus); a.Contain(minus); Check(a);
+            var b = new AxisAlignedBox3d(minus); b.Contain(ref plus); Check(b);
+            var c = new AxisAlignedBox3d(plus); c.Contain(new AxisAlignedBox3d(minus)); Check(c);
+            var d = new AxisAlignedBox3d(minus); var other = new AxisAlignedBox3d(plus); d.Contain(ref other); Check(d);
+            var left = new AxisAlignedBox3d(neg, neg, neg, 1, 1, 1);
+            var right = new AxisAlignedBox3d(0, 0, 0, 1, 1, 1);
+            foreach (var intersection in new[] { left.Intersect(right), right.Intersect(left) }) {
+                Assert.Equal(0L, BitConverter.DoubleToInt64Bits(intersection.Min.x));
+                Assert.Equal(0L, BitConverter.DoubleToInt64Bits(intersection.Min.y));
+                Assert.Equal(0L, BitConverter.DoubleToInt64Bits(intersection.Min.z));
+            }
+            left = new AxisAlignedBox3d(-1, -1, -1, neg, neg, neg);
+            right = new AxisAlignedBox3d(-1, -1, -1, 0, 0, 0);
+            foreach (var intersection in new[] { left.Intersect(right), right.Intersect(left) }) {
+                Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(intersection.Max.x));
+                Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(intersection.Max.y));
+                Assert.Equal(long.MinValue, BitConverter.DoubleToInt64Bits(intersection.Max.z));
+            }
+            var finite = new AxisAlignedBox3d(new Vector3d(3, -4, 5), new Vector3d(-2, 6, 1));
+            Assert.Equal(new Vector3d(-2, -4, 1), finite.Min);
+            Assert.Equal(new Vector3d(3, 6, 5), finite.Max);
+            finite.Contain(new Vector3d(double.NaN, 0, 0));
+            Assert.True(double.IsNaN(finite.Min.x));
+            Assert.True(double.IsNaN(finite.Max.x));
+        }
+
         static long Bits(double x) { return BitConverter.DoubleToInt64Bits(x); }
         const long PlusZero = 0L, MinusZero = unchecked((long)0x8000000000000000UL);
         static readonly bool Framework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.Ordinal);

@@ -47,6 +47,7 @@ Add both: `using g3; using gs;`.
 | Isotropic remeshing | `Remesher`, `gs.RemesherPro`, `MeshConstraintUtil`, `MeshProjectionTarget` | [RemeshExample](examples/RemeshExample.cs) |
 | Simplification, with a guaranteed maximum deviation; exact envelope containment | `Reducer`, `gs.MeshEnvelope` | [SimplificationExample](examples/SimplificationExample.cs) |
 | Smoothing | `MeshIterativeSmooth`, `LaplacianMeshSmoother` | [SmoothingExample](examples/SmoothingExample.cs) |
+| Deform a mesh by moving a few vertices (handles): the displacement field that minimizes the squared cotangent Laplacian, handles met exactly, equivariant under similarity transforms of mesh and targets; status, stationarity residual and a `MaxMatrixContributions` limit; not rotation-invariant (use ARAP for that, #896) | `BiharmonicMeshDeformer` ([design note](design/BIHARMONIC_DEFORMATION.md)) | |
 | Plane cut and cap | `MeshPlaneCut` | [PlaneCutExample](examples/PlaneCutExample.cs) |
 | Measurements (volume, area, bounds, edge lengths, genus) | `MeshMeasurements`, `MeshQueries` | [MeasurementsExample](examples/MeasurementsExample.cs) |
 | Nearest point, ray hit, inside test, winding number | `DMeshAABBTree3`, `MeshQueries` | [SpatialQueriesExample](examples/SpatialQueriesExample.cs) |
@@ -76,6 +77,7 @@ Add both: `using g3; using gs;`.
 | An unoriented point cloud, and you need outward normals | `PointCloudNormals` | a unit normal per point: the axis from a PCA of the 16 nearest neighbours, the sign from an alpha wrap of the cloud (two probe points at `1.5 (Alpha + Offset)` along the axis, the one outside the wrap is the outer side); `Alpha` is chosen from the sampling spacing and the noise if not given and enlarged up to 3 times (x1.6) if a hole or gap lets the wrap into the solid; reports `Confident[i]`, `ConfidentFraction`, `Spacing`, `NoiseSigma` and a `Status` (`AlphaBelowCondition`, `AmbiguousOrientation` for an open sheet or thin walls: the signs are then a heuristic). Measured on torus samplings (noise, hole, 10:1 density): 97-100 % of the signs right. A wrap that stops at `MaxSteinerPoints` is used only if it is closed, valid and free of self-intersections (else a coarser `Alpha`, then `WrapFailed`); `DegenerateCount` counts the zero normals also for a `Success`. Zero normal where the neighbourhood is collinear or coincident (`DegenerateInput` if fewer than 90 % have a normal); exact duplicates are merged; any finite coordinate magnitude for the axes (the wrap has its own range, see `MeshAlphaWrap`) |
 | A triangle soup, overlapping parts, large holes | `MeshWindingNumberSolidify` | a new, remeshed closed surface; features below the cell size are lost |
 | Closed meshes that intersect themselves or each other, where the triangles must be kept exactly | `ExactMeshBoolean`, `ExactMeshBoolean.Resolve(mesh)` | exact arrangement, only the output coordinates are rounded; `SafeRounding` (on by default) repairs the slivers and self-intersections the rounding leaves (`MeshRoundingRepair`, checked exactly, `RoundingClean`; `false` for speed), `ComputeExactVertices = true` gives the exact rational coordinates (`ResultExactVertices`); flipped input triangles are reoriented per component first (the larger part by area keeps its orientation, `ReorientedTriangles`) |
+| Cut the intersection curves of a cutter mesh into a target mesh, keeping the target's vertices, orientation and topology (the robust replacement for `MeshMeshCut`; nothing is classified or removed) | `ExactMeshImprint` | `Result` (the target with split triangles; its vertex ids kept), `SourceTriangle`, `CurveEdges` (`LabelCurves` numbers the curves); exact intersections, the new vertices rounded with `SafeRounding` (target vertices fixed, curve edges locked, `RoundingClean`); open targets and cutters, contact and coplanar overlaps are handled; a target that intersects itself is not repaired; design `docs/design/EXACT_IMPRINT.md` |
 | Booleans of broken meshes (open, soups, overlapping shells) | `gs.MeshWindingNumberBoolean` | a new, remeshed closed surface (winding numbers on an adaptive octree) |
 
 `MeshBoolean` is the old, non-robust union of the original library; prefer `ExactMeshBoolean`. Its snap
@@ -244,6 +246,15 @@ if (op.Compute() == false)
   `Counts["antipodal_hierarchical"]` and `["antipodal_hierarchical_fallbacks"]` count the evaluations it decided and
   handed back. On the slow open models (union with the copy, 4 cores): 117959 111 -> 41 s, 122796 19.9 -> 10.6 s (the
   cost of the Antipodal path above is gone there), the 1087141 family about 46 -> 34 s each.
+- The tracing of the open winding (L2) allocates far less since lever 4 of the extreme-runtime study: no closure or
+  delegates per carried step, the frame's corners without the exact BigInteger point where the double difference is exact,
+  and the dot product signs on stack limbs. Bit-identical (38 hashes of the open models and five closed ones); on 117959
+  (union with the copy, 4 cores) the classification allocates 14.4 -> 7.9 GB and takes 23.9 -> 20.7 s, the run 33.2 ->
+  30.0 s; the 1087141 family about 26 -> 22.5 s, 1005586 47.6 -> 42.3 s. Measured with
+  `benchmarks/BooleanComparison`: `BooleanComparison export <model>.stl <dir>` (the model and its rotated, shifted copy),
+  then `BooleanComparison profile --ops union --repeat 1 <dir>` per case, each build run alone on the machine, the two builds
+  alternating (its JSON has the phase times, the allocations per phase, the GC pauses, the counts and the result hash);
+  the allocation sites from `dotnet-trace collect --profile gc-verbose` of the same command.
 - Thingi10K 55928 (an open model of about 88k triangles with its rotated copy, 15.1M pieces, Difference, 4 cores) went
   from 973 s to about 370-420 s in this release, with bit-identical results
   (docs/design/EXACT_BOOLEAN_TAIL_55928.md).
@@ -895,7 +906,7 @@ g3cli hull2d --points "0,0;4,0;4,3;0,3;2,1"
 
 **TPMS lattices** (`tpms`, `TpmsLattice`, [TPMS_LATTICE.md](design/TPMS_LATTICE.md), [TPMS_GRADED_CELL.md](design/TPMS_GRADED_CELL.md)): gyroid, Schwarz P / D, Neovius, I-WP or Lidinoid as a sheet or a skeletal
 solid in a box (`--box-min` / `--box-max`, in the lattice frame, which moves with `--origin`) or inside a closed mesh (`--domain`), by `--volume-fraction` or (sheet) `--wall-thickness`, optionally
-with a linear `--grade` of the period and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
+with a linear `--grade` of the period, `--second-type` with `--blend 'axis,offset,width'` (a hybrid of two types across a plane with a sigmoid weight; each side has the fraction of its pure lattice, the transition only reported) and `--enclosure` (dyadic grid). `tpms_status` is `ok` only for a closed, manifold mesh that passed the exact self-intersection check; with
 `--verify-self-intersections false` the result says `self_intersection_verified: false` and warns. Tests: `TpmsCliTests`.
 
 ```

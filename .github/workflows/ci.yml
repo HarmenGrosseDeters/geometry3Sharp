@@ -8,19 +8,18 @@ on:
     branches: [master]
     tags: ['**']
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
-  # ready_for_review: marking a draft ready starts the full run (the draft tier skips the tests tagged Slow)
+  # ready_for_review: marking a draft ready starts the full run. A draft gets no CI (the job scope below is the gate); on demand: workflow_dispatch.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths: ['**', '!**/*.md', 'docs/design/FIXED_WIDTH_EXACT_POINTS.md', 'docs/design/DETERMINISM_PROOF.md']
   workflow_dispatch:
 
-# a new push to the same PR (or branch, or master) cancels the run under way: only the newest master commit runs (2026-11-13: a
-# group per master SHA let every merge run to the end, 20 runs piled up on the runners; nothing reads a CI result per master
-# commit: new_tests_on_base.py works on git refs, coverage.yml and mutation.yml keep their own run history). A manual run on
-# master shares the group with the push runs.
+# A new push to the same PR (or branch) cancels the run under way. Master and manual runs are never cancelled: they queue (GitHub
+# keeps the run under way and the newest pending one: a burst of merges runs the first and the newest commit, which covers all of
+# them). A run that the gate of the job scope skips (an event of a draft) has its own group, so it cannot cancel a real run of the PR.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.draft && '-skipped' || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   DOTNET_NOLOGO: true
@@ -33,7 +32,13 @@ jobs:
   # Which parts of CI a PR needs (tools/ci_scope.py): a PR that changes only tools, benchmarks or docs that the library
   # build and the test projects do not read skips the library test suites (net10.0, net48, Clipper2). The library build,
   # the API validation (pack), the smoke tests and the benchmark and tool steps run always.
+  # It is also the gate (owner 2026-11-15, runner load: most runs of draft PRs were cancelled by the next push): a draft PR gets no CI;
+  # start one with workflow_dispatch (Actions tab, or `gh workflow run ci.yml --ref <branch>`; its checks attach to the head commit).
+  # opened / synchronize / reopened / ready_for_review of a PR that is not a draft, master, tags and manual runs always run. Every other
+  # job needs scope, so a skipped scope skips all of them (they report "skipped" on the draft only; a ready PR never has a skipped run,
+  # so no skipped check hides a red one of the same name). No job needs a result of an earlier run.
   scope:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -64,6 +69,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+      - name: No mutation marker in the sources
+        # (tests/mutation/exclude_other_sources.py marks the files a mutation shard does not mutate only while Stryker runs
+        # and run_stryker.sh takes the marks off again; a marked file must never reach a commit, the build or the pack)
+        run: python3 tests/mutation/exclude_other_sources.py check --root .
       - name: Build
         run: dotnet build geometry3Sharp_netstandard.csproj -c Release
       - name: Test (net10.0)
@@ -135,6 +144,8 @@ jobs:
         run: |
           python3 benchmarks/MeshRepairBenchmark/test_analysis.py
           python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_thingi_pairs.py' -v
+          python3 -m unittest discover -s benchmarks/net48-compare -p 'test_report.py' -v
+          python3 -m unittest discover -s benchmarks/BooleanComparison -p 'test_t6.py' -v
           python3 -m unittest discover -s tools/FPTaylorPilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/OracleSourcePilot -p 'test_*.py' -v
           python3 -m unittest discover -s benchmarks/Meshing2Benchmark/corpus -p 'test_*.py' -v
@@ -251,10 +262,15 @@ jobs:
         include:
           - name: netstandard
             shard: a
-            filter: (FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Terrain)
+            filter: (FullyQualifiedName~Mesh2|FullyQualifiedName~Meshing2|FullyQualifiedName~Terrain|FullyQualifiedName~PointCloudSurfaceTests|FullyQualifiedName~RemesherSelfIntersectionTests|FullyQualifiedName~MeshFidelityMetricsTests|FullyQualifiedName~RoundingExactPairsTests|FullyQualifiedName~MeshRobustRepairTests|FullyQualifiedName~AlphaWrapQualityPassTests|FullyQualifiedName~RemeshSizingTests|FullyQualifiedName~TpmsLatticeTests|FullyQualifiedName~MeshRoundingRepairIncrementalTests)
           - name: netstandard-b
             shard: b
-            filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain)
+            filter: (FullyQualifiedName!~Mesh2&FullyQualifiedName!~Meshing2&FullyQualifiedName!~Terrain&FullyQualifiedName!~PointCloudSurfaceTests&FullyQualifiedName!~RemesherSelfIntersectionTests&FullyQualifiedName!~MeshFidelityMetricsTests&FullyQualifiedName!~RoundingExactPairsTests&FullyQualifiedName!~MeshRobustRepairTests&FullyQualifiedName!~AlphaWrapQualityPassTests&FullyQualifiedName!~RemeshSizingTests&FullyQualifiedName!~TpmsLatticeTests&FullyQualifiedName!~MeshRoundingRepairIncrementalTests)
+    # (2026-11-15, net10.0 summed durations of a full run after the Meshing2 self-check fix: a 1720 s, b 2462 s; the three classes after
+    # Terrain moved from b to a to balance the summed time. Shard b is the exact complement of a, so every test runs once. Before the fix
+    # a/b were 1912/2668 s; the Windows jobs took 28 and 31 min. The first split measured on net48 (PR #954): the test step took 682 s in
+    # a (1720 net10 s) and 1438 s in b (2462 net10 s), so net48 costs about 0.40 s per net10 second in a and 0.58 in b; six more classes
+    # (about 270 net10 s) moved from b to a.)
     # (2026-11-09: the terrain tests moved to shard a; the mesher tests got cheaper (sparse tag check), shard a was at 14 min and
     # shard b at 32. Summed net10.0 durations of the full run: a 2050 s, b 2113 s.)
     # (the filter's &Category!=Slow part is dead on a draft since the Windows jobs run only in the full tier; it stays for a manual run
@@ -283,10 +299,25 @@ jobs:
         if: (failure() || cancelled()) && needs.scope.outputs.library == 'true'
         continue-on-error: true
         run: python tools/blame_summary.py test-results --summary $env:GITHUB_STEP_SUMMARY
+      # A PR that changes only a benchmark script (ps1 without library) runs no net48 test build, which is what builds the netstandard2.0
+      # library the two checks below read: build it here (a PR with a new thread_scaling.ps1 failed 'Build the netstandard2.0 library')
+      - name: Build the netstandard2.0 library (ps1-only changes)
+        if: matrix.shard == 'a' && needs.scope.outputs.library != 'true' && needs.scope.outputs.ps1 == 'true'
+        run: dotnet build geometry3Sharp_netstandard.csproj -c Release -f netstandard2.0
       - name: Benchmark reporting regression (MeshRepairBenchmark)
         if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
         shell: powershell
         run: benchmarks/MeshRepairBenchmark/test_validity_reporting.ps1
+      # net48 / net10.0 benchmark comparison (benchmarks/net48-compare, #929): the build of the three benchmarks for both runtimes and a smoke run
+      # of tiny procedural cases (no data, one round, no timing judged); it fails if a result hash differs between the runtimes.
+      - name: net48 benchmark build and smoke run (Windows PowerShell)
+        if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
+        shell: powershell
+        run: benchmarks/net48-compare/run.ps1 -Smoke -OutDir smoke-results
+      - name: net48 benchmark smoke run (PowerShell 7)
+        if: matrix.shard == 'a' && (needs.scope.outputs.library == 'true' || needs.scope.outputs.ps1 == 'true')
+        shell: pwsh
+        run: benchmarks/net48-compare/run.ps1 -Smoke -NoBuild -OutDir smoke-results-pwsh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -100,9 +100,9 @@ namespace gs
             Mesh = new DMesh3();
 
             check_linear_edges_grid(65535);
-            int nx = (int)(Bounds.Width / CubeSize) + 1;
-            int ny = (int)(Bounds.Height / CubeSize) + 1;
-            int nz = (int)(Bounds.Depth / CubeSize) + 1;
+            int nx = MathUtil.ToIntSaturating(Bounds.Width / CubeSize) + 1;
+            int ny = MathUtil.ToIntSaturating(Bounds.Height / CubeSize) + 1;
+            int nz = MathUtil.ToIntSaturating(Bounds.Depth / CubeSize) + 1;
             CellDimensions = new Vector3i(nx, ny, nz);
             GridBounds = new AxisAlignedBox3i(Vector3i.Zero, CellDimensions);
 
@@ -128,9 +128,9 @@ namespace gs
 
             // (the continuation also visits the cells of index nx, ny, nz: GridBounds.Contains is inclusive)
             check_linear_edges_grid(65534);
-            int nx = (int)(Bounds.Width / CubeSize) + 1;
-            int ny = (int)(Bounds.Height / CubeSize) + 1;
-            int nz = (int)(Bounds.Depth / CubeSize) + 1;
+            int nx = MathUtil.ToIntSaturating(Bounds.Width / CubeSize) + 1;
+            int ny = MathUtil.ToIntSaturating(Bounds.Height / CubeSize) + 1;
+            int nz = MathUtil.ToIntSaturating(Bounds.Depth / CubeSize) + 1;
             CellDimensions = new Vector3i(nx, ny, nz);
             GridBounds = new AxisAlignedBox3i(Vector3i.Zero, CellDimensions);
             if (RootMode == RootfindingModes.LinearEdges)
@@ -237,9 +237,9 @@ namespace gs
         Vector3i cell_index(Vector3d pos)
         {
             return new Vector3i(
-                (int)((pos.x - Bounds.Min.x) / CubeSize),
-                (int)((pos.y - Bounds.Min.y) / CubeSize),
-                (int)((pos.z - Bounds.Min.z) / CubeSize));
+                MathUtil.ToIntSaturating((pos.x - Bounds.Min.x) / CubeSize),
+                MathUtil.ToIntSaturating((pos.y - Bounds.Min.y) / CubeSize),
+                MathUtil.ToIntSaturating((pos.z - Bounds.Min.z) / CubeSize));
         }
 
 

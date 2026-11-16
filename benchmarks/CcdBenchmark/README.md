@@ -4,14 +4,15 @@ Benchmark of `ContinuousCollision` and `MeshSweepCollision` (design note `docs/d
 
 ```
 dotnet run --project benchmarks/CcdBenchmark -c Release -- synthetic
-benchmarks/CcdBenchmark/fetch_sample.sh /tmp/ccdsample          # outside the repository, about 157 MB
+benchmarks/CcdBenchmark/fetch_sample.sh /tmp/ccdsample          # outside the repository, about 216 MB
 dotnet run --project benchmarks/CcdBenchmark -c Release -- sample /tmp/ccdsample [minSeparation]
 dotnet run --project benchmarks/CcdBenchmark -c Release -- sweep /tmp/ccdsample [minSeparation]
 ```
 
 `sweep`: the self sweep of each sample scene's two frames (`frames/*.ply`, also fetched by `fetch_sample.sh`), serial and
 parallel, with the time of the preparation and of the pair search and solve (`G3_SWEEP_SCENES`, `G3_SWEEP_BLOCK`,
-`G3_SWEEP_TASKS` select scenes and job sizes for experiments, `G3_SWEEP_SUBSTEPS` the sub-steps).
+`G3_SWEEP_TASKS` select scenes and job sizes for experiments, `G3_SWEEP_SUBSTEPS` the sub-steps, `G3_SWEEP_TREE_DOUBLES`
+the budget of the sub-step box tree, 0 for the filter on the whole-step pairs; `candidates_ms` is the candidate search).
 
 `synthetic`: the stage-1 probe's queries (CCD.md 7.1) through the library, on the filter and the interval path, and sphere
 sweeps (A moving into B) with and without a minimum separation. `sample`: the Apache-2.0 sample of the ToI dataset
@@ -134,3 +135,60 @@ Where the puffer-ball time goes at k = 4 (thread time, instrumented run): the se
 (186M, filtered to 19M) about half, the vertex-triangle candidates (75M to 6M) a fifth, the narrow phase of the 25M
 candidates the rest; without tightening (`MaxTighteningIterations = 0`) the sweep is only about 1 s faster. k = 8 is
 slower (23.9 s: 8.4M candidates, but the filter and the hulls cost more).
+
+## Sub-step box tree (2026-11-15, CCD.md 10.11, #866)
+
+Raw: `results-sweep-tree-2026-11-15.csv`. One build, two runs of `sweep` one after the other (one Compute each after a
+warm-up, 4 cores): `G3_SWEEP_TREE_DOUBLES=0` (prefix `old`: the sub-step filter on the pairs of the whole-step trees,
+the path of 10.10 and master) and the default (prefix `tree`: the SubStepBoxTrees). SubSteps = 4. `candidates` is the wall time
+of collecting the candidates (the tree searches and the filter; `CandidateSeconds`), part of the total.
+
+| scene | candidates | serial old | serial tree | parallel old | parallel tree | candidates serial old → tree |
+|---|---|---|---|---|---|---|
+| armadillo-rollers | 1 127 562 | 5.09 s | 4.26 s | 1.72 s | 1.27 s | 0.92 → 0.35 s |
+| cloth-ball | 2 450 850 | 18.3 s | 17.5 s | 5.21 s | 5.19 s | 1.46 → 1.06 s |
+| cloth-funnel | 26 144 | 0.111 s | 0.186 s | 0.076 s | 0.101 s | 0.039 → 0.098 s |
+| n-body-simulation | 4 832 461 | 11.1 s | 8.54 s | 3.97 s | 2.65 s | 3.44 → 1.24 s |
+| rod-twist | 1 823 450 | 5.92 s | 5.76 s | 1.78 s | 1.81 s | 0.48 → 0.62 s |
+| puffer-ball | 24 953 688 | 46.8 s | 32.7 s | 19.1 s | 10.6 s | 27.0 → 10.8 s |
+
+The candidate count, status, earliest time of impact and number of contacts are the same on both paths in every scene
+(the CSV records these; the pairs themselves are compared by `SubStepTree_EqualsFilterOnWholeStepPairs`). Over the runs of
+this PR puffer-ball took 29.9-32.7 s serial and 10.6-10.9 s parallel with the tree, 46.6-46.8 s and 16.5-19.7 s on the
+old path (the container varies by about 15 %).
+
+- puffer-ball: the candidate search goes from 27.0 s to 10.8 s serial; the preparation from 1.2 s to 2.5 s serial (the
+  trees' sub-step boxes, leaves and nodes about 1.5 * 6 (k + 1) doubles per triangle and edge; about 1 GB at k = 4). What is left serial is the
+  narrow phase, about 18.4 s for the 25M pairs (0.74 µs per pair): the floor of the serial sweep, #940.
+- cloth-funnel (small motion, 18k triangles) is slower by 75 ms serial and 25 ms parallel: the sub-step tests per node
+  cull little there. A size threshold does not separate it from armadillo-rollers (24k triangles, 0.8 s faster), so
+  there is none.
+- k = 8 with the tree (budget raised for the run): 8.4M candidates, 29.9 s serial and 9.8 s parallel; the pairs left
+  are harder (about 1.65 µs per pair), so more sub-steps do not lower the serial floor.
+
+## Narrow-phase pre-filter (2026-11-16, CCD.md 10.12, #940)
+
+Raw: `results-sweep-prefilter-2026-11-16.csv`. One job, master at `6819dfe` (variant `master`) and this branch (`branch`) built
+side by side, run one after the other (round 1: all scenes; round 2: puffer-ball again), one `Compute` each after a warm-up,
+4 cores, SubSteps = 4, sub-step tree. `candidates_ms` of the branch includes the first-box test of each candidate (the pairs are
+dropped in the job that finds them); `pairs_ms` includes `candidates_ms`.
+
+| scene | candidates | serial master | serial branch | parallel master | parallel branch |
+|---|---|---|---|---|---|
+| armadillo-rollers | 1 127 562 | 4.44 s | 2.34 s | 1.35 s | 0.87 s |
+| cloth-ball | 2 450 850 | 20.7 s | 6.74 s | 5.48 s | 2.02 s |
+| cloth-funnel | 26 144 | 0.183 s | 0.166 s | 0.088 s | 0.084 s |
+| n-body-simulation | 4 832 461 | 9.36 s | 3.77 s | 2.75 s | 1.58 s |
+| rod-twist | 1 823 450 | 6.71 s | 4.03 s | 1.99 s | 1.47 s |
+| puffer-ball (round 1 / 2) | 24 953 688 | 33.9 / 34.9 s | 23.5 / 24.9 s | 11.0 / 11.4 s | 8.8 / 10.4 s |
+
+The candidate count, status, earliest time of impact and number of contacts are equal in every row (the CSV; the contacts
+and their results are compared by the tests). The container varies by about 10-15 % between runs.
+
+Where the puffer-ball time goes (serial, instrumented runs of the same code, timers inflate by about 1.5 s):
+- master: `Solve` 18.9 s, of which the 23.9M pairs that end at the first box 7.1 s (0.30 µs each) and the 458k pairs with seven or more boxes
+  11.1 s (24 µs each); the gathers of the points 1.7 s. A time limit at the earliest contact, as an experiment, took `Solve` to 9.9 s.
+- branch: preparation 3.5 s, candidates (tree search and first-box test) 14.1-14.9 s, of which the first-box test and the gathers about 3 s,
+  survivors (1.1M pairs) about 5 s.
+The serial sweep of the 1M-triangle frame stays above 20 s (23.5-24.9 s): #866 and #940 stay open.
+

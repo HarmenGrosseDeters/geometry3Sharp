@@ -130,7 +130,7 @@ namespace gs
             double n = maxDim / cellSize + 2 * paddingCells;
             if (!(n < (double)(1 << 30)))
                 return int.MaxValue;
-            return Math.Max(1, (int)Math.Ceiling(Math.Log(n, 2)));
+            return Math.Max(1, MathUtil.ToIntSaturating(Math.Ceiling(Math.Log(n, 2))));
         }
 
         public void Build()

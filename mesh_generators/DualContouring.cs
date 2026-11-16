@@ -1788,6 +1788,20 @@ namespace g3
         long[] lastCellKeys = new long[0];
         Dictionary<long, Cell> lastCells = new Dictionary<long, Cell>(EdgeKeyComparer.Instance);
 
+        /// <summary> (tests) the cell vertices (one per patch) of the last Generate's mesh, per cell (min node, size in nodes) </summary>
+        internal Dictionary<(Vector3i, int), int> CellVertexCountsForTests()
+        {
+            var d = new Dictionary<(Vector3i, int), int>();
+            foreach (int v in Mesh.VertexIndices()) {
+                if (genPatches[v] < 1) continue;
+                var key = (genCell[v].Min, cell_size(genCell[v]));
+                int c;
+                d.TryGetValue(key, out c);
+                d[key] = c + 1;
+            }
+            return d;
+        }
+
         /// <summary> (tests) the size (in fine nodes) of the cell of a vertex of the last Generate's mesh </summary>
         internal int VertexCellSize(int vid) { return cell_size(genCell[vid]); }
 

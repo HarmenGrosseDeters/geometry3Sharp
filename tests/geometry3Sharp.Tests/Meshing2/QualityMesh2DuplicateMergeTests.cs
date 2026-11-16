@@ -132,7 +132,7 @@ namespace geometry3Sharp.Tests
         {
             var rnd = new Random(863);
             const double tol = 1.0 / (1L << 41);
-            int failsWouldBe = 0;
+            int casesWithAMerge = 0;
             for (int it = 0; it < 200; ++it) {
                 var x = new List<double> { 0, 1, 1, 0 }; var y = new List<double> { 0, 0, 1, 1 };
                 double cx = 0.25 + 0.5 * rnd.NextDouble(), cy = 0.25 + 0.5 * rnd.NextDouble();
@@ -146,9 +146,26 @@ namespace geometry3Sharp.Tests
                 Assert.True(r.Status == Triangulation2Status.Success, "it " + it + ": " + r.Status);
                 AssertDuplicatesShareTheirTarget(input, r.Mesh.InputToVertex, "it " + it);
                 Assert.True(r.Mesh.Triangles.Count >= 2);
-                if (r.Diagnostics.Any(d => d.Contains("within the automatic tolerance"))) failsWouldBe++;
+                if (r.Diagnostics.Any(d => d.Contains("within the automatic tolerance"))) casesWithAMerge++;
             }
-            Assert.True(failsWouldBe > 100, failsWouldBe + " cases with a merge");
+            Assert.True(casesWithAMerge > 100, casesWithAMerge + " cases with a merge");
+        }
+
+        /// <summary> the merge diagnostic counts the points merged into another point, not exact duplicates: B within the tolerance of A
+        /// merges (one), and the duplicates of A and of B take their first occurrences' targets uncounted </summary>
+        [Fact]
+        public void MergeDiagnostic_CountsMergedPoints_NotDuplicates()
+        {
+            const double tol = 1.0 / (1L << 41);
+            double ax = 0.5, ay = 0.5, bx = 0.5 + tol / 2, by = 0.5;
+            var input = new Mesh2Input { X = new[] { 0, 1, 1, 0, ax, bx, ax, bx, bx }, Y = new[] { 0, 0, 1, 1, ay, by, ay, by, by }, SteinerLimit = 1500 };
+            foreach (var e in new[] { (0, 1), (1, 2), (2, 3), (3, 0) }) input.Segments.Add(new SegmentInput(e.Item1, e.Item2));
+            var r = Mesh(input);
+            Assert.True(r.Status == Triangulation2Status.Success, r.Status.ToString());
+            AssertDuplicatesShareTheirTarget(input, r.Mesh.InputToVertex, "merge");
+            Assert.Equal(r.Mesh.InputToVertex[4], r.Mesh.InputToVertex[5]);
+            Assert.Contains("1 points within the automatic tolerance of another point were merged into it", r.Diagnostics);
+            Assert.True(r.Mesh.Triangles.Count >= 4);
         }
     }
 }

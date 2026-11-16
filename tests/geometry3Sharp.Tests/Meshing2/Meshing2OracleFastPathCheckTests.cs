@@ -28,7 +28,14 @@ namespace geometry3Sharp.Tests
             .Where(r => r.State == CaseState.Covered && r.Test == null && r.Case != null && !r.Slow && CandidateRegistry.For(r.Case.Milestone) != null)
             .Select(r => new object[] { r.Id });
 
-        public static IEnumerable<object[]> SelfCheckNames() => SelfCheck.Run().Select(i => new object[] { i.Name });
+        // one run of the self-check with the checks on, shared by the rows (a run per row was quadratic); the flag is set for the run only
+        static readonly Lazy<List<SelfCheck.Item>> Items = new Lazy<List<SelfCheck.Item>>(() => {
+            Oracle.CheckFastPathForTests = true;
+            try { return SelfCheck.Run(); }
+            finally { Oracle.CheckFastPathForTests = false; }
+        });
+
+        public static IEnumerable<object[]> SelfCheckNames() => Meshing2OracleTests.Items.Value.Select(i => new object[] { i.Name });
 
         /// <summary> the oracle's own hand-built cases (a grid pixel crossed by a constraint, a vertex at a circumcentre's pixel, merge
         /// zones, hull tips, ...) with the checks on: each still passes, and no index or filter differs from its scan </summary>
@@ -36,11 +43,8 @@ namespace geometry3Sharp.Tests
         [MemberData(nameof(SelfCheckNames))]
         public void SelfCheckItem(string name)
         {
-            Oracle.CheckFastPathForTests = true;
-            try {
-                var item = SelfCheck.Run().First(i => i.Name == name);
-                Assert.True(item.Passed, item.Detail);
-            } finally { Oracle.CheckFastPathForTests = false; }
+            var item = Items.Value.First(i => i.Name == name);
+            Assert.True(item.Passed, item.Detail);
         }
 
         [Trait("Category", "Slow")]

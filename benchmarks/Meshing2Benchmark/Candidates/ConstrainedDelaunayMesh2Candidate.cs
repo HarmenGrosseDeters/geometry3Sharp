@@ -40,6 +40,9 @@ namespace Meshing2Acceptance
             output.Subsegments = mesh.Subsegments.Select(s => new SubsegmentOutput(s.A, s.B, s.Marker)).ToList();
             output.TriangleLabels = mesh.TriangleLabels.ToArray();
             output.BadTriangles = new int[0];
+            // (internal to the library: what the mesher holds each piece for and which vertices existed before refinement, #870)
+            output.SubsegmentSources = mesh.SubsegmentSources?.Select(z => z.ToArray()).ToArray();
+            output.ExistedBeforeRefinement = mesh.ExistedBeforeRefinement?.ToArray();
             output.Locate = (x, y) => mesh.TryLocate(new Vector2d(x, y), out int t) ? t : -1;
             return output;
         }

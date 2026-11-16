@@ -4,9 +4,10 @@ Part of the [roadmap](../ROADMAP.md).
 
 - **Scope:** parameterization (LSCM, ARAP, SLIM, BFF, cones, seams, charts, UV packing), intrinsic triangulations
   and refinement, the vector heat method and log maps, geodesic paths, foldover-free maps.
-- **Status (2026-11-12):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
-  #7) merged in #374; the affine heat method stopped at its gate (#371); the AffineLocal follow-up closed (#538);
-  geodesic Bézier curves merged (#540).
+- **Status (2026-11-15):** the Phase 3 operations are done; the items under Open remain. Foldover-free maps (Phase 5
+  #7) merged in #374, round-off in #754; the affine heat method stopped at its gate (#371); the AffineLocal follow-up
+  closed (#538); geodesic Bézier curves merged (#540). The geodesics study (#784, #798, #807) is merged; the exact
+  geodesic distance as a test oracle is in draft #869.
 - **Related:** [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md),
   [design/FOLDOVER_FREE_MAPS.md](../design/FOLDOVER_FREE_MAPS.md),
   [benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md);
@@ -20,15 +21,21 @@ Part of the [roadmap](../ROADMAP.md).
   pre-registered gate. Details in [design/AFFINE_LOGMAP_GATE.md](../design/AFFINE_LOGMAP_GATE.md).
 - **Exact geodesic distance (option A of [design/GEODESICS.md](../design/GEODESICS.md))**: a certified [Lower, Upper]
   enclosure of the polyhedral distance by window propagation in interval arithmetic. Role (coordinator, 2026-11-13): a
-  **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Gates 2 and 3
-  measured on throwaway probes (exact on every test mesh; the 10^5 terrain 18.8 s and the aligned ridge 81 x 81 16 s in
-  the interval version); before library code the claims A7 and A9 are reviewed (A8 withdrawn). Option C (a Lipschitz
-  lower bound for the heat field) dropped.
+  **test oracle for meshes up to about 10^4 vertices**; the 10^5 targets belong to a later public class. Study and gates
+  2 and 3 merged (#784, #798, #807; exact on every test mesh; the 10^5 terrain 18.8 s and the aligned ridge 81 x 81 16 s in
+  the interval version of the probe); A7 reviewed, A8 withdrawn, A9's observations (b)-(h) not reviewed. Option C (a
+  Lipschitz lower bound for the heat field) dropped.
+  **#869 (2026-11-13, ready 2026-11-15):** `ExactMeshGeodesicDistance`, internal and serial, with A1-A6, subsumption,
+  terminal windows and flat vertices as pseudo-sources; no A7, no A9. As stated in the PR: terrain 101² (10201 vertices)
+  in 4.0 s, but exactly flat or aligned inputs hit `WindowLimit` at about 10^3 vertices (plane 101², ridge 41²), short of
+  the 10^4 target; Upper up to 1.3 % loose on flat regions. Open: A7 (continuation windows) with duplicate control, since
+  it duplicates windows on flat regions (GEODESICS.md 6b); the flat-tie redesign; the heat-method tests against the
+  oracle. Before merge: an unanchored review and the exact-code review, routed by the coordinator.
 - **Integer (normal) coordinates** (Gillespie, Sharp, Crane 2021) for a combinatorially exact common subdivision;
   signposts with the area checks suffice for the current operations. Also a research question
   ([research.md](research.md#open-research-questions)).
-- **Geodesic Bézier curves** (Phase 5 #1): paths, waypoints and loops are done; Bézier curves merged in #540 (done).
-- **Foldover-free maps** (Phase 5 #7, #374; round-off 2026-11-12): the paper's energy-decrease stop is in (iterations
+- **Geodesic Bézier curves** (Phase 5 #1): done (paths, waypoints and loops; Bézier curves merged in #540).
+- **Foldover-free maps** (Phase 5 #7, #374; round-off merged in #754, 2026-11-13; done, limits documented): the paper's energy-decrease stop is in (iterations
   115 / 132 / 169 / 132 -> 28 / 41 / 54 / 16, quality within 0.1 % on all four fixtures, time about 2-6x less). The SLIM
   gap is the fixed boundary, not the solver (with SLIM's boundary: disc 1.000, three peaks 1.083 x SLIM); documented.
   The torus fallback is a proven limit: the fixed cone-cut boundary polygon crosses itself 4 times, so no map with it
@@ -36,7 +43,7 @@ Part of the [roadmap](../ROADMAP.md).
   [FOLDOVER_FREE.md](../../benchmarks/ParameterizationBenchmark/FOLDOVER_FREE.md#round-off-2026-11-12).
 - **P1 collapse** (issue-tracker follow-up): closed 2026-11-12 as a documented limitation
   ([ISSUE_CASE_FINDINGS.md](../ISSUE_CASE_FINDINGS.md)); the real fix stays research: virtual fan vertices or spectral
-  conformal; foldover-free maps are a lead ([platform.md](platform.md#release-when-its-done)).
+  conformal; foldover-free maps are a lead ([platform.md](platform.md#quality-bar-when-its-done)).
 
 ### Done / history
 
@@ -79,3 +86,11 @@ Part of the [roadmap](../ROADMAP.md).
   `Inconsistent` instead of wrong faces).
   - [ ] Integer (normal) coordinates (Gillespie, Sharp, Crane 2021) for a combinatorially exact common
     subdivision; signposts with the area checks suffice for the current operations
+
+### Open for the future (2026-11-15)
+
+1. #869 (draft): `ExactMeshGeodesicDistance` as a certified test oracle; reviews before ready; reach on flat / aligned inputs below 10^4 vertices.
+2. A7 continuation windows on flat regions and A9 (GEODESICS.md 6b), after #869; then a public class for 10^5 vertices (no issue).
+3. Integer (normal) coordinates for an exact common subdivision (research; no issue).
+4. P1 collapse: virtual fan vertices or spectral conformal (research; documented limitation).
+5. AffineLocal log map: reopen only with a brief naming a mid-field workload (closed, #538).

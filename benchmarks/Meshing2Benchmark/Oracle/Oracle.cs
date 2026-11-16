@@ -655,20 +655,19 @@ namespace Meshing2Acceptance
             /// The piece predicate, decided exactly, on the constraints as the mesher has them (their ends where it merged them: the output
             /// vertices of their input points; one merged to a point is left out, which only withholds excuses: the mesher still refuses
             /// a split point near that point):
-            /// - its own constraints: those that hold both ends within the mesher's tolerance (a hair more): the mesher makes such vertices
-            ///   vertices of the constraint and merges the sources of the shared piece; this also covers a split point that rounding put
-            ///   off its own constraint, by far less than the tolerance (review of the first version); at least one (a piece of a hull
-            ///   edge has none here and is judged);
-            ///   Not proven: that the mesher's list of the piece's sources is among them. A split point of a merged piece lies on its
-            ///   first source and may be up to twice the tolerance from another of its sources, which the mesher then skips in
-            ///   NearOtherSource while this predicate may count it as refusing (review of #870; the rule is older than #870). Taking
-            ///   every constraint within twice the tolerance as a possible source instead excuses none of the fuzz cases of #864 and #870
-            ///   (the other leg of a narrow wedge lies within it), so the output would have to name the pieces' sources (#870 follow-up);
+            /// - its own constraints: the piece's sources as the output reports them (Mesh2Output.SubsegmentSources, ReportedSources: the
+            ///   first is the one the mesher splits on; a report is believed only if each source holds both ends within the tolerance, a
+            ///   hair more). Without a report (a foreign producer): those that hold both ends within that tolerance: the mesher makes such
+            ///   vertices vertices of the constraint and merges the sources of the shared piece; this also covers a split point that
+            ///   rounding put off its own constraint, by far less than the tolerance (review of the first version). At least one (a piece of
+            ///   a hull edge has none and is judged). Without a report it is not proven that the mesher's list of the piece's sources is
+            ///   among them (a split point of a merged piece may lie up to twice the tolerance from another of its sources, which the
+            ///   mesher skips in NearOtherSource while this predicate may count it as refusing; review of #870); the report closes that;
             /// - the mesher's split point (QualityMesh2.SplitSegment, #870): on the piece's first source, between the projections of its
             ///   ends, at the midpoint or, next to the one end that existed before refinement (input points and crossings), at the power of
-            ///   two from that end nearest the middle (concentric shells). The output names neither the first source nor which ends
-            ///   existed before, so every own constraint and every end status the ends allow is taken, and each such point must be
-            ///   refused;
+            ///   two from that end nearest the middle (concentric shells). Which ends existed before comes from the output
+            ///   (Mesh2Output.ExistedBeforeRefinement, checked in KindOfEnd); where the output does not say it, or which source is first,
+            ///   every own constraint and every end status the ends allow is taken, and each such point must be refused;
             /// - refused: a constraint that is not one of its own (not a hull edge: the mesher's NearOtherSource knows input constraints
             ///   only, and skips the piece's sources) within the mesher's tolerance of it (half the tube: 2^-41 against the tube's 2^-40 of
             ///   the magnitude), widened by the derived rounding of the mesher's point and distance (O11RefusalSlack2). With a tube given to
@@ -690,19 +689,23 @@ namespace Meshing2Acceptance
                 var ms = MergedSources();
                 var own = new List<(Pt a, Pt b)>();
                 var ownIds = new HashSet<int>();
-                for (int k = 0; k < ms.Count; ++k) {
-                    if (ms[k] == null || !MergedNear(k, ia) || !MergedNear(k, ib)) continue;
-                    var c = ms[k].Value;
-                    if (Exact.Dist2ToSegment(c.a, c.b, pa) <= ownTol2 && Exact.Dist2ToSegment(c.a, c.b, pb) <= ownTol2) { own.Add(c); ownIds.Add(k); }
-                }
+                // the piece's sources as the producer reports them (first the one it splits on), or else every constraint near both ends
+                int reported = ReportedSources(ia, ib, ownTol2, own, ownIds);
+                if (reported == 0) return false;
+                if (reported < 0)
+                    for (int k = 0; k < ms.Count; ++k) {
+                        if (ms[k] == null || !MergedNear(k, ia) || !MergedNear(k, ib)) continue;
+                        var c = ms[k].Value;
+                        if (Exact.Dist2ToSegment(c.a, c.b, pa) <= ownTol2 && Exact.Dist2ToSegment(c.a, c.b, pb) <= ownTol2) { own.Add(c); ownIds.Add(k); }
+                    }
                 if (own.Count == 0) return false;
                 // the mesher's split point: on the piece's first source, at the fraction of the piece between the projections of its
-                // ends; which source is first, and which ends existed before refinement, the output does not say, so every possibility
+                // ends; where the output does not say which source is first or which ends existed before refinement, every possibility
                 // must be refused (a hair is the rounding of the mesher's point and distance, O11RefusalSlack2)
                 var fractions = SplitFractions(ia, ib);
                 if (fractions == null) return false;
                 Q refused2 = tol2 * O11RefusalSlack2;
-                foreach (var w in own)
+                foreach (var w in reported > 0 ? own.Take(1) : own)
                     foreach (var (f, fromA) in fractions) {
                         Pt p = PointOnSource(w.a, w.b, fromA ? pa : pb, fromA ? pb : pa, f);
                         bool any = false;
@@ -796,20 +799,66 @@ namespace Meshing2Acceptance
             ///   the crossings it was computed from: at most 0.71 u of the magnitude per crossing, and the hair (2^-6 of the tolerance,
             ///   64 u) covers about 90 nested ones;
             /// - so one within it of at most one constraint is a split point; one within it of two or more may be either (review of #870).
+            /// With the output's report (Mesh2Output.ExistedBeforeRefinement, #870 d6710852): a vertex reported as made by refinement is a
+            /// split point; one reported as existing before is one if it lies within the tolerance of two constraints, else it can be no
+            /// crossing and the report is not believed (either).
             /// </summary>
             EndKind KindOfEnd(int id)
             {
                 inSet = inSet ?? new HashSet<int>(map);
                 if (inSet.Contains(id)) return EndKind.Before;
+                bool? reported = o.ExistedBeforeRefinement != null && o.ExistedBeforeRefinement.Length == v.Length ? o.ExistedBeforeRefinement[id] : (bool?)null;
+                if (reported == false) return EndKind.Steiner;
                 var ms = MergedSources();
                 Q near2 = o11Tol2 * O11RefusalSlack2;
                 int near = 0;
                 for (int k = 0; k < ms.Count && near < 2; ++k)
                     if (ms[k] != null && MergedNear(k, id) && Exact.Dist2ToSegment(ms[k].Value.a, ms[k].Value.b, v[id]) <= near2) ++near;
-                return near < 2 ? EndKind.Steiner : EndKind.Unknown;
+                if (near < 2) return reported == true ? EndKind.Unknown : EndKind.Steiner;
+                return reported == true ? EndKind.Before : EndKind.Unknown;
             }
 
             HashSet<int> inSet;
+
+            Dictionary<long, int> subsegmentIndex;
+            Dictionary<int, int> sourceOfInput;
+
+            /// <summary>
+            /// The sources the producer reports for piece ia-ib (Mesh2Output.SubsegmentSources, #870), as indices of the merged constraints,
+            /// the first (the one the mesher splits on) first: 1 if reported and believed; -1 if not reported (or not usable: the lengths
+            /// do not match); 0 if reported but not believed, which gives no excuse: a first source that is no input constraint the
+            /// oracle has (a hull edge or a constraint of no extent) or that does not hold both ends within the tolerance (the mesher
+            /// splits only such pieces on it). A later source only leaves the refusing constraints (and joins the coincidence filter),
+            /// which can only withhold an excuse, so it is not checked: one the oracle does not have is skipped, and one away from an end
+            /// is kept (after splits on the first source, a merged piece's end may lie up to twice the tolerance from another source).
+            /// Trusted without a check: that the list is complete (an own source left out would count as refusing) and, in KindOfEnd,
+            /// the report of a vertex near two constraints; both need the mesher's state, which the output does not carry
+            /// </summary>
+            int ReportedSources(int ia, int ib, Q ownTol2, List<(Pt a, Pt b)> own, HashSet<int> ownIds)
+            {
+                var rs = o.SubsegmentSources;
+                if (rs == null || o.Subsegments == null || rs.Length != o.Subsegments.Count) return -1;
+                if (subsegmentIndex == null) {
+                    subsegmentIndex = new Dictionary<long, int>();
+                    for (int i = 0; i < o.Subsegments.Count; ++i) subsegmentIndex[SubKey(o.Subsegments[i].A, o.Subsegments[i].B)] = i;
+                    sourceOfInput = new Dictionary<int, int>();
+                    for (int k = 0; k < sources.Count; ++k) sourceOfInput[sources[k].sourceId] = k;
+                }
+                if (!subsegmentIndex.TryGetValue(SubKey(ia, ib), out int si) || rs[si] == null || rs[si].Length == 0) return 0;
+                var ms = MergedSources();
+                for (int j = 0; j < rs[si].Length; ++j) {
+                    // (a hull edge or a constraint of no extent after the first: the mesher's NearOtherSource skips it, and the oracle
+                    // counts neither as refusing)
+                    if (!sourceOfInput.TryGetValue(rs[si][j], out int k) || ms[k] == null) {
+                        if (j == 0) return 0;
+                        continue;
+                    }
+                    var c = ms[k].Value;
+                    if (j == 0 && (Exact.Dist2ToSegment(c.a, c.b, v[ia]) > ownTol2 || Exact.Dist2ToSegment(c.a, c.b, v[ib]) > ownTol2)) return 0;
+                    if (ownIds.Add(k)) own.Add(c);
+                }
+                return 1;
+            }
 
             /// <summary>
             /// The fractions of the mesher's split point (QualityMesh2.SplitSegment), each with the end it is measured from: the midpoint,
@@ -4013,6 +4062,7 @@ namespace Meshing2Acceptance
             /// </summary>
             bool InTube(Pt a, Pt b, Pt p)
             {
+                ++r.TubeTests;
                 if (!e.Reference) {
                     if (double.IsNaN(tubeHi)) tubeHi = tube2.Bounds(out _, out double t2h) && !double.IsInfinity(t2h) ? Math.Sqrt(t2h) * (1 + 1e-12) : double.PositiveInfinity;
                     if (!double.IsInfinity(tubeHi)) {
@@ -4022,6 +4072,7 @@ namespace Meshing2Acceptance
                         if (!double.IsNaN(low) && FilterRange(mag) && low > tubeHi) return false;
                     }
                 }
+                ++r.TubeTestsExact;
                 return Exact.Dist2ToSegment(a, b, p) <= tube2;
             }
 
@@ -4168,38 +4219,73 @@ namespace Meshing2Acceptance
             bool SpansSmallInputAngle(int ip, int iq, Q sin2Low, bool nearMeet)
             {
                 Pt p = v[ip], q = v[iq];
-                var sp = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, ip) && WithinTube(sources[k], p)).Select(k => sources[k]).ToList();
-                var sq = Enumerable.Range(0, sources.Count).Where(k => MayBeNear(k, iq) && WithinTube(sources[k], q)).Select(k => sources[k]).ToList();
-                var hull = HullSources();
-                for (int k = 0; k < hull.Count; ++k) {
-                    // (a box filter in doubles first: a large hull is scanned per bad triangle; the exact test decides)
-                    if (NearHull(k, ip) && WithinTube(hull[k], p)) sp.Add(hull[k]);
-                    if (NearHull(k, iq) && WithinTube(hull[k], q)) sq.Add(hull[k]);
-                }
-                foreach (var a in sp)
-                    foreach (var c in sq) {
-                        if (a.sourceId == c.sourceId) continue;
-                        Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
-                        Q cross = d1x * d2y - d1y * d2x;
-                        if (cross.Sign == 0) continue;
-                        Q sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
-                        if (sin2 >= sin2Low) continue;
-                        Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
-                        bool onBoth = !(t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One);
-                        if (onBoth == nearMeet) continue;
-                        Pt apex;
-                        if (onBoth) apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
-                        else if (WithinTube(a, c.a)) apex = c.a;
-                        else if (WithinTube(a, c.b)) apex = c.b;
-                        else if (WithinTube(c, a.a)) apex = a.a;
-                        else if (WithinTube(c, a.b)) apex = a.b;
-                        else continue;
+                var sp = NearSourceIds(ip);
+                var sq = NearSourceIds(iq);
+                foreach (int ai in sp)
+                    foreach (int ci in sq) {
+                        var pair = SourcePair(ai, ci);
+                        if (pair.Skip) continue;
+                        if (pair.Sin2 >= sin2Low) continue;
+                        if (pair.OnBoth == nearMeet) continue;
+                        if (!pair.HasApex) continue;
+                        Pt apex = pair.Apex;
                         Q rp = Exact.Len2(apex, p), rq = Exact.Len2(apex, q);
                         if (rp.Sign == 0 || rq.Sign == 0 || rp * 4 > rq * 9 || rq * 4 > rp * 9) continue;
                         if (Dot(apex, p, q).Sign <= 0) continue;
                         return true;
                     }
                 return false;
+            }
+
+            // The sources (ids below sources.Count) and hull sources (above) within the tube of a vertex, in that order, once per vertex:
+            // a mesh below the angle bound all over (a fan of small input angles) asked for them again for every triangle, each an exact
+            // distance test, 4.3 s for 1650 triangles (#947)
+            Dictionary<int, List<int>> nearSourcesCache;
+            List<int> NearSourceIds(int vertex)
+            {
+                if (nearSourcesCache == null) nearSourcesCache = new Dictionary<int, List<int>>();
+                if (nearSourcesCache.TryGetValue(vertex, out var cached)) return cached;
+                Pt p = v[vertex];
+                var ids = new List<int>();
+                for (int k = 0; k < sources.Count; ++k)
+                    if (MayBeNear(k, vertex) && WithinTube(sources[k], p)) ids.Add(k);
+                var hull = HullSources();
+                // (a box filter in doubles first: a large hull is scanned per vertex; the exact test decides)
+                for (int k = 0; k < hull.Count; ++k)
+                    if (NearHull(k, vertex) && WithinTube(hull[k], p)) ids.Add(sources.Count + k);
+                nearSourcesCache.Add(vertex, ids);
+                return ids;
+            }
+
+            sealed class SourcePairInfo { public bool Skip, OnBoth, HasApex; public Q Sin2; public Pt Apex; }
+            Dictionary<long, SourcePairInfo> sourcePairCache;
+
+            /// <summary> what a triangle's test of two sources has in common for all triangles: the sine squared of their angle, whether
+            /// their segments meet, and the apex (the meeting point, or the end of one inside the tube of the other) </summary>
+            SourcePairInfo SourcePair(int ai, int ci)
+            {
+                if (sourcePairCache == null) sourcePairCache = new Dictionary<long, SourcePairInfo>();
+                long key = ((long)ai << 32) | (uint)ci;
+                if (sourcePairCache.TryGetValue(key, out var info)) return info;
+                var hull = HullSources();
+                var a = ai < sources.Count ? sources[ai] : hull[ai - sources.Count];
+                var c = ci < sources.Count ? sources[ci] : hull[ci - sources.Count];
+                info = new SourcePairInfo();
+                sourcePairCache.Add(key, info);
+                Q d1x = a.b.Qx - a.a.Qx, d1y = a.b.Qy - a.a.Qy, d2x = c.b.Qx - c.a.Qx, d2y = c.b.Qy - c.a.Qy;
+                Q cross = d1x * d2y - d1y * d2x;
+                if (a.sourceId == c.sourceId || cross.Sign == 0) { info.Skip = true; return info; }
+                info.Sin2 = cross * cross / ((d1x * d1x + d1y * d1y) * (d2x * d2x + d2y * d2y));
+                Q t1 = ((c.a.Qx - a.a.Qx) * d2y - (c.a.Qy - a.a.Qy) * d2x) / cross, t2 = ((c.a.Qx - a.a.Qx) * d1y - (c.a.Qy - a.a.Qy) * d1x) / cross;
+                info.OnBoth = !(t1.Sign < 0 || t1 > Q.One || t2.Sign < 0 || t2 > Q.One);
+                info.HasApex = true;
+                if (info.OnBoth) info.Apex = new Pt(a.a.Qx + t1 * d1x, a.a.Qy + t1 * d1y);
+                else if (WithinTube(a, c.a)) info.Apex = c.a;
+                else if (WithinTube(a, c.b)) info.Apex = c.b;
+                else if (WithinTube(c, a.a)) info.Apex = a.a;
+                else if (WithinTube(c, a.b)) info.Apex = a.b;
+                else info.HasApex = false;
+                return info;
             }
 
             static Q Dot(Pt p, Pt a, Pt b) => (a.Qx - p.Qx) * (b.Qx - p.Qx) + (a.Qy - p.Qy) * (b.Qy - p.Qy);

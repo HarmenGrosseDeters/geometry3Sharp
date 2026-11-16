@@ -14,6 +14,8 @@
 //     --safe-rounding                        SafeRounding = true (reports rounding_clean and rounding_limit, ie
 //                                            Rounding.EvaluationLimitReached)
 //     --rounding-max-pair-tests <n>          RoundingMaxPairTests (the rounding's pair-test budget; default 5M)
+//     --tree-parallel-from <n>               TriangleBoxTree.ParallelBuildFrom = n (default 8192: trees of fewer boxes are built
+//                                            serially; the tree, and so every result, is the same, see docs/perf/BOOLEAN_THREAD_SCALING.md)
 //     --antipodal-unlimited                  AntipodalMaxBoundarySegments and AntipodalMaxTriangles unlimited (the
 //                                            open-operand classification on the Antipodal path everywhere; T5 option A)
 // Filter failures are counted only by a library built with -p:G3PredicateStats=true (PredicateStats); in a normal
@@ -37,6 +39,7 @@ static class Profile
         int repeat = 3;
         bool exact = false, safe = false, antipodalUnlimited = false, median = false;
         long maxPairTests = -1;
+        int treeParallelFrom = -1;
         var cases = new List<string>();
         for (int i = 0; i < args.Length; ++i) {
             if (args[i] == "--ops") ops = args[++i].Split(',').ToList();
@@ -46,6 +49,7 @@ static class Profile
             else if (args[i] == "--antipodal-unlimited") antipodalUnlimited = true;
             else if (args[i] == "--median") median = true;
             else if (args[i] == "--rounding-max-pair-tests") maxPairTests = long.Parse(args[++i]);
+            else if (args[i] == "--tree-parallel-from") treeParallelFrom = int.Parse(args[++i]);
             else if (File.Exists(args[i]) && Directory.Exists(args[i]) == false)
                 cases.AddRange(File.ReadAllLines(args[i]).Select(l => l.Trim()).Where(l => l.Length > 0 && l.StartsWith("#") == false));
             else cases.Add(args[i]);
@@ -54,6 +58,8 @@ static class Profile
             ["union"] = ExactMeshBoolean.Operations.Union, ["intersection"] = ExactMeshBoolean.Operations.Intersection,
             ["difference"] = ExactMeshBoolean.Operations.Difference };
 
+        if (treeParallelFrom >= 0)
+            TriangleBoxTree.ParallelBuildFrom = treeParallelFrom;
         // warm-up (JIT), as in `run`
         DMesh3 w1 = new Sphere3Generator_NormalizedCube() { EdgeVertices = 6 }.Generate().MakeDMesh();
         DMesh3 w2 = new DMesh3(w1);
@@ -107,8 +113,8 @@ static class Profile
                     GC.Collect();
                     PredicateStats.Reset();
                     int gc0 = GC.CollectionCount(0), gc1 = GC.CollectionCount(1), gc2 = GC.CollectionCount(2);
-                    TimeSpan pause0 = GC.GetTotalPauseDuration();
-                    long alloc0 = GC.GetTotalAllocatedBytes(true);
+                    TimeSpan pause0 = NetCompat.GcPause();
+                    long alloc0 = NetCompat.AllocatedBytes();
                     var boolean = run.Value();
                     boolean.ComputeExactVertices = exact;
                     boolean.SafeRounding = safe;
@@ -147,9 +153,9 @@ static class Profile
                         ["cores"] = Environment.ProcessorCount,
                         ["phases_ms"] = boolean.PhaseMilliseconds,
                         ["phases_alloc_mb"] = boolean.PhaseAllocatedBytes.ToDictionary(kv => kv.Key, kv => Math.Round(kv.Value / 1048576.0, 1)),
-                        ["alloc_mb"] = Math.Round((GC.GetTotalAllocatedBytes(true) - alloc0) / 1048576.0, 1),
+                        ["alloc_mb"] = Math.Round((NetCompat.AllocatedBytes() - alloc0) / 1048576.0, 1),
                         ["gc"] = new Dictionary<string, object> { ["gen0"] = GC.CollectionCount(0) - gc0, ["gen1"] = GC.CollectionCount(1) - gc1,
-                            ["gen2"] = GC.CollectionCount(2) - gc2, ["pause_ms"] = (long)(GC.GetTotalPauseDuration() - pause0).TotalMilliseconds },
+                            ["gen2"] = GC.CollectionCount(2) - gc2, ["pause_ms"] = (long)(NetCompat.GcPause() - pause0).TotalMilliseconds },
                         ["counts"] = boolean.Counts,
                         ["triangles"] = ok ? boolean.Result.TriangleCount : -1,
                     };
@@ -187,7 +193,7 @@ static class Profile
             Index3i t = mesh.GetTriangle(tid);
             sb.Append(tid).Append(':').Append(t.a).Append(',').Append(t.b).Append(',').Append(t.c).Append(';');
         }
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+        return NetCompat.Sha256Hex16(sb.ToString());
     }
 
     static string HashExact(ExactPoint3[] v)
@@ -197,6 +203,6 @@ static class Profile
         var sb = new StringBuilder();
         foreach (ExactPoint3 p in v)
             sb.Append(p.X).Append(',').Append(p.Y).Append(',').Append(p.Z).Append(',').Append(p.W).Append(';');
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString()))).Substring(0, 16);
+        return NetCompat.Sha256Hex16(sb.ToString());
     }
 }

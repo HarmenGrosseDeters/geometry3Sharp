@@ -30,6 +30,76 @@ namespace g3
         public const float Epsilonf = 1.192092896e-07F;
 
 
+        /// <summary>
+        /// Floor a coordinate and convert it consistently on all runtimes. NaN maps to zero;
+        /// values outside the integer range saturate at the nearest endpoint.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static int FloorToIntSaturating(double value)
+        {
+#if NET9_0_OR_GREATER
+            // .NET 9 and later specify saturating unchecked casts, including NaN -> 0.
+            return unchecked((int)Math.Floor(value));
+#else
+            if (double.IsNaN(value)) return 0;
+            if (value >= int.MaxValue) return int.MaxValue;
+            if (value <= int.MinValue) return int.MinValue;
+            return (int)Math.Floor(value);
+#endif
+        }
+
+        /// <summary>
+        /// (int)value, truncating toward zero, the same on every runtime (issue 804): NaN maps to zero, values outside the
+        /// int range saturate at the nearest endpoint, as the .NET 9 cast does (.NET Framework gives int.MinValue). On
+        /// .NET 9 and later it is that cast. Floor / Ceiling first for those roundings.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static int ToIntSaturating(double value)
+        {
+#if NET9_0_OR_GREATER
+            return unchecked((int)value);
+#else
+            if (double.IsNaN(value)) return 0;
+            if (value >= int.MaxValue) return int.MaxValue;
+            if (value <= int.MinValue) return int.MinValue;
+            return (int)value;
+#endif
+        }
+
+        /// <summary> ToIntSaturating for long (issue 804) </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static long ToLongSaturating(double value)
+        {
+#if NET9_0_OR_GREATER
+            return unchecked((long)value);
+#else
+            if (double.IsNaN(value)) return 0;
+            // (2^63 and -2^63 are doubles; long.MaxValue converts to 2^63)
+            if (value >= 9223372036854775807.0) return long.MaxValue;
+            if (value <= -9223372036854775808.0) return long.MinValue;
+            return (long)value;
+#endif
+        }
+
+        /// <summary>
+        /// FloorToIntSaturating for long (issue 804): NaN maps to zero, values outside the long range saturate at the
+        /// nearest endpoint, on every runtime (.NET Framework gives long.MinValue for NaN and for both overflows).
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal static long FloorToLongSaturating(double value)
+        {
+#if NET9_0_OR_GREATER
+            return unchecked((long)Math.Floor(value));
+#else
+            // (the .NET 9 cast saturates in the remaining range too, so this branch is checked by the net48 tests only)
+            if (double.IsNaN(value)) return 0;
+            // (2^63 and -2^63 are doubles; long.MaxValue converts to 2^63)
+            if (value >= 9223372036854775807.0) return long.MaxValue;
+            if (value <= -9223372036854775808.0) return long.MinValue;
+            return (long)Math.Floor(value);
+#endif
+        }
+
         public static bool IsFinite(double d) {
             return double.IsInfinity(d) == false && double.IsNaN(d) == false;
         }
